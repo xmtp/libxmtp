@@ -1,7 +1,9 @@
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tsify::Tsify;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_mls::{
-  common::group_mutable_metadata::MetadataField as XmtpMetadataField,
   groups::{
     PreconfiguredPolicies,
     group_permissions::{
@@ -11,23 +13,23 @@ use xmtp_mls::{
     },
     intents::{PermissionPolicyOption, PermissionUpdateType as XmtpPermissionUpdateType},
   },
+  mls_common::group_mutable_metadata::MetadataField as XmtpMetadataField,
 };
 
-#[wasm_bindgen]
-#[derive(Clone)]
+#[wasm_bindgen_numbered_enum]
 pub enum GroupPermissionsOptions {
-  Default,
-  AdminOnly,
-  CustomPolicy,
+  Default = 0,
+  AdminOnly = 1,
+  CustomPolicy = 2,
 }
 
-#[wasm_bindgen]
+#[wasm_bindgen_numbered_enum]
 pub enum PermissionUpdateType {
-  AddMember,
-  RemoveMember,
-  AddAdmin,
-  RemoveAdmin,
-  UpdateMetadata,
+  AddMember = 0,
+  RemoveMember = 1,
+  AddAdmin = 2,
+  RemoveAdmin = 3,
+  UpdateMetadata = 4,
 }
 
 impl From<&PermissionUpdateType> for XmtpPermissionUpdateType {
@@ -42,15 +44,14 @@ impl From<&PermissionUpdateType> for XmtpPermissionUpdateType {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Clone)]
+#[wasm_bindgen_numbered_enum]
 pub enum PermissionPolicy {
-  Allow,
-  Deny,
-  Admin,
-  SuperAdmin,
-  DoesNotExist,
-  Other,
+  Allow = 0,
+  Deny = 1,
+  Admin = 2,
+  SuperAdmin = 3,
+  DoesNotExist = 4,
+  Other = 5,
 }
 
 impl TryInto<PermissionPolicyOption> for PermissionPolicy {
@@ -153,52 +154,19 @@ impl TryInto<MembershipPolicies> for PermissionPolicy {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct PermissionPolicySet {
-  #[wasm_bindgen(js_name = addMemberPolicy)]
   pub add_member_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = removeMemberPolicy)]
   pub remove_member_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = addAdminPolicy)]
   pub add_admin_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = removeAdminPolicy)]
   pub remove_admin_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = updateGroupNamePolicy)]
   pub update_group_name_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = updateGroupDescriptionPolicy)]
   pub update_group_description_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = updateGroupImageUrlSquarePolicy)]
   pub update_group_image_url_square_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = updateMessageDisappearingPolicy)]
   pub update_message_disappearing_policy: PermissionPolicy,
-}
-
-#[wasm_bindgen]
-impl PermissionPolicySet {
-  #[wasm_bindgen(constructor)]
-  #[allow(clippy::too_many_arguments)]
-  pub fn new(
-    add_member_policy: PermissionPolicy,
-    remove_member_policy: PermissionPolicy,
-    add_admin_policy: PermissionPolicy,
-    remove_admin_policy: PermissionPolicy,
-    update_group_name_policy: PermissionPolicy,
-    update_group_description_policy: PermissionPolicy,
-    update_group_image_url_square_policy: PermissionPolicy,
-    update_message_disappearing_policy: PermissionPolicy,
-  ) -> Self {
-    Self {
-      add_member_policy,
-      remove_member_policy,
-      add_admin_policy,
-      remove_admin_policy,
-      update_group_name_policy,
-      update_group_description_policy,
-      update_group_image_url_square_policy,
-      update_message_disappearing_policy,
-    }
-  }
+  pub update_app_data_policy: PermissionPolicy,
 }
 
 impl From<PreconfiguredPolicies> for GroupPermissionsOptions {
@@ -210,31 +178,23 @@ impl From<PreconfiguredPolicies> for GroupPermissionsOptions {
   }
 }
 
-#[wasm_bindgen]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupPermissions {
-  inner: GroupMutablePermissions,
+  pub policy_type: GroupPermissionsOptions,
+  pub policy_set: PermissionPolicySet,
 }
 
-impl GroupPermissions {
-  pub fn new(permissions: GroupMutablePermissions) -> Self {
-    Self { inner: permissions }
-  }
-}
-
-#[wasm_bindgen]
-impl GroupPermissions {
-  #[wasm_bindgen(js_name = policyType)]
-  pub fn policy_type(&self) -> Result<GroupPermissionsOptions, JsError> {
-    if let Ok(preconfigured_policy) = self.inner.preconfigured_policy() {
-      Ok(preconfigured_policy.into())
+impl From<GroupMutablePermissions> for GroupPermissions {
+  fn from(permissions: GroupMutablePermissions) -> Self {
+    let policy_type = if let Ok(preconfigured_policy) = permissions.preconfigured_policy() {
+      preconfigured_policy.into()
     } else {
-      Ok(GroupPermissionsOptions::CustomPolicy)
-    }
-  }
+      GroupPermissionsOptions::CustomPolicy
+    };
 
-  #[wasm_bindgen(js_name = policySet)]
-  pub fn policy_set(&self) -> Result<PermissionPolicySet, JsError> {
-    let policy_set = &self.inner.policies;
+    let policy_set = &permissions.policies;
     let metadata_policy_map = &policy_set.update_metadata_policy;
     let get_policy = |field: &str| {
       metadata_policy_map
@@ -242,7 +202,8 @@ impl GroupPermissions {
         .map(PermissionPolicy::from)
         .unwrap_or(PermissionPolicy::DoesNotExist)
     };
-    Ok(PermissionPolicySet {
+
+    let policy_set = PermissionPolicySet {
       add_member_policy: PermissionPolicy::from(&policy_set.add_member_policy),
       remove_member_policy: PermissionPolicy::from(&policy_set.remove_member_policy),
       add_admin_policy: PermissionPolicy::from(&policy_set.add_admin_policy),
@@ -255,7 +216,13 @@ impl GroupPermissions {
       update_message_disappearing_policy: get_policy(
         XmtpMetadataField::MessageDisappearInNS.as_str(),
       ),
-    })
+      update_app_data_policy: get_policy(XmtpMetadataField::AppData.as_str()),
+    };
+
+    Self {
+      policy_type,
+      policy_set,
+    }
   }
 }
 
@@ -279,6 +246,10 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
       XmtpMetadataField::MessageDisappearInNS.to_string(),
       policy_set.update_message_disappearing_policy.try_into()?,
     );
+    metadata_permissions_map.insert(
+      XmtpMetadataField::AppData.to_string(),
+      policy_set.update_app_data_policy.try_into()?,
+    );
 
     Ok(PolicySet {
       add_member_policy: policy_set.add_member_policy.try_into()?,
@@ -291,23 +262,30 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
   }
 }
 
-#[wasm_bindgen]
+#[wasm_bindgen_numbered_enum]
 pub enum MetadataField {
-  GroupName,
-  Description,
-  ImageUrlSquare,
-  MessageExpirationFromMS,
-  MessageExpirationMS,
+  AppData = 0,
+  Description = 1,
+  GroupName = 2,
+  GroupImageUrlSquare = 3,
+  MessageExpirationFromNs = 4,
+  MessageExpirationInNs = 5,
 }
 
 impl From<&MetadataField> for XmtpMetadataField {
   fn from(field: &MetadataField) -> Self {
     match field {
-      MetadataField::GroupName => XmtpMetadataField::GroupName,
+      MetadataField::AppData => XmtpMetadataField::AppData,
       MetadataField::Description => XmtpMetadataField::Description,
-      MetadataField::ImageUrlSquare => XmtpMetadataField::GroupImageUrlSquare,
-      MetadataField::MessageExpirationFromMS => XmtpMetadataField::MessageDisappearFromNS,
-      MetadataField::MessageExpirationMS => XmtpMetadataField::MessageDisappearInNS,
+      MetadataField::GroupName => XmtpMetadataField::GroupName,
+      MetadataField::GroupImageUrlSquare => XmtpMetadataField::GroupImageUrlSquare,
+      MetadataField::MessageExpirationFromNs => XmtpMetadataField::MessageDisappearFromNS,
+      MetadataField::MessageExpirationInNs => XmtpMetadataField::MessageDisappearInNS,
     }
   }
+}
+
+#[wasm_bindgen(js_name = metadataFieldName)]
+pub fn metadata_field_name(field: MetadataField) -> String {
+  XmtpMetadataField::from(&field).as_str().to_string()
 }

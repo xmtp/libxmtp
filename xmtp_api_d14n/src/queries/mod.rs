@@ -1,14 +1,25 @@
+mod api_stats;
+mod boxed_streams;
+mod builder;
+mod client_bundle;
+mod combinators;
 mod combined;
-pub use combined::*;
-
 mod d14n;
-pub use d14n::*;
-
+pub mod stream;
 mod v3;
+
+pub use api_stats::*;
+pub use boxed_streams::*;
+pub use builder::*;
+pub use client_bundle::*;
+pub use combinators::*;
+pub use combined::*;
+pub use d14n::*;
+pub use stream::*;
 pub use v3::*;
 
 use std::error::Error as StdError;
-use xmtp_common::{RetryableError, retryable};
+use xmtp_common::{MaybeSend, MaybeSync, RetryableError, retryable};
 use xmtp_proto::{
     ConversionError,
     api::{ApiClientError, BodyError},
@@ -28,7 +39,7 @@ pub enum QueryError<E: StdError> {
 
 impl<E> From<crate::protocol::EnvelopeError> for ApiClientError<E>
 where
-    E: StdError + Send + Sync,
+    E: StdError + MaybeSend + MaybeSync,
 {
     fn from(e: crate::protocol::EnvelopeError) -> ApiClientError<E> {
         ApiClientError::Other(Box::new(e))

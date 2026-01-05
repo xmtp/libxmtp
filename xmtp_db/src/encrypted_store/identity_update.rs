@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::StorageError;
 use crate::impl_store;
 
 use super::{
@@ -7,31 +8,40 @@ use super::{
     db_connection::DbConnection,
     schema::identity_updates::{self, dsl},
 };
+use derive_builder::Builder;
 use diesel::{dsl::max, prelude::*};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
-#[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
+#[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq, Builder)]
 #[diesel(table_name = identity_updates)]
 #[diesel(primary_key(inbox_id, sequence_id))]
+#[builder(setter(into), build_fn(error = "StorageError"))]
 pub struct StoredIdentityUpdate {
     pub inbox_id: String,
     pub sequence_id: i64,
     pub server_timestamp_ns: i64,
     pub payload: Vec<u8>,
+    pub originator_id: i32,
 }
 
 impl StoredIdentityUpdate {
+    pub fn build() -> StoredIdentityUpdateBuilder {
+        StoredIdentityUpdateBuilder::default()
+    }
+
     pub fn new(
         inbox_id: String,
         sequence_id: i64,
         server_timestamp_ns: i64,
         payload: Vec<u8>,
+        originator_id: i32,
     ) -> Self {
         Self {
             inbox_id,
             sequence_id,
             server_timestamp_ns,
             payload,
+            originator_id,
         }
     }
 }
@@ -198,11 +208,12 @@ pub(crate) mod tests {
             sequence_id,
             rand_time(),
             rand_vec::<24>(),
+            1,
         )
     }
 
     #[xmtp_common::test]
-    async fn insert_and_read() {
+    fn insert_and_read() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
             let update_1 = build_update(inbox_id, 1);
@@ -223,11 +234,10 @@ pub(crate) mod tests {
             let second_update = all_updates.last().unwrap();
             assert_eq!(second_update.payload, update_2_payload);
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_filter() {
+    fn test_filter() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
             let update_1 = build_update(inbox_id, 1);
@@ -256,11 +266,10 @@ pub(crate) mod tests {
             assert_eq!(only_update_2.len(), 1);
             assert_eq!(only_update_2[0].sequence_id, 2);
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_get_latest_sequence_id() {
+    fn test_get_latest_sequence_id() {
         with_connection(|conn| {
             let inbox_1 = "inbox_1";
             let inbox_2 = "inbox_2";
@@ -292,11 +301,10 @@ pub(crate) mod tests {
                 None
             );
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn get_single_sequence_id() {
+    fn get_single_sequence_id() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
             let update = build_update(inbox_id, 1);
@@ -309,6 +317,5 @@ pub(crate) mod tests {
                 .expect("query should work");
             assert_eq!(sequence_id, 2);
         })
-        .await
     }
 }

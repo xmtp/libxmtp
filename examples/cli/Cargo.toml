@@ -15,7 +15,7 @@ path = "cli-client.rs"
 [dependencies]
 alloy = { workspace = true, features = ["signer-mnemonic"] }
 chrono.workspace = true
-clap = { version = "4.4.6", features = ["derive"] }
+clap.workspace = true
 color-eyre = "0.6"
 futures.workspace = true
 hex.workspace = true
@@ -38,7 +38,6 @@ tracing-subscriber = { workspace = true, features = [
 valuable = { version = "0.1", features = ["derive"] }
 xmtp_api = { workspace = true }
 xmtp_api_d14n.workspace = true
-xmtp_api_grpc = { workspace = true }
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_content_types = { workspace = true }

@@ -10,7 +10,7 @@ use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_request::Request;
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct GetIdentityUpdatesV2 {
-    #[builder(setter(into))]
+    #[builder(setter(into, each = "request"))]
     pub requests: Vec<Request>,
 }
 
@@ -38,6 +38,7 @@ impl Endpoint for GetIdentityUpdatesV2 {
 #[cfg(test)]
 mod test {
     use super::*;
+    use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::{identity_v1::GetIdentityUpdatesResponse, prelude::*};
 
     #[xmtp_common::test]
@@ -57,7 +58,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_get_identity_updates_v2() {
-        let client = crate::TestClient::create_local();
+        let client = NodeGoClient::create();
         let client = client.build().unwrap();
         let mut endpoint = GetIdentityUpdatesV2::builder()
             .requests(vec![Request {

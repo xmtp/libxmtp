@@ -7,7 +7,7 @@ WORKSPACE_MANIFEST="$(cargo locate-project --workspace --message-format=plain)"
 WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
 BINDINGS_MANIFEST="$WORKSPACE_PATH/bindings_ffi/Cargo.toml"
 BINDINGS_PATH="$(dirname $BINDINGS_MANIFEST)"
-TARGET_DIR="$WORKSPACE_PATH/target"
+TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | jq -r '.target_directory')"
 XMTP_ANDROID="${1:-$(realpath ../../xmtp-android)}"
 
 if [ ! -d $XMTP_ANDROID ]; then
@@ -17,14 +17,17 @@ if [ ! -d $XMTP_ANDROID ]; then
 fi
 echo "Android Directory: $XMTP_ANDROID"
 
+LIBFILE=$([ "$(uname)" == "Darwin" ] && echo "lib${PROJECT_NAME}.dylib" || echo "lib${PROJECT_NAME}.so")
 cd $WORKSPACE_PATH
 cargo build --release -p xmtpv3
-rm -f $BINDINGS_PATH/src/uniffi/$PROJECT_NAME/$PROJECT_NAME.kt
+rm -rf $BINDINGS_PATH/src/uniffi
+mkdir -p $BINDINGS_PATH/src/uniffi/$PROJECT_NAME
 cargo run --bin ffi-uniffi-bindgen \
   --manifest-path $BINDINGS_MANIFEST \
   --features uniffi/cli --release -- \
   generate \
-  --lib-file $TARGET_DIR/release/lib$PROJECT_NAME.dylib $BINDINGS_PATH/src/$PROJECT_NAME.udl \
+  --library $TARGET_DIR/release/lib$PROJECT_NAME.dylib \
+  --out-dir $BINDINGS_PATH/src \
   --language kotlin
 
 cd $BINDINGS_PATH

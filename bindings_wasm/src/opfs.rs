@@ -1,106 +1,123 @@
-use futures::FutureExt;
-use std::future::Future;
+use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
-use xmtp_db::{OpfsSAHError, OpfsSAHPoolUtil, init_sqlite};
+use xmtp_db::database::{SQLITE, init_sqlite};
 
-#[wasm_bindgen]
-pub struct Opfs;
-
-#[wasm_bindgen]
-impl Opfs {
-  pub async fn init_sqlite_opfs() {
-    init_sqlite().await
+/// Initialize the OPFS SQLite VFS if not already initialized.
+/// This must be called before using other OPFS functions.
+#[wasm_bindgen(js_name = opfsInit)]
+pub async fn init_opfs() -> Result<(), JsError> {
+  init_sqlite().await;
+  if let Some(Err(e)) = SQLITE.get() {
+    return Err(JsError::new(&format!("Failed to initialize OPFS: {e}")));
   }
+  Ok(())
+}
 
-  /// Check if the global OPFS object has been initialized
-  #[wasm_bindgen]
-  pub fn exists() -> bool {
-    xmtp_db::SQLITE.get().is_some()
-  }
-
-  /// gets the error from Opfs, if any.
-  #[wasm_bindgen]
-  pub fn error() -> Option<String> {
-    if let Some(Err(e)) = xmtp_db::SQLITE.get() {
-      Some(e.to_string())
-    } else {
-      None
-    }
-  }
-
-  #[wasm_bindgen(js_name = "wipeFiles")]
-  pub async fn wipe_files() -> Result<(), JsError> {
-    opfs_op_async(move |u| async move { u.clear_all().await }).await
-  }
-
-  /// If a virtual file exists with the given name, disassociates it from the pool and returns true, else returns false without side effects.
-  #[wasm_bindgen]
-  pub fn rm(name: &str) -> Result<bool, JsError> {
-    opfs_op(|u| u.delete_db(name))
-  }
-
-  /// list files in current pool
-  #[wasm_bindgen(js_name = "getFileNames")]
-  pub fn ls() -> Vec<String> {
-    opfs_op(|u| Ok(u.list())).expect("get_file_names is infallible")
-  }
-
-  /// import a db file at 'path'
-  #[wasm_bindgen(js_name = "importDb")]
-  pub fn import_db(path: &str, bytes: &[u8]) -> Result<(), JsError> {
-    opfs_op(|u| u.import_db(path, bytes))
-  }
-
-  /// export db file with 'name'
-  #[wasm_bindgen(js_name = "exportFile")]
-  pub fn export_file(name: &str) -> Result<Vec<u8>, JsError> {
-    opfs_op(|u| u.export_db(name))
-  }
-
-  /// get number of files in pool
-  #[wasm_bindgen(js_name = "getFileCount")]
-  pub fn get_file_count() -> u32 {
-    opfs_op(|u| Ok(u.count())).expect("get_file_count is infallible")
-  }
-
-  #[wasm_bindgen(js_name = "getCapacity")]
-  pub fn get_capacity() -> u32 {
-    opfs_op(|u| Ok(u.get_capacity())).expect("get_capacity is infallible")
-  }
-
-  /// Adds n entries to the current pool.
-  #[wasm_bindgen(js_name = "addCapacity")]
-  pub async fn add_capacity(n: u32) -> Result<u32, JsError> {
-    opfs_op_async(|u| u.add_capacity(n)).await
-  }
-
-  /// Removes up to n entries from the pool, with the caveat that it can only remove currently-unused entries.
-  #[wasm_bindgen(js_name = "reduceCapacity")]
-  pub async fn reduce_capacity(n: u32) -> Result<u32, JsError> {
-    opfs_op_async(|u| u.reduce_capacity(n)).await
+/// List all database files stored in OPFS.
+/// Returns an array of file names.
+#[wasm_bindgen(js_name = opfsListFiles)]
+pub async fn list_files() -> Result<Vec<String>, JsError> {
+  init_sqlite().await;
+  match SQLITE.get() {
+    Some(Ok(util)) => Ok(util.list()),
+    Some(Err(e)) => Err(JsError::new(&format!("OPFS not initialized: {e}"))),
+    None => Err(JsError::new("OPFS not initialized")),
   }
 }
 
-fn opfs_op<F, T>(f: F) -> Result<T, JsError>
-where
-  F: Fn(&OpfsSAHPoolUtil) -> Result<T, OpfsSAHError>,
-{
-  opfs_op_async(|opfs| async { f(opfs) })
-    .now_or_never()
-    .expect("sync op must resolve immediately")
+/// Check if a database file exists in OPFS.
+#[wasm_bindgen(js_name = opfsFileExists)]
+pub async fn file_exists(filename: String) -> Result<bool, JsError> {
+  init_sqlite().await;
+  match SQLITE.get() {
+    Some(Ok(util)) => util
+      .exists(&filename)
+      .map_err(|e| JsError::new(&format!("Failed to check file existence: {e}"))),
+    Some(Err(e)) => Err(JsError::new(&format!("OPFS not initialized: {e}"))),
+    None => Err(JsError::new("OPFS not initialized")),
+  }
 }
 
-async fn opfs_op_async<'a, F, Fut, T>(f: F) -> Result<T, JsError>
-where
-  F: Fn(&'a OpfsSAHPoolUtil) -> Fut,
-  Fut: Future<Output = Result<T, OpfsSAHError>> + 'a,
-{
-  if let Some(pool) = xmtp_db::SQLITE.get() {
-    match pool {
-      Ok(p) => Ok(f(p).await?),
-      Err(e) => Err(JsError::new(&e.to_string())),
-    }
-  } else {
-    Err(JsError::new("no pool initialized"))
+/// Delete a specific database file from OPFS.
+/// Returns true if the file was deleted, false if it didn't exist.
+/// Note: The database must be closed before calling this function.
+#[wasm_bindgen(js_name = opfsDeleteFile)]
+pub async fn delete_file(filename: String) -> Result<bool, JsError> {
+  init_sqlite().await;
+  match SQLITE.get() {
+    Some(Ok(util)) => util
+      .delete_db(&filename)
+      .map_err(|e| JsError::new(&format!("Failed to delete file: {e}"))),
+    Some(Err(e)) => Err(JsError::new(&format!("OPFS not initialized: {e}"))),
+    None => Err(JsError::new("OPFS not initialized")),
+  }
+}
+
+/// Delete all database files from OPFS.
+/// Note: All databases must be closed before calling this function.
+#[wasm_bindgen(js_name = opfsClearAll)]
+pub async fn clear_all() -> Result<(), JsError> {
+  init_sqlite().await;
+  match SQLITE.get() {
+    Some(Ok(util)) => util
+      .clear_all()
+      .await
+      .map_err(|e| JsError::new(&format!("Failed to clear all files: {e}"))),
+    Some(Err(e)) => Err(JsError::new(&format!("OPFS not initialized: {e}"))),
+    None => Err(JsError::new("OPFS not initialized")),
+  }
+}
+
+/// Get the number of database files stored in OPFS.
+#[wasm_bindgen(js_name = opfsFileCount)]
+pub async fn file_count() -> Result<u32, JsError> {
+  init_sqlite().await;
+  match SQLITE.get() {
+    Some(Ok(util)) => Ok(util.count()),
+    Some(Err(e)) => Err(JsError::new(&format!("OPFS not initialized: {e}"))),
+    None => Err(JsError::new("OPFS not initialized")),
+  }
+}
+
+/// Get the current capacity of the OPFS file pool.
+#[wasm_bindgen(js_name = opfsPoolCapacity)]
+pub async fn pool_capacity() -> Result<u32, JsError> {
+  init_sqlite().await;
+  match SQLITE.get() {
+    Some(Ok(util)) => Ok(util.get_capacity()),
+    Some(Err(e)) => Err(JsError::new(&format!("OPFS not initialized: {e}"))),
+    None => Err(JsError::new("OPFS not initialized")),
+  }
+}
+
+/// Export a database file from OPFS as a byte array.
+/// This can be used to backup or transfer a database.
+/// Note: The database should be closed before exporting for consistency.
+#[wasm_bindgen(js_name = opfsExportDb)]
+pub async fn export_db(filename: String) -> Result<Uint8Array, JsError> {
+  init_sqlite().await;
+  match SQLITE.get() {
+    Some(Ok(util)) => util
+      .export_db(&filename)
+      .map(|data: Vec<u8>| Uint8Array::from(data.as_slice()))
+      .map_err(|e| JsError::new(&format!("Failed to export database: {e}"))),
+    Some(Err(e)) => Err(JsError::new(&format!("OPFS not initialized: {e}"))),
+    None => Err(JsError::new("OPFS not initialized")),
+  }
+}
+
+/// Import a database from a byte array into OPFS.
+/// This will overwrite any existing database with the same name.
+/// The byte array must contain a valid SQLite database.
+/// Note: Any existing database with the same name must be closed before importing.
+#[wasm_bindgen(js_name = opfsImportDb)]
+pub async fn import_db(filename: String, data: Uint8Array) -> Result<(), JsError> {
+  init_sqlite().await;
+  match SQLITE.get() {
+    Some(Ok(util)) => util
+      .import_db(&filename, data.to_vec().as_slice())
+      .map_err(|e| JsError::new(&format!("Failed to import database: {e}"))),
+    Some(Err(e)) => Err(JsError::new(&format!("OPFS not initialized: {e}"))),
+    None => Err(JsError::new("OPFS not initialized")),
   }
 }

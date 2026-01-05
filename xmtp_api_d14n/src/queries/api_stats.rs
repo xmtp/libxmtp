@@ -1,0 +1,306 @@
+use xmtp_proto::api::HasStats;
+use xmtp_proto::api_client::AggregateStats;
+use xmtp_proto::api_client::ApiStats;
+use xmtp_proto::api_client::IdentityStats;
+use xmtp_proto::api_client::XmtpMlsClient;
+use xmtp_proto::identity_v1;
+use xmtp_proto::mls_v1;
+use xmtp_proto::prelude::ApiBuilder;
+use xmtp_proto::prelude::XmtpIdentityClient;
+use xmtp_proto::prelude::XmtpMlsStreams;
+use xmtp_proto::types::InstallationId;
+use xmtp_proto::types::TopicCursor;
+use xmtp_proto::types::WelcomeMessage;
+use xmtp_proto::types::{GroupId, GroupMessage};
+
+use crate::protocol::XmtpQuery;
+
+/// Wraps an ApiClient that tracks stats of each api call
+#[derive(Clone)]
+pub struct TrackedStatsClient<C> {
+    inner: C,
+    stats: ApiStats,
+    identity_stats: IdentityStats,
+}
+
+impl<C> TrackedStatsClient<C> {
+    pub fn new(inner: C) -> Self {
+        Self {
+            inner,
+            stats: Default::default(),
+            identity_stats: Default::default(),
+        }
+    }
+}
+
+#[xmtp_common::async_trait]
+impl<C> XmtpMlsClient for TrackedStatsClient<C>
+where
+    C: XmtpMlsClient,
+{
+    type Error = <C as XmtpMlsClient>::Error;
+
+    async fn upload_key_package(
+        &self,
+        request: mls_v1::UploadKeyPackageRequest,
+    ) -> Result<(), Self::Error> {
+        self.stats.upload_key_package.count_request();
+        self.inner.upload_key_package(request).await
+    }
+
+    async fn fetch_key_packages(
+        &self,
+        request: mls_v1::FetchKeyPackagesRequest,
+    ) -> Result<mls_v1::FetchKeyPackagesResponse, Self::Error> {
+        self.stats.fetch_key_package.count_request();
+        self.inner.fetch_key_packages(request).await
+    }
+
+    async fn send_group_messages(
+        &self,
+        request: mls_v1::SendGroupMessagesRequest,
+    ) -> Result<(), Self::Error> {
+        self.stats.send_group_messages.count_request();
+        self.inner.send_group_messages(request).await
+    }
+
+    async fn send_welcome_messages(
+        &self,
+        request: mls_v1::SendWelcomeMessagesRequest,
+    ) -> Result<(), Self::Error> {
+        self.stats.send_welcome_messages.count_request();
+        self.inner.send_welcome_messages(request).await
+    }
+    async fn query_group_messages(
+        &self,
+        group_id: GroupId,
+    ) -> Result<Vec<GroupMessage>, Self::Error> {
+        self.stats.query_group_messages.count_request();
+        self.inner.query_group_messages(group_id).await
+    }
+
+    async fn query_latest_group_message(
+        &self,
+        group_id: GroupId,
+    ) -> Result<Option<GroupMessage>, Self::Error> {
+        self.stats.query_group_messages.count_request();
+        self.inner.query_latest_group_message(group_id).await
+    }
+
+    async fn query_welcome_messages(
+        &self,
+        installation_key: InstallationId,
+    ) -> Result<Vec<WelcomeMessage>, Self::Error> {
+        self.stats.query_welcome_messages.count_request();
+        self.inner.query_welcome_messages(installation_key).await
+    }
+
+    async fn publish_commit_log(
+        &self,
+        request: mls_v1::BatchPublishCommitLogRequest,
+    ) -> Result<(), Self::Error> {
+        self.stats.publish_commit_log.count_request();
+        self.inner.publish_commit_log(request).await
+    }
+
+    async fn query_commit_log(
+        &self,
+        request: mls_v1::BatchQueryCommitLogRequest,
+    ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
+        self.stats.query_commit_log.count_request();
+        self.inner.query_commit_log(request).await
+    }
+
+    async fn get_newest_group_message(
+        &self,
+        request: mls_v1::GetNewestGroupMessageRequest,
+    ) -> Result<Vec<Option<xmtp_proto::types::GroupMessageMetadata>>, Self::Error> {
+        self.stats.get_newest_group_message.count_request();
+        self.inner.get_newest_group_message(request).await
+    }
+}
+
+#[xmtp_common::async_trait]
+impl<C> XmtpIdentityClient for TrackedStatsClient<C>
+where
+    C: XmtpIdentityClient,
+{
+    type Error = <C as XmtpIdentityClient>::Error;
+
+    async fn publish_identity_update(
+        &self,
+        request: identity_v1::PublishIdentityUpdateRequest,
+    ) -> Result<identity_v1::PublishIdentityUpdateResponse, Self::Error> {
+        self.identity_stats.publish_identity_update.count_request();
+        self.inner.publish_identity_update(request).await
+    }
+
+    async fn get_identity_updates_v2(
+        &self,
+        request: identity_v1::GetIdentityUpdatesRequest,
+    ) -> Result<identity_v1::GetIdentityUpdatesResponse, Self::Error> {
+        self.identity_stats.get_identity_updates_v2.count_request();
+        self.inner.get_identity_updates_v2(request).await
+    }
+
+    async fn get_inbox_ids(
+        &self,
+        request: identity_v1::GetInboxIdsRequest,
+    ) -> Result<identity_v1::GetInboxIdsResponse, Self::Error> {
+        self.identity_stats.get_inbox_ids.count_request();
+        self.inner.get_inbox_ids(request).await
+    }
+
+    async fn verify_smart_contract_wallet_signatures(
+        &self,
+        request: identity_v1::VerifySmartContractWalletSignaturesRequest,
+    ) -> Result<identity_v1::VerifySmartContractWalletSignaturesResponse, Self::Error> {
+        self.identity_stats
+            .verify_smart_contract_wallet_signature
+            .count_request();
+        self.inner
+            .verify_smart_contract_wallet_signatures(request)
+            .await
+    }
+}
+
+#[xmtp_common::async_trait]
+impl<C> XmtpMlsStreams for TrackedStatsClient<C>
+where
+    C: XmtpMlsStreams,
+{
+    type GroupMessageStream = <C as XmtpMlsStreams>::GroupMessageStream;
+    type WelcomeMessageStream = <C as XmtpMlsStreams>::WelcomeMessageStream;
+    type Error = <C as XmtpMlsStreams>::Error;
+
+    async fn subscribe_group_messages(
+        &self,
+        group_ids: &[&GroupId],
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
+        self.stats.subscribe_messages.count_request();
+        self.inner.subscribe_group_messages(group_ids).await
+    }
+
+    async fn subscribe_group_messages_with_cursors(
+        &self,
+        groups_with_cursors: &TopicCursor,
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
+        self.stats.subscribe_messages.count_request();
+        self.inner
+            .subscribe_group_messages_with_cursors(groups_with_cursors)
+            .await
+    }
+
+    async fn subscribe_welcome_messages(
+        &self,
+        installations: &[&InstallationId],
+    ) -> Result<Self::WelcomeMessageStream, Self::Error> {
+        self.stats.subscribe_welcomes.count_request();
+        self.inner.subscribe_welcome_messages(installations).await
+    }
+}
+
+impl<C> HasStats for TrackedStatsClient<C> {
+    fn aggregate_stats(&self) -> AggregateStats {
+        AggregateStats {
+            identity: self.identity_stats.clone(),
+            mls: self.stats.clone(),
+        }
+    }
+
+    fn mls_stats(&self) -> ApiStats {
+        self.stats.clone()
+    }
+
+    fn identity_stats(&self) -> IdentityStats {
+        self.identity_stats.clone()
+    }
+}
+
+#[derive(Clone)]
+pub struct StatsBuilder<Builder> {
+    client: Builder,
+}
+
+impl<Builder> StatsBuilder<Builder> {
+    pub fn new(client: Builder) -> Self {
+        Self { client }
+    }
+}
+
+impl<C> TrackedStatsClient<C> {
+    pub fn builder<T: Default>() -> StatsBuilder<T> {
+        StatsBuilder::new(T::default())
+    }
+}
+
+impl<Builder> ApiBuilder for StatsBuilder<Builder>
+where
+    Builder: ApiBuilder,
+{
+    type Output = TrackedStatsClient<<Builder as ApiBuilder>::Output>;
+
+    type Error = <Builder as ApiBuilder>::Error;
+
+    fn build(self) -> Result<Self::Output, Self::Error> {
+        Ok(TrackedStatsClient::new(<Builder as ApiBuilder>::build(
+            self.client,
+        )?))
+    }
+}
+
+#[xmtp_common::async_trait]
+impl<C: XmtpQuery> XmtpQuery for TrackedStatsClient<C> {
+    type Error = <C as XmtpQuery>::Error;
+
+    async fn query_at(
+        &self,
+        topic: xmtp_proto::types::Topic,
+        at: Option<xmtp_proto::types::GlobalCursor>,
+    ) -> Result<crate::protocol::XmtpEnvelope, Self::Error> {
+        <C as XmtpQuery>::query_at(&self.inner, topic, at).await
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use crate::XmtpTestClientExt;
+
+    use super::*;
+    use xmtp_proto::api_client::ToxicProxies;
+    use xmtp_proto::api_client::ToxicTestClient;
+    use xmtp_proto::prelude::XmtpTestClient;
+
+    impl<C> XmtpTestClientExt for TrackedStatsClient<C>
+    where
+        C: XmtpTestClientExt,
+    {
+        fn with_cursor_store(
+            store: std::sync::Arc<dyn crate::protocol::CursorStore>,
+        ) -> <Self as XmtpTestClient>::Builder {
+            StatsBuilder {
+                client: <C as XmtpTestClientExt>::with_cursor_store(store),
+            }
+        }
+    }
+    impl<C> XmtpTestClient for TrackedStatsClient<C>
+    where
+        C: XmtpTestClient,
+    {
+        type Builder = StatsBuilder<C::Builder>;
+        fn create() -> Self::Builder {
+            StatsBuilder::new(<C as XmtpTestClient>::create())
+        }
+    }
+
+    #[xmtp_common::async_trait]
+    impl<C> ToxicTestClient for TrackedStatsClient<C>
+    where
+        C: ToxicTestClient,
+    {
+        async fn proxies() -> ToxicProxies {
+            <C as ToxicTestClient>::proxies().await
+        }
+    }
+}

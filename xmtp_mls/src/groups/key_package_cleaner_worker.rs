@@ -27,7 +27,7 @@ pub struct Factory<Context> {
 
 impl<Context> WorkerFactory for Factory<Context>
 where
-    Context: XmtpSharedContext + Send + Sync + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::KeyPackageCleaner
@@ -70,8 +70,7 @@ impl NeedsDbReconnect for KeyPackagesCleanerError {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<Context> Worker for KeyPackagesCleanerWorker<Context>
 where
     Context: XmtpSharedContext + 'static,
@@ -87,7 +86,7 @@ where
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
         Self: Sized,
-        C: Send + Sync + XmtpSharedContext + 'static,
+        C: XmtpSharedContext + 'static,
     {
         Factory { context }
     }

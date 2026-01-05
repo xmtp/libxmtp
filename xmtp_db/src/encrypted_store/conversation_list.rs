@@ -26,7 +26,7 @@ pub struct ConversationListItem {
     /// The inbox_id of who added the user to the group
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message
-    pub welcome_id: Option<i64>,
+    pub welcome_sequence_id: Option<i64>,
     /// concatenation of dm participant inbox_ids in alphanumeric order
     pub dm_id: Option<String>,
     /// The last time the leaf node encryption key was rotated
@@ -57,6 +57,10 @@ pub struct ConversationListItem {
     pub version_minor: Option<i32>,
     /// The ID of the authority defining the content type
     pub authority_id: Option<String>,
+    /// sequence id of the message
+    pub sequence_id: Option<i64>,
+    /// originator id of the message null if no messages for a group yet
+    pub originator_id: Option<i64>,
 }
 
 pub trait QueryConversationList {
@@ -250,11 +254,12 @@ pub(crate) mod tests {
     };
     use crate::group::{GroupMembershipState, GroupQueryArgs, GroupQueryOrderBy};
     use crate::group_message::ContentType;
+    use crate::group_message::tests::generate_message;
     use crate::prelude::*;
     use crate::test_utils::with_connection;
 
     #[xmtp_common::test]
-    async fn test_single_group_multiple_messages() {
+    fn test_single_group_multiple_messages() {
         with_connection(|conn| {
             // Create a group
             let group = generate_group(None);
@@ -289,11 +294,10 @@ pub(crate) mod tests {
                 "Last message should be the most recent one"
             );
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_three_groups_specific_ordering() {
+    fn test_three_groups_specific_ordering() {
         with_connection(|conn| {
             // Create three groups
             let group_a = generate_group_with_created_at(None, 5000); // Created after last message
@@ -333,11 +337,10 @@ pub(crate) mod tests {
                 "Group created before the last message with no messages should come last"
             );
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_group_with_newer_message_update() {
+    fn test_group_with_newer_message_update() {
         with_connection(|conn| {
             // Create a group
             let group = generate_group(None);
@@ -386,11 +389,10 @@ pub(crate) mod tests {
                 "Last message should now match the second (newest) message"
             );
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_find_conversations_by_consent_state() {
+    fn test_find_conversations_by_consent_state() {
         with_connection(|conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Allowed));
             test_group_1.store(conn).unwrap();
@@ -479,11 +481,10 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(empty_array_results.len(), 3);
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_find_conversations_default_excludes_denied() {
+    fn test_find_conversations_default_excludes_denied() {
         with_connection(|conn| {
             // Create three groups: one allowed, one denied, one unknown (no consent)
             let allowed_group = generate_group(Some(GroupMembershipState::Allowed));
@@ -522,11 +523,35 @@ pub(crate) mod tests {
             assert!(returned_ids.contains(&&unknown_group.id));
             assert!(!returned_ids.contains(&&denied_group.id));
         })
-        .await
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_unknown_content_type_is_present() {
+        with_connection(|conn| {
+            let dm = generate_dm(None);
+            dm.store(conn)?;
+
+            let m = generate_message(
+                None,
+                Some(&dm.id),
+                Some(5000),
+                Some(ContentType::Unknown),
+                None,
+                None,
+            );
+            m.store(conn)?;
+
+            let conv = conn.fetch_conversation_list(GroupQueryArgs {
+                ..Default::default()
+            })?;
+
+            // Message id should be present
+            assert!(conv[0].message_id.is_some());
+        })
     }
 
     #[xmtp_common::test]
-    async fn test_last_activity_after_ns_filter() {
+    fn test_last_activity_after_ns_filter() {
         with_connection(|conn| {
             // Create groups with specific creation times
             let group1 = generate_group_with_created_at(None, 1000);
@@ -607,11 +632,10 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(results.len(), 3, "Should return all groups");
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_last_activity_before_ns_filter() {
+    fn test_last_activity_before_ns_filter() {
         with_connection(|conn| {
             // Create groups with specific creation times
             let group1 = generate_group_with_created_at(None, 1000);
@@ -692,11 +716,10 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(results.len(), 3, "Should return all groups");
         })
-        .await
     }
 
     #[xmtp_common::test]
-    async fn test_activity_filters_combined_with_limit() {
+    fn test_activity_filters_combined_with_limit() {
         with_connection(|conn| {
             // Create multiple groups with different activity times
             let mut groups = Vec::new();
@@ -741,6 +764,5 @@ pub(crate) mod tests {
                 "Second should be second most recent"
             );
         })
-        .await
     }
 }

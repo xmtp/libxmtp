@@ -1,6 +1,10 @@
-use crate::mls_v1::{
-    BatchPublishCommitLogRequest, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
-    QueryWelcomeMessagesRequest,
+use crate::{
+    mls_v1::QueryGroupMessagesResponse,
+    types::{GroupId, GroupMessageMetadata, TopicCursor, WelcomeMessage},
+    xmtp::xmtpv4::{
+        envelopes::OriginatorEnvelope,
+        message_api::{QueryEnvelopesResponse, SubscribeEnvelopesResponse},
+    },
 };
 
 use super::*;
@@ -24,6 +28,30 @@ impl Paged for QueryWelcomeMessagesResponse {
 
     fn messages(self) -> Vec<Self::Message> {
         self.messages
+    }
+}
+
+impl Paged for QueryEnvelopesResponse {
+    type Message = OriginatorEnvelope;
+
+    fn info(&self) -> &Option<PagingInfo> {
+        &None
+    }
+
+    fn messages(self) -> Vec<Self::Message> {
+        self.envelopes
+    }
+}
+
+impl Paged for SubscribeEnvelopesResponse {
+    type Message = OriginatorEnvelope;
+
+    fn info(&self) -> &Option<PagingInfo> {
+        &None
+    }
+
+    fn messages(self) -> Vec<Self::Message> {
+        self.envelopes
     }
 }
 
@@ -89,11 +117,10 @@ impl std::fmt::Debug for AggregateStats {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> XmtpMlsClient for Box<T>
 where
-    T: XmtpMlsClient + Sync + ?Sized,
+    T: XmtpMlsClient + ?Sized,
 {
     type Error = <T as XmtpMlsClient>::Error;
 
@@ -127,16 +154,23 @@ where
 
     async fn query_group_messages(
         &self,
-        request: QueryGroupMessagesRequest,
-    ) -> Result<QueryGroupMessagesResponse, Self::Error> {
-        (**self).query_group_messages(request).await
+        group_id: crate::types::GroupId,
+    ) -> Result<Vec<GroupMessage>, Self::Error> {
+        (**self).query_group_messages(group_id).await
+    }
+
+    async fn query_latest_group_message(
+        &self,
+        group_id: crate::types::GroupId,
+    ) -> Result<Option<GroupMessage>, Self::Error> {
+        (**self).query_latest_group_message(group_id).await
     }
 
     async fn query_welcome_messages(
         &self,
-        request: QueryWelcomeMessagesRequest,
-    ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
-        (**self).query_welcome_messages(request).await
+        installation_key: InstallationId,
+    ) -> Result<Vec<WelcomeMessage>, Self::Error> {
+        (**self).query_welcome_messages(installation_key).await
     }
 
     async fn publish_commit_log(
@@ -153,16 +187,18 @@ where
         (**self).query_commit_log(request).await
     }
 
-    fn stats(&self) -> ApiStats {
-        (**self).stats()
+    async fn get_newest_group_message(
+        &self,
+        request: GetNewestGroupMessageRequest,
+    ) -> Result<Vec<Option<GroupMessageMetadata>>, Self::Error> {
+        (**self).get_newest_group_message(request).await
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> XmtpMlsClient for Arc<T>
 where
-    T: XmtpMlsClient + Sync + ?Sized + Send,
+    T: XmtpMlsClient + ?Sized,
 {
     type Error = <T as XmtpMlsClient>::Error;
 
@@ -196,16 +232,23 @@ where
 
     async fn query_group_messages(
         &self,
-        request: QueryGroupMessagesRequest,
-    ) -> Result<QueryGroupMessagesResponse, Self::Error> {
-        (**self).query_group_messages(request).await
+        group_id: crate::types::GroupId,
+    ) -> Result<Vec<GroupMessage>, Self::Error> {
+        (**self).query_group_messages(group_id).await
+    }
+
+    async fn query_latest_group_message(
+        &self,
+        group_id: crate::types::GroupId,
+    ) -> Result<Option<GroupMessage>, Self::Error> {
+        (**self).query_latest_group_message(group_id).await
     }
 
     async fn query_welcome_messages(
         &self,
-        request: QueryWelcomeMessagesRequest,
-    ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
-        (**self).query_welcome_messages(request).await
+        installation_key: InstallationId,
+    ) -> Result<Vec<WelcomeMessage>, Self::Error> {
+        (**self).query_welcome_messages(installation_key).await
     }
 
     async fn publish_commit_log(
@@ -222,13 +265,15 @@ where
         (**self).query_commit_log(request).await
     }
 
-    fn stats(&self) -> ApiStats {
-        (**self).stats()
+    async fn get_newest_group_message(
+        &self,
+        request: GetNewestGroupMessageRequest,
+    ) -> Result<Vec<Option<GroupMessageMetadata>>, Self::Error> {
+        (**self).get_newest_group_message(request).await
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> XmtpMlsStreams for Box<T>
 where
     T: XmtpMlsStreams + Sync + ?Sized,
@@ -241,24 +286,32 @@ where
 
     async fn subscribe_group_messages(
         &self,
-        request: SubscribeGroupMessagesRequest,
+        group_ids: &[&GroupId],
     ) -> Result<Self::GroupMessageStream, Self::Error> {
-        (**self).subscribe_group_messages(request).await
+        (**self).subscribe_group_messages(group_ids).await
+    }
+
+    async fn subscribe_group_messages_with_cursors(
+        &self,
+        groups_with_cursors: &TopicCursor,
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
+        (**self)
+            .subscribe_group_messages_with_cursors(groups_with_cursors)
+            .await
     }
 
     async fn subscribe_welcome_messages(
         &self,
-        request: SubscribeWelcomeMessagesRequest,
+        installations: &[&InstallationId],
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
-        (**self).subscribe_welcome_messages(request).await
+        (**self).subscribe_welcome_messages(installations).await
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> XmtpMlsStreams for Arc<T>
 where
-    T: XmtpMlsStreams + Sync + ?Sized + Send,
+    T: XmtpMlsStreams + ?Sized,
 {
     type Error = <T as XmtpMlsStreams>::Error;
 
@@ -268,24 +321,32 @@ where
 
     async fn subscribe_group_messages(
         &self,
-        request: SubscribeGroupMessagesRequest,
+        group_ids: &[&GroupId],
     ) -> Result<Self::GroupMessageStream, Self::Error> {
-        (**self).subscribe_group_messages(request).await
+        (**self).subscribe_group_messages(group_ids).await
+    }
+
+    async fn subscribe_group_messages_with_cursors(
+        &self,
+        groups_with_cursors: &TopicCursor,
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
+        (**self)
+            .subscribe_group_messages_with_cursors(groups_with_cursors)
+            .await
     }
 
     async fn subscribe_welcome_messages(
         &self,
-        request: SubscribeWelcomeMessagesRequest,
+        installations: &[&InstallationId],
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
-        (**self).subscribe_welcome_messages(request).await
+        (**self).subscribe_welcome_messages(installations).await
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> XmtpIdentityClient for Box<T>
 where
-    T: XmtpIdentityClient + Send + Sync + ?Sized,
+    T: XmtpIdentityClient + ?Sized,
 {
     type Error = <T as XmtpIdentityClient>::Error;
 
@@ -317,17 +378,13 @@ where
         (**self)
             .verify_smart_contract_wallet_signatures(request)
             .await
-    }
-    fn identity_stats(&self) -> IdentityStats {
-        (**self).identity_stats()
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> XmtpIdentityClient for Arc<T>
 where
-    T: XmtpIdentityClient + Send + Sync + ?Sized,
+    T: XmtpIdentityClient + ?Sized,
 {
     type Error = <T as XmtpIdentityClient>::Error;
 
@@ -359,9 +416,5 @@ where
         (**self)
             .verify_smart_contract_wallet_signatures(request)
             .await
-    }
-
-    fn identity_stats(&self) -> IdentityStats {
-        (**self).identity_stats()
     }
 }

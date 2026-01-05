@@ -1,13 +1,13 @@
-use napi::bindgen_prelude::{Result, Uint8Array};
+use napi::bindgen_prelude::Result;
 use napi_derive::napi;
-use prost::Message;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
 
 use crate::ErrorWrapper;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
 
+#[derive(Clone)]
 #[napi(object)]
 pub struct Reaction {
   pub reference: String,
@@ -31,54 +31,35 @@ impl From<Reaction> for ReactionV2 {
 
 impl From<ReactionV2> for Reaction {
   fn from(reaction: ReactionV2) -> Self {
+    let action = reaction.action().into();
+    let schema = reaction.schema().into();
     Reaction {
       reference: reaction.reference,
       reference_inbox_id: reaction.reference_inbox_id,
-      action: match reaction.action {
-        1 => ReactionAction::Added,
-        2 => ReactionAction::Removed,
-        _ => ReactionAction::Unknown,
-      },
+      action,
       content: reaction.content,
-      schema: match reaction.schema {
-        1 => ReactionSchema::Unicode,
-        2 => ReactionSchema::Shortcode,
-        3 => ReactionSchema::Custom,
-        _ => ReactionSchema::Unknown,
-      },
+      schema,
     }
   }
 }
 
 #[napi]
-pub fn encode_reaction(reaction: Reaction) -> Result<Uint8Array> {
-  // Convert Reaction to Reaction
-  let reaction: ReactionV2 = reaction.into();
-
-  // Use ReactionCodec to encode the reaction
-  let encoded = ReactionCodec::encode(reaction).map_err(ErrorWrapper::from)?;
-
-  // Encode the EncodedContent to bytes
-  let mut buf = Vec::new();
-  encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
-
-  Ok(Uint8Array::from(buf.as_slice()))
+pub fn content_type_reaction() -> ContentTypeId {
+  ReactionCodec::content_type().into()
 }
 
 #[napi]
-pub fn decode_reaction(bytes: Uint8Array) -> Result<Reaction> {
-  // Decode bytes into EncodedContent
-  let encoded_content =
-    EncodedContent::decode(bytes.to_vec().as_slice()).map_err(ErrorWrapper::from)?;
-
-  // Use ReactionCodec to decode into Reaction and convert to Reaction
-  ReactionCodec::decode(encoded_content)
-    .map(Into::into)
-    .map_err(|e| napi::Error::from_reason(e.to_string()))
+pub fn encode_reaction(reaction: Reaction) -> Result<EncodedContent> {
+  let reaction_v2: ReactionV2 = reaction.into();
+  Ok(
+    ReactionCodec::encode(reaction_v2)
+      .map_err(ErrorWrapper::from)?
+      .into(),
+  )
 }
 
 #[napi]
-#[derive(Default, PartialEq, Debug)]
+#[derive(Clone, Default, PartialEq, Debug)]
 pub enum ReactionAction {
   Unknown,
   #[default]
@@ -97,7 +78,7 @@ impl From<ReactionAction> for i32 {
 }
 
 #[napi]
-#[derive(Default, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub enum ReactionSchema {
   Unknown,
   #[default]
@@ -113,6 +94,41 @@ impl From<ReactionSchema> for i32 {
       ReactionSchema::Unicode => 1,
       ReactionSchema::Shortcode => 2,
       ReactionSchema::Custom => 3,
+    }
+  }
+}
+
+impl From<xmtp_proto::xmtp::mls::message_contents::content_types::ReactionAction>
+  for ReactionAction
+{
+  fn from(action: xmtp_proto::xmtp::mls::message_contents::content_types::ReactionAction) -> Self {
+    match action {
+      xmtp_proto::xmtp::mls::message_contents::content_types::ReactionAction::Added => {
+        ReactionAction::Added
+      }
+      xmtp_proto::xmtp::mls::message_contents::content_types::ReactionAction::Removed => {
+        ReactionAction::Removed
+      }
+      _ => ReactionAction::Unknown,
+    }
+  }
+}
+
+impl From<xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema>
+  for ReactionSchema
+{
+  fn from(schema: xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema) -> Self {
+    match schema {
+      xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema::Unicode => {
+        ReactionSchema::Unicode
+      }
+      xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema::Shortcode => {
+        ReactionSchema::Shortcode
+      }
+      xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema::Custom => {
+        ReactionSchema::Custom
+      }
+      _ => ReactionSchema::Unknown,
     }
   }
 }

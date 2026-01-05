@@ -16,6 +16,8 @@ pub struct StoredUserPreferences {
     /// HMAC key root
     pub hmac_key: Option<Vec<u8>>,
     pub hmac_key_cycled_at_ns: Option<i64>,
+    /// Whether DM group updates have been migrated.
+    pub dm_group_updates_migrated: bool,
 }
 
 impl<C> Store<C> for StoredUserPreferences
@@ -99,7 +101,7 @@ mod tests {
     use super::*;
 
     #[xmtp_common::test]
-    async fn test_insert_and_update_preferences() {
+    fn test_insert_and_update_preferences() {
         crate::test_utils::with_connection(|conn| {
             let pref = StoredUserPreferences::load(conn).unwrap();
             // by default, there is no key
@@ -124,6 +126,5 @@ mod tests {
                 .unwrap();
             assert_eq!(result.len(), 1);
         })
-        .await;
     }
 }

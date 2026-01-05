@@ -36,6 +36,7 @@ impl Endpoint for SendGroupMessages {
 #[cfg(test)]
 mod test {
     use crate::v3::SendGroupMessages;
+    use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::xmtp::mls::api::v1::*;
     use xmtp_proto::{api, prelude::*};
 
@@ -56,7 +57,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_send_group_messages() {
-        let client = crate::TestClient::create_local();
+        let client = NodeGoClient::create();
         let client = client.build().unwrap();
         let endpoint = SendGroupMessages::builder()
             .messages(vec![GroupMessageInput::default()])

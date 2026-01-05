@@ -431,6 +431,10 @@ pub mod post_commit_action {
             tag = "3"
         )]
         pub welcome_wrapper_algorithm: i32,
+        #[prost(message, optional, tag = "4")]
+        pub welcome_pointee_encryption_aead_types: ::core::option::Option<
+            super::super::message_contents::WelcomePointeeEncryptionAeadTypesExtension,
+        >,
     }
     impl ::prost::Name for Installation {
         const NAME: &'static str = "Installation";
@@ -585,5 +589,28 @@ impl PermissionPolicyOption {
             "PERMISSION_POLICY_OPTION_SUPER_ADMIN_ONLY" => Some(Self::SuperAdminOnly),
             _ => None,
         }
+    }
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Task {
+    #[prost(oneof = "task::Task", tags = "1")]
+    pub task: ::core::option::Option<task::Task>,
+}
+/// Nested message and enum types in `Task`.
+pub mod task {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Task {
+        #[prost(message, tag = "1")]
+        ProcessWelcomePointer(super::super::message_contents::WelcomePointer),
+    }
+}
+impl ::prost::Name for Task {
+    const NAME: &'static str = "Task";
+    const PACKAGE: &'static str = "xmtp.mls.database";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.database.Task".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.database.Task".into()
     }
 }

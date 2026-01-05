@@ -30,17 +30,17 @@ use tracing_subscriber::{
     Registry,
 };
 use valuable::Valuable;
-use xmtp_api::ApiIdentifier;
-use xmtp_api_d14n::queries::D14nClient;
-use xmtp_api_grpc::GrpcClient;
-use xmtp_api_grpc::{error::GrpcError, v3::Client as ClientV3};
+use xmtp_api_d14n::protocol::XmtpQuery;
+use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_common::time::now_ns;
-use xmtp_configuration::DeviceSyncUrls;
+use xmtp_configuration::{
+    DeviceSyncUrls, GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsProduction, GrpcUrlsStaging,
+};
 use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::signature::SignatureError;
 use xmtp_db::group::GroupQueryArgs;
-use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
+use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_db::NativeDb;
 use xmtp_db::{
     group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
@@ -50,13 +50,13 @@ use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, AssociationState, Identifier, MemberKind};
 use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_mls::context::XmtpSharedContext;
-use xmtp_mls::groups::device_sync_legacy::DeviceSyncContent;
+use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
 use xmtp_mls::groups::GroupError;
 use xmtp_mls::XmtpApi;
+use xmtp_mls::XmtpApiClient;
 use xmtp_mls::{builder::ClientBuilderError, client::ClientError};
 use xmtp_mls::{identity::IdentityStrategy, InboxOwner};
-use xmtp_proto::api::ApiClientError;
-use xmtp_proto::api_client::{ApiBuilder, BoxableXmtpApi};
+use xmtp_proto::types::ApiIdentifier;
 
 #[macro_use]
 extern crate tracing;
@@ -64,7 +64,6 @@ extern crate tracing;
 pub type MlsContext =
     Arc<XmtpMlsLocalContext<XmtpApiClient, xmtp_db::DefaultStore, xmtp_db::DefaultMlsStore>>;
 type Client = xmtp_mls::client::Client<MlsContext>;
-type XmtpApiClient = std::sync::Arc<dyn BoxableXmtpApi<ApiClientError<GrpcError>>>;
 type RustMlsGroup = xmtp_mls::groups::MlsGroup<MlsContext>;
 
 #[derive(clap::ValueEnum, Clone, Default, Debug, serde::Serialize, PartialEq)]
@@ -141,7 +140,6 @@ enum Commands {
         #[clap(short, long, value_parser, num_args = 1.., value_delimiter = ' ')]
         account_addresses: Vec<String>,
     },
-    ListHistorySyncMessages {},
     /// Information about the account that owns the DB
     Info {},
     Clear {},
@@ -237,70 +235,38 @@ async fn main() -> color_eyre::eyre::Result<()> {
     info!("Starting CLI Client....");
 
     let grpc: XmtpApiClient = match (cli.testnet, &cli.env) {
-        (true, Env::Local) => {
-            let mut message = GrpcClient::builder();
-            message.set_host("http://localhost:5050".into());
-            message.set_tls(false);
-            let message = message.build()?;
-            let mut gateway = GrpcClient::builder();
-            gateway.set_host("http://localhost:5052".into());
-            gateway.set_tls(false);
-            let gateway = gateway.build()?;
-            Arc::new(D14nClient::new(message, gateway))
-        }
-        (true, Env::Production) => {
-            let mut message = GrpcClient::builder();
-            message.set_host("https://grpc.testnet.xmtp.network:443".into());
-            message.set_tls(false);
-            let message = message.build()?;
-            let mut gateway = GrpcClient::builder();
-            gateway.set_host("https://payer.testnet.xmtp.network:443".into());
-            gateway.set_tls(true);
-            let gateway = gateway.build()?;
-            Arc::new(D14nClient::new(message, gateway))
-        }
-        (true, Env::Staging) => {
-            let mut message = GrpcClient::builder();
-            message.set_host("https://grpc.testnet-staging.xmtp.network:443".into());
-            message.set_tls(false);
-            let message = message.build()?;
-            let mut gateway = GrpcClient::builder();
-            gateway.set_host("https://payer.testnet-staging.xmtp.network:443".into());
-            gateway.set_tls(true);
-            let gateway = gateway.build()?;
-            Arc::new(D14nClient::new(message, gateway))
-        }
-        (true, Env::Dev) => {
-            let mut message = GrpcClient::builder();
-            message.set_host("https://grpc.testnet-dev.xmtp.network:443".into());
-            message.set_tls(false);
-            let message = message.build()?;
-            let mut gateway = GrpcClient::builder();
-            gateway.set_host("https://payer.testnet-dev.xmtp.network:443".into());
-            gateway.set_tls(true);
-            let gateway = gateway.build()?;
-            Arc::new(D14nClient::new(message, gateway))
-        }
-        (false, Env::Local) => Arc::new(ClientV3::create(
-            "http://localhost:5556",
-            false,
-            None::<String>,
-        )?),
-        (false, Env::Dev) => Arc::new(ClientV3::create(
-            "https://grpc.dev.xmtp.network:443",
-            true,
-            None::<String>,
-        )?),
-        (false, Env::Staging) => Arc::new(ClientV3::create(
-            "https://grpc.dev.xmtp.network:443",
-            true,
-            None::<String>,
-        )?),
-        (false, Env::Production) => Arc::new(ClientV3::create(
-            "https://grpc.production.xmtp.network:443",
-            true,
-            None::<String>,
-        )?),
+        (true, Env::Local) => MessageBackendBuilder::default()
+            .v3_host(GrpcUrlsLocal::NODE)
+            .gateway_host(GrpcUrlsLocal::GATEWAY)
+            .is_secure(false)
+            .build()?,
+        (true, Env::Production) => MessageBackendBuilder::default()
+            .v3_host(GrpcUrlsProduction::NODE)
+            .gateway_host(GrpcUrlsProduction::GATEWAY)
+            .is_secure(true)
+            .build()?,
+        (true, Env::Staging) => MessageBackendBuilder::default()
+            .v3_host(GrpcUrlsStaging::NODE)
+            .gateway_host(GrpcUrlsStaging::GATEWAY)
+            .is_secure(true)
+            .build()?,
+        (true, Env::Dev) => MessageBackendBuilder::default()
+            .v3_host(GrpcUrlsDev::NODE)
+            .gateway_host(GrpcUrlsDev::GATEWAY)
+            .is_secure(true)
+            .build()?,
+        (false, Env::Local) => MessageBackendBuilder::default()
+            .v3_host(GrpcUrlsLocal::NODE)
+            .is_secure(false)
+            .build()?,
+        (false, Env::Dev) | (false, Env::Staging) => MessageBackendBuilder::default()
+            .v3_host(GrpcUrlsDev::NODE)
+            .is_secure(true)
+            .build()?,
+        (false, Env::Production) => MessageBackendBuilder::default()
+            .v3_host(GrpcUrlsProduction::NODE)
+            .is_secure(true)
+            .build()?,
     };
 
     if let Commands::Register { seed_phrase } = &cli.command {
@@ -326,7 +292,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
                 inbox_id = client.context.inbox_id(),
                 recovery_address = format!("{recovery:?}"),
                 installation_ids = &ids.as_value(),
-                addressess = &addrs.as_value(),
+                addresses = &addrs.as_value(),
                 "identity info",
             );
         }
@@ -477,37 +443,6 @@ async fn main() -> color_eyre::eyre::Result<()> {
                 group_id
             );
         }
-        Commands::ListHistorySyncMessages {} => {
-            client.sync_welcomes().await?;
-            let group = client.device_sync_client().get_sync_group().await?;
-            let group_id_str = hex::encode(group.group_id.clone());
-            group.sync().await?;
-            let messages = group.find_messages(&MsgQueryArgs {
-                kind: Some(GroupMessageKind::Application),
-                ..Default::default()
-            })?;
-            info!(
-                group_id = group_id_str,
-                messages = messages.len(),
-                "Listing history sync messages"
-            );
-            for message in messages {
-                let message_history_content =
-                    serde_json::from_slice::<DeviceSyncContent>(&message.decrypted_message_bytes);
-
-                match message_history_content {
-                    Ok(DeviceSyncContent::Request(ref request)) => {
-                        info!("Request: {:?}", request);
-                    }
-                    Ok(DeviceSyncContent::Reply(ref reply)) => {
-                        info!("Reply: {:?}", reply);
-                    }
-                    _ => {
-                        info!("Unknown message type: {:?}", message);
-                    }
-                }
-            }
-        }
         Commands::Clear {} => {
             fs::remove_file(cli.db.ok_or(eyre!("DB Missing"))?)?;
         }
@@ -530,7 +465,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
     Ok(())
 }
 
-async fn create_client<C: XmtpApi + Clone + 'static>(
+async fn create_client<C: XmtpApi + Clone + XmtpQuery + 'static>(
     cli: &Cli,
     account: IdentityStrategy,
     grpc: C,
@@ -566,7 +501,7 @@ async fn register<C>(
     client: C,
 ) -> Result<(), CliError>
 where
-    C: Clone + XmtpApi + 'static,
+    C: Clone + XmtpApi + XmtpQuery + 'static,
 {
     let w: Wallet = if let Some(seed_phrase) = maybe_seed_phrase {
         Wallet::LocalWallet(
@@ -626,7 +561,15 @@ async fn send(group: RustMlsGroup, msg: String) -> Result<(), CliError> {
         .unwrap()
         .encode(&mut buf)
         .unwrap();
-    group.send_message(buf.as_slice()).await?;
+    group
+        .send_message(
+            buf.as_slice(),
+            SendMessageOptsBuilder::default()
+                .should_push(true)
+                .build()
+                .unwrap(),
+        )
+        .await?;
     Ok(())
 }
 

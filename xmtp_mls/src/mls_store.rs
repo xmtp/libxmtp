@@ -8,9 +8,8 @@ use xmtp_common::RetryableError;
 use xmtp_db::{
     Fetch, NotFound, XmtpOpenMlsProvider,
     group::{GroupQueryArgs, StoredGroup},
-    refresh_state::EntityKind,
 };
-use xmtp_proto::mls_v1::{GroupMessage, WelcomeMessage};
+use xmtp_proto::types::{GroupMessage, WelcomeMessage};
 
 use crate::{
     context::XmtpSharedContext,
@@ -62,17 +61,15 @@ where
     /// found in the local database
     pub(crate) async fn query_welcome_messages(
         &self,
-        conn: &impl DbQuery,
     ) -> Result<Vec<WelcomeMessage>, MlsStoreError> {
         let installation_id = self.context.installation_id();
-        let id_cursor = conn.get_last_cursor_for_id(installation_id, EntityKind::Welcome)?;
 
         let welcomes = self
             .context
             .api()
-            .query_welcome_messages(installation_id.as_ref(), Some(id_cursor as u64))
+            .query_welcome_messages(installation_id)
             .await?;
-
+        tracing::info!("returning {} welcomes", welcomes.len());
         Ok(welcomes)
     }
 
@@ -81,14 +78,11 @@ where
     pub(crate) async fn query_group_messages(
         &self,
         group_id: &[u8],
-        conn: &impl DbQuery,
     ) -> Result<Vec<GroupMessage>, MlsStoreError> {
-        let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
-
         let messages = self
             .context
             .sync_api()
-            .query_group_messages(group_id.to_vec(), Some(id_cursor as u64))
+            .query_group_messages(group_id.into())
             .await?;
 
         Ok(messages)

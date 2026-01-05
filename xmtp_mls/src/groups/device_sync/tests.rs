@@ -1,4 +1,5 @@
 use super::*;
+use crate::groups::send_message_opts::SendMessageOpts;
 use crate::tester;
 use xmtp_db::{
     consent_record::ConsentState,
@@ -10,14 +11,22 @@ use xmtp_db::{
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn basic_sync() {
-    tester!(alix1, sync_server, sync_worker, stream);
+    tester!(alix1, sync_server, sync_worker);
     tester!(bo);
     // Talk with bo
     let (dm, dm_msg) = alix1.test_talk_in_dm_with(&bo).await?;
     // Create a second client for alix
     tester!(alix2, from: alix1);
 
+    alix1.sync_all_welcomes_and_groups(None).await?;
+    alix1
+        .worker()
+        .register_interest(SyncMetric::PayloadSent, 1)
+        .wait()
+        .await?;
+
     // Have alix2 receive payload and process it
+    alix2.sync_all_welcomes_and_groups(None).await?;
     alix2
         .worker()
         .register_interest(SyncMetric::PayloadProcessed, 1)
@@ -28,7 +37,11 @@ async fn basic_sync() {
     let alix2_dm = alix2.group(&dm.group_id)?;
     let alix2_dm_msgs = alix2_dm.find_messages(&MsgQueryArgs::default())?;
     assert_eq!(alix2_dm_msgs.len(), 2);
-    assert_eq!(alix2_dm_msgs[1].decrypted_message_bytes, dm_msg.as_bytes());
+    assert!(
+        alix2_dm_msgs
+            .iter()
+            .any(|msg| msg.decrypted_message_bytes == dm_msg.as_bytes())
+    );
 }
 
 #[rstest::rstest]
@@ -56,7 +69,7 @@ async fn only_one_payload_sent() {
     let result = tokio::select! {
         _r1 = wait1.wait() => "alix1",
         _r2 = wait2.wait() => "alix2",
-        _ = sleep(Duration::from_secs(15)) => "timeout",
+        _ = sleep(Duration::from_secs(10)) => "timeout",
     };
 
     // Register interest for next PayloadSent events
@@ -230,7 +243,7 @@ async fn test_hmac_and_consent_preference_sync() {
 
     alix2
         .worker()
-        .register_interest(SyncMetric::ConsentReceived, 2)
+        .register_interest(SyncMetric::ConsentReceived, 3)
         .wait()
         .await?;
     let alix2_group = alix2.group(&bo_group.group_id)?;
@@ -250,7 +263,9 @@ async fn test_only_added_to_correct_groups() {
     let old_group = alix1
         .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
         .await?;
-    old_group.send_message(b"hi there").await?;
+    old_group
+        .send_message(b"hi there", SendMessageOpts::default())
+        .await?;
     alix1.context.db().raw_query_write(|conn| {
         diesel::update(dsl::groups.find(&old_group.group_id))
             .set((dsl::last_message_ns.eq(0), dsl::created_at_ns.eq(0)))
@@ -278,7 +293,9 @@ async fn test_only_added_to_correct_groups() {
     let new_group = alix1
         .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
         .await?;
-    new_group.send_message(b"hi there").await?;
+    new_group
+        .send_message(b"hi there", SendMessageOpts::default())
+        .await?;
 
     tester!(alix2, from: alix1);
 

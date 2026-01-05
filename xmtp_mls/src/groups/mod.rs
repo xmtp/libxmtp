@@ -1,7 +1,6 @@
 pub mod commit_log;
 pub mod commit_log_key;
 pub mod device_sync;
-pub mod device_sync_legacy;
 pub mod disappearing_messages;
 mod error;
 pub mod group_membership;
@@ -13,11 +12,14 @@ pub mod message_list;
 pub(super) mod mls_ext;
 pub(super) mod mls_sync;
 pub mod oneshot;
+pub(crate) mod pending_self_remove_worker;
+pub mod send_message_opts;
 pub(super) mod subscriptions;
 pub mod summary;
 #[cfg(test)]
 mod tests;
 pub mod validated_commit;
+pub mod welcome_pointer;
 pub mod welcome_sync;
 mod welcomes;
 pub use welcomes::*;
@@ -32,10 +34,15 @@ use self::{
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
 };
-use crate::groups::{intents::QueueIntent, mls_ext::CommitLogStorer};
+use crate::groups::send_message_opts::SendMessageOpts;
+use crate::groups::{
+    intents::{QueueIntent, ReaddInstallationsIntentData},
+    mls_ext::CommitLogStorer,
+    validated_commit::LibXMTPVersion,
+};
+use crate::subscriptions::SyncWorkerEvent;
 use crate::{GroupCommitLock, context::XmtpSharedContext};
 use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
-use crate::{subscriptions::SyncWorkerEvent, track};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
 use intents::{SendMessageIntentData, UpdateGroupMembershipResult};
@@ -56,18 +63,20 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
-use xmtp_common::time::now_ns;
+use xmtp_common::{Event, log_event, time::now_ns};
 use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
-    MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
+    MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, Originators,
+    SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
-use xmtp_content_types::ContentCodec;
-use xmtp_content_types::should_push;
+use xmtp_content_types::leave_request::LeaveRequestCodec;
+use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
 use xmtp_content_types::{
     reaction::{LegacyReaction, ReactionCodec},
     reply::ReplyCodec,
 };
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
+use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::{Fetch, consent_record::ConsentType};
@@ -96,15 +105,20 @@ use xmtp_mls_common::{
         GroupMutableMetadata, GroupMutableMetadataError, MessageDisappearingSettings, MetadataField,
     },
 };
-use xmtp_proto::xmtp::mls::message_contents::{
-    EncodedContent, OneshotMessage, PlaintextEnvelope,
-    content_types::ReactionV2,
-    plaintext_envelope::{Content, V1},
+use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
+use xmtp_proto::{
+    types::Cursor,
+    xmtp::mls::message_contents::{
+        EncodedContent, OneshotMessage, PlaintextEnvelope,
+        content_types::ReactionV2,
+        plaintext_envelope::{Content, V1},
+    },
 };
 
 const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
 const MAX_GROUP_IMAGE_URL_LENGTH: usize = 2048;
+const MAX_APP_DATA_LENGTH: usize = 8192;
 
 /// An LibXMTP MlsGroup
 /// _NOTE:_ The Eq implementation compares [`GroupId`], so a dm group with the same identity will be
@@ -182,7 +196,7 @@ pub struct ConversationDebugInfo {
     pub is_commit_log_forked: Option<bool>,
     pub local_commit_log: String,
     pub remote_commit_log: String,
-    pub cursor: i64,
+    pub cursor: Vec<Cursor>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -200,7 +214,6 @@ pub struct QueryableContentFields {
     pub version_minor: i32,
     pub authority_id: String,
     pub reference_id: Option<Vec<u8>>,
-    pub should_push: bool,
 }
 
 impl Default for QueryableContentFields {
@@ -211,7 +224,6 @@ impl Default for QueryableContentFields {
             version_minor: 0,
             authority_id: String::new(),
             reference_id: None,
-            should_push: false,
         }
     }
 }
@@ -244,7 +256,6 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
             version_minor: content_type_id.version_minor as i32,
             authority_id: content_type_id.authority_id.to_string(),
             reference_id,
-            should_push: should_push(type_id_str),
         })
     }
 }
@@ -438,6 +449,7 @@ where
         oneshot_message: Option<OneshotMessage>,
     ) -> Result<StoredGroup, GroupError> {
         assert!(conversation_type != ConversationType::Dm);
+
         let creator_inbox_id = context.inbox_id();
         let protected_metadata = build_protected_metadata_extension(
             creator_inbox_id,
@@ -501,6 +513,7 @@ where
         membership_state: GroupMembershipState,
         dm_target_inbox_id: InboxId,
         opts: DMMetadataOptions,
+        existing_group_id: Option<&[u8]>,
     ) -> Result<Self, GroupError> {
         let provider = context.mls_provider();
         let protected_metadata =
@@ -521,8 +534,16 @@ where
             mutable_permission_extension,
         )?;
 
-        let mls_group =
-            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?;
+        let mls_group = if let Some(group_id) = existing_group_id {
+            OpenMlsGroup::from_backup_stub_logged(
+                &provider,
+                context.identity(),
+                &group_config,
+                GroupId::from_slice(group_id),
+            )?
+        } else {
+            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?
+        };
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::builder()
@@ -555,9 +576,6 @@ where
         );
         // Consent state defaults to allowed when the user creates the group
         new_group.update_consent_state(ConsentState::Allowed)?;
-
-        track!("Group Create", { "conversation_type": ConversationType::Dm }, group: &new_group.group_id);
-
         Ok(new_group)
     }
 
@@ -573,12 +591,16 @@ where
     }
 
     /// Send a message on this users XMTP [`Client`](crate::client::Client).
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip(self), fields(who = self.context.inbox_id(), message = %String::from_utf8_lossy(message))))]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip_all, fields(who = self.context.inbox_id(), message = %String::from_utf8_lossy(&message[..message.len().min(100)]))))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip(self))
+        tracing::instrument(level = "trace", skip_all)
     )]
-    pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
+    pub async fn send_message(
+        &self,
+        message: &[u8],
+        opts: send_message_opts::SendMessageOpts,
+    ) -> Result<Vec<u8>, GroupError> {
         if !self.is_active()? {
             tracing::warn!("Unable to send a message on an inactive group.");
             return Err(GroupError::GroupInactive);
@@ -588,7 +610,8 @@ where
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(update_interval_ns).await?;
 
-        let message_id = self.prepare_message(message, |now| Self::into_envelope(message, now))?;
+        let message_id =
+            self.prepare_message(message, opts, |now| Self::into_envelope(message, now))?;
 
         self.sync_until_last_intent_resolved().await?;
 
@@ -628,8 +651,13 @@ where
     }
 
     /// Send a message, optimistically returning the ID of the message before the result of a message publish.
-    pub fn send_message_optimistic(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
-        let message_id = self.prepare_message(message, |now| Self::into_envelope(message, now))?;
+    pub fn send_message_optimistic(
+        &self,
+        message: &[u8],
+        opts: send_message_opts::SendMessageOpts,
+    ) -> Result<Vec<u8>, GroupError> {
+        let message_id =
+            self.prepare_message(message, opts, |now| Self::into_envelope(message, now))?;
         Ok(message_id)
     }
 
@@ -655,13 +683,14 @@ where
     ///
     /// # Arguments
     /// * message: UTF-8 or encoded message bytes
-    /// * conn: Connection to SQLite database
+    /// * opts: Options for sending the message
     /// * envelope: closure that returns context-specific [`PlaintextEnvelope`]. Closure accepts
     ///   timestamp attached to intent & stored message.
     #[tracing::instrument(skip_all, level = "trace")]
     pub(crate) fn prepare_message<F>(
         &self,
         message: &[u8],
+        opts: send_message_opts::SendMessageOpts,
         envelope: F,
     ) -> Result<Vec<u8>, GroupError>
     where
@@ -670,16 +699,14 @@ where
         let now = now_ns();
         let plain_envelope = envelope(now);
         let mut encoded_envelope = vec![];
-        plain_envelope
-            .encode(&mut encoded_envelope)
-            .map_err(GroupError::EncodeError)?;
+        plain_envelope.encode(&mut encoded_envelope)?;
 
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         let queryable_content_fields: QueryableContentFields =
             Self::extract_queryable_content_fields(message);
         QueueIntent::send_message()
             .data(intent_data)
-            .should_push(queryable_content_fields.should_push)
+            .should_push(opts.should_push)
             .queue(self)?;
 
         // store this unpublished message locally before sending
@@ -698,9 +725,10 @@ where
             version_minor: queryable_content_fields.version_minor,
             authority_id: queryable_content_fields.authority_id,
             reference_id: queryable_content_fields.reference_id,
-            sequence_id: None,
-            originator_id: None,
+            sequence_id: 0,
+            originator_id: 0,
             expire_at_ns: None,
+            inserted_at_ns: 0, // Will be set by database
         };
         group_message.store(&self.context.db())?;
 
@@ -727,6 +755,13 @@ where
         Ok(messages)
     }
 
+    /// Count the number of stored messages matching the given criteria
+    pub fn count_messages(&self, args: &MsgQueryArgs) -> Result<i64, GroupError> {
+        let conn = self.context.db();
+        let count = conn.count_group_messages(&self.group_id, args)?;
+        Ok(count)
+    }
+
     /// Query the database for stored messages. Optionally filtered by time, kind, delivery_status
     /// and limit
     pub fn find_messages_with_reactions(
@@ -743,6 +778,17 @@ where
         let latest_read_receipt =
             conn.get_latest_message_times_by_sender(&self.group_id, &[ContentType::ReadReceipt])?;
         Ok(latest_read_receipt)
+    }
+
+    /// Load the group reference stored in the local database
+    pub fn load(&self) -> Result<StoredGroup, StorageError> {
+        let conn = self.context.db();
+        if let Some(group) = conn.find_group(&self.group_id)? {
+            Ok(group)
+        } else {
+            tracing::error!("group {} does not exist", hex::encode(&self.group_id));
+            Err(NotFound::GroupById(self.group_id.to_vec()).into())
+        }
     }
 
     ///
@@ -830,13 +876,11 @@ where
             .queue(self)?;
 
         self.sync_until_intent_resolved(intent.id).await?;
-        track!(
-            "Group Membership Change",
-            {
-                "added": ids,
-                "removed": ()
-            },
-            group: &self.group_id
+
+        log_event!(
+            Event::AddedMembers,
+            group_id = %hex::encode(&self.group_id),
+            members = ?ids
         );
 
         ok_result
@@ -895,16 +939,273 @@ where
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
 
-        track!(
-            "Group Membership Change",
-            {
-                "added": (),
-                "removed": inbox_ids
-            },
-            group: &self.group_id
+        Ok(())
+    }
+
+    /// Removes and readds installations from the MLS tree.
+    ///
+    /// The installation list should be validated beforehand - invalid installations
+    /// will simply be omitted at the time that the intent's publish data is computed.
+    ///
+    /// # Arguments
+    /// * `installations` - A vector of installations to readd.
+    ///
+    /// # Returns
+    /// A `Result` indicating success or failure of the operation.
+    #[allow(dead_code)]
+    pub(crate) async fn readd_installations(
+        &self,
+        installations: Vec<Vec<u8>>,
+    ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
+        let readd_min_version =
+            LibXMTPVersion::parse(xmtp_configuration::MIN_RECOVERY_REQUEST_VERSION)?;
+        let metadata = self.mutable_metadata()?;
+        let group_version = metadata
+            .attributes
+            .get(MetadataField::MinimumSupportedProtocolVersion.as_str());
+        let group_min_version =
+            LibXMTPVersion::parse(group_version.unwrap_or(&"0.0.0".to_string()))?;
+
+        if readd_min_version > group_min_version {
+            self.update_group_min_version(xmtp_configuration::MIN_RECOVERY_REQUEST_VERSION)
+                .await?;
+        }
+
+        let intent_data: Vec<u8> = ReaddInstallationsIntentData::new(installations.clone()).into();
+        let intent = QueueIntent::readd_installations()
+            .data(intent_data)
+            .queue(self)?;
+
+        let _ = self.sync_until_intent_resolved(intent.id).await?;
+
+        Ok(())
+    }
+
+    /// Removes all members from the group who are currently in the pending removal list.
+    ///
+    /// Only admins and super admins can call this function. Validates permissions, filters
+    /// out invalid removal requests and performs batch removal of valid pending members.
+    ///
+    /// # Returns
+    /// * `Ok(())` - All valid pending members were successfully removed
+    /// * `Err(GroupError)` - Failed to retrieve metadata, validate permissions or execute removals
+    pub async fn remove_members_pending_removal(&self) -> Result<(), GroupError> {
+        let pending_removal_list = self.pending_remove_list()?;
+
+        if pending_removal_list.is_empty() {
+            tracing::debug!(
+                group_id = hex::encode(&self.group_id),
+                inbox_id = %self.context.inbox_id(),
+                "Group has no pending removal members"
+            );
+            return Ok(());
+        }
+
+        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
+        if !is_super_admin {
+            tracing::debug!(
+                group_id = hex::encode(&self.group_id),
+                inbox_id = %self.context.inbox_id(),
+                "Current inbox ID is not in admin or super admin list, skipping pending removal processing"
+            );
+            return Ok(());
+        }
+
+        // Get current group members to validate which ones actually exist
+        let members = self.members().await?;
+        let member_inbox_ids: HashSet<String> =
+            members.iter().map(|m| m.inbox_id.clone()).collect();
+
+        // Filter pending removals to only include actual group members
+        let valid_removals: Vec<&str> = pending_removal_list
+            .iter()
+            .filter(|inbox_id| member_inbox_ids.contains(*inbox_id))
+            .map(|s| s.as_str())
+            .collect();
+
+        if valid_removals.is_empty() {
+            tracing::warn!(
+                group_id = hex::encode(&self.group_id),
+                pending_count = pending_removal_list.len(),
+                "No valid members found in pending removal list"
+            );
+            return Ok(());
+        }
+        // Log members that are in pending list but not in group
+        let invalid_removals: Vec<&String> = pending_removal_list
+            .iter()
+            .filter(|inbox_id| !member_inbox_ids.contains(*inbox_id))
+            .collect();
+
+        if !invalid_removals.is_empty() {
+            tracing::warn!(
+                group_id = hex::encode(&self.group_id),
+                invalid_members = ?invalid_removals,
+                "Some members in pending removal list are not in the group"
+            );
+        }
+
+        // Remove all valid members at once
+        tracing::info!(
+            group_id = hex::encode(&self.group_id),
+            removing_count = valid_removals.len(),
+            members_to_remove = ?valid_removals,
+            "Removing pending members from group"
+        );
+
+        match self.remove_members_by_inbox_id(&valid_removals).await {
+            Ok(_) => {
+                tracing::info!(
+                    group_id = hex::encode(&self.group_id),
+                    removed_count = valid_removals.len(),
+                    removed_members = ?valid_removals,
+                    "Successfully removed all pending members from group"
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    group_id = hex::encode(&self.group_id),
+                    members = ?valid_removals,
+                    error = %e,
+                    "Failed to remove pending members from group"
+                );
+                return Err(e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Removes members from the pending removal list who are no longer in the group.
+    ///
+    /// Iterates through all members in the pending removal list, checking each one to see
+    /// if they're still in the group. If a member is no longer in the group, they are
+    /// removed from the pending list. The pending list is refreshed after each removal
+    /// to ensure we're working with the most current data.
+    ///
+    /// # Returns
+    /// * `Ok(())` - Successfully processed all pending removal members
+    /// * `Err(GroupError)` - Failed to retrieve data or update the pending list
+    pub async fn cleanup_pending_removal_list(&self) -> Result<(), GroupError> {
+        tracing::debug!(
+            group_id = hex::encode(&self.group_id),
+            "Starting pending removal list cleanup"
+        );
+
+        // Get both lists upfront
+        let pending_removal_list = self.pending_remove_list()?;
+
+        if pending_removal_list.is_empty() {
+            tracing::debug!(
+                group_id = hex::encode(&self.group_id),
+                "No pending removals to clean up"
+            );
+            // Clear the pending leave request status
+            self.context
+                .db()
+                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))?;
+            return Ok(());
+        }
+
+        // Get current group members
+        let current_members = self.members().await?;
+        let current_member_ids: Vec<String> = current_members
+            .iter()
+            .map(|member| member.inbox_id.clone())
+            .collect();
+
+        // Calculate removed members: users in pending list but not in current group
+        let removed_members: Vec<String> = pending_removal_list
+            .iter()
+            .filter(|pending_user| !current_member_ids.contains(pending_user))
+            .cloned()
+            .collect();
+
+        if !removed_members.is_empty() {
+            tracing::info!(
+                group_id = hex::encode(&self.group_id),
+                removed_count = removed_members.len(),
+                removed_members = ?removed_members,
+                "Removing members from pending removal list - they are no longer in the group"
+            );
+
+            // Remove all users who are no longer in the group from pending list
+            self.context
+                .db()
+                .delete_pending_remove_users(&self.group_id, removed_members)?;
+        }
+
+        // After cleanup, check if there are any pending removals left
+        let remaining_pending_list = self.pending_remove_list()?;
+        if remaining_pending_list.is_empty() {
+            // Clear the pending leave request status if no pending removals remain
+            self.context
+                .db()
+                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))?;
+        }
+
+        tracing::info!(
+            group_id = hex::encode(&self.group_id),
+            remaining_pending = remaining_pending_list.len(),
+            "Finished cleaning up pending removal list"
         );
 
         Ok(())
+    }
+
+    pub async fn leave_group(&self) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
+        // Check if user is a member
+        let is_member = self.is_member().await?;
+        if !is_member {
+            return Err(GroupLeaveValidationError::NotAGroupMember.into());
+        }
+
+        //check member size
+        let members = self.members().await?;
+
+        // check if the group has other members
+        if members.len() == 1 {
+            return Err(GroupLeaveValidationError::SingleMemberLeaveRejected.into());
+        }
+
+        // check if the conversation is not a DM
+        if self.metadata().await?.conversation_type == ConversationType::Dm {
+            return Err(GroupLeaveValidationError::DmLeaveForbidden.into());
+        }
+
+        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
+
+        // super-admin cannot leave a group; must be demoted first
+        // since SuperAdmins can't remove other SuperAdmins they need to be demoted first
+        if is_super_admin {
+            return Err(GroupLeaveValidationError::SuperAdminLeaveForbidden.into());
+        }
+
+        if !self.is_in_pending_remove(self.context.inbox_id())? {
+            let content = LeaveRequestCodec::encode(LeaveRequest {
+                authenticated_note: None,
+            })?;
+            self.send_message(
+                &encoded_content_to_bytes(content),
+                SendMessageOpts::default(),
+            )
+            .await?;
+        };
+        Ok(())
+    }
+
+    /// Checks if the current user is a member of the group.
+    /// Returns true if the user is a member, false otherwise.
+    #[tracing::instrument(level = "debug", skip(self))]
+    async fn is_member(&self) -> Result<bool, GroupError> {
+        let members = self.members().await?;
+        Ok(members
+            .iter()
+            .any(|m| m.inbox_id == self.context.inbox_id()))
     }
 
     /// Updates the name of the group. Will error if the user does not have the appropriate permissions
@@ -935,15 +1236,63 @@ where
         Ok(())
     }
 
-    /// Updates min version of the group to match this client's version.
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip(self))
     )]
-    pub async fn update_group_min_version_to_match_self(&self) -> Result<(), GroupError> {
+    pub async fn update_app_data(&self, app_data: String) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
+
+        if app_data.len() > MAX_APP_DATA_LENGTH {
+            return Err(GroupError::TooManyCharacters {
+                length: MAX_APP_DATA_LENGTH,
+            });
+        }
+        if self.metadata().await?.conversation_type == ConversationType::Dm {
+            return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
+        }
+        let intent_data: Vec<u8> = UpdateMetadataIntentData::new_update_app_data(app_data).into();
+        let intent = QueueIntent::metadata_update()
+            .data(intent_data)
+            .queue(self)?;
+
+        let _ = self.sync_until_intent_resolved(intent.id).await?;
+        Ok(())
+    }
+
+    /// Updates min version of the group to match this client's version.
+    /// Not publicly exposed because:
+    /// - Setting the min version to pre-release versions may not behave as expected
+    /// - When the version is not explicitly specified, unexpected behavior may arise,
+    ///   for example if the code is left in across multiple version bumps.
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = %self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
+    #[allow(dead_code)]
+    pub(crate) async fn update_group_min_version_to_match_self(&self) -> Result<(), GroupError> {
         let version = self.context.version_info().pkg_version();
+        self.update_group_min_version(version).await
+    }
+
+    /// Updates min version of the group to match the given version.
+    ///
+    /// # Arguments
+    /// * `version` - The libxmtp version to update the group min version to.
+    ///   This is a semver-formatted string matching the Cargo.toml in the
+    ///   libxmtp dependency, and does not match mobile or web release versions.
+    ///   Do NOT include pre-release metadata like "1.0.0-alpha",
+    ///   "1.0.0-beta", etc, as the version comparison may not match what
+    ///   is expected. For historical reasons, "1.0.0-alpha" is considered to be
+    ///   > "1.0.0", so it is better to just specify "1.0.0".
+    ///
+    /// # Returns
+    /// A `Result` indicating success or failure of the operation.
+    pub async fn update_group_min_version(&self, version: &str) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+        tracing::info!("updating group min version to match self: {}", version);
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_min_version_to_match_self(
                 version.to_string(),
@@ -1033,6 +1382,21 @@ where
             .get(&MetadataField::GroupName.to_string())
         {
             Some(group_name) => Ok(group_name.clone()),
+            None => Err(MetadataPermissionsError::from(
+                GroupMutableMetadataError::MissingExtension,
+            )
+            .into()),
+        }
+    }
+
+    /// Retrieves the app_data field from the group's mutable metadata extension
+    pub fn app_data(&self) -> Result<String, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        match mutable_metadata
+            .attributes
+            .get(&MetadataField::AppData.to_string())
+        {
+            Some(app_data) => Ok(app_data.clone()),
             None => Err(MetadataPermissionsError::from(
                 GroupMutableMetadataError::MissingExtension,
             )
@@ -1245,6 +1609,21 @@ where
         }
     }
 
+    pub fn pending_remove_list(&self) -> Result<Vec<String>, GroupError> {
+        self.context
+            .db()
+            .get_pending_remove_users(&self.group_id)
+            .map_err(Into::into)
+    }
+
+    /// Checks if the given inbox ID is the pending-remove list of the group at the most recently synced epoch.
+    pub fn is_in_pending_remove(&self, inbox_id: &str) -> Result<bool, GroupError> {
+        self.context
+            .db()
+            .get_user_pending_remove_status(&self.group_id, inbox_id)
+            .map_err(Into::into)
+    }
+
     /// Retrieves the admin list of the group from the group's mutable metadata extension.
     pub fn admin_list(&self) -> Result<Vec<String>, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
@@ -1266,6 +1645,16 @@ where
     /// Checks if the given inbox ID is a super admin of the group at the most recently synced epoch.
     pub fn is_super_admin(&self, inbox_id: String) -> Result<bool, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
+        Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
+    }
+
+    /// Checks if the given inbox ID is a super admin of the group at the most recently synced epoch
+    pub fn is_super_admin_without_lock(
+        &self,
+        mls_group: &OpenMlsGroup,
+        inbox_id: String,
+    ) -> Result<bool, GroupMutableMetadataError> {
+        let mutable_metadata = GroupMutableMetadata::try_from(mls_group)?;
         Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
     }
 
@@ -1376,9 +1765,30 @@ where
         .await
     }
 
-    pub async fn cursor(&self) -> Result<i64, GroupError> {
+    /// Get the encryption state of the current epoch. Should match for all installations
+    /// in the same epoch.
+    #[cfg(test)]
+    #[allow(unused)]
+    pub(crate) async fn epoch_authenticator(&self) -> Result<Vec<u8>, GroupError> {
+        self.load_mls_group_with_lock_async(|mls_group| {
+            futures::future::ready(Ok(mls_group.epoch_authenticator().as_slice().to_vec()))
+        })
+        .await
+    }
+
+    pub async fn cursor(&self) -> Result<[Cursor; 2], GroupError> {
         let db = self.context.db();
-        Ok(db.get_last_cursor_for_id(&self.group_id, EntityKind::Group)?)
+        let msgs = db.get_last_cursor_for_originator(
+            &self.group_id,
+            EntityKind::ApplicationMessage,
+            Originators::APPLICATION_MESSAGES,
+        )?;
+        let commits = db.get_last_cursor_for_originator(
+            &self.group_id,
+            EntityKind::CommitMessage,
+            Originators::MLS_COMMITS,
+        )?;
+        Ok([msgs, commits])
     }
 
     pub async fn local_commit_log(&self) -> Result<Vec<LocalCommitLog>, GroupError> {
@@ -1416,7 +1826,7 @@ where
             is_commit_log_forked: stored_group.is_commit_log_forked,
             local_commit_log: format!("{:?}", commit_log),
             remote_commit_log: format!("{:?}", remote_commit_log),
-            cursor,
+            cursor: cursor.to_vec(),
         })
     }
 
@@ -1453,6 +1863,17 @@ where
         self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
             Ok(mls_group.is_active())
         })
+    }
+
+    /// Returns the membership state of the current user in this group.
+    #[tracing::instrument(skip_all, level = "trace")]
+    pub fn membership_state(&self) -> Result<GroupMembershipState, GroupError> {
+        let stored_group = self
+            .context
+            .db()
+            .find_group(&self.group_id)?
+            .ok_or_else(|| GroupError::NotFound(NotFound::GroupById(self.group_id.clone())))?;
+        Ok(stored_group.membership_state)
     }
 
     /// Get the `GroupMetadata` of the group.
@@ -1669,7 +2090,6 @@ pub fn build_dm_mutable_metadata_extension_default(
 ) -> Result<Extension, MetadataPermissionsError> {
     let mut commit_log_signer = None;
     if xmtp_configuration::ENABLE_COMMIT_LOG {
-        // Optional TODO(rich): Plumb in provider and use traits in commit_log_key.rs to generate and store secret
         commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>());
     }
     let mutable_metadata: Vec<u8> = GroupMutableMetadata::new_dm_default(
@@ -1881,17 +2301,15 @@ pub fn filter_inbox_ids_needing_updates<'a>(
 
     let needs_update = filters
         .iter()
-        .filter_map(|filter| {
-            let existing_sequence_id = existing_sequence_ids.get(filter.0);
-            if let Some(sequence_id) = existing_sequence_id
-                && sequence_id.ge(&filter.1)
-            {
+        .filter_map(|&(inbox_id, seq)| {
+            let existing_sequence_id = existing_sequence_ids.get(inbox_id);
+            if existing_sequence_id.is_some_and(|&s| s >= seq) {
                 return None;
             }
 
-            Some(filter.0)
+            Some(inbox_id)
         })
-        .collect::<Vec<&str>>();
+        .collect();
     Ok(needs_update)
 }
 

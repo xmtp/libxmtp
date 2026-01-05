@@ -39,6 +39,7 @@ impl Endpoint for VerifySmartContractWalletSignatures {
 #[cfg(test)]
 mod test {
     use super::*;
+    use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::{api, prelude::*};
 
     #[xmtp_common::test]
@@ -58,7 +59,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_verify_smart_contract_wallet_signatures() {
-        let client = crate::TestClient::create_local();
+        let client = NodeGoClient::create();
         let client = client.build().unwrap();
         let endpoint = VerifySmartContractWalletSignatures::builder()
             .signatures(vec![VerifySmartContractWalletSignatureRequestSignature {

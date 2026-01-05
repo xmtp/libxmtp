@@ -26,7 +26,7 @@ WORKSPACE_MANIFEST="$($CARGO locate-project --workspace --message-format=plain)"
 WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
 BINDINGS_MANIFEST="$WORKSPACE_PATH/bindings_ffi/Cargo.toml"
 BINDINGS_PATH="$(dirname $BINDINGS_MANIFEST)"
-TARGET_DIR="$WORKSPACE_PATH/target"
+TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | jq -r '.target_directory')"
 
 # Local script to release android jniLibs with same environment as CI
 if [[ "${OSTYPE}" == "darwin"* ]]; then
@@ -54,7 +54,8 @@ $CARGO run --bin ffi-uniffi-bindgen \
   --manifest-path $BINDINGS_MANIFEST \
   --features uniffi/cli --release -- \
   generate \
-  --lib-file $TARGET_DIR/release/$LIB_FILE $BINDINGS_PATH/src/$PROJECT_NAME.udl \
+  --library $TARGET_DIR/release/$LIB_FILE \
+  --out-dir $BINDINGS_PATH/src \
   --language kotlin
 
 cd $BINDINGS_PATH

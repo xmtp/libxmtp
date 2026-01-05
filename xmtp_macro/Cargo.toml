@@ -16,6 +16,8 @@ syn = { version = "2.0", default-features = false, features = [
   "proc-macro",
   "derive",
   "printing",
+  "full",
+  "clone-impls",
 ] }
 
 [lib]

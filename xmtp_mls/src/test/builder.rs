@@ -6,12 +6,11 @@ use crate::builder::ClientBuilderError;
 use crate::context::XmtpSharedContext;
 use crate::identity::Identity;
 use crate::identity::IdentityError;
-use crate::utils::test::TestClient;
+use crate::utils::DefaultTestClientCreator;
 use xmtp_api::ApiClientWrapper;
-use xmtp_api::test_utils::*;
+use xmtp_api_d14n::MockApiClient;
 use xmtp_common::{ExponentialBackoff, Retry, rand_vec, tmp_path};
 use xmtp_db::XmtpTestDb;
-use xmtp_db::events::Events;
 use xmtp_db::sql_key_store::SqlKeyStore;
 use xmtp_db::{Store, identity::StoredIdentity};
 
@@ -211,12 +210,8 @@ async fn test_client_creation() {
             .temp_store()
             .await
             .api_clients(
-                <TestClient as XmtpTestClient>::create_local()
-                    .build()
-                    .unwrap(),
-                <TestClient as XmtpTestClient>::create_local()
-                    .build()
-                    .unwrap(),
+                DefaultTestClientCreator::create().build().unwrap(),
+                DefaultTestClientCreator::create().build().unwrap(),
             )
             .default_mls_store()
             .unwrap()
@@ -237,42 +232,6 @@ async fn test_client_creation() {
             assert!(result.is_ok());
         }
     }
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_turn_local_telemetry_off() {
-    let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-    let legacy_ident = Identifier::eth(&legacy_account_address).unwrap();
-    let inbox_id = legacy_ident.inbox_id(0).unwrap();
-
-    let identity_strategy = IdentityStrategy::new(
-        inbox_id.clone(),
-        legacy_ident.clone(),
-        0,
-        Some(legacy_key.clone()),
-    );
-    let store = xmtp_db::TestDb::create_persistent_store(None).await;
-    let client = Client::builder(identity_strategy.clone())
-        .store(store)
-        .api_clients(
-            <TestClient as XmtpTestClient>::create_local()
-                .build()
-                .unwrap(),
-            <TestClient as XmtpTestClient>::create_local()
-                .build()
-                .unwrap(),
-        )
-        .default_mls_store()
-        .unwrap()
-        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-        .with_disable_events(Some(true))
-        .build()
-        .await?;
-
-    let events = Events::all_events(&client.context.db())?;
-
-    // No events should be logged if telemetry is turned off.
-    assert!(events.is_empty());
 }
 
 // First, create a client1 using legacy key and then test following cases:
@@ -296,12 +255,8 @@ async fn test_2nd_time_client_creation() {
     let client1 = Client::builder(identity_strategy.clone())
         .store(store.clone())
         .api_clients(
-            <TestClient as XmtpTestClient>::create_local()
-                .build()
-                .unwrap(),
-            <TestClient as XmtpTestClient>::create_local()
-                .build()
-                .unwrap(),
+            DefaultTestClientCreator::create().build().unwrap(),
+            DefaultTestClientCreator::create().build().unwrap(),
         )
         .default_mls_store()
         .unwrap()
@@ -314,12 +269,8 @@ async fn test_2nd_time_client_creation() {
     let client2 = Client::builder(IdentityStrategy::CachedOnly)
         .store(store.clone())
         .api_clients(
-            <TestClient as XmtpTestClient>::create_local()
-                .build()
-                .unwrap(),
-            <TestClient as XmtpTestClient>::create_local()
-                .build()
-                .unwrap(),
+            DefaultTestClientCreator::create().build().unwrap(),
+            DefaultTestClientCreator::create().build().unwrap(),
         )
         .default_mls_store()
         .unwrap()
@@ -339,12 +290,8 @@ async fn test_2nd_time_client_creation() {
     ))
     .store(store.clone())
     .api_clients(
-        <TestClient as XmtpTestClient>::create_local()
-            .build()
-            .unwrap(),
-        <TestClient as XmtpTestClient>::create_local()
-            .build()
-            .unwrap(),
+        DefaultTestClientCreator::create().build().unwrap(),
+        DefaultTestClientCreator::create().build().unwrap(),
     )
     .default_mls_store()
     .unwrap()
@@ -360,12 +307,8 @@ async fn test_2nd_time_client_creation() {
         .temp_store()
         .await
         .api_clients(
-            <TestClient as XmtpTestClient>::create_local()
-                .build()
-                .unwrap(),
-            <TestClient as XmtpTestClient>::create_local()
-                .build()
-                .unwrap(),
+            DefaultTestClientCreator::create().build().unwrap(),
+            DefaultTestClientCreator::create().build().unwrap(),
         )
         .default_mls_store()
         .unwrap()
@@ -600,12 +543,8 @@ async fn identity_persistence_test() {
         None,
     ))
     .api_clients(
-        <TestClient as XmtpTestClient>::create_local()
-            .build()
-            .unwrap(),
-        <TestClient as XmtpTestClient>::create_local()
-            .build()
-            .unwrap(),
+        DefaultTestClientCreator::create().build().unwrap(),
+        DefaultTestClientCreator::create().build().unwrap(),
     )
     .store(store_a)
     .default_mls_store()
@@ -629,12 +568,8 @@ async fn identity_persistence_test() {
         None,
     ))
     .api_clients(
-        <TestClient as XmtpTestClient>::create_local()
-            .build()
-            .unwrap(),
-        <TestClient as XmtpTestClient>::create_local()
-            .build()
-            .unwrap(),
+        DefaultTestClientCreator::create().build().unwrap(),
+        DefaultTestClientCreator::create().build().unwrap(),
     )
     .store(store_b)
     .default_mls_store()
@@ -659,7 +594,7 @@ async fn identity_persistence_test() {
     //     generate_local_wallet().get_address(),
     //     None,
     // ))
-    // .api_client(<TestClient as XmtpTestClient>::create_local().build().await)
+    // .api_client(DefaultTestClientCreator::create().build().await)
     // .store(store_c)
     // .build()
     // .await
@@ -669,12 +604,8 @@ async fn identity_persistence_test() {
     let store_d = xmtp_db::TestDb::create_persistent_store(Some(tmpdb.clone())).await;
     let client_d = Client::builder(IdentityStrategy::CachedOnly)
         .api_clients(
-            <TestClient as XmtpTestClient>::create_local()
-                .build()
-                .unwrap(),
-            <TestClient as XmtpTestClient>::create_local()
-                .build()
-                .unwrap(),
+            DefaultTestClientCreator::create().build().unwrap(),
+            DefaultTestClientCreator::create().build().unwrap(),
         )
         .store(store_d)
         .default_mls_store()

@@ -1,22 +1,44 @@
 use std::{collections::HashMap, ops::Deref};
 
 use napi::{
-  JsFunction,
-  bindgen_prelude::{Result, Uint8Array},
-  threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode},
+  bindgen_prelude::{BigInt, Result, Uint8Array},
+  threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode},
 };
-use xmtp_db::{
-  group::{ConversationType, DmIdExt},
-  group_message::MsgQueryArgs,
+use xmtp_content_types::{
+  actions::ActionsCodec,
+  attachment::AttachmentCodec,
+  intent::IntentCodec,
+  markdown::MarkdownCodec,
+  multi_remote_attachment::MultiRemoteAttachmentCodec,
+  reaction::ReactionCodec,
+  read_receipt::{ReadReceipt, ReadReceiptCodec},
+  remote_attachment::RemoteAttachmentCodec,
+  reply::ReplyCodec,
+  text::TextCodec,
+  transaction_reference::TransactionReferenceCodec,
+  wallet_send_calls::WalletSendCallsCodec,
+};
+use xmtp_db::{group::DmIdExt, group_message::MsgQueryArgs};
+
+use xmtp_content_types::ContentCodec;
+
+use crate::{
+  content_types::{
+    actions::Actions, attachment::Attachment, intent::Intent,
+    multi_remote_attachment::MultiRemoteAttachment, reaction::Reaction,
+    remote_attachment::RemoteAttachment, reply::Reply, transaction_reference::TransactionReference,
+    wallet_send_calls::WalletSendCalls,
+  },
+  conversations::{ConversationType, GroupMembershipState},
 };
 use xmtp_mls::{
-  common::{
-    group_metadata::GroupMetadata as XmtpGroupMetadata,
-    group_mutable_metadata::MetadataField as XmtpMetadataField,
-  },
   groups::{
     MlsGroup, UpdateAdminListType, intents::PermissionUpdateType as XmtpPermissionUpdateType,
     members::PermissionLevel as XmtpPermissionLevel,
+  },
+  mls_common::{
+    group_metadata::GroupMetadata as XmtpGroupMetadata,
+    group_mutable_metadata::MetadataField as XmtpMetadataField,
   },
 };
 
@@ -28,6 +50,7 @@ use crate::{
   consent_state::ConsentState,
   conversations::{HmacKey, MessageDisappearingSettings},
   encoded_content::EncodedContent,
+  enriched_message::DecodedMessage,
   identity::{Identifier, IdentityExt},
   message::{ListMessagesOptions, Message, MessageWithReactions},
   permissions::{GroupPermissions, MetadataField, PermissionPolicy, PermissionUpdateType},
@@ -37,6 +60,20 @@ use prost::Message as ProstMessage;
 
 use crate::conversations::ConversationDebugInfo;
 use napi_derive::napi;
+
+#[napi(object)]
+pub struct SendMessageOpts {
+  pub should_push: bool,
+  pub optimistic: Option<bool>,
+}
+
+impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
+  fn from(opts: SendMessageOpts) -> Self {
+    xmtp_mls::groups::send_message_opts::SendMessageOpts {
+      should_push: opts.should_push,
+    }
+  }
+}
 
 #[napi]
 pub struct GroupMetadata {
@@ -51,13 +88,8 @@ impl GroupMetadata {
   }
 
   #[napi]
-  pub fn conversation_type(&self) -> String {
-    match self.inner.conversation_type {
-      ConversationType::Group => "group".to_string(),
-      ConversationType::Dm => "dm".to_string(),
-      ConversationType::Sync => "sync".to_string(),
-      ConversationType::Oneshot => "oneshot".to_string(),
-    }
+  pub fn conversation_type(&self) -> ConversationType {
+    self.inner.conversation_type.into()
   }
 }
 
@@ -71,10 +103,18 @@ pub enum PermissionLevel {
 #[napi]
 pub struct GroupMember {
   pub inbox_id: String,
-  pub account_identifiers: Vec<Identifier>,
+  account_identifiers: Vec<Identifier>,
   pub installation_ids: Vec<String>,
   pub permission_level: PermissionLevel,
   pub consent_state: ConsentState,
+}
+
+#[napi]
+impl GroupMember {
+  #[napi(getter)]
+  pub fn account_identifiers(&self) -> Vec<Identifier> {
+    self.account_identifiers.clone()
+  }
 }
 
 #[napi]
@@ -83,7 +123,7 @@ pub struct Conversation {
   inner_group: RustMlsGroup,
   group_id: Vec<u8>,
   dm_id: Option<String>,
-  created_at_ns: i64,
+  created_at_ns: BigInt,
 }
 
 impl From<RustMlsGroup> for Conversation {
@@ -91,7 +131,7 @@ impl From<RustMlsGroup> for Conversation {
     Conversation {
       group_id: mls_group.group_id.clone(),
       dm_id: mls_group.dm_id.clone(),
-      created_at_ns: mls_group.created_at_ns,
+      created_at_ns: BigInt::from(mls_group.created_at_ns),
       inner_group: mls_group,
     }
   }
@@ -103,7 +143,7 @@ impl Conversation {
     inner_group: RustMlsGroup,
     group_id: Vec<u8>,
     dm_id: Option<String>,
-    created_at_ns: i64,
+    created_at_ns: BigInt,
   ) -> Self {
     Self {
       inner_group,
@@ -120,7 +160,7 @@ impl Conversation {
       self.group_id.clone(),
       self.dm_id.clone(),
       self.inner_group.conversation_type,
-      self.created_at_ns,
+      self.created_at_ns.get_i64().0,
     )
   }
 
@@ -130,27 +170,173 @@ impl Conversation {
   }
 
   #[napi]
-  pub async fn send(&self, encoded_content: EncodedContent) -> Result<String> {
+  pub async fn send(
+    &self,
+    encoded_content: EncodedContent,
+    opts: SendMessageOpts,
+  ) -> Result<String> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = self.create_mls_group();
 
-    let message_id = group
-      .send_message(encoded_content.encode_to_vec().as_slice())
-      .await
-      .map_err(ErrorWrapper::from)?;
-    Ok(hex::encode(message_id.clone()))
+    let message_id = match opts.optimistic {
+      Some(true) => group
+        .send_message_optimistic(encoded_content.encode_to_vec().as_slice(), opts.into())
+        .map_err(ErrorWrapper::from)?,
+      _ => group
+        .send_message(encoded_content.encode_to_vec().as_slice(), opts.into())
+        .await
+        .map_err(ErrorWrapper::from)?,
+    };
+
+    Ok(hex::encode(message_id))
   }
 
   #[napi]
-  pub fn send_optimistic(&self, encoded_content: EncodedContent) -> Result<String> {
-    let encoded_content: XmtpEncodedContent = encoded_content.into();
-    let group = self.create_mls_group();
+  pub async fn send_text(&self, text: String, optimistic: Option<bool>) -> Result<String> {
+    let encoded_content = TextCodec::encode(text).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: TextCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
 
-    let id = group
-      .send_message_optimistic(encoded_content.encode_to_vec().as_slice())
+  #[napi]
+  pub async fn send_markdown(&self, markdown: String, optimistic: Option<bool>) -> Result<String> {
+    let encoded_content = MarkdownCodec::encode(markdown).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: MarkdownCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_reaction(
+    &self,
+    reaction: Reaction,
+    optimistic: Option<bool>,
+  ) -> Result<String> {
+    let encoded_content = ReactionCodec::encode(reaction.into()).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: ReactionCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_reply(&self, reply: Reply, optimistic: Option<bool>) -> Result<String> {
+    let encoded_content = ReplyCodec::encode(reply.into()).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: ReplyCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_read_receipt(&self, optimistic: Option<bool>) -> Result<String> {
+    let encoded_content = ReadReceiptCodec::encode(ReadReceipt {}).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: ReadReceiptCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_attachment(
+    &self,
+    attachment: Attachment,
+    optimistic: Option<bool>,
+  ) -> Result<String> {
+    let encoded_content = AttachmentCodec::encode(attachment.into()).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: AttachmentCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_remote_attachment(
+    &self,
+    remote_attachment: RemoteAttachment,
+    optimistic: Option<bool>,
+  ) -> Result<String> {
+    let encoded_content =
+      RemoteAttachmentCodec::encode(remote_attachment.into()).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: RemoteAttachmentCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_multi_remote_attachment(
+    &self,
+    multi_remote_attachment: MultiRemoteAttachment,
+    optimistic: Option<bool>,
+  ) -> Result<String> {
+    let encoded_content = MultiRemoteAttachmentCodec::encode(multi_remote_attachment.into())
       .map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: MultiRemoteAttachmentCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
 
-    Ok(hex::encode(id.clone()))
+  #[napi]
+  pub async fn send_transaction_reference(
+    &self,
+    transaction_reference: TransactionReference,
+    optimistic: Option<bool>,
+  ) -> Result<String> {
+    let encoded_content = TransactionReferenceCodec::encode(transaction_reference.into())
+      .map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: TransactionReferenceCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_wallet_send_calls(
+    &self,
+    wallet_send_calls: WalletSendCalls,
+    optimistic: Option<bool>,
+  ) -> Result<String> {
+    let wsc = wallet_send_calls.try_into()?;
+    let encoded_content = WalletSendCallsCodec::encode(wsc).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: WalletSendCallsCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_actions(&self, actions: Actions, optimistic: Option<bool>) -> Result<String> {
+    let encoded_content = ActionsCodec::encode(actions.into()).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: ActionsCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[napi]
+  pub async fn send_intent(&self, intent: Intent, optimistic: Option<bool>) -> Result<String> {
+    let encoded_content = IntentCodec::encode(intent.into()).map_err(ErrorWrapper::from)?;
+    let opts = SendMessageOpts {
+      should_push: IntentCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
   }
 
   #[napi]
@@ -172,20 +358,7 @@ impl Conversation {
   pub async fn find_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
     let opts = opts.unwrap_or_default();
     let group = self.create_mls_group();
-    let conversation_type = group
-      .conversation_type()
-      .await
-      .map_err(ErrorWrapper::from)?;
-    let kind = match conversation_type {
-      ConversationType::Group => None,
-      ConversationType::Dm => None,
-      ConversationType::Sync => None,
-      ConversationType::Oneshot => None,
-    };
-    let opts = MsgQueryArgs {
-      kind,
-      ..opts.into()
-    };
+    let opts = MsgQueryArgs { ..opts.into() };
     let messages: Vec<Message> = group
       .find_messages(&opts)
       .map_err(ErrorWrapper::from)?
@@ -197,26 +370,25 @@ impl Conversation {
   }
 
   #[napi]
+  pub async fn count_messages(&self, opts: Option<ListMessagesOptions>) -> Result<i64> {
+    let opts = opts.unwrap_or_default();
+    let group = self.create_mls_group();
+    let msg_args: MsgQueryArgs = opts.into();
+    let count = group
+      .count_messages(&msg_args)
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(count)
+  }
+
+  #[napi]
   pub async fn find_messages_with_reactions(
     &self,
     opts: Option<ListMessagesOptions>,
   ) -> Result<Vec<MessageWithReactions>> {
     let opts = opts.unwrap_or_default();
     let group = self.create_mls_group();
-    let conversation_type = group
-      .conversation_type()
-      .await
-      .map_err(ErrorWrapper::from)?;
-    let kind = match conversation_type {
-      ConversationType::Group => None,
-      ConversationType::Dm => None,
-      ConversationType::Sync => None,
-      ConversationType::Oneshot => None,
-    };
-    let opts = MsgQueryArgs {
-      kind,
-      ..opts.into()
-    };
+    let opts = MsgQueryArgs { ..opts.into() };
 
     let messages: Vec<MessageWithReactions> = group
       .find_messages_with_reactions(&opts)
@@ -232,7 +404,7 @@ impl Conversation {
   pub async fn process_streamed_group_message(
     &self,
     envelope_bytes: Uint8Array,
-  ) -> Result<Message> {
+  ) -> Result<Vec<Message>> {
     let group = self.create_mls_group();
     let envelope_bytes: Vec<u8> = envelope_bytes.deref().to_vec();
     let message = group
@@ -240,7 +412,7 @@ impl Conversation {
       .await
       .map_err(ErrorWrapper::from)?;
 
-    Ok(message.into())
+    Ok(message.into_iter().map(Into::into).collect())
   }
 
   #[napi]
@@ -274,6 +446,13 @@ impl Conversation {
       .collect();
 
     Ok(members)
+  }
+
+  #[napi]
+  pub fn membership_state(&self) -> Result<GroupMembershipState> {
+    let group = self.create_mls_group();
+    let state = group.membership_state().map_err(ErrorWrapper::from)?;
+    Ok(state.into())
   }
 
   #[napi]
@@ -435,6 +614,27 @@ impl Conversation {
   }
 
   #[napi]
+  pub async fn update_app_data(&self, app_data: String) -> Result<()> {
+    let group = self.create_mls_group();
+
+    group
+      .update_app_data(app_data)
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub fn app_data(&self) -> Result<String> {
+    let group = self.create_mls_group();
+
+    let app_data = group.app_data().map_err(ErrorWrapper::from)?;
+
+    Ok(app_data)
+  }
+
+  #[napi]
   pub async fn update_group_image_url_square(&self, group_image_url_square: String) -> Result<()> {
     let group = self.create_mls_group();
 
@@ -476,19 +676,17 @@ impl Conversation {
     Ok(group_description)
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, onClose: () => void"
-  )]
-  pub fn stream(&self, callback: JsFunction, on_close: JsFunction) -> Result<StreamCloser> {
-    let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =
-      callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
-      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+  #[napi]
+  pub async fn stream(
+    &self,
+    callback: ThreadsafeFunction<Message, ()>,
+    on_close: ThreadsafeFunction<(), ()>,
+  ) -> Result<StreamCloser> {
     let stream_closer = MlsGroup::stream_with_callback(
       self.inner_group.context.clone(),
       self.group_id.clone(),
       move |message| {
-        let status = tsfn.call(
+        let status = callback.call(
           message
             .map(Message::from)
             .map_err(ErrorWrapper::from)
@@ -498,7 +696,7 @@ impl Conversation {
         tracing::info!("Stream status: {:?}", status);
       },
       move || {
-        tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+        on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
       },
     );
 
@@ -506,8 +704,8 @@ impl Conversation {
   }
 
   #[napi]
-  pub fn created_at_ns(&self) -> i64 {
-    self.created_at_ns
+  pub fn created_at_ns(&self) -> BigInt {
+    self.created_at_ns.clone()
   }
 
   #[napi]
@@ -637,7 +835,7 @@ impl Conversation {
     self.message_disappearing_settings().map(|settings| {
       settings
         .as_ref()
-        .is_some_and(|s| s.from_ns > 0 && s.in_ns > 0)
+        .is_some_and(|s| s.from_ns.get_i64().0 > 0 && s.in_ns.get_i64().0 > 0)
     })
   }
 
@@ -648,7 +846,7 @@ impl Conversation {
     let dms = self
       .inner_group
       .find_duplicate_dms()
-      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+      .map_err(ErrorWrapper::from)?;
 
     let mut hmac_map = HashMap::new();
     for conversation in dms {
@@ -678,11 +876,13 @@ impl Conversation {
   pub async fn debug_info(&self) -> Result<ConversationDebugInfo> {
     let group = self.create_mls_group();
 
-    group
-      .debug_info()
-      .await
-      .map(Into::into)
-      .map_err(|e| napi::Error::from_reason(e.to_string()))
+    Ok(
+      group
+        .debug_info()
+        .await
+        .map(Into::into)
+        .map_err(ErrorWrapper::from)?,
+    )
   }
 
   #[napi]
@@ -691,10 +891,41 @@ impl Conversation {
     let dms = self
       .inner_group
       .find_duplicate_dms()
-      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+      .map_err(ErrorWrapper::from)?;
 
     let conversations: Vec<Conversation> = dms.into_iter().map(Into::into).collect();
 
     Ok(conversations)
+  }
+
+  #[napi]
+  pub async fn find_enriched_messages(
+    &self,
+    opts: Option<ListMessagesOptions>,
+  ) -> Result<Vec<DecodedMessage>> {
+    let opts = opts.unwrap_or_default();
+    let group = self.create_mls_group();
+    let messages: Vec<DecodedMessage> = group
+      .find_messages_v2(&opts.into())
+      .map_err(ErrorWrapper::from)?
+      .into_iter()
+      .map(|msg| msg.try_into())
+      .collect::<Result<Vec<_>>>()?;
+
+    Ok(messages)
+  }
+
+  #[napi]
+  pub async fn get_last_read_times(&self) -> Result<HashMap<String, i64>> {
+    let group = self.create_mls_group();
+    let times = group.get_last_read_times().map_err(ErrorWrapper::from)?;
+    Ok(times)
+  }
+
+  #[napi]
+  pub async fn leave_group(&self) -> Result<()> {
+    let group = self.create_mls_group();
+    group.leave_group().await.map_err(ErrorWrapper::from)?;
+    Ok(())
   }
 }

@@ -1,11 +1,9 @@
 //! Consistent Stream behavior between WebAssembly and Native utilizing `tokio::task::spawn` in native and
 //! `wasm_bindgen_futures::spawn` for web.
 
-#[cfg(target_arch = "wasm32")]
-pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O>;
+use crate::{MaybeSend, MaybeSync, if_native, if_wasm};
 
-#[cfg(not(target_arch = "wasm32"))]
-pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O> + Send + Sync;
+pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum StreamHandleError {
@@ -24,10 +22,8 @@ pub enum StreamHandleError {
 /// A handle to a spawned Stream
 /// the spawned stream can be 'joined` by awaiting its Future implementation.
 /// All spawned tasks are detached, so waiting the handle is not required.
-#[allow(async_fn_in_trait)]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait StreamHandle {
+#[xmtp_macro::async_trait]
+pub trait StreamHandle: MaybeSend + MaybeSync {
     /// The Output type for the stream
     type StreamOutput;
 
@@ -57,20 +53,14 @@ pub trait StreamHandle {
 }
 
 /// A handle that can be moved/cloned/sent, but can only close the stream.
-pub trait AbortHandle: Send + Sync {
+pub trait AbortHandle: crate::MaybeSend + crate::MaybeSync {
     /// Send a signal to end the stream, without waiting for a result.
     fn end(&self);
     fn is_finished(&self) -> bool;
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use native::*;
-
-#[cfg(target_arch = "wasm32")]
-#[allow(unused)]
+if_wasm! {
 pub use wasm::*;
-
-#[cfg(target_arch = "wasm32")]
 mod wasm {
     use std::{
         future::Future,
@@ -107,7 +97,7 @@ mod wasm {
         }
     }
 
-    #[async_trait::async_trait(?Send)]
+    #[xmtp_common::async_trait]
     impl<T> StreamHandle for WasmStreamHandle<Result<T, StreamHandleError>> {
         type StreamOutput = T;
 
@@ -209,9 +199,10 @@ mod wasm {
             }
         }
     }
-}
+}}
 
-#[cfg(not(target_arch = "wasm32"))]
+if_native! {
+pub use native::*;
 mod native {
     use super::*;
     use std::future::Future;
@@ -236,7 +227,7 @@ mod native {
         }
     }
 
-    #[async_trait::async_trait]
+    #[xmtp_common::async_trait]
     impl<T: Send> StreamHandle for TokioStreamHandle<T> {
         type StreamOutput = T;
 
@@ -295,18 +286,19 @@ mod native {
         }
     }
 
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn spawn_instrumented<F>(
-        ready: Option<tokio::sync::oneshot::Receiver<()>>,
-        future: F,
-    ) -> impl StreamHandle<StreamOutput = F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        TokioStreamHandle {
-            inner: tokio::task::spawn(future),
-            ready,
+    crate::if_test! {
+        pub fn spawn_instrumented<F>(
+            ready: Option<tokio::sync::oneshot::Receiver<()>>,
+            future: F,
+        ) -> impl StreamHandle<StreamOutput = F::Output>
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            TokioStreamHandle {
+                inner: tokio::task::spawn(future),
+                ready,
+            }
         }
     }
-}
+}}

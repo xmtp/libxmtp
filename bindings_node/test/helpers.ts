@@ -16,6 +16,7 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 export const TEST_API_URL = 'http://localhost:5556'
+export const GATEWAY_TEST_URL = 'http://localhost:5052'
 
 export const createUser = () => {
   const key = generatePrivateKey()
@@ -37,7 +38,7 @@ export type User = ReturnType<typeof createUser>
 export const createClient = async (user: User, appVersion?: string) => {
   const dbPath = join(__dirname, `${user.uuid}.db3`)
   const inboxId =
-    (await getInboxIdForIdentifier(TEST_API_URL, false, {
+    (await getInboxIdForIdentifier(TEST_API_URL, undefined, false, {
       identifier: user.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })) ||
@@ -47,6 +48,7 @@ export const createClient = async (user: User, appVersion?: string) => {
     })
   return create(
     TEST_API_URL,
+    undefined,
     false,
     dbPath,
     inboxId,
@@ -56,10 +58,9 @@ export const createClient = async (user: User, appVersion?: string) => {
     },
     undefined,
     undefined,
-    SyncWorkerMode.disabled,
-    { level: LogLevel.error },
+    SyncWorkerMode.Disabled,
+    { level: LogLevel.Error },
     undefined,
-    true,
     appVersion ?? null
   )
 }
@@ -85,7 +86,7 @@ export const createRegisteredClient = async (
 export const createToxicClient = async (user: User) => {
   const dbPath = join(__dirname, `${user.uuid}.db3`)
   const inboxId =
-    (await getInboxIdForIdentifier(TEST_API_URL, false, {
+    (await getInboxIdForIdentifier(TEST_API_URL, undefined, false, {
       identifier: user.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })) ||
@@ -102,9 +103,8 @@ export const createToxicClient = async (user: User) => {
     },
     undefined,
     undefined,
-    SyncWorkerMode.disabled,
-    { level: LogLevel.debug },
-    undefined,
+    SyncWorkerMode.Disabled,
+    { level: LogLevel.Debug },
     true
   )
 }
@@ -123,21 +123,6 @@ export const createToxicRegisteredClient = async (user: User) => {
     }
   }
   return toxic_client
-}
-
-export const encodeTextMessage = (text: string) => {
-  return {
-    type: {
-      authorityId: 'xmtp.org',
-      typeId: 'text',
-      versionMajor: 1,
-      versionMinor: 0,
-    },
-    parameters: {
-      encoding: 'UTF-8',
-    },
-    content: new TextEncoder().encode(text),
-  }
 }
 
 export function sleep(ms: number) {

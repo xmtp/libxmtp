@@ -1,40 +1,18 @@
-use js_sys::Uint8Array;
-use wasm_bindgen::JsValue;
-use wasm_bindgen::UnwrapThrowExt;
-use wasm_bindgen::prelude::wasm_bindgen;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use tsify::Tsify;
 use xmtp_proto::xmtp::mls::message_contents::{
   ContentTypeId as XmtpContentTypeId, EncodedContent as XmtpEncodedContent,
 };
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct ContentTypeId {
-  #[wasm_bindgen(js_name = authorityId)]
   pub authority_id: String,
-  #[wasm_bindgen(js_name = typeId)]
   pub type_id: String,
-  #[wasm_bindgen(js_name = versionMajor)]
   pub version_major: u32,
-  #[wasm_bindgen(js_name = versionMinor)]
   pub version_minor: u32,
-}
-
-#[wasm_bindgen]
-impl ContentTypeId {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    authority_id: String,
-    type_id: String,
-    version_major: u32,
-    version_minor: u32,
-  ) -> Self {
-    Self {
-      authority_id,
-      type_id,
-      version_major,
-      version_minor,
-    }
-  }
 }
 
 impl From<XmtpContentTypeId> for ContentTypeId {
@@ -59,60 +37,46 @@ impl From<ContentTypeId> for XmtpContentTypeId {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, hashmap_as_object)]
+#[serde(rename_all = "camelCase")]
 pub struct EncodedContent {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[tsify(optional)]
   pub r#type: Option<ContentTypeId>,
-  pub parameters: JsValue,
+  #[tsify(type = "Record<string, string>")]
+  pub parameters: HashMap<String, String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[tsify(optional)]
   pub fallback: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[tsify(optional)]
   pub compression: Option<i32>,
-  pub content: Uint8Array,
-}
-
-#[wasm_bindgen]
-impl EncodedContent {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    r#type: Option<ContentTypeId>,
-    parameters: JsValue,
-    fallback: Option<String>,
-    compression: Option<i32>,
-    content: Uint8Array,
-  ) -> EncodedContent {
-    EncodedContent {
-      r#type,
-      parameters,
-      fallback,
-      compression,
-      content,
-    }
-  }
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
+  pub content: Vec<u8>,
 }
 
 impl From<XmtpEncodedContent> for EncodedContent {
   fn from(content: XmtpEncodedContent) -> EncodedContent {
-    let r#type = content.r#type.map(|v| v.into());
-
     EncodedContent {
-      r#type,
-      parameters: crate::to_value(&content.parameters).unwrap_throw(),
+      r#type: content.r#type.map(Into::into),
+      parameters: content.parameters,
       fallback: content.fallback,
       compression: content.compression,
-      content: content.content.as_slice().into(),
+      content: content.content,
     }
   }
 }
 
 impl From<EncodedContent> for XmtpEncodedContent {
   fn from(content: EncodedContent) -> Self {
-    let r#type = content.r#type.map(|v| v.into());
-
     XmtpEncodedContent {
-      r#type,
-      parameters: serde_wasm_bindgen::from_value(content.parameters).unwrap_throw(),
+      r#type: content.r#type.map(Into::into),
+      parameters: content.parameters,
       fallback: content.fallback,
       compression: content.compression,
-      content: content.content.to_vec(),
+      content: content.content,
     }
   }
 }

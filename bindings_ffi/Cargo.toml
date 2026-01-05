@@ -8,10 +8,13 @@ license.workspace = true
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
+async-trait.workspace = true
+chrono.workspace = true
 futures.workspace = true
 hex.workspace = true
 parking_lot.workspace = true
 prost.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros"] }
 tracing = { workspace = true, features = ["release_max_level_debug"] }
@@ -24,6 +27,7 @@ tracing-subscriber = { workspace = true, features = [
 ] }
 uniffi = { version = "0.29.0", default-features = false, features = ["tokio"] }
 xmtp_api.workspace = true
+xmtp_api_d14n.workspace = true
 xmtp_api_grpc.workspace = true
 xmtp_common = { workspace = true, features = ["logging"] }
 xmtp_configuration.workspace = true
@@ -35,6 +39,7 @@ xmtp_mls.workspace = true
 xmtp_proto.workspace = true
 
 # Bench
+alloy = { workspace = true, optional = true }
 criterion = { workspace = true, optional = true }
 fdlimit = { version = "0.3", optional = true }
 
@@ -53,6 +58,11 @@ vergen-git2 = { workspace = true, features = ["build"] }
 [[bin]]
 name = "ffi-uniffi-bindgen"
 path = "bindgen/bin.rs"
+required-features = ["uniffi/cli"]
+
+[[bin]]
+name = "ffi-uniffi-bindgen-swift"
+path = "bindgen/bin-swift.rs"
 required-features = ["uniffi/cli"]
 
 [dev-dependencies]
@@ -74,7 +84,15 @@ xmtp_proto = { workspace = true, features = ["test-utils"] }
 
 
 [features]
-bench = ["xmtp_mls/bench", "xmtp_common/bench", "dep:criterion", "dep:fdlimit"]
+bench = [
+  "xmtp_mls/bench",
+  "xmtp_common/bench",
+  "dep:criterion",
+  "dep:fdlimit",
+  "dep:alloy",
+]
+d14n = []
+dev = ["xmtp_configuration/dev", "xmtp_mls/dev"]
 
 [[bench]]
 harness = false

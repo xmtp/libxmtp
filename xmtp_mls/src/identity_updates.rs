@@ -3,12 +3,14 @@ use crate::{
     client::ClientError,
     context::XmtpSharedContext,
     groups::group_membership::{GroupMembership, MembershipDiff},
+    identity::IdentityError,
     subscriptions::SyncWorkerEvent,
 };
-use futures::future::try_join_all;
+use futures::{StreamExt, future::try_join_all, stream::FuturesUnordered};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use xmtp_common::{Retry, RetryableError, retry_async, retryable};
+use xmtp_common::{Event, Retry, RetryableError, retry_async, retryable};
+use xmtp_configuration::Originators;
 use xmtp_cryptography::CredentialSign;
 use xmtp_db::StorageError;
 use xmtp_db::XmtpDb;
@@ -25,8 +27,9 @@ use xmtp_id::{
             UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature, UnverifiedSignature,
         },
     },
-    scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
+    scw_verifier::SmartContractSignatureVerifier,
 };
+use xmtp_macro::log_event;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
@@ -425,7 +428,7 @@ where
         Ok(result)
     }
 
-    /// Generate a `ChangeRecoveryAddress` signature request using a new identifer
+    /// Generate a `ChangeRecoveryAddress` signature request using a new identifier
     pub async fn change_recovery_identifier(
         &self,
         new_recovery_identifier: Identifier,
@@ -482,15 +485,18 @@ where
     pub async fn get_installation_diff(
         &self,
         conn: &impl DbQuery,
+        group_id: &[u8], // used for logging
         old_group_membership: &GroupMembership,
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
     ) -> Result<InstallationDiff, InstallationDiffError> {
-        tracing::info!(
-            "Getting installation diff. Old: {:?}. New {:?}",
-            old_group_membership,
-            new_group_membership
+        log_event!(
+            Event::MembershipInstallationDiff,
+            group_id = hex::encode(group_id),
+            old_membership = ?old_group_membership,
+            new_membership = ?new_group_membership
         );
+
         let added_and_updated_members = membership_diff
             .added_inboxes
             .iter()
@@ -516,24 +522,30 @@ where
         let mut added_installations: HashSet<Vec<u8>> = HashSet::new();
         let mut removed_installations: HashSet<Vec<u8>> = HashSet::new();
 
-        // TODO: Do all of this in parallel
+        let mut futs = FuturesUnordered::new();
         for inbox_id in added_and_updated_members {
-            let starting_sequence_id = match old_group_membership.get(inbox_id) {
-                Some(0) => None,
-                Some(i) => Some(*i as i64),
-                None => None,
-            };
-            let state_diff = self
-                .get_association_state_diff(
-                    conn,
-                    inbox_id.as_str(),
-                    starting_sequence_id,
-                    new_group_membership.get(inbox_id).map(|i| *i as i64),
-                )
-                .await?;
+            futs.push(async move {
+                let starting_sequence_id = match old_group_membership.get(inbox_id) {
+                    Some(0) => None,
+                    Some(i) => Some(*i as i64),
+                    None => None,
+                };
+                let state_diff = self
+                    .get_association_state_diff(
+                        conn,
+                        inbox_id.as_str(),
+                        starting_sequence_id,
+                        new_group_membership.get(inbox_id).map(|i| *i as i64),
+                    )
+                    .await?;
 
-            added_installations.extend(state_diff.new_installations());
-            removed_installations.extend(state_diff.removed_installations());
+                Ok::<_, InstallationDiffError>(state_diff)
+            });
+        }
+        while let Some(result) = futs.next().await {
+            let diff = result?;
+            added_installations.extend(diff.new_installations());
+            removed_installations.extend(diff.removed_installations());
         }
 
         for inbox_id in membership_diff.removed_inboxes.iter() {
@@ -549,6 +561,13 @@ where
             // In the case of a removed member, get all the "new installations" from the diff and add them to the list of removed installations
             removed_installations.extend(state_diff.new_installations());
         }
+
+        log_event!(
+            Event::MembershipInstallationDiffComputed,
+            group_id = hex::encode(group_id),
+            added_installations = ?added_installations,
+            removed_installations = ?removed_installations
+        );
 
         Ok(InstallationDiff {
             added_installations,
@@ -591,6 +610,7 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
                 sequence_id: update.sequence_id as i64,
                 server_timestamp_ns: update.server_timestamp_ns as i64,
                 payload: update.update.clone().into(),
+                originator_id: Originators::INBOX_LOG as i32,
             })
         })
         .collect::<Vec<StoredIdentityUpdate>>();
@@ -620,7 +640,7 @@ pub async fn is_member_of_association_state<Client>(
     scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
 ) -> Result<bool, ClientError>
 where
-    Client: XmtpMlsClient + XmtpIdentityClient + Clone + Send + Sync,
+    Client: XmtpMlsClient + XmtpIdentityClient + Clone,
 {
     let filters = vec![GetIdentityUpdatesV2Filter {
         inbox_id: inbox_id.to_string(),
@@ -640,10 +660,8 @@ where
 
     let mut association_state = None;
 
-    let scw_verifier = scw_verifier.unwrap_or_else(|| {
-        Box::new(RemoteSignatureVerifier::new(api_client.clone()))
-            as Box<dyn SmartContractSignatureVerifier>
-    });
+    let scw_verifier = scw_verifier
+        .unwrap_or_else(|| Box::new(api_client.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
     let updates: Vec<_> = updates
         .iter()
@@ -662,6 +680,25 @@ where
     Ok(association_state.get(identifier).is_some())
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
+pub async fn get_creation_signature_kind(
+    conn: &impl xmtp_db::DbQuery,
+    scw_verifier: impl SmartContractSignatureVerifier,
+    inbox_id: InboxIdRef<'_>,
+) -> Result<Option<xmtp_id::associations::SignatureKind>, ClientError> {
+    let updates = conn.get_identity_updates(inbox_id, None, None)?;
+
+    let first_update = updates
+        .first()
+        .ok_or_else(|| ClientError::Identity(IdentityError::RequiredIdentityNotFound))?;
+
+    let unverified_update: UnverifiedIdentityUpdate = first_update.clone().try_into()?;
+
+    let verified = unverified_update.to_verified(scw_verifier).await?;
+
+    Ok(verified.creation_signature_kind())
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     #![allow(unused)] // b/c wasm & native
@@ -678,6 +715,7 @@ pub(crate) mod tests {
     };
     use alloy::signers::Signer;
     use xmtp_api::IdentityUpdate;
+    use xmtp_configuration::Originators;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{
         InboxOwner,
@@ -720,8 +758,13 @@ pub(crate) mod tests {
     where
         C: ConnectionExt,
     {
-        let identity_update =
-            StoredIdentityUpdate::new(inbox_id.to_string(), sequence_id, 0, rand_vec::<24>());
+        let identity_update = StoredIdentityUpdate::new(
+            inbox_id.to_string(),
+            sequence_id,
+            0,
+            rand_vec::<24>(),
+            Originators::INBOX_LOG as i32,
+        );
 
         conn.insert_or_ignore_identity_updates(&[identity_update])
             .expect("insert should succeed");
@@ -844,7 +887,10 @@ pub(crate) mod tests {
 
         use xmtp_common::assert_logged;
 
-        use crate::{groups::device_sync::DeviceSyncClient, worker::metrics::WorkerMetrics};
+        use crate::{
+            groups::device_sync::DeviceSyncClient, utils::LocalTester,
+            worker::metrics::WorkerMetrics,
+        };
 
         xmtp_common::traced_test!(async {
             let client = Tester::new().await;
@@ -949,7 +995,7 @@ pub(crate) mod tests {
         let mut inbox_ids: Vec<String> = vec![];
 
         // Create an inbox with 2 history items for each client
-        for (client, wallet) in vec![
+        for (client, wallet) in [
             (client_1, wallet_1),
             (client_2, wallet_2),
             (client_3, wallet_3),
@@ -1028,6 +1074,7 @@ pub(crate) mod tests {
             .identity_updates()
             .get_installation_diff(
                 &other_conn,
+                &[],
                 &original_group_membership,
                 &new_group_membership,
                 &membership_diff,

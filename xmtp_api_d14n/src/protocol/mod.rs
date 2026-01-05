@@ -1,14 +1,29 @@
 //! <https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#33-client-to-node-protocol>
 
+#[macro_use]
+pub mod macros;
+
 pub mod traits;
 pub use traits::*;
-
-pub mod types;
-pub use types::*;
-
-pub mod envelopes;
 
 pub mod extractors;
 pub use extractors::*;
 
+mod in_memory_cursor_store;
+pub use in_memory_cursor_store::*;
+
 mod impls;
+
+pub mod resolve;
+
+pub mod sort;
+
+pub mod types;
+
+mod order;
+pub use order::*;
+
+mod utils;
+
+#[cfg(test)]
+pub use utils::test;

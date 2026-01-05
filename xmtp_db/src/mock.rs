@@ -1,3 +1,4 @@
+use crate::StorageError;
 use crate::association_state::QueryAssociationStateCache;
 use crate::group::ConversationType;
 use crate::group::StoredGroupCommitLogPublicKey;
@@ -5,13 +6,17 @@ use crate::local_commit_log::{LocalCommitLog, LocalCommitLogOrder};
 use crate::remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder};
 use std::collections::HashMap;
 use std::sync::Arc;
+use xmtp_proto::types::{Cursor, GlobalCursor, OrphanedEnvelope, Topic};
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
-use diesel::prelude::SqliteConnection;
+use crate::SqliteConnection;
+use crate::prelude::*;
 use mockall::mock;
 use parking_lot::Mutex;
 
+use crate::pending_remove::QueryPendingRemove;
 use crate::{ConnectionError, ConnectionExt};
+
 pub type MockDb = MockDbQuery;
 
 #[derive(Clone)]
@@ -59,9 +64,6 @@ impl ConnectionExt for MockConnection {
         Ok(())
     }
 }
-
-use crate::StorageError;
-use crate::prelude::*;
 
 mock! {
     pub DbQuery {
@@ -126,7 +128,7 @@ mock! {
         ) -> Result<Option<crate::group::StoredGroup>, ConnectionError>;
 
         #[mockall::concretize]
-        fn find_dm_group<M>(
+        fn find_active_dm_group<M>(
             &self,
             members: M,
         ) -> Result<Option<crate::group::StoredGroup>, ConnectionError>
@@ -174,9 +176,9 @@ mock! {
             id: &[u8],
         ) -> Result<Option<crate::group::StoredGroup>, crate::ConnectionError>;
 
-        fn find_group_by_welcome_id(
+        fn find_group_by_sequence_id(
             &self,
-            welcome_id: i64,
+            cursor: Cursor,
         ) -> Result<Option<crate::group::StoredGroup>, crate::ConnectionError>;
 
         fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError>;
@@ -204,7 +206,7 @@ mock! {
             group: crate::group::StoredGroup,
         ) -> Result<crate::group::StoredGroup, StorageError>;
 
-        fn group_welcome_ids(&self) -> Result<Vec<i64>, crate::ConnectionError>;
+        fn group_cursors(&self) -> Result<Vec<Cursor>, crate::ConnectionError>;
 
         fn mark_group_as_maybe_forked(
             &self,
@@ -224,6 +226,14 @@ mock! {
             &self,
         ) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
 
+        fn get_conversation_ids_for_requesting_readds(
+            &self,
+        ) -> Result<Vec<crate::encrypted_store::group::StoredGroupForReaddRequest>, crate::ConnectionError>;
+
+        fn get_conversation_ids_for_responding_readds(
+            &self,
+        ) -> Result<Vec<crate::encrypted_store::group::StoredGroupForRespondingReadds>, crate::ConnectionError>;
+
         fn get_conversation_type(&self, group_id: &[u8]) -> Result<ConversationType, crate::ConnectionError>;
 
         fn set_group_commit_log_public_key(
@@ -242,6 +252,15 @@ mock! {
             &self,
             group_id: &[u8],
         ) -> Result<Option<bool>, StorageError>;
+
+        fn set_group_has_pending_leave_request_status(
+            &self,
+            group_id: &[u8],
+            has_pending_leave_request: Option<bool>,
+        ) -> Result<(), StorageError>;
+            fn get_groups_have_pending_leave_request(
+        &self,
+    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
     }
 
     impl QueryGroupVersion for DbQuery {
@@ -258,9 +277,10 @@ mock! {
             to_save: crate::group_intent::NewGroupIntent,
         ) -> Result<crate::group_intent::StoredGroupIntent, crate::ConnectionError>;
 
-        fn find_group_intents(
+        #[mockall::concretize]
+        fn find_group_intents<Id: AsRef<[u8]>>(
             &self,
-            group_id: Vec<u8>,
+            group_id: Id,
             allowed_states: Option<Vec<crate::group_intent::IntentState>>,
             allowed_kinds: Option<Vec<crate::group_intent::IntentKind>>,
         ) -> Result<Vec<crate::group_intent::StoredGroupIntent>, crate::ConnectionError>;
@@ -277,7 +297,7 @@ mock! {
         fn set_group_intent_committed(
             &self,
             intent_id: crate::group_intent::ID,
-            sequence_id: i64,
+            cursor: Cursor,
         ) -> Result<(), StorageError>;
 
         fn set_group_intent_processed(
@@ -300,6 +320,12 @@ mock! {
             payload_hash: &[u8],
         ) -> Result<Option<crate::group_intent::StoredGroupIntent>, StorageError>;
 
+        #[mockall::concretize]
+        fn find_dependant_commits<P: AsRef<[u8]>>(
+            &self,
+            payload_hashes: &[P],
+        ) -> Result<HashMap<crate::group_intent::PayloadHash, crate::group_intent::IntentDependency>, StorageError>;
+
         fn increment_intent_publish_attempt_count(
             &self,
             intent_id: crate::group_intent::ID,
@@ -312,12 +338,64 @@ mock! {
         ) -> Result<(), StorageError>;
     }
 
+    impl QueryReaddStatus for DbQuery {
+        fn get_readd_status(
+            &self,
+            group_id: &[u8],
+            installation_id: &[u8],
+        ) -> Result<Option<crate::readd_status::ReaddStatus>, crate::ConnectionError>;
+
+        fn is_awaiting_readd(
+            &self,
+            group_id: &[u8],
+            installation_id: &[u8],
+        ) -> Result<bool, crate::ConnectionError>;
+
+        fn update_requested_at_sequence_id(
+            &self,
+            group_id: &[u8],
+            installation_id: &[u8],
+            sequence_id: i64,
+        ) -> Result<(), crate::ConnectionError>;
+
+        fn update_responded_at_sequence_id(
+            &self,
+            group_id: &[u8],
+            installation_id: &[u8],
+            sequence_id: i64,
+        ) -> Result<(), crate::ConnectionError>;
+
+        fn delete_other_readd_statuses(
+            &self,
+            group_id: &[u8],
+            self_installation_id: &[u8],
+        ) -> Result<(), crate::ConnectionError>;
+
+        fn delete_readd_statuses(
+            &self,
+            group_id: &[u8],
+            installation_ids: std::collections::HashSet<Vec<u8> > ,
+        ) -> Result<(), crate::ConnectionError>;
+
+        fn get_readds_awaiting_response(
+            &self,
+            group_id: &[u8],
+            self_installation_id: &[u8],
+        ) -> Result<Vec<crate::readd_status::ReaddStatus>, crate::ConnectionError>;
+    }
+
     impl QueryGroupMessage for DbQuery {
         fn get_group_messages(
             &self,
             group_id: &[u8],
             args: &crate::group_message::MsgQueryArgs,
         ) -> Result<Vec<crate::group_message::StoredGroupMessage>, crate::ConnectionError>;
+
+        fn count_group_messages(
+            &self,
+            group_id: &[u8],
+            args: &crate::group_message::MsgQueryArgs,
+        ) -> Result<i64, crate::ConnectionError>;
 
         fn group_messages_paged(
             &self,
@@ -371,10 +449,10 @@ mock! {
         ) -> Result<Option<crate::group_message::StoredGroupMessage>, crate::ConnectionError>;
 
         #[mockall::concretize]
-        fn get_group_message_by_sequence_id<GroupId: AsRef<[u8]>>(
+        fn get_group_message_by_cursor<GroupId: AsRef<[u8]>>(
             &self,
             group_id: GroupId,
-            sequence_id: i64,
+            sequence_id: Cursor,
         ) -> Result<Option<crate::group_message::StoredGroupMessage>, crate::ConnectionError>;
 
         fn get_sync_group_messages(
@@ -388,7 +466,7 @@ mock! {
             &self,
             msg_id: &MessageId,
             timestamp: u64,
-            sequence_id: i64,
+            cursor: Cursor,
             message_expire_at_ns: Option<i64>
         ) -> Result<usize, crate::ConnectionError>;
 
@@ -398,7 +476,7 @@ mock! {
             msg_id: &MessageId,
         ) -> Result<usize, crate::ConnectionError>;
 
-        fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError>;
+        fn delete_expired_messages(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
 
         #[mockall::concretize]
         fn delete_message_by_id<MessageId: AsRef<[u8]>>(
@@ -412,6 +490,17 @@ mock! {
             group_id: GroupId,
             allowed_content_types: &[crate::group_message::ContentType],
         ) -> Result<crate::group_message::LatestMessageTimeBySender, crate::ConnectionError>;
+
+        fn messages_newer_than(
+            &self,
+            cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
+        ) -> Result<Vec<Cursor>, crate::ConnectionError>;
+
+        fn clear_messages<'a>(
+            &self,
+            group_ids: Option<&'a [Vec<u8>]>,
+            retention_days: Option<u32>,
+        ) -> Result<usize, crate::ConnectionError>;
     }
 
     impl QueryIdentity for DbQuery {
@@ -492,28 +581,59 @@ mock! {
             &self,
             entity_id: EntityId,
             entity_kind: crate::refresh_state::EntityKind,
+            originator_id: u32,
         ) -> Result<Option<crate::refresh_state::RefreshState>, StorageError>;
 
         #[mockall::concretize]
-        fn get_last_cursor_for_id<Id: AsRef<[u8]>>(
+        fn get_last_cursor_for_originators<Id: AsRef<[u8]>>(
             &self,
             id: Id,
             entity_kind: crate::refresh_state::EntityKind,
-        ) -> Result<i64, StorageError>;
+            originator_id: &[u32]
+        ) -> Result<Vec<Cursor>, StorageError>;
+
+        #[mockall::concretize]
+        fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
+            &self,
+            ids: &[Id],
+            entities: &[crate::refresh_state::EntityKind],
+        ) -> Result<std::collections::HashMap<Vec<u8>, GlobalCursor>, StorageError>;
 
         #[mockall::concretize]
         fn update_cursor<Id: AsRef<[u8]>>(
             &self,
             entity_id: Id,
             entity_kind: crate::refresh_state::EntityKind,
-            cursor: i64,
+            cursor: xmtp_proto::types::Cursor
         ) -> Result<bool, StorageError>;
 
         #[mockall::concretize]
         fn get_remote_log_cursors(
             &self,
             conversation_ids: &[&Vec<u8>],
-        ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError>;
+        ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError>;
+
+        #[mockall::concretize]
+        fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, StorageError>;
+
+        #[mockall::concretize]
+        fn latest_cursor_for_id<Id: AsRef<[u8]>>(
+            &self,
+            entity: Id,
+            entities: &[crate::refresh_state::EntityKind],
+            originators: Option<&[&xmtp_proto::types::OriginatorId]>
+        ) -> Result<xmtp_proto::types::GlobalCursor, StorageError>;
+
+        #[mockall::concretize]
+        fn latest_cursor_combined<Id: AsRef<[u8]>>(
+            &self,
+            entity_id: Id,
+            entities: &[crate::refresh_state::EntityKind],
+            originators: Option<&[&xmtp_proto::types::OriginatorId]>,
+        ) -> Result<GlobalCursor, StorageError>;
+
+        #[mockall::concretize]
+        fn lowest_common_cursor_combined(&self, topics: &[&Topic]) -> Result<GlobalCursor, StorageError>;
     }
 
     impl QueryIdentityUpdates for DbQuery {
@@ -602,6 +722,24 @@ mock! {
         ) -> Result<Vec<AssociationStateProto>, StorageError>;
     }
 
+    impl QueryTasks for DbQuery {
+        fn create_task(&self, task: crate::tasks::NewTask) -> Result<crate::tasks::Task, StorageError>;
+
+        fn get_tasks(&self) -> Result<Vec<crate::tasks::Task>, StorageError>;
+
+        fn get_next_task(&self) -> Result<Option<crate::tasks::Task>, StorageError>;
+
+        fn update_task(
+            &self,
+            id: i32,
+            attempts: i32,
+            last_attempted_at_ns: i64,
+            next_attempt_at_ns: i64,
+        ) -> Result<crate::tasks::Task, StorageError>;
+
+        fn delete_task(&self, id: i32) -> Result<bool, StorageError>;
+    }
+
     impl Pragmas for DbQuery {
         fn busy_timeout(
             &self,
@@ -611,6 +749,64 @@ mock! {
             &self,
             level: S
         ) -> Result<(), crate::ConnectionError>;
+    }
+
+    impl QueryPendingRemove for DbQuery{
+        fn get_pending_remove_users(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Vec<String>, crate::ConnectionError>;
+        fn delete_pending_remove_users(
+        &self,
+            group_id: &[u8],
+            inbox_ids: Vec<String>,
+        ) -> Result<usize, crate::ConnectionError>;
+             fn get_user_pending_remove_status(&self,
+            group_id: &[u8],
+            inbox_id: &str,
+        ) -> Result<bool, crate::ConnectionError>;
+    }
+
+    impl QueryIcebox for DbQuery {
+        fn past_dependents(
+            &self,
+            cursors: &[xmtp_proto::types::Cursor],
+        ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
+
+        fn future_dependents(
+            &self,
+            cursors: &[xmtp_proto::types::Cursor],
+        ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
+
+        fn ice(
+            &self,
+            orphans: Vec<OrphanedEnvelope>,
+        ) -> Result<usize, crate::ConnectionError>;
+
+        fn prune_icebox(&self) -> Result<usize, crate::ConnectionError>;
+    }
+
+    impl crate::migrations::QueryMigrations for DbQuery {
+        fn applied_migrations(&self) -> Result<Vec<String>, crate::ConnectionError>;
+
+        fn available_migrations(&self) -> Result<Vec<String>, crate::ConnectionError>;
+
+        fn rollback_to_version<'a>(
+            &self,
+            version: &'a str,
+        ) -> Result<Vec<String>, crate::ConnectionError>;
+
+        fn run_migration<'a>(
+            &self,
+            name: &'a str,
+        ) -> Result<(), crate::ConnectionError>;
+
+        fn revert_migration<'a>(
+            &self,
+            name: &'a str,
+        ) -> Result<(), crate::ConnectionError>;
+
+        fn run_pending_migrations(&self) -> Result<Vec<String>, crate::ConnectionError>;
     }
 }
 

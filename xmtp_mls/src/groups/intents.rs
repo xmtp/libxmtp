@@ -3,34 +3,48 @@ use super::{
     group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
     mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension},
 };
-use xmtp_configuration::GROUP_KEY_ROTATION_INTERVAL_NS;
+use xmtp_configuration::{
+    GROUP_KEY_ROTATION_INTERVAL_NS, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+};
 
-use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
+use crate::{
+    groups::mls_ext::WelcomePointersExtension,
+    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+};
 use openmls::prelude::{
     MlsMessageOut,
     tls_codec::{Error as TlsCodecError, Serialize},
 };
-use prost::{DecodeError, Message, bytes::Bytes};
+use prost::{Message, bytes::Bytes};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::types::Address;
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
-use xmtp_proto::xmtp::mls::database::{
-    AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
-    InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
-    UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
-    addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
-    post_commit_action::{
-        Installation as InstallationProto, Kind as PostCommitActionKind,
-        SendWelcomes as SendWelcomesProto,
+use xmtp_proto::{
+    ConversionError,
+    xmtp::mls::database::{
+        AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
+        InstallationIds, PostCommitAction as PostCommitActionProto, ReaddInstallationsData,
+        SendMessageData, UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData,
+        UpdatePermissionData,
+        addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
+        post_commit_action::{
+            Installation as InstallationProto, Kind as PostCommitActionKind,
+            SendWelcomes as SendWelcomesProto,
+        },
+        readd_installations_data::{
+            V1 as ReaddInstallationsV1, Version as ReaddInstallationsVersion,
+        },
+        send_message_data::{V1 as SendMessageV1, Version as SendMessageVersion},
+        update_admin_lists_data::{V1 as UpdateAdminListsV1, Version as UpdateAdminListsVersion},
+        update_group_membership_data::{
+            V1 as UpdateGroupMembershipV1, Version as UpdateGroupMembershipVersion,
+        },
+        update_metadata_data::{V1 as UpdateMetadataV1, Version as UpdateMetadataVersion},
+        update_permission_data::{
+            self, V1 as UpdatePermissionV1, Version as UpdatePermissionVersion,
+        },
     },
-    send_message_data::{V1 as SendMessageV1, Version as SendMessageVersion},
-    update_admin_lists_data::{V1 as UpdateAdminListsV1, Version as UpdateAdminListsVersion},
-    update_group_membership_data::{
-        V1 as UpdateGroupMembershipV1, Version as UpdateGroupMembershipVersion,
-    },
-    update_metadata_data::{V1 as UpdateMetadataV1, Version as UpdateMetadataVersion},
-    update_permission_data::{self, V1 as UpdatePermissionV1, Version as UpdatePermissionVersion},
 };
 
 mod queue;
@@ -38,8 +52,8 @@ pub use queue::*;
 
 #[derive(Debug, Error)]
 pub enum IntentError {
-    #[error("decode error: {0}")]
-    Decode(#[from] DecodeError),
+    #[error("conversion error: {0}")]
+    Conversion(#[from] xmtp_proto::ConversionError),
     #[error("key package verification: {0}")]
     KeyPackageVerification(#[from] KeyPackageVerificationError),
     #[error("TLS Codec error: {0}")]
@@ -62,6 +76,12 @@ pub enum IntentError {
     UnknownPermissionPolicyOption,
     #[error("unknown value for AdminListActionType")]
     UnknownAdminListAction,
+}
+
+impl From<prost::DecodeError> for IntentError {
+    fn from(error: prost::DecodeError) -> Self {
+        IntentError::Conversion(xmtp_proto::ConversionError::Decode(error))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -191,6 +211,13 @@ impl UpdateMetadataIntentData {
         Self {
             field_name: MetadataField::Description.to_string(),
             field_value: group_description,
+        }
+    }
+
+    pub fn new_update_app_data(app_data: String) -> Self {
+        Self {
+            field_name: MetadataField::AppData.to_string(),
+            field_value: app_data,
         }
     }
 
@@ -623,6 +650,63 @@ impl TryFrom<Vec<u8>> for UpdatePermissionIntentData {
     }
 }
 
+pub(crate) struct ReaddInstallationsIntentData {
+    pub readded_installations: Vec<Vec<u8>>,
+}
+
+impl ReaddInstallationsIntentData {
+    pub fn new(readded_installations: Vec<Vec<u8>>) -> Self {
+        Self {
+            readded_installations,
+        }
+    }
+}
+
+impl From<ReaddInstallationsIntentData> for Vec<u8> {
+    fn from(intent: ReaddInstallationsIntentData) -> Self {
+        let mut buf = Vec::new();
+        ReaddInstallationsData {
+            version: Some(ReaddInstallationsVersion::V1(ReaddInstallationsV1 {
+                readded_installations: intent.readded_installations,
+            })),
+        }
+        .encode(&mut buf)
+        .expect("encode error");
+
+        buf
+    }
+}
+
+impl TryFrom<Vec<u8>> for ReaddInstallationsIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
+        if let ReaddInstallationsData {
+            version: Some(ReaddInstallationsVersion::V1(v1)),
+        } = ReaddInstallationsData::decode(data.as_slice())?
+        {
+            Ok(Self::new(v1.readded_installations))
+        } else {
+            Err(IntentError::MissingPayload)
+        }
+    }
+}
+
+impl TryFrom<&[u8]> for ReaddInstallationsIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        if let ReaddInstallationsData {
+            version: Some(ReaddInstallationsVersion::V1(v1)),
+        } = ReaddInstallationsData::decode(data)?
+        {
+            Ok(Self::new(v1.readded_installations))
+        } else {
+            Err(IntentError::MissingPayload)
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum PostCommitAction {
     SendWelcomes(SendWelcomesAction),
@@ -633,6 +717,7 @@ pub struct Installation {
     pub(crate) installation_key: Vec<u8>,
     pub(crate) hpke_public_key: Vec<u8>,
     pub(crate) welcome_wrapper_algorithm: WrapperAlgorithm,
+    pub(crate) welcome_pointee_encryption_aead_types: WelcomePointersExtension,
 }
 
 impl Installation {
@@ -648,10 +733,19 @@ impl Installation {
             )
         });
 
+        let welcome_pointee_encryption_aead_types = key_package
+            .inner
+            .extensions()
+            .unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID)
+            .map(|ext| ext.0.as_slice().try_into())
+            .transpose()?;
+
         Ok(Self {
             installation_key: key_package.installation_id(),
             hpke_public_key: wrapper_encryption.pub_key_bytes,
             welcome_wrapper_algorithm: wrapper_encryption.algorithm,
+            welcome_pointee_encryption_aead_types: welcome_pointee_encryption_aead_types
+                .unwrap_or_else(WelcomePointersExtension::empty),
         })
     }
 }
@@ -662,17 +756,25 @@ impl From<Installation> for InstallationProto {
             installation_key: installation.installation_key,
             hpke_public_key: installation.hpke_public_key,
             welcome_wrapper_algorithm: installation.welcome_wrapper_algorithm.into(),
+            welcome_pointee_encryption_aead_types: Some(
+                installation.welcome_pointee_encryption_aead_types.into(),
+            ),
         }
     }
 }
 
-impl From<InstallationProto> for Installation {
-    fn from(installation: InstallationProto) -> Self {
-        Self {
+impl TryFrom<InstallationProto> for Installation {
+    type Error = ConversionError;
+    fn try_from(installation: InstallationProto) -> Result<Self, Self::Error> {
+        Ok(Self {
             installation_key: installation.installation_key,
             hpke_public_key: installation.hpke_public_key,
-            welcome_wrapper_algorithm: installation.welcome_wrapper_algorithm.into(),
-        }
+            welcome_wrapper_algorithm: installation.welcome_wrapper_algorithm.try_into()?,
+            welcome_pointee_encryption_aead_types: installation
+                .welcome_pointee_encryption_aead_types
+                .map(Into::into)
+                .unwrap_or_else(WelcomePointersExtension::empty),
+        })
     }
 }
 
@@ -714,15 +816,20 @@ impl PostCommitAction {
     }
 
     pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
-        let decoded = PostCommitActionProto::decode(data)?;
-        match decoded.kind {
-            Some(PostCommitActionKind::SendWelcomes(proto)) => {
+        let decoded = PostCommitActionProto::decode(data)?
+            .kind
+            .ok_or(IntentError::MissingPostCommit)?;
+        match decoded {
+            PostCommitActionKind::SendWelcomes(proto) => {
                 Ok(Self::SendWelcomes(SendWelcomesAction::new(
-                    proto.installations.into_iter().map(|i| i.into()).collect(),
+                    proto
+                        .installations
+                        .into_iter()
+                        .map(|i| i.try_into())
+                        .collect::<Result<_, _>>()?,
                     proto.welcome_message,
                 )))
             }
-            None => Err(IntentError::MissingPostCommit),
         }
     }
 
@@ -749,15 +856,15 @@ impl TryFrom<Vec<u8>> for PostCommitAction {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use crate::groups::send_message_opts::SendMessageOpts;
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use crate::context::XmtpSharedContext;
-    use openmls::prelude::{MlsMessageBodyIn, MlsMessageIn, ProcessedMessageContent};
-    use tls_codec::Deserialize;
+    use openmls::prelude::{ProcessedMessageContent, ProtocolMessage};
+    use xmtp_api_d14n::protocol::XmtpQuery;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::XmtpOpenMlsProviderRef;
-
-    use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, group_message};
+    use xmtp_proto::types::TopicKind;
 
     use crate::{builder::ClientBuilder, utils::TestMlsGroup};
 
@@ -812,10 +919,23 @@ pub(crate) mod tests {
         assert_eq!(intent.field_value, restored_intent.field_value);
     }
 
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_serialize_readd_installations() {
+        let readded_installations = vec![vec![1, 2, 3], vec![4, 5, 6], vec![7, 8, 9]];
+
+        let intent = ReaddInstallationsIntentData::new(readded_installations.clone());
+
+        let as_bytes: Vec<u8> = intent.into();
+        let restored_intent: ReaddInstallationsIntentData = as_bytes.try_into().unwrap();
+
+        assert_eq!(readded_installations, restored_intent.readded_installations);
+    }
+
     #[xmtp_common::test]
     async fn test_key_rotation_before_first_message() {
-        let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let client_a = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
+        let client_b = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
 
         // client A makes a group with client B, and then sends a message to client B.
         let group_a = client_a.create_group(None, None).expect("create group");
@@ -823,7 +943,10 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&[client_b.inbox_id()])
             .await
             .unwrap();
-        group_a.send_message(b"First message from A").await.unwrap();
+        group_a
+            .send_message(b"First message from A", SendMessageOpts::default())
+            .await
+            .unwrap();
 
         // No key rotation needed, because A's commit to add B already performs a rotation.
         // Group should have a commit to add client B, followed by A's message.
@@ -834,7 +957,7 @@ pub(crate) mod tests {
         assert_eq!(groups_b.len(), 1);
         let group_b = groups_b[0].clone();
         group_b
-            .send_message(b"First message from B")
+            .send_message(b"First message from B", SendMessageOpts::default())
             .await
             .expect("send message");
 
@@ -845,17 +968,17 @@ pub(crate) mod tests {
 
         // Verify key rotation payload
         for i in 0..payloads_a.len() {
-            assert_eq!(payloads_a[i].encode_to_vec(), payloads_b[i].encode_to_vec());
+            assert_eq!(payloads_a[i].payload_hash, payloads_b[i].payload_hash);
         }
         verify_commit_updates_leaf_node(&group_a, &payloads_a[2]);
 
         // Client B sends another message to Client A, and Client A sends another message to Client B.
         group_b
-            .send_message(b"Second message from B")
+            .send_message(b"Second message from B", SendMessageOpts::default())
             .await
             .expect("send message");
         group_a
-            .send_message(b"Second message from A")
+            .send_message(b"Second message from A", SendMessageOpts::default())
             .await
             .expect("send message");
 
@@ -867,26 +990,24 @@ pub(crate) mod tests {
     async fn verify_num_payloads_in_group(
         group: &TestMlsGroup,
         num_messages: usize,
-    ) -> Vec<GroupMessage> {
+    ) -> Vec<xmtp_proto::types::GroupMessage> {
         let messages = group
             .context
             .api()
-            .query_group_messages(group.group_id.clone(), None)
+            .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
             .await
             .unwrap();
         assert_eq!(messages.len(), num_messages);
-        messages
+        messages.group_messages().unwrap()
     }
 
-    fn verify_commit_updates_leaf_node(group: &TestMlsGroup, payload: &GroupMessage) {
-        let msgv1 = match &payload.version {
-            Some(group_message::Version::V1(value)) => value,
-            _ => panic!("error msgv1"),
-        };
-
-        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&msgv1.data).unwrap();
-        let mls_message = match mls_message_in.extract() {
-            MlsMessageBodyIn::PrivateMessage(mls_message) => mls_message,
+    fn verify_commit_updates_leaf_node(
+        group: &TestMlsGroup,
+        message: &xmtp_proto::types::GroupMessage,
+    ) {
+        let mls_message = message.message.clone();
+        let mls_message = match mls_message {
+            ProtocolMessage::PrivateMessage(mls_message) => mls_message,
             _ => panic!("error mls_message"),
         };
 

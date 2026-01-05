@@ -5,7 +5,6 @@ import {
   createClient,
   createRegisteredClient,
   createUser,
-  encodeTextMessage,
   sleep,
   TEST_API_URL,
 } from '@test/helpers'
@@ -199,17 +198,19 @@ describe('Client', () => {
       await client3.revokeAllOtherInstallationsSignatureRequest()
     expect(signatureRequest).toBeDefined()
 
-    // sign message
-    const signature = await user.wallet.signMessage({
-      message: await signatureRequest.signatureText(),
-    })
+    if (signatureRequest) {
+      // sign message
+      const signature = await user.wallet.signMessage({
+        message: await signatureRequest.signatureText(),
+      })
 
-    await signatureRequest.addEcdsaSignature(toBytes(signature))
-    await client3.applySignatureRequest(signatureRequest)
-    const inboxState2 = await client3.inboxState(true)
+      await signatureRequest.addEcdsaSignature(toBytes(signature))
+      await client3.applySignatureRequest(signatureRequest)
+      const inboxState2 = await client3.inboxState(true)
 
-    expect(inboxState2.installations.length).toBe(1)
-    expect(inboxState2.installations[0].id).toBe(client3.installationId())
+      expect(inboxState2.installations.length).toBe(1)
+      expect(inboxState2.installations[0].id).toBe(client3.installationId())
+    }
   })
 
   it('should revoke a specific installation using static_revoke_installations', async () => {
@@ -235,6 +236,7 @@ describe('Client', () => {
     // Revoke just client2's installation
     const signatureRequest = await revokeInstallationsSignatureRequest(
       TEST_API_URL,
+      undefined,
       client1.accountIdentifier,
       client1.inboxId(),
       [client2.installationIdBytes()]
@@ -248,7 +250,7 @@ describe('Client', () => {
 
     await signatureRequest.addEcdsaSignature(toBytes(signature))
 
-    await applySignatureRequest(TEST_API_URL, signatureRequest)
+    await applySignatureRequest(TEST_API_URL, undefined, signatureRequest)
 
     const stateAfter1 = await client1.inboxState(true)
     const stateAfter2 = await client2.inboxState(true)
@@ -339,7 +341,7 @@ describe('Client', () => {
     const client2 = await createRegisteredClient(user)
     user.uuid = v4()
 
-    const state = await inboxStateFromInboxIds(TEST_API_URL, [
+    const state = await inboxStateFromInboxIds(TEST_API_URL, undefined, [
       client1.inboxId(),
     ])
     expect(state[0].inboxId).toBe(client1.inboxId())
@@ -365,6 +367,26 @@ describe('Client', () => {
       verifySignedWithPublicKey(text, signature, new Uint8Array())
     ).toThrow()
   })
+
+  it('should release and reconnect database connection', async () => {
+    const user = createUser()
+    const client = await createRegisteredClient(user)
+
+    // Verify database operations work initially
+    expect(() => client.conversations().list()).not.toThrow()
+
+    // Release the database connection
+    client.releaseDbConnection()
+
+    // Verify database operations fail when connection is released
+    expect(() => client.conversations().list()).toThrow()
+
+    // Reconnect the database
+    await client.dbReconnect()
+
+    // Verify database operations work again after reconnecting
+    expect(() => client.conversations().list()).not.toThrow()
+  })
 })
 
 describe('Streams', () => {
@@ -387,7 +409,7 @@ describe('Streams', () => {
 
     let messages = new Array()
     client2.conversations().syncAllConversations()
-    let stream = client2.conversations().streamAllMessages(
+    let stream = await client2.conversations().streamAllMessages(
       (msg) => {
         messages.push(msg)
       },
@@ -396,10 +418,10 @@ describe('Streams', () => {
       }
     )
     await stream.waitForReady()
-    group.send(encodeTextMessage('Test1'))
-    group.send(encodeTextMessage('Test2'))
-    group.send(encodeTextMessage('Test3'))
-    group.send(encodeTextMessage('Test4'))
+    group.sendText('Test1')
+    group.sendText('Test2')
+    group.sendText('Test3')
+    group.sendText('Test4')
     await sleep(1000)
     await stream.endAndWait()
     expect(messages.length).toBe(4)

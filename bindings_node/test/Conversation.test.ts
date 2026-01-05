@@ -1,19 +1,12 @@
+import { describe, expect, it } from 'vitest'
+import { createRegisteredClient, createUser, sleep } from '@test/helpers'
 import {
   ConsentState,
-  EncodedContent,
   IdentifierKind,
-  Message,
   MetadataField,
   PermissionPolicy,
   PermissionUpdateType,
-} from '@xmtp/node-bindings'
-import { describe, expect, it } from 'vitest'
-import {
-  createRegisteredClient,
-  createUser,
-  encodeTextMessage,
-  sleep,
-} from '@test/helpers'
+} from '../dist'
 
 describe.concurrent('Conversation', () => {
   it('should update conversation name', async () => {
@@ -211,7 +204,7 @@ describe.concurrent('Conversation', () => {
       },
     ])
 
-    await conversation.send(encodeTextMessage('gm'))
+    await conversation.sendText('gm')
 
     const messages = await conversation.findMessages()
     expect(messages.length).toBe(2)
@@ -241,7 +234,7 @@ describe.concurrent('Conversation', () => {
       },
     ])
 
-    conversation.sendOptimistic(encodeTextMessage('gm'))
+    await conversation.sendText('gm', true)
 
     const messages = await conversation.findMessages()
     expect(messages.length).toBe(2)
@@ -292,12 +285,11 @@ describe.concurrent('Conversation', () => {
         console.log('closed')
       }
     )
-    await new Promise((resolve) => setTimeout(resolve, 10000))
-    const message1 = await conversation.send(encodeTextMessage('gm'))
-    const message2 = await conversation.send(encodeTextMessage('gm2'))
+    const message1 = await conversation.sendText('gm')
+    const message2 = await conversation.sendText('gm2')
 
     // Add sleep to allow messages to be processed
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await sleep(1000)
 
     expect(streamedMessages).toContain(message1)
     expect(streamedMessages).toContain(message2)
@@ -385,14 +377,14 @@ describe.concurrent('Conversation', () => {
     const group2 = client2.conversations().findGroupById(group.id())
     expect(group2).toBeDefined()
     expect(group2!.consentState()).toBe(ConsentState.Unknown)
-    await group2!.send(encodeTextMessage('gm!'))
+    await group2!.sendText('gm!')
     expect(group2!.consentState()).toBe(ConsentState.Allowed)
 
     await client3.conversations().sync()
     const dmGroup2 = client3.conversations().findGroupById(dmGroup.id())
     expect(dmGroup2).toBeDefined()
     expect(dmGroup2!.consentState()).toBe(ConsentState.Unknown)
-    await dmGroup2!.send(encodeTextMessage('gm!'))
+    await dmGroup2!.sendText('gm!')
     expect(dmGroup2!.consentState()).toBe(ConsentState.Allowed)
   })
 
@@ -413,6 +405,7 @@ describe.concurrent('Conversation', () => {
       removeMemberPolicy: 2,
       addAdminPolicy: 3,
       removeAdminPolicy: 3,
+      updateAppDataPolicy: 0,
       updateGroupNamePolicy: 0,
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
@@ -454,7 +447,7 @@ describe.concurrent('Conversation', () => {
     await conversation.updatePermissionPolicy(
       PermissionUpdateType.UpdateMetadata,
       PermissionPolicy.Admin,
-      MetadataField.ImageUrlSquare
+      MetadataField.GroupImageUrlSquare
     )
 
     expect(conversation.groupPermissions().policySet()).toEqual({
@@ -462,6 +455,7 @@ describe.concurrent('Conversation', () => {
       removeMemberPolicy: 3,
       addAdminPolicy: 2,
       removeAdminPolicy: 2,
+      updateAppDataPolicy: 0,
       updateGroupNamePolicy: 2,
       updateGroupDescriptionPolicy: 2,
       updateGroupImageUrlSquarePolicy: 2,
@@ -490,5 +484,34 @@ describe.concurrent('Conversation', () => {
       expect(value.epoch).toBeDefined()
       expect(typeof value.epoch).toBe('bigint')
     }
+  })
+
+  it('should get membership state', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+
+    // Create a group with client1
+    const group = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
+
+    // Client1 should have Allowed membership state (creator is immediately Allowed)
+    const state1 = group.membershipState()
+    expect(state1).toBe(0) // GroupMembershipState.Allowed = 0
+
+    // Sync client2 to receive the group
+    await client2.conversations().sync()
+    const groups = await client2.conversations().list()
+    expect(groups.length).toBe(1)
+    const group2 = groups[0].conversation
+
+    // Client2 should have Pending membership state (invited members start as Pending)
+    const state2 = group2.membershipState()
+    expect(state2).toBe(2) // GroupMembershipState.Pending = 2
   })
 })

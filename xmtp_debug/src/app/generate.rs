@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use crate::args;
+use crate::{app::App, args};
 mod groups;
 mod identity;
 mod messages;
@@ -13,31 +11,33 @@ use color_eyre::eyre::Result;
 
 #[derive(Debug)]
 pub struct Generate {
-    db: Arc<redb::Database>,
     opts: args::Generate,
     network: args::BackendOpts,
 }
 
 impl Generate {
-    pub fn new(opts: args::Generate, network: args::BackendOpts, db: Arc<redb::Database>) -> Self {
-        Self { opts, network, db }
+    pub fn new(opts: args::Generate, network: args::BackendOpts) -> Self {
+        Self { opts, network }
     }
 
     pub async fn run(self) -> Result<()> {
         use args::EntityKind::*;
-        let Generate { db, opts, network } = self;
+        let Generate { opts, network } = self;
         let args::Generate {
             entity,
             amount,
             invite,
             message_opts,
             concurrency,
+            ryow,
+            ..
         } = opts;
 
         info!(?concurrency, "using concurrency");
 
         match entity {
             Group => {
+                let db = App::db()?;
                 GenerateGroups::new(db, network)
                     .create_groups(amount, invite.unwrap_or(0), *concurrency)
                     .await?;
@@ -45,15 +45,16 @@ impl Generate {
                 Ok(())
             }
             Message => {
-                GenerateMessages::new(db, network, message_opts)
-                    .run(amount, *concurrency)
+                GenerateMessages::new(network, message_opts, *concurrency)?
+                    .run(amount)
                     .await?;
                 info!("messages generated");
                 Ok(())
             }
             Identity => {
+                let db = App::db()?;
                 GenerateIdentity::new(db.into(), network)
-                    .create_identities(amount, *concurrency)
+                    .create_identities(amount, *concurrency, ryow)
                     .await?;
                 info!("identities generated");
                 Ok(())

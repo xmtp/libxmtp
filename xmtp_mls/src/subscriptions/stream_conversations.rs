@@ -5,7 +5,7 @@ use crate::{
     subscriptions::process_welcome::ProcessWelcomeFuture,
 };
 use xmtp_common::task::JoinSet;
-use xmtp_db::{consent_record::ConsentState, group::ConversationType, refresh_state::EntityKind};
+use xmtp_db::{consent_record::ConsentState, group::ConversationType};
 
 use futures::Stream;
 use pin_project_lite::pin_project;
@@ -16,9 +16,10 @@ use std::{
     task::{Poll, ready},
 };
 use tokio_stream::wrappers::BroadcastStream;
-use xmtp_common::FutureWrapper;
+use xmtp_common::{BoxDynFuture, MaybeSend};
 use xmtp_db::prelude::*;
-use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
+use xmtp_proto::api_client::XmtpMlsStreams;
+use xmtp_proto::types::{Cursor, OriginatorId, SequenceId, WelcomeMessage};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConversationStreamError {
@@ -26,6 +27,8 @@ pub enum ConversationStreamError {
     InvalidPayload,
     #[error("the conversation was filtered because of the given conversation type")]
     InvalidConversationType,
+    #[error("the welcome pointer was not found")]
+    WelcomePointerNotFound,
 }
 
 impl xmtp_common::RetryableError for ConversationStreamError {
@@ -33,13 +36,14 @@ impl xmtp_common::RetryableError for ConversationStreamError {
         use ConversationStreamError::*;
         match self {
             InvalidPayload | InvalidConversationType => false,
+            WelcomePointerNotFound => true,
         }
     }
 }
 
 pub enum WelcomeOrGroup {
     Group(Vec<u8>),
-    Welcome(WelcomeMessage),
+    Welcome(xmtp_proto::types::WelcomeMessage),
 }
 
 impl std::fmt::Debug for WelcomeOrGroup {
@@ -53,7 +57,7 @@ impl std::fmt::Debug for WelcomeOrGroup {
 
 pin_project! {
     /// Broadcast stream filtered + mapped to WelcomeOrGroup
-    pub(super) struct BroadcastGroupStream {
+    pub struct BroadcastGroupStream {
         #[pin] inner: BroadcastStream<LocalEvents>,
     }
 }
@@ -95,7 +99,7 @@ impl Stream for BroadcastGroupStream {
 
 pin_project! {
     /// Subscription Stream mapped to WelcomeOrGroup
-    pub(super) struct SubscriptionStream<S, E> {
+    pub struct SubscriptionStream<S, E> {
         #[pin] inner: S,
         _marker: std::marker::PhantomData<E>
     }
@@ -112,8 +116,8 @@ impl<S, E> SubscriptionStream<S, E> {
 
 impl<S, E> Stream for SubscriptionStream<S, E>
 where
-    S: Stream<Item = std::result::Result<WelcomeMessage, E>>,
-    E: xmtp_common::RetryableError + Send + Sync + 'static,
+    S: Stream<Item = std::result::Result<WelcomeMessage, E>> + MaybeSend,
+    E: xmtp_common::RetryableError + 'static,
 {
     type Item = Result<WelcomeOrGroup>;
 
@@ -160,7 +164,7 @@ pin_project! {
         context: Cow<'a, Context>,
         #[pin] welcome_syncs: JoinSet<Result<ProcessWelcomeResult<Context>>>,
         conversation_type: Option<ConversationType>,
-        known_welcome_ids: HashSet<i64>,
+        known_welcome_ids: HashSet<Cursor>,
         include_duplicated_dms: bool,
         consent_states: Option<Vec<ConsentState>>,
     }
@@ -176,7 +180,7 @@ pin_project! {
         /// State that indicates the stream is waiting on a IO/Network future to finish processing the current message
         /// before moving on to the next one
         Processing {
-            #[pin] future: FutureWrapper<'a, Result<ProcessWelcomeResult<Context>>>
+            #[pin] future: BoxDynFuture<'a, Result<ProcessWelcomeResult<Context>>>
         }
     }
 }
@@ -245,12 +249,9 @@ where
     ) -> Result<Self> {
         let conn = context.db();
         let installation_key = context.installation_id();
-        let id_cursor = conn.get_last_cursor_for_id(installation_key, EntityKind::Welcome)?;
         tracing::debug!(
-            cursor = id_cursor,
             inbox_id = context.inbox_id(),
-            "Setting up conversation stream cursor = {}",
-            id_cursor
+            "Setting up conversation stream cursor",
         );
 
         let events =
@@ -258,10 +259,10 @@ where
 
         let subscription = context
             .api()
-            .subscribe_welcome_messages(installation_key.as_ref(), Some(id_cursor as u64))
+            .subscribe_welcome_messages(&installation_key)
             .await?;
         let subscription = SubscriptionStream::new(subscription);
-        let known_welcome_ids = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());
+        let known_welcome_ids = HashSet::from_iter(conn.group_cursors()?.into_iter());
 
         let stream = multiplexed(subscription, events);
 
@@ -321,7 +322,7 @@ where
         if let Poll::Ready(Some(Ok(welcome_result))) =
             self.as_mut().project().welcome_syncs.poll_join_next(cx)
         {
-            // if filter is None, we continue to poll the innner stream.
+            // if filter is None, we continue to poll the inner stream.
             // the inner stream propagates a Pending, if its not pending, we register the task for
             // wakeup again. Therefore, we can ignore the None.
             if let Some(new_welcome) = self.as_mut().filter_welcome(welcome_result) {
@@ -385,14 +386,21 @@ where
                 tracing::debug!("ignoring streamed conversation payload");
                 None
             }
-            Ok(ProcessWelcomeResult::NewStored { group, maybe_id }) => {
+            Ok(ProcessWelcomeResult::NewStored {
+                group,
+                maybe_sequence_id,
+                maybe_originator,
+            }) => {
                 tracing::debug!(
                     group_id = hex::encode(&group.group_id),
                     "finished processing with group {}",
                     hex::encode(&group.group_id)
                 );
-                if let Some(id) = maybe_id {
-                    this.known_welcome_ids.insert(id);
+                if let Some(id) = maybe_sequence_id
+                    && let Some(originator) = maybe_originator
+                {
+                    this.known_welcome_ids
+                        .insert(Cursor::new(id as SequenceId, originator as OriginatorId));
                 }
                 Some(Ok(group))
             }
@@ -408,6 +416,7 @@ mod test {
 
     use super::*;
     use crate::builder::ClientBuilder;
+    use crate::groups::send_message_opts::SendMessageOpts;
     use crate::tester;
     use crate::utils::fixtures::{alix, bo};
     use xmtp_db::group::GroupQueryArgs;
@@ -422,7 +431,7 @@ mod test {
     #[case::two_conversations(2)]
     #[case::five_conversations(5)]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(5))]
+    #[timeout(std::time::Duration::from_secs(10))]
     #[awt]
     async fn stream_welcomes(
         #[future] alix: ClientTester,
@@ -676,7 +685,7 @@ mod test {
                 async move {
                     xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
                     let dm = c.find_or_create_dm_by_inbox_id(id.as_ref(), None).await?;
-                    dm.send_message(b"hi").await?;
+                    dm.send_message(b"hi", SendMessageOpts::default()).await?;
                     Ok::<_, crate::client::ClientError>(())
                 }
             });

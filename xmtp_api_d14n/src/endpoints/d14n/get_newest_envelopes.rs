@@ -23,7 +23,7 @@ impl GetNewestEnvelopes {
 /// Will get latest message for each topic
 /// if there is no latest message, returns null in place of that message
 /// ensure ordering is not affected by this null variable, or that extractors
-/// do no unintentially skip nulls when they should preserve length.
+/// do no unintentionally skip nulls when they should preserve length.
 impl Endpoint for GetNewestEnvelopes {
     type Output = GetNewestEnvelopeResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
@@ -40,6 +40,7 @@ impl Endpoint for GetNewestEnvelopes {
 
 #[cfg(test)]
 mod test {
+    use xmtp_api_grpc::test::XmtpdClient;
     use xmtp_proto::{api, prelude::*};
 
     #[xmtp_common::test]
@@ -63,7 +64,7 @@ mod test {
     async fn get_newest_envelopes() {
         use crate::d14n::GetNewestEnvelopes;
 
-        let client = crate::TestClient::create_d14n();
+        let client = XmtpdClient::create();
         let client = client.build().unwrap();
 
         let endpoint = GetNewestEnvelopes::builder().topic(vec![]).build().unwrap();

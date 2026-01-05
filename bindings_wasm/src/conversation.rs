@@ -1,99 +1,110 @@
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
+use js_sys::Uint8Array;
+use prost::Message as ProstMessage;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use tsify::Tsify;
+use wasm_bindgen::JsValue;
+use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+
 use crate::client::RustMlsGroup;
-use crate::conversations::{ConversationDebugInfo, HmacKey, MessageDisappearingSettings};
+use crate::content_types::{
+  actions::Actions, attachment::Attachment, intent::Intent,
+  multi_remote_attachment::MultiRemoteAttachment, reaction::Reaction,
+  remote_attachment::RemoteAttachment, reply::Reply, transaction_reference::TransactionReference,
+  wallet_send_calls::WalletSendCalls,
+};
+use crate::conversations::{
+  ConversationDebugInfo, ConversationType, GroupMembershipState, HmacKey,
+  MessageDisappearingSettings,
+};
 use crate::encoded_content::EncodedContent;
 use crate::identity::{Identifier, IdentityExt};
 use crate::messages::{ListMessagesOptions, Message, MessageWithReactions};
 use crate::permissions::{MetadataField, PermissionPolicy, PermissionUpdateType};
 use crate::streams::{StreamCallback, StreamCloser};
-use crate::{consent_state::ConsentState, permissions::GroupPermissions};
-use std::collections::HashMap;
-use wasm_bindgen::JsValue;
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
-use xmtp_db::group::{ConversationType, DmIdExt};
-use xmtp_db::group_message::MsgQueryArgs;
+use crate::{
+  consent_state::ConsentState, enriched_message::DecodedMessage, permissions::GroupPermissions,
+};
+use xmtp_content_types::{
+  ContentCodec,
+  actions::ActionsCodec,
+  attachment::AttachmentCodec,
+  intent::IntentCodec,
+  markdown::MarkdownCodec,
+  multi_remote_attachment::MultiRemoteAttachmentCodec,
+  reaction::ReactionCodec,
+  read_receipt::{ReadReceipt, ReadReceiptCodec},
+  remote_attachment::RemoteAttachmentCodec,
+  reply::ReplyCodec,
+  text::TextCodec,
+  transaction_reference::TransactionReferenceCodec,
+  wallet_send_calls::WalletSendCallsCodec,
+};
+use xmtp_db::group::DmIdExt;
 use xmtp_mls::{
-  common::{
-    group_metadata::GroupMetadata as XmtpGroupMetadata,
-    group_mutable_metadata::MetadataField as XmtpMetadataField,
-  },
   groups::{
     MlsGroup, UpdateAdminListType, intents::PermissionUpdateType as XmtpPermissionUpdateType,
     members::PermissionLevel as XmtpPermissionLevel,
   },
+  mls_common::{
+    group_metadata::GroupMetadata as XmtpGroupMetadata,
+    group_mutable_metadata::MetadataField as XmtpMetadataField,
+  },
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
-use prost::Message as ProstMessage;
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct SendMessageOpts {
+  pub should_push: bool,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub optimistic: Option<bool>,
+}
 
-#[wasm_bindgen]
+impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
+  fn from(opts: SendMessageOpts) -> Self {
+    xmtp_mls::groups::send_message_opts::SendMessageOpts {
+      should_push: opts.should_push,
+    }
+  }
+}
+
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupMetadata {
-  inner: XmtpGroupMetadata,
+  pub creator_inbox_id: String,
+  pub conversation_type: ConversationType,
 }
 
-#[wasm_bindgen]
-impl GroupMetadata {
-  #[wasm_bindgen(js_name = creatorInboxId)]
-  pub fn creator_inbox_id(&self) -> String {
-    self.inner.creator_inbox_id.clone()
-  }
-
-  #[wasm_bindgen(js_name = conversationType)]
-  pub fn conversation_type(&self) -> String {
-    match self.inner.conversation_type {
-      ConversationType::Group => "group".to_string(),
-      ConversationType::Dm => "dm".to_string(),
-      ConversationType::Sync => "sync".to_string(),
-      ConversationType::Oneshot => "oneshot".to_string(),
-    }
-  }
-}
-
-#[wasm_bindgen]
-#[derive(Clone, serde::Serialize)]
-pub enum PermissionLevel {
-  Member,
-  Admin,
-  SuperAdmin,
-}
-
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, serde::Serialize)]
-pub struct GroupMember {
-  #[wasm_bindgen(js_name = inboxId)]
-  #[serde(rename = "inboxId")]
-  pub inbox_id: String,
-  #[wasm_bindgen(js_name = accountIdentifiers)]
-  #[serde(rename = "accountIdentifiers")]
-  pub account_identifiers: Vec<Identifier>,
-  #[wasm_bindgen(js_name = installationIds)]
-  #[serde(rename = "installationIds")]
-  pub installation_ids: Vec<String>,
-  #[wasm_bindgen(js_name = permissionLevel)]
-  #[serde(rename = "permissionLevel")]
-  pub permission_level: PermissionLevel,
-  #[wasm_bindgen(js_name = consentState)]
-  #[serde(rename = "consentState")]
-  pub consent_state: ConsentState,
-}
-
-#[wasm_bindgen]
-impl GroupMember {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
-    #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
-    #[wasm_bindgen(js_name = installationIds)] installation_ids: Vec<String>,
-    #[wasm_bindgen(js_name = permissionLevel)] permission_level: PermissionLevel,
-    #[wasm_bindgen(js_name = consentState)] consent_state: ConsentState,
-  ) -> Self {
+impl From<XmtpGroupMetadata> for GroupMetadata {
+  fn from(metadata: XmtpGroupMetadata) -> Self {
     Self {
-      inbox_id,
-      account_identifiers,
-      installation_ids,
-      permission_level,
-      consent_state,
+      creator_inbox_id: metadata.creator_inbox_id,
+      conversation_type: metadata.conversation_type.into(),
     }
   }
+}
+
+#[wasm_bindgen_numbered_enum]
+pub enum PermissionLevel {
+  Member = 0,
+  Admin = 1,
+  SuperAdmin = 2,
+}
+
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupMember {
+  pub inbox_id: String,
+  pub account_identifiers: Vec<Identifier>,
+  pub installation_ids: Vec<String>,
+  pub permission_level: PermissionLevel,
+  pub consent_state: ConsentState,
 }
 
 #[wasm_bindgen]
@@ -150,29 +161,215 @@ impl Conversation {
   }
 
   #[wasm_bindgen]
-  pub async fn send(&self, encoded_content: EncodedContent) -> Result<String, JsError> {
+  pub async fn send(
+    &self,
+    #[wasm_bindgen(js_name = encodedContent)] encoded_content: EncodedContent,
+    opts: SendMessageOpts,
+  ) -> Result<String, JsError> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = self.to_mls_group();
 
-    let message_id = group
-      .send_message(encoded_content.encode_to_vec().as_slice())
-      .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let message_id = match opts.optimistic {
+      Some(true) => group
+        .send_message_optimistic(encoded_content.encode_to_vec().as_slice(), opts.into())
+        .map_err(|e| JsError::new(&format!("{e}")))?,
+      _ => group
+        .send_message(encoded_content.encode_to_vec().as_slice(), opts.into())
+        .await
+        .map_err(|e| JsError::new(&format!("{e}")))?,
+    };
 
     Ok(hex::encode(message_id.clone()))
   }
 
   /// send a message without immediately publishing to the delivery service.
   #[wasm_bindgen(js_name = sendOptimistic)]
-  pub fn send_optimistic(&self, encoded_content: EncodedContent) -> Result<String, JsError> {
+  pub fn send_optimistic(
+    &self,
+    #[wasm_bindgen(js_name = encodedContent)] encoded_content: EncodedContent,
+    opts: SendMessageOpts,
+  ) -> Result<String, JsError> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = self.to_mls_group();
 
     let id = group
-      .send_message_optimistic(encoded_content.encode_to_vec().as_slice())
+      .send_message_optimistic(encoded_content.encode_to_vec().as_slice(), opts.into())
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
     Ok(hex::encode(id.clone()))
+  }
+
+  #[wasm_bindgen(js_name = sendText)]
+  pub async fn send_text(&self, text: String, optimistic: Option<bool>) -> Result<String, JsError> {
+    let encoded_content = TextCodec::encode(text).map_err(|e| JsError::new(&format!("{e}")))?;
+    let opts = SendMessageOpts {
+      should_push: TextCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[wasm_bindgen(js_name = sendMarkdown)]
+  pub async fn send_markdown(
+    &self,
+    markdown: String,
+    optimistic: Option<bool>,
+  ) -> Result<String, JsError> {
+    let encoded_content =
+      MarkdownCodec::encode(markdown).map_err(|e| JsError::new(&format!("{e}")))?;
+    let opts = SendMessageOpts {
+      should_push: MarkdownCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[wasm_bindgen(js_name = sendReaction)]
+  pub async fn send_reaction(
+    &self,
+    reaction: Reaction,
+    optimistic: Option<bool>,
+  ) -> Result<String, JsError> {
+    let encoded_content =
+      ReactionCodec::encode(reaction.into()).map_err(|e| JsError::new(&format!("{e}")))?;
+    let opts = SendMessageOpts {
+      should_push: ReactionCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[wasm_bindgen(js_name = sendReply)]
+  pub async fn send_reply(
+    &self,
+    reply: Reply,
+    optimistic: Option<bool>,
+  ) -> Result<String, JsError> {
+    let encoded_content =
+      ReplyCodec::encode(reply.into()).map_err(|e| JsError::new(&format!("{e}")))?;
+    let opts = SendMessageOpts {
+      should_push: ReplyCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[wasm_bindgen(js_name = sendReadReceipt)]
+  pub async fn send_read_receipt(&self, optimistic: Option<bool>) -> Result<String, JsError> {
+    let encoded_content =
+      ReadReceiptCodec::encode(ReadReceipt {}).map_err(|e| JsError::new(&format!("{e}")))?;
+    let opts = SendMessageOpts {
+      should_push: ReadReceiptCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[wasm_bindgen(js_name = sendAttachment)]
+  pub async fn send_attachment(
+    &self,
+    attachment: Attachment,
+    optimistic: Option<bool>,
+  ) -> Result<String, JsError> {
+    let encoded_content =
+      AttachmentCodec::encode(attachment.into()).map_err(|e| JsError::new(&format!("{e}")))?;
+    let opts = SendMessageOpts {
+      should_push: AttachmentCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[wasm_bindgen(js_name = sendRemoteAttachment)]
+  pub async fn send_remote_attachment(
+    &self,
+    #[wasm_bindgen(js_name = remoteAttachment)] remote_attachment: RemoteAttachment,
+    optimistic: Option<bool>,
+  ) -> Result<String, JsError> {
+    let encoded_content = RemoteAttachmentCodec::encode(remote_attachment.into())
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let opts = SendMessageOpts {
+      should_push: RemoteAttachmentCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[wasm_bindgen(js_name = sendMultiRemoteAttachment)]
+  pub async fn send_multi_remote_attachment(
+    &self,
+    #[wasm_bindgen(js_name = multiRemoteAttachment)] multi_remote_attachment: MultiRemoteAttachment,
+    optimistic: Option<bool>,
+  ) -> Result<String, JsError> {
+    let encoded_content = MultiRemoteAttachmentCodec::encode(multi_remote_attachment.into())
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let opts = SendMessageOpts {
+      should_push: MultiRemoteAttachmentCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[wasm_bindgen(js_name = sendTransactionReference)]
+  pub async fn send_transaction_reference(
+    &self,
+    #[wasm_bindgen(js_name = transactionReference)] transaction_reference: TransactionReference,
+    optimistic: Option<bool>,
+  ) -> Result<String, JsError> {
+    let encoded_content = TransactionReferenceCodec::encode(transaction_reference.into())
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let opts = SendMessageOpts {
+      should_push: TransactionReferenceCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[wasm_bindgen(js_name = sendWalletSendCalls)]
+  pub async fn send_wallet_send_calls(
+    &self,
+    #[wasm_bindgen(js_name = walletSendCalls)] wallet_send_calls: WalletSendCalls,
+    optimistic: Option<bool>,
+  ) -> Result<String, JsError> {
+    let wsc: xmtp_content_types::wallet_send_calls::WalletSendCalls =
+      wallet_send_calls.try_into()?;
+    let encoded_content =
+      WalletSendCallsCodec::encode(wsc).map_err(|e| JsError::new(&format!("{e}")))?;
+    let opts = SendMessageOpts {
+      should_push: WalletSendCallsCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[wasm_bindgen(js_name = sendActions)]
+  pub async fn send_actions(
+    &self,
+    actions: Actions,
+    optimistic: Option<bool>,
+  ) -> Result<String, JsError> {
+    let encoded_content =
+      ActionsCodec::encode(actions.into()).map_err(|e| JsError::new(&format!("{e}")))?;
+    let opts = SendMessageOpts {
+      should_push: ActionsCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
+  }
+
+  #[wasm_bindgen(js_name = sendIntent)]
+  pub async fn send_intent(
+    &self,
+    intent: Intent,
+    optimistic: Option<bool>,
+  ) -> Result<String, JsError> {
+    let encoded_content =
+      IntentCodec::encode(intent.into()).map_err(|e| JsError::new(&format!("{e}")))?;
+    let opts = SendMessageOpts {
+      should_push: IntentCodec::should_push(),
+      optimistic,
+    };
+    self.send(encoded_content.into(), opts).await
   }
 
   /// Publish all unpublished messages
@@ -206,29 +403,26 @@ impl Conversation {
   ) -> Result<Vec<Message>, JsError> {
     let opts = opts.unwrap_or_default();
     let group = self.to_mls_group();
-    let conversation_type = group
-      .conversation_type()
-      .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
-    let kind = match conversation_type {
-      ConversationType::Group => None,
-      ConversationType::Dm => None,
-      ConversationType::Sync => None,
-      ConversationType::Oneshot => None,
-    };
-
-    let opts = MsgQueryArgs {
-      kind,
-      ..opts.into()
-    };
     let messages: Vec<Message> = group
-      .find_messages(&opts)
+      .find_messages(&opts.into())
       .map_err(|e| JsError::new(&format!("{e}")))?
       .into_iter()
       .map(Into::into)
       .collect();
 
     Ok(messages)
+  }
+
+  #[wasm_bindgen(js_name = countMessages)]
+  pub async fn count_messages(&self, opts: Option<ListMessagesOptions>) -> Result<i64, JsError> {
+    let opts = opts.unwrap_or_default();
+    let group = self.to_mls_group();
+    let query_args = opts.into();
+    let count = group
+      .count_messages(&query_args)
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(count)
   }
 
   #[wasm_bindgen(js_name = findMessagesWithReactions)]
@@ -238,24 +432,8 @@ impl Conversation {
   ) -> Result<Vec<MessageWithReactions>, JsError> {
     let opts = opts.unwrap_or_default();
     let group = self.to_mls_group();
-    let conversation_type = group
-      .conversation_type()
-      .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
-    let kind = match conversation_type {
-      ConversationType::Group => None,
-      ConversationType::Dm => None,
-      ConversationType::Sync => None,
-      ConversationType::Oneshot => None,
-    };
-
-    let opts = MsgQueryArgs {
-      kind,
-      ..opts.into()
-    };
-
     let messages: Vec<MessageWithReactions> = group
-      .find_messages_with_reactions(&opts)?
+      .find_messages_with_reactions(&opts.into())?
       .into_iter()
       .map(Into::into)
       .collect();
@@ -296,6 +474,15 @@ impl Conversation {
     Ok(crate::to_value(&members)?)
   }
 
+  #[wasm_bindgen(js_name = membershipState)]
+  pub fn membership_state(&self) -> Result<GroupMembershipState, JsError> {
+    let group = self.to_mls_group();
+    let state = group
+      .membership_state()
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    Ok(state.into())
+  }
+
   #[wasm_bindgen(js_name = adminList)]
   pub fn admin_list(&self) -> Result<Vec<String>, JsError> {
     let group = self.to_mls_group();
@@ -317,19 +504,28 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = isAdmin)]
-  pub fn is_admin(&self, inbox_id: String) -> Result<bool, JsError> {
+  pub fn is_admin(
+    &self,
+    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+  ) -> Result<bool, JsError> {
     let admin_list = self.admin_list()?;
     Ok(admin_list.contains(&inbox_id))
   }
 
   #[wasm_bindgen(js_name = isSuperAdmin)]
-  pub fn is_super_admin(&self, inbox_id: String) -> Result<bool, JsError> {
+  pub fn is_super_admin(
+    &self,
+    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+  ) -> Result<bool, JsError> {
     let super_admin_list = self.super_admin_list()?;
     Ok(super_admin_list.contains(&inbox_id))
   }
 
   #[wasm_bindgen(js_name = addMembers)]
-  pub async fn add_members(&self, account_identifiers: Vec<Identifier>) -> Result<(), JsError> {
+  pub async fn add_members(
+    &self,
+    #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
@@ -341,7 +537,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = addAdmin)]
-  pub async fn add_admin(&self, inbox_id: String) -> Result<(), JsError> {
+  pub async fn add_admin(
+    &self,
+    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
     group
       .update_admin_list(UpdateAdminListType::Add, inbox_id)
@@ -352,7 +551,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = removeAdmin)]
-  pub async fn remove_admin(&self, inbox_id: String) -> Result<(), JsError> {
+  pub async fn remove_admin(
+    &self,
+    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
@@ -364,7 +566,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = addSuperAdmin)]
-  pub async fn add_super_admin(&self, inbox_id: String) -> Result<(), JsError> {
+  pub async fn add_super_admin(
+    &self,
+    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
@@ -376,7 +581,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = removeSuperAdmin)]
-  pub async fn remove_super_admin(&self, inbox_id: String) -> Result<(), JsError> {
+  pub async fn remove_super_admin(
+    &self,
+    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
@@ -395,11 +603,14 @@ impl Conversation {
       .permissions()
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
-    Ok(GroupPermissions::new(permissions))
+    Ok(permissions.into())
   }
 
   #[wasm_bindgen(js_name = addMembersByInboxId)]
-  pub async fn add_members_by_inbox_id(&self, inbox_ids: Vec<String>) -> Result<(), JsError> {
+  pub async fn add_members_by_inbox_id(
+    &self,
+    #[wasm_bindgen(js_name = inboxIds)] inbox_ids: Vec<String>,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
@@ -411,7 +622,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = removeMembers)]
-  pub async fn remove_members(&self, account_identifiers: Vec<Identifier>) -> Result<(), JsError> {
+  pub async fn remove_members(
+    &self,
+    #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
@@ -423,7 +637,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = removeMembersByInboxId)]
-  pub async fn remove_members_by_inbox_id(&self, inbox_ids: Vec<String>) -> Result<(), JsError> {
+  pub async fn remove_members_by_inbox_id(
+    &self,
+    #[wasm_bindgen(js_name = inboxIds)] inbox_ids: Vec<String>,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
@@ -436,7 +653,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = updateGroupName)]
-  pub async fn update_group_name(&self, group_name: String) -> Result<(), JsError> {
+  pub async fn update_group_name(
+    &self,
+    #[wasm_bindgen(js_name = groupName)] group_name: String,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
@@ -458,10 +678,36 @@ impl Conversation {
     Ok(group_name)
   }
 
+  #[wasm_bindgen(js_name = updateAppData)]
+  pub async fn update_app_data(
+    &self,
+    #[wasm_bindgen(js_name = appData)] app_data: String,
+  ) -> Result<(), JsError> {
+    let group = self.to_mls_group();
+
+    group
+      .update_app_data(app_data)
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(())
+  }
+
+  #[wasm_bindgen(js_name = appData)]
+  pub fn app_data(&self) -> Result<String, JsError> {
+    let group = self.to_mls_group();
+
+    let app_data = group
+      .app_data()
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(app_data)
+  }
+
   #[wasm_bindgen(js_name = updateGroupImageUrlSquare)]
   pub async fn update_group_image_url_square(
     &self,
-    group_image_url_square: String,
+    #[wasm_bindgen(js_name = groupImageUrlSquare)] group_image_url_square: String,
   ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
@@ -485,7 +731,10 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = updateGroupDescription)]
-  pub async fn update_group_description(&self, group_description: String) -> Result<(), JsError> {
+  pub async fn update_group_description(
+    &self,
+    #[wasm_bindgen(js_name = groupDescription)] group_description: String,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
@@ -561,7 +810,7 @@ impl Conversation {
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
-    Ok(GroupMetadata { inner: metadata })
+    Ok(metadata.into())
   }
 
   #[wasm_bindgen(js_name = dmPeerInboxId)]
@@ -578,12 +827,25 @@ impl Conversation {
     )
   }
 
+  #[wasm_bindgen(js_name = processStreamedGroupMessage)]
+  pub async fn process_streamed_group_message(
+    &self,
+    #[wasm_bindgen(js_name = envelopeBytes)] envelope_bytes: Uint8Array,
+  ) -> Result<Vec<Message>, JsError> {
+    let group = self.to_mls_group();
+    let message = group
+      .process_streamed_group_message(envelope_bytes.to_vec())
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    Ok(message.into_iter().map(Into::into).collect())
+  }
+
   #[wasm_bindgen(js_name = updatePermissionPolicy)]
   pub async fn update_permission_policy(
     &self,
-    permission_update_type: PermissionUpdateType,
-    permission_policy_option: PermissionPolicy,
-    metadata_field: Option<MetadataField>,
+    #[wasm_bindgen(js_name = permissionUpdateType)] permission_update_type: PermissionUpdateType,
+    #[wasm_bindgen(js_name = permissionPolicyOption)] permission_policy_option: PermissionPolicy,
+    #[wasm_bindgen(js_name = metadataField)] metadata_field: Option<MetadataField>,
   ) -> Result<(), JsError> {
     self
       .to_mls_group()
@@ -693,7 +955,7 @@ impl Conversation {
       is_commit_log_forked: debug_info.is_commit_log_forked,
       local_commit_log: debug_info.local_commit_log,
       remote_commit_log: debug_info.remote_commit_log,
-      cursor: debug_info.cursor,
+      cursor: debug_info.cursor.into_iter().map(Into::into).collect(),
     })?)
   }
 
@@ -708,6 +970,43 @@ impl Conversation {
     let conversations: Vec<Conversation> = dms.into_iter().map(Into::into).collect();
 
     Ok(conversations)
+  }
+
+  #[wasm_bindgen(js_name = findEnrichedMessages)]
+  pub async fn find_enriched_messages(
+    &self,
+    opts: Option<ListMessagesOptions>,
+  ) -> Result<Vec<DecodedMessage>, JsError> {
+    let opts = opts.unwrap_or_default();
+    let group = self.to_mls_group();
+    let messages: Result<Vec<DecodedMessage>, _> = group
+      .find_messages_v2(&opts.into())
+      .map_err(|e| JsError::new(&format!("{e}")))?
+      .into_iter()
+      .map(|msg| msg.try_into())
+      .collect();
+
+    messages
+  }
+
+  #[wasm_bindgen(js_name = getLastReadTimes)]
+  pub async fn get_last_read_times(&self) -> Result<JsValue, JsError> {
+    let group = self.to_mls_group();
+    let times = group
+      .get_last_read_times()
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(crate::to_value(&times)?)
+  }
+
+  #[wasm_bindgen(js_name = leaveGroup)]
+  pub async fn leave_group(&self) -> Result<(), JsError> {
+    let group = self.to_mls_group();
+    group
+      .leave_group()
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    Ok(())
   }
 }
 
@@ -724,6 +1023,7 @@ mod tests {
       group_id: xmtp_common::rand_vec::<32>(),
       decrypted_message_bytes: xmtp_common::rand_vec::<32>(),
       sent_at_ns: 1738354508964432000,
+      inserted_at_ns: 1738354508964432000,
       kind: GroupMessageKind::Application,
       sender_installation_id: xmtp_common::rand_vec::<32>(),
       sender_inbox_id: String::from("test"),
@@ -733,8 +1033,8 @@ mod tests {
       version_minor: 123,
       authority_id: String::from("test"),
       reference_id: None,
-      originator_id: None,
-      sequence_id: None,
+      originator_id: 0,
+      sequence_id: 0,
       expire_at_ns: None,
     };
     crate::to_value(&stored_message).unwrap();

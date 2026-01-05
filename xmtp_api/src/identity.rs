@@ -1,11 +1,12 @@
-use std::collections::HashMap;
-
 use super::ApiClientWrapper;
 use crate::ApiError;
 use crate::Result;
 use futures::future::try_join_all;
+use std::collections::HashMap;
 use xmtp_common::RetryableError;
+use xmtp_common::retry_async;
 use xmtp_proto::prelude::XmtpIdentityClient;
+use xmtp_proto::types::ApiIdentifier;
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetInboxIdsRequest,
     PublishIdentityUpdateRequest,
@@ -13,7 +14,6 @@ use xmtp_proto::xmtp::identity::api::v1::{
     get_identity_updates_response::IdentityUpdateLog,
     get_inbox_ids_request::Request as GetInboxIdsRequestProto,
 };
-
 use xmtp_proto::xmtp::identity::api::v1::{
     VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
@@ -39,24 +39,25 @@ impl From<&GetIdentityUpdatesV2Filter> for GetIdentityUpdatesV2RequestProto {
 
 /// Maps account addresses to inbox IDs. If no inbox ID found, the value will be None
 type IdentifierToInboxIdMap = HashMap<ApiIdentifier, String>;
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
-pub struct ApiIdentifier {
-    pub identifier: String,
-    pub identifier_kind: IdentifierKind,
-}
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpIdentityClient,
 {
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn publish_identity_update<U: Into<IdentityUpdate>>(&self, update: U) -> Result<()> {
         let update: IdentityUpdate = update.into();
-        self.api_client
-            .publish_identity_update(PublishIdentityUpdateRequest {
-                identity_update: Some(update),
+        retry_async!(
+            self.retry_strategy,
+            (async {
+                self.api_client
+                    .publish_identity_update(PublishIdentityUpdateRequest {
+                        identity_update: Some(update.clone()),
+                    })
+                    .await
             })
-            .await
-            .map_err(crate::dyn_err)?;
+        )
+        .map_err(crate::dyn_err)?;
 
         Ok(())
     }
@@ -68,7 +69,7 @@ where
     ) -> Result<impl Iterator<Item = (String, Vec<T>)>>
     where
         T: TryFrom<IdentityUpdateLog>,
-        <T as TryFrom<IdentityUpdateLog>>::Error: RetryableError + Send + Sync + 'static,
+        <T as TryFrom<IdentityUpdateLog>>::Error: RetryableError + 'static,
     {
         if filters.is_empty() {
             return Ok(vec![].into_iter());
@@ -76,24 +77,26 @@ where
         let chunks = filters.chunks(GET_IDENTITY_UPDATES_CHUNK_SIZE);
 
         let res = try_join_all(chunks.map(|chunk| async move {
-            let res = self
-                .api_client
-                .get_identity_updates_v2(GetIdentityUpdatesV2Request {
-                    requests: chunk.iter().map(|filter| filter.into()).collect(),
+            let result = retry_async!(
+                self.retry_strategy,
+                (async {
+                    self.api_client
+                        .get_identity_updates_v2(GetIdentityUpdatesV2Request {
+                            requests: chunk.iter().map(|filter| filter.into()).collect(),
+                        })
+                        .await
                 })
-                .await
-                .map_err(crate::dyn_err)?
-                .responses
-                .into_iter()
-                .map(|item| {
-                    let deser_items = item
-                        .updates
-                        .into_iter()
-                        .map(move |update| update.try_into().map_err(crate::dyn_err))
-                        .collect::<Result<Vec<_>>>()?;
-                    Ok::<_, ApiError>((item.inbox_id, deser_items))
-                });
-            Ok::<_, ApiError>(res)
+            )
+            .map_err(crate::dyn_err)?;
+            let result = result.responses.into_iter().map(|item| {
+                let deser_items = item
+                    .updates
+                    .into_iter()
+                    .map(move |update| update.try_into().map_err(crate::dyn_err))
+                    .collect::<Result<Vec<_>>>()?;
+                Ok::<_, ApiError>((item.inbox_id, deser_items))
+            });
+            Ok::<_, ApiError>(result)
         }))
         .await?
         .into_iter()
@@ -113,7 +116,7 @@ where
             "Getting inbox_ids for account identities: {:?}",
             &account_identifiers
         );
-        let requests = account_identifiers
+        let requests: Vec<_> = account_identifiers
             .into_iter()
             .map(|r| GetInboxIdsRequestProto {
                 identifier: r.identifier,
@@ -121,11 +124,17 @@ where
             })
             .collect();
 
-        let result = self
-            .api_client
-            .get_inbox_ids(GetInboxIdsRequest { requests })
-            .await
-            .map_err(crate::dyn_err)?;
+        let result = retry_async!(
+            self.retry_strategy,
+            (async {
+                self.api_client
+                    .get_inbox_ids(GetInboxIdsRequest {
+                        requests: requests.clone(),
+                    })
+                    .await
+            })
+        )
+        .map_err(crate::dyn_err)?;
 
         Ok(result
             .responses
@@ -151,10 +160,15 @@ where
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse> {
-        self.api_client
-            .verify_smart_contract_wallet_signatures(request)
-            .await
-            .map_err(crate::dyn_err)
+        retry_async!(
+            self.retry_strategy,
+            (async {
+                self.api_client
+                    .verify_smart_contract_wallet_signatures(request.clone())
+                    .await
+            })
+        )
+        .map_err(crate::dyn_err)
     }
 }
 
@@ -167,6 +181,7 @@ pub(crate) mod tests {
     use super::GetIdentityUpdatesV2Filter;
     use crate::{ApiClientWrapper, identity::ApiIdentifier};
     use std::collections::HashMap;
+    use xmtp_api_d14n::MockApiClient;
     use xmtp_common::rand_hexstring;
     use xmtp_id::associations::unverified::UnverifiedIdentityUpdate;
     use xmtp_proto::xmtp::identity::{

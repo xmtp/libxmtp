@@ -1,9 +1,9 @@
-use xmtp_db::group_message::{ContentType as DbContentType, MsgQueryArgs};
-
 use crate::context::XmtpSharedContext;
-use crate::groups::{GroupError, MlsGroup};
+use crate::groups::MlsGroup;
 use crate::messages::decoded_message::DecodedMessage;
-use crate::messages::enrichment::enrich_messages;
+use crate::messages::enrichment::{EnrichMessageError, enrich_messages};
+use xmtp_db::DbQuery;
+use xmtp_db::group_message::{ContentType as DbContentType, MsgQueryArgs};
 use xmtp_db::prelude::QueryGroupMessage;
 
 impl<Context> MlsGroup<Context>
@@ -13,32 +13,45 @@ where
     pub fn find_messages_v2(
         &self,
         query: &MsgQueryArgs,
-    ) -> Result<Vec<DecodedMessage>, GroupError> {
+    ) -> Result<Vec<DecodedMessage>, EnrichMessageError> {
         let conn = self.context.db();
+        self.find_messages_v2_with_conn(query, conn)
+    }
 
+    pub fn find_messages_v2_with_conn<C>(
+        &self,
+        query: &MsgQueryArgs,
+        conn: C,
+    ) -> Result<Vec<DecodedMessage>, EnrichMessageError>
+    where
+        C: QueryGroupMessage + DbQuery,
+    {
         let initial_messages = conn.get_group_messages(
             &self.group_id,
             &filter_out_hidden_message_types_from_query(query),
         )?;
 
-        Ok(enrich_messages(conn, &self.group_id, initial_messages)?)
+        enrich_messages(conn, &self.group_id, initial_messages)
     }
 }
 
 fn filter_out_hidden_message_types_from_query(query: &MsgQueryArgs) -> MsgQueryArgs {
     let mut new_query = query.clone();
-    // Get the list of all content types, or use the provided one
-    let mut content_types = match new_query.content_types {
-        Some(types) => types,
-        None => DbContentType::all(),
+    let hidden_message_types = vec![DbContentType::Reaction, DbContentType::ReadReceipt];
+
+    let excluded_content_types = match &query.exclude_content_types {
+        Some(excluded) => {
+            let mut content_types = excluded.clone();
+            content_types.extend(
+                hidden_message_types
+                    .into_iter()
+                    .filter(|t| !excluded.contains(t)),
+            );
+            content_types
+        }
+        None => hidden_message_types,
     };
-
-    let hidden_message_types = [DbContentType::Reaction, DbContentType::ReadReceipt];
-
-    // Remove reaction content types
-    content_types.retain(|ct| !hidden_message_types.contains(ct));
-
-    new_query.content_types = Some(content_types);
+    new_query.exclude_content_types = Some(excluded_content_types);
     new_query
 }
 
@@ -50,6 +63,7 @@ mod tests {
     use crate::messages::decoded_message::MessageBody;
     use hex::ToHexExt;
     use xmtp_common::time::now_ns;
+    use xmtp_configuration::Originators;
     use xmtp_content_types::ContentCodec;
     use xmtp_content_types::test_utils::TestContentGenerator;
     use xmtp_content_types::text::TextCodec;
@@ -93,9 +107,10 @@ mod tests {
             version_minor: queryable_fields.version_minor,
             authority_id: queryable_fields.authority_id,
             reference_id: queryable_fields.reference_id,
-            sequence_id: None,
-            originator_id: None,
+            sequence_id: 0,
+            originator_id: Originators::APPLICATION_MESSAGES.into(),
             expire_at_ns: None,
+            inserted_at_ns: 0,
         }
     }
 
@@ -135,9 +150,10 @@ mod tests {
             version_minor: queryable_fields.2,
             authority_id: queryable_fields.3,
             reference_id,
-            sequence_id: None,
-            originator_id: None,
+            sequence_id: 0,
+            originator_id: Originators::APPLICATION_MESSAGES.into(),
             expire_at_ns: None,
+            inserted_at_ns: 0,
         }
     }
 
@@ -240,6 +256,53 @@ mod tests {
     }
 
     // ===== Tests =====
+
+    #[tokio::test]
+    async fn test_exclude_content_types_with_custom_exclusions() {
+        let (group, context) = setup_test_group().await;
+        let conn = context.db();
+
+        // Store a text message
+        create_and_store_message(
+            &conn,
+            &group.group_id,
+            vec![1],
+            TestContentGenerator::text_content("Hello World"),
+            0,
+            "sender1",
+        );
+
+        // Store a GroupUpdated message
+        create_and_store_message(
+            &conn,
+            &group.group_id,
+            vec![2],
+            TestContentGenerator::group_updated_content(vec!["inbox1".to_string()]),
+            1000,
+            "sender2",
+        );
+
+        // Query with default args - should return both messages
+        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        assert_message_count(&messages, 2);
+
+        // Query excluding Text messages - should only return the GroupUpdated message
+        let query = MsgQueryArgs {
+            exclude_content_types: Some(vec![DbContentType::Text]),
+            ..Default::default()
+        };
+        let messages = group.find_messages_v2(&query).unwrap();
+
+        assert_message_count(&messages, 1);
+        if let MessageBody::GroupUpdated(_) = &messages[0].content {
+            // Expected
+        } else {
+            panic!(
+                "Expected GroupUpdated message, got {:?}",
+                messages[0].content
+            );
+        }
+    }
 
     #[tokio::test]
     async fn test_find_messages_no_reactions_or_replies() {
@@ -630,60 +693,5 @@ mod tests {
         } else {
             panic!("Expected reply message");
         }
-    }
-
-    #[test]
-    fn test_filter_out_hidden_message_types_from_query() {
-        // Test with no content_types specified (should use all types minus hidden)
-        let query = MsgQueryArgs::default();
-        let filtered = filter_out_hidden_message_types_from_query(&query);
-
-        assert!(filtered.content_types.is_some());
-        let types = filtered.content_types.unwrap();
-        assert!(!types.contains(&DbContentType::Reaction));
-        assert!(!types.contains(&DbContentType::ReadReceipt));
-        assert!(types.contains(&DbContentType::Text));
-        assert!(types.contains(&DbContentType::Attachment));
-        assert!(types.contains(&DbContentType::Reply));
-
-        // Test with specific content_types including hidden ones
-        let query_with_types = MsgQueryArgs::builder()
-            .content_types(Some(vec![
-                DbContentType::Text,
-                DbContentType::Reaction,
-                DbContentType::Attachment,
-                DbContentType::ReadReceipt,
-                DbContentType::Reply,
-            ]))
-            .build()
-            .unwrap();
-        let filtered = filter_out_hidden_message_types_from_query(&query_with_types);
-
-        assert!(filtered.content_types.is_some());
-        let types = filtered.content_types.unwrap();
-        assert_eq!(types.len(), 3);
-        assert!(types.contains(&DbContentType::Text));
-        assert!(types.contains(&DbContentType::Attachment));
-        assert!(types.contains(&DbContentType::Reply));
-        assert!(!types.contains(&DbContentType::Reaction));
-        assert!(!types.contains(&DbContentType::ReadReceipt));
-
-        // Test with only non-hidden types (should remain unchanged)
-        let query_no_hidden = MsgQueryArgs::builder()
-            .content_types(Some(vec![
-                DbContentType::Text,
-                DbContentType::Attachment,
-                DbContentType::RemoteAttachment,
-            ]))
-            .build()
-            .unwrap();
-        let filtered = filter_out_hidden_message_types_from_query(&query_no_hidden);
-
-        assert!(filtered.content_types.is_some());
-        let types = filtered.content_types.unwrap();
-        assert_eq!(types.len(), 3);
-        assert!(types.contains(&DbContentType::Text));
-        assert!(types.contains(&DbContentType::Attachment));
-        assert!(types.contains(&DbContentType::RemoteAttachment));
     }
 }

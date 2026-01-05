@@ -9,7 +9,7 @@ use xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest;
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct FetchKeyPackages {
-    #[builder(setter(into))]
+    #[builder(setter(into, each = "installation_key"))]
     installation_keys: Vec<Vec<u8>>,
 }
 
@@ -37,6 +37,7 @@ impl Endpoint for FetchKeyPackages {
 #[cfg(test)]
 mod test {
     use super::*;
+    use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::{mls_v1::FetchKeyPackagesResponse, prelude::*};
 
     #[xmtp_common::test]
@@ -57,7 +58,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_fetch_key_packages() {
-        let client = crate::TestClient::create_local();
+        let client = NodeGoClient::create();
         let client = client.build().unwrap();
         let mut endpoint = FetchKeyPackages::builder()
             .installation_keys(vec![vec![1, 2, 3]])

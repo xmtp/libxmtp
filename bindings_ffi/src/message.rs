@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use xmtp_content_types::{
+    actions::{Action, ActionStyle, Actions},
     attachment::Attachment,
+    intent::Intent,
     read_receipt::ReadReceipt,
     remote_attachment::RemoteAttachment,
     reply::Reply,
@@ -11,12 +13,20 @@ use xmtp_content_types::{
 };
 use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
 use xmtp_mls::messages::decoded_message::{
-    DecodedMessage, DecodedMessageMetadata, MessageBody, Reply as ProcessedReply, Text,
+    DecodedMessage, DecodedMessageMetadata, Markdown, MessageBody, Reply as ProcessedReply, Text,
 };
-use xmtp_proto::xmtp::mls::message_contents::content_types::{
-    MultiRemoteAttachment, ReactionAction, ReactionSchema, ReactionV2, RemoteAttachmentInfo,
+use xmtp_proto::xmtp::mls::message_contents::{
+    ContentTypeId, EncodedContent, GroupUpdated, group_updated::MetadataFieldChange,
 };
-use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent, GroupUpdated};
+use xmtp_proto::xmtp::mls::message_contents::{
+    content_types::{
+        LeaveRequest, MultiRemoteAttachment, ReactionAction, ReactionSchema, ReactionV2,
+        RemoteAttachmentInfo,
+    },
+    group_updated::Inbox,
+};
+
+use crate::GenericError;
 
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiEnrichedReply {
@@ -32,6 +42,7 @@ pub struct FfiEnrichedReply {
 #[derive(uniffi::Enum, Clone, Debug)]
 pub enum FfiDecodedMessageBody {
     Text(FfiTextContent),
+    Markdown(FfiMarkdownContent),
     Reaction(FfiReactionPayload),
     Attachment(FfiAttachment),
     RemoteAttachment(FfiRemoteAttachment),
@@ -40,12 +51,21 @@ pub enum FfiDecodedMessageBody {
     GroupUpdated(FfiGroupUpdated),
     ReadReceipt(FfiReadReceipt),
     WalletSendCalls(FfiWalletSendCalls),
+    Intent(FfiIntent),
+    Actions(FfiActions),
+    LeaveRequest(FfiLeaveRequest),
     Custom(FfiEncodedContent),
 }
 
-// Wrap text content in a struct to be consident with other content types
+// Wrap text content in a struct to be consistent with other content types
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiTextContent {
+    pub content: String,
+}
+
+// Wrap markdown content in a struct to be consistent with other content types
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiMarkdownContent {
     pub content: String,
 }
 
@@ -64,7 +84,7 @@ pub struct FfiRemoteAttachment {
     pub salt: Vec<u8>,
     pub nonce: Vec<u8>,
     pub scheme: String,
-    pub content_length: u64,
+    pub content_length: u32,
     pub filename: Option<String>,
 }
 
@@ -227,7 +247,12 @@ pub struct FfiGroupUpdated {
     pub initiated_by_inbox_id: String,
     pub added_inboxes: Vec<FfiInbox>,
     pub removed_inboxes: Vec<FfiInbox>,
+    pub left_inboxes: Vec<FfiInbox>,
     pub metadata_field_changes: Vec<FfiMetadataFieldChange>,
+    pub added_admin_inboxes: Vec<FfiInbox>,
+    pub removed_admin_inboxes: Vec<FfiInbox>,
+    pub added_super_admin_inboxes: Vec<FfiInbox>,
+    pub removed_super_admin_inboxes: Vec<FfiInbox>,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -244,6 +269,13 @@ pub struct FfiMetadataFieldChange {
 
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiReadReceipt {}
+
+/// Represents a leave request message sent when a user wants to leave a group.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiLeaveRequest {
+    /// Optional authenticated note for the leave request
+    pub authenticated_note: Option<Vec<u8>>,
+}
 
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiWalletSendCalls {
@@ -268,6 +300,37 @@ pub struct FfiWalletCallMetadata {
     pub description: String,
     pub transaction_type: String,
     pub extra: HashMap<String, String>,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiIntent {
+    pub id: String,
+    pub action_id: String,
+    pub metadata: Option<String>,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiActions {
+    pub id: String,
+    pub description: String,
+    pub actions: Vec<FfiAction>,
+    pub expires_at_ns: Option<i64>,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiAction {
+    pub id: String,
+    pub label: String,
+    pub image_url: Option<String>,
+    pub style: Option<FfiActionStyle>,
+    pub expires_at_ns: Option<i64>,
+}
+
+#[derive(uniffi::Enum, Clone, Debug)]
+pub enum FfiActionStyle {
+    Primary,
+    Secondary,
+    Danger,
 }
 
 #[derive(uniffi::Record, Clone, Default, Debug, PartialEq)]
@@ -309,11 +372,14 @@ pub struct FfiDecodedMessageMetadata {
     pub sender_inbox_id: String,
     pub content_type: FfiContentTypeId,
     pub conversation_id: Vec<u8>,
+    pub inserted_at_ns: i64,
+    pub expires_at_ns: Option<i64>,
 }
 
 #[derive(uniffi::Enum, Clone, Debug)]
 pub enum FfiDecodedMessageContent {
     Text(FfiTextContent),
+    Markdown(FfiMarkdownContent),
     Reply(FfiEnrichedReply),
     Reaction(FfiReactionPayload),
     Attachment(FfiAttachment),
@@ -323,6 +389,9 @@ pub enum FfiDecodedMessageContent {
     GroupUpdated(FfiGroupUpdated),
     ReadReceipt(FfiReadReceipt),
     WalletSendCalls(FfiWalletSendCalls),
+    Intent(Option<FfiIntent>),
+    Actions(Option<FfiActions>),
+    LeaveRequest(FfiLeaveRequest),
     Custom(FfiEncodedContent),
 }
 
@@ -332,6 +401,14 @@ impl From<Text> for FfiTextContent {
     fn from(text: Text) -> Self {
         FfiTextContent {
             content: text.content,
+        }
+    }
+}
+
+impl From<Markdown> for FfiMarkdownContent {
+    fn from(markdown: Markdown) -> Self {
+        FfiMarkdownContent {
+            content: markdown.content,
         }
     }
 }
@@ -385,24 +462,35 @@ impl From<RemoteAttachment> for FfiRemoteAttachment {
             salt: remote.salt,
             nonce: remote.nonce,
             scheme: remote.scheme,
-            content_length: remote.content_length as u64,
+            content_length: remote.content_length as u32,
             filename: remote.filename,
         }
     }
 }
 
-impl From<FfiRemoteAttachment> for RemoteAttachment {
-    fn from(ffi: FfiRemoteAttachment) -> Self {
-        RemoteAttachment {
+impl TryFrom<FfiRemoteAttachment> for RemoteAttachment {
+    type Error = GenericError;
+
+    fn try_from(ffi: FfiRemoteAttachment) -> Result<Self, Self::Error> {
+        let content_length =
+            usize::try_from(ffi.content_length).map_err(|_| GenericError::Generic {
+                err: format!(
+                    "content_length {} exceeds maximum value for this platform ({} bytes)",
+                    ffi.content_length,
+                    usize::MAX
+                ),
+            })?;
+
+        Ok(RemoteAttachment {
             url: ffi.url,
             content_digest: ffi.content_digest,
             secret: ffi.secret,
             salt: ffi.salt,
             nonce: ffi.nonce,
             scheme: ffi.scheme,
-            content_length: ffi.content_length as usize,
+            content_length,
             filename: ffi.filename,
-        }
+        })
     }
 }
 
@@ -500,32 +588,117 @@ impl From<FfiTransactionReference> for TransactionReference {
     }
 }
 
+impl From<FfiInbox> for Inbox {
+    fn from(ffi: FfiInbox) -> Self {
+        Inbox {
+            inbox_id: ffi.inbox_id,
+        }
+    }
+}
+
+impl From<Inbox> for FfiInbox {
+    fn from(inbox: Inbox) -> Self {
+        FfiInbox {
+            inbox_id: inbox.inbox_id,
+        }
+    }
+}
+
+impl From<FfiMetadataFieldChange> for MetadataFieldChange {
+    fn from(ffi: FfiMetadataFieldChange) -> Self {
+        MetadataFieldChange {
+            field_name: ffi.field_name,
+            old_value: ffi.old_value,
+            new_value: ffi.new_value,
+        }
+    }
+}
+
+impl From<MetadataFieldChange> for FfiMetadataFieldChange {
+    fn from(change: MetadataFieldChange) -> Self {
+        FfiMetadataFieldChange {
+            field_name: change.field_name,
+            old_value: change.old_value,
+            new_value: change.new_value,
+        }
+    }
+}
+
 impl From<GroupUpdated> for FfiGroupUpdated {
     fn from(updated: GroupUpdated) -> Self {
         FfiGroupUpdated {
             initiated_by_inbox_id: updated.initiated_by_inbox_id,
-            added_inboxes: updated
-                .added_inboxes
-                .into_iter()
-                .map(|inbox| FfiInbox {
-                    inbox_id: inbox.inbox_id,
-                })
-                .collect(),
+            added_inboxes: updated.added_inboxes.into_iter().map(Into::into).collect(),
             removed_inboxes: updated
                 .removed_inboxes
                 .into_iter()
-                .map(|inbox| FfiInbox {
-                    inbox_id: inbox.inbox_id,
-                })
+                .map(Into::into)
                 .collect(),
+            left_inboxes: updated.left_inboxes.into_iter().map(Into::into).collect(),
             metadata_field_changes: updated
                 .metadata_field_changes
                 .into_iter()
-                .map(|change| FfiMetadataFieldChange {
-                    field_name: change.field_name,
-                    old_value: change.old_value,
-                    new_value: change.new_value,
-                })
+                .map(Into::into)
+                .collect(),
+            added_admin_inboxes: updated
+                .added_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            removed_admin_inboxes: updated
+                .removed_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            added_super_admin_inboxes: updated
+                .added_super_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            removed_super_admin_inboxes: updated
+                .removed_super_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        }
+    }
+}
+
+impl From<FfiGroupUpdated> for GroupUpdated {
+    fn from(updated: FfiGroupUpdated) -> Self {
+        GroupUpdated {
+            initiated_by_inbox_id: updated.initiated_by_inbox_id,
+            added_inboxes: updated.added_inboxes.into_iter().map(Into::into).collect(),
+            removed_inboxes: updated
+                .removed_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            left_inboxes: updated.left_inboxes.into_iter().map(Into::into).collect(),
+            metadata_field_changes: updated
+                .metadata_field_changes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            added_admin_inboxes: updated
+                .added_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            removed_admin_inboxes: updated
+                .removed_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            added_super_admin_inboxes: updated
+                .added_super_admin_inboxes
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            removed_super_admin_inboxes: updated
+                .removed_super_admin_inboxes
+                .into_iter()
+                .map(Into::into)
                 .collect(),
         }
     }
@@ -540,6 +713,22 @@ impl From<ReadReceipt> for FfiReadReceipt {
 impl From<FfiReadReceipt> for ReadReceipt {
     fn from(_ffi: FfiReadReceipt) -> Self {
         ReadReceipt {}
+    }
+}
+
+impl From<LeaveRequest> for FfiLeaveRequest {
+    fn from(value: LeaveRequest) -> Self {
+        FfiLeaveRequest {
+            authenticated_note: value.authenticated_note,
+        }
+    }
+}
+
+impl From<FfiLeaveRequest> for LeaveRequest {
+    fn from(value: FfiLeaveRequest) -> Self {
+        LeaveRequest {
+            authenticated_note: value.authenticated_note,
+        }
     }
 }
 
@@ -607,6 +796,155 @@ impl From<FfiWalletCallMetadata> for WalletCallMetadata {
             description: value.description,
             transaction_type: value.transaction_type,
             extra: value.extra,
+        }
+    }
+}
+
+impl TryFrom<Intent> for FfiIntent {
+    type Error = GenericError;
+
+    fn try_from(intent: Intent) -> Result<Self, Self::Error> {
+        Ok(FfiIntent {
+            id: intent.id,
+            action_id: intent.action_id,
+            metadata: intent
+                .metadata
+                .map(|map| serde_json::to_string(&map).map_err(GenericError::from_error))
+                .transpose()?,
+        })
+    }
+}
+
+impl TryFrom<FfiIntent> for Intent {
+    type Error = GenericError;
+
+    fn try_from(ffi: FfiIntent) -> Result<Self, Self::Error> {
+        Ok(Intent {
+            id: ffi.id,
+            action_id: ffi.action_id,
+            metadata: ffi
+                .metadata
+                .map(|s| serde_json::from_str(&s).map_err(GenericError::from_error))
+                .transpose()?,
+        })
+    }
+}
+
+impl TryFrom<Actions> for FfiActions {
+    type Error = GenericError;
+
+    fn try_from(actions: Actions) -> Result<Self, Self::Error> {
+        let actions_id = actions.id.clone();
+        let expires_at_ns = match actions.expires_at {
+            Some(dt) => {
+                let ns_opt = dt.and_utc().timestamp_nanos_opt();
+                if ns_opt.is_none() {
+                    return Err(GenericError::from(format!(
+                        "Actions '{}' expiration timestamp is out of valid range for conversion to nanoseconds",
+                        actions_id
+                    )));
+                }
+                ns_opt
+            }
+            None => None,
+        };
+
+        let converted_actions: Result<Vec<_>, _> =
+            actions.actions.into_iter().map(|a| a.try_into()).collect();
+
+        Ok(FfiActions {
+            id: actions.id,
+            description: actions.description,
+            actions: converted_actions?,
+            expires_at_ns,
+        })
+    }
+}
+
+impl From<FfiActions> for Actions {
+    fn from(actions: FfiActions) -> Self {
+        let expires_at = match actions.expires_at_ns {
+            Some(ns) => {
+                let dt = chrono::DateTime::from_timestamp_nanos(ns).naive_utc();
+                Some(dt)
+            }
+            None => None,
+        };
+
+        Actions {
+            id: actions.id,
+            description: actions.description,
+            actions: actions.actions.into_iter().map(|a| a.into()).collect(),
+            expires_at,
+        }
+    }
+}
+
+impl TryFrom<Action> for FfiAction {
+    type Error = GenericError;
+
+    fn try_from(action: Action) -> Result<Self, Self::Error> {
+        let action_id = action.id.clone();
+        let expires_at_ns = match action.expires_at {
+            Some(dt) => {
+                let ns_opt = dt.and_utc().timestamp_nanos_opt();
+                if ns_opt.is_none() {
+                    return Err(GenericError::from(format!(
+                        "Action '{}' expiration timestamp is out of valid range for conversion to nanoseconds",
+                        action_id
+                    )));
+                }
+                ns_opt
+            }
+            None => None,
+        };
+
+        Ok(FfiAction {
+            id: action.id,
+            label: action.label,
+            image_url: action.image_url,
+            style: action.style.map(|s| s.into()),
+            expires_at_ns,
+        })
+    }
+}
+
+impl From<FfiAction> for Action {
+    fn from(action: FfiAction) -> Self {
+        let expires_at = match action.expires_at_ns {
+            Some(ns) => {
+                let dt = chrono::DateTime::from_timestamp_nanos(ns).naive_utc();
+                Some(dt)
+            }
+            None => None,
+        };
+
+        Action {
+            id: action.id,
+            label: action.label,
+            image_url: action.image_url,
+            style: action.style.map(|s| s.into()),
+            expires_at,
+        }
+    }
+}
+
+impl From<ActionStyle> for FfiActionStyle {
+    fn from(style: ActionStyle) -> Self {
+        match style {
+            ActionStyle::Primary => FfiActionStyle::Primary,
+            ActionStyle::Secondary => FfiActionStyle::Secondary,
+            ActionStyle::Danger => FfiActionStyle::Danger,
+        }
+    }
+}
+
+impl From<FfiActionStyle> for ActionStyle {
+    fn from(ffi: FfiActionStyle) -> Self {
+        match ffi {
+            FfiActionStyle::Primary => ActionStyle::Primary,
+            FfiActionStyle::Secondary => ActionStyle::Secondary,
+            FfiActionStyle::Danger => ActionStyle::Danger,
         }
     }
 }
@@ -700,6 +1038,8 @@ impl From<DecodedMessageMetadata> for FfiDecodedMessageMetadata {
             conversation_id: metadata.group_id,
             sender_inbox_id: metadata.sender_inbox_id,
             content_type: metadata.content_type.into(),
+            inserted_at_ns: metadata.inserted_at_ns,
+            expires_at_ns: metadata.expires_at_ns,
         }
     }
 }
@@ -710,6 +1050,7 @@ impl From<MessageBody> for FfiDecodedMessageContent {
     fn from(content: MessageBody) -> Self {
         match content {
             MessageBody::Text(text) => FfiDecodedMessageContent::Text(text.into()),
+            MessageBody::Markdown(markdown) => FfiDecodedMessageContent::Markdown(markdown.into()),
             MessageBody::Reply(reply) => FfiDecodedMessageContent::Reply(reply.into()),
             MessageBody::Reaction(reaction) => FfiDecodedMessageContent::Reaction(reaction.into()),
             MessageBody::Attachment(attachment) => {
@@ -733,6 +1074,45 @@ impl From<MessageBody> for FfiDecodedMessageContent {
             MessageBody::WalletSendCalls(wallet_send_calls) => {
                 FfiDecodedMessageContent::WalletSendCalls(wallet_send_calls.into())
             }
+            MessageBody::Intent(intent) => {
+                if let Some(intent) = intent {
+                    let intent_id = intent.id.clone();
+                    match intent.try_into() {
+                        Ok(intent) => FfiDecodedMessageContent::Intent(Some(intent)),
+                        Err(e) => {
+                            tracing::error!(
+                                intent_id = %intent_id,
+                                error = %e,
+                                "Failed to convert Intent metadata"
+                            );
+                            FfiDecodedMessageContent::Intent(None)
+                        }
+                    }
+                } else {
+                    FfiDecodedMessageContent::Intent(None)
+                }
+            }
+            MessageBody::Actions(actions) => {
+                if let Some(actions) = actions {
+                    let actions_id = actions.id.clone();
+                    match actions.try_into() {
+                        Ok(actions) => FfiDecodedMessageContent::Actions(Some(actions)),
+                        Err(e) => {
+                            tracing::error!(
+                                actions_id = %actions_id,
+                                error = %e,
+                                "Failed to convert Actions metadata"
+                            );
+                            FfiDecodedMessageContent::Actions(None)
+                        }
+                    }
+                } else {
+                    FfiDecodedMessageContent::Actions(None)
+                }
+            }
+            MessageBody::LeaveRequest(leave_request) => {
+                FfiDecodedMessageContent::LeaveRequest(leave_request.into())
+            }
             MessageBody::Custom(encoded) => FfiDecodedMessageContent::Custom(encoded.into()),
         }
     }
@@ -742,6 +1122,7 @@ impl From<MessageBody> for FfiDecodedMessageContent {
 pub fn content_to_optional_body(content: MessageBody) -> Option<FfiDecodedMessageBody> {
     match content {
         MessageBody::Text(text) => Some(FfiDecodedMessageBody::Text(text.into())),
+        MessageBody::Markdown(markdown) => Some(FfiDecodedMessageBody::Markdown(markdown.into())),
         MessageBody::Reply(_) => None,
         MessageBody::Reaction(reaction) => Some(FfiDecodedMessageBody::Reaction(reaction.into())),
         MessageBody::Attachment(attachment) => {
@@ -765,6 +1146,42 @@ pub fn content_to_optional_body(content: MessageBody) -> Option<FfiDecodedMessag
         MessageBody::WalletSendCalls(wallet_send_calls) => Some(
             FfiDecodedMessageBody::WalletSendCalls(wallet_send_calls.into()),
         ),
+        MessageBody::Intent(intent) => {
+            let intent = intent?;
+            let intent_id = intent.id.clone();
+            match intent.try_into() {
+                Ok(intent) => Some(FfiDecodedMessageBody::Intent(intent)),
+                Err(e) => {
+                    tracing::error!(
+                        intent_id = %intent_id,
+                        error = %e,
+                        "Failed to convert Intent metadata"
+                    );
+                    None
+                }
+            }
+        }
+        MessageBody::Actions(actions) => {
+            if let Some(actions) = actions {
+                let actions_id = actions.id.clone();
+                match actions.try_into() {
+                    Ok(actions) => Some(FfiDecodedMessageBody::Actions(actions)),
+                    Err(e) => {
+                        tracing::error!(
+                            actions_id = %actions_id,
+                            error = %e,
+                            "Failed to convert Actions metadata"
+                        );
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        }
+        MessageBody::LeaveRequest(leave_request) => {
+            Some(FfiDecodedMessageBody::LeaveRequest(leave_request.into()))
+        }
         MessageBody::Custom(encoded) => Some(FfiDecodedMessageBody::Custom(encoded.into())),
     }
 }
@@ -786,6 +1203,8 @@ pub struct FfiDecodedMessage {
     reactions: Vec<Arc<FfiDecodedMessage>>,
     delivery_status: FfiDeliveryStatus,
     num_replies: u64,
+    inserted_at_ns: i64,
+    expires_at_ns: Option<i64>,
 }
 
 #[uniffi::export]
@@ -847,6 +1266,14 @@ impl FfiDecodedMessage {
     pub fn reaction_count(&self) -> u64 {
         self.reactions.len() as u64
     }
+
+    pub fn inserted_at_ns(&self) -> i64 {
+        self.inserted_at_ns
+    }
+
+    pub fn expires_at_ns(&self) -> Option<i64> {
+        self.expires_at_ns
+    }
 }
 
 impl From<DecodedMessage> for FfiDecodedMessage {
@@ -874,6 +1301,8 @@ impl From<DecodedMessage> for FfiDecodedMessage {
                 .map(Arc::new)
                 .collect(),
             num_replies: item.num_replies as u64,
+            inserted_at_ns: metadata.inserted_at_ns,
+            expires_at_ns: metadata.expires_at_ns,
         }
     }
 }

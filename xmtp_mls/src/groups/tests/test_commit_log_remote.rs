@@ -4,11 +4,13 @@ use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
 use crate::groups::commit_log_key::{
     CommitLogKeyCrypto, CommitLogKeyStore, get_or_create_signing_key,
 };
+use crate::groups::send_message_opts::SendMessageOpts;
 use crate::{context::XmtpSharedContext, tester};
 use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use rand::Rng;
+use xmtp_configuration::Originators;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::consent_record::ConsentState;
 use xmtp_db::group::GroupQueryArgs;
@@ -20,6 +22,7 @@ use xmtp_db::remote_commit_log::CommitResult;
 use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
+use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
 use xmtp_proto::xmtp::mls::message_contents::CommitLogEntry;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
@@ -304,12 +307,13 @@ async fn test_publish_commit_log_to_remote() {
     let published_commit_log_cursor = alix
         .context
         .db()
-        .get_last_cursor_for_id(
+        .get_last_cursor_for_originator(
             &alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+            Originators::REMOTE_COMMIT_LOG,
         )
         .unwrap();
-    assert_eq!(published_commit_log_cursor, 0);
+    assert_eq!(published_commit_log_cursor, Cursor::commit_log(0));
 
     // Alix runs the commit log worker, which will publish the commit log entry to the remote commit log
     let mut commit_log_worker = CommitLogWorker::new(alix.context.clone());
@@ -321,16 +325,18 @@ async fn test_publish_commit_log_to_remote() {
     let published_commit_log_cursor = alix
         .context
         .db()
-        .get_last_cursor_for_id(
+        .get_last_cursor_for_originator(
             &alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+            Originators::REMOTE_COMMIT_LOG,
         )
         .unwrap();
-    assert!(published_commit_log_cursor > 0);
+    tracing::info!("{}", published_commit_log_cursor);
+    assert!(published_commit_log_cursor > Cursor::commit_log(0));
     let last_commit_log_entry = commit_log_entries.last().unwrap();
     // Verify that the local cursor has now been updated to the last commit log entry's sequence id
     assert_eq!(
-        last_commit_log_entry.rowid as i64,
+        Cursor::commit_log(last_commit_log_entry.rowid as u64),
         published_commit_log_cursor
     );
 
@@ -389,7 +395,10 @@ async fn test_download_commit_log_from_remote() {
 
     // Bo sends a message which updates the group to be consent state allowed
     // and queues a key update intent (4 commits)
-    bo_group.send_message(b"foo").await.unwrap();
+    bo_group
+        .send_message(b"foo", SendMessageOpts::default())
+        .await
+        .unwrap();
 
     // Bo updates the group name (5 commits)
     bo_group
@@ -402,12 +411,13 @@ async fn test_download_commit_log_from_remote() {
     let alix_group_1_cursor = alix
         .context
         .db()
-        .get_last_cursor_for_id(
+        .get_last_cursor_for_originator(
             &alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+            Originators::REMOTE_COMMIT_LOG,
         )
         .unwrap();
-    assert_eq!(alix_group_1_cursor, 0);
+    assert_eq!(alix_group_1_cursor, Cursor::commit_log(0));
 
     // Verify that publish works as expected
     let mut commit_log_worker = CommitLogWorker::new(alix.context.clone());
@@ -459,9 +469,10 @@ async fn test_download_commit_log_from_remote() {
     let alix_group_1_cursor = alix
         .context
         .db()
-        .get_last_cursor_for_id(
+        .get_last_cursor_for_originator(
             &alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+            Originators::REMOTE_COMMIT_LOG,
         )
         .unwrap();
 
@@ -469,7 +480,10 @@ async fn test_download_commit_log_from_remote() {
         test_results[0].publish_commit_log_results.clone().unwrap()[0].last_entry_published_rowid;
     assert_eq!(
         alix_group_1_cursor,
-        alix_group1_publish_result_upload_cursor
+        Cursor::new(
+            alix_group1_publish_result_upload_cursor as u64,
+            Originators::REMOTE_COMMIT_LOG
+        )
     );
 
     // Verify that when we save remote commit log entries for alix and bo, that we get the same results
@@ -709,7 +723,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(!commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(!commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log.clone()),
         &signed_entry,
@@ -736,7 +750,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -763,7 +777,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -791,7 +805,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -819,7 +833,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -847,7 +861,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -875,7 +889,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -902,7 +916,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x03],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log.clone()),
         &signed_entry,
@@ -918,7 +932,7 @@ async fn test_should_skip_remote_log_entry() {
         applied_epoch_authenticator: vec![0x01, 0x02, 0x04],
     };
     let signed_entry = create_signed_entry(&entry)?;
-    assert!(commit_log_worker.should_skip_remote_commit_log_entry_test(
+    assert!(commit_log_worker._should_skip_remote_commit_log_entry(
         &[0x11, 0x22, 0x33],
         Some(latest_saved_remote_log),
         &signed_entry,
@@ -940,7 +954,9 @@ async fn test_all_users_use_same_signing_key_for_publishing() {
 
     // Both parties make commits to generate entries for publishing
     // Alix's first message should trigger a KeyUpdate commit (key rotation) first
-    alix_dm.send_message("Hello from alix".as_bytes()).await?;
+    alix_dm
+        .send_message("Hello from alix".as_bytes(), SendMessageOpts::default())
+        .await?;
     bo_dm.sync().await?;
     let messages = bo_dm.find_messages(&MsgQueryArgs::default())?;
     // Should see 2 messages:
@@ -960,7 +976,9 @@ async fn test_all_users_use_same_signing_key_for_publishing() {
     );
 
     // Bo's first message should also trigger a KeyUpdate commit (key rotation) first
-    bo_dm.send_message("Hello from bo".as_bytes()).await?;
+    bo_dm
+        .send_message("Hello from bo".as_bytes(), SendMessageOpts::default())
+        .await?;
     alix_dm.sync().await?;
     let messages = alix_dm.find_messages(&MsgQueryArgs::default())?;
     // Should now have 3 messages: group_updated, "Hello from alix", "Hello from bo"
@@ -1079,7 +1097,9 @@ async fn test_consecutive_entries_verification_happy_case() {
     assert_commit_sequence(&bo_logs_after_download, &[CommitType::Welcome]);
 
     // Bo's first message will generate a KeyUpdate commit (key rotation)
-    bo_dm.send_message("Message from bo".as_bytes()).await?;
+    bo_dm
+        .send_message("Message from bo".as_bytes(), SendMessageOpts::default())
+        .await?;
 
     // Sync to alix
     alix_dm.sync().await?;

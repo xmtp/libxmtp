@@ -25,7 +25,7 @@ pub enum ServingStatus {
     ServiceUnknown = 3,
 }
 
-#[derive(Debug, Builder, Default)]
+#[derive(Builder, Clone, Debug, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct HealthCheck {
     #[builder(setter(into), default)]
@@ -57,17 +57,18 @@ impl Endpoint for HealthCheck {
 #[cfg(test)]
 mod test {
     use crate::d14n::HealthCheck;
+    use xmtp_api_grpc::test::{GatewayClient, XmtpdClient};
     use xmtp_proto::prelude::*;
 
     #[xmtp_common::test]
     async fn test_health_check() {
         let mut endpoint = HealthCheck::builder().build().unwrap();
 
-        let xmtpd_client = crate::TestClient::create_d14n();
+        let xmtpd_client = XmtpdClient::create();
         let client = xmtpd_client.build().unwrap();
         assert!(endpoint.query(&client).await.is_ok());
 
-        let gateway_client = crate::TestClient::create_gateway();
+        let gateway_client = GatewayClient::create();
         let client = gateway_client.build().unwrap();
         assert!(endpoint.query(&client).await.is_ok());
     }

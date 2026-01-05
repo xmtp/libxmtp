@@ -37,6 +37,7 @@ impl Endpoint for QueryCommitLog {
 #[cfg(test)]
 mod test {
     use super::*;
+    use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_common::rand_vec;
     use xmtp_proto::prelude::*;
 
@@ -57,7 +58,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_query_commit_log() {
-        let client = crate::TestClient::create_local();
+        let client = NodeGoClient::create();
         let client = client.build().unwrap();
         let endpoint = QueryCommitLog::builder()
             .query_log_requests(vec![QueryCommitLogRequest {

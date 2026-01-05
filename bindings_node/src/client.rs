@@ -3,73 +3,77 @@ use crate::conversations::Conversations;
 use crate::identity::{ApiStats, Identifier, IdentityExt, IdentityStats};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestHandle;
-use napi::bindgen_prelude::{Error, Result, Uint8Array};
+use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
-use xmtp_api::ApiDebugWrapper;
-pub use xmtp_api_grpc::v3::Client as TonicApiClient;
+use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb, StorageOption};
 use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
-use xmtp_mls::context::XmtpMlsLocalContext;
+use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
-use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_proto::api_client::AggregateStats;
 
-pub type MlsContext = Arc<
-  XmtpMlsLocalContext<
-    ApiDebugWrapper<TonicApiClient>,
-    xmtp_db::DefaultStore,
-    xmtp_db::DefaultMlsStore,
-  >,
->;
-pub type RustXmtpClient = MlsClient<MlsContext>;
-pub type RustMlsGroup = MlsGroup<MlsContext>;
+mod gateway_auth;
+
+pub type RustXmtpClient = MlsClient<xmtp_mls::MlsContext>;
+pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
 static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
 
 #[napi]
 #[derive(Clone)]
 pub struct Client {
   inner_client: Arc<RustXmtpClient>,
-  pub account_identifier: Identifier,
+  account_identifier: Identifier,
   app_version: Option<String>,
 }
 
+#[napi]
 impl Client {
   pub fn inner_client(&self) -> &Arc<RustXmtpClient> {
     &self.inner_client
+  }
+  #[napi(getter)]
+  pub fn account_identifier(&self) -> Identifier {
+    self.account_identifier.clone()
   }
 }
 
 #[napi(string_enum)]
 #[derive(Debug)]
-#[allow(non_camel_case_types)]
 pub enum LogLevel {
-  off,
-  error,
-  warn,
-  info,
-  debug,
-  trace,
+  Off,
+  Error,
+  Warn,
+  Info,
+  Debug,
+  Trace,
 }
 
 #[napi(string_enum)]
 #[derive(Debug)]
-#[allow(non_camel_case_types)]
 pub enum SyncWorkerMode {
-  enabled,
-  disabled,
+  Enabled,
+  Disabled,
+}
+
+#[napi(string_enum)]
+#[derive(Debug, Default)]
+pub enum ClientMode {
+  #[default]
+  Default,
+  Notification,
 }
 
 impl From<SyncWorkerMode> for XmtpSyncWorkerMode {
   fn from(value: SyncWorkerMode) -> Self {
     match value {
-      SyncWorkerMode::enabled => Self::Enabled,
-      SyncWorkerMode::disabled => Self::Disabled,
+      SyncWorkerMode::Enabled => Self::Enabled,
+      SyncWorkerMode::Disabled => Self::Disabled,
     }
   }
 }
@@ -78,12 +82,12 @@ impl std::fmt::Display for LogLevel {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     use LogLevel::*;
     let s = match self {
-      off => "off",
-      error => "error",
-      warn => "warn",
-      info => "info",
-      debug => "debug",
-      trace => "trace",
+      Off => "off",
+      Error => "error",
+      Warn => "warn",
+      Info => "info",
+      Debug => "debug",
+      Trace => "trace",
     };
     write!(f, "{}", s)
   }
@@ -98,6 +102,21 @@ pub struct LogOptions {
   pub structured: Option<bool>,
   /// Filter logs by level
   pub level: Option<LogLevel>,
+}
+
+#[napi(object)]
+pub struct GroupSyncSummary {
+  pub num_eligible: u32,
+  pub num_synced: u32,
+}
+
+impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for GroupSyncSummary {
+  fn from(summary: xmtp_mls::groups::welcome_sync::GroupSyncSummary) -> Self {
+    Self {
+      num_eligible: summary.num_eligible as u32,
+      num_synced: summary.num_synced as u32,
+    }
+  }
 }
 
 fn init_logging(options: LogOptions) -> Result<()> {
@@ -124,7 +143,7 @@ fn init_logging(options: LogOptions) -> Result<()> {
       }
       Ok(())
     })
-    .clone()
+    .as_ref()
     .map_err(ErrorWrapper::from)?;
   Ok(())
 }
@@ -139,7 +158,8 @@ fn init_logging(options: LogOptions) -> Result<()> {
 #[allow(clippy::too_many_arguments)]
 #[napi]
 pub async fn create_client(
-  host: String,
+  v3_host: String,
+  gateway_host: Option<String>,
   is_secure: bool,
   db_path: Option<String>,
   inbox_id: String,
@@ -149,17 +169,24 @@ pub async fn create_client(
   device_sync_worker_mode: Option<SyncWorkerMode>,
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,
-  disable_events: Option<bool>,
   app_version: Option<String>,
+  nonce: Option<BigInt>,
+  auth_callback: Option<&gateway_auth::AuthCallback>,
+  auth_handle: Option<&gateway_auth::AuthHandle>,
+  client_mode: Option<ClientMode>,
 ) -> Result<Client> {
+  let client_mode = client_mode.unwrap_or_default();
   let root_identifier = account_identifier.clone();
-
   init_logging(log_options.unwrap_or_default())?;
-  let api_client = TonicApiClient::create(&host, is_secure, app_version.as_ref())
-    .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
-
-  let sync_api_client = TonicApiClient::create(&host, is_secure, app_version.as_ref())
-    .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
+  let mut backend = MessageBackendBuilder::default();
+  backend
+    .v3_host(&v3_host)
+    .maybe_gateway_host(gateway_host)
+    .readonly(matches!(client_mode, ClientMode::Notification))
+    .maybe_auth_callback(auth_callback.map(|c| Arc::new(c.clone()) as _))
+    .maybe_auth_handle(auth_handle.map(|h| h.clone().into()))
+    .app_version(app_version.clone().unwrap_or_default())
+    .is_secure(is_secure);
 
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
@@ -172,48 +199,55 @@ pub async fn create_client(
       let key: EncryptionKey = key
         .try_into()
         .map_err(|_| Error::from_reason("Malformed 32 byte encryption key"))?;
-      let db = NativeDb::new(&storage_option, key)
-        .map_err(|e| Error::from_reason(format!("Error creating native database {}", e)))?;
-      EncryptedMessageStore::new(db)
-        .map_err(|e| Error::from_reason(format!("Error Creating Encrypted Message store {}", e)))?
+      let db = NativeDb::new(&storage_option, key).map_err(ErrorWrapper::from)?;
+      EncryptedMessageStore::new(db).map_err(ErrorWrapper::from)?
     }
     None => {
-      let db = NativeDb::new_unencrypted(&storage_option)
-        .map_err(|e| Error::from_reason(e.to_string()))?;
-      EncryptedMessageStore::new(db).map_err(|e| Error::from_reason(e.to_string()))?
+      let db = NativeDb::new_unencrypted(&storage_option).map_err(ErrorWrapper::from)?;
+      EncryptedMessageStore::new(db).map_err(ErrorWrapper::from)?
     }
   };
 
+  let nonce = match nonce {
+    Some(n) => {
+      let (signed, value, lossless) = n.get_u64();
+      if signed {
+        return Err(Error::from_reason("`nonce` must be non-negative"));
+      }
+      if !lossless {
+        return Err(Error::from_reason("`nonce` is too large"));
+      }
+      value
+    }
+    None => 1,
+  };
   let internal_account_identifier = account_identifier.clone().try_into()?;
   let identity_strategy = IdentityStrategy::new(
     inbox_id.clone(),
     internal_account_identifier,
     // this is a temporary solution
-    1,
+    nonce,
     None,
   );
 
-  let mut builder = match device_sync_server_url {
-    Some(url) => xmtp_mls::Client::builder(identity_strategy)
-      .api_clients(api_client, sync_api_client)
-      .enable_api_debug_wrapper()
-      .map_err(ErrorWrapper::from)?
-      .with_remote_verifier()
-      .map_err(ErrorWrapper::from)?
-      .with_allow_offline(allow_offline)
-      .with_disable_events(disable_events)
-      .store(store)
-      .device_sync_server_url(&url),
+  let cursor_store = SqliteCursorStore::new(store.db());
+  backend.cursor_store(cursor_store);
+  let api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
+  let sync_api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
 
-    None => xmtp_mls::Client::builder(identity_strategy)
-      .api_clients(api_client, sync_api_client)
-      .enable_api_debug_wrapper()
-      .map_err(ErrorWrapper::from)?
-      .with_remote_verifier()
-      .map_err(ErrorWrapper::from)?
-      .with_allow_offline(allow_offline)
-      .with_disable_events(disable_events)
-      .store(store),
+  let mut builder = xmtp_mls::Client::builder(identity_strategy)
+    .api_clients(api_client, sync_api_client)
+    .enable_api_stats()
+    .map_err(ErrorWrapper::from)?
+    .enable_api_debug_wrapper()
+    .map_err(ErrorWrapper::from)?
+    .with_remote_verifier()
+    .map_err(ErrorWrapper::from)?
+    .with_allow_offline(allow_offline)
+    .store(store);
+
+  if let Some(u) = device_sync_server_url {
+    builder = builder.device_sync_server_url(&u);
   };
 
   if let Some(device_sync_worker_mode) = device_sync_worker_mode {
@@ -357,17 +391,15 @@ impl Client {
   }
 
   #[napi]
-  pub async fn sync_preferences(&self) -> Result<u32> {
+  pub async fn sync_preferences(&self) -> Result<GroupSyncSummary> {
     let inner = self.inner_client.as_ref();
 
-    let num_groups_synced: usize = inner
+    let summary = inner
       .sync_all_welcomes_and_history_sync_groups()
       .await
       .map_err(ErrorWrapper::from)?;
 
-    let num_groups_synced: u32 = num_groups_synced.try_into().map_err(ErrorWrapper::from)?;
-
-    Ok(num_groups_synced)
+    Ok(summary.into())
   }
 
   #[napi]
@@ -394,21 +426,20 @@ impl Client {
   }
 
   #[napi]
-  pub async fn upload_debug_archive(&self, server_url: String) -> Result<String> {
-    let db = self.inner_client().context.db();
-    Ok(
-      upload_debug_archive(db, Some(server_url))
-        .await
-        .map_err(ErrorWrapper::from)?,
-    )
+  pub fn release_db_connection(&self) -> Result<()> {
+    self
+      .inner_client
+      .release_db_connection()
+      .map_err(ErrorWrapper::from)?;
+    Ok(())
   }
 
   #[napi]
-  pub fn delete_message(&self, message_id: Uint8Array) -> Result<u32> {
-    let deleted_count = self
+  pub async fn db_reconnect(&self) -> Result<()> {
+    self
       .inner_client
-      .delete_message(message_id.to_vec())
+      .reconnect_db()
       .map_err(ErrorWrapper::from)?;
-    Ok(deleted_count as u32)
+    Ok(())
   }
 }

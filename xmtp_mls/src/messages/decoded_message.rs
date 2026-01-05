@@ -1,7 +1,10 @@
 use crate::groups::GroupError;
 use crate::messages::enrichment::EnrichMessageError;
 use prost::Message;
+use xmtp_content_types::actions::{Actions, ActionsCodec};
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
+use xmtp_content_types::intent::{Intent, IntentCodec};
+use xmtp_content_types::leave_request::LeaveRequestCodec;
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::{LegacyReactionCodec, ReactionCodec};
 use xmtp_content_types::read_receipt::ReadReceiptCodec;
@@ -12,6 +15,7 @@ use xmtp_content_types::wallet_send_calls::{WalletSendCalls, WalletSendCallsCode
 use xmtp_content_types::{CodecError, ContentCodec};
 use xmtp_content_types::{
     attachment::{Attachment, AttachmentCodec},
+    markdown::MarkdownCodec,
     read_receipt::ReadReceipt,
     remote_attachment::RemoteAttachment,
     text::TextCodec,
@@ -21,7 +25,7 @@ use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
 use xmtp_proto::xmtp::mls::message_contents::{
     ContentTypeId, EncodedContent, GroupUpdated,
-    content_types::{MultiRemoteAttachment, ReactionV2},
+    content_types::{LeaveRequest, MultiRemoteAttachment, ReactionV2},
 };
 
 #[derive(Debug, Clone)]
@@ -33,15 +37,22 @@ pub struct Reply {
     pub reference_id: String,
 }
 
-// Wrap text content in a struct to be consident with other content types
+// Wrap text content in a struct to be consistent with other content types
 #[derive(Debug, Clone)]
 pub struct Text {
+    pub content: String,
+}
+
+// Wrap markdown content in a struct to be consistent with other content types
+#[derive(Debug, Clone)]
+pub struct Markdown {
     pub content: String,
 }
 
 #[derive(Debug, Clone)]
 pub enum MessageBody {
     Text(Text),
+    Markdown(Markdown),
     Reply(Reply),
     Reaction(ReactionV2),
     Attachment(Attachment),
@@ -51,6 +62,9 @@ pub enum MessageBody {
     GroupUpdated(GroupUpdated),
     ReadReceipt(ReadReceipt),
     WalletSendCalls(WalletSendCalls),
+    Intent(Option<Intent>),
+    Actions(Option<Actions>),
+    LeaveRequest(LeaveRequest),
     Custom(EncodedContent),
 }
 
@@ -72,6 +86,10 @@ pub struct DecodedMessageMetadata {
     pub delivery_status: DeliveryStatus,
     // The content type of the message
     pub content_type: ContentTypeId,
+    // Time in nanoseconds the message was inserted into the database
+    pub inserted_at_ns: i64,
+    // Timestamp (in NS) after which the message must be deleted
+    pub expires_at_ns: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +118,10 @@ impl TryFrom<EncodedContent> for MessageBody {
             (TextCodec::TYPE_ID, TextCodec::MAJOR_VERSION) => {
                 let text = TextCodec::decode(value)?;
                 Ok(MessageBody::Text(Text { content: text }))
+            }
+            (MarkdownCodec::TYPE_ID, MarkdownCodec::MAJOR_VERSION) => {
+                let markdown = MarkdownCodec::decode(value)?;
+                Ok(MessageBody::Markdown(Markdown { content: markdown }))
             }
             (AttachmentCodec::TYPE_ID, AttachmentCodec::MAJOR_VERSION) => {
                 let attachment = AttachmentCodec::decode(value)?;
@@ -146,6 +168,18 @@ impl TryFrom<EncodedContent> for MessageBody {
                 let wallet_send_calls = WalletSendCallsCodec::decode(value)?;
                 Ok(MessageBody::WalletSendCalls(wallet_send_calls))
             }
+            (IntentCodec::TYPE_ID, IntentCodec::MAJOR_VERSION) => {
+                let intent = IntentCodec::decode(value)?;
+                Ok(MessageBody::Intent(Some(intent)))
+            }
+            (ActionsCodec::TYPE_ID, ActionsCodec::MAJOR_VERSION) => {
+                let actions = ActionsCodec::decode(value)?;
+                Ok(MessageBody::Actions(Some(actions)))
+            }
+            (LeaveRequestCodec::TYPE_ID, LeaveRequestCodec::MAJOR_VERSION) => {
+                let leave_request = LeaveRequestCodec::decode(value)?;
+                Ok(MessageBody::LeaveRequest(leave_request))
+            }
 
             _ => Err(CodecError::CodecNotFound(content_type.clone()).into()),
         }
@@ -184,6 +218,8 @@ impl TryFrom<StoredGroupMessage> for DecodedMessage {
             sender_inbox_id: value.sender_inbox_id,
             delivery_status: value.delivery_status,
             content_type: content_type_id,
+            inserted_at_ns: value.inserted_at_ns,
+            expires_at_ns: value.expire_at_ns,
         };
 
         // For now, we'll set default values for reactions and replies

@@ -9,7 +9,7 @@ DROP TABLE IF EXISTS group_intents;
 
 DROP TABLE IF EXISTS identity_updates;
 
-DROP TABLE IF EXISTS identity_inbox;
+DROP TABLE IF EXISTS identity;
 
 DROP TABLE IF EXISTS openmls_key_store;
 

@@ -6,12 +6,11 @@ mod clients;
 mod export;
 /// Generate functionality
 mod generate;
-mod identity_lock;
 /// Information about this app
 mod info;
 /// Inspect data on the XMTP Network
 mod inspect;
-/// Modify entitites on the network
+/// Modify entities on the network
 mod modify;
 /// Query for data on the network
 mod query;
@@ -19,12 +18,15 @@ mod query;
 mod send;
 /// Local storage
 mod store;
+/// Message/Conversation Streaming
+mod stream;
 /// Types shared between App Functions
 mod types;
 
 use clap::CommandFactory;
 use color_eyre::eyre::{self, Result};
 use directories::ProjectDirs;
+use redb::DatabaseError;
 use std::{fs, path::PathBuf, sync::Arc};
 use xmtp_db::{EncryptedMessageStore, StorageOption};
 use xmtp_id::InboxOwner;
@@ -37,7 +39,6 @@ pub use clients::*;
 #[derive(Debug)]
 pub struct App {
     /// Local K/V Store/Cache for values
-    db: Arc<redb::Database>,
     opts: AppOpts,
 }
 
@@ -50,10 +51,40 @@ impl App {
             sqlite_stores = %Self::db_directory(&opts.backend)?.display(),
             "created project directories",
         );
-        Ok(Self {
-            db: Arc::new(redb::Database::create(Self::redb()?)?),
-            opts,
-        })
+        Ok(Self { opts })
+    }
+
+    fn readonly_db() -> Result<Arc<redb::ReadOnlyDatabase>> {
+        match redb::ReadOnlyDatabase::open(Self::redb()?) {
+            // if the db is corrupted attempt a repair
+            Err(DatabaseError::RepairAborted) => {
+                let integrity = {
+                    let mut rw = redb::Database::open(Self::redb()?)?;
+                    rw.check_integrity()
+                };
+                match integrity {
+                    // db is ok can be reopened
+                    Ok(true) => Self::readonly_db(),
+                    // db was broken but is repaired
+                    Ok(false) => Self::readonly_db(),
+                    Err(DatabaseError::DatabaseAlreadyOpen) => {
+                        tracing::warn!(
+                            "db repair attempted but cannot continue because opened in a different process."
+                        );
+                        Err(DatabaseError::DatabaseAlreadyOpen.into())
+                    }
+                    Err(_) => {
+                        panic!("db file corrupted & unrecoverable. run `xdbg --clear` to restart")
+                    }
+                }
+            }
+            Ok(db) => Ok(Arc::new(db)),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    fn db() -> Result<Arc<redb::Database>> {
+        Ok(Arc::new(redb::Database::create(Self::redb()?)?))
     }
 
     /// All data stored here
@@ -82,7 +113,7 @@ impl App {
     }
 
     pub async fn run(self) -> Result<()> {
-        let App { db, opts } = self;
+        let App { opts } = self;
         use args::Commands::*;
         let AppOpts {
             cmd,
@@ -90,7 +121,7 @@ impl App {
             clear,
             ..
         } = opts;
-        debug!(fdlimit = get_fdlimit());
+        info!(fdlimit = get_fdlimit(), "setting fdlimit");
 
         if cmd.is_none() && !clear {
             AppOpts::command().print_help()?;
@@ -99,13 +130,14 @@ impl App {
 
         if let Some(cmd) = cmd {
             match cmd {
-                Generate(g) => generate::Generate::new(g, backend, db).run().await,
-                Send(s) => send::Send::new(s, backend, db).run().await,
-                Inspect(i) => inspect::Inspect::new(i, backend, db).run().await,
-                Query(q) => query::Query::new(q, backend, db).run().await,
-                Info(i) => info::Info::new(i, backend, db).run().await,
-                Export(e) => export::Export::new(e, db, backend).run(),
-                Modify(m) => modify::Modify::new(m, backend, db).run().await,
+                Generate(g) => generate::Generate::new(g, backend).run().await,
+                Send(s) => send::Send::new(s, backend)?.run().await,
+                Inspect(i) => inspect::Inspect::new(i, backend)?.run().await,
+                Query(q) => query::Query::new(q, backend)?.run().await,
+                Info(i) => info::Info::new(i, backend)?.run().await,
+                Export(e) => export::Export::new(e, backend)?.run(),
+                Modify(m) => modify::Modify::new(m, backend)?.run().await,
+                Stream(s) => stream::Stream::new(s, backend)?.run().await,
             }?;
         }
 
@@ -124,7 +156,7 @@ fn generate_wallet() -> types::EthereumWallet {
 
 static FDLIMIT: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
 /// Tries to raise the open file descriptor limit
-/// returns a default low-enough number if unsuccesful
+/// returns a default low-enough number if unsuccessful
 /// useful when dealing with lots of different sqlite databases
 fn get_fdlimit() -> usize {
     *FDLIMIT.get_or_init(|| {

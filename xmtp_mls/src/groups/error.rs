@@ -4,7 +4,6 @@ use super::mls_sync::GroupMessageProcessingError;
 use super::summary::SyncSummary;
 use super::{intents::IntentError, validated_commit::CommitValidationError};
 use crate::identity::IdentityError;
-use crate::messages::enrichment::EnrichMessageError;
 use crate::mls_store::MlsStoreError;
 use crate::{
     client::ClientError, identity_updates::InstallationDiffError, intents::ProcessIntentError,
@@ -84,6 +83,8 @@ pub enum GroupError {
     WrappedApi(#[from] xmtp_api::ApiError),
     #[error("invalid group membership")]
     InvalidGroupMembership,
+    #[error(transparent)]
+    LeaveCantProcessed(#[from] GroupLeaveValidationError),
     #[error("storage error: {0}")]
     Storage(#[from] xmtp_db::StorageError),
     #[error("intent error: {0}")]
@@ -122,8 +123,10 @@ pub enum GroupError {
     CommitValidation(#[from] CommitValidationError),
     #[error("identity error: {0}")]
     Identity(#[from] IdentityError),
-    #[error("serialization error: {0}")]
-    EncodeError(#[from] prost::EncodeError),
+    #[error("conversion error: {0}")]
+    ConversionError(#[from] xmtp_proto::ConversionError),
+    #[error("crypto error: {0}")]
+    CryptoError(#[from] openmls::prelude::CryptoError),
     #[error("create group context proposal error: {0}")]
     CreateGroupContextExtProposalError(
         #[from] CreateGroupContextExtProposalError<sql_key_store::SqlKeyStoreError>,
@@ -170,14 +173,26 @@ pub enum GroupError {
     WrapWelcome(#[from] WrapWelcomeError),
     #[error(transparent)]
     UnwrapWelcome(#[from] UnwrapWelcomeError),
+    #[error("Failed to retrieve welcome data from topic {0}")]
+    WelcomeDataNotFound(String),
     #[error("Result was not initialized")]
     UninitializedResult,
     #[error(transparent)]
     Diesel(#[from] xmtp_db::diesel::result::Error),
     #[error(transparent)]
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
-    #[error(transparent)]
-    EnrichMessage(#[from] EnrichMessageError),
+}
+
+impl From<prost::EncodeError> for GroupError {
+    fn from(value: prost::EncodeError) -> Self {
+        GroupError::ConversionError(value.into())
+    }
+}
+
+impl From<prost::DecodeError> for GroupError {
+    fn from(value: prost::DecodeError) -> Self {
+        GroupError::ConversionError(value.into())
+    }
 }
 
 impl From<SyncSummary> for GroupError {
@@ -203,6 +218,28 @@ pub enum MetadataPermissionsError {
 }
 
 impl RetryableError for MetadataPermissionsError {
+    fn is_retryable(&self) -> bool {
+        false
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum GroupLeaveValidationError {
+    #[error("cannot leave a DM conversation")]
+    DmLeaveForbidden,
+    #[error("cannot leave a group that has only one member")]
+    SingleMemberLeaveRejected,
+    #[error("super-admin cannot leave a group; must be demoted first")]
+    SuperAdminLeaveForbidden,
+    #[error("inbox ID already exists in the pending leave list")]
+    InboxAlreadyInPendingList,
+    #[error("inbox ID does not exist in the pending leave list")]
+    InboxNotInPendingList,
+    #[error("only a member of the group can send a leave request or retract a leave request")]
+    NotAGroupMember,
+}
+
+impl RetryableError for GroupLeaveValidationError {
     fn is_retryable(&self) -> bool {
         false
     }
@@ -266,7 +303,7 @@ impl RetryableError for GroupError {
             Self::WrapWelcome(e) => e.is_retryable(),
             Self::UnwrapWelcome(e) => e.is_retryable(),
             Self::Diesel(e) => e.is_retryable(),
-            Self::EnrichMessage(e) => e.is_retryable(),
+            Self::LeaveCantProcessed(e) => e.is_retryable(),
             Self::NotFound(_)
             | Self::UserLimitExceeded
             | Self::InvalidGroupMembership
@@ -283,12 +320,14 @@ impl RetryableError for GroupError {
             | Self::AddressValidation(_)
             | Self::InvalidPublicKeys(_)
             | Self::CredentialError(_)
-            | Self::EncodeError(_)
+            | Self::ConversionError(_)
+            | Self::CryptoError(_)
             | Self::TooManyCharacters { .. }
             | Self::GroupPausedUntilUpdate(_)
             | Self::GroupInactive
             | Self::FailedToVerifyInstallations
             | Self::NoWelcomesToSend
+            | Self::WelcomeDataNotFound(_)
             | Self::UninitializedField(_)
             | Self::UninitializedResult => false,
         }

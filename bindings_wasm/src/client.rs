@@ -1,37 +1,32 @@
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use js_sys::Uint8Array;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter, fmt::format::Pretty};
-use wasm_bindgen::JsValue;
-use wasm_bindgen::prelude::{JsError, wasm_bindgen};
-use xmtp_api::ApiDebugWrapper;
-use xmtp_api_grpc::v3::Client as TonicApiClient;
+use tsify::Tsify;
+use wasm_bindgen::{JsValue, prelude::*};
+use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::SyncWorkerMode;
-use xmtp_mls::context::XmtpMlsLocalContext;
+use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
-use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_proto::api_client::AggregateStats;
 
 use crate::conversations::Conversations;
 use crate::identity::{ApiStats, Identifier, IdentityStats};
 use crate::inbox_state::InboxState;
 
-pub type MlsContext = Arc<
-  XmtpMlsLocalContext<
-    ApiDebugWrapper<TonicApiClient>,
-    xmtp_db::DefaultStore,
-    xmtp_db::DefaultMlsStore,
-  >,
->;
-pub type RustXmtpClient = MlsClient<MlsContext>;
-pub type RustMlsGroup = MlsGroup<MlsContext>;
+pub type RustXmtpClient = MlsClient<xmtp_mls::MlsContext>;
+pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
+
+pub mod gateway_auth;
 
 #[wasm_bindgen]
 pub struct Client {
@@ -49,22 +44,33 @@ impl Client {
 static LOGGER_INIT: std::sync::OnceLock<Result<(), filter::LevelParseError>> =
   std::sync::OnceLock::new();
 
-#[wasm_bindgen]
-#[derive(Copy, Clone, Debug)]
+#[wasm_bindgen_numbered_enum]
 pub enum LogLevel {
-  Off = "off",
-  Error = "error",
-  Warn = "warn",
-  Info = "info",
-  Debug = "debug",
-  Trace = "trace",
+  Off = 0,
+  Error = 1,
+  Warn = 2,
+  Info = 3,
+  Debug = 4,
+  Trace = 5,
 }
 
-#[wasm_bindgen]
-#[derive(Copy, Clone, Debug)]
+impl LogLevel {
+  pub fn to_str(&self) -> &'static str {
+    match self {
+      LogLevel::Off => "off",
+      LogLevel::Error => "error",
+      LogLevel::Warn => "warn",
+      LogLevel::Info => "info",
+      LogLevel::Debug => "debug",
+      LogLevel::Trace => "trace",
+    }
+  }
+}
+
+#[wasm_bindgen_numbered_enum]
 pub enum DeviceSyncWorkerMode {
-  Enabled = "enabled",
-  Disabled = "disabled",
+  Enabled = 0,
+  Disabled = 1,
 }
 
 impl From<DeviceSyncWorkerMode> for SyncWorkerMode {
@@ -72,31 +78,50 @@ impl From<DeviceSyncWorkerMode> for SyncWorkerMode {
     match value {
       DeviceSyncWorkerMode::Enabled => Self::Enabled,
       DeviceSyncWorkerMode::Disabled => Self::Disabled,
-      DeviceSyncWorkerMode::__Invalid => unreachable!("DeviceSyncWorkerMode is invalid."),
     }
   }
 }
 
-/// Specify options for the logger
+#[wasm_bindgen_numbered_enum]
 #[derive(Default)]
-#[wasm_bindgen(getter_with_clone)]
+pub enum ClientMode {
+  #[default]
+  Default = 0,
+  Notification = 1,
+}
+
+/// Specify options for the logger
+#[derive(Clone, Default, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct LogOptions {
-  /// enable structured JSON logging to stdout.Useful for third-party log viewers
-  pub structured: bool,
+  /// enable structured JSON logging to stdout. Useful for third-party log viewers
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub structured: Option<bool>,
   /// enable performance metrics for libxmtp in the `performance` tab
-  pub performance: bool,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub performance: Option<bool>,
   /// filter for logs
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub level: Option<LogLevel>,
 }
 
-#[wasm_bindgen]
-impl LogOptions {
-  #[wasm_bindgen(constructor)]
-  pub fn new(structured: bool, performance: bool, level: Option<LogLevel>) -> Self {
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupSyncSummary {
+  pub num_eligible: u32,
+  pub num_synced: u32,
+}
+
+impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for GroupSyncSummary {
+  fn from(summary: xmtp_mls::groups::welcome_sync::GroupSyncSummary) -> Self {
     Self {
-      structured,
-      performance,
-      level,
+      num_eligible: summary.num_eligible as u32,
+      num_synced: summary.num_synced as u32,
     }
   }
 }
@@ -112,7 +137,7 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
         EnvFilter::builder().parse_lossy("info")
       };
 
-      if options.structured {
+      if options.structured.unwrap_or_default() {
         let fmt = tracing_subscriber::fmt::layer()
           .json()
           .flatten_event(true)
@@ -129,7 +154,7 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
 
         let subscriber = tracing_subscriber::registry().with(fmt).with(filter);
 
-        if options.performance {
+        if options.performance.unwrap_or_default() {
           subscriber
             .with(tracing_web::performance_layer().with_details_from_fields(Pretty::default()))
             .init();
@@ -147,21 +172,39 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
 #[allow(clippy::too_many_arguments)]
 pub async fn create_client(
   host: String,
-  inbox_id: String,
-  account_identifier: Identifier,
-  db_path: Option<String>,
-  encryption_key: Option<Uint8Array>,
-  device_sync_server_url: Option<String>,
-  device_sync_worker_mode: Option<DeviceSyncWorkerMode>,
-  log_options: Option<LogOptions>,
-  allow_offline: Option<bool>,
-  disable_events: Option<bool>,
-  app_version: Option<String>,
+  #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+  #[wasm_bindgen(js_name = accountIdentifier)] account_identifier: Identifier,
+  #[wasm_bindgen(js_name = dbPath)] db_path: Option<String>,
+  #[wasm_bindgen(js_name = encryptionKey)] encryption_key: Option<Uint8Array>,
+  #[wasm_bindgen(js_name = deviceSyncServerUrl)] device_sync_server_url: Option<String>,
+  #[wasm_bindgen(js_name = deviceSyncWorkerMode)] device_sync_worker_mode: Option<
+    DeviceSyncWorkerMode,
+  >,
+  #[wasm_bindgen(js_name = logOptions)] log_options: Option<LogOptions>,
+  #[wasm_bindgen(js_name = allowOffline)] allow_offline: Option<bool>,
+  #[wasm_bindgen(js_name = appVersion)] app_version: Option<String>,
+  #[wasm_bindgen(js_name = gatewayHost)] gateway_host: Option<String>,
+  nonce: Option<u64>,
+  #[wasm_bindgen(js_name = authCallback)] auth_callback: Option<gateway_auth::AuthCallback>,
+  #[wasm_bindgen(js_name = authHandle)] auth_handle: Option<gateway_auth::AuthHandle>,
+  #[wasm_bindgen(js_name = clientMode)] client_mode: Option<ClientMode>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
-  let api_client = TonicApiClient::create(host.clone(), true, app_version.clone())?;
+  tracing::info!(host, gateway_host, "Creating client in rust");
 
-  let sync_api_client = TonicApiClient::create(host.clone(), true, app_version.clone())?;
+  let client_mode = client_mode.unwrap_or_default();
+
+  let mut backend = MessageBackendBuilder::default();
+  let is_secure =
+    host.starts_with("https") && gateway_host.as_ref().is_none_or(|h| h.starts_with("https"));
+  backend
+    .v3_host(&host)
+    .maybe_gateway_host(gateway_host)
+    .app_version(app_version.clone().unwrap_or_default())
+    .is_secure(is_secure)
+    .readonly(matches!(client_mode, ClientMode::Notification))
+    .maybe_auth_callback(auth_callback.map(|c| Arc::new(c) as _))
+    .maybe_auth_handle(auth_handle.map(|h| h.handle));
 
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
@@ -188,27 +231,30 @@ pub async fn create_client(
   let identity_strategy = IdentityStrategy::new(
     inbox_id.clone(),
     account_identifier.clone().try_into()?,
-    // this is a temporary solution
-    1,
+    nonce.unwrap_or(1),
     None,
   );
 
-  let mut builder = match device_sync_server_url {
-    Some(url) => xmtp_mls::Client::builder(identity_strategy)
-      .api_clients(api_client, sync_api_client)
-      .enable_api_debug_wrapper()?
-      .with_remote_verifier()?
-      .with_allow_offline(allow_offline)
-      .with_disable_events(disable_events)
-      .store(store)
-      .device_sync_server_url(&url),
-    None => xmtp_mls::Client::builder(identity_strategy)
-      .api_clients(api_client, sync_api_client)
-      .enable_api_debug_wrapper()?
-      .with_remote_verifier()?
-      .with_allow_offline(allow_offline)
-      .with_disable_events(disable_events)
-      .store(store),
+  backend.cursor_store(SqliteCursorStore::new(store.db()));
+  let api_client = backend
+    .clone()
+    .build()
+    .map_err(|e| JsError::new(&e.to_string()))?;
+  let sync_api_client = backend
+    .clone()
+    .build()
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+  let mut builder = xmtp_mls::Client::builder(identity_strategy)
+    .api_clients(api_client, sync_api_client)
+    .enable_api_stats()?
+    .enable_api_debug_wrapper()?
+    .with_remote_verifier()?
+    .with_allow_offline(allow_offline)
+    .store(store);
+
+  if let Some(u) = device_sync_server_url {
+    builder = builder.device_sync_server_url(&u);
   };
 
   if let Some(device_sync_worker_mode) = device_sync_worker_mode {
@@ -224,7 +270,6 @@ pub async fn create_client(
 
   Ok(Client {
     account_identifier,
-    #[allow(clippy::arc_with_non_send_sync)]
     inner_client: Arc::new(xmtp_client),
     app_version,
   })
@@ -271,7 +316,7 @@ impl Client {
   /// Output booleans should be zipped with the index of input identifiers
   pub async fn can_message(
     &self,
-    account_identifiers: Vec<Identifier>,
+    #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
   ) -> Result<JsValue, JsError> {
     let account_identifiers: Result<Vec<XmtpIdentifier>, JsError> = account_identifiers
       .iter()
@@ -324,8 +369,8 @@ impl Client {
   #[wasm_bindgen(js_name = inboxStateFromInboxIds)]
   pub async fn inbox_state_from_inbox_ids(
     &self,
-    inbox_ids: Vec<String>,
-    refresh_from_network: bool,
+    #[wasm_bindgen(js_name = inboxIds)] inbox_ids: Vec<String>,
+    #[wasm_bindgen(js_name = refreshFromNetwork)] refresh_from_network: bool,
   ) -> Result<Vec<InboxState>, JsError> {
     let state = self
       .inner_client
@@ -344,19 +389,15 @@ impl Client {
   }
 
   #[wasm_bindgen(js_name = syncPreferences)]
-  pub async fn sync_preferences(&self) -> Result<u32, JsError> {
+  pub async fn sync_preferences(&self) -> Result<GroupSyncSummary, JsError> {
     let inner = self.inner_client.as_ref();
 
-    let num_groups_synced: usize = inner
+    let summary = inner
       .sync_all_welcomes_and_history_sync_groups()
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
-    let num_groups_synced: u32 = num_groups_synced
-      .try_into()
-      .map_err(|_| JsError::new("Failed to convert usize to u32"))?;
-
-    Ok(num_groups_synced)
+    Ok(summary.into())
   }
 
   #[wasm_bindgen(js_name = apiStatistics)]
@@ -380,23 +421,5 @@ impl Client {
   #[wasm_bindgen(js_name = clearAllStatistics)]
   pub fn clear_all_statistics(&self) {
     self.inner_client.clear_stats()
-  }
-
-  #[wasm_bindgen(js_name = uploadDebugArchive)]
-  pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, JsError> {
-    let db = self.inner_client().context.db();
-
-    upload_debug_archive(db, Some(server_url))
-      .await
-      .map_err(|e| JsError::new(&format!("{e}")))
-  }
-
-  #[wasm_bindgen(js_name = deleteMessage)]
-  pub fn delete_message(&self, message_id: Vec<u8>) -> Result<u32, JsError> {
-    let deleted_count = self
-      .inner_client
-      .delete_message(message_id)
-      .map_err(|e| JsError::new(&format!("{e}")))?;
-    Ok(deleted_count as u32)
   }
 }

@@ -40,7 +40,7 @@ export type User = ReturnType<typeof createUser>;
 export const createClient = async (user: User) => {
   const dbPath = join(__dirname, `${user.uuid}.db3`);
   const inboxId =
-    (await getInboxIdForIdentifier(TEST_API_URL, false, {
+    (await getInboxIdForIdentifier(TEST_API_URL, undefined, false, {
       identifier: user.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })) ||
@@ -61,7 +61,6 @@ export const createClient = async (user: User) => {
     undefined,
     { level: LogLevel.off },
     undefined,
-    true,
   );
 };
 

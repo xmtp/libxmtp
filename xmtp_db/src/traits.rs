@@ -1,7 +1,11 @@
 use crate::ConnectionExt;
 use crate::StorageError;
 use crate::association_state::QueryAssociationStateCache;
+use crate::icebox::QueryIcebox;
+use crate::pending_remove::QueryPendingRemove;
 use crate::prelude::*;
+use crate::readd_status::QueryReaddStatus;
+use xmtp_common::{MaybeSend, MaybeSync};
 
 /// Get an MLS Key store in the context of a transaction
 /// this must only be used within transactions.
@@ -60,7 +64,9 @@ pub trait IntoConnection {
 }
 
 pub trait DbQuery:
-    ReadOnly
+    MaybeSend
+    + MaybeSync
+    + ReadOnly
     + QueryConsentRecord
     + QueryConversationList
     + QueryDms
@@ -78,13 +84,19 @@ pub trait DbQuery:
     + QueryLocalCommitLog
     + QueryRemoteCommitLog
     + QueryAssociationStateCache
+    + QueryReaddStatus
+    + QueryTasks
+    + QueryPendingRemove
+    + QueryIcebox
     + Pragmas
     + crate::ConnectionExt
 {
 }
 
 impl<T: ?Sized> DbQuery for T where
-    T: ReadOnly
+    T: MaybeSend
+        + MaybeSync
+        + ReadOnly
         + QueryConsentRecord
         + QueryConversationList
         + QueryDms
@@ -102,6 +114,10 @@ impl<T: ?Sized> DbQuery for T where
         + QueryLocalCommitLog
         + QueryRemoteCommitLog
         + QueryAssociationStateCache
+        + QueryReaddStatus
+        + QueryTasks
+        + QueryPendingRemove
+        + QueryIcebox
         + Pragmas
         + crate::ConnectionExt
 {

@@ -1,5 +1,10 @@
+pub mod actions;
 pub mod attachment;
+pub mod encryption;
 pub mod group_updated;
+pub mod intent;
+pub mod leave_request;
+pub mod markdown;
 pub mod membership_change;
 pub mod multi_remote_attachment;
 pub mod reaction;
@@ -34,17 +39,21 @@ pub enum CodecError {
 
 pub enum ContentType {
     Text,
+    Markdown,
     GroupMembershipChange,
     GroupUpdated,
     Reaction,
     ReadReceipt,
     Reply,
+    Actions,
     Attachment,
+    Intent,
     RemoteAttachment,
     MultiRemoteAttachment,
     TransactionReference,
     WalletSendCalls,
     DeviceSyncMessage,
+    LeaveRequest,
 }
 
 impl TryFrom<&str> for ContentType {
@@ -53,6 +62,7 @@ impl TryFrom<&str> for ContentType {
     fn try_from(type_id: &str) -> Result<Self, Self::Error> {
         match type_id {
             text::TextCodec::TYPE_ID => Ok(Self::Text),
+            markdown::MarkdownCodec::TYPE_ID => Ok(Self::Markdown),
             membership_change::GroupMembershipChangeCodec::TYPE_ID => {
                 Ok(Self::GroupMembershipChange)
             }
@@ -69,31 +79,11 @@ impl TryFrom<&str> for ContentType {
                 Ok(Self::TransactionReference)
             }
             wallet_send_calls::WalletSendCallsCodec::TYPE_ID => Ok(Self::WalletSendCalls),
+            leave_request::LeaveRequestCodec::TYPE_ID => Ok(Self::LeaveRequest),
+            actions::ActionsCodec::TYPE_ID => Ok(Self::Actions),
+            intent::IntentCodec::TYPE_ID => Ok(Self::Intent),
             _ => Err(format!("Unknown content type ID: {type_id}")),
         }
-    }
-}
-
-// Represents whether this message type should send pushed notification when received by a user
-pub fn should_push(content_type_id: String) -> bool {
-    let content_type = ContentType::try_from(content_type_id.as_str()).ok();
-    if let Some(content_type) = content_type {
-        match content_type {
-            ContentType::Text => true,
-            ContentType::GroupMembershipChange => false,
-            ContentType::GroupUpdated => false,
-            ContentType::Reaction => false,
-            ContentType::ReadReceipt => false,
-            ContentType::Reply => true,
-            ContentType::Attachment => true,
-            ContentType::RemoteAttachment => true,
-            ContentType::MultiRemoteAttachment => true,
-            ContentType::TransactionReference => true,
-            ContentType::WalletSendCalls => true,
-            ContentType::DeviceSyncMessage => false,
-        }
-    } else {
-        false
     }
 }
 
@@ -101,6 +91,7 @@ pub trait ContentCodec<T> {
     fn content_type() -> ContentTypeId;
     fn encode(content: T) -> Result<EncodedContent, CodecError>;
     fn decode(content: EncodedContent) -> Result<T, CodecError>;
+    fn should_push() -> bool;
 }
 
 pub fn encoded_content_to_bytes(content: EncodedContent) -> Vec<u8> {

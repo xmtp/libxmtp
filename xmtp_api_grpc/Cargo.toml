@@ -9,16 +9,15 @@ async-trait.workspace = true
 futures = { workspace = true, features = ["alloc"] }
 h2 = "0.4"
 http = "1.2"
-http-body = "1.0"
+http-body-util.workspace = true
 pin-project-lite = "0.2.15"
 prost = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
-tokio = { workspace = true, features = ["macros", "time"] }
 tracing.workspace = true
 url.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
-xmtp_proto = { workspace = true, features = ["convert"] }
+xmtp_proto = { workspace = true }
 
 toxiproxy_rust = { workspace = true, optional = true }
 
@@ -49,18 +48,27 @@ tower = { workspace = true, default-features = true }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 tonic-web-wasm-client.workspace = true
-tonic = { workspace = true, features = ["codegen"] }
+tonic = { workspace = true }
 hyper = { version = "1.6", default-features = false }
 tower = { workspace = true }
 
 
 [dev-dependencies]
 futures-test.workspace = true
+rstest.workspace = true
 toxiproxy_rust = { workspace = true }
-uuid = { workspace = true, features = ["v4"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
+tokio = { workspace = true, features = ["io-util"] }
+pbjson-types.workspace = true
+tokio-stream.workspace = true
+hyper-util = { version = "0.1" }
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
+getrandom = { workspace = true, features = ["wasm_js"] }
+wasm-bindgen-test.workspace = true
+
 [features]
-default = ["v3"]
+default = []
 test-utils = ["xmtp_proto/test-utils", "dep:toxiproxy_rust"]
-v3 = []

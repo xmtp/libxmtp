@@ -11,31 +11,41 @@ use super::Result;
 use crate::context::XmtpSharedContext;
 use crate::groups::summary::MessageIdentifierBuilder;
 use factory::{GroupDatabase, GroupDb, MessageProcessor, Syncer};
-use xmtp_common::FutureWrapper;
+use xmtp_common::BoxDynFuture;
 use xmtp_db::group_message::StoredGroupMessage;
-use xmtp_proto::xmtp::mls::api::v1::group_message;
+use xmtp_proto::types::Cursor;
 
 /// Creates a future that processes sa single message
 pub trait ProcessFutureFactory<'a> {
-    fn create(&self, msg: group_message::V1) -> FutureWrapper<'a, Result<ProcessedMessage>>;
+    fn create(
+        &self,
+        msg: xmtp_proto::types::GroupMessage,
+    ) -> BoxDynFuture<'a, Result<ProcessedMessage>>;
     /// Try to retrieve a message
-    fn retrieve(&self, msg: &group_message::V1) -> Result<Option<StoredGroupMessage>>;
+    fn retrieve(&self, msg: &xmtp_proto::types::GroupMessage)
+    -> Result<Option<StoredGroupMessage>>;
 }
 
 impl<'a, Context> ProcessFutureFactory<'a> for ProcessMessageFuture<Context>
 where
-    Context: Send + Sync + XmtpSharedContext + 'a,
+    Context: XmtpSharedContext + 'a,
 {
-    fn create(&self, msg: group_message::V1) -> FutureWrapper<'a, Result<ProcessedMessage>> {
+    fn create(
+        &self,
+        msg: xmtp_proto::types::GroupMessage,
+    ) -> BoxDynFuture<'a, Result<ProcessedMessage>> {
         let group_db = GroupDb::new(self.context.clone());
         let syncer = Syncer::new(self.context.clone());
         let processor = MessageProcessor::new(syncer, group_db);
         let future = processor.process(msg);
 
-        FutureWrapper::new(future)
+        Box::pin(future)
     }
     /// Try to retrieve a message
-    fn retrieve(&self, msg: &group_message::V1) -> Result<Option<StoredGroupMessage>> {
+    fn retrieve(
+        &self,
+        msg: &xmtp_proto::types::GroupMessage,
+    ) -> Result<Option<StoredGroupMessage>> {
         let db = GroupDb::new(self.context.clone());
         db.msg(None, msg).map_err(Into::into)
     }
@@ -58,8 +68,8 @@ impl<Context: Clone> Clone for ProcessMessageFuture<Context> {
 pub struct ProcessedMessage {
     pub message: Option<StoredGroupMessage>,
     pub group_id: Vec<u8>,
-    pub next_message: u64,
-    pub tried_to_process: u64,
+    pub next_message: Cursor,
+    pub tried_to_process: Cursor,
 }
 
 impl<Context> ProcessMessageFuture<Context>
@@ -90,8 +100,7 @@ mod tests {
     use crate::subscriptions::SubscribeError;
     use crate::subscriptions::process_message::factory::MockGroupDatabase;
     use crate::subscriptions::process_message::factory::MockSync;
-    use crate::test::mock::generate_errored_summary;
-    use crate::test::mock::generate_message_v1;
+    use crate::test::mock::generate_message;
     use crate::test::mock::generate_messages_with_ids;
     use crate::test::mock::generate_stored_msg;
     use crate::test::mock::generate_successful_summary;
@@ -116,10 +125,16 @@ mod tests {
     pub async fn test_process_returns_correct_cursor(
         #[values(5, 8, 10, 11, 13, 18)] current_message: u64,
     ) {
-        let current_message = generate_message_v1(current_message);
+        use xmtp_common::rand_vec;
+
+        let current_message = generate_message(current_message, &rand_vec::<16>());
         let mut mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
-        mock_db.expect_last_cursor().times(1).returning(|_| Ok(3));
+        let oid = current_message.originator_id();
+        mock_db
+            .expect_last_cursor()
+            .times(1)
+            .returning(move |_| Ok(Cursor::new(3, oid).into()));
         mock_db.expect_msg().times(1).returning(|_, _| Ok(None));
         mock_syncer
             .expect_process()
@@ -138,7 +153,7 @@ mod tests {
         let processed = MessageProcessor::new(mock_syncer, mock_db)
             .process(current_message.clone())
             .await;
-        assert_eq!(processed.unwrap().next_message, current_message.id);
+        assert_eq!(processed.unwrap().next_message, current_message.cursor);
     }
 
     #[apply(summary_cases)]
@@ -148,11 +163,21 @@ mod tests {
         success: Vec<u64>,
         expected: u64,
     ) {
-        let current_message = generate_message_v1(*success.first().unwrap_or(&55));
+        use xmtp_common::Generate as _;
+        use xmtp_proto::types::GroupId;
+
+        use crate::test::mock::generate_errored_summary;
+
+        let current_message =
+            generate_message(*success.first().unwrap_or(&55), &GroupId::generate());
         let mut mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
+        let oid = current_message.originator_id();
         // the last cursor is
-        mock_db.expect_last_cursor().times(1).returning(|_| Ok(50));
+        mock_db
+            .expect_last_cursor()
+            .times(1)
+            .returning(move |_| Ok(Cursor::new(50, oid).into()));
         mock_db.expect_msg().times(1).returning(|_, _| Ok(None));
         mock_syncer
             .expect_process()
@@ -170,18 +195,25 @@ mod tests {
         let processed = MessageProcessor::new(mock_syncer, mock_db)
             .process(current_message)
             .await;
-        assert_eq!(processed.unwrap().next_message, expected);
+        assert_eq!(
+            processed.unwrap().next_message,
+            Cursor::v3_messages(expected)
+        );
     }
 
     #[rstest]
     #[case(None)]
-    #[case(Some(generate_stored_msg(55, xmtp_common::rand_vec::<32>())))]
+    #[case(Some(generate_stored_msg(Cursor::new(55, 0u32), xmtp_common::rand_vec::<32>())))]
     #[xmtp_common::test]
     pub async fn test_cursor_no_sync(#[case] message: Option<StoredGroupMessage>) {
-        let current_message = generate_message_v1(55);
+        let current_message = generate_message(55, &[0]);
         let mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
-        mock_db.expect_last_cursor().times(1).returning(|_| Ok(100));
+        let oid = current_message.originator_id();
+        mock_db
+            .expect_last_cursor()
+            .times(1)
+            .returning(move |_| Ok(Cursor::new(100, oid).into()));
         let mocked_m = message.clone();
         mock_db
             .expect_msg()
@@ -190,7 +222,10 @@ mod tests {
         let processed = MessageProcessor::new(mock_syncer, mock_db)
             .process(current_message)
             .await;
-        assert_eq!(processed.as_ref().unwrap().next_message, 55);
+        assert_eq!(
+            processed.as_ref().unwrap().next_message,
+            Cursor::v3_messages(55)
+        );
         if message.is_some() {
             assert!(processed.unwrap().message.is_some())
         }

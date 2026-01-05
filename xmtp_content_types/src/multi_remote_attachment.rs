@@ -15,6 +15,15 @@ impl MultiRemoteAttachmentCodec {
     pub const MINOR_VERSION: u32 = 0;
 }
 
+impl MultiRemoteAttachmentCodec {
+    fn fallback(_: &MultiRemoteAttachment) -> Option<String> {
+        Some(
+            "Can't display this content. This app doesn't support multiple remote attachments."
+                .to_string(),
+        )
+    }
+}
+
 impl ContentCodec<MultiRemoteAttachment> for MultiRemoteAttachmentCodec {
     fn content_type() -> ContentTypeId {
         ContentTypeId {
@@ -33,9 +42,7 @@ impl ContentCodec<MultiRemoteAttachment> for MultiRemoteAttachmentCodec {
         Ok(EncodedContent {
             r#type: Some(MultiRemoteAttachmentCodec::content_type()),
             parameters: HashMap::new(),
-            fallback: Some(
-                "Can’t display. This app doesn’t support multi remote attachments.".to_string(),
-            ),
+            fallback: Self::fallback(&data),
             compression: None,
             content: buf,
         })
@@ -46,6 +53,10 @@ impl ContentCodec<MultiRemoteAttachment> for MultiRemoteAttachmentCodec {
             .map_err(|e| CodecError::Decode(e.to_string()))?;
 
         Ok(decoded)
+    }
+
+    fn should_push() -> bool {
+        true
     }
 }
 

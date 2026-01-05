@@ -1,14 +1,22 @@
 //! Different ways to create a [`crate::DbgClient`]
 
+use std::collections::HashMap;
+
 use super::*;
+use crate::XDBG_ID_NONCE;
+use crate::app::store::Database;
+use crate::app::store::IdentityStore;
+use crate::app::store::RandomDatabase;
 use crate::app::types::*;
 use alloy::signers::local::PrivateKeySigner;
-use color_eyre::eyre;
-use xmtp_db::{NativeDb, XmtpDb, prelude::*};
+use color_eyre::eyre::{WrapErr, eyre};
+use tokio::sync::Mutex;
+use xmtp_db::prelude::Pragmas;
+use xmtp_db::{NativeDb, XmtpDb};
 use xmtp_mls::builder::SyncWorkerMode;
 
-pub async fn new_registered_client(
-    network: args::BackendOpts,
+pub async fn new_unregistered_client(
+    network: &args::BackendOpts,
     wallet: Option<&types::EthereumWallet>,
 ) -> Result<crate::DbgClient> {
     let local_wallet = if let Some(w) = wallet {
@@ -35,14 +43,15 @@ pub async fn temp_client(
     let name = format!("{public}:{}.db3", u64::from(network));
 
     new_client_inner(
-        network.clone(),
+        network,
         &local_wallet,
         Some(tmp_dir.to_path_buf().join(name)),
     )
     .await
 }
 
-pub async fn client_from_identity(
+/// Get the XMTP Client from an [`Identity`]
+pub fn client_from_identity(
     identity: &Identity,
     network: &args::BackendOpts,
 ) -> Result<crate::DbgClient> {
@@ -52,25 +61,24 @@ pub async fn client_from_identity(
         db_path = %path.display(),
         "creating client from identity"
     );
-    existing_client_inner(network, path).await
+    existing_client_inner(network, path)
 }
 
 /// Create a new client + Identity & register it
 async fn new_client_inner(
-    network: args::BackendOpts,
+    network: &args::BackendOpts,
     wallet: &PrivateKeySigner,
     db_path: Option<PathBuf>,
 ) -> Result<crate::DbgClient> {
-    let api = network.connect().await?;
+    let api = network.connect()?;
 
-    let nonce = 1;
     let ident = wallet.get_identifier()?;
-    let inbox_id = ident.inbox_id(nonce)?;
+    let inbox_id = ident.inbox_id(XDBG_ID_NONCE)?;
 
     let dir = if let Some(p) = db_path {
         p
     } else {
-        let dir = crate::app::App::db_directory(&network)?;
+        let dir = crate::app::App::db_directory(network)?;
         let db_name = format!("{inbox_id}:{}.db3", u64::from(network));
         dir.join(db_name)
     };
@@ -78,12 +86,12 @@ async fn new_client_inner(
         .into_os_string()
         .into_string()
         .map_err(|_| eyre::eyre!("Conversion failed from OsString"))?;
-    let db = NativeDb::new(&StorageOption::Persistent(path), [0u8; 32])?;
+    let db = NativeDb::new_unencrypted(&StorageOption::Persistent(path))?;
     db.db().set_sqlcipher_log("NONE")?;
     let client = xmtp_mls::Client::builder(IdentityStrategy::new(
         inbox_id,
         wallet.get_identifier()?,
-        nonce,
+        XDBG_ID_NONCE,
         None,
     ))
     .api_clients(api.clone(), api)
@@ -93,8 +101,6 @@ async fn new_client_inner(
     .with_device_sync_worker_mode(Some(SyncWorkerMode::Disabled))
     .build()
     .await?;
-
-    register_client(&client, wallet).await?;
 
     Ok(client)
 }
@@ -124,16 +130,19 @@ pub async fn register_client(client: &crate::DbgClient, owner: impl InboxOwner) 
 }
 
 /// Create a new client + Identity
-async fn existing_client_inner(
+fn existing_client_inner(
     network: &args::BackendOpts,
     db_path: PathBuf,
 ) -> Result<crate::DbgClient> {
-    let api = network.connect().await?;
+    let api = network.connect()?;
 
-    let db = xmtp_db::NativeDb::new(
-        &StorageOption::Persistent(db_path.clone().into_os_string().into_string().unwrap()),
-        [0u8; 32],
-    )?;
+    let db = xmtp_db::NativeDb::new_unencrypted(&StorageOption::Persistent(
+        db_path.clone().into_os_string().into_string().unwrap(),
+    ))
+    .wrap_err(format!(
+        "tried to open sqlite database file@{}",
+        db_path.to_string_lossy()
+    ))?;
     db.db().set_sqlcipher_log("NONE")?;
     let store = EncryptedMessageStore::new(db);
 
@@ -146,8 +155,64 @@ async fn existing_client_inner(
         .store(store?)
         .default_mls_store()?
         .with_device_sync_worker_mode(Some(SyncWorkerMode::Disabled))
-        .build()
-        .await?;
+        .with_allow_offline(Some(true))
+        .build_offline()?;
 
     Ok(client)
+}
+
+/// Loads all identities
+pub fn load_all_identities(
+    store: &IdentityStore<'static>,
+    network: &args::BackendOpts,
+) -> Result<Arc<HashMap<InboxId, Mutex<crate::DbgClient>>>> {
+    let identities = store
+        .load(u64::from(network))?
+        .ok_or(eyre!("no identities in store, try generating some"))?;
+    let now = std::time::Instant::now();
+    let mut clients_len = 0;
+    let clients = identities
+        .map(move |i| {
+            let item = (
+                i.value().inbox_id,
+                Mutex::new(client_from_identity(&i.value(), network).wrap_err(format!(
+                    "failed to load client for {}, {} other clients succeeded",
+                    hex::encode(i.value().inbox_id),
+                    clients_len
+                ))?),
+            );
+            clients_len += 1;
+            Ok::<_, eyre::Report>(item)
+        })
+        .collect::<Result<HashMap<_, _>, _>>()?;
+    tracing::info!("took {:?} to load {} clients", now.elapsed(), clients.len());
+    Ok(Arc::new(clients))
+}
+
+pub fn load_n_identities(
+    store: &IdentityStore<'static>,
+    network: &args::BackendOpts,
+    n: usize,
+) -> Result<Arc<HashMap<InboxId, Arc<Mutex<crate::DbgClient>>>>> {
+    let mut rng = rand::thread_rng();
+    let now = std::time::Instant::now();
+    let identities = store.random_n(u64::from(network), &mut rng, n)?;
+    tracing::info!("loaded {} identities in {:?}", n, now.elapsed());
+    let now = std::time::Instant::now();
+    let clients = identities
+        .into_iter()
+        .map(move |i| {
+            let id = i.value();
+            Ok::<_, eyre::Report>((
+                id.inbox_id,
+                Arc::new(Mutex::new(client_from_identity(&id, network)?)),
+            ))
+        })
+        .collect::<Result<HashMap<_, _>, _>>()?;
+    tracing::info!(
+        "took {:?} to load {} xmtp clients",
+        now.elapsed(),
+        clients.len()
+    );
+    Ok(Arc::new(clients))
 }

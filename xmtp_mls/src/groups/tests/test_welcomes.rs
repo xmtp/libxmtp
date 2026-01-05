@@ -1,3 +1,4 @@
+use crate::groups::send_message_opts::SendMessageOpts;
 use std::sync::Arc;
 
 use crate::context::XmtpMlsLocalContext;
@@ -10,6 +11,8 @@ use crate::groups::mls_sync::decode_staged_commit;
 use crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent;
 use crate::identity::create_credential;
 use crate::tester;
+use xmtp_configuration::Originators;
+use xmtp_db::DbQuery;
 use xmtp_db::XmtpOpenMlsProviderRef;
 use xmtp_db::group::ConversationType;
 use xmtp_db::group_message::MsgQueryArgs;
@@ -31,12 +34,105 @@ async fn test_welcome_cursor() {
     group.update_installations().await?;
 
     alix2.sync_welcomes().await?;
-    let alix2_refresh_state = alix2
-        .context
-        .db()
-        .get_refresh_state(&group.group_id, EntityKind::Group)??;
+    let alix2_refresh_state = alix2.context.db().latest_cursor_for_id(
+        &group.group_id,
+        &[EntityKind::CommitMessage],
+        None,
+    )?;
 
-    assert!(alix2_refresh_state.cursor > 0);
+    assert_eq!(alix2_refresh_state.len(), 1);
+    assert!(*alix2_refresh_state.values().last().unwrap() > 0);
+}
+
+#[track_caller]
+fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &[u8]) {
+    let msg = db
+        .get_group_messages(group_id, &Default::default())
+        .unwrap();
+    let msg = msg.last().unwrap();
+    let cursor = db
+        .get_last_cursor_for_ids(&[&group_id], &[EntityKind::CommitMessage])
+        .unwrap()
+        .values()
+        .next()
+        .unwrap()
+        .cursor(&Originators::MLS_COMMITS);
+
+    assert_eq!(
+        msg.cursor(),
+        cursor,
+        "local cursor state of commits must be consistent"
+    );
+
+    let other_msg = db2
+        .get_group_messages(group_id, &Default::default())
+        .unwrap();
+    let other_msg = other_msg.last().unwrap();
+    assert_eq!(
+        msg.cursor(),
+        other_msg.cursor(),
+        "GroupMessage must equal group message of db2"
+    );
+    let other_cursor = db2
+        .get_last_cursor_for_ids(&[&group_id], &[EntityKind::CommitMessage])
+        .unwrap()
+        .values()
+        .next()
+        .unwrap()
+        .cursor(&Originators::MLS_COMMITS);
+    assert_eq!(
+        cursor, other_cursor,
+        "commit entry in refresh state cursor store must be equal"
+    );
+}
+
+// it is very important for this behavior to be true,
+// in order to maintain dependency consistency in d14n
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_inviting_members_results_in_consistent_state() {
+    use EntityKind::CommitMessage;
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+
+    let alix_group = alix
+        .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+        .await?;
+    let group_id = &alix_group.group_id;
+    assert_cursors(&alix.db(), &alix.db(), group_id);
+
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    assert_cursors(&alix.db(), &bo.db(), group_id);
+
+    alix_group
+        .add_members_by_inbox_id(&[caro.inbox_id()])
+        .await?;
+
+    let caro_group = caro.sync_welcomes().await?.pop()?;
+    alix_group.sync().await?;
+    assert_cursors(&caro.db(), &caro.db(), group_id);
+    assert_cursors(&caro.db(), &alix.db(), group_id);
+
+    // ensure all groups have the latest
+    bo_group.sync().await?;
+    alix_group.sync().await?;
+    caro_group.sync().await?;
+    assert_cursors(&caro.db(), &caro.db(), group_id);
+    assert_cursors(&caro.db(), &bo.db(), group_id);
+    assert_cursors(&caro.db(), &alix.db(), group_id);
+
+    // alix has the membership commit
+    let alix_commit = alix
+        .db()
+        .get_last_cursor_for_ids(&[group_id], &[CommitMessage])?;
+    let bo_commit = bo
+        .db()
+        .get_last_cursor_for_ids(&[group_id], &[CommitMessage])?;
+    let caro_commit = caro
+        .db()
+        .get_last_cursor_for_ids(&[group_id], &[CommitMessage])?;
+    assert_eq!(bo_commit, caro_commit);
+    assert_eq!(alix_commit, bo_commit);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -65,7 +161,9 @@ async fn test_spoofed_inbox_id() {
         worker_events: alix.context.worker_events.clone(),
         scw_verifier: alix.context.scw_verifier.clone(),
         device_sync: alix.context.device_sync.clone(),
-        workers: alix.context.workers.clone(),
+        fork_recovery_opts: alix.context.fork_recovery_opts.clone(),
+        task_channels: alix.context.task_channels.clone(),
+        worker_metrics: alix.context.worker_metrics.clone(),
     });
     let group = MlsGroup::create_and_insert(
         malicious_context,
@@ -121,7 +219,10 @@ async fn test_spoofed_inbox_id() {
 
         // Alix sends a message using their spoofed inbox ID
         group
-            .send_message("Message from spoofed inbox id".as_bytes())
+            .send_message(
+                "Message from spoofed inbox id".as_bytes(),
+                SendMessageOpts::default(),
+            )
             .await?;
         bo_group.sync().await?;
         let bo_msgs = bo_group.find_messages(&MsgQueryArgs::default())?;
@@ -131,12 +232,16 @@ async fn test_spoofed_inbox_id() {
         );
 
         // Bo and other members can continue to interact with this group as if nothing is wrong
-        bo_group.send_message("hi".as_bytes()).await?;
+        bo_group
+            .send_message("hi".as_bytes(), SendMessageOpts::default())
+            .await?;
         bo_group.add_members_by_inbox_id(&[caro.inbox_id()]).await?;
         let caro_groups = caro.sync_welcomes().await?;
         let caro_group = caro_groups.first().unwrap();
         caro_group.sync().await?;
-        caro_group.send_message("hi".as_bytes()).await?;
+        caro_group
+            .send_message("hi".as_bytes(), SendMessageOpts::default())
+            .await?;
         bo_group.sync().await?;
 
         panic!("Test failed");

@@ -1,14 +1,15 @@
-//! The genneric gRPC Client
+//! The generic gRPC Client
 //! Generic over a inner "Channel".
 //! The  inner channel must implement a tower service to implicitly
 //! implement the gRPC Service
 
 use crate::{
-    GrpcService,
     error::{GrpcBuilderError, GrpcError},
-    streams::EscapableTonicStream,
+    streams::{EscapableTonicStream, FakeEmptyStream, NonBlockingWebStream},
 };
 use futures::Stream;
+use http::{StatusCode, request, uri::PathAndQuery};
+use http_body_util::StreamBody;
 use pin_project_lite::pin_project;
 use prost::bytes::Bytes;
 use std::{
@@ -16,14 +17,16 @@ use std::{
     task::{Context, Poll, ready},
 };
 use tonic::{
-    Status,
+    Response, Status, Streaming,
     client::Grpc,
+    codec::Codec,
     metadata::{self, MetadataMap, MetadataValue},
 };
+use xmtp_common::Retry;
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
 use xmtp_proto::{
-    api::{ApiClientError, Client},
-    api_client::ApiBuilder,
+    api::{ApiClientError, Client, IsConnectedCheck},
+    api_client::{ApiBuilder, NetConnectConfig},
     codec::TransparentCodec,
     types::AppVersion,
 };
@@ -100,7 +103,7 @@ impl GrpcClient {
         Ok(tonic_request)
     }
 
-    async fn wait_for_ready(&self, client: &mut Grpc<GrpcService>) -> Result<(), Status> {
+    async fn wait_for_ready(&self, client: &mut Grpc<crate::GrpcService>) -> Result<(), Status> {
         client.ready().await.map_err(|e| {
             tonic::Status::new(tonic::Code::Unknown, format!("Service was not ready: {e}"))
         })?;
@@ -134,8 +137,7 @@ impl Stream for GrpcStream {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl Client for GrpcClient {
     type Error = GrpcError;
     type Stream = GrpcStream;
@@ -162,8 +164,8 @@ impl Client for GrpcClient {
 
     async fn stream(
         &self,
-        request: http::request::Builder,
-        path: http::uri::PathAndQuery,
+        request: request::Builder,
+        path: PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
         let this = self.clone();
@@ -175,12 +177,33 @@ impl Client for GrpcClient {
             let codec = TransparentCodec::default();
             client.server_streaming(request, path, codec).await
         };
-        let req = crate::streams::NonBlockingStreamRequest::new(Box::pin(response) as Pin<Box<_>>);
+        let req = crate::streams::NonBlockingStreamRequest::new(
+            Box::pin(response) as crate::streams::ResponseFuture
+        );
         let response = crate::streams::send(req).await.map_err(GrpcError::from)?;
         let response = response.map(|body| GrpcStream {
             inner: EscapableTonicStream::new(body),
         });
         Ok(response.to_http().map(Into::into))
+    }
+
+    // just need to ensure the type is the same as `stream`
+    fn fake_stream(&self) -> http::Response<Self::Stream> {
+        let mut codec = TransparentCodec::default();
+        let s = StreamBody::new(FakeEmptyStream::<Status>::new());
+        let response = Streaming::new_response(codec.decoder(), s, StatusCode::OK, None, None);
+        let response = Response::new(response);
+        let response = response.map(|body| GrpcStream {
+            inner: EscapableTonicStream::new(NonBlockingWebStream::started(body)),
+        });
+        response.to_http()
+    }
+}
+
+#[xmtp_common::async_trait]
+impl IsConnectedCheck for GrpcClient {
+    async fn is_connected(&self) -> bool {
+        self.inner.clone().ready().await.is_ok()
     }
 }
 
@@ -190,7 +213,7 @@ impl GrpcClient {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ClientBuilder {
     pub host: Option<String>,
     /// version of the app
@@ -201,12 +224,11 @@ pub struct ClientBuilder {
     pub tls_channel: bool,
     /// Rate per minute
     pub limit: Option<u64>,
+    /// retry strategy for this client
+    pub retry: Option<Retry>,
 }
 
-impl ApiBuilder for ClientBuilder {
-    type Output = GrpcClient;
-    type Error = GrpcBuilderError;
-
+impl NetConnectConfig for ClientBuilder {
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
         self.libxmtp_version = Some(MetadataValue::try_from(&version)?);
         Ok(())
@@ -242,6 +264,15 @@ impl ApiBuilder for ClientBuilder {
         self.host.as_deref()
     }
 
+    fn set_retry(&mut self, retry: xmtp_common::Retry) {
+        self.retry = Some(retry);
+    }
+}
+
+impl ApiBuilder for ClientBuilder {
+    type Output = crate::GrpcClient;
+    type Error = GrpcBuilderError;
+
     fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
         let channel = crate::GrpcService::new(host, self.limit, self.tls_channel)?;
@@ -257,67 +288,73 @@ impl ApiBuilder for ClientBuilder {
             )?),
         })
     }
-
-    // this client does not do retries
-    fn set_retry(&mut self, _retry: xmtp_common::Retry) {}
 }
 
-#[cfg(any(test, feature = "test-utils"))]
-mod test {
-    use super::*;
-    use xmtp_configuration::GrpcUrls;
-    use xmtp_configuration::LOCALHOST;
-    use xmtp_proto::{TestApiBuilder, ToxicProxies, api_client::XmtpTestClient};
-
-    impl XmtpTestClient for GrpcClient {
-        type Builder = ClientBuilder;
-
-        fn create_local() -> Self::Builder {
-            let mut client = GrpcClient::builder();
-            let url = url::Url::parse(GrpcUrls::NODE).unwrap();
-            match url.scheme() {
-                "https" => client.set_tls(true),
-                _ => client.set_tls(false),
-            }
-            client.set_host(GrpcUrls::NODE.into());
-            client
-        }
-
-        fn create_d14n() -> Self::Builder {
-            let mut client = GrpcClient::builder();
-            let url = url::Url::parse(GrpcUrls::XMTPD).unwrap();
-            match url.scheme() {
-                "https" => client.set_tls(true),
-                _ => client.set_tls(false),
-            }
-            client.set_host(GrpcUrls::XMTPD.into());
-            client
-        }
-
-        fn create_gateway() -> Self::Builder {
-            let mut gateway = GrpcClient::builder();
-            let url = url::Url::parse(GrpcUrls::GATEWAY).unwrap();
-            match url.scheme() {
-                "https" => gateway.set_tls(true),
-                _ => gateway.set_tls(false),
-            }
-            gateway.set_host(GrpcUrls::GATEWAY.into());
-            gateway
-        }
-
-        fn create_dev() -> Self::Builder {
-            let mut client = GrpcClient::builder();
-            client.set_host(GrpcUrls::NODE_DEV.into());
-            client.set_tls(true);
-            client
-        }
+impl GrpcClient {
+    pub fn create(host: &str, is_secure: bool) -> Result<Self, GrpcBuilderError> {
+        let mut builder = Self::builder();
+        builder.set_host(host.to_string());
+        builder.set_tls(is_secure);
+        builder.build()
     }
 
-    impl TestApiBuilder for ClientBuilder {
-        async fn with_toxiproxy(&mut self) -> ToxicProxies {
-            let proxy = xmtp_proto::init_toxi(&[self.host().unwrap()]).await;
-            self.set_host(format!("{LOCALHOST}:{}", proxy.port(0)));
-            proxy
-        }
+    /// Create a grpc client with `app_version` attached
+    pub fn create_with_version(
+        host: &str,
+        is_secure: bool,
+        app_version: AppVersion,
+    ) -> Result<Self, GrpcBuilderError> {
+        let mut builder = Self::builder();
+        builder.set_host(host.to_string());
+        builder.set_tls(is_secure);
+        builder.set_app_version(app_version)?;
+        builder.build()
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use crate::grpc_client::test::DevNodeGoClient;
+    use prost::Message;
+    use xmtp_proto::api_client::ApiBuilder;
+    use xmtp_proto::prelude::{NetConnectConfig, XmtpTestClient};
+    use xmtp_proto::types::AppVersion;
+    use xmtp_proto::xmtp::message_api::v1::PublishRequest;
+
+    #[xmtp_common::test]
+    async fn metadata_test() {
+        let mut client = DevNodeGoClient::create();
+        let app_version = AppVersion::from("test/1.0.0");
+        let libxmtp_version = "0.0.1".to_string();
+        client.set_app_version(app_version.clone()).unwrap();
+        client.set_libxmtp_version(libxmtp_version.clone()).unwrap();
+        let client = client.build().unwrap();
+        let request = client
+            .build_tonic_request(
+                Default::default(),
+                PublishRequest { envelopes: vec![] }.encode_to_vec().into(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            request
+                .metadata()
+                .get("x-app-version")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string(),
+            app_version
+        );
+        assert_eq!(
+            request
+                .metadata()
+                .get("x-libxmtp-version")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string(),
+            libxmtp_version
+        );
     }
 }

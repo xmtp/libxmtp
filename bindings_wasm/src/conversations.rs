@@ -1,12 +1,8 @@
-use crate::consent_state::{Consent, ConsentState};
-use crate::identity::Identifier;
-use crate::messages::Message;
-use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
-use crate::streams::{ConversationStream, StreamCallback, StreamCloser};
-use crate::user_preferences::UserPreference;
-use crate::{client::RustXmtpClient, conversation::Conversation};
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tsify::Tsify;
 use wasm_bindgen::UnwrapThrowExt;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
@@ -16,12 +12,21 @@ use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group::{ConversationType as XmtpConversationType, GroupQueryOrderBy};
 use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
-use xmtp_mls::common::group::{DMMetadataOptions, GroupMetadataOptions};
-use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_mls::groups::PreconfiguredPolicies;
+use xmtp_mls::mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
+use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
+use xmtp_proto::types::Cursor as XmtpCursor;
 
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
+use crate::consent_state::{Consent, ConsentState};
+use crate::enriched_message::DecodedMessage;
+use crate::identity::Identifier;
+use crate::messages::Message;
+use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
+use crate::streams::{ConversationStream, StreamCallback, StreamCloser};
+use crate::user_preferences::UserPreferenceUpdate;
+use crate::{client::RustXmtpClient, conversation::Conversation};
+
+#[wasm_bindgen_numbered_enum]
 pub enum ConversationType {
   Dm = 0,
   Group = 1,
@@ -51,13 +56,13 @@ impl From<ConversationType> for XmtpConversationType {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
+#[wasm_bindgen_numbered_enum]
 pub enum GroupMembershipState {
   Allowed = 0,
   Rejected = 1,
   Pending = 2,
   Restored = 3,
+  PendingRemove = 4,
 }
 
 impl From<XmtpGroupMembershipState> for GroupMembershipState {
@@ -67,6 +72,7 @@ impl From<XmtpGroupMembershipState> for GroupMembershipState {
       XmtpGroupMembershipState::Rejected => GroupMembershipState::Rejected,
       XmtpGroupMembershipState::Pending => GroupMembershipState::Pending,
       XmtpGroupMembershipState::Restored => GroupMembershipState::Restored,
+      XmtpGroupMembershipState::PendingRemove => GroupMembershipState::PendingRemove,
     }
   }
 }
@@ -78,23 +84,50 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
       GroupMembershipState::Rejected => XmtpGroupMembershipState::Rejected,
       GroupMembershipState::Pending => XmtpGroupMembershipState::Pending,
       GroupMembershipState::Restored => XmtpGroupMembershipState::Restored,
+      GroupMembershipState::PendingRemove => XmtpGroupMembershipState::PendingRemove,
     }
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Default)]
+#[wasm_bindgen_numbered_enum]
+pub enum ListConversationsOrderBy {
+  CreatedAt = 0,
+  LastActivity = 1,
+}
+
+impl From<ListConversationsOrderBy> for GroupQueryOrderBy {
+  fn from(order_by: ListConversationsOrderBy) -> Self {
+    match order_by {
+      ListConversationsOrderBy::CreatedAt => GroupQueryOrderBy::CreatedAt,
+      ListConversationsOrderBy::LastActivity => GroupQueryOrderBy::LastActivity,
+    }
+  }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
+#[serde(rename_all = "camelCase")]
 pub struct ListConversationsOptions {
-  #[wasm_bindgen(js_name = consentStates)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub consent_states: Option<Vec<ConsentState>>,
-  #[wasm_bindgen(js_name = conversationType)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub conversation_type: Option<ConversationType>,
-  #[wasm_bindgen(js_name = createdAfterNs)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub created_after_ns: Option<i64>,
-  #[wasm_bindgen(js_name = createdBeforeNs)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub created_before_ns: Option<i64>,
-  #[wasm_bindgen(js_name = includeDuplicateDms)]
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub include_duplicate_dms: Option<bool>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub order_by: Option<ListConversationsOrderBy>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub limit: Option<i64>,
 }
 
@@ -114,39 +147,16 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       last_activity_before_ns: None,
       last_activity_after_ns: None,
       should_publish_commit_log: None,
-      order_by: Some(GroupQueryOrderBy::LastActivity),
+      order_by: opts.order_by.map(Into::into),
     }
   }
 }
 
-#[wasm_bindgen]
-impl ListConversationsOptions {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    consent_states: Option<Vec<ConsentState>>,
-    conversation_type: Option<ConversationType>,
-    created_after_ns: Option<i64>,
-    created_before_ns: Option<i64>,
-    include_duplicate_dms: Option<bool>,
-    limit: Option<i64>,
-  ) -> Self {
-    Self {
-      consent_states,
-      conversation_type,
-      created_after_ns,
-      created_before_ns,
-      include_duplicate_dms,
-      limit,
-    }
-  }
-}
-
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
+#[serde(rename_all = "camelCase")]
 pub struct MessageDisappearingSettings {
-  #[wasm_bindgen(js_name = fromNs)]
   pub from_ns: i64,
-  #[wasm_bindgen(js_name = inNs)]
   pub in_ns: i64,
 }
 
@@ -168,75 +178,64 @@ impl From<XmtpMessageDisappearingSettings> for MessageDisappearingSettings {
   }
 }
 
-#[wasm_bindgen]
-impl MessageDisappearingSettings {
-  #[wasm_bindgen(constructor)]
-  pub fn new(from_ns: i64, in_ns: i64) -> Self {
-    Self { from_ns, in_ns }
-  }
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
+#[serde(rename_all = "camelCase")]
+pub struct Cursor {
+  pub originator_id: u32,
+  // wasm doesn't support u64
+  pub sequence_id: i64,
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, serde::Serialize)]
-pub struct ConversationDebugInfo {
-  pub epoch: u64,
-  #[wasm_bindgen(js_name = maybeForked)]
-  #[serde(rename = "maybeForked")]
-  pub maybe_forked: bool,
-  #[wasm_bindgen(js_name = forkDetails)]
-  #[serde(rename = "forkDetails")]
-  pub fork_details: String,
-  #[wasm_bindgen(js_name = isCommitLogForked)]
-  #[serde(rename = "isCommitLogForked")]
-  pub is_commit_log_forked: Option<bool>,
-  #[wasm_bindgen(js_name = localCommitLog)]
-  #[serde(rename = "localCommitLog")]
-  pub local_commit_log: String,
-  #[wasm_bindgen(js_name = remoteCommitLog)]
-  #[serde(rename = "remoteCommitLog")]
-  pub remote_commit_log: String,
-  #[wasm_bindgen(js_name = cursor)]
-  #[serde(rename = "cursor")]
-  pub cursor: i64,
-}
-
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
-pub struct CreateGroupOptions {
-  pub permissions: Option<GroupPermissionsOptions>,
-  #[wasm_bindgen(js_name = groupName)]
-  pub group_name: Option<String>,
-  #[wasm_bindgen(js_name = groupImageUrlSquare)]
-  pub group_image_url_square: Option<String>,
-  #[wasm_bindgen(js_name = groupDescription)]
-  pub group_description: Option<String>,
-  #[wasm_bindgen(js_name = customPermissionPolicySet)]
-  pub custom_permission_policy_set: Option<PermissionPolicySet>,
-  #[wasm_bindgen(js_name = messageDisappearingSettings)]
-  pub message_disappearing_settings: Option<MessageDisappearingSettings>,
-}
-
-#[wasm_bindgen]
-impl CreateGroupOptions {
-  #[wasm_bindgen(constructor)]
-  #[allow(clippy::too_many_arguments)]
-  pub fn new(
-    permissions: Option<GroupPermissionsOptions>,
-    group_name: Option<String>,
-    group_image_url_square: Option<String>,
-    group_description: Option<String>,
-    custom_permission_policy_set: Option<PermissionPolicySet>,
-    message_disappearing_settings: Option<MessageDisappearingSettings>,
-  ) -> Self {
+impl From<XmtpCursor> for Cursor {
+  fn from(value: XmtpCursor) -> Self {
     Self {
-      permissions,
-      group_name,
-      group_image_url_square,
-      group_description,
-      custom_permission_policy_set,
-      message_disappearing_settings,
+      originator_id: value.originator_id,
+      sequence_id: value.sequence_id as i64,
     }
   }
+}
+
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationDebugInfo {
+  pub epoch: u64,
+  pub maybe_forked: bool,
+  pub fork_details: String,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub is_commit_log_forked: Option<bool>,
+  pub local_commit_log: String,
+  pub remote_commit_log: String,
+  pub cursor: Vec<Cursor>,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateGroupOptions {
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub permissions: Option<GroupPermissionsOptions>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub group_name: Option<String>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub group_image_url_square: Option<String>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub group_description: Option<String>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub custom_permission_policy_set: Option<PermissionPolicySet>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub message_disappearing_settings: Option<MessageDisappearingSettings>,
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub app_data: Option<String>,
 }
 
 impl CreateGroupOptions {
@@ -248,29 +247,21 @@ impl CreateGroupOptions {
       message_disappearing_settings: self
         .message_disappearing_settings
         .map(|settings| settings.into()),
+      app_data: self.app_data,
     }
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Default)]
-pub struct CreateDMOptions {
-  #[wasm_bindgen(js_name = messageDisappearingSettings)]
+#[derive(Clone, Default, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateDmOptions {
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub message_disappearing_settings: Option<MessageDisappearingSettings>,
 }
 
-#[wasm_bindgen]
-impl CreateDMOptions {
-  #[wasm_bindgen(constructor)]
-  #[allow(clippy::too_many_arguments)]
-  pub fn new(message_disappearing_settings: Option<MessageDisappearingSettings>) -> Self {
-    Self {
-      message_disappearing_settings,
-    }
-  }
-}
-
-impl CreateDMOptions {
+impl CreateDmOptions {
   pub fn into_dm_metadata_options(self) -> DMMetadataOptions {
     DMMetadataOptions {
       message_disappearing_settings: self
@@ -280,9 +271,12 @@ impl CreateDMOptions {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(serde::Serialize)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
+#[serde(rename_all = "camelCase")]
 pub struct HmacKey {
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
   pub key: Vec<u8>,
   pub epoch: i64,
 }
@@ -310,8 +304,8 @@ impl ConversationListItem {
   #[wasm_bindgen(constructor)]
   pub fn new(
     conversation: Conversation,
-    last_message: Option<Message>,
-    is_commit_log_forked: Option<bool>,
+    #[wasm_bindgen(js_name = lastMessage)] last_message: Option<Message>,
+    #[wasm_bindgen(js_name = isCommitLogForked)] is_commit_log_forked: Option<bool>,
   ) -> Self {
     Self {
       conversation,
@@ -346,6 +340,7 @@ impl Conversations {
       group_description: None,
       custom_permission_policy_set: None,
       message_disappearing_settings: None,
+      app_data: None,
     });
 
     if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
@@ -390,7 +385,7 @@ impl Conversations {
   #[wasm_bindgen(js_name = createGroup)]
   pub async fn create_group(
     &self,
-    account_identifiers: Vec<Identifier>,
+    #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation, JsError> {
     let convo = self.create_group_optimistic(options)?;
@@ -407,7 +402,7 @@ impl Conversations {
   #[wasm_bindgen(js_name = createGroupByInboxIds)]
   pub async fn create_group_by_inbox_ids(
     &self,
-    inbox_ids: Vec<String>,
+    #[wasm_bindgen(js_name = inboxIds)] inbox_ids: Vec<String>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation, JsError> {
     let convo = self.create_group_optimistic(options)?;
@@ -424,8 +419,8 @@ impl Conversations {
   #[wasm_bindgen(js_name = createDm)]
   pub async fn find_or_create_dm(
     &self,
-    account_identifier: Identifier,
-    options: Option<CreateDMOptions>,
+    #[wasm_bindgen(js_name = accountIdentifier)] account_identifier: Identifier,
+    options: Option<CreateDmOptions>,
   ) -> Result<Conversation, JsError> {
     let convo = self
       .inner_client
@@ -442,8 +437,8 @@ impl Conversations {
   #[wasm_bindgen(js_name = createDmByInboxId)]
   pub async fn find_or_create_dm_by_inbox_id(
     &self,
-    inbox_id: String,
-    options: Option<CreateDMOptions>,
+    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+    options: Option<CreateDmOptions>,
   ) -> Result<Conversation, JsError> {
     let convo = self
       .inner_client
@@ -455,7 +450,10 @@ impl Conversations {
   }
 
   #[wasm_bindgen(js_name = findGroupById)]
-  pub fn find_group_by_id(&self, group_id: String) -> Result<Conversation, JsError> {
+  pub fn find_group_by_id(
+    &self,
+    #[wasm_bindgen(js_name = groupId)] group_id: String,
+  ) -> Result<Conversation, JsError> {
     let group_id = hex::decode(group_id).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
     let group = self
@@ -469,7 +467,7 @@ impl Conversations {
   #[wasm_bindgen(js_name = findDmByTargetInboxId)]
   pub fn find_dm_by_target_inbox_id(
     &self,
-    target_inbox_id: String,
+    #[wasm_bindgen(js_name = targetInboxId)] target_inbox_id: String,
   ) -> Result<Conversation, JsError> {
     let convo = self
       .inner_client
@@ -480,7 +478,10 @@ impl Conversations {
   }
 
   #[wasm_bindgen(js_name = findMessageById)]
-  pub fn find_message_by_id(&self, message_id: String) -> Result<Message, JsError> {
+  pub fn find_message_by_id(
+    &self,
+    #[wasm_bindgen(js_name = messageId)] message_id: String,
+  ) -> Result<Message, JsError> {
     let message_id =
       hex::decode(message_id).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
@@ -490,6 +491,38 @@ impl Conversations {
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
     Ok(message.into())
+  }
+
+  #[wasm_bindgen(js_name = findEnrichedMessageById)]
+  pub async fn find_enriched_message_by_id(
+    &self,
+    #[wasm_bindgen(js_name = messageId)] message_id: String,
+  ) -> Result<DecodedMessage, JsError> {
+    let message_id =
+      hex::decode(message_id).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    let message = self
+      .inner_client
+      .message_v2(message_id)
+      .map_err(|e| JsError::new(&e.to_string()))?;
+
+    message.try_into()
+  }
+
+  #[wasm_bindgen(js_name = deleteMessageById)]
+  pub fn delete_message_by_id(
+    &self,
+    #[wasm_bindgen(js_name = messageId)] message_id: String,
+  ) -> Result<u32, JsError> {
+    let message_id =
+      hex::decode(message_id).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    let deleted_count = self
+      .inner_client
+      .delete_message(message_id)
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(deleted_count as u32)
   }
 
   #[wasm_bindgen]
@@ -506,18 +539,18 @@ impl Conversations {
   #[wasm_bindgen(js_name = syncAllConversations)]
   pub async fn sync_all_conversations(
     &self,
-    consent_states: Option<Vec<ConsentState>>,
-  ) -> Result<usize, JsError> {
+    #[wasm_bindgen(js_name = consentStates)] consent_states: Option<Vec<ConsentState>>,
+  ) -> Result<crate::client::GroupSyncSummary, JsError> {
     let consents: Option<Vec<XmtpConsentState>> =
       consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
 
-    let num_groups_synced = self
+    let summary = self
       .inner_client
       .sync_all_welcomes_and_groups(consents)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
-    Ok(num_groups_synced)
+    Ok(summary.into())
   }
 
   #[wasm_bindgen]
@@ -568,7 +601,7 @@ impl Conversations {
   #[wasm_bindgen(js_name = streamLocal)]
   pub async fn stream_conversations_local(
     &self,
-    conversation_type: Option<ConversationType>,
+    #[wasm_bindgen(js_name = conversationType)] conversation_type: Option<ConversationType>,
   ) -> Result<web_sys::ReadableStream, JsError> {
     let stream = self
       .inner_client
@@ -582,7 +615,7 @@ impl Conversations {
   pub fn stream(
     &self,
     callback: StreamCallback,
-    conversation_type: Option<ConversationType>,
+    #[wasm_bindgen(js_name = conversationType)] conversation_type: Option<ConversationType>,
   ) -> Result<StreamCloser, JsError> {
     let on_close_cb = callback.clone();
     let stream_closer = RustXmtpClient::stream_conversations_with_callback(
@@ -603,8 +636,8 @@ impl Conversations {
   pub fn stream_all_messages(
     &self,
     callback: StreamCallback,
-    conversation_type: Option<ConversationType>,
-    consent_states: Option<Vec<ConsentState>>,
+    #[wasm_bindgen(js_name = conversationType)] conversation_type: Option<ConversationType>,
+    #[wasm_bindgen(js_name = consentStates)] consent_states: Option<Vec<ConsentState>>,
   ) -> Result<StreamCloser, JsError> {
     let consents: Option<Vec<XmtpConsentState>> =
       consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
@@ -647,12 +680,26 @@ impl Conversations {
     let stream_closer = RustXmtpClient::stream_preferences_with_callback(
       self.inner_client.clone(),
       move |message| match message {
-        Ok(m) => {
-          callback.on_user_preference_update(m.into_iter().map(UserPreference::from).collect())
-        }
+        Ok(m) => callback
+          .on_user_preference_update(m.into_iter().map(UserPreferenceUpdate::from).collect()),
         Err(e) => callback.on_error(JsError::from(e)),
       },
       move || on_close_cb.on_close(),
+    );
+    Ok(StreamCloser::new(stream_closer))
+  }
+
+  #[wasm_bindgen(js_name = "streamMessageDeletions")]
+  pub fn stream_message_deletions(
+    &self,
+    callback: StreamCallback,
+  ) -> Result<StreamCloser, JsError> {
+    let stream_closer = RustXmtpClient::stream_message_deletions_with_callback(
+      self.inner_client.clone(),
+      move |message| match message {
+        Ok(message_id) => callback.on_message_deleted(hex::encode(message_id)),
+        Err(e) => callback.on_error(JsError::from(e)),
+      },
     );
     Ok(StreamCloser::new(stream_closer))
   }

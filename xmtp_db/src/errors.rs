@@ -1,12 +1,14 @@
 use diesel::result::DatabaseErrorKind;
 use thiserror::Error;
 
+use crate::group_intent::GroupIntentError;
+
 use super::{
     refresh_state::EntityKind,
     sql_key_store::{self, SqlKeyStoreError},
 };
-use xmtp_common::{RetryableError, retryable};
-use xmtp_proto::types::InstallationId;
+use xmtp_common::{BoxDynError, RetryableError, retryable};
+use xmtp_proto::types::{Cursor, InstallationId};
 
 pub struct Mls;
 
@@ -17,7 +19,7 @@ pub enum StorageError {
     #[error(transparent)]
     DieselResult(#[from] diesel::result::Error),
     #[error("Error migrating database {0}")]
-    MigrationError(#[from] Box<dyn std::error::Error + Send + Sync>),
+    MigrationError(#[from] BoxDynError),
     #[error(transparent)]
     NotFound(#[from] NotFound),
     #[error(transparent)]
@@ -42,6 +44,8 @@ pub enum StorageError {
     Connection(#[from] crate::ConnectionError),
     #[error("HMAC key must be 42 bytes")]
     InvalidHmacLength,
+    #[error(transparent)]
+    GroupIntent(#[from] GroupIntentError),
 }
 
 impl From<std::convert::Infallible> for StorageError {
@@ -60,9 +64,13 @@ impl StorageError {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn db_needs_connection(&self) -> bool {
+        use StorageError::*;
         matches!(
             self,
-            Self::Platform(crate::database::native::PlatformStorageError::PoolNeedsConnection)
+            Platform(crate::PlatformStorageError::PoolNeedsConnection)
+                | Connection(crate::ConnectionError::Platform(
+                    crate::PlatformStorageError::PoolNeedsConnection,
+                ))
         )
     }
 }
@@ -71,7 +79,7 @@ impl StorageError {
 // Monolithic enum for all things lost
 pub enum NotFound {
     #[error("group with welcome id {0} not found")]
-    GroupByWelcome(i64),
+    GroupByWelcome(Cursor),
     #[error("group with id {id} not found", id = hex::encode(_0))]
     GroupById(Vec<u8>),
     #[error("installation time for group {id}", id = hex::encode(_0))]
@@ -90,8 +98,8 @@ pub enum NotFound {
     IntentForCommitted(i32),
     #[error("Intent with id {0} not found")]
     IntentById(i32),
-    #[error("refresh state with id {id} and kind {1} not found", id = hex::encode(_0))]
-    RefreshStateByIdAndKind(Vec<u8>, EntityKind),
+    #[error("refresh state with id {id} of kind {1} originating from node {2} not found", id = hex::encode(_0))]
+    RefreshStateByIdKindAndOriginator(Vec<u8>, EntityKind, i32),
     #[error("Cipher salt for db at [`{0}`] not found")]
     CipherSalt(String),
     #[error("Sync Group for installation {0} not found")]
@@ -109,7 +117,7 @@ pub enum NotFound {
 #[derive(Error, Debug)]
 pub enum DuplicateItem {
     #[error("the welcome id {0:?} already exists")]
-    WelcomeId(Option<i64>),
+    WelcomeId(Option<Cursor>),
     #[error("the commit log public key for group id {id} already exists", id = hex::encode(_0))]
     CommitLogPublicKey(Vec<u8>),
 }
@@ -151,6 +159,7 @@ impl RetryableError for StorageError {
             Self::OpenMlsStorage(storage) => retryable!(storage),
             Self::Platform(p) => retryable!(p),
             Self::Connection(e) => retryable!(e),
+            Self::GroupIntent(e) => retryable!(e),
             Self::MigrationError(_)
             | Self::Conversion(_)
             | Self::NotFound(_)

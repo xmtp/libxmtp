@@ -45,6 +45,10 @@ impl ContentCodec<GroupUpdated> for GroupUpdatedCodec {
 
         Ok(decoded)
     }
+
+    fn should_push() -> bool {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -67,6 +71,11 @@ pub(crate) mod tests {
             added_inboxes: vec![new_member.clone()],
             removed_inboxes: vec![],
             metadata_field_changes: vec![],
+            left_inboxes: vec![],
+            added_admin_inboxes: vec![],
+            removed_admin_inboxes: vec![],
+            added_super_admin_inboxes: vec![],
+            removed_super_admin_inboxes: vec![],
         };
 
         let encoded = GroupUpdatedCodec::encode(data).unwrap();

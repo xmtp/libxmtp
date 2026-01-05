@@ -4,6 +4,8 @@
 pub mod builder;
 pub mod client;
 pub mod context;
+pub mod cursor_store;
+mod definitions;
 pub mod groups;
 pub mod identity;
 pub mod identity_updates;
@@ -12,13 +14,17 @@ pub mod messages;
 pub mod mls_store;
 mod mutex_registry;
 pub mod subscriptions;
-pub mod types;
+pub mod tasks;
 pub mod utils;
 pub mod verified_key_package_v2;
 pub mod worker;
+pub use definitions::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test;
+#[cfg(test)]
+mod tests;
+mod traits;
 
 use crate::groups::GroupError;
 pub use client::{Client, Network};
@@ -26,10 +32,16 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
+pub use xmtp_common as common;
+pub use xmtp_db as db;
 use xmtp_db::{DuplicateItem, StorageError};
 pub use xmtp_id::InboxOwner;
-pub use xmtp_mls_common as common;
+pub use xmtp_mls_common as mls_common;
 pub use xmtp_proto::api_client::*;
+
+pub fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
 
 /// A manager for group-specific semaphores
 #[derive(Debug)]

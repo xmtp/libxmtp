@@ -51,7 +51,6 @@ impl EnvelopeVisitor<'_> for PayloadExtractor {
         &mut self,
         message: &GroupMessageInput,
     ) -> Result<(), Self::Error> {
-        tracing::debug!("Group Message Input");
         self.payload = Some(Payload::GroupMessage(message.clone()));
         Ok(())
     }
@@ -111,6 +110,7 @@ mod tests {
             .build();
         let payload = envelope.payload().unwrap();
 
+        // TODO: test this using the WelcomeMessageExtractor
         match payload {
             Payload::WelcomeMessage(msg) => {
                 assert!(msg.version.is_some());
@@ -118,8 +118,44 @@ mod tests {
                 let welcome_message_input::Version::V1(welcome_message_input::V1 {
                     installation_key,
                     ..
-                }) = m;
+                }) = m
+                else {
+                    panic!("Expected WelcomeMessageVersion::V1");
+                };
                 assert_eq!(installation_key, vec![1, 2, 3]);
+            }
+            _ => panic!("Expected WelcomeMessage payload"),
+        }
+    }
+
+    #[xmtp_common::test]
+    fn test_extract_welcome_pointer_payload() {
+        let installation_key = xmtp_common::rand_vec::<32>();
+        let welcome_pointer = xmtp_common::rand_vec::<32>();
+        let hpke_public_key = xmtp_common::rand_vec::<32>();
+        let wrapper_algorithm = 2;
+        let envelope = TestEnvelopeBuilder::new()
+            .with_welcome_pointer(
+                installation_key.clone(),
+                welcome_pointer.clone(),
+                hpke_public_key.clone(),
+                wrapper_algorithm,
+            )
+            .build();
+        let payload = envelope.payload().unwrap();
+
+        // TODO: test this using the WelcomeMessageExtractor
+        match payload {
+            Payload::WelcomeMessage(msg) => {
+                assert!(msg.version.is_some());
+                let m = msg.version.unwrap();
+                let welcome_message_input::Version::WelcomePointer(wp) = m else {
+                    panic!("Expected WelcomeMessageVersion::WelcomePointer");
+                };
+                assert_eq!(wp.installation_key, installation_key);
+                assert_eq!(wp.welcome_pointer, welcome_pointer);
+                assert_eq!(wp.hpke_public_key, hpke_public_key);
+                assert_eq!(wp.wrapper_algorithm, wrapper_algorithm);
             }
             _ => panic!("Expected WelcomeMessage payload"),
         }

@@ -17,6 +17,7 @@
 //! ```
 
 use crate::time::Duration;
+use crate::{MaybeSend, MaybeSync};
 use rand::Rng;
 use std::error::Error;
 use std::sync::Arc;
@@ -36,17 +37,13 @@ pub fn arc_retryable_to_error(retryable: Arc<dyn RetryableError>) -> Arc<dyn Err
     retryable
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-pub type BoxedRetry = Retry<Box<dyn Strategy + Send + Sync>>;
-
-#[cfg(target_arch = "wasm32")]
 pub type BoxedRetry = Retry<Box<dyn Strategy>>;
 
 pub struct NotSpecialized;
 
 /// Specifies which errors are retryable.
 /// All Errors are not retryable by-default.
-pub trait RetryableError<SP = NotSpecialized>: std::error::Error {
+pub trait RetryableError<SP = NotSpecialized>: std::error::Error + MaybeSend + MaybeSync {
     fn is_retryable(&self) -> bool;
 }
 
@@ -108,7 +105,7 @@ impl<S: Strategy + 'static> Retry<S> {
 }
 
 /// The strategy interface
-pub trait Strategy {
+pub trait Strategy: MaybeSend + MaybeSync {
     /// A time that this retry should backoff
     /// Returns None when we should no longer backoff,
     /// despite possibly being below attempts
@@ -194,7 +191,8 @@ impl ExponentialBackoffBuilder {
             duration: self.duration.unwrap_or(Duration::from_millis(25)),
             max_jitter: self.max_jitter.unwrap_or(Duration::from_millis(25)),
             multiplier: self.multiplier.unwrap_or(3),
-            ..Default::default()
+            total_wait_max: self.total_wait_max.unwrap_or(Duration::from_secs(120)),
+            individual_wait_max: Duration::from_secs(30),
         }
     }
 }
@@ -310,7 +308,7 @@ impl Retry {
 ///     Err(MyError::Retryable)
 /// }
 ///
-/// #[tokio::main]
+/// #[tokio::main(flavor = "current_thread")]
 /// async fn main() -> Result<(), MyError> {
 ///
 ///     let (tx, mut rx) = mpsc::channel(3);
@@ -377,9 +375,6 @@ macro_rules! retryable {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use thiserror::Error;
     use tokio::sync::mpsc;

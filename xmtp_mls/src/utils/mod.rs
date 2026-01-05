@@ -2,13 +2,12 @@ use std::sync::Arc;
 
 #[cfg(feature = "bench")]
 pub mod bench;
+pub mod cleanup_duplicate_updates;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub use self::test::*;
-
-pub mod events;
 
 pub mod hash {
     pub use xmtp_cryptography::hash::sha256_bytes as sha256;

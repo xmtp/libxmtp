@@ -14,20 +14,23 @@ hex.workspace = true
 prost = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 tracing.workspace = true
-xmtp_api_grpc.workspace = true
+xmtp_api_d14n = { workspace = true }
 xmtp_common.workspace = true
-xmtp_configuration.workspace = true
-xmtp_proto = { workspace = true, features = ["convert"] }
-
-mockall = { workspace = true, optional = true }
+xmtp_id.workspace = true
+xmtp_proto = { workspace = true }
 
 
 # test utils
 [dev-dependencies]
+chrono.workspace = true
 futures-timer.workspace = true
-mockall.workspace = true
+http = "1.2"
+tls_codec.workspace = true
+xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
+xmtp_api_grpc.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
-xmtp_configuration = { workspace = true, features = ["test-utils"] }
+xmtp_configuration.workspace = true
+xmtp_cryptography = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 
@@ -40,11 +43,12 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 ctor.workspace = true
 
 [features]
+default = ["v3"]
 test-utils = [
   "xmtp_common/test-utils",
-  "xmtp_configuration/test-utils",
   "xmtp_proto/test-utils",
   "xmtp_id/test-utils",
-  "xmtp_api_grpc/test-utils",
-  "dep:mockall",
+  "xmtp_api_d14n/test-utils",
 ]
+v3 = []
+d14n = []

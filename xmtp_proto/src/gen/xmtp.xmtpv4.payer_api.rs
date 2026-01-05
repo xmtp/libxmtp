@@ -43,10 +43,10 @@ impl ::prost::Name for GetNodesRequest {
         "/xmtp.xmtpv4.payer_api.GetNodesRequest".into()
     }
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetNodesResponse {
-    #[prost(string, repeated, tag = "1")]
-    pub nodes: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(map = "uint32, string", tag = "1")]
+    pub nodes: ::std::collections::HashMap<u32, ::prost::alloc::string::String>,
 }
 impl ::prost::Name for GetNodesResponse {
     const NAME: &'static str = "GetNodesResponse";
@@ -58,145 +58,8 @@ impl ::prost::Name for GetNodesResponse {
         "/xmtp.xmtpv4.payer_api.GetNodesResponse".into()
     }
 }
-/// Generated client implementations.
-pub mod payer_api_client {
-    #![allow(
-        unused_variables,
-        dead_code,
-        missing_docs,
-        clippy::wildcard_imports,
-        clippy::let_unit_value,
-    )]
-    use tonic::codegen::*;
-    use tonic::codegen::http::Uri;
-    /// A narrowly scoped API for publishing messages through a payer
-    #[derive(Debug, Clone)]
-    pub struct PayerApiClient<T> {
-        inner: tonic::client::Grpc<T>,
-    }
-    impl<T> PayerApiClient<T>
-    where
-        T: tonic::client::GrpcService<tonic::body::Body>,
-        T::Error: Into<StdError>,
-        T::ResponseBody: Body<Data = Bytes> + std::marker::Send + 'static,
-        <T::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
-    {
-        pub fn new(inner: T) -> Self {
-            let inner = tonic::client::Grpc::new(inner);
-            Self { inner }
-        }
-        pub fn with_origin(inner: T, origin: Uri) -> Self {
-            let inner = tonic::client::Grpc::with_origin(inner, origin);
-            Self { inner }
-        }
-        pub fn with_interceptor<F>(
-            inner: T,
-            interceptor: F,
-        ) -> PayerApiClient<InterceptedService<T, F>>
-        where
-            F: tonic::service::Interceptor,
-            T::ResponseBody: Default,
-            T: tonic::codegen::Service<
-                http::Request<tonic::body::Body>,
-                Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::Body>>::ResponseBody,
-                >,
-            >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::Body>,
-            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
-        {
-            PayerApiClient::new(InterceptedService::new(inner, interceptor))
-        }
-        /// Compress requests with the given encoding.
-        ///
-        /// This requires the server to support it otherwise it might respond with an
-        /// error.
-        #[must_use]
-        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
-            self.inner = self.inner.send_compressed(encoding);
-            self
-        }
-        /// Enable decompressing responses.
-        #[must_use]
-        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
-            self.inner = self.inner.accept_compressed(encoding);
-            self
-        }
-        /// Limits the maximum size of a decoded message.
-        ///
-        /// Default: `4MB`
-        #[must_use]
-        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
-            self.inner = self.inner.max_decoding_message_size(limit);
-            self
-        }
-        /// Limits the maximum size of an encoded message.
-        ///
-        /// Default: `usize::MAX`
-        #[must_use]
-        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
-            self.inner = self.inner.max_encoding_message_size(limit);
-            self
-        }
-        /// Publish envelope
-        pub async fn publish_client_envelopes(
-            &mut self,
-            request: impl tonic::IntoRequest<super::PublishClientEnvelopesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::PublishClientEnvelopesResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.xmtpv4.payer_api.PayerApi/PublishClientEnvelopes",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "xmtp.xmtpv4.payer_api.PayerApi",
-                        "PublishClientEnvelopes",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
-        pub async fn get_nodes(
-            &mut self,
-            request: impl tonic::IntoRequest<super::GetNodesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::GetNodesResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.xmtpv4.payer_api.PayerApi/GetNodes",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.xmtpv4.payer_api.PayerApi", "GetNodes"));
-            self.inner.unary(req, path, codec).await
-        }
-    }
-}
 /// Generated server implementations.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]
 pub mod payer_api_server {
     #![allow(
         unused_variables,

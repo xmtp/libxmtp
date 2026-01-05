@@ -2,28 +2,27 @@ use super::*;
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, message_backup::GroupMessageSave};
 
+#[xmtp_common::async_trait]
 impl BackupRecordProvider for GroupMessageSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records<D>(
-        db: Arc<D>,
-        start_ns: Option<i64>,
-        end_ns: Option<i64>,
-        cursor: i64,
+    async fn backup_records<D>(
+        state: Arc<BackupProviderState<D>>,
     ) -> Result<Vec<BackupElement>, StorageError>
     where
         Self: Sized,
         D: DbQuery,
     {
         let args = MsgQueryArgs::builder()
-            .sent_after_ns(start_ns)
-            .sent_before_ns(end_ns)
+            .sent_after_ns(state.opts.start_ns)
+            .sent_before_ns(state.opts.end_ns)
+            .exclude_disappearing(state.opts.exclude_disappearing_messages)
             .limit(Self::BATCH_SIZE)
             .build()
             .expect("could not build");
 
-        let batch = db
-            .group_messages_paged(&args, cursor)
-            .expect("Failed to load group records");
+        let batch = state
+            .db
+            .group_messages_paged(&args, state.cursor.load(Ordering::SeqCst))?;
 
         let records = batch
             .into_iter()

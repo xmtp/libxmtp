@@ -1,16 +1,16 @@
 //! WebAssembly specific connection for a SQLite Database
-//! Stores a single connection behind a mutex that's used for every libxmtp operation
+//! Stores a single connection behind a RefCell that's used for every libxmtp operation
 use crate::DbConnection;
 use crate::PersistentOrMem;
 use crate::{ConnectionExt, StorageOption, XmtpDb};
 use diesel::prelude::SqliteConnection;
 use diesel::{connection::SimpleConnection, prelude::*};
-use parking_lot::Mutex;
 use sqlite_wasm_rs::sahpool_vfs::OpfsSAHPoolCfg;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 use thiserror::Error;
 use web_sys::wasm_bindgen::JsCast;
-
 #[derive(Debug, Error)]
 pub enum PlatformStorageError {
     #[error("OPFS {0}")]
@@ -136,7 +136,7 @@ impl WasmDb {
 }
 
 pub struct WasmDbConnection {
-    conn: Arc<Mutex<SqliteConnection>>,
+    conn: Rc<RefCell<SqliteConnection>>,
     path: String,
 }
 
@@ -145,7 +145,7 @@ impl WasmDbConnection {
         let mut conn = SqliteConnection::establish(path)?;
         conn.batch_execute("PRAGMA foreign_keys = on;")?;
         Ok(Self {
-            conn: Arc::new(Mutex::new(conn)),
+            conn: Rc::new(RefCell::new(conn)),
             path: path.to_string(),
         })
     }
@@ -157,7 +157,7 @@ impl WasmDbConnection {
         conn.batch_execute("PRAGMA foreign_keys = on;")?;
 
         Ok(Self {
-            conn: Arc::new(Mutex::new(conn)),
+            conn: Rc::new(RefCell::new(conn)),
             path,
         })
     }
@@ -173,7 +173,7 @@ impl ConnectionExt for WasmDbConnection {
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        let mut conn = self.conn.lock();
+        let mut conn = self.conn.borrow_mut();
         Ok(fun(&mut conn)?)
     }
 
@@ -182,7 +182,7 @@ impl ConnectionExt for WasmDbConnection {
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        let mut conn = self.conn.lock();
+        let mut conn = self.conn.borrow_mut();
         Ok(fun(&mut conn)?)
     }
 

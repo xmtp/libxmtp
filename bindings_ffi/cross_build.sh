@@ -12,7 +12,7 @@ main() {
   BINARY_PROFILE="release"
   WORKSPACE_MANIFEST="$(cargo locate-project --workspace --message-format=plain)"
   WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
-  TARGET_DIR="$WORKSPACE_PATH/target"
+  TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | jq -r '.target_directory')"
   BINDINGS_MANIFEST="$WORKSPACE_PATH/bindings_ffi/Cargo.toml"
   # Go to the workspace root so that the workspace config can be found by cross
   cd $WORKSPACE_PATH
@@ -32,13 +32,13 @@ main() {
   cd $(dirname $BINDINGS_MANIFEST) # cd bindings_ffi
   rm -rf jniLibs/
   mkdir -p jniLibs/armeabi-v7a/ && \
-      cp $WORKSPACE_PATH/target/armv7-linux-androideabi/$BINARY_PROFILE/$LIBRARY_NAME.so jniLibs/armeabi-v7a/$TARGET_NAME.so && \
+      cp ${TARGET_DIR}/armv7-linux-androideabi/$BINARY_PROFILE/$LIBRARY_NAME.so jniLibs/armeabi-v7a/$TARGET_NAME.so && \
     mkdir -p jniLibs/x86/ && \
-      cp $WORKSPACE_PATH/target/i686-linux-android/$BINARY_PROFILE/$LIBRARY_NAME.so jniLibs/x86/$TARGET_NAME.so && \
+      cp ${TARGET_DIR}/i686-linux-android/$BINARY_PROFILE/$LIBRARY_NAME.so jniLibs/x86/$TARGET_NAME.so && \
     mkdir -p jniLibs/x86_64/ && \
-      cp $WORKSPACE_PATH/target/x86_64-linux-android/$BINARY_PROFILE/$LIBRARY_NAME.so jniLibs/x86_64/$TARGET_NAME.so && \
+      cp ${TARGET_DIR}/x86_64-linux-android/$BINARY_PROFILE/$LIBRARY_NAME.so jniLibs/x86_64/$TARGET_NAME.so && \
     mkdir -p jniLibs/arm64-v8a/ && \
-      cp $WORKSPACE_PATH/target/aarch64-linux-android/$BINARY_PROFILE/$LIBRARY_NAME.so jniLibs/arm64-v8a/$TARGET_NAME.so
+      cp ${TARGET_DIR}/aarch64-linux-android/$BINARY_PROFILE/$LIBRARY_NAME.so jniLibs/arm64-v8a/$TARGET_NAME.so
 }
 
 time main

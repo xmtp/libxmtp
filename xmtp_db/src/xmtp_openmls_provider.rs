@@ -6,6 +6,7 @@ use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::storage::CURRENT_VERSION;
 use openmls_traits::storage::{Entity, StorageProvider};
+use xmtp_common::{MaybeSend, MaybeSync};
 
 /// Convenience super trait to constrain the storage provider to a
 /// specific error type and version
@@ -14,7 +15,7 @@ use openmls_traits::storage::{Entity, StorageProvider};
 // constraining the error type here will avoid leaking
 // the associated type parameter, so we don't need to define it on every function.
 pub trait XmtpMlsStorageProvider:
-    StorageProvider<CURRENT_VERSION, Error = SqlKeyStoreError>
+    MaybeSend + MaybeSync + StorageProvider<CURRENT_VERSION, Error = SqlKeyStoreError>
 {
     /// An Opaque Database connection type. Can be anything.
     type Connection: ConnectionExt;
@@ -27,8 +28,7 @@ pub trait XmtpMlsStorageProvider:
 
     fn db<'a>(&'a self) -> Self::DbQuery<'a>;
 
-    /// Start a savepoint within a transaction
-    /// Must only be used when already in a transaction
+    /// Start a new transaction
     fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
         F: FnOnce(&mut Self::TxQuery) -> Result<T, E>,
@@ -71,6 +71,9 @@ pub trait XmtpMlsStorageProvider:
         key: &[u8],
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>;
+
+    #[cfg(feature = "test-utils")]
+    fn hash_all(&self) -> Result<Vec<u8>, SqlKeyStoreError>;
 }
 
 pub struct XmtpOpenMlsProvider<S> {
@@ -96,7 +99,6 @@ impl<S> XmtpOpenMlsProvider<S> {
 impl<S> MlsProviderExt for XmtpOpenMlsProvider<S>
 where
     S: XmtpMlsStorageProvider,
-    <S as XmtpMlsStorageProvider>::Connection: ConnectionExt,
 {
     type XmtpStorage = S;
 
@@ -133,7 +135,6 @@ pub struct XmtpOpenMlsProviderRef<'a, S> {
 impl<'a, S> MlsProviderExt for XmtpOpenMlsProviderRef<'a, S>
 where
     S: XmtpMlsStorageProvider,
-    <S as XmtpMlsStorageProvider>::Connection: ConnectionExt,
 {
     type XmtpStorage = S;
 
@@ -188,7 +189,6 @@ impl<'a, S> XmtpOpenMlsProviderRefMut<'a, S> {
 impl<'a, S> MlsProviderExt for XmtpOpenMlsProviderRefMut<'a, S>
 where
     S: XmtpMlsStorageProvider,
-    <S as XmtpMlsStorageProvider>::Connection: ConnectionExt,
 {
     type XmtpStorage = S;
 

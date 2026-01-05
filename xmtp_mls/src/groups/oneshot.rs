@@ -1,11 +1,23 @@
 use super::{GroupError, MlsGroup, PreconfiguredPolicies};
 use crate::context::XmtpSharedContext;
-use openmls::group::StagedWelcome;
-use xmtp_db::group::ConversationType;
+use openmls::group::GroupId;
+use xmtp_common::snippet::Snippet;
+use xmtp_db::{
+    MlsProviderExt, XmtpMlsStorageProvider,
+    consent_record::{ConsentState, ConsentType},
+    group::ConversationType,
+    prelude::{QueryConsentRecord, QueryReaddStatus},
+};
+use xmtp_id::AsIdRef;
 use xmtp_mls_common::{group::GroupMetadataOptions, group_metadata::GroupMetadata};
-use xmtp_proto::xmtp::mls::message_contents::OneshotMessage;
+use xmtp_proto::{
+    types::Cursor,
+    xmtp::mls::message_contents::{OneshotMessage, oneshot_message},
+};
 
-impl<Context: XmtpSharedContext> MlsGroup<Context> {
+pub struct Oneshot {}
+
+impl Oneshot {
     /// Creates a oneshot group with the given message and adds the specified inbox IDs to it.
     ///
     /// A oneshot group is a special type of group that contains a single message and is used
@@ -19,13 +31,13 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     ///
     /// # Returns
     /// An error if sending failed, otherwise nothing
-    pub async fn send_oneshot_message(
-        context: Context,
-        inbox_ids: Vec<&str>,
+    pub async fn send_message<C: XmtpSharedContext, S: AsIdRef>(
+        context: C,
+        inbox_ids: impl AsRef<[S]>,
         oneshot_message: OneshotMessage,
     ) -> Result<(), GroupError> {
         // Create a oneshot group with the oneshot message
-        let group = Self::create_and_insert(
+        let group = MlsGroup::<C>::create_and_insert(
             context.clone(),
             ConversationType::Oneshot,
             PreconfiguredPolicies::default().to_policy_set(),
@@ -34,36 +46,115 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         )?;
 
         // Add the specified inbox IDs to the group
-        if !inbox_ids.is_empty() {
+        if !inbox_ids.as_ref().is_empty() {
             group.add_members_by_inbox_id(&inbox_ids).await?;
+        } else {
+            group.add_missing_installations().await?;
         }
 
         // Optional: delete group from DB here
         Ok(())
     }
 
-    pub fn process_oneshot_message(
-        _context: Context,
-        _message: OneshotMessage,
+    pub fn process_message(
+        provider: &impl MlsProviderExt,
+        _sender_inbox_id: String,
+        sender_installation_id: Vec<u8>,
+        message: OneshotMessage,
     ) -> Result<(), GroupError> {
-        // TODO(rich): Handle oneshot message
+        match message.message_type {
+            Some(oneshot_message::MessageType::ReaddRequest(readd_request)) => {
+                if Self::validate_readd_request(
+                    provider.key_store(),
+                    &readd_request.group_id,
+                    &sender_installation_id,
+                )? {
+                    provider.key_store().db().update_requested_at_sequence_id(
+                        readd_request.group_id.as_slice(),
+                        &sender_installation_id,
+                        readd_request.latest_commit_sequence_id as i64,
+                    )?;
+                    tracing::info!(
+                        group_id = readd_request.group_id.snippet(),
+                        sender_installation_id = sender_installation_id.snippet(),
+                        latest_commit_sequence_id = readd_request.latest_commit_sequence_id,
+                        "Stored incoming readd request"
+                    );
+                }
+            }
+            _ => {
+                tracing::warn!(
+                    "Oneshot message {:?} is not a recognized message type",
+                    message.message_type
+                );
+            }
+        }
         Ok(())
     }
 
-    pub fn process_oneshot_welcome(
-        context: Context,
-        id: u64,
-        _welcome: StagedWelcome,
+    pub fn process_welcome(
+        provider: &impl MlsProviderExt,
+        cursor: Cursor,
+        sender_inbox_id: String,
+        sender_installation_id: Vec<u8>,
         metadata: GroupMetadata,
     ) -> Result<(), GroupError> {
         tracing::info!("Processing oneshot welcome");
         if let Some(message) = metadata.oneshot_message {
-            // TODO(rich): Extract welcome sender from StagedWelcome
-            Self::process_oneshot_message(context, message)?;
+            Self::process_message(provider, sender_inbox_id, sender_installation_id, message)?;
         } else {
-            tracing::warn!("Oneshot group welcome {} does not have oneshot message", id);
+            tracing::warn!(
+                "Oneshot group welcome {} does not have oneshot message",
+                cursor
+            );
         }
         Ok(())
+    }
+
+    fn validate_readd_request(
+        storage: &impl XmtpMlsStorageProvider,
+        group_id: &Vec<u8>,
+        sender_installation_id: &Vec<u8>,
+    ) -> Result<bool, GroupError> {
+        let Some(record) = storage
+            .db()
+            .get_consent_record(hex::encode(group_id), ConsentType::ConversationId)?
+        else {
+            tracing::warn!(
+                group_id = group_id.snippet(),
+                "No consent record found for readd request"
+            );
+            return Ok(false);
+        };
+        if record.state != ConsentState::Allowed {
+            tracing::warn!(
+                group_id = group_id.snippet(),
+                "Group not consented for readd request"
+            );
+            return Ok(false);
+        }
+        // Fetch the OpenMLS group without locking; consistency is not important here, and we are not writing to it
+        let Ok(Some(openmls_group)) =
+            openmls::group::MlsGroup::load(storage, &GroupId::from_slice(group_id))
+        else {
+            tracing::warn!(
+                group_id = group_id.snippet(),
+                "Unable to load OpenMLS group for readd request"
+            );
+            return Ok(false);
+        };
+        if !openmls_group
+            .members()
+            .any(|member| member.signature_key == *sender_installation_id)
+        {
+            tracing::warn!(
+                group_id = group_id.snippet(),
+                "Sender not a member of group for readd request"
+            );
+            return Ok(false);
+        }
+
+        Ok(true)
     }
 }
 
@@ -76,21 +167,57 @@ mod tests {
 
     #[tokio::test]
     async fn test_receive_oneshot_message_via_syncing() {
+        use xmtp_db::prelude::QueryReaddStatus;
+
         tester!(alix);
         tester!(bo);
         tester!(caro);
 
+        let a_group = alix
+            .create_group_with_inbox_ids(&[bo.inbox_id(), caro.inbox_id()], None, None)
+            .await
+            .unwrap();
+        let group_id = a_group.group_id.clone();
+        bo.sync_all_welcomes_and_groups(None).await.unwrap();
+        caro.sync_all_welcomes_and_groups(None).await.unwrap();
+        let b_group = bo.group(&group_id).unwrap();
+        b_group.update_consent_state(ConsentState::Allowed).unwrap();
+        let c_group = caro.group(&group_id).unwrap();
+        c_group.update_consent_state(ConsentState::Allowed).unwrap();
+        let latest_commit_sequence_id = 42;
+
+        // Verify that Bo and Caro have no readd status for Alix initially
+        let bo_initial_status = bo
+            .context
+            .db()
+            .get_readd_status(&group_id, alix.context.installation_id().as_slice())
+            .expect("Failed to query readd status");
+        assert!(
+            bo_initial_status.is_none(),
+            "Bo should not have readd status for Alix initially"
+        );
+
+        let caro_initial_status = caro
+            .context
+            .db()
+            .get_readd_status(&group_id, alix.context.installation_id().as_slice())
+            .expect("Failed to query readd status");
+        assert!(
+            caro_initial_status.is_none(),
+            "Caro should not have readd status for Alix initially"
+        );
+
         // Create a test oneshot message (using ReaddRequest as example)
         let readd_request = ReaddRequest {
-            group_id: vec![1, 2, 3, 4],
-            latest_commit_sequence_id: 0,
+            group_id: group_id.clone(),
+            latest_commit_sequence_id,
         };
         let oneshot_message = OneshotMessage {
             message_type: Some(MessageType::ReaddRequest(readd_request.clone())),
         };
 
         // Send the oneshot message
-        MlsGroup::send_oneshot_message(
+        Oneshot::send_message(
             alix.context.clone(),
             vec![bo.inbox_id(), caro.inbox_id()],
             oneshot_message.clone(),
@@ -98,13 +225,49 @@ mod tests {
         .await
         .expect("Failed to send oneshot message");
 
+        // Bo syncs welcomes
         bo.sync_welcomes().await.expect("Failed to sync welcomes");
-        // TODO(rich): Persist to DB when receiving oneshot message, then validate it is in the DB here
-        // For now, just validate the message structure
-        assert!(oneshot_message.message_type.is_some());
-        if let Some(MessageType::ReaddRequest(request)) = oneshot_message.message_type {
-            assert_eq!(request.group_id, vec![1, 2, 3, 4]);
-        }
+
+        // Verify that Bo now has readd status for Alix with the correct sequence ID
+        let bo_status = bo
+            .context
+            .db()
+            .get_readd_status(&group_id, alix.context.installation_id().as_slice())
+            .expect("Failed to query readd status")
+            .expect("Bo should have readd status for Alix after syncing");
+
+        assert_eq!(
+            bo_status.requested_at_sequence_id,
+            Some(latest_commit_sequence_id as i64),
+            "Bo should have requested_at_sequence_id set to {}",
+            latest_commit_sequence_id
+        );
+        assert_eq!(
+            bo_status.responded_at_sequence_id, None,
+            "Bo should not have responded_at_sequence_id set"
+        );
+
+        // Caro syncs welcomes
+        caro.sync_welcomes().await.expect("Failed to sync welcomes");
+
+        // Verify that Caro now has readd status for Alix with the correct sequence ID
+        let caro_status = caro
+            .context
+            .db()
+            .get_readd_status(&group_id, alix.context.installation_id().as_slice())
+            .expect("Failed to query readd status")
+            .expect("Caro should have readd status for Alix after syncing");
+
+        assert_eq!(
+            caro_status.requested_at_sequence_id,
+            Some(latest_commit_sequence_id as i64),
+            "Caro should have requested_at_sequence_id set to {}",
+            latest_commit_sequence_id
+        );
+        assert_eq!(
+            caro_status.responded_at_sequence_id, None,
+            "Caro should not have responded_at_sequence_id set"
+        );
     }
 
     #[tokio::test]
@@ -122,7 +285,7 @@ mod tests {
         };
 
         // Alix sends the oneshot message to Bo
-        MlsGroup::send_oneshot_message(alix.context.clone(), vec![bo.inbox_id()], oneshot_message)
+        Oneshot::send_message(alix.context.clone(), vec![bo.inbox_id()], oneshot_message)
             .await
             .expect("Failed to send oneshot message");
 
@@ -163,7 +326,7 @@ mod tests {
         };
 
         // Alix sends the oneshot message to Bo
-        MlsGroup::send_oneshot_message(alix.context.clone(), vec![bo.inbox_id()], oneshot_message)
+        Oneshot::send_message(alix.context.clone(), vec![bo.inbox_id()], oneshot_message)
             .await
             .expect("Failed to send oneshot message");
 
@@ -216,7 +379,7 @@ mod tests {
         };
 
         // Alix sends the oneshot message to Bo
-        MlsGroup::send_oneshot_message(alix.context.clone(), vec![bo.inbox_id()], oneshot_message)
+        Oneshot::send_message(alix.context.clone(), vec![bo.inbox_id()], oneshot_message)
             .await
             .expect("Failed to send oneshot message");
 

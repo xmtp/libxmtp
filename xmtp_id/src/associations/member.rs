@@ -6,9 +6,9 @@ use std::{
     fmt::{Debug, Display},
     hash::Hash,
 };
-use xmtp_api::identity::ApiIdentifier;
 use xmtp_cryptography::{XmtpInstallationCredential, signature::IdentifierValidationError};
 use xmtp_db::identity_cache::StoredIdentityKind;
+use xmtp_proto::types::ApiIdentifier;
 use xmtp_proto::{
     ConversionError,
     xmtp::identity::{
@@ -27,7 +27,7 @@ pub enum MemberIdentifier {
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 /// MemberIdentifier without the installation variant
-/// is uesd to enforce parameters.
+/// is used to enforce parameters.
 /// Not everything in this enum will be able to sign,
 /// which will be enforced on the unverified signature counterparts.
 pub enum Identifier {

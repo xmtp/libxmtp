@@ -14,19 +14,19 @@ use xmtp_common::{Retry, retry_async};
 use xmtp_db::group::ConversationType;
 use xmtp_db::prelude::*;
 use xmtp_db::{StorageError, group_message::StoredGroupMessage, refresh_state::EntityKind};
-use xmtp_proto::mls_v1::group_message;
+use xmtp_proto::types::{Cursor, GlobalCursor};
 
 #[cfg_attr(test, mockall::automock)]
 pub trait GroupDatabase {
     /// Get the last cursor for a message
-    fn last_cursor(&self, group_id: &[u8]) -> Result<i64, StorageError>;
+    fn last_cursor(&self, group_id: &[u8]) -> Result<GlobalCursor, StorageError>;
     /// get a message from the database
     // not needless, required by mockall
     #[allow(clippy::needless_lifetimes)]
     fn msg<'a>(
         &self,
         id: Option<&'a MessageIdentifier>,
-        msg: &group_message::V1,
+        msg: &xmtp_proto::types::GroupMessage,
     ) -> Result<Option<StoredGroupMessage>, StorageError>;
 }
 
@@ -39,20 +39,26 @@ impl<Context> GroupDb<Context> {
     }
 }
 
+/// the entities of interest for group messages
+const MESSAGE_ENTITIES: [EntityKind; 2] =
+    [EntityKind::ApplicationMessage, EntityKind::CommitMessage];
+
 impl<Context> GroupDatabase for GroupDb<Context>
 where
     Context: XmtpSharedContext,
 {
-    fn last_cursor(&self, group_id: &[u8]) -> Result<i64, StorageError> {
-        self.0
+    fn last_cursor(&self, group_id: &[u8]) -> Result<GlobalCursor, StorageError> {
+        let mut maps = self
+            .0
             .db()
-            .get_last_cursor_for_id(group_id, EntityKind::Group)
+            .get_last_cursor_for_ids(&[group_id], &MESSAGE_ENTITIES)?;
+        Ok(maps.remove(group_id).unwrap_or_default())
     }
 
     fn msg(
         &self,
         id: Option<&MessageIdentifier>,
-        msg: &group_message::V1,
+        msg: &xmtp_proto::types::GroupMessage,
     ) -> Result<Option<StoredGroupMessage>, StorageError> {
         let conn = self.0.db();
         id.and_then(|m| {
@@ -62,17 +68,21 @@ where
             m.internal_id.clone()
         })
         .map(|id| conn.get_group_message(id))
-        .unwrap_or(conn.get_group_message_by_timestamp(&msg.group_id, msg.created_ns as i64))
+        .unwrap_or_else(|| conn.get_group_message_by_timestamp(&msg.group_id, msg.timestamp()))
         .map_err(StorageError::from)
     }
 }
 
 #[cfg_attr(test, mockall::automock)]
+#[xmtp_common::async_trait]
 pub trait Sync {
-    /// Try to process a single mesage
-    async fn process(&self, msg: &group_message::V1) -> Result<MessageIdentifier, SubscribeError>;
+    /// Try to process a single message
+    async fn process(
+        &self,
+        msg: &xmtp_proto::types::GroupMessage,
+    ) -> Result<MessageIdentifier, SubscribeError>;
     /// Try to recover from failing to process a message
-    async fn recover(&self, msg: &group_message::V1) -> SyncSummary;
+    async fn recover(&self, msg: &xmtp_proto::types::GroupMessage) -> SyncSummary;
 }
 
 #[derive(Clone)]
@@ -83,19 +93,24 @@ impl<Context> Syncer<Context> {
     }
 }
 
+#[xmtp_common::async_trait]
 impl<Context> Sync for Syncer<Context>
 where
     Context: XmtpSharedContext,
 {
-    async fn process(&self, msg: &group_message::V1) -> Result<MessageIdentifier, SubscribeError> {
+    async fn process(
+        &self,
+        msg: &xmtp_proto::types::GroupMessage,
+    ) -> Result<MessageIdentifier, SubscribeError> {
         let (group, _) = MlsGroup::new_cached(self.0.clone(), &msg.group_id)?;
         let epoch = group.epoch().await?;
         tracing::debug!(
             "client@[{}] about to process streamed message @cursor=[{}] for group @epoch=[{}]",
             xmtp_common::fmt::truncate_hex(self.0.inbox_id()),
-            msg.id,
+            msg.cursor,
             epoch,
         );
+
         group
             .process_message(msg, false)
             .instrument(tracing::debug_span!("process_message"))
@@ -103,13 +118,13 @@ where
             .map_err(|e| SubscribeError::ReceiveGroup(Box::new(e)))
     }
 
-    async fn recover(&self, msg: &group_message::V1) -> SyncSummary {
+    async fn recover(&self, msg: &xmtp_proto::types::GroupMessage) -> SyncSummary {
         let group = MlsGroup::new(
             self.0.clone(),
-            msg.group_id.clone(),
+            msg.group_id.to_vec(),
             None,
             ConversationType::Group,
-            msg.created_ns as i64,
+            msg.timestamp(),
         );
         match group.sync_with_conn().await {
             Ok(summary) => {
@@ -128,7 +143,7 @@ where
                 tracing::warn!(
                     inbox_id = self.0.inbox_id(),
                     group_id = hex::encode(&msg.group_id),
-                    cursor_id = msg.id,
+                    cursor_id = %msg.cursor,
                     "recovery sync triggered by streamed message failed",
                 );
                 tracing::warn!("{summary}");
@@ -165,10 +180,10 @@ where
     /// 4. Returns metadata about the processing result
     ///    - All messages are sorted by cursor.
     ///    - If no message was able to be processed in the sync, 'processed_message' will be 'None'.
-    ///    - if the current message processed succesfully, the cursor is set to that message
-    ///    - if multiple messages were succesfully processed, but the current message failed to
-    ///    process, 'next_message' is set to the cursor of the next sucessfully processed message.
-    ///    - if no messages were sucessfully processed, the cursor is set to the latest message which
+    ///    - if the current message processed successfully, the cursor is set to that message
+    ///    - if multiple messages were successfully processed, but the current message failed to
+    ///    process, 'next_message' is set to the cursor of the next successfully processed message.
+    ///    - if no messages were successfully processed, the cursor is set to the latest message which
     ///    failed to process.
     ///
     /// The function handles the complexities of out-of-order message delivery and
@@ -188,42 +203,38 @@ where
     #[tracing::instrument(skip_all, level = "trace")]
     pub(crate) async fn process(
         self,
-        msg: group_message::V1,
+        msg: xmtp_proto::types::GroupMessage,
     ) -> Result<ProcessedMessage, SubscribeError> {
-        let group_message::V1 {
-            // the cursor ID is the position in the monolithic backend topic
-            id: ref cursor_id,
-            ..
-        } = msg;
-
-        let summary = if self.needs_to_sync(&msg, *cursor_id)? {
+        let summary = if self.needs_to_sync(&msg)? {
             self.process_or_recover(&msg).await
         } else {
             // if we dont need to sync, the message should be in the database
             SyncSummary::single(MessageIdentifierBuilder::from(&msg).build()?)
         };
 
-        let new_message = self.group_db.msg(summary.new_message_by_id(msg.id), &msg)?;
+        let new_message = self
+            .group_db
+            .msg(summary.new_message_by_id(msg.cursor), &msg)?;
 
         if let Some(new_msg) = new_message {
             Ok(ProcessedMessage {
                 message: Some(new_msg.clone()),
-                next_message: *cursor_id,
+                next_message: msg.cursor,
                 group_id: new_msg.group_id.clone(),
-                tried_to_process: msg.id,
+                tried_to_process: msg.cursor,
             })
         } else {
-            let next: u64 = summary.process.last_errored().unwrap_or(msg.id);
+            let next: Cursor = summary.process.last_errored().unwrap_or(msg.cursor);
             Ok(ProcessedMessage {
                 message: None,
                 next_message: next,
-                group_id: msg.group_id.clone(),
-                tried_to_process: msg.id,
+                group_id: msg.group_id.to_vec(),
+                tried_to_process: msg.cursor,
             })
         }
     }
 
-    async fn process_or_recover(&self, msg: &group_message::V1) -> SyncSummary {
+    async fn process_or_recover(&self, msg: &xmtp_proto::types::GroupMessage) -> SyncSummary {
         use SubscribeError::*;
         // try to process the message with retries
         let process_result =
@@ -246,7 +257,7 @@ where
                 // But still exists defensively
                 tracing::error!(
                     group_id = hex::encode(&msg.group_id),
-                    cursor_id = msg.id,
+                    cursor_id = %msg.cursor,
                     err = e.to_string(),
                     "process stream entry {:?}",
                     e
@@ -255,7 +266,7 @@ where
             }
             Ok(processed_msg) => {
                 tracing::trace!(
-                    cursor_id = msg.id,
+                    cursor_id = %msg.cursor,
                     group_id = hex::encode(&msg.group_id),
                     "message process in stream success, synced single msg @cursor={},group_id={}",
                     processed_msg.cursor,
@@ -284,25 +295,21 @@ where
     ///
     /// # Errors
     /// Returns an error if the database query for the last cursor fails.
-    fn needs_to_sync(
-        &self,
-        msg: &group_message::V1,
-        current_msg_cursor: u64,
-    ) -> Result<bool, SubscribeError> {
-        let last_synced_id = self.group_db.last_cursor(&msg.group_id)?;
-        if last_synced_id < current_msg_cursor as i64 {
+    fn needs_to_sync(&self, msg: &xmtp_proto::types::GroupMessage) -> Result<bool, SubscribeError> {
+        let clock = self.group_db.last_cursor(&msg.group_id)?;
+        if !clock.has_seen(&msg.cursor) {
             tracing::debug!(
-                "stream does require sync; last_synced@[{}], this message @[{}]",
-                last_synced_id,
-                current_msg_cursor
+                "stream requires sync; last_synced@[{}], this message @[{}]",
+                clock,
+                msg.cursor
             );
         } else {
             tracing::debug!(
                 "stream does not require sync; last_synced@[{}], this message @[{}]",
-                last_synced_id,
-                current_msg_cursor
+                clock,
+                msg.cursor
             );
         }
-        Ok(last_synced_id < current_msg_cursor as i64)
+        Ok(!clock.has_seen(&msg.cursor))
     }
 }

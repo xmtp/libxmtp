@@ -1,11 +1,15 @@
 use crate::{
-    app::store::{Database, GroupStore, IdentityStore},
-    args,
+    app::{
+        App,
+        store::{Database, GroupStore, IdentityStore},
+    },
+    args::{self, BackendOpts, ExportOpts},
 };
 
 use color_eyre::eyre::Result;
-use miniserde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::{fs, io::Write, sync::Arc};
+use xmtp_cryptography::XmtpInstallationCredential;
 
 use super::types::{Group, Identity};
 pub struct Export {
@@ -15,16 +19,13 @@ pub struct Export {
 }
 
 impl Export {
-    pub fn new(
-        opts: args::ExportOpts,
-        store: Arc<redb::Database>,
-        network: args::BackendOpts,
-    ) -> Self {
-        Self {
+    pub fn new(opts: ExportOpts, network: BackendOpts) -> Result<Self> {
+        let store = App::db()?;
+        Ok(Self {
             store,
             opts,
             network,
-        }
+        })
     }
 
     pub fn run(self) -> Result<()> {
@@ -48,7 +49,7 @@ impl Export {
                     let ids = ids
                         .map(|i| IdentityExport::from(i.value()))
                         .collect::<Vec<_>>();
-                    let json = miniserde::json::to_string(&ids);
+                    let json = serde_json::to_string(&ids)?;
                     writer.write_all(json.as_bytes())?;
                     writer.flush()?;
                 };
@@ -59,7 +60,7 @@ impl Export {
                     let groups = groups
                         .map(|g| GroupExport::from(g.value()))
                         .collect::<Vec<_>>();
-                    let json = miniserde::json::to_string(&groups);
+                    let json = serde_json::to_string(&groups)?;
                     writer.write_all(json.as_bytes())?;
                     writer.flush()?;
                 };
@@ -74,13 +75,16 @@ impl Export {
 pub struct IdentityExport {
     inbox_id: String,
     ethereum_address: String,
+    installation_public_key: String,
 }
 
 impl From<Identity> for IdentityExport {
     fn from(identity: Identity) -> Self {
+        let inst = XmtpInstallationCredential::from_bytes(&identity.installation_key).unwrap();
         IdentityExport {
             inbox_id: hex::encode(identity.inbox_id),
             ethereum_address: identity.address(),
+            installation_public_key: hex::encode(inst.public_bytes()),
         }
     }
 }

@@ -5,7 +5,7 @@ use xmtp_mls::groups::UpdateAdminListType;
 
 use crate::{
     app::{
-        self,
+        self, App,
         store::{Database, GroupStore, IdentityStore},
     },
     args,
@@ -18,8 +18,9 @@ pub struct Modify {
 }
 
 impl Modify {
-    pub fn new(opts: args::Modify, network: args::BackendOpts, db: Arc<redb::Database>) -> Self {
-        Self { opts, network, db }
+    pub fn new(opts: args::Modify, network: args::BackendOpts) -> Result<Self> {
+        let db = App::db()?;
+        Ok(Self { opts, network, db })
     }
 
     pub async fn run(self) -> Result<()> {
@@ -43,12 +44,12 @@ impl Modify {
             "no local identity found for inbox_id=[{}]",
             hex::encode(local_group.created_by)
         ))?;
-        let admin = app::client_from_identity(&identity, &network).await?;
+        let admin = app::client_from_identity(&identity, &network)?;
         let group = admin.group(&local_group.id.to_vec())?;
         match action {
             Remove => {
                 if inbox_id.is_none() {
-                    bail!("Inbox ID to remove must be specificied")
+                    bail!("Inbox ID to remove must be specified")
                 }
                 let inbox_id = inbox_id.expect("Checked for none");
                 local_group.member_size -= 1;
@@ -69,7 +70,7 @@ impl Modify {
                 let rng = &mut SmallRng::from_entropy();
                 let identity = identity_store
                     .load(&network)?
-                    .ok_or(eyre!("No identitites"))?
+                    .ok_or(eyre!("No identities"))?
                     .map(|i| i.value())
                     .filter(|identity| members.contains(&identity.inbox_id))
                     .choose(rng)
@@ -87,10 +88,9 @@ impl Modify {
                 group_store.set(local_group, &network)?;
             }
             AddExternal => {
-                if inbox_id.is_none() {
-                    bail!("Inbox ID to add must be specificied")
-                }
-                let inbox_id = inbox_id.expect("Checked for none");
+                let Some(inbox_id) = inbox_id else {
+                    bail!("Inbox ID to add must be specified")
+                };
                 group
                     .add_members_by_inbox_id(&[hex::encode(*inbox_id)])
                     .await
@@ -101,6 +101,7 @@ impl Modify {
                 info!(
                     inbox_id = hex::encode(*inbox_id),
                     group_id = hex::encode(local_group.id),
+                    added_by = hex::encode(identity.inbox_id),
                     "Member added as Super Admin"
                 );
             }

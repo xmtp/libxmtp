@@ -10,24 +10,19 @@ mod generated {
     pub const FILE_DESCRIPTOR_SET: &'static [u8] = include_bytes!("gen/proto_descriptor.bin");
 }
 
-pub use generated::*;
-
+pub mod api_client;
+pub mod codec;
+mod convert;
 mod error;
 mod impls;
-
 mod proto_cache;
-pub use proto_cache::*;
-
+mod traits;
 pub mod types;
 
 pub use error::*;
-
-pub mod api_client;
-#[cfg(any(test, feature = "test-utils"))]
-pub use api_client::tests::*;
-
-pub mod codec;
-mod traits;
+pub use generated::*;
+pub use impls::update_dedupe::GroupUpdateDeduper;
+pub use proto_cache::*;
 
 pub mod api {
     pub use super::traits::combinators::*;
@@ -35,17 +30,13 @@ pub mod api {
     pub use super::traits::*;
 }
 
-#[cfg(feature = "convert")]
-pub mod convert;
-#[cfg(feature = "convert")]
-pub mod v4_utils;
-
 #[cfg(test)]
 pub mod test {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     xmtp_common::if_native! {
+        #[cfg(test)]
         #[ctor::ctor]
         fn _setup() {
             xmtp_common::logger()
@@ -55,10 +46,12 @@ pub mod test {
 
 pub mod prelude {
     pub use super::FILE_DESCRIPTOR_SET;
-    #[cfg(any(test, feature = "test-utils"))]
-    pub use super::api_client::XmtpTestClient;
+    xmtp_common::if_test! {
+        pub use super::api_client::XmtpTestClient;
+    }
     pub use super::api_client::{
-        ApiBuilder, ArcedXmtpApi, BoxedXmtpApi, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
+        ApiBuilder, ArcedXmtpApi, BoxedXmtpApi, NetConnectConfig, XmtpIdentityClient,
+        XmtpMlsClient, XmtpMlsStreams,
     };
     pub use super::traits::{ApiClientError, Client, Endpoint, Query, QueryStream};
 }

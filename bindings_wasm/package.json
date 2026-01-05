@@ -1,8 +1,6 @@
 {
   "name": "@xmtp/wasm-bindings",
-  "version": "1.6.0-dev",
-  "type": "module",
-  "license": "MIT",
+  "version": "1.8.0-dev",
   "description": "WASM bindings for the libXMTP rust library",
   "keywords": [
     "xmtp",
@@ -20,56 +18,70 @@
   },
   "repository": {
     "type": "git",
-    "url": "https:git@github.com:xmtp/libxmtp.git",
+    "url": "git+https://git@github.com/xmtp/libxmtp.git",
     "directory": "bindings_wasm"
   },
-  "scripts": {
-    "build": "yarn clean && yarn build:web && yarn clean:release",
-    "build:macos": "yarn clean && yarn build:web:macos && yarn clean:release",
-    "build:web": "RUSTFLAGS=\"-Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend=\\\"wasm_js\\\"\" wasm-pack build --target web --out-dir ./dist --no-pack --release",
-    "build:test": "RUSTFLAGS=\"-Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend=\\\"wasm_js\\\"\" wasm-pack build --no-opt --target web --out-dir ./dist --no-pack --release -- --features test-utils",
-    "build:web:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang RUSTFLAGS=\"-Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend=\\\"wasm_js\\\"\" wasm-pack build --target web --out-dir ./dist --no-pack --release",
-    "check": "cargo check --target wasm32-unknown-unknown",
-    "check:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo check --target wasm32-unknown-unknown",
-    "clean": "rm -rf ./dist",
-    "clean:release": "rm ./dist/.gitignore",
-    "generate:version": "tsx scripts/version.ts",
-    "lint": "yarn lint:clippy && yarn lint:fmt",
-    "lint:macos": "yarn lint:clippy:macos && yarn lint:fmt",
-    "lint:clippy": "cargo clippy --locked --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings",
-    "lint:clippy:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo clippy --locked --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings",
-    "lint:fmt": "cargo fmt --check",
-    "prepublishOnly": "yarn build",
-    "test": "wasm-pack test --chrome --headless"
-  },
-  "files": [
-    "dist"
-  ],
-  "main": "dist/bindings_wasm.js",
-  "types": "dist/bindings_wasm.d.ts",
+  "license": "MIT",
+  "type": "module",
   "exports": {
     ".": {
       "types": "./dist/bindings_wasm.d.ts",
       "default": "./dist/bindings_wasm.js"
     }
   },
+  "main": "dist/bindings_wasm.js",
+  "types": "dist/bindings_wasm.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "yarn clean && yarn build:web && yarn clean:release",
+    "build:macos": "yarn clean && yarn build:web:macos && yarn clean:release",
+    "build:test": "RUSTFLAGS=\"-Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend=\\\"wasm_js\\\"\" wasm-pack build --no-opt --target web --out-dir ./dist --no-pack --release -- --features test-utils",
+    "build:test:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang RUSTFLAGS=\"-Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend=\\\"wasm_js\\\"\" wasm-pack build --no-opt --target web --out-dir ./dist --no-pack --release -- --features test-utils",
+    "build:web": "RUSTFLAGS=\"-Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend=\\\"wasm_js\\\"\" wasm-pack build --target web --out-dir ./dist --no-pack --release",
+    "build:web:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang RUSTFLAGS=\"-Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend=\\\"wasm_js\\\"\" wasm-pack build --target web --out-dir ./dist --no-pack --release",
+    "check": "cargo check --target wasm32-unknown-unknown",
+    "check:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo check --target wasm32-unknown-unknown",
+    "clean": "rm -rf ./dist",
+    "clean:release": "rm ./dist/.gitignore",
+    "format": "prettier -w .",
+    "format:check": "prettier -c .",
+    "lint": "yarn lint:clippy && yarn lint:fmt",
+    "lint:clippy": "cargo clippy --locked --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings",
+    "lint:clippy:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo clippy --locked --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings",
+    "lint:fmt": "cargo fmt --check",
+    "lint:macos": "yarn lint:clippy:macos && yarn lint:fmt",
+    "prepublishOnly": "yarn build",
+    "test": "cargo test --target wasm32-unknown-unknown",
+    "test:integration": "yarn build:test && vitest run",
+    "test:integration:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang yarn build:test:macos && vitest run",
+    "test:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo test --target wasm32-unknown-unknown",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
+    "@sqlite.org/sqlite-wasm": "^3.47.0-build1",
+    "@vitest/browser": "^4.0.8",
+    "@vitest/browser-playwright": "^4.0.8",
+    "@xmtp/content-type-remote-attachment": "^2.0.3",
+    "binaryen": "^124.0.0",
+    "playwright": "^1.56.1",
+    "prettier": "^3.7.4",
+    "prettier-plugin-packagejson": "^2.5.20",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "viem": "^2.31.3",
+    "vitest": "^4.0.8",
+    "wasm-pack": "^0.13.1"
+  },
+  "packageManager": "yarn@4.11.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "publishConfig": {
     "access": "public",
     "provenance": true,
     "registry": "https://registry.npmjs.org/"
-  },
-  "devDependencies": {
-    "@sqlite.org/sqlite-wasm": "^3.47.0-build1",
-    "binaryen": "^124.0.0",
-    "tsx": "^4.19.3",
-    "wasm-pack": "^0.13.1",
-    "zx": "^8.4.0"
-  },
-  "packageManager": "yarn@4.5.1",
-  "workspaces": [
-    "tests/integration/**"
-  ]
+  }
 }

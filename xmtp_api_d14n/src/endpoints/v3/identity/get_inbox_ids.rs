@@ -57,6 +57,7 @@ impl Endpoint for GetInboxIds {
 #[cfg(test)]
 mod test {
     use super::*;
+    use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::{identity_v1::GetInboxIdsResponse, prelude::*};
 
     #[xmtp_common::test]
@@ -78,7 +79,7 @@ mod test {
 
     #[xmtp_common::test]
     async fn test_get_inbox_ids() {
-        let client = crate::TestClient::create_local();
+        let client = NodeGoClient::create();
         let client = client.build().unwrap();
         let mut endpoint = GetInboxIds::builder()
             .addresses(vec![

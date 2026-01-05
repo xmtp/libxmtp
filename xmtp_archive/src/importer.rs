@@ -1,10 +1,11 @@
 use super::{ArchiveError, BackupMetadata};
-use crate::NONCE_SIZE;
+use crate::{NONCE_SIZE, util::GenericArrayExt};
 use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
 use async_compression::futures::bufread::ZstdDecoder;
 use futures::{FutureExt, Stream, StreamExt};
 use futures_util::{AsyncBufRead, AsyncReadExt};
 use prost::Message;
+#[allow(deprecated)]
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::{pin::Pin, task::Poll};
 use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
@@ -18,6 +19,7 @@ pub struct ArchiveImporter {
     decoder: ZstdDecoder<Pin<Box<dyn AsyncBufRead + Send>>>,
 
     cipher: AesGcm<Aes256, typenum::U12, typenum::U16>,
+    #[allow(deprecated)]
     nonce: GenericArray<u8, typenum::U12>,
 }
 
@@ -46,11 +48,24 @@ impl Stream for ArchiveImporter {
             }
 
             if element_len != 0 && this.decoded.len() >= element_len {
-                let decrypted = this
+                let decrypted_result = this
                     .cipher
-                    .decrypt(&this.nonce, &this.decoded[..element_len])?;
+                    .decrypt(&this.nonce, &this.decoded[..element_len]);
+
+                let decrypted = match decrypted_result {
+                    Ok(decrypted) => decrypted,
+                    // Attempt to decrypt using a decremented nonce to support legacy archives.
+                    Err(_) => {
+                        this.nonce.decrement();
+                        this.cipher
+                            .decrypt(&this.nonce, &this.decoded[..element_len])
+                            .inspect_err(|_| this.nonce.increment())?
+                    }
+                };
+
                 let element = BackupElement::decode(&*decrypted);
                 this.decoded.drain(..element_len);
+                this.nonce.increment();
                 return Poll::Ready(Some(element.map_err(ArchiveError::from)));
             }
 
@@ -80,7 +95,9 @@ impl ArchiveImporter {
             decoded: vec![],
             metadata: BackupMetadata::default(),
 
+            #[allow(deprecated)]
             cipher: Aes256Gcm::new(GenericArray::from_slice(key)),
+            #[allow(deprecated)]
             nonce: GenericArray::from(nonce),
         };
 

@@ -1,15 +1,20 @@
+#![allow(clippy::unwrap_used)]
 use std::sync::Arc;
 
 use alloy::signers::local::PrivateKeySigner;
 use xmtp_common::{TestLogReplace, tmp_path};
 use xmtp_configuration::GrpcUrls;
 use xmtp_id::InboxOwner;
-use xmtp_mls::utils::test::tester_utils::*;
+use xmtp_mls::{
+    builder::SyncWorkerMode,
+    utils::{PasskeyUser, Tester, TesterBuilder},
+};
 
 use crate::inbox_owner::FfiInboxOwner;
 
-use super::{tests::FfiWalletInboxOwner, *};
+use super::{inbox_owner::FfiWalletInboxOwner, *};
 
+#[allow(async_fn_in_trait)]
 pub trait LocalBuilder<Owner>
 where
     Owner: InboxOwner + Clone,
@@ -17,6 +22,7 @@ where
     async fn build(&self) -> Tester<Owner, FfiXmtpClient>;
     async fn build_no_panic(&self) -> Result<Tester<Owner, FfiXmtpClient>, GenericError>;
 }
+
 impl LocalBuilder<PrivateKeySigner> for TesterBuilder<PrivateKeySigner> {
     async fn build(&self) -> Tester<PrivateKeySigner, FfiXmtpClient> {
         self.build_no_panic().await.unwrap()
@@ -48,12 +54,13 @@ impl LocalBuilder<PrivateKeySigner> for TesterBuilder<PrivateKeySigner> {
             .await?;
         client.register_identity(signature_request).await?;
 
-        let worker = client.inner_client.context.sync_metrics();
-
-        if let Some(worker) = &worker
-            && self.wait_for_init
-        {
-            worker.wait_for_init().await.unwrap();
+        let mut worker = None;
+        if self.wait_for_init && self.sync_mode != SyncWorkerMode::Disabled {
+            while worker.is_none() {
+                xmtp_common::task::yield_now().await;
+                worker = client.inner_client.context.sync_metrics();
+            }
+            worker.as_ref().unwrap().wait_for_init().await.unwrap();
         }
 
         Ok(Tester {
@@ -101,12 +108,13 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
             .unwrap();
         client.register_identity(signature_request).await?;
 
-        let worker = client.inner_client.context.sync_metrics();
-
-        if let Some(worker) = &worker
-            && self.wait_for_init
-        {
-            worker.wait_for_init().await.unwrap();
+        let mut worker = None;
+        if self.wait_for_init && self.sync_mode != SyncWorkerMode::Disabled {
+            while worker.is_none() {
+                xmtp_common::task::yield_now().await;
+                worker = client.inner_client.context.sync_metrics();
+            }
+            worker.as_ref().unwrap().wait_for_init().await.unwrap();
         }
 
         Ok(Tester {
@@ -120,23 +128,50 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
     }
 }
 
+#[allow(async_fn_in_trait)]
 pub trait LocalTester {
-    async fn new() -> Tester<PrivateKeySigner, FfiXmtpClient>;
+    async fn new() -> Self;
     #[allow(unused)]
     async fn new_passkey() -> Tester<PasskeyUser, FfiXmtpClient>;
-
     fn builder() -> TesterBuilder<PrivateKeySigner>;
 }
 impl LocalTester for Tester<PrivateKeySigner, FfiXmtpClient> {
-    async fn new() -> Tester<PrivateKeySigner, FfiXmtpClient> {
+    async fn new() -> Self {
         TesterBuilder::new().build().await
     }
     async fn new_passkey() -> Tester<PasskeyUser, FfiXmtpClient> {
         TesterBuilder::new().passkey().build().await
     }
-
     fn builder() -> TesterBuilder<PrivateKeySigner> {
         TesterBuilder::new()
+    }
+}
+
+pub async fn connect_to_backend_test() -> Arc<super::XmtpApiClient> {
+    if cfg!(feature = "d14n") {
+        connect_to_backend(
+            GrpcUrls::NODE.to_string(),
+            Some(GrpcUrls::GATEWAY.to_string()),
+            false,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+    } else {
+        connect_to_backend(
+            GrpcUrls::NODE.to_string(),
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap()
     }
 }
 
@@ -149,12 +184,8 @@ where
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
     let client = create_client(
-        connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-            .await
-            .unwrap(),
-        connect_to_backend(GrpcUrls::NODE.to_string(), false, None)
-            .await
-            .unwrap(),
+        connect_to_backend_test().await,
+        connect_to_backend_test().await,
         Some(tmp_path()),
         Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
         &inbox_id,

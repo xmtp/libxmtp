@@ -12,6 +12,12 @@ pub use non_blocking_request::*;
 mod non_blocking_stream;
 pub use non_blocking_stream::*;
 
+mod try_from_item;
+pub use try_from_item::*;
+
+mod fake_empty;
+pub use fake_empty::*;
+
 use prost::bytes::Bytes;
 use tonic::{Response, Status, Streaming};
 
@@ -20,12 +26,13 @@ type Stream = Streaming<Bytes>;
 pub(crate) type NonBlocking =
     EscapableTonicStream<NonBlockingWebStream<NonBlockingStreamRequest<ResponseFuture>, Stream>>;
 
+/// Web and Native compatible network stream of Protobuf types from an XMTP Backend.
 pub type XmtpStream<T> = XmtpTonicStream<crate::GrpcStream, T>;
 
 xmtp_common::if_wasm! {
-    type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response<Stream>, Status>>>>;
+    pub type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response<Stream>, Status>>>>;
 }
 
 xmtp_common::if_native! {
-    type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response<Stream>, Status>> + Send>>;
+    pub type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response<Stream>, Status>> + Send>>;
 }

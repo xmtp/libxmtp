@@ -1,24 +1,30 @@
-use futures::{Stream, StreamExt};
+use futures::{FutureExt, Stream, StreamExt, TryStreamExt, future, stream as future_stream};
 use process_welcome::ProcessWelcomeFuture;
-use prost::Message;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
+use xmtp_api_d14n::protocol::{EnvelopeError, V3WelcomeMessageExtractor, WelcomeMessageExtractor};
+use xmtp_api_d14n::stream;
+use xmtp_proto::types::WelcomeMessage;
 
 use tracing::instrument;
 use xmtp_db::prelude::*;
-use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
+use xmtp_proto::api_client::XmtpMlsStreams;
 
 use process_welcome::ProcessWelcomeResult;
 use stream_all::StreamAllMessages;
 use stream_conversations::{StreamConversations, WelcomeOrGroup};
 
-pub(super) mod process_message;
-pub(super) mod process_welcome;
+pub(crate) mod d14n_compat;
+pub mod process_message;
+pub mod process_welcome;
 mod stream_all;
 mod stream_conversations;
-pub(crate) mod stream_messages;
+pub mod stream_messages;
 mod stream_utils;
+
+#[cfg(any(test, feature = "test-utils"))]
+use crate::subscriptions::stream_messages::stream_stats::{StreamStatsWrapper, StreamWithStats};
 
 use crate::{
     Client,
@@ -27,9 +33,10 @@ use crate::{
         GroupError, MlsGroup, device_sync::preference_sync::PreferenceUpdate,
         mls_sync::GroupMessageProcessingError,
     },
+    subscriptions::d14n_compat::{V3OrD14n, decode_welcome_message},
 };
 use thiserror::Error;
-use xmtp_common::{RetryableError, StreamHandle, retryable};
+use xmtp_common::{MaybeSend, RetryableError, StreamHandle, retryable};
 use xmtp_db::{
     NotFound, StorageError,
     consent_record::{ConsentState, StoredConsentRecord},
@@ -53,11 +60,13 @@ impl RetryableError for LocalEventError {
 
 /// Events local to this client
 /// are broadcast across all senders/receivers of streams
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum LocalEvents {
     // a new group was created
     NewGroup(Vec<u8>),
     PreferencesChanged(Vec<PreferenceUpdate>),
+    // a message was deleted (contains message ID)
+    MessageDeleted(Vec<u8>),
 }
 
 #[derive(Clone)]
@@ -67,10 +76,6 @@ pub enum SyncWorkerEvent {
     // The sync worker will auto-sync these with other devices.
     SyncPreferences(Vec<PreferenceUpdate>),
     CycleHMAC,
-
-    // TODO: Device Sync V1 below - Delete when V1 is deleted
-    Request { message_id: Vec<u8> },
-    Reply { message_id: Vec<u8> },
 }
 
 impl std::fmt::Debug for SyncWorkerEvent {
@@ -83,14 +88,6 @@ impl std::fmt::Debug for SyncWorkerEvent {
             Self::NewSyncGroupMsg => write!(f, "NewSyncGroupMsg"),
             Self::SyncPreferences(arg0) => f.debug_tuple("SyncPreferences").field(arg0).finish(),
             Self::CycleHMAC => write!(f, "CycleHMAC"),
-            Self::Request { message_id } => f
-                .debug_struct("Request")
-                .field("message_id", message_id)
-                .finish(),
-            Self::Reply { message_id } => f
-                .debug_struct("Reply")
-                .field("message_id", message_id)
-                .finish(),
         }
     }
 }
@@ -124,16 +121,14 @@ impl LocalEvents {
 
     fn preference_filter(self) -> Option<Vec<PreferenceUpdate>> {
         match self {
-            Self::PreferencesChanged(updates) => {
-                let updates = updates
-                    .into_iter()
-                    .filter_map(|pu| match pu {
-                        PreferenceUpdate::Consent(_) => None,
-                        _ => Some(pu),
-                    })
-                    .collect();
-                Some(updates)
-            }
+            Self::PreferencesChanged(updates) => Some(updates),
+            _ => None,
+        }
+    }
+
+    fn message_deletion_filter(self) -> Option<Vec<u8>> {
+        match self {
+            Self::MessageDeleted(message_id) => Some(message_id),
             _ => None,
         }
     }
@@ -142,6 +137,7 @@ impl LocalEvents {
 pub(crate) trait StreamMessages {
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>>;
     fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>>;
+    fn stream_message_deletions(self) -> impl Stream<Item = Result<Vec<u8>>>;
 }
 
 impl StreamMessages for broadcast::Receiver<LocalEvents> {
@@ -159,6 +155,15 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
         BroadcastStream::new(self).filter_map(|event| async {
             xmtp_common::optify!(event, "Missed message due to event queue lag")
                 .and_then(LocalEvents::preference_filter)
+                .map(Result::Ok)
+        })
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    fn stream_message_deletions(self) -> impl Stream<Item = Result<Vec<u8>>> {
+        BroadcastStream::new(self).filter_map(|event| async {
+            xmtp_common::optify!(event, "Missed message due to event queue lag")
+                .and_then(LocalEvents::message_deletion_filter)
                 .map(Result::Ok)
         })
     }
@@ -186,9 +191,19 @@ pub enum SubscribeError {
     #[error(transparent)]
     ApiClient(#[from] xmtp_api::ApiError),
     #[error("{0}")]
-    BoxError(Box<dyn RetryableError + Send + Sync>),
+    BoxError(Box<dyn RetryableError>),
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
+    #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
+    #[error(transparent)]
+    Envelope(#[from] xmtp_api_d14n::protocol::EnvelopeError),
+}
+
+impl SubscribeError {
+    pub fn dyn_err(other: impl RetryableError + 'static) -> Self {
+        SubscribeError::BoxError(Box::new(other) as _)
+    }
 }
 
 impl From<GroupError> for SubscribeError {
@@ -218,13 +233,15 @@ impl RetryableError for SubscribeError {
             ApiClient(e) => retryable!(e),
             BoxError(e) => retryable!(e),
             Db(c) => retryable!(c),
+            Conversion(c) => retryable!(c),
+            Envelope(c) => retryable!(c),
         }
     }
 }
 
 impl<Context> Client<Context>
 where
-    Context: XmtpSharedContext + Send + Sync + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     /// Async proxy for processing a streamed welcome message.
     /// Shouldn't be used unless for out-of-process utilities like Push Notifications.
@@ -232,26 +249,64 @@ where
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<MlsGroup<Context>> {
+    ) -> Result<Vec<MlsGroup<Context>>> {
         let conn = self.context.db();
-        let envelope =
-            WelcomeMessage::decode(envelope_bytes.as_slice()).map_err(SubscribeError::from)?;
-        let known_welcomes = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());
-        let future = ProcessWelcomeFuture::new(
-            known_welcomes,
-            self.context.clone(),
-            WelcomeOrGroup::Welcome(envelope),
-            None,
-            false,
-            None,
-        )?;
-        match future.process().await? {
-            ProcessWelcomeResult::New { group, .. } => Ok(group),
-            ProcessWelcomeResult::NewStored { group, .. } => Ok(group),
-            ProcessWelcomeResult::IgnoreId { .. } | ProcessWelcomeResult::Ignore => {
-                Err(stream_conversations::ConversationStreamError::InvalidConversationType.into())
+        let mut known_welcomes = HashSet::from_iter(conn.group_cursors()?.into_iter());
+        let welcome = decode_welcome_message(envelope_bytes.as_slice())?;
+        let welcomes: Vec<_> = match welcome {
+            V3OrD14n::D14n(s) => {
+                let messages = s.envelopes;
+                stream::try_extractor::<_, WelcomeMessageExtractor>(future_stream::once(
+                    future::ready(Ok::<_, EnvelopeError>(messages)),
+                ))
+                .try_collect()
+                .now_or_never()
+                .expect("stream has no pending operations, created with one item")
+            }
+            V3OrD14n::V3(message) => {
+                let s: Vec<WelcomeMessage> = stream::try_extractor::<_, V3WelcomeMessageExtractor>(
+                    future_stream::iter(vec![Ok::<_, EnvelopeError>(vec![message])]),
+                )
+                .try_collect::<Vec<WelcomeMessage>>()
+                .now_or_never()
+                .expect("stream must not fail because it is statically created with one item")?
+                .into_iter()
+                .collect();
+                Ok(s)
+            }
+        }?;
+
+        let mut out = Vec::with_capacity(welcomes.len());
+        for welcome in welcomes {
+            let welcome_id = welcome.cursor;
+            let future = ProcessWelcomeFuture::new(
+                known_welcomes.clone(),
+                self.context.clone(),
+                WelcomeOrGroup::Welcome(welcome),
+                None,
+                false,
+                None,
+            )?;
+
+            match future.process().await? {
+                ProcessWelcomeResult::New { group, .. } => {
+                    known_welcomes.insert(welcome_id);
+                    out.push(group)
+                }
+                ProcessWelcomeResult::NewStored { group, .. } => {
+                    known_welcomes.insert(welcome_id);
+                    out.push(group)
+                }
+                ProcessWelcomeResult::IgnoreId { .. } | ProcessWelcomeResult::Ignore => {
+                    known_welcomes.insert(welcome_id);
+                    return Err(
+                        stream_conversations::ConversationStreamError::InvalidConversationType
+                            .into(),
+                    );
+                }
             }
         }
+        Ok(out)
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -294,20 +349,15 @@ where
 
 impl<Context> Client<Context>
 where
-    Context: XmtpSharedContext + Send + Sync + 'static,
-    Context::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
-    Context::MlsStorage: Send + Sync + 'static,
+    Context: XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams + 'static,
+    Context::MlsStorage: 'static,
 {
     pub fn stream_conversations_with_callback(
         client: Arc<Client<Context>>,
         conversation_type: Option<ConversationType>,
-        #[cfg(not(target_arch = "wasm32"))] mut convo_callback: impl FnMut(Result<MlsGroup<Context>>)
-        + Send
-        + 'static,
-        #[cfg(target_arch = "wasm32")] mut convo_callback: impl FnMut(Result<MlsGroup<Context>>)
-        + 'static,
-        #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
-        #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
+        mut convo_callback: impl FnMut(Result<MlsGroup<Context>>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
         include_duplicate_dms: bool,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
@@ -367,16 +417,33 @@ where
         StreamAllMessages::new_owned(self.context.clone(), conversation_type, consent_state).await
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn stream_all_messages_owned_with_stats(
+        &self,
+        conversation_type: Option<ConversationType>,
+        consent_state: Option<Vec<ConsentState>>,
+    ) -> Result<impl StreamWithStats<Item = Result<StoredGroupMessage>> + 'static> {
+        tracing::debug!(
+            inbox_id = self.inbox_id(),
+            installation_id = %self.context.installation_id(),
+            conversation_type = ?conversation_type,
+            "stream all messages"
+        );
+
+        let stream =
+            StreamAllMessages::new_owned(self.context.clone(), conversation_type, consent_state)
+                .await?;
+
+        Ok(StreamStatsWrapper::new(stream))
+    }
+
     pub fn stream_all_messages_with_callback(
         context: Context,
         conversation_type: Option<ConversationType>,
         consent_state: Option<Vec<ConsentState>>,
-        #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<StoredGroupMessage>)
-        + Send
-        + 'static,
-        #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
-        #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
-        #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
+        mut callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -406,13 +473,8 @@ where
 
     pub fn stream_consent_with_callback(
         client: Arc<Client<Context>>,
-        #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>)
-        + Send
-        + 'static,
-        #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>)
-        + 'static,
-        #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
-        #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
+        mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -433,12 +495,8 @@ where
 
     pub fn stream_preferences_with_callback(
         client: Arc<Client<Context>>,
-        #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>)
-        + Send
-        + 'static,
-        #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>) + 'static,
-        #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
-        #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
+        mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -456,10 +514,34 @@ where
             Ok::<_, SubscribeError>(())
         })
     }
+
+    pub fn stream_message_deletions_with_callback(
+        client: Arc<Client<Context>>,
+        mut callback: impl FnMut(Result<Vec<u8>>) + MaybeSend + 'static,
+    ) -> impl StreamHandle<StreamOutput = Result<()>> {
+        let (tx, rx) = oneshot::channel();
+
+        xmtp_common::spawn(Some(rx), async move {
+            let receiver = client.local_events.subscribe();
+            let stream = receiver.stream_message_deletions();
+
+            futures::pin_mut!(stream);
+            let _ = tx.send(());
+            while let Some(message_id) = stream.next().await {
+                callback(message_id)
+            }
+            tracing::debug!("`stream_message_deletions` stream ended, dropping stream");
+            Ok::<_, SubscribeError>(())
+        })
+    }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use crate::context::XmtpSharedContext;
+    use crate::tester;
+    use xmtp_api_d14n::protocol::XmtpQuery;
+
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
@@ -506,5 +588,141 @@ pub(crate) mod tests {
                     .is_empty()
             );
         };
+    }
+
+    #[cfg(not(feature = "d14n"))]
+    #[xmtp_common::test(flavor = "multi_thread", worker_threads = 5, unwrap_try = true)]
+    async fn test_process_streamed_welcome_message_v3() {
+        use prost::Message;
+
+        tester!(alix);
+        tester!(bo);
+
+        // Alix creates a group and adds Bo
+        let alix_group = alix.create_group(None, None)?;
+        alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+
+        // Query the welcome message envelope using query_at
+        let envelope = alix
+            .context
+            .api()
+            .query_at(
+                xmtp_proto::types::TopicKind::WelcomeMessagesV1
+                    .create(bo.context.installation_id()),
+                None,
+            )
+            .await?;
+
+        // Get the welcome messages and encode the first one as V3 protobuf
+        let welcomes = envelope.welcome_messages()?;
+        assert!(welcomes.len() > 0, "Should have at least one welcome");
+
+        let welcome = &welcomes[0];
+        let v1 = welcome.as_v1().expect("Should be a V1 welcome");
+
+        // Manually construct the protobuf welcome message from V1 fields
+        let mut envelope_bytes = Vec::new();
+        let proto_welcome = xmtp_proto::xmtp::mls::api::v1::WelcomeMessage {
+            version: Some(
+                xmtp_proto::xmtp::mls::api::v1::welcome_message::Version::V1(
+                    xmtp_proto::xmtp::mls::api::v1::welcome_message::V1 {
+                        id: welcome.sequence_id(),
+                        created_ns: welcome.timestamp() as u64,
+                        installation_key: v1.installation_key.to_vec(),
+                        data: v1.data.clone(),
+                        hpke_public_key: v1.hpke_public_key.clone(),
+                        wrapper_algorithm: v1.wrapper_algorithm as i32,
+                        welcome_metadata: v1.welcome_metadata.clone(),
+                    },
+                ),
+            ),
+        };
+        proto_welcome.encode(&mut envelope_bytes)?;
+
+        // Process the streamed welcome message
+        let groups = bo.process_streamed_welcome_message(envelope_bytes).await?;
+
+        assert_eq!(groups.len(), 1, "Should have exactly one group");
+    }
+
+    #[cfg(feature = "d14n")]
+    #[xmtp_common::test(flavor = "multi_thread", worker_threads = 5, unwrap_try = true)]
+    async fn test_process_streamed_welcome_message_d14n() {
+        use prost::Message;
+        use xmtp_proto::types::TopicKind;
+
+        tester!(alix);
+        tester!(bo);
+
+        // Alix creates a group and adds Bo
+        let alix_group = alix.create_group(None, None)?;
+        alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+
+        // Query the welcome envelope using query_at for D14n format
+        let envelope = alix
+            .context
+            .api()
+            .query_at(
+                TopicKind::WelcomeMessagesV1.create(bo.context.installation_id()),
+                None,
+            )
+            .await?;
+
+        // Get the client envelopes and cursors
+        let client_envelopes = envelope.client_envelopes()?;
+        let cursors = envelope.cursors()?;
+
+        // Wrap in D14n envelope structure
+        let mut envelope_bytes = Vec::new();
+        xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse {
+            envelopes: client_envelopes
+                .into_iter()
+                .zip(cursors.iter())
+                .map(|(client_env, cursor)| {
+                    use xmtp_proto::xmtp::xmtpv4::envelopes::*;
+
+                    let mut client_bytes = Vec::new();
+                    client_env.encode(&mut client_bytes).unwrap();
+
+                    let payer_envelope = PayerEnvelope {
+                        unsigned_client_envelope: client_bytes,
+                        payer_signature: None,
+                        target_originator: cursor.originator_id,
+                        message_retention_days: 30,
+                    };
+
+                    let mut payer_bytes = Vec::new();
+                    payer_envelope.encode(&mut payer_bytes).unwrap();
+
+                    let unsigned_originator_envelope = UnsignedOriginatorEnvelope {
+                        originator_node_id: cursor.originator_id,
+                        originator_sequence_id: cursor.sequence_id,
+                        originator_ns: 1000000,
+                        payer_envelope_bytes: payer_bytes,
+                        base_fee_picodollars: 0,
+                        congestion_fee_picodollars: 0,
+                        expiry_unixtime: 0,
+                    };
+
+                    let mut unsigned_bytes = Vec::new();
+                    unsigned_originator_envelope
+                        .encode(&mut unsigned_bytes)
+                        .unwrap();
+
+                    OriginatorEnvelope {
+                        unsigned_originator_envelope: unsigned_bytes,
+                        proof: Some(originator_envelope::Proof::OriginatorSignature(
+                            Default::default(),
+                        )),
+                    }
+                })
+                .collect(),
+        }
+        .encode(&mut envelope_bytes)?;
+
+        // Process the streamed welcome message
+        let groups = bo.process_streamed_welcome_message(envelope_bytes).await?;
+
+        assert_eq!(groups.len(), 1, "Should have exactly one group");
     }
 }

@@ -2,7 +2,6 @@ use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use std::collections::HashMap;
 use xmtp_mls::{
-  common::group_mutable_metadata::MetadataField as XmtpMetadataField,
   groups::{
     PreconfiguredPolicies,
     group_permissions::{
@@ -12,9 +11,11 @@ use xmtp_mls::{
     },
     intents::{PermissionPolicyOption, PermissionUpdateType as XmtpPermissionUpdateType},
   },
+  mls_common::group_mutable_metadata::MetadataField as XmtpMetadataField,
 };
 
 #[napi]
+#[derive(Clone)]
 pub enum GroupPermissionsOptions {
   Default,
   AdminOnly,
@@ -43,6 +44,7 @@ impl From<&PermissionUpdateType> for XmtpPermissionUpdateType {
 }
 
 #[napi]
+#[derive(Clone)]
 pub enum PermissionPolicy {
   Allow,
   Deny,
@@ -163,6 +165,7 @@ pub struct PermissionPolicySet {
   pub update_group_description_policy: PermissionPolicy,
   pub update_group_image_url_square_policy: PermissionPolicy,
   pub update_message_disappearing_policy: PermissionPolicy,
+  pub update_app_data_policy: PermissionPolicy,
 }
 
 impl From<PreconfiguredPolicies> for GroupPermissionsOptions {
@@ -217,6 +220,7 @@ impl GroupPermissions {
       update_message_disappearing_policy: get_policy(
         XmtpMetadataField::MessageDisappearInNS.as_str(),
       ),
+      update_app_data_policy: get_policy(XmtpMetadataField::AppData.as_str()),
     })
   }
 }
@@ -243,6 +247,10 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
       XmtpMetadataField::MessageDisappearInNS.to_string(),
       policy_set.update_message_disappearing_policy.try_into()?,
     );
+    metadata_permissions_map.insert(
+      XmtpMetadataField::AppData.to_string(),
+      policy_set.update_app_data_policy.try_into()?,
+    );
 
     Ok(PolicySet {
       add_member_policy: policy_set.add_member_policy.try_into()?,
@@ -257,17 +265,29 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
 
 #[napi]
 pub enum MetadataField {
-  GroupName,
+  AppData,
   Description,
-  ImageUrlSquare,
+  GroupName,
+  GroupImageUrlSquare,
+  MessageExpirationFromNs,
+  MessageExpirationInNs,
 }
 
 impl From<&MetadataField> for XmtpMetadataField {
   fn from(field: &MetadataField) -> Self {
     match field {
-      MetadataField::GroupName => XmtpMetadataField::GroupName,
+      MetadataField::AppData => XmtpMetadataField::AppData,
       MetadataField::Description => XmtpMetadataField::Description,
-      MetadataField::ImageUrlSquare => XmtpMetadataField::GroupImageUrlSquare,
+      MetadataField::GroupName => XmtpMetadataField::GroupName,
+      MetadataField::GroupImageUrlSquare => XmtpMetadataField::GroupImageUrlSquare,
+      MetadataField::MessageExpirationFromNs => XmtpMetadataField::MessageDisappearFromNS,
+      MetadataField::MessageExpirationInNs => XmtpMetadataField::MessageDisappearInNS,
     }
   }
+}
+
+#[napi]
+#[allow(dead_code)]
+pub fn metadata_field_name(field: MetadataField) -> String {
+  XmtpMetadataField::from(&field).as_str().to_string()
 }

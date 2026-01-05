@@ -1,5 +1,6 @@
 use super::{
-    MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
+    MAX_APP_DATA_LENGTH, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
+    MAX_GROUP_NAME_LENGTH,
     group_membership::{GroupMembership, MembershipDiff},
     group_permissions::{
         GroupMutablePermissions, GroupMutablePermissionsError, extract_group_permissions,
@@ -18,6 +19,7 @@ use openmls::{
     treesync::LeafNode,
 };
 
+use crate::traits::FromWith;
 use prost::Message;
 use serde::Serialize;
 use std::collections::HashSet;
@@ -50,7 +52,6 @@ pub enum CommitValidationError {
     // Subject of the proposal has an invalid credential
     #[error("Inbox validation failed for {0}")]
     InboxValidationFailed(String),
-    // Not used yet, but seems obvious enough to include now
     #[error("Insufficient permissions")]
     InsufficientPermissions,
     #[error("Invalid version format: {0}")]
@@ -294,6 +295,7 @@ pub struct ValidatedCommit {
     pub actor: CommitParticipant,
     pub added_inboxes: Vec<Inbox>,
     pub removed_inboxes: Vec<Inbox>,
+    pub readded_installations: HashSet<Vec<u8>>,
     pub metadata_validation_info: MutableMetadataValidationInfo,
     pub installations_changed: bool,
     pub permissions_changed: bool,
@@ -349,6 +351,13 @@ impl ValidatedCommit {
                             length: MAX_GROUP_IMAGE_URL_LENGTH,
                         });
                     }
+                    val if val == MetadataField::AppData.as_str()
+                        && new_value.len() > MAX_APP_DATA_LENGTH =>
+                    {
+                        return Err(CommitValidationError::TooManyCharacters {
+                            length: MAX_APP_DATA_LENGTH,
+                        });
+                    }
                     _ => {}
                 }
             }
@@ -372,8 +381,8 @@ impl ValidatedCommit {
 
         // Get the installations actually added and removed in the commit
         let ProposalChanges {
-            added_installations,
-            removed_installations,
+            mut added_installations,
+            mut removed_installations,
             mut credentials_to_verify,
         } = get_proposal_changes(
             staged_commit,
@@ -398,13 +407,26 @@ impl ValidatedCommit {
         let installations_changed =
             !added_installations.is_empty() || !removed_installations.is_empty();
 
+        let mut failed_installations: HashSet<Vec<u8>> = new_group_membership
+            .failed_installations
+            .iter()
+            .cloned()
+            .collect();
+
+        // Remove readded installations from the added/removed/failed lists before going through validation
+        let readded_installations = extract_readded_installations(
+            &actor,
+            &mut added_installations,
+            &mut removed_installations,
+            &mut failed_installations,
+        );
         // Ensure that the expected diff matches the added/removed installations in the proposals
         expected_diff_matches_commit(
             &expected_installation_diff,
             added_installations,
             removed_installations,
             current_group_members,
-            &new_group_membership.failed_installations,
+            failed_installations,
         )?;
         credentials_to_verify.push(actor.clone());
 
@@ -436,6 +458,7 @@ impl ValidatedCommit {
             actor,
             added_inboxes,
             removed_inboxes,
+            readded_installations,
             metadata_validation_info,
             installations_changed,
             permissions_changed,
@@ -629,6 +652,7 @@ impl ExpectedDiff {
 
         let expected_diff = Self::extract_expected_diff(
             context,
+            openmls_group.group_id().as_slice(),
             staged_commit,
             extensions,
             &immutable_metadata,
@@ -645,6 +669,7 @@ impl ExpectedDiff {
     /// Satisfies Rule 2
     async fn extract_expected_diff(
         context: &impl XmtpSharedContext,
+        group_id: &[u8], // used for logging
         staged_commit: &StagedCommit,
         existing_group_extensions: &Extensions,
         immutable_metadata: &GroupMetadata,
@@ -676,6 +701,7 @@ impl ExpectedDiff {
         let expected_installation_diff = identity_updates
             .get_installation_diff(
                 &conn,
+                group_id,
                 &old_group_membership,
                 &new_group_membership,
                 &membership_diff,
@@ -691,6 +717,40 @@ impl ExpectedDiff {
     }
 }
 
+/// Superadmins are permitted to readd installations, e.g. for fork recovery
+/// We can take these readded installations out of the list of installations to validate
+pub(super) fn extract_readded_installations(
+    actor: &CommitParticipant,
+    added_installations: &mut HashSet<Vec<u8>>,
+    removed_installations: &mut HashSet<Vec<u8>>,
+    failed_installations: &mut HashSet<Vec<u8>>,
+) -> HashSet<Vec<u8>> {
+    if !actor.is_super_admin {
+        return HashSet::new();
+    }
+    let successfully_readded = added_installations
+        .intersection(removed_installations)
+        .cloned()
+        .collect::<HashSet<Vec<u8>>>();
+    added_installations.retain(|installation_id| !successfully_readded.contains(installation_id));
+    removed_installations.retain(|installation_id| !successfully_readded.contains(installation_id));
+
+    // We only want to intersect with *remaining* removed installations here, to avoid double counting
+    let unsuccessfully_readded = failed_installations
+        .intersection(removed_installations)
+        .cloned()
+        .collect::<HashSet<Vec<u8>>>();
+    failed_installations
+        .retain(|installation_id| !unsuccessfully_readded.contains(installation_id));
+    removed_installations
+        .retain(|installation_id| !unsuccessfully_readded.contains(installation_id));
+
+    successfully_readded
+        .union(&unsuccessfully_readded)
+        .cloned()
+        .collect()
+}
+
 /// Compare the list of installations added and removed in the commit to the expected diff based on the changes
 /// to the inbox state.
 /// Satisfies Rule 3 and Rule 7
@@ -699,7 +759,7 @@ fn expected_diff_matches_commit(
     added_installations: HashSet<Vec<u8>>,
     removed_installations: HashSet<Vec<u8>>,
     existing_installation_ids: HashSet<Vec<u8>>,
-    failed_installation_ids: &[Vec<u8>],
+    failed_installation_ids: HashSet<Vec<u8>>,
 ) -> Result<(), CommitValidationError> {
     // Check and make sure that any added installations are either:
     // 1. In the expected diff
@@ -1069,21 +1129,60 @@ impl From<&Inbox> for InboxProto {
     }
 }
 
-impl From<ValidatedCommit> for GroupUpdatedProto {
-    fn from(commit: ValidatedCommit) -> Self {
+// Implement the generic conversion: the TARGET (GroupUpdatedProto) declares what params it needs.
+// Here it's `BuildOpts`, but it could be `&dyn Policy`, `&[u8]`, etc.
+impl FromWith<ValidatedCommit> for GroupUpdatedProto {
+    /// Extra parameter is a list of inbox IDs who requested self-removal (pending removals).
+    type Params = Vec<String>;
+
+    fn from_with(commit: ValidatedCommit, pending_removals: &Self::Params) -> Self {
+        use std::collections::HashSet;
+
+        // Convert the pending removals list into a set for fast lookup
+        let pending_set: HashSet<&str> = pending_removals.iter().map(String::as_str).collect();
+
+        // Partition removed inboxes:
+        //  - left_inboxes: those present in pending_removals
+        //  - removed_inboxes: all others
+        let (left_inboxes, removed_inboxes): (Vec<Inbox>, Vec<Inbox>) = commit
+            .removed_inboxes
+            .into_iter()
+            .partition(|inb| pending_set.contains(inb.inbox_id.as_str()));
+
         GroupUpdatedProto {
             initiated_by_inbox_id: commit.actor.inbox_id.clone(),
             added_inboxes: commit.added_inboxes.iter().map(InboxProto::from).collect(),
-            removed_inboxes: commit
-                .removed_inboxes
-                .iter()
-                .map(InboxProto::from)
-                .collect(),
+            removed_inboxes: removed_inboxes.iter().map(InboxProto::from).collect(),
             metadata_field_changes: commit
                 .metadata_validation_info
                 .metadata_field_changes
                 .iter()
                 .map(MetadataFieldChangeProto::from)
+                .collect(),
+            left_inboxes: left_inboxes.iter().map(InboxProto::from).collect(),
+            added_admin_inboxes: commit
+                .metadata_validation_info
+                .admins_added
+                .iter()
+                .map(InboxProto::from)
+                .collect(),
+            removed_admin_inboxes: commit
+                .metadata_validation_info
+                .admins_removed
+                .iter()
+                .map(InboxProto::from)
+                .collect(),
+            added_super_admin_inboxes: commit
+                .metadata_validation_info
+                .super_admins_added
+                .iter()
+                .map(InboxProto::from)
+                .collect(),
+            removed_super_admin_inboxes: commit
+                .metadata_validation_info
+                .super_admins_removed
+                .iter()
+                .map(InboxProto::from)
                 .collect(),
         }
     }

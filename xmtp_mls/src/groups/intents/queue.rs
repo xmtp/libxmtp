@@ -4,7 +4,6 @@ use std::future::Future;
 
 use crate::groups::intents::GROUP_KEY_ROTATION_INTERVAL_NS;
 use crate::groups::{GroupError, MlsGroup, XmtpSharedContext};
-use crate::track;
 use derive_builder::Builder;
 use itertools::Itertools;
 use xmtp_db::{
@@ -142,6 +141,12 @@ impl QueueIntent {
         this
     }
 
+    pub fn readd_installations() -> QueueIntentBuilder {
+        let mut this = QueueIntent::builder();
+        this.kind = Some(IntentKind::ReaddInstallations);
+        this
+    }
+
     fn builder() -> QueueIntentBuilder {
         QueueIntentBuilder::default()
     }
@@ -173,12 +178,6 @@ impl QueueIntent {
 
         if intent_kind != IntentKind::SendMessage {
             conn.update_rotated_at_ns(group.group_id.clone())?;
-
-            track!(
-                "Queue Intent",
-                { "intent_kind": intent_kind },
-                group: &group.group_id
-            );
         }
         tracing::debug!(inbox_id = group.context.inbox_id(), intent_kind = %intent_kind, "queued intent");
 

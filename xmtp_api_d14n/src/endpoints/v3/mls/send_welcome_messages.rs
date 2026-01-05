@@ -36,6 +36,7 @@ impl Endpoint for SendWelcomeMessages {
 #[cfg(test)]
 mod test {
     use crate::v3::SendWelcomeMessages;
+    use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::xmtp::mls::api::v1::{
         SendWelcomeMessagesRequest, WelcomeMessageInput, welcome_message_input,
     };
@@ -61,7 +62,7 @@ mod test {
         let welcome_message = WelcomeMessageInput {
             version: Some(welcome_message_input::Version::V1(Default::default())),
         };
-        let client = crate::TestClient::create_local();
+        let client = NodeGoClient::create();
         let client = client.build().unwrap();
         let endpoint = SendWelcomeMessages::builder()
             .messages(vec![welcome_message])

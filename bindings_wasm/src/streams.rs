@@ -1,7 +1,7 @@
 use crate::client::RustMlsGroup;
 use crate::conversation::Conversation;
 use crate::messages::Message;
-use crate::user_preferences::UserPreference;
+use crate::user_preferences::UserPreferenceUpdate;
 use futures::Stream;
 use futures::{StreamExt, stream::LocalBoxStream};
 use pin_project_lite::pin_project;
@@ -30,10 +30,13 @@ extern "C" {
   pub fn on_consent_update(this: &StreamCallback, item: JsValue);
 
   #[wasm_bindgen(structural, method)]
-  pub fn on_user_preference_update(this: &StreamCallback, item: Vec<UserPreference>);
+  pub fn on_user_preference_update(this: &StreamCallback, item: Vec<UserPreferenceUpdate>);
 
   #[wasm_bindgen(structural, method)]
   pub fn on_conversation(this: &StreamCallback, item: Conversation);
+
+  #[wasm_bindgen(structural, method)]
+  pub fn on_message_deleted(this: &StreamCallback, message_id: String);
 
   /// Js Fn to call on error
   #[wasm_bindgen(structural, method)]
@@ -66,7 +69,6 @@ impl StreamCloser {
 impl StreamCloser {
   /// Signal the stream to end
   /// Does not wait for the stream to end.
-  #[wasm_bindgen(js_name = "end")]
   pub fn end(&self) {
     self.abort.end();
   }

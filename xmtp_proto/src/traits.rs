@@ -2,30 +2,37 @@
 
 use crate::{
     api::{RetryQuery, V3Paged, XmtpStream, combinators::Ignore},
-    api_client::AggregateStats,
+    api_client::{AggregateStats, ApiStats, IdentityStats},
 };
 use http::{request, uri::PathAndQuery};
 use prost::bytes::Bytes;
-use std::borrow::Cow;
-use xmtp_common::{MaybeSend, Retry};
+use std::{borrow::Cow, sync::Arc};
+use xmtp_common::{MaybeSend, MaybeSync, Retry};
 
-#[cfg(any(test, feature = "test-utils"))]
-pub mod mock;
+xmtp_common::if_test! {
+    pub mod mock;
+}
 
-pub mod combinators;
+mod boxed_client;
+pub(super) mod combinators;
 mod error;
 mod query;
 pub mod stream;
+mod vector_clock;
+pub use boxed_client::*;
 pub use error::*;
+pub use vector_clock::*;
 
 pub trait HasStats {
     fn aggregate_stats(&self) -> AggregateStats;
+    fn mls_stats(&self) -> ApiStats;
+    fn identity_stats(&self) -> IdentityStats;
 }
 
 /// provides the necessary information for a backend API call.
 /// Indicates the Output type
-pub trait Endpoint<Specialized = ()>: Send + Sync {
-    type Output: Send + Sync;
+pub trait Endpoint<Specialized = ()>: MaybeSend + MaybeSync {
+    type Output: MaybeSend + MaybeSync;
     fn grpc_endpoint(&self) -> Cow<'static, str>;
 
     fn body(&self) -> Result<Bytes, BodyError>;
@@ -63,20 +70,15 @@ pub trait EndpointExt<S>: Endpoint<S> {
 
 impl<S, E> EndpointExt<S> for E where E: Endpoint<S> {}
 
+/// Trait indicating an [`Endpoint`] can be paged
+/// paging will return a limited number of results
+/// per request. a cursor is present indicating
+/// the position in the total list of results
+/// on the backend.
 pub trait Pageable {
     /// set the cursor for this pageable endpoint
     fn set_cursor(&mut self, cursor: u64);
 }
-
-#[derive(thiserror::Error, Debug)]
-pub enum MockE {}
-use futures::Future;
-pub type BoxedClient = Box<
-    dyn Client<
-            Error = ApiClientError<MockE>,
-            Stream = futures::stream::Once<Box<dyn Future<Output = ()>>>,
-        >,
->;
 
 /// A client represents how a request body is formed and sent into
 /// a backend. The client is protocol agnostic, a Client may
@@ -84,10 +86,9 @@ pub type BoxedClient = Box<
 /// `http::Response`'s are used in order to maintain a
 /// common data format compatible with a wide variety of backends.
 /// an http response is easily derived from a grpc, jsonrpc or rest api.
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait Client: Send + Sync {
-    type Error: std::error::Error + Send + Sync + 'static;
+#[xmtp_common::async_trait]
+pub trait Client: MaybeSend + MaybeSync {
+    type Error: std::error::Error + MaybeSend + MaybeSync + 'static;
 
     type Stream: futures::Stream<Item = Result<Bytes, Self::Error>> + MaybeSend;
 
@@ -104,27 +105,124 @@ pub trait Client: Send + Sync {
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>>;
+
+    /// start a "fake" stream that does not create a TCP connection and will always be pending
+    fn fake_stream(&self) -> http::Response<Self::Stream>;
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait IsConnectedCheck {
+#[xmtp_common::async_trait]
+impl<T: MaybeSend + MaybeSync + ?Sized> Client for &T
+where
+    T: Client,
+{
+    type Error = T::Error;
+
+    type Stream = T::Stream;
+
+    async fn request(
+        &self,
+        request: request::Builder,
+        path: PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
+        (**self).request(request, path, body).await
+    }
+
+    async fn stream(
+        &self,
+        request: request::Builder,
+        path: http::uri::PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
+        (**self).stream(request, path, body).await
+    }
+
+    fn fake_stream(&self) -> http::Response<Self::Stream> {
+        (**self).fake_stream()
+    }
+}
+
+#[xmtp_common::async_trait]
+impl<T: MaybeSend + MaybeSync + ?Sized> Client for Box<T>
+where
+    T: Client,
+{
+    type Error = T::Error;
+
+    type Stream = T::Stream;
+
+    async fn request(
+        &self,
+        request: request::Builder,
+        path: PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
+        (**self).request(request, path, body).await
+    }
+
+    async fn stream(
+        &self,
+        request: request::Builder,
+        path: http::uri::PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
+        (**self).stream(request, path, body).await
+    }
+
+    fn fake_stream(&self) -> http::Response<Self::Stream> {
+        (**self).fake_stream()
+    }
+}
+
+#[xmtp_common::async_trait]
+impl<T: MaybeSend + MaybeSync + ?Sized> Client for Arc<T>
+where
+    T: Client,
+{
+    type Error = T::Error;
+
+    type Stream = T::Stream;
+
+    async fn request(
+        &self,
+        request: request::Builder,
+        path: PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
+        (**self).request(request, path, body).await
+    }
+
+    async fn stream(
+        &self,
+        request: request::Builder,
+        path: PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
+        (**self).stream(request, path, body).await
+    }
+
+    /// start a "fake" stream that does not create a TCP connection and will always be pending
+    fn fake_stream(&self) -> http::Response<Self::Stream> {
+        (**self).fake_stream()
+    }
+}
+
+#[xmtp_common::async_trait]
+pub trait IsConnectedCheck: MaybeSend + MaybeSync {
     /// Check if a client is connected
     async fn is_connected(&self) -> bool;
 }
 
 /// Queries describe the way an endpoint is called.
 /// these are extensions to the behavior of specific endpoints.
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait Query<C: Client>: Send + Sync {
-    type Output: Send + Sync;
+#[xmtp_common::async_trait]
+pub trait Query<C: Client>: MaybeSend + MaybeSync {
+    type Output: MaybeSend + MaybeSync;
     async fn query(&mut self, client: &C) -> Result<Self::Output, ApiClientError<C::Error>>;
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait QueryRaw<C: Client>: Send + Sync {
+#[xmtp_common::async_trait]
+pub trait QueryRaw<C: Client>: MaybeSend + MaybeSync {
     async fn query_raw(&mut self, client: &C) -> Result<bytes::Bytes, ApiClientError<C::Error>>;
 }
 
@@ -132,8 +230,7 @@ pub trait QueryRaw<C: Client>: Send + Sync {
 /// Not every query combinator/extension will apply to both
 /// steams and one-off calls (how do you 'page' a streaming api?),
 /// so these traits are separated.
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 pub trait QueryStream<T, C>
 where
     C: Client,
@@ -145,35 +242,33 @@ where
         &mut self,
         client: &C,
     ) -> Result<XmtpStream<<C as Client>::Stream, T>, ApiClientError<C::Error>>;
+
+    fn fake_stream(&mut self, client: &C) -> XmtpStream<<C as Client>::Stream, T>;
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait QueryStreamExt<C: Client> {
+#[xmtp_common::async_trait]
+pub trait QueryStreamExt<T, C: Client> {
     /// Subscribe to the endpoint, indicating the type of stream item with `R`
-    async fn subscribe<R>(
+    async fn subscribe(
         &mut self,
         client: &C,
-    ) -> Result<XmtpStream<<C as Client>::Stream, R>, ApiClientError<C::Error>>
+    ) -> Result<XmtpStream<<C as Client>::Stream, T>, ApiClientError<C::Error>>
     where
-        R: Default + prost::Message + 'static;
+        T: Default + prost::Message + 'static;
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, E> QueryStreamExt<C> for E
+#[xmtp_common::async_trait]
+impl<T, C, E> QueryStreamExt<T, C> for E
 where
-    C: Client + Send + Sync,
-    E: Endpoint + Send + Sync,
-    C: Client + Sync + Send,
-    C::Error: std::error::Error,
+    C: Client,
+    E: Endpoint<Output = T>,
 {
-    async fn subscribe<R>(
+    async fn subscribe(
         &mut self,
         client: &C,
-    ) -> Result<XmtpStream<<C as Client>::Stream, R>, ApiClientError<C::Error>>
+    ) -> Result<XmtpStream<<C as Client>::Stream, T>, ApiClientError<C::Error>>
     where
-        R: Default + prost::Message + 'static,
+        T: Default + prost::Message + 'static,
     {
         self.stream(client).await
     }

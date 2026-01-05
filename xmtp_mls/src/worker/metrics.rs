@@ -35,10 +35,9 @@ where
             metric,
         } = self;
 
-        let secs = if cfg!(target_arch = "wasm32") { 15 } else { 5 };
-        let result = xmtp_common::time::timeout(Duration::from_secs(secs), fut).await;
+        let result = xmtp_common::time::timeout(Duration::from_secs(10), fut).await;
         tracing::info!(
-            "[{}] succesfully waited for {metric:?}, {:?}",
+            "[{}] successfully waited for {metric:?}, {:?}",
             hex::encode(info.installation_id),
             result
         );

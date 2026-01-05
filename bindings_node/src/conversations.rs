@@ -1,33 +1,30 @@
 use crate::ErrorWrapper;
 use crate::consent_state::{Consent, ConsentState};
+use crate::enriched_message::DecodedMessage;
 use crate::identity::Identifier;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
-use napi::JsFunction;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
-use napi::threadsafe_function::{
-  ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode,
-};
+use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
-use std::vec;
 use xmtp_db::consent_record::ConsentState as XmtpConsentState;
 use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group::{ConversationType as XmtpConversationType, GroupQueryOrderBy};
 use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
-use xmtp_mls::common::group::{DMMetadataOptions, GroupMetadataOptions};
-use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_mls::groups::ConversationDebugInfo as XmtpConversationDebugInfo;
 use xmtp_mls::groups::PreconfiguredPolicies;
 use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate as XmtpUserPreferenceUpdate;
+use xmtp_mls::mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
+use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
+use xmtp_proto::types::Cursor as XmtpCursor;
 
 #[napi]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum ConversationType {
   Dm = 0,
   Group = 1,
@@ -64,6 +61,7 @@ pub enum GroupMembershipState {
   Rejected = 1,
   Pending = 2,
   Restored = 3,
+  PendingRemove = 4,
 }
 
 impl From<XmtpGroupMembershipState> for GroupMembershipState {
@@ -73,6 +71,7 @@ impl From<XmtpGroupMembershipState> for GroupMembershipState {
       XmtpGroupMembershipState::Rejected => GroupMembershipState::Rejected,
       XmtpGroupMembershipState::Pending => GroupMembershipState::Pending,
       XmtpGroupMembershipState::Restored => GroupMembershipState::Restored,
+      XmtpGroupMembershipState::PendingRemove => GroupMembershipState::PendingRemove,
     }
   }
 }
@@ -84,6 +83,23 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
       GroupMembershipState::Rejected => XmtpGroupMembershipState::Rejected,
       GroupMembershipState::Pending => XmtpGroupMembershipState::Pending,
       GroupMembershipState::Restored => XmtpGroupMembershipState::Restored,
+      GroupMembershipState::PendingRemove => XmtpGroupMembershipState::PendingRemove,
+    }
+  }
+}
+
+#[napi]
+#[derive(Debug)]
+pub enum ListConversationsOrderBy {
+  CreatedAt,
+  LastActivity,
+}
+
+impl From<ListConversationsOrderBy> for GroupQueryOrderBy {
+  fn from(order_by: ListConversationsOrderBy) -> Self {
+    match order_by {
+      ListConversationsOrderBy::CreatedAt => GroupQueryOrderBy::CreatedAt,
+      ListConversationsOrderBy::LastActivity => GroupQueryOrderBy::LastActivity,
     }
   }
 }
@@ -93,10 +109,11 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
 pub struct ListConversationsOptions {
   pub consent_states: Option<Vec<ConsentState>>,
   pub conversation_type: Option<ConversationType>,
-  pub created_after_ns: Option<i64>,
-  pub created_before_ns: Option<i64>,
+  pub created_after_ns: Option<BigInt>,
+  pub created_before_ns: Option<BigInt>,
   pub include_duplicate_dms: Option<bool>,
   pub limit: Option<i64>,
+  pub order_by: Option<ListConversationsOrderBy>,
 }
 
 impl From<ListConversationsOptions> for GroupQueryArgs {
@@ -105,8 +122,8 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       consent_states: opts
         .consent_states
         .map(|vec| vec.into_iter().map(Into::into).collect()),
-      created_before_ns: opts.created_before_ns,
-      created_after_ns: opts.created_after_ns,
+      created_before_ns: opts.created_before_ns.map(|v| v.get_i64().0),
+      created_after_ns: opts.created_after_ns.map(|v| v.get_i64().0),
       include_duplicate_dms: opts.include_duplicate_dms.unwrap_or_default(),
       limit: opts.limit,
       allowed_states: None,
@@ -115,7 +132,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       last_activity_before_ns: None,
       last_activity_after_ns: None,
       should_publish_commit_log: None,
-      order_by: Some(GroupQueryOrderBy::LastActivity),
+      order_by: opts.order_by.map(Into::into),
     }
   }
 }
@@ -123,15 +140,15 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
 #[napi(object)]
 #[derive(Clone)]
 pub struct MessageDisappearingSettings {
-  pub from_ns: i64,
-  pub in_ns: i64,
+  pub from_ns: BigInt,
+  pub in_ns: BigInt,
 }
 
 impl From<MessageDisappearingSettings> for XmtpMessageDisappearingSettings {
   fn from(value: MessageDisappearingSettings) -> Self {
     Self {
-      from_ns: value.from_ns,
-      in_ns: value.in_ns,
+      from_ns: value.from_ns.get_i64().0,
+      in_ns: value.in_ns.get_i64().0,
     }
   }
 }
@@ -139,8 +156,8 @@ impl From<MessageDisappearingSettings> for XmtpMessageDisappearingSettings {
 impl From<XmtpMessageDisappearingSettings> for MessageDisappearingSettings {
   fn from(value: XmtpMessageDisappearingSettings) -> Self {
     Self {
-      from_ns: value.from_ns,
-      in_ns: value.in_ns,
+      from_ns: BigInt::from(value.from_ns),
+      in_ns: BigInt::from(value.in_ns),
     }
   }
 }
@@ -168,7 +185,23 @@ pub struct ConversationDebugInfo {
   pub is_commit_log_forked: Option<bool>,
   pub local_commit_log: String,
   pub remote_commit_log: String,
-  pub cursor: i64,
+  pub cursor: Vec<Cursor>,
+}
+
+#[napi(object)]
+pub struct Cursor {
+  pub originator_id: u32,
+  // napi doesn't support u64
+  pub sequence_id: i64,
+}
+
+impl From<XmtpCursor> for Cursor {
+  fn from(value: XmtpCursor) -> Self {
+    Self {
+      originator_id: value.originator_id,
+      sequence_id: value.sequence_id as i64,
+    }
+  }
 }
 
 impl From<XmtpConversationDebugInfo> for ConversationDebugInfo {
@@ -180,36 +213,24 @@ impl From<XmtpConversationDebugInfo> for ConversationDebugInfo {
       is_commit_log_forked: value.is_commit_log_forked,
       local_commit_log: value.local_commit_log,
       remote_commit_log: value.remote_commit_log,
-      cursor: value.cursor,
+      cursor: value.cursor.into_iter().map(Into::into).collect(),
     }
   }
 }
 
-// TODO: Napi-rs 3.0.0 will support structured enums
-// alpha release: https://github.com/napi-rs/napi-rs/releases/tag/napi%403.0.0-alpha.9
-// PR: https://github.com/napi-rs/napi-rs/pull/2222
-// Issue: https://github.com/napi-rs/napi-rs/issues/507
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum Tag<T> {
-  V(T),
-}
-
-#[derive(Serialize, Deserialize)]
+#[napi(discriminant = "type")]
 pub enum UserPreferenceUpdate {
   ConsentUpdate { consent: Consent },
-  HmacKeyUpdate { key: Vec<u8> },
+  HmacKeyUpdate { key: Uint8Array },
 }
 
-impl From<XmtpUserPreferenceUpdate> for Tag<UserPreferenceUpdate> {
+impl From<XmtpUserPreferenceUpdate> for UserPreferenceUpdate {
   fn from(value: XmtpUserPreferenceUpdate) -> Self {
     match value {
-      XmtpUserPreferenceUpdate::Hmac { key, .. } => {
-        Tag::V(UserPreferenceUpdate::HmacKeyUpdate { key })
-      }
-      XmtpUserPreferenceUpdate::Consent(consent) => Tag::V(UserPreferenceUpdate::ConsentUpdate {
-        consent: Consent::from(consent),
-      }),
+      XmtpUserPreferenceUpdate::Hmac { key, .. } => Self::HmacKeyUpdate { key: key.into() },
+      XmtpUserPreferenceUpdate::Consent(consent) => Self::ConsentUpdate {
+        consent: consent.into(),
+      },
     }
   }
 }
@@ -248,6 +269,7 @@ pub struct CreateGroupOptions {
   pub group_description: Option<String>,
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
   pub message_disappearing_settings: Option<MessageDisappearingSettings>,
+  pub app_data: Option<String>,
 }
 
 impl CreateGroupOptions {
@@ -259,6 +281,7 @@ impl CreateGroupOptions {
       message_disappearing_settings: self
         .message_disappearing_settings
         .map(|settings| settings.into()),
+      app_data: self.app_data,
     }
   }
 }
@@ -302,6 +325,7 @@ impl Conversations {
       group_description: None,
       custom_permission_policy_set: None,
       message_disappearing_settings: None,
+      app_data: None,
     });
 
     if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
@@ -325,11 +349,7 @@ impl Conversations {
       }
       Some(GroupPermissionsOptions::CustomPolicy) => {
         if let Some(policy_set) = options.custom_permission_policy_set {
-          Some(
-            policy_set
-              .try_into()
-              .map_err(|e| Error::from_reason(format!("{}", e).as_str()))?,
-          )
+          Some(policy_set.try_into().map_err(ErrorWrapper::from)?)
         } else {
           None
         }
@@ -340,7 +360,7 @@ impl Conversations {
     let group = self
       .inner_client
       .create_group(group_permissions, Some(metadata_options))
-      .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
+      .map_err(ErrorWrapper::from)?;
 
     Ok(group.into())
   }
@@ -356,10 +376,7 @@ impl Conversations {
     if !account_identities.is_empty() {
       convo.add_members(account_identities).await?;
     } else {
-      convo
-        .sync()
-        .await
-        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
+      convo.sync().await.map_err(ErrorWrapper::from)?;
     };
 
     Ok(convo)
@@ -376,10 +393,7 @@ impl Conversations {
     if !inbox_ids.is_empty() {
       convo.add_members_by_inbox_id(inbox_ids).await?;
     } else {
-      convo
-        .sync()
-        .await
-        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
+      convo.sync().await.map_err(ErrorWrapper::from)?;
     }
 
     Ok(convo)
@@ -453,17 +467,42 @@ impl Conversations {
   }
 
   #[napi]
+  pub fn find_enriched_message_by_id(&self, message_id: String) -> Result<DecodedMessage> {
+    let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
+
+    let message = self
+      .inner_client
+      .message_v2(message_id)
+      .map_err(ErrorWrapper::from)?;
+
+    message.try_into()
+  }
+
+  #[napi]
+  pub fn delete_message_by_id(&self, message_id: String) -> Result<u32> {
+    let message_id = hex::decode(message_id).map_err(ErrorWrapper::from)?;
+
+    let deleted_count = self
+      .inner_client
+      .delete_message(message_id)
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(deleted_count as u32)
+  }
+
+  #[napi]
   pub async fn process_streamed_welcome_message(
     &self,
     envelope_bytes: Uint8Array,
-  ) -> Result<Conversation> {
+  ) -> Result<Vec<Conversation>> {
     let envelope_bytes = envelope_bytes.deref().to_vec();
     let group = self
       .inner_client
       .process_streamed_welcome_message(envelope_bytes)
       .await
       .map_err(ErrorWrapper::from)?;
-    Ok(group.into())
+
+    Ok(group.into_iter().map(Into::into).collect())
   }
 
   #[napi]
@@ -480,17 +519,17 @@ impl Conversations {
   pub async fn sync_all_conversations(
     &self,
     consent_states: Option<Vec<ConsentState>>,
-  ) -> Result<usize> {
+  ) -> Result<crate::client::GroupSyncSummary> {
     let consents: Option<Vec<XmtpConsentState>> =
       consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
 
-    let num_groups_synced = self
+    let summary = self
       .inner_client
       .sync_all_welcomes_and_groups(consents)
       .await
       .map_err(ErrorWrapper::from)?;
 
-    Ok(num_groups_synced)
+    Ok(summary.into())
   }
 
   #[napi]
@@ -537,25 +576,18 @@ impl Conversations {
     Ok(hmac_map)
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: Error | null, result: Conversation | undefined) => void, onClose: () => void, conversationType?: ConversationType"
-  )]
-  pub fn stream(
+  #[napi]
+  pub async fn stream(
     &self,
-    callback: JsFunction,
-    on_close: JsFunction,
+    callback: ThreadsafeFunction<Conversation, ()>,
+    on_close: ThreadsafeFunction<(), ()>,
     conversation_type: Option<ConversationType>,
   ) -> Result<StreamCloser> {
-    let tsfn: ThreadsafeFunction<Conversation, ErrorStrategy::CalleeHandled> =
-      callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
-      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-
     let stream_closer = RustXmtpClient::stream_conversations_with_callback(
       self.inner_client.clone(),
       conversation_type.map(|ct| ct.into()),
       move |convo| {
-        let status = tsfn.call(
+        let status = callback.call(
           convo
             .map(Conversation::from)
             .map_err(ErrorWrapper::from)
@@ -565,7 +597,7 @@ impl Conversations {
         tracing::info!("Stream status: {:?}", status);
       },
       move || {
-        tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+        on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
       },
       false,
     );
@@ -573,13 +605,11 @@ impl Conversations {
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, onClose: () => void, conversationType?: ConversationType, consentStates?: ConsentState[]"
-  )]
-  pub fn stream_all_messages(
+  #[napi]
+  pub async fn stream_all_messages(
     &self,
-    callback: JsFunction,
-    on_close: JsFunction,
+    callback: ThreadsafeFunction<Message, ()>,
+    on_close: ThreadsafeFunction<(), ()>,
     conversation_type: Option<ConversationType>,
     consent_states: Option<Vec<ConsentState>>,
   ) -> Result<StreamCloser> {
@@ -587,10 +617,6 @@ impl Conversations {
       inbox_id = self.inner_client.inbox_id(),
       conversation_type = ?conversation_type,
     );
-    let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =
-      callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
-      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
 
     let inbox_id = self.inner_client.inbox_id().to_string();
     let consents: Option<Vec<XmtpConsentState>> = consent_states.map(|states| {
@@ -633,7 +659,7 @@ impl Conversations {
               inbox_id,
               "[received] calling tsfn callback with successful message"
             );
-            let status = tsfn.call(Ok(transformed_msg), ThreadsafeFunctionCallMode::Blocking);
+            let status = callback.call(Ok(transformed_msg), ThreadsafeFunctionCallMode::Blocking);
             tracing::info!("Stream status: {:?}", status);
           }
           Err(err) => {
@@ -647,22 +673,20 @@ impl Conversations {
         }
       },
       move || {
-        tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+        on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
       },
     );
 
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Consent[] | undefined) => void, onClose: () => void"
-  )]
-  pub fn stream_consent(&self, callback: JsFunction, on_close: JsFunction) -> Result<StreamCloser> {
+  #[napi]
+  pub async fn stream_consent(
+    &self,
+    callback: ThreadsafeFunction<Vec<Consent>, ()>,
+    on_close: ThreadsafeFunction<(), ()>,
+  ) -> Result<StreamCloser> {
     tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
-    let tsfn: ThreadsafeFunction<Vec<Consent>, ErrorStrategy::CalleeHandled> =
-      callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
-      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let inbox_id = self.inner_client.inbox_id().to_string();
     let stream_closer = RustXmtpClient::stream_consent_with_callback(
       self.inner_client.clone(),
@@ -671,11 +695,11 @@ impl Conversations {
         match message {
           Ok(message) => {
             let msg: Vec<Consent> = message.into_iter().map(Into::into).collect();
-            let status = tsfn.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
+            let status = callback.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
             tracing::info!("Stream status: {:?}", status);
           }
           Err(e) => {
-            let status = tsfn.call(
+            let status = callback.call(
               Err(Error::from(ErrorWrapper::from(e))),
               ThreadsafeFunctionCallMode::Blocking,
             );
@@ -684,34 +708,20 @@ impl Conversations {
         }
       },
       move || {
-        tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+        on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
       },
     );
 
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: any) => void, onClose: () => void")]
-  pub fn stream_preferences(
+  #[napi]
+  pub async fn stream_preferences(
     &self,
-    callback: JsFunction,
-    on_close: JsFunction,
+    callback: ThreadsafeFunction<Vec<UserPreferenceUpdate>, ()>,
+    on_close: ThreadsafeFunction<(), ()>,
   ) -> Result<StreamCloser> {
-    tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
-    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
-      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let tsfn: ThreadsafeFunction<Vec<Tag<UserPreferenceUpdate>>, ErrorStrategy::CalleeHandled> =
-      callback.create_threadsafe_function(
-        0,
-        |ctx: ThreadSafeCallContext<Vec<Tag<UserPreferenceUpdate>>>| {
-          let env = ctx.env;
-          ctx
-            .value
-            .into_iter()
-            .map(|v| env.to_js_value(&v))
-            .collect::<Result<Vec<napi::JsUnknown>, _>>()
-        },
-      )?;
+    tracing::trace!(inbox_id = self.inner_client.inbox_id());
     let inbox_id = self.inner_client.inbox_id().to_string();
     let stream_closer = RustXmtpClient::stream_preferences_with_callback(
       self.inner_client.clone(),
@@ -719,15 +729,15 @@ impl Conversations {
         tracing::trace!(inbox_id, "[received] calling tsfn callback");
         match message {
           Ok(message) => {
-            let msg: Vec<Tag<UserPreferenceUpdate>> = message
+            let msg: Vec<UserPreferenceUpdate> = message
               .into_iter()
-              .map(Tag::<UserPreferenceUpdate>::from)
+              .map(UserPreferenceUpdate::from)
               .collect();
-            let status = tsfn.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
+            let status = callback.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
             tracing::info!("Stream status: {:?}", status);
           }
           Err(e) => {
-            let status = tsfn.call(
+            let status = callback.call(
               Err(Error::from(ErrorWrapper::from(e))),
               ThreadsafeFunctionCallMode::Blocking,
             );
@@ -736,8 +746,35 @@ impl Conversations {
         }
       },
       move || {
-        let status = tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+        let status = on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
         tracing::info!("stream on close status {:?}", status);
+      },
+    );
+
+    Ok(StreamCloser::new(stream_closer))
+  }
+
+  #[napi]
+  pub async fn stream_message_deletions(
+    &self,
+    callback: ThreadsafeFunction<String, ()>,
+  ) -> Result<StreamCloser> {
+    tracing::trace!(inbox_id = self.inner_client.inbox_id());
+    let stream_closer = RustXmtpClient::stream_message_deletions_with_callback(
+      self.inner_client.clone(),
+      move |message| match message {
+        Ok(message_id) => {
+          let _ = callback.call(
+            Ok(hex::encode(message_id)),
+            ThreadsafeFunctionCallMode::Blocking,
+          );
+        }
+        Err(e) => {
+          let _ = callback.call(
+            Err(Error::from(ErrorWrapper::from(e))),
+            ThreadsafeFunctionCallMode::Blocking,
+          );
+        }
       },
     );
 

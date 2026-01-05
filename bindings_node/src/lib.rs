@@ -7,6 +7,7 @@ pub mod content_types;
 mod conversation;
 mod conversations;
 mod encoded_content;
+pub mod enriched_message;
 mod identity;
 pub mod inbox_id;
 mod inbox_state;
@@ -14,8 +15,9 @@ mod message;
 mod permissions;
 mod signatures;
 mod streams;
-#[cfg(any(test, feature = "test-utils"))]
-pub mod test_utils;
+xmtp_common::if_test! {
+  pub mod test_utils;
+}
 
 use napi::bindgen_prelude::Error;
 

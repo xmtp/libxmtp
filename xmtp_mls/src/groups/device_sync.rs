@@ -1,6 +1,8 @@
 use super::{
-    GroupError, MlsGroup, PreconfiguredPolicies, summary::SyncSummary, welcome_sync::WelcomeService,
+    GroupError, MlsGroup, PreconfiguredPolicies, send_message_opts, summary::SyncSummary,
+    welcome_sync::WelcomeService,
 };
+
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
@@ -108,6 +110,17 @@ pub enum DeviceSyncError {
     MlsStore(#[from] MlsStoreError),
     #[error(transparent)]
     Recv(#[from] RecvError),
+    #[error("Missing Field: {0:?} {1}")]
+    MissingField(MissingField, String),
+}
+
+#[derive(Debug)]
+pub enum MissingField {
+    Conversation(ConversationField),
+}
+#[derive(Debug)]
+pub enum ConversationField {
+    DmId,
 }
 
 impl From<SyncSummary> for DeviceSyncError {
@@ -221,12 +234,16 @@ where
         };
         let content_bytes = encoded_content_to_bytes(encoded_content);
 
-        let message_id = sync_group.prepare_message(&content_bytes, |now| PlaintextEnvelope {
-            content: Some(Content::V1(V1 {
-                content: content_bytes.clone(),
-                idempotency_key: now.to_string(),
-            })),
-        })?;
+        let message_id = sync_group.prepare_message(
+            &content_bytes,
+            send_message_opts::SendMessageOpts { should_push: false },
+            |now| PlaintextEnvelope {
+                content: Some(Content::V1(V1 {
+                    content: content_bytes.clone(),
+                    idempotency_key: now.to_string(),
+                })),
+            },
+        )?;
 
         sync_group.sync_until_last_intent_resolved().await?;
 

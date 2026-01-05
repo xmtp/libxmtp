@@ -1,42 +1,39 @@
 #[cfg(test)]
 mod tests;
 
-use std::{
-    borrow::Cow,
-    pin::Pin,
-    task::{Poll, ready},
-};
-
-use crate::{context::XmtpSharedContext, subscriptions::stream_messages::MessagesApiSubscription};
-use crate::{groups::welcome_sync::WelcomeService, track};
-
-use xmtp_db::{
-    group::{ConversationType, GroupQueryArgs},
-    group_message::StoredGroupMessage,
-};
-use xmtp_proto::api_client::XmtpMlsStreams;
-
 use super::{
     Result, SubscribeError,
     stream_conversations::{StreamConversations, WelcomesApiSubscription},
     stream_messages::StreamGroupMessages,
 };
 use crate::groups::MlsGroup;
+use crate::groups::welcome_sync::WelcomeService;
 use crate::subscriptions::SyncWorkerEvent;
+use crate::{context::XmtpSharedContext, subscriptions::stream_messages::MessagesApiSubscription};
 use futures::stream::Stream;
-use xmtp_db::prelude::*;
-use xmtp_db::{consent_record::ConsentState, group::StoredGroup};
+use pin_project_lite::pin_project;
+use std::{
+    borrow::Cow,
+    pin::Pin,
+    task::{Poll, ready},
+};
+use xmtp_db::{
+    consent_record::ConsentState,
+    group::StoredGroup,
+    group::{ConversationType, GroupQueryArgs},
+    group_message::StoredGroupMessage,
+    prelude::*,
+};
+use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::GroupId;
 
-use pin_project_lite::pin_project;
-
 pin_project! {
-    pub(super) struct StreamAllMessages<'a, Context: Clone, Conversations, Messages> {
-        #[pin] conversations: Conversations,
-        #[pin] messages: Messages,
-        context: Cow<'a, Context>,
-        sync_groups: Vec<Vec<u8>>,
-        conversation_type: Option<ConversationType>,
+    pub struct StreamAllMessages<'a, Context: Clone, Conversations, Messages> {
+        #[pin] pub(super) conversations: Conversations,
+        #[pin] pub(super) messages: Messages,
+        pub(super) context: Cow<'a, Context>,
+        pub(super) sync_groups: Vec<Vec<u8>>,
+        pub(super) conversation_type: Option<ConversationType>,
     }
 }
 
@@ -48,8 +45,8 @@ impl<Context>
         StreamGroupMessages<'static, Context, MessagesApiSubscription<'static, Context::ApiClient>>,
     >
 where
-    Context: Clone + XmtpSharedContext + Send + Sync + 'static,
-    Context::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
+    Context: Clone + XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams + 'static,
 {
     pub async fn new_owned(
         context: Context,
@@ -68,8 +65,8 @@ impl<'a, Context>
         StreamGroupMessages<'a, Context, MessagesApiSubscription<'a, Context::ApiClient>>,
     >
 where
-    Context: Clone + XmtpSharedContext + Send + Sync + 'a,
-    Context::ApiClient: XmtpMlsStreams + Send + Sync + 'a,
+    Context: Clone + XmtpSharedContext + 'a,
+    Context::ApiClient: XmtpMlsStreams + 'a,
 {
     pub async fn new(
         context: &'a Context,
@@ -89,15 +86,6 @@ where
             WelcomeService::new(context.as_ref())
                 .sync_welcomes()
                 .await?;
-
-            track!(
-                "Message Stream Connect",
-                {
-                    "conversation_type": conversation_type,
-                    "consent_states": &consent_states,
-                },
-                icon: "🚣"
-            );
 
             let groups = conn.find_groups(GroupQueryArgs {
                 conversation_type,
@@ -192,10 +180,7 @@ where
         if let Some(group) = ready!(this.conversations.poll_next(cx)) {
             let group_result = group?;
             this.messages.as_mut().add(group_result);
-
             cx.waker().wake_by_ref();
-
-            return Poll::Pending;
         }
         Poll::Pending
     }

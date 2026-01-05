@@ -15,7 +15,6 @@ pub mod consent_record;
 pub mod conversation_list;
 pub mod database;
 pub mod db_connection;
-pub mod events;
 pub mod group;
 pub mod group_intent;
 pub mod group_message;
@@ -25,23 +24,32 @@ pub mod identity_cache;
 pub mod identity_update;
 pub mod key_package_history;
 pub mod key_store_entry;
+pub mod local_commit_log;
+pub mod migrations;
+pub mod pending_remove;
 pub mod pragmas;
 pub mod processed_device_sync_messages;
+pub mod readd_status;
 pub mod refresh_state;
+pub mod remote_commit_log;
 pub mod schema;
 mod schema_gen;
 pub mod store;
+pub mod tasks;
 pub mod user_preferences;
 
-pub mod local_commit_log;
-pub mod remote_commit_log;
+#[cfg(test)]
+mod migration_test;
 
 pub use self::db_connection::DbConnection;
-use diesel::result::DatabaseErrorKind;
-pub use diesel::sqlite::{Sqlite, SqliteConnection};
+use diesel::{migration::Migration, result::DatabaseErrorKind};
+pub use diesel::{
+    migration::MigrationSource,
+    sqlite::{Sqlite, SqliteConnection},
+};
 use openmls::storage::OpenMlsProvider;
 use prost::DecodeError;
-use xmtp_common::RetryableError;
+use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
 
 use super::StorageError;
 use crate::sql_key_store::SqlKeyStoreError;
@@ -92,10 +100,14 @@ pub enum ConnectionError {
     DisconnectInTransaction,
     #[error("reconnect not possible in transaction")]
     ReconnectInTransaction,
-    #[error("invalid negative cursor: {0}")]
-    InvalidNegativeCursor(String),
     #[error("invalid query: {0}")]
     InvalidQuery(String),
+    #[error(
+        "Applied migrations does not match available migrations.\n\
+    This is likely due to running a database that is newer than this version of libxmtp.\n\
+    Expected: {expected}, found: {found}"
+    )]
+    InvalidVersion { expected: String, found: String },
 }
 
 impl RetryableError for ConnectionError {
@@ -106,13 +118,13 @@ impl RetryableError for ConnectionError {
             Self::DecodeError(_) => false,
             Self::DisconnectInTransaction => true,
             Self::ReconnectInTransaction => true,
-            Self::InvalidNegativeCursor(_) => false,
             Self::InvalidQuery(_) => false,
+            Self::InvalidVersion { .. } => false,
         }
     }
 }
 
-pub trait ConnectionExt {
+pub trait ConnectionExt: MaybeSend + MaybeSync {
     /// in order to track transaction context
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
@@ -225,11 +237,11 @@ pub type BoxedDatabase = Box<
 >;
 
 #[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Connection = crate::mock::MockConnection; type DbQuery = crate::mock::MockDbQuery;))]
-pub trait XmtpDb: Send + Sync {
+pub trait XmtpDb: MaybeSend + MaybeSync {
     /// The Connection type for this database
-    type Connection: ConnectionExt + Send + Sync;
+    type Connection: ConnectionExt + MaybeSend + MaybeSync;
 
-    type DbQuery: crate::DbQuery + Send + Sync;
+    type DbQuery: crate::DbQuery + MaybeSend + MaybeSync;
 
     fn init(&self) -> Result<(), ConnectionError> {
         self.conn().raw_query_write(|conn| {
@@ -242,17 +254,28 @@ pub trait XmtpDb: Send + Sync {
             conn.run_pending_migrations(MIGRATIONS)
                 .map_err(diesel::result::Error::QueryBuilderError)?;
 
+            // Ensure the database version is what we expect
+            let db_version = conn.final_migration()?;
+            let last_migration = MIGRATIONS.final_migration();
+            if db_version != last_migration {
+                return Ok(Err(ConnectionError::InvalidVersion {
+                    expected: last_migration,
+                    found: db_version,
+                }));
+            }
+
             let sqlite_version =
                 sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
             tracing::info!("sqlite_version={}", sqlite_version[0].version);
 
             tracing::info!("Migrations successful");
-            Ok(())
-        })?;
+            Ok(Ok(()))
+        })??;
+
         Ok(())
     }
 
-    /// The Options this databae was created with
+    /// The Options this database was created with
     fn opts(&self) -> &StorageOption;
 
     /// Validate a connection is as expected
@@ -387,11 +410,46 @@ pub trait MlsProviderExt: OpenMlsProvider<StorageError = SqlKeyStoreError> {
     fn key_store(&self) -> &Self::XmtpStorage;
 }
 
+trait EmbeddedMigrationsExt {
+    fn final_migration(&self) -> String;
+}
+impl EmbeddedMigrationsExt for EmbeddedMigrations {
+    fn final_migration(&self) -> String {
+        let migrations: Vec<Box<dyn Migration<Sqlite>>> = self
+            .migrations()
+            .expect("Migrations are directly embedded, so this cannot error");
+        migrations
+            .first()
+            .expect("There is at least one migration")
+            .name()
+            .to_string()
+            .chars()
+            .filter(|c| c.is_numeric())
+            .collect()
+    }
+}
+
+trait MigrationHarnessExt {
+    fn final_migration(&mut self) -> Result<String, diesel::result::Error>;
+}
+
+impl MigrationHarnessExt for SqliteConnection {
+    fn final_migration(&mut self) -> Result<String, diesel::result::Error> {
+        let migration: String = self
+            .applied_migrations()
+            .map_err(diesel::result::Error::QueryBuilderError)?
+            .pop()
+            .expect("This function should be run after migrations are applied")
+            .to_string();
+
+        Ok(migration)
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-    use diesel::sql_types::Blob;
 
     use super::*;
     use crate::{Fetch, Store, XmtpTestDb, identity::StoredIdentity};
@@ -427,55 +485,6 @@ pub(crate) mod tests {
             assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
         EncryptedMessageStore::<()>::remove_db_files(db_path)
-    }
-
-    #[xmtp_common::test]
-    async fn test_migration_25() {
-        let db_path = tmp_path();
-        let opts = StorageOption::Persistent(db_path.clone());
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let db =
-            native::NativeDb::new(&opts, EncryptedMessageStore::<()>::generate_enc_key()).unwrap();
-        #[cfg(target_arch = "wasm32")]
-        let db = wasm::WasmDb::new(&opts).await.unwrap();
-
-        let store = EncryptedMessageStore { db };
-        store
-            .conn()
-            .raw_query_read(|c| {
-                store.db.validate(c).unwrap();
-                Ok(())
-            })
-            .unwrap();
-
-        store
-            .conn()
-            .raw_query_write(|conn| {
-                for _ in 0..25 {
-                    conn.run_next_migration(MIGRATIONS).unwrap();
-                }
-
-                sql_query(
-                    r#"
-                INSERT INTO user_preferences (
-                    hmac_key
-                ) VALUES ($1)"#,
-                )
-                .bind::<Blob, _>(vec![1, 2, 3, 4, 5])
-                .execute(conn)?;
-
-                Ok(())
-            })
-            .unwrap();
-
-        store
-            .conn()
-            .raw_query_write(|conn| {
-                conn.run_pending_migrations(MIGRATIONS).unwrap();
-                Ok(())
-            })
-            .unwrap();
     }
 
     #[xmtp_common::test]

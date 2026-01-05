@@ -11,6 +11,7 @@ use std::{collections::HashMap, fs, path::Path, sync::Arc};
 use thiserror::Error;
 use tracing::info;
 use url::Url;
+use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
 
 static DEFAULT_CHAIN_URLS: &str = include_str!("chain_urls_default.json");
 
@@ -28,17 +29,31 @@ pub enum VerifierError {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Serde(#[from] serde_json::Error),
-    #[error("URLs must be preceeded with eip144:")]
+    #[error("URLs must be preceded with eip144:")]
     MalformedEipUrl,
-    #[error(transparent)]
-    Api(#[from] xmtp_api::ApiError),
     #[error("verifier not present")]
     NoVerifier,
+    #[error("hash was invalid length or otherwise malformed")]
+    InvalidHash(Vec<u8>),
+    #[error("{0}")]
+    Other(Box<dyn RetryableError>),
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait SmartContractSignatureVerifier: Send + Sync {
+impl RetryableError for VerifierError {
+    fn is_retryable(&self) -> bool {
+        use VerifierError::*;
+        match self {
+            Io(_) => true,
+            NoVerifier => true,
+            Provider(_) => true,
+            Other(o) => o.is_retryable(),
+            _ => false,
+        }
+    }
+}
+
+#[xmtp_common::async_trait]
+pub trait SmartContractSignatureVerifier: MaybeSend + MaybeSync {
     /// Verifies an ERC-6492<https://eips.ethereum.org/EIPS/eip-6492> signature.
     ///
     /// # Arguments
@@ -55,8 +70,7 @@ pub trait SmartContractSignatureVerifier: Send + Sync {
     ) -> Result<ValidationResponse, VerifierError>;
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[xmtp_common::async_trait]
 impl<T> SmartContractSignatureVerifier for Arc<T>
 where
     T: SmartContractSignatureVerifier,
@@ -74,8 +88,7 @@ where
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[xmtp_common::async_trait]
 impl<T> SmartContractSignatureVerifier for &T
 where
     T: SmartContractSignatureVerifier,
@@ -93,8 +106,7 @@ where
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[xmtp_common::async_trait]
 impl<T> SmartContractSignatureVerifier for Box<T>
 where
     T: SmartContractSignatureVerifier + ?Sized,
@@ -120,7 +132,7 @@ pub struct ValidationResponse {
 }
 
 pub struct MultiSmartContractSignatureVerifier {
-    verifiers: HashMap<String, Box<dyn SmartContractSignatureVerifier + Send + Sync>>,
+    verifiers: HashMap<String, Box<dyn SmartContractSignatureVerifier>>,
 }
 
 impl MultiSmartContractSignatureVerifier {
@@ -166,7 +178,7 @@ impl MultiSmartContractSignatureVerifier {
     /// Upgrade the default urls to paid/private/alternative urls if the env vars are present.
     pub fn upgrade(mut self) -> Result<Self, VerifierError> {
         for (id, verifier) in self.verifiers.iter_mut() {
-            // TODO: coda - update the chain id env var ids to preceeded with "EIP155_"
+            // TODO: coda - update the chain id env var ids to preceded with "EIP155_"
             let eip_id = id.split(":").nth(1).ok_or(VerifierError::MalformedEipUrl)?;
             if let Ok(url) = std::env::var(format!("CHAIN_RPC_{eip_id}")) {
                 *verifier = Box::new(RpcSmartContractWalletVerifier::new(url)?);
@@ -177,11 +189,12 @@ impl MultiSmartContractSignatureVerifier {
 
         #[cfg(feature = "test-utils")]
         if let Ok(url) = std::env::var("ANVIL_URL") {
-            info!("Adding anvil to the verifiers: {url}");
-            self.verifiers.insert(
-                "eip155:31337".to_string(),
-                Box::new(RpcSmartContractWalletVerifier::new(url)?),
-            );
+            info!("Adding anvil from env to the verifiers: {url}");
+            self.add_anvil(url)?;
+        } else {
+            use xmtp_configuration::DockerUrls;
+            info!("adding default anvil url @{}", DockerUrls::ANVIL);
+            self.add_anvil(DockerUrls::ANVIL.to_string())?;
         }
         Ok(self)
     }
@@ -191,10 +204,17 @@ impl MultiSmartContractSignatureVerifier {
             .insert(id, Box::new(RpcSmartContractWalletVerifier::new(url)?));
         Ok(())
     }
+
+    pub fn add_anvil(&mut self, url: String) -> Result<(), VerifierError> {
+        self.verifiers.insert(
+            "eip155:31337".to_string(),
+            Box::new(RpcSmartContractWalletVerifier::new(url)?),
+        );
+        Ok(())
+    }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[xmtp_common::async_trait]
 impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
     async fn is_valid_signature(
         &self,

@@ -7,7 +7,7 @@ WORKSPACE_MANIFEST="$(cargo locate-project --workspace --message-format=plain)"
 WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
 BINDINGS_MANIFEST="$WORKSPACE_PATH/bindings_ffi/Cargo.toml"
 BINDINGS_PATH="$(dirname $BINDINGS_MANIFEST)"
-TARGET_DIR="$WORKSPACE_PATH/target"
+TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | jq -r '.target_directory')"
 XMTP_SWIFT="${1:-$(realpath ../../libxmtp-swift)}"
 
 if [[ "${OSTYPE}" == "darwin"* ]]; then
@@ -24,7 +24,7 @@ if [[ "${OSTYPE}" == "darwin"* ]]; then
     fi
   fi
 fi
-
+# Maybe set IPHONEOS_DEPLOYMENT_TARGET to 10?
 cd $BINDINGS_PATH
 nix develop ../ --command make swift
 for file in "build/swift/xmtpv3.swift" "build/swift/libxmtp-version.txt"; do

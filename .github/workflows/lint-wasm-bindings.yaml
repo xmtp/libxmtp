@@ -12,7 +12,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend="wasm_js"
   CARGO_PROFILE_TEST_DEBUG: 0
 jobs:
   lint:
@@ -42,3 +41,8 @@ jobs:
           cargo clippy --locked --manifest-path bindings_wasm/Cargo.toml --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings
       - name: Run format check
         run: cargo fmt --manifest-path bindings_wasm/Cargo.toml --check
+      - name: Run format check on typescript files
+        working-directory: bindings_wasm
+        run: |
+          yarn
+          yarn format:check

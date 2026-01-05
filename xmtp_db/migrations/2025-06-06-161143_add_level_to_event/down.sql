@@ -1,1 +1,2 @@
--- This file should undo anything in `up.sql`
+ALTER TABLE events DROP COLUMN icon;
+ALTER TABLE events DROP COLUMN level;

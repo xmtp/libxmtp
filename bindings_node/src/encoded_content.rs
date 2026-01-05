@@ -5,8 +5,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
   ContentTypeId as XmtpContentTypeId, EncodedContent as XmtpEncodedContent,
 };
 
-#[derive(Clone)]
 #[napi(object)]
+#[derive(Clone)]
 pub struct ContentTypeId {
   pub authority_id: String,
   pub type_id: String,
@@ -36,7 +36,6 @@ impl From<ContentTypeId> for XmtpContentTypeId {
   }
 }
 
-#[derive(Clone)]
 #[napi(object)]
 pub struct EncodedContent {
   pub r#type: Option<ContentTypeId>,
@@ -46,12 +45,22 @@ pub struct EncodedContent {
   pub content: Uint8Array,
 }
 
+impl Clone for EncodedContent {
+  fn clone(&self) -> Self {
+    Self {
+      r#type: self.r#type.clone(),
+      parameters: self.parameters.clone(),
+      fallback: self.fallback.clone(),
+      compression: self.compression,
+      content: self.content.to_vec().into(),
+    }
+  }
+}
+
 impl From<XmtpEncodedContent> for EncodedContent {
   fn from(content: XmtpEncodedContent) -> EncodedContent {
-    let r#type = content.r#type.map(|v| v.into());
-
     EncodedContent {
-      r#type,
+      r#type: content.r#type.map(Into::into),
       parameters: content.parameters,
       fallback: content.fallback,
       compression: content.compression,
@@ -62,15 +71,12 @@ impl From<XmtpEncodedContent> for EncodedContent {
 
 impl From<EncodedContent> for XmtpEncodedContent {
   fn from(content: EncodedContent) -> Self {
-    let r#type = content.r#type.map(|v| v.into());
-    let content_bytes: Vec<u8> = content.content.deref().to_vec();
-
     XmtpEncodedContent {
-      r#type,
+      r#type: content.r#type.map(Into::into),
       parameters: content.parameters,
       fallback: content.fallback,
       compression: content.compression,
-      content: content_bytes,
+      content: content.content.deref().to_vec(),
     }
   }
 }

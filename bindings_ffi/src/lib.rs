@@ -1,6 +1,7 @@
 #![recursion_limit = "256"]
 #![warn(clippy::unwrap_used)]
 pub mod crypto;
+pub mod fork_recovery;
 pub mod identity;
 pub mod inbox_owner;
 pub mod logger;
@@ -13,9 +14,12 @@ pub use logger::{enter_debug_writer, exit_debug_writer};
 pub use message::*;
 pub use mls::*;
 use std::error::Error;
+use xmtp_api_d14n::MessageBackendBuilderError;
 use xmtp_common::time::Expired;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_mls::common::group_metadata::GroupMetadataError;
+use xmtp_mls::{
+    messages::enrichment::EnrichMessageError, mls_common::group_metadata::GroupMetadataError,
+};
 
 extern crate tracing as log;
 
@@ -40,7 +44,7 @@ pub enum GenericError {
     GroupMutablePermissions(
         #[from] xmtp_mls::groups::group_permissions::GroupMutablePermissionsError,
     ),
-    #[error("Generic {err}")]
+    #[error("{err}")]
     Generic { err: String },
     #[error(transparent)]
     SignatureRequestError(#[from] xmtp_id::associations::builder::SignatureRequestError),
@@ -76,6 +80,19 @@ pub enum GenericError {
     Log(String),
     #[error(transparent)]
     Expired(#[from] Expired),
+    #[error(transparent)]
+    BackendBuilder(#[from] MessageBackendBuilderError),
+    #[error(transparent)]
+    Api(#[from] xmtp_api::ApiError),
+    #[error(transparent)]
+    Enrich(#[from] EnrichMessageError),
+}
+
+// this impl allows us to gracefully handle unexpected errors from foreign code without panicking
+impl From<uniffi::UnexpectedUniFFICallbackError> for GenericError {
+    fn from(e: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        Self::Generic { err: e.to_string() }
+    }
 }
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]
@@ -120,7 +137,7 @@ pub fn get_version_info() -> String {
 }
 
 #[cfg(test)]
-mod tests {
+mod lib_tests {
     use crate::get_version_info;
 
     #[test]

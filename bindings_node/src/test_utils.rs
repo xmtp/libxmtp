@@ -5,7 +5,10 @@ use crate::{
 };
 use napi::bindgen_prelude::Uint8Array;
 use napi_derive::napi;
-use xmtp_proto::{ToxicProxies, init_toxi};
+use xmtp_api_grpc::test::ToxicNodeGoClient;
+use xmtp_configuration::GrpcUrlsToxic;
+use xmtp_mls::ToxicTestClient;
+use xmtp_proto::api_client::ToxicProxies;
 
 #[napi]
 pub struct TestClient {
@@ -24,13 +27,13 @@ pub async fn create_local_toxic_client(
   device_sync_worker_mode: Option<SyncWorkerMode>,
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,
-  disable_events: Option<bool>,
 ) -> Result<TestClient, napi::Error> {
-  let proxy = init_toxi(&["http://localhost:5556"]).await;
-  let api_addr = format!("http://localhost:{}", proxy.port(0));
+  let api_addr = GrpcUrlsToxic::NODE.to_string();
+  let proxy = ToxicNodeGoClient::proxies().await;
 
   let c = create_client(
     api_addr,
+    None,
     false,
     db_path,
     inbox_id,
@@ -40,7 +43,10 @@ pub async fn create_local_toxic_client(
     device_sync_worker_mode,
     log_options,
     allow_offline,
-    disable_events,
+    None,
+    None,
+    None,
+    None,
     None,
   )
   .await?;

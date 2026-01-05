@@ -1,19 +1,35 @@
 use std::collections::HashMap;
 
-use crate::{CodecError, ContentCodec, utils::get_param_or_default};
+use crate::{CodecError, ContentCodec, text::TextCodec, utils::get_param_or_default};
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
-pub struct ReplyCodec {}
+pub struct ReplyCodec;
 
 /// Legacy content type id at <https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reply/src/Reply.ts>
 impl ReplyCodec {
-    const AUTHORITY_ID: &'static str = "xmtp.org";
-    pub const TYPE_ID: &'static str = "reply";
+    const AUTHORITY_ID: &str = "xmtp.org";
+    pub const TYPE_ID: &str = "reply";
     pub const MAJOR_VERSION: u32 = 1;
     pub const MINOR_VERSION: u32 = 0;
+}
+
+impl ReplyCodec {
+    fn fallback(content: &Reply) -> Option<String> {
+        let is_text = content
+            .content
+            .r#type
+            .as_ref()
+            .is_some_and(|t| t.type_id == TextCodec::TYPE_ID);
+
+        if is_text && let Ok(text) = TextCodec::decode(content.content.clone()) {
+            return Some(format!("Replied with \"{text}\" to an earlier message"));
+        }
+
+        Some("Replied to an earlier message".to_string())
+    }
 }
 
 impl ContentCodec<Reply> for ReplyCodec {
@@ -21,12 +37,13 @@ impl ContentCodec<Reply> for ReplyCodec {
         ContentTypeId {
             authority_id: Self::AUTHORITY_ID.to_string(),
             type_id: Self::TYPE_ID.to_string(),
-            version_major: ReplyCodec::MAJOR_VERSION,
-            version_minor: ReplyCodec::MINOR_VERSION,
+            version_major: Self::MAJOR_VERSION,
+            version_minor: Self::MINOR_VERSION,
         }
     }
 
     fn encode(data: Reply) -> Result<EncodedContent, CodecError> {
+        let fallback = Self::fallback(&data);
         let inner_type = &data.content.r#type;
         // Set the reference and reference inbox ID as parameters.
         let mut parameters = HashMap::new();
@@ -52,9 +69,9 @@ impl ContentCodec<Reply> for ReplyCodec {
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
             parameters,
-            fallback: None,
-            compression: None,
             content: content_bytes,
+            fallback,
+            ..Default::default()
         })
     }
 
@@ -74,6 +91,10 @@ impl ContentCodec<Reply> for ReplyCodec {
             reference_inbox_id,
             content: inner_content,
         })
+    }
+
+    fn should_push() -> bool {
+        true
     }
 }
 

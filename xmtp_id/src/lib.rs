@@ -5,6 +5,7 @@ pub mod constants;
 pub mod scw_verifier;
 pub mod utils;
 
+pub use alloy::primitives::{BlockNumber, Bytes};
 use alloy::{signers::SignerSync, signers::local::PrivateKeySigner};
 use associations::{
     Identifier,
@@ -12,6 +13,7 @@ use associations::{
 };
 use openmls_traits::types::CryptoError;
 use thiserror::Error;
+use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_cryptography::signature::{IdentifierValidationError, SignatureError, h160addr_to_string};
 
 #[derive(Debug, Error)]
@@ -40,7 +42,7 @@ use crate::associations::unverified::UnverifiedIdentityUpdate;
 use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct InboxUpdate {
     pub sequence_id: u64,
     pub server_timestamp_ns: u64,
@@ -65,7 +67,7 @@ impl TryFrom<IdentityUpdateLog> for InboxUpdate {
     }
 }
 
-pub trait AsIdRef: Send + Sync {
+pub trait AsIdRef: MaybeSend + MaybeSync {
     fn as_ref(&'_ self) -> InboxIdRef<'_>;
 }
 
