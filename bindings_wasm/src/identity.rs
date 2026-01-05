@@ -1,3 +1,4 @@
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
@@ -11,11 +12,11 @@ pub struct Identifier {
   pub identifier_kind: IdentifierKind,
 }
 
-#[derive(Tsify, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
+#[wasm_bindgen_numbered_enum]
+#[derive(Hash)]
 pub enum IdentifierKind {
-  Ethereum,
-  Passkey,
+  Ethereum = 0,
+  Passkey = 1,
 }
 
 impl From<XmtpIdentifier> for Identifier {

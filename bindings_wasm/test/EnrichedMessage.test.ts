@@ -1,27 +1,41 @@
-import { expect, test, describe } from "vitest";
+import { describe, expect, it } from "vitest";
 import init, {
-  // Encode functions (for reply content and testing)
-  encodeText,
-  encodeAttachment,
-  encodeIntent,
+  Actions,
+  ActionStyle,
+  Attachment,
+  contentTypeActions,
+  contentTypeAttachment,
+  contentTypeGroupUpdated,
+  contentTypeIntent,
+  contentTypeLeaveRequest,
+  contentTypeMarkdown,
+  contentTypeMultiRemoteAttachment,
+  contentTypeReaction,
+  contentTypeReadReceipt,
+  contentTypeRemoteAttachment,
+  contentTypeReply,
   // Content type functions
-  textContentType,
-  markdownContentType,
-  reactionContentType,
-  replyContentType,
-  readReceiptContentType,
-  attachmentContentType,
-  remoteAttachmentContentType,
-  multiRemoteAttachmentContentType,
-  transactionReferenceContentType,
-  walletSendCallsContentType,
-  actionsContentType,
-  intentContentType,
-  groupUpdatedContentType,
-  leaveRequestContentType,
+  contentTypeText,
+  contentTypeTransactionReference,
+  contentTypeWalletSendCalls,
   // Test helpers
   createTestClient,
-} from "@xmtp/wasm-bindings";
+  encodeAttachment,
+  encodeIntent,
+  // Encode functions (for reply content and testing)
+  encodeText,
+  EnrichedReply,
+  GroupUpdated,
+  Intent,
+  MultiRemoteAttachment,
+  Reaction,
+  ReactionAction,
+  ReactionSchema,
+  RemoteAttachment,
+  SortDirection,
+  TransactionReference,
+  WalletSendCalls,
+} from "../";
 
 await init();
 
@@ -41,7 +55,7 @@ describe("EnrichedMessage", () => {
   };
 
   describe("Basic message retrieval", () => {
-    test("should return enriched messages with basic fields populated", async () => {
+    it("should return enriched messages with basic fields populated", async () => {
       const { client1, conversation } = await setupConversation();
 
       await conversation.sendText("Hello World");
@@ -51,24 +65,24 @@ describe("EnrichedMessage", () => {
       expect(messages.length).toEqual(3);
 
       const textMessages = messages.filter(
-        (m) => m.content.type === "text" && m.content.content !== undefined
+        (m) => m.content.type === "text" && m.content.content !== undefined,
       );
       expect(textMessages.length).toEqual(2);
 
       const helloWorldMessage = textMessages.find(
-        (m) => m.content.content === "Hello World"
+        (m) => m.content.content === "Hello World",
       );
       expect(helloWorldMessage).toBeDefined();
-      expect(helloWorldMessage.id).toBeDefined();
-      expect(helloWorldMessage.sentAtNs).toBeDefined();
-      expect(helloWorldMessage.senderInboxId).toBe(client1.inboxId);
-      expect(helloWorldMessage.conversationId).toBeDefined();
-      expect(helloWorldMessage.content.content).toBeDefined();
-      expect(helloWorldMessage.content.content).toBe("Hello World");
-      expect(helloWorldMessage.deliveryStatus).toBeDefined();
+      expect(helloWorldMessage?.id).toBeDefined();
+      expect(helloWorldMessage?.sentAtNs).toBeDefined();
+      expect(helloWorldMessage?.senderInboxId).toBe(client1.inboxId);
+      expect(helloWorldMessage?.conversationId).toBeDefined();
+      expect(helloWorldMessage?.content.content).toBeDefined();
+      expect(helloWorldMessage?.content.content).toBe("Hello World");
+      expect(helloWorldMessage?.deliveryStatus).toBeDefined();
     });
 
-    test("should handle list options", async () => {
+    it("should handle list options", async () => {
       const { conversation } = await setupConversation();
 
       await conversation.sendText("Message 1");
@@ -78,24 +92,24 @@ describe("EnrichedMessage", () => {
       // Use plain object for tsify-based types
       const opts = {
         limit: 2n,
-        direction: "descending",
+        direction: SortDirection.Descending,
       };
       const limitedMessages = await conversation.findEnrichedMessages(opts);
       const limitedTextMessages = limitedMessages.filter(
-        (m) => m.content.type === "text"
+        (m) => m.content.type === "text",
       );
       expect(limitedTextMessages.length).toBe(2);
 
       const allMessages = await conversation.findEnrichedMessages();
       const allTextMessages = allMessages.filter(
-        (m) => m.content.type === "text"
+        (m) => m.content.type === "text",
       );
       expect(allTextMessages.length).toEqual(3);
     });
   });
 
   describe("Message metadata", () => {
-    test("should include message kind", async () => {
+    it("should include message kind", async () => {
       const { conversation } = await setupConversation();
 
       await conversation.sendText("Test");
@@ -111,7 +125,7 @@ describe("EnrichedMessage", () => {
 
   describe("Content types", () => {
     describe("Text", () => {
-      test("should send and receive text message", async () => {
+      it("should send and receive text message", async () => {
         const { client1, conversation, conversation2 } =
           await setupConversation();
 
@@ -123,17 +137,17 @@ describe("EnrichedMessage", () => {
         const messages = await conversation2.findEnrichedMessages();
         const textMessage = messages.find((m) => m.id === messageId);
         expect(textMessage).toBeDefined();
-        expect(textMessage.content.type).toBe("text");
-        expect(textMessage.content.content).toBe("Hello, world!");
-        expect(textMessage.senderInboxId).toBe(client1.inboxId);
-        expect(textMessage.contentType?.authorityId).toBe("xmtp.org");
-        expect(textMessage.contentType?.typeId).toBe("text");
+        expect(textMessage?.content.type).toBe("text");
+        expect(textMessage?.content.content).toBe("Hello, world!");
+        expect(textMessage?.senderInboxId).toBe(client1.inboxId);
+        expect(textMessage?.contentType?.authorityId).toBe("xmtp.org");
+        expect(textMessage?.contentType?.typeId).toBe("text");
         // Text has no fallback
-        expect(textMessage.fallback).toBeUndefined();
+        expect(textMessage?.fallback).toBeUndefined();
       });
 
-      test("should have correct content type", () => {
-        const contentType = textContentType();
+      it("should have correct content type", () => {
+        const contentType = contentTypeText();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("text");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -142,7 +156,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Markdown", () => {
-      test("should send and receive markdown messages", async () => {
+      it("should send and receive markdown messages", async () => {
         const { client1, conversation, conversation2 } =
           await setupConversation();
 
@@ -154,17 +168,17 @@ describe("EnrichedMessage", () => {
         const messages = await conversation2.findEnrichedMessages();
         const markdownMessage = messages.find((m) => m.id === messageId);
         expect(markdownMessage).toBeDefined();
-        expect(markdownMessage.content.type).toBe("markdown");
-        expect(markdownMessage.content.content.content).toBe("# Hello, world!");
-        expect(markdownMessage.senderInboxId).toBe(client1.inboxId);
-        expect(markdownMessage.contentType?.authorityId).toBe("xmtp.org");
-        expect(markdownMessage.contentType?.typeId).toBe("markdown");
+        expect(markdownMessage?.content.type).toBe("markdown");
+        expect(markdownMessage?.content.content).toBe("# Hello, world!");
+        expect(markdownMessage?.senderInboxId).toBe(client1.inboxId);
+        expect(markdownMessage?.contentType?.authorityId).toBe("xmtp.org");
+        expect(markdownMessage?.contentType?.typeId).toBe("markdown");
         // Markdown has no fallback
-        expect(markdownMessage.fallback).toBeUndefined();
+        expect(markdownMessage?.fallback).toBeUndefined();
       });
 
-      test("should have correct content type", () => {
-        const contentType = markdownContentType();
+      it("should have correct content type", () => {
+        const contentType = contentTypeMarkdown();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("markdown");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -173,7 +187,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Reaction", () => {
-      test("should send and receive reaction with Added action", async () => {
+      it("should send and receive reaction with Added action", async () => {
         const { client1, conversation, conversation2 } =
           await setupConversation();
 
@@ -182,9 +196,9 @@ describe("EnrichedMessage", () => {
         const reactionId = await conversation.sendReaction({
           reference: textMessageId,
           referenceInboxId: client1.inboxId,
-          action: "added",
+          action: ReactionAction.Added,
           content: "👍",
-          schema: "unicode",
+          schema: ReactionSchema.Unicode,
         });
         expect(reactionId).toBeDefined();
 
@@ -194,22 +208,23 @@ describe("EnrichedMessage", () => {
         const messages = await conversation2.findEnrichedMessages();
         const textMessage = messages.find((m) => m.id === textMessageId);
         expect(textMessage).toBeDefined();
-        expect(textMessage.reactions.length).toBe(1);
+        expect(textMessage?.reactions.length).toBe(1);
 
-        const reactionOnMessage = textMessage.reactions[0];
-        expect(reactionOnMessage.id).toBe(reactionId);
-        expect(reactionOnMessage.content.type).toBe("reaction");
-        expect(reactionOnMessage.content.content?.content).toBe("👍");
-        expect(reactionOnMessage.content.content?.action).toBe("added");
-        expect(reactionOnMessage.content.content?.schema).toBe("unicode");
-        expect(reactionOnMessage.senderInboxId).toBe(client1.inboxId);
+        const reactionOnMessage = textMessage?.reactions[0];
+        expect(reactionOnMessage?.id).toBe(reactionId);
+        expect(reactionOnMessage?.content.type).toBe("reaction");
+        const reactionContent = reactionOnMessage?.content.content as Reaction;
+        expect(reactionContent.content).toBe("👍");
+        expect(reactionContent.action).toBe(ReactionAction.Added);
+        expect(reactionContent.schema).toBe(ReactionSchema.Unicode);
+        expect(reactionOnMessage?.senderInboxId).toBe(client1.inboxId);
         // Reaction Added fallback
-        expect(reactionOnMessage.fallback).toBe(
-          `Reacted with "👍" to an earlier message`
+        expect(reactionOnMessage?.fallback).toBe(
+          `Reacted with "👍" to an earlier message`,
         );
       });
 
-      test("should send and receive reaction with Removed action", async () => {
+      it("should send and receive reaction with Removed action", async () => {
         const { client1, conversation, conversation2 } =
           await setupConversation();
 
@@ -219,18 +234,18 @@ describe("EnrichedMessage", () => {
         await conversation.sendReaction({
           reference: textMessageId,
           referenceInboxId: client1.inboxId,
-          action: "added",
+          action: ReactionAction.Added,
           content: "👍",
-          schema: "unicode",
+          schema: ReactionSchema.Unicode,
         });
 
         // Then remove it
         const removeReactionId = await conversation.sendReaction({
           reference: textMessageId,
           referenceInboxId: client1.inboxId,
-          action: "removed",
+          action: ReactionAction.Removed,
           content: "👍",
-          schema: "unicode",
+          schema: ReactionSchema.Unicode,
         });
         expect(removeReactionId).toBeDefined();
 
@@ -240,18 +255,21 @@ describe("EnrichedMessage", () => {
         const textMessage = messages.find((m) => m.id === textMessageId);
         expect(textMessage).toBeDefined();
         // After removal, the reactions array should reflect the removal
-        const removedReaction = textMessage.reactions.find(
-          (r) => r.content.content?.action === "removed"
+        const removedReaction = textMessage?.reactions.find(
+          (r) =>
+            (r.content.content as Reaction).action === ReactionAction.Removed,
         );
         expect(removedReaction).toBeDefined();
-        expect(removedReaction.content.content?.content).toBe("👍");
+        const removedReactionContent = removedReaction?.content
+          .content as Reaction;
+        expect(removedReactionContent.content).toBe("👍");
         // Reaction Removed fallback
-        expect(removedReaction.fallback).toBe(
-          `Removed "👍" from an earlier message`
+        expect(removedReaction?.fallback).toBe(
+          `Removed "👍" from an earlier message`,
         );
       });
 
-      test("should handle shortcode reaction schema", async () => {
+      it("should handle shortcode reaction schema", async () => {
         const { client1, conversation, conversation2 } =
           await setupConversation();
 
@@ -260,22 +278,25 @@ describe("EnrichedMessage", () => {
         const reactionId = await conversation.sendReaction({
           reference: textMessageId,
           referenceInboxId: client1.inboxId,
-          action: "added",
+          action: ReactionAction.Added,
           content: ":thumbsup:",
-          schema: "shortcode",
+          schema: ReactionSchema.Shortcode,
         });
 
         await conversation2.sync();
 
         const messages = await conversation2.findEnrichedMessages();
         const textMessage = messages.find((m) => m.id === textMessageId);
-        const reaction = textMessage.reactions.find((r) => r.id === reactionId);
+        const reaction = textMessage?.reactions.find(
+          (r) => r.id === reactionId,
+        );
         expect(reaction).toBeDefined();
-        expect(reaction.content.content?.content).toBe(":thumbsup:");
-        expect(reaction.content.content?.schema).toBe("shortcode");
+        const reactionContent = reaction?.content.content as Reaction;
+        expect(reactionContent.content).toBe(":thumbsup:");
+        expect(reactionContent.schema).toBe(ReactionSchema.Shortcode);
       });
 
-      test("should handle custom reaction schema", async () => {
+      it("should handle custom reaction schema", async () => {
         const { client1, conversation, conversation2 } =
           await setupConversation();
 
@@ -284,23 +305,26 @@ describe("EnrichedMessage", () => {
         const reactionId = await conversation.sendReaction({
           reference: textMessageId,
           referenceInboxId: client1.inboxId,
-          action: "added",
+          action: ReactionAction.Added,
           content: "custom-reaction-id",
-          schema: "custom",
+          schema: ReactionSchema.Custom,
         });
 
         await conversation2.sync();
 
         const messages = await conversation2.findEnrichedMessages();
         const textMessage = messages.find((m) => m.id === textMessageId);
-        const reaction = textMessage.reactions.find((r) => r.id === reactionId);
+        const reaction = textMessage?.reactions.find(
+          (r) => r.id === reactionId,
+        );
         expect(reaction).toBeDefined();
-        expect(reaction.content.content?.content).toBe("custom-reaction-id");
-        expect(reaction.content.content?.schema).toBe("custom");
+        const reactionContent = reaction?.content.content as Reaction;
+        expect(reactionContent.content).toBe("custom-reaction-id");
+        expect(reactionContent.schema).toBe(ReactionSchema.Custom);
       });
 
-      test("should have correct content type", () => {
-        const contentType = reactionContentType();
+      it("should have correct content type", () => {
+        const contentType = contentTypeReaction();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("reaction");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -309,7 +333,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Reply", () => {
-      test("should send and receive reply with text content", async () => {
+      it("should send and receive reply with text content", async () => {
         const { client1, conversation, conversation2 } =
           await setupConversation();
 
@@ -327,20 +351,19 @@ describe("EnrichedMessage", () => {
         const messages = await conversation2.findEnrichedMessages();
         const replyMessage = messages.find((m) => m.id === replyId);
         expect(replyMessage).toBeDefined();
-        expect(replyMessage.content.type).toBe("reply");
-        expect(replyMessage.content.content?.referenceId).toBe(textMessageId);
-        expect(replyMessage.content.content?.content.type).toBe("text");
-        expect(replyMessage.content.content?.content.content).toBe(
-          "This is a reply"
-        );
-        expect(replyMessage.senderInboxId).toBe(client1.inboxId);
+        expect(replyMessage?.content.type).toBe("reply");
+        const replyContent = replyMessage?.content.content as EnrichedReply;
+        expect(replyContent.referenceId).toBe(textMessageId);
+        expect(replyContent.content.type).toBe("text");
+        expect(replyContent.content.content).toBe("This is a reply");
+        expect(replyMessage?.senderInboxId).toBe(client1.inboxId);
         // Reply with text content fallback
-        expect(replyMessage.fallback).toBe(
-          `Replied with "This is a reply" to an earlier message`
+        expect(replyMessage?.fallback).toBe(
+          `Replied with "This is a reply" to an earlier message`,
         );
       });
 
-      test("should include inReplyTo with original message", async () => {
+      it("should include inReplyTo with original message", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const textMessageId = await conversation.sendText("Original message");
@@ -355,13 +378,14 @@ describe("EnrichedMessage", () => {
         const messages = await conversation2.findEnrichedMessages();
         const replyMessage = messages.find((m) => m.id === replyId);
         expect(replyMessage).toBeDefined();
-        expect(replyMessage.content.content?.inReplyTo).toBeDefined();
-        expect(replyMessage.content.content?.inReplyTo?.content.content).toBe(
-          "Original message"
+        const replyContent = replyMessage?.content.content as EnrichedReply;
+        expect(replyContent.inReplyTo).toBeDefined();
+        expect(replyContent.inReplyTo?.content.content).toBe(
+          "Original message",
         );
       });
 
-      test("should send and receive reply with non-text content (attachment)", async () => {
+      it("should send and receive reply with non-text content (attachment)", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const textMessageId = await conversation.sendText("Original message");
@@ -380,14 +404,15 @@ describe("EnrichedMessage", () => {
         const messages = await conversation2.findEnrichedMessages();
         const replyMessage = messages.find((m) => m.id === replyId);
         expect(replyMessage).toBeDefined();
-        expect(replyMessage.content.type).toBe("reply");
-        expect(replyMessage.content.content?.content.type).toBe("attachment");
+        expect(replyMessage?.content.type).toBe("reply");
+        const replyContent = replyMessage?.content.content as EnrichedReply;
+        expect(replyContent.content.type).toBe("attachment");
         // Reply with non-text content fallback (generic)
-        expect(replyMessage.fallback).toBe(`Replied to an earlier message`);
+        expect(replyMessage?.fallback).toBe(`Replied to an earlier message`);
       });
 
-      test("should have correct content type", () => {
-        const contentType = replyContentType();
+      it("should have correct content type", () => {
+        const contentType = contentTypeReply();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("reply");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -396,7 +421,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Attachment", () => {
-      test("should send and receive attachment", async () => {
+      it("should send and receive attachment", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const attachmentId = await conversation.sendAttachment({
@@ -411,20 +436,22 @@ describe("EnrichedMessage", () => {
         const messages = await conversation2.findEnrichedMessages();
         const attachmentMessage = messages.find((m) => m.id === attachmentId);
         expect(attachmentMessage).toBeDefined();
-        expect(attachmentMessage.content.type).toBe("attachment");
-        expect(attachmentMessage.content.content?.filename).toBe("test.txt");
-        expect(attachmentMessage.content.content?.mimeType).toBe("text/plain");
-        expect(attachmentMessage.content.content?.content).toEqual(
-          new Uint8Array([72, 101, 108, 108, 111])
+        expect(attachmentMessage?.content.type).toBe("attachment");
+        const attachmentContent = attachmentMessage?.content
+          .content as Attachment;
+        expect(attachmentContent.filename).toBe("test.txt");
+        expect(attachmentContent.mimeType).toBe("text/plain");
+        expect(attachmentContent.content).toEqual(
+          new Uint8Array([72, 101, 108, 108, 111]),
         );
-        expect(attachmentMessage.contentType?.typeId).toBe("attachment");
+        expect(attachmentMessage?.contentType?.typeId).toBe("attachment");
         // Attachment fallback
-        expect(attachmentMessage.fallback).toBe(
-          `Can't display test.txt. This app doesn't support attachments.`
+        expect(attachmentMessage?.fallback).toBe(
+          `Can't display test.txt. This app doesn't support attachments.`,
         );
       });
 
-      test("should send and receive attachment without filename", async () => {
+      it("should send and receive attachment without filename", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const attachmentId = await conversation.sendAttachment({
@@ -437,12 +464,14 @@ describe("EnrichedMessage", () => {
         const messages = await conversation2.findEnrichedMessages();
         const attachmentMessage = messages.find((m) => m.id === attachmentId);
         expect(attachmentMessage).toBeDefined();
-        expect(attachmentMessage.content.content?.filename).toBeUndefined();
-        expect(attachmentMessage.content.content?.mimeType).toBe("image/png");
+        const attachmentContent = attachmentMessage?.content
+          .content as Attachment;
+        expect(attachmentContent.filename).toBeUndefined();
+        expect(attachmentContent.mimeType).toBe("image/png");
       });
 
-      test("should have correct content type", () => {
-        const contentType = attachmentContentType();
+      it("should have correct content type", () => {
+        const contentType = contentTypeAttachment();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("attachment");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -451,7 +480,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Remote Attachment", () => {
-      test("should send and receive remote attachment", async () => {
+      it("should send and receive remote attachment", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const remoteAttachmentId = await conversation.sendRemoteAttachment({
@@ -470,33 +499,29 @@ describe("EnrichedMessage", () => {
 
         const messages = await conversation2.findEnrichedMessages();
         const remoteAttachmentMessage = messages.find(
-          (m) => m.id === remoteAttachmentId
+          (m) => m.id === remoteAttachmentId,
         );
         expect(remoteAttachmentMessage).toBeDefined();
-        expect(remoteAttachmentMessage.content.type).toBe("remoteAttachment");
-        expect(remoteAttachmentMessage.content.content?.url).toBe(
-          "https://example.com/file.png"
+        expect(remoteAttachmentMessage?.content.type).toBe("remoteAttachment");
+        const remoteAttachmentContent = remoteAttachmentMessage?.content
+          .content as RemoteAttachment;
+        expect(remoteAttachmentContent.url).toBe(
+          "https://example.com/file.png",
         );
-        expect(remoteAttachmentMessage.content.content?.filename).toBe(
-          "file.png"
-        );
-        expect(remoteAttachmentMessage.content.content?.contentDigest).toBe(
-          "abc123"
-        );
-        expect(remoteAttachmentMessage.content.content?.scheme).toBe("https");
-        expect(remoteAttachmentMessage.content.content?.contentLength).toBe(
-          1000
-        );
-        expect(remoteAttachmentMessage.contentType?.typeId).toBe(
-          "remoteStaticAttachment"
+        expect(remoteAttachmentContent.filename).toBe("file.png");
+        expect(remoteAttachmentContent.contentDigest).toBe("abc123");
+        expect(remoteAttachmentContent.scheme).toBe("https");
+        expect(remoteAttachmentContent.contentLength).toBe(1000);
+        expect(remoteAttachmentMessage?.contentType?.typeId).toBe(
+          "remoteStaticAttachment",
         );
         // Remote attachment fallback
-        expect(remoteAttachmentMessage.fallback).toBe(
-          `Can't display file.png. This app doesn't support remote attachments.`
+        expect(remoteAttachmentMessage?.fallback).toBe(
+          `Can't display file.png. This app doesn't support remote attachments.`,
         );
       });
 
-      test("should send and receive remote attachment without filename", async () => {
+      it("should send and receive remote attachment without filename", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const remoteAttachmentId = await conversation.sendRemoteAttachment({
@@ -513,16 +538,16 @@ describe("EnrichedMessage", () => {
 
         const messages = await conversation2.findEnrichedMessages();
         const remoteAttachmentMessage = messages.find(
-          (m) => m.id === remoteAttachmentId
+          (m) => m.id === remoteAttachmentId,
         );
         expect(remoteAttachmentMessage).toBeDefined();
-        expect(
-          remoteAttachmentMessage.content.content?.filename
-        ).toBeUndefined();
+        const remoteAttachmentContent = remoteAttachmentMessage?.content
+          .content as RemoteAttachment;
+        expect(remoteAttachmentContent.filename).toBeUndefined();
       });
 
-      test("should have correct content type", () => {
-        const contentType = remoteAttachmentContentType();
+      it("should have correct content type", () => {
+        const contentType = contentTypeRemoteAttachment();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("remoteStaticAttachment");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -531,7 +556,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Multi Remote Attachment", () => {
-      test("should send and receive multi remote attachment", async () => {
+      it("should send and receive multi remote attachment", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const multiRemoteAttachmentId =
@@ -565,31 +590,31 @@ describe("EnrichedMessage", () => {
 
         const messages = await conversation2.findEnrichedMessages();
         const multiRemoteAttachmentMessage = messages.find(
-          (m) => m.id === multiRemoteAttachmentId
+          (m) => m.id === multiRemoteAttachmentId,
         );
         expect(multiRemoteAttachmentMessage).toBeDefined();
-        expect(multiRemoteAttachmentMessage.content.type).toBe(
-          "multiRemoteAttachment"
+        expect(multiRemoteAttachmentMessage?.content.type).toBe(
+          "multiRemoteAttachment",
         );
-        expect(
-          multiRemoteAttachmentMessage.content.content?.attachments.length
-        ).toBe(2);
-        expect(
-          multiRemoteAttachmentMessage.content.content?.attachments[0].filename
-        ).toBe("file1.png");
-        expect(
-          multiRemoteAttachmentMessage.content.content?.attachments[1].filename
-        ).toBe("file2.pdf");
-        expect(multiRemoteAttachmentMessage.contentType?.typeId).toBe(
-          "multiRemoteStaticAttachment"
+        const multiRemoteAttachmentContent = multiRemoteAttachmentMessage
+          ?.content.content as MultiRemoteAttachment;
+        expect(multiRemoteAttachmentContent.attachments.length).toBe(2);
+        expect(multiRemoteAttachmentContent.attachments[0].filename).toBe(
+          "file1.png",
+        );
+        expect(multiRemoteAttachmentContent.attachments[1].filename).toBe(
+          "file2.pdf",
+        );
+        expect(multiRemoteAttachmentMessage?.contentType?.typeId).toBe(
+          "multiRemoteStaticAttachment",
         );
         // Multi remote attachment fallback
-        expect(multiRemoteAttachmentMessage.fallback).toBe(
-          `Can't display this content. This app doesn't support multiple remote attachments.`
+        expect(multiRemoteAttachmentMessage?.fallback).toBe(
+          `Can't display this content. This app doesn't support multiple remote attachments.`,
         );
       });
 
-      test("should send and receive multi remote attachment with single attachment", async () => {
+      it("should send and receive multi remote attachment with single attachment", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const multiRemoteAttachmentId =
@@ -612,16 +637,16 @@ describe("EnrichedMessage", () => {
 
         const messages = await conversation2.findEnrichedMessages();
         const multiRemoteAttachmentMessage = messages.find(
-          (m) => m.id === multiRemoteAttachmentId
+          (m) => m.id === multiRemoteAttachmentId,
         );
         expect(multiRemoteAttachmentMessage).toBeDefined();
-        expect(
-          multiRemoteAttachmentMessage.content.content?.attachments.length
-        ).toBe(1);
+        const multiRemoteAttachmentContent = multiRemoteAttachmentMessage
+          ?.content.content as MultiRemoteAttachment;
+        expect(multiRemoteAttachmentContent.attachments.length).toBe(1);
       });
 
-      test("should have correct content type", () => {
-        const contentType = multiRemoteAttachmentContentType();
+      it("should have correct content type", () => {
+        const contentType = contentTypeMultiRemoteAttachment();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("multiRemoteStaticAttachment");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -630,7 +655,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Read Receipt", () => {
-      test("should send read receipt (excluded from enriched messages by design)", async () => {
+      it("should send read receipt (excluded from enriched messages by design)", async () => {
         const { conversation } = await setupConversation();
 
         const receiptId = await conversation.sendReadReceipt();
@@ -642,8 +667,8 @@ describe("EnrichedMessage", () => {
         expect(receiptMessage).toBeUndefined();
       });
 
-      test("should have correct content type", () => {
-        const contentType = readReceiptContentType();
+      it("should have correct content type", () => {
+        const contentType = contentTypeReadReceipt();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("readReceipt");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -652,7 +677,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Transaction Reference", () => {
-      test("should send and receive transaction reference", async () => {
+      it("should send and receive transaction reference", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const transactionReferenceId =
@@ -667,31 +692,29 @@ describe("EnrichedMessage", () => {
 
         const messages = await conversation2.findEnrichedMessages();
         const transactionReferenceMessage = messages.find(
-          (m) => m.id === transactionReferenceId
+          (m) => m.id === transactionReferenceId,
         );
         expect(transactionReferenceMessage).toBeDefined();
-        expect(transactionReferenceMessage.content.type).toBe(
-          "transactionReference"
+        expect(transactionReferenceMessage?.content.type).toBe(
+          "transactionReference",
         );
-        expect(transactionReferenceMessage.content.content?.namespace).toBe(
-          "eip155"
+        const transactionReferenceContent = transactionReferenceMessage?.content
+          .content as TransactionReference;
+        expect(transactionReferenceContent.namespace).toBe("eip155");
+        expect(transactionReferenceContent.networkId).toBe("1");
+        expect(transactionReferenceContent.reference).toBe(
+          "0x1234567890abcdef",
         );
-        expect(transactionReferenceMessage.content.content?.networkId).toBe(
-          "1"
-        );
-        expect(transactionReferenceMessage.content.content?.reference).toBe(
-          "0x1234567890abcdef"
-        );
-        expect(transactionReferenceMessage.contentType?.typeId).toBe(
-          "transactionReference"
+        expect(transactionReferenceMessage?.contentType?.typeId).toBe(
+          "transactionReference",
         );
         // Transaction reference fallback with reference
-        expect(transactionReferenceMessage.fallback).toBe(
-          `[Crypto transaction] Use a blockchain explorer to learn more using the transaction hash: 0x1234567890abcdef`
+        expect(transactionReferenceMessage?.fallback).toBe(
+          `[Crypto transaction] Use a blockchain explorer to learn more using the transaction hash: 0x1234567890abcdef`,
         );
       });
 
-      test("should send and receive transaction reference without namespace", async () => {
+      it("should send and receive transaction reference without namespace", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const transactionReferenceId =
@@ -704,18 +727,16 @@ describe("EnrichedMessage", () => {
 
         const messages = await conversation2.findEnrichedMessages();
         const transactionReferenceMessage = messages.find(
-          (m) => m.id === transactionReferenceId
+          (m) => m.id === transactionReferenceId,
         );
         expect(transactionReferenceMessage).toBeDefined();
-        expect(
-          transactionReferenceMessage.content.content?.namespace
-        ).toBeUndefined();
-        expect(transactionReferenceMessage.content.content?.networkId).toBe(
-          "137"
-        );
+        const transactionReferenceContent = transactionReferenceMessage?.content
+          .content as TransactionReference;
+        expect(transactionReferenceContent.namespace).toBeUndefined();
+        expect(transactionReferenceContent.networkId).toBe("137");
       });
 
-      test("should send and receive transaction reference with empty reference", async () => {
+      it("should send and receive transaction reference with empty reference", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const transactionReferenceId =
@@ -729,14 +750,16 @@ describe("EnrichedMessage", () => {
 
         const messages = await conversation2.findEnrichedMessages();
         const transactionReferenceMessage = messages.find(
-          (m) => m.id === transactionReferenceId
+          (m) => m.id === transactionReferenceId,
         );
         expect(transactionReferenceMessage).toBeDefined();
         // Transaction reference fallback without reference
-        expect(transactionReferenceMessage.fallback).toBe(`Crypto transaction`);
+        expect(transactionReferenceMessage?.fallback).toBe(
+          `Crypto transaction`,
+        );
       });
 
-      test("should send and receive transaction reference with metadata", async () => {
+      it("should send and receive transaction reference with metadata", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const transactionReferenceId =
@@ -758,25 +781,21 @@ describe("EnrichedMessage", () => {
 
         const messages = await conversation2.findEnrichedMessages();
         const transactionReferenceMessage = messages.find(
-          (m) => m.id === transactionReferenceId
+          (m) => m.id === transactionReferenceId,
         );
         expect(transactionReferenceMessage).toBeDefined();
-        expect(
-          transactionReferenceMessage.content.content?.metadata
-        ).toBeDefined();
-        expect(
-          transactionReferenceMessage.content.content?.metadata?.transactionType
-        ).toBe("transfer");
-        expect(
-          transactionReferenceMessage.content.content?.metadata?.currency
-        ).toBe("ETH");
-        expect(
-          transactionReferenceMessage.content.content?.metadata?.amount
-        ).toBe(1.5);
+        const transactionReferenceContent = transactionReferenceMessage?.content
+          .content as TransactionReference;
+        expect(transactionReferenceContent.metadata).toBeDefined();
+        expect(transactionReferenceContent.metadata?.transactionType).toBe(
+          "transfer",
+        );
+        expect(transactionReferenceContent.metadata?.currency).toBe("ETH");
+        expect(transactionReferenceContent.metadata?.amount).toBe(1.5);
       });
 
-      test("should have correct content type", () => {
-        const contentType = transactionReferenceContentType();
+      it("should have correct content type", () => {
+        const contentType = contentTypeTransactionReference();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("transactionReference");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -785,7 +804,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Wallet Send Calls", () => {
-      test("should send and receive wallet send calls", async () => {
+      it("should send and receive wallet send calls", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const walletSendCallsId = await conversation.sendWalletSendCalls({
@@ -806,22 +825,32 @@ describe("EnrichedMessage", () => {
 
         const messages = await conversation2.findEnrichedMessages();
         const walletSendCallsMessage = messages.find(
-          (m) => m.id === walletSendCallsId
+          (m) => m.id === walletSendCallsId,
         );
         expect(walletSendCallsMessage).toBeDefined();
-        expect(walletSendCallsMessage.content.type).toBe("walletSendCalls");
-        expect(walletSendCallsMessage.content.content?.version).toBe("1");
-        expect(walletSendCallsMessage.content.content?.chainId).toBe("1");
-        expect(walletSendCallsMessage.content.content?.from).toBe(
-          "0x1234567890abcdef1234567890abcdef12345678"
+        expect(walletSendCallsMessage?.content.type).toBe("walletSendCalls");
+        const walletSendCallsContent = walletSendCallsMessage?.content
+          .content as WalletSendCalls;
+        expect(walletSendCallsContent.version).toBe("1");
+        expect(walletSendCallsContent.chainId).toBe("1");
+        expect(walletSendCallsContent.from).toBe(
+          "0x1234567890abcdef1234567890abcdef12345678",
         );
-        expect(walletSendCallsMessage.content.content?.calls.length).toBe(1);
-        expect(walletSendCallsMessage.contentType?.typeId).toBe(
-          "walletSendCalls"
+        expect(walletSendCallsContent.calls.length).toBe(1);
+        expect(walletSendCallsMessage?.contentType?.typeId).toBe(
+          "walletSendCalls",
+        );
+        expect(walletSendCallsContent.chainId).toBe("1");
+        expect(walletSendCallsContent.from).toBe(
+          "0x1234567890abcdef1234567890abcdef12345678",
+        );
+        expect(walletSendCallsContent.calls.length).toBe(1);
+        expect(walletSendCallsMessage?.contentType?.typeId).toBe(
+          "walletSendCalls",
         );
       });
 
-      test("should send and receive wallet send calls with multiple calls", async () => {
+      it("should send and receive wallet send calls with multiple calls", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const walletSendCallsId = await conversation.sendWalletSendCalls({
@@ -847,19 +876,17 @@ describe("EnrichedMessage", () => {
 
         const messages = await conversation2.findEnrichedMessages();
         const walletSendCallsMessage = messages.find(
-          (m) => m.id === walletSendCallsId
+          (m) => m.id === walletSendCallsId,
         );
         expect(walletSendCallsMessage).toBeDefined();
-        expect(walletSendCallsMessage.content.content?.calls.length).toBe(2);
-        expect(walletSendCallsMessage.content.content?.calls[0].to).toBe(
-          "0xabc"
-        );
-        expect(walletSendCallsMessage.content.content?.calls[1].gas).toBe(
-          "0x5208"
-        );
+        const walletSendCallsContent = walletSendCallsMessage?.content
+          .content as WalletSendCalls;
+        expect(walletSendCallsContent.calls.length).toBe(2);
+        expect(walletSendCallsContent.calls[0].to).toBe("0xabc");
+        expect(walletSendCallsContent.calls[1].gas).toBe("0x5208");
       });
 
-      test("should send and receive wallet send calls with metadata", async () => {
+      it("should send and receive wallet send calls with metadata", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const walletSendCallsId = await conversation.sendWalletSendCalls({
@@ -887,20 +914,21 @@ describe("EnrichedMessage", () => {
 
         const messages = await conversation2.findEnrichedMessages();
         const walletSendCallsMessage = messages.find(
-          (m) => m.id === walletSendCallsId
+          (m) => m.id === walletSendCallsId,
         );
         expect(walletSendCallsMessage).toBeDefined();
-        const metadata =
-          walletSendCallsMessage.content.content?.calls[0].metadata;
+        const walletSendCallsContent = walletSendCallsMessage?.content
+          .content as WalletSendCalls;
+        const metadata = walletSendCallsContent.calls[0].metadata;
         expect(metadata?.description).toBe("Send funds");
         expect(metadata?.transactionType).toBe("transfer");
         expect(metadata?.note).toBe("test payment");
-        expect(
-          walletSendCallsMessage.content.content?.capabilities?.paymasterService
-        ).toBe("https://paymaster.example.com");
+        expect(walletSendCallsContent.capabilities?.paymasterService).toBe(
+          "https://paymaster.example.com",
+        );
       });
 
-      test("should error when metadata is missing `description` field", async () => {
+      it("should error when metadata is missing `description` field", async () => {
         const { conversation } = await setupConversation();
 
         let error;
@@ -924,10 +952,12 @@ describe("EnrichedMessage", () => {
           error = e;
         }
         expect(error).toBeDefined();
-        expect(error.message).toContain("missing field `description`");
+        expect((error as Error).message).toContain(
+          "missing field `description`",
+        );
       });
 
-      test("should error when metadata is missing `transactionType` field", async () => {
+      it("should error when metadata is missing `transactionType` field", async () => {
         const { conversation } = await setupConversation();
 
         let error;
@@ -951,11 +981,13 @@ describe("EnrichedMessage", () => {
           error = e;
         }
         expect(error).toBeDefined();
-        expect(error.message).toContain("missing field `transactionType`");
+        expect((error as Error).message).toContain(
+          "missing field `transactionType`",
+        );
       });
 
-      test("should have correct content type", () => {
-        const contentType = walletSendCallsContentType();
+      it("should have correct content type", () => {
+        const contentType = contentTypeWalletSendCalls();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("walletSendCalls");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -964,7 +996,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Actions", () => {
-      test("should send and receive actions", async () => {
+      it("should send and receive actions", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const actionsId = await conversation.sendActions({
@@ -974,12 +1006,12 @@ describe("EnrichedMessage", () => {
             {
               id: "opt-1",
               label: "Option 1",
-              style: "primary",
+              style: ActionStyle.Primary,
             },
             {
               id: "opt-2",
               label: "Option 2",
-              style: "secondary",
+              style: ActionStyle.Secondary,
             },
           ],
         });
@@ -990,27 +1022,22 @@ describe("EnrichedMessage", () => {
         const messages = await conversation2.findEnrichedMessages();
         const actionsMessage = messages.find((m) => m.id === actionsId);
         expect(actionsMessage).toBeDefined();
-        expect(actionsMessage.content.type).toBe("actions");
-        expect(actionsMessage.content.content?.id).toBe("action-1");
-        expect(actionsMessage.content.content?.description).toBe(
-          "Choose an option"
-        );
-        expect(actionsMessage.content.content?.actions.length).toBe(2);
-        expect(actionsMessage.content.content?.actions[0].label).toBe(
-          "Option 1"
-        );
-        expect(actionsMessage.content.content?.actions[0].style).toBe(
-          "primary"
-        );
-        expect(actionsMessage.contentType?.authorityId).toBe("coinbase.com");
-        expect(actionsMessage.contentType?.typeId).toBe("actions");
+        expect(actionsMessage?.content.type).toBe("actions");
+        const actionsContent = actionsMessage?.content.content as Actions;
+        expect(actionsContent.id).toBe("action-1");
+        expect(actionsContent.description).toBe("Choose an option");
+        expect(actionsContent.actions.length).toBe(2);
+        expect(actionsContent.actions[0].label).toBe("Option 1");
+        expect(actionsContent.actions[0].style).toBe(ActionStyle.Primary);
+        expect(actionsMessage?.contentType?.authorityId).toBe("coinbase.com");
+        expect(actionsMessage?.contentType?.typeId).toBe("actions");
         // Actions fallback
-        expect(actionsMessage.fallback).toBe(
-          `Choose an option\n\n[1] Option 1\n[2] Option 2\n\nReply with the number to select`
+        expect(actionsMessage?.fallback).toBe(
+          `Choose an option\n\n[1] Option 1\n[2] Option 2\n\nReply with the number to select`,
         );
       });
 
-      test("should send and receive actions with all styles", async () => {
+      it("should send and receive actions with all styles", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const actionsId = await conversation.sendActions({
@@ -1020,17 +1047,17 @@ describe("EnrichedMessage", () => {
             {
               id: "primary",
               label: "Primary",
-              style: "primary",
+              style: ActionStyle.Primary,
             },
             {
               id: "secondary",
               label: "Secondary",
-              style: "secondary",
+              style: ActionStyle.Secondary,
             },
             {
               id: "danger",
               label: "Danger",
-              style: "danger",
+              style: ActionStyle.Danger,
             },
           ],
         });
@@ -1040,16 +1067,13 @@ describe("EnrichedMessage", () => {
         const messages = await conversation2.findEnrichedMessages();
         const actionsMessage = messages.find((m) => m.id === actionsId);
         expect(actionsMessage).toBeDefined();
-        expect(actionsMessage.content.content?.actions[0].style).toBe(
-          "primary"
-        );
-        expect(actionsMessage.content.content?.actions[1].style).toBe(
-          "secondary"
-        );
-        expect(actionsMessage.content.content?.actions[2].style).toBe("danger");
+        const actionsContent = actionsMessage?.content.content as Actions;
+        expect(actionsContent.actions[0].style).toBe(ActionStyle.Primary);
+        expect(actionsContent.actions[1].style).toBe(ActionStyle.Secondary);
+        expect(actionsContent.actions[2].style).toBe(ActionStyle.Danger);
       });
 
-      test("should send and receive actions with expiration", async () => {
+      it("should send and receive actions with expiration", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         // Use a timestamp in nanoseconds (must fit in i64)
@@ -1062,7 +1086,7 @@ describe("EnrichedMessage", () => {
             {
               id: "opt-1",
               label: "Option 1",
-              style: "primary",
+              style: ActionStyle.Primary,
               expiresAtNs: expiresAtNs,
             },
           ],
@@ -1074,13 +1098,12 @@ describe("EnrichedMessage", () => {
         const messages = await conversation2.findEnrichedMessages();
         const actionsMessage = messages.find((m) => m.id === actionsId);
         expect(actionsMessage).toBeDefined();
-        expect(actionsMessage.content.content?.expiresAtNs).toBeDefined();
-        expect(
-          actionsMessage.content.content?.actions[0].expiresAtNs
-        ).toBeDefined();
+        const actionsContent = actionsMessage?.content.content as Actions;
+        expect(actionsContent.expiresAtNs).toBeDefined();
+        expect(actionsContent.actions[0].expiresAtNs).toBeDefined();
       });
 
-      test("should send and receive actions with image URL", async () => {
+      it("should send and receive actions with image URL", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const actionsId = await conversation.sendActions({
@@ -1090,7 +1113,7 @@ describe("EnrichedMessage", () => {
             {
               id: "opt-1",
               label: "Option 1",
-              style: "primary",
+              style: ActionStyle.Primary,
               imageUrl: "https://example.com/image.png",
             },
           ],
@@ -1101,13 +1124,14 @@ describe("EnrichedMessage", () => {
         const messages = await conversation2.findEnrichedMessages();
         const actionsMessage = messages.find((m) => m.id === actionsId);
         expect(actionsMessage).toBeDefined();
-        expect(actionsMessage.content.content?.actions[0].imageUrl).toBe(
-          "https://example.com/image.png"
+        const actionsContent = actionsMessage?.content.content as Actions;
+        expect(actionsContent.actions[0].imageUrl).toBe(
+          "https://example.com/image.png",
         );
       });
 
-      test("should have correct content type", () => {
-        const contentType = actionsContentType();
+      it("should have correct content type", () => {
+        const contentType = contentTypeActions();
         expect(contentType.authorityId).toEqual("coinbase.com");
         expect(contentType.typeId).toEqual("actions");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -1116,7 +1140,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Intent", () => {
-      test("should send and receive intent using encodeIntent", async () => {
+      it("should send and receive intent using encodeIntent", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         // Test with encodeIntent + send to verify the original pattern still works
@@ -1125,7 +1149,7 @@ describe("EnrichedMessage", () => {
             id: "intent-1",
             actionId: "opt-1",
           }),
-          { shouldPush: false }
+          { shouldPush: false },
         );
         expect(intentId).toBeDefined();
 
@@ -1134,16 +1158,17 @@ describe("EnrichedMessage", () => {
         const messages = await conversation2.findEnrichedMessages();
         const intentMessage = messages.find((m) => m.id === intentId);
         expect(intentMessage).toBeDefined();
-        expect(intentMessage.content.type).toBe("intent");
-        expect(intentMessage.content.content?.id).toBe("intent-1");
-        expect(intentMessage.content.content?.actionId).toBe("opt-1");
-        expect(intentMessage.contentType?.authorityId).toBe("coinbase.com");
-        expect(intentMessage.contentType?.typeId).toBe("intent");
+        expect(intentMessage?.content.type).toBe("intent");
+        const intentContent = intentMessage?.content.content as Intent;
+        expect(intentContent.id).toBe("intent-1");
+        expect(intentContent.actionId).toBe("opt-1");
+        expect(intentMessage?.contentType?.authorityId).toBe("coinbase.com");
+        expect(intentMessage?.contentType?.typeId).toBe("intent");
         // Intent fallback
-        expect(intentMessage.fallback).toBe(`User selected action: opt-1`);
+        expect(intentMessage?.fallback).toBe(`User selected action: opt-1`);
       });
 
-      test("should send and receive intent using sendIntent", async () => {
+      it("should send and receive intent using sendIntent", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const intentId = await conversation.sendIntent({
@@ -1157,16 +1182,17 @@ describe("EnrichedMessage", () => {
         const messages = await conversation2.findEnrichedMessages();
         const intentMessage = messages.find((m) => m.id === intentId);
         expect(intentMessage).toBeDefined();
-        expect(intentMessage.content.type).toBe("intent");
-        expect(intentMessage.content.content?.id).toBe("intent-1");
-        expect(intentMessage.content.content?.actionId).toBe("opt-1");
-        expect(intentMessage.contentType?.authorityId).toBe("coinbase.com");
-        expect(intentMessage.contentType?.typeId).toBe("intent");
+        expect(intentMessage?.content.type).toBe("intent");
+        const intentContent = intentMessage?.content.content as Intent;
+        expect(intentContent.id).toBe("intent-1");
+        expect(intentContent.actionId).toBe("opt-1");
+        expect(intentMessage?.contentType?.authorityId).toBe("coinbase.com");
+        expect(intentMessage?.contentType?.typeId).toBe("intent");
         // Intent fallback
-        expect(intentMessage.fallback).toBe(`User selected action: opt-1`);
+        expect(intentMessage?.fallback).toBe(`User selected action: opt-1`);
       });
 
-      test("should send and receive intent with metadata", async () => {
+      it("should send and receive intent with metadata", async () => {
         const { conversation, conversation2 } = await setupConversation();
 
         const intentId = await conversation.sendIntent({
@@ -1183,15 +1209,14 @@ describe("EnrichedMessage", () => {
         const messages = await conversation2.findEnrichedMessages();
         const intentMessage = messages.find((m) => m.id === intentId);
         expect(intentMessage).toBeDefined();
-        expect(intentMessage.content.content?.metadata).toBeDefined();
-        expect(intentMessage.content.content?.metadata?.source).toBe("test");
-        expect(intentMessage.content.content?.metadata?.timestamp).toBe(
-          "2024-01-01"
-        );
+        const intentContent = intentMessage?.content.content as Intent;
+        expect(intentContent.metadata).toBeDefined();
+        expect(intentContent.metadata?.source).toBe("test");
+        expect(intentContent.metadata?.timestamp).toBe("2024-01-01");
       });
 
-      test("should have correct content type", () => {
-        const contentType = intentContentType();
+      it("should have correct content type", () => {
+        const contentType = contentTypeIntent();
         expect(contentType.authorityId).toEqual("coinbase.com");
         expect(contentType.typeId).toEqual("intent");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -1200,7 +1225,7 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Group Updated", () => {
-      test("should include group updated messages when members are added", async () => {
+      it("should include group updated messages when members are added", async () => {
         const client1 = await createTestClient();
         const client2 = await createTestClient();
         const client3 = await createTestClient();
@@ -1213,22 +1238,19 @@ describe("EnrichedMessage", () => {
 
         const messages = await conversation.findEnrichedMessages();
         const groupUpdatedMessages = messages.filter(
-          (m) => m.content.type === "groupUpdated"
+          (m) => m.content.type === "groupUpdated",
         );
         expect(groupUpdatedMessages.length).toBeGreaterThanOrEqual(2);
 
         const lastUpdate =
           groupUpdatedMessages[groupUpdatedMessages.length - 1];
         expect(lastUpdate.content.type).toBe("groupUpdated");
-        expect(lastUpdate.content.content?.initiatedByInboxId).toBe(
-          client1.inboxId
-        );
-        expect(lastUpdate.content.content?.addedInboxes.length).toBeGreaterThan(
-          0
-        );
+        const groupUpdatedContent = lastUpdate.content.content as GroupUpdated;
+        expect(groupUpdatedContent.initiatedByInboxId).toBe(client1.inboxId);
+        expect(groupUpdatedContent.addedInboxes.length).toBeGreaterThan(0);
       });
 
-      test("should include group updated messages when members are removed", async () => {
+      it("should include group updated messages when members are removed", async () => {
         const client1 = await createTestClient();
         const client2 = await createTestClient();
         const client3 = await createTestClient();
@@ -1241,22 +1263,20 @@ describe("EnrichedMessage", () => {
 
         const messages = await conversation.findEnrichedMessages();
         const groupUpdatedMessages = messages.filter(
-          (m) => m.content.type === "groupUpdated"
+          (m) => m.content.type === "groupUpdated",
         );
         expect(groupUpdatedMessages.length).toBeGreaterThanOrEqual(2);
 
-        const removalUpdate = groupUpdatedMessages.find(
-          (m) =>
-            m.content.content?.removedInboxes &&
-            m.content.content.removedInboxes.length > 0
-        );
-        expect(removalUpdate).toBeDefined();
-        expect(removalUpdate.content.content?.removedInboxes[0].inboxId).toBe(
-          client2.inboxId
+        const groupUpdatedContent = groupUpdatedMessages[
+          groupUpdatedMessages.length - 1
+        ].content.content as GroupUpdated;
+        expect(groupUpdatedContent.removedInboxes.length).toBeGreaterThan(0);
+        expect(groupUpdatedContent.removedInboxes[0].inboxId).toBe(
+          client2.inboxId,
         );
       });
 
-      test("should include group updated messages when metadata is changed", async () => {
+      it("should include group updated messages when metadata is changed", async () => {
         const client1 = await createTestClient();
         const client2 = await createTestClient();
 
@@ -1268,22 +1288,18 @@ describe("EnrichedMessage", () => {
 
         const messages = await conversation.findEnrichedMessages();
         const groupUpdatedMessages = messages.filter(
-          (m) => m.content.type === "groupUpdated"
+          (m) => m.content.type === "groupUpdated",
         );
-
-        const metadataUpdate = groupUpdatedMessages.find(
-          (m) =>
-            m.content.content?.metadataFieldChanges &&
-            m.content.content.metadataFieldChanges.length > 0
+        const groupUpdatedContent = groupUpdatedMessages[
+          groupUpdatedMessages.length - 1
+        ].content.content as GroupUpdated;
+        expect(groupUpdatedContent.metadataFieldChanges[0].newValue).toBe(
+          "New Group Name",
         );
-        expect(metadataUpdate).toBeDefined();
-        expect(
-          metadataUpdate.content.content?.metadataFieldChanges[0].newValue
-        ).toBe("New Group Name");
       });
 
-      test("should have correct content type", () => {
-        const contentType = groupUpdatedContentType();
+      it("should have correct content type", () => {
+        const contentType = contentTypeGroupUpdated();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("group_updated");
         expect(contentType.versionMajor).toBeGreaterThan(0);
@@ -1292,8 +1308,8 @@ describe("EnrichedMessage", () => {
     });
 
     describe("Leave Request", () => {
-      test("should have correct content type", () => {
-        const contentType = leaveRequestContentType();
+      it("should have correct content type", () => {
+        const contentType = contentTypeLeaveRequest();
         expect(contentType.authorityId).toEqual("xmtp.org");
         expect(contentType.typeId).toEqual("leave_request");
         expect(contentType.versionMajor).toBeGreaterThan(0);

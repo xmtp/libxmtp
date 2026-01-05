@@ -1,5 +1,5 @@
 use chrono::DateTime;
-use napi::bindgen_prelude::{Error, Result};
+use napi::bindgen_prelude::{BigInt, Error, Result};
 use napi_derive::napi;
 use xmtp_content_types::{ContentCodec, actions::ActionsCodec};
 
@@ -14,7 +14,7 @@ pub struct Actions {
   pub id: String,
   pub description: String,
   pub actions: Vec<Action>,
-  pub expires_at_ns: Option<i64>,
+  pub expires_at_ns: Option<BigInt>,
 }
 
 impl TryFrom<xmtp_content_types::actions::Actions> for Actions {
@@ -33,7 +33,7 @@ impl TryFrom<xmtp_content_types::actions::Actions> for Actions {
             actions_id
           )));
         }
-        ns_opt
+        ns_opt.map(BigInt::from)
       }
       None => None,
     };
@@ -54,7 +54,7 @@ impl From<Actions> for xmtp_content_types::actions::Actions {
   fn from(actions: Actions) -> Self {
     let expires_at = actions
       .expires_at_ns
-      .map(|ns| DateTime::from_timestamp_nanos(ns).naive_utc());
+      .map(|ns| DateTime::from_timestamp_nanos(ns.get_i64().0).naive_utc());
 
     xmtp_content_types::actions::Actions {
       id: actions.id,
@@ -72,7 +72,7 @@ pub struct Action {
   pub label: String,
   pub image_url: Option<String>,
   pub style: Option<ActionStyle>,
-  pub expires_at_ns: Option<i64>,
+  pub expires_at_ns: Option<BigInt>,
 }
 
 impl TryFrom<xmtp_content_types::actions::Action> for Action {
@@ -91,7 +91,7 @@ impl TryFrom<xmtp_content_types::actions::Action> for Action {
             action_id
           )));
         }
-        ns_opt
+        ns_opt.map(BigInt::from)
       }
       None => None,
     };
@@ -110,7 +110,7 @@ impl From<Action> for xmtp_content_types::actions::Action {
   fn from(action: Action) -> Self {
     let expires_at = action
       .expires_at_ns
-      .map(|ns| DateTime::from_timestamp_nanos(ns).naive_utc());
+      .map(|ns| DateTime::from_timestamp_nanos(ns.get_i64().0).naive_utc());
 
     xmtp_content_types::actions::Action {
       id: action.id,
@@ -151,7 +151,7 @@ impl From<ActionStyle> for xmtp_content_types::actions::ActionStyle {
 }
 
 #[napi]
-pub fn actions_content_type() -> ContentTypeId {
+pub fn content_type_actions() -> ContentTypeId {
   ActionsCodec::content_type().into()
 }
 

@@ -248,6 +248,7 @@ diesel::table! {
         id -> Integer,
         hmac_key -> Nullable<Binary>,
         hmac_key_cycled_at_ns -> Nullable<BigInt>,
+        dm_group_updates_migrated -> Bool,
     }
 }
 

@@ -22,15 +22,18 @@ use crate::{
         validated_commit::{Inbox, MutableMetadataValidationInfo, ValidatedCommit},
     },
     identity::{IdentityError, parse_credential},
-    identity_updates::IdentityUpdates,
-    identity_updates::load_identity_updates,
+    identity_updates::{IdentityUpdates, load_identity_updates},
     intents::ProcessIntentError,
+    messages::{decoded_message::MessageBody, enrichment::EnrichMessageError},
     mls_store::MlsStore,
-    subscriptions::LocalEvents,
-    subscriptions::SyncWorkerEvent,
+    subscriptions::{LocalEvents, SyncWorkerEvent},
     traits::IntoWith,
-    utils::id::calculate_message_id_for_intent,
-    utils::{self, hash::sha256, id::calculate_message_id, time::hmac_epoch},
+    utils::{
+        self,
+        hash::sha256,
+        id::{calculate_message_id, calculate_message_id_for_intent},
+        time::hmac_epoch,
+    },
 };
 use update_group_membership::apply_update_group_membership_intent;
 use xmtp_configuration::{
@@ -82,12 +85,28 @@ use tracing::debug;
 use xmtp_common::{Event, Retry, RetryableError, log_event, retry_async, time::now_ns};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::group::GroupMembershipState;
+use xmtp_db::{
+    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
+    group::{ConversationType, StoredGroup},
+    group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
+    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    remote_commit_log::CommitResult,
+    sql_key_store,
+    user_preferences::StoredUserPreferences,
+};
 use xmtp_db::pending_remove::{PendingRemove, QueryPendingRemove};
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
+use xmtp_db::{TransactionalKeyStore, XmtpMlsStorageProvider, refresh_state::HasEntityKind};
+use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
+use xmtp_db::{
+    group_message::MsgQueryArgs,
+    pending_remove::{PendingRemove, QueryPendingRemove},
+};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::types::{Cursor, GroupMessage};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
+use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         GroupMessageInput, WelcomeMessageInput, WelcomeMetadata,
@@ -101,6 +120,10 @@ use xmtp_proto::xmtp::mls::{
         GroupUpdated, PlaintextEnvelope, WelcomePointer as WelcomePointerProto, group_updated,
         plaintext_envelope::{Content, V1, V2},
     },
+};
+use xmtp_proto::{
+    GroupUpdateDeduper,
+    types::{Cursor, GroupMessage},
 };
 use zeroize::Zeroizing;
 pub mod update_group_membership;
@@ -175,6 +198,8 @@ pub enum GroupMessageProcessingError {
     Builder(#[from] derive_builder::UninitializedFieldError),
     #[error(transparent)]
     Diesel(#[from] xmtp_db::diesel::result::Error),
+    #[error(transparent)]
+    EnrichMessage(#[from] EnrichMessageError),
 }
 
 impl RetryableError for GroupMessageProcessingError {
@@ -190,6 +215,7 @@ impl RetryableError for GroupMessageProcessingError {
             Self::ClearPendingCommit(err) => err.is_retryable(),
             Self::Client(err) => err.is_retryable(),
             Self::Db(e) => e.is_retryable(),
+            Self::EnrichMessage(e) => e.is_retryable(),
             Self::IntentAlreadyProcessed
             | Self::MessageIdentifierNotFound
             | Self::WrongCredentialType(_)
@@ -1864,7 +1890,7 @@ where
 
     fn handle_metadata_update_from_commit(
         &self,
-        metadata_field_changes: Vec<group_updated::MetadataFieldChange>,
+        metadata_field_changes: &Vec<group_updated::MetadataFieldChange>,
         storage: &impl XmtpMlsStorageProvider,
     ) -> Result<(), StorageError> {
         for change in metadata_field_changes {
@@ -2090,9 +2116,8 @@ where
         let mut encoded_payload_bytes = Vec::new();
         encoded_payload.encode(&mut encoded_payload_bytes)?;
 
-        let group_id = self.group_id.as_slice();
         let message_id = calculate_message_id(
-            group_id,
+            &self.group_id,
             encoded_payload_bytes.as_slice(),
             &timestamp_ns.to_string(),
         );
@@ -2107,11 +2132,17 @@ where
             }
         });
 
-        self.handle_metadata_update_from_commit(payload.metadata_field_changes, storage)?;
+        self.handle_metadata_update_from_commit(&payload.metadata_field_changes, storage)?;
+
+        // When a DM is stitched, it can repeat group updates. We want to prevent saving those messages.
+        if self.update_already_exists(&payload, storage)? {
+            return Ok(None);
+        }
+
         let msg = StoredGroupMessage {
             id: message_id,
-            group_id: group_id.to_vec(),
-            decrypted_message_bytes: encoded_payload_bytes.to_vec(),
+            group_id: self.group_id.clone(),
+            decrypted_message_bytes: encoded_payload_bytes,
             sent_at_ns: timestamp_ns as i64,
             kind: GroupMessageKind::MembershipChange,
             sender_installation_id,
@@ -2127,8 +2158,53 @@ where
             expire_at_ns: None,
             inserted_at_ns: 0, // Will be set by database
         };
+
         msg.store_or_ignore(&storage.db())?;
         Ok(Some(msg))
+    }
+
+    fn update_already_exists(
+        &self,
+        payload: &GroupUpdated,
+        storage: &impl XmtpMlsStorageProvider,
+    ) -> Result<bool, GroupMessageProcessingError> {
+        if self.dm_id.is_none() || payload.added_inboxes.is_empty() {
+            // Only dedupe for DMs.
+            // Only dedupe for group adds.
+            return Ok(false);
+        }
+
+        let mut deduper = GroupUpdateDeduper::default();
+        let mut inserted_after_ns = None;
+        let mut msgs;
+        loop {
+            // DMs are stitched, so we don't want to have the same
+            // group updates from multiple DMs being saved to the database.
+            msgs = self.find_messages_v2_with_conn(
+                &MsgQueryArgs {
+                    content_types: Some(vec![ContentType::GroupUpdated]),
+                    inserted_after_ns,
+                    limit: Some(100),
+                    ..Default::default()
+                },
+                storage.db(),
+            )?;
+
+            let Some(msg) = msgs.last() else {
+                break;
+            };
+            inserted_after_ns = Some(msg.metadata.inserted_at_ns);
+
+            for msg in msgs {
+                let MessageBody::GroupUpdated(update) = msg.content else {
+                    continue;
+                };
+
+                deduper.consume(&update);
+            }
+        }
+
+        Ok(deduper.is_dupe(payload))
     }
 
     async fn process_group_message_error_for_fork_detection(
@@ -2138,39 +2214,41 @@ where
         error: &GroupMessageProcessingError,
         mls_group: &OpenMlsGroup,
     ) -> Result<(), GroupMessageProcessingError> {
-        if let OpenMlsProcessMessage(ProcessMessageError::ValidationError(
-            ValidationError::WrongEpoch,
-        )) = error
-        {
-            let group_epoch = mls_group.epoch().as_u64();
-            let epoch_validation_result = Self::validate_message_epoch(
-                self.context.inbox_id(),
-                0,
-                GroupEpoch::from(group_epoch),
-                message_epoch,
-                MAX_PAST_EPOCHS,
-            );
-
-            if let Err(GroupMessageProcessingError::FutureEpoch(_, _)) = &epoch_validation_result {
-                let fork_details = format!(
-                    "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
-                    message_cursor, message_epoch, group_epoch
-                );
-                tracing::error!(
-                    inbox_id = self.context.inbox_id(),
-                    installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(&self.group_id),
-                    original_error = error.to_string(),
-                    fork_details
-                );
-                let _ = self
-                    .context
-                    .db()
-                    .mark_group_as_maybe_forked(&self.group_id, fork_details);
-                return epoch_validation_result;
-            }
-
+        if !matches!(
+            error,
+            OpenMlsProcessMessage(ProcessMessageError::ValidationError(
+                ValidationError::WrongEpoch,
+            ))
+        ) {
             return Ok(());
+        }
+
+        let group_epoch = mls_group.epoch().as_u64();
+        let epoch_validation_result = Self::validate_message_epoch(
+            self.context.inbox_id(),
+            0,
+            GroupEpoch::from(group_epoch),
+            message_epoch,
+            MAX_PAST_EPOCHS,
+        );
+
+        if let Err(GroupMessageProcessingError::FutureEpoch(_, _)) = &epoch_validation_result {
+            let fork_details = format!(
+                "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
+                message_cursor, message_epoch, group_epoch
+            );
+            tracing::error!(
+                inbox_id = self.context.inbox_id(),
+                installation_id = %self.context.installation_id(),
+                group_id = hex::encode(&self.group_id),
+                original_error = error.to_string(),
+                fork_details
+            );
+            let _ = self
+                .context
+                .db()
+                .mark_group_as_maybe_forked(&self.group_id, fork_details);
+            return epoch_validation_result;
         }
 
         Ok(())

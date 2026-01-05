@@ -1,3 +1,5 @@
+pub use bindings_wasm_macros::wasm_bindgen_numbered_enum;
+
 pub mod client;
 pub mod consent_state;
 pub mod content_types;
@@ -9,6 +11,7 @@ pub mod identity;
 pub mod inbox_id;
 pub mod inbox_state;
 pub mod messages;
+pub mod opfs;
 pub mod permissions;
 pub mod signatures;
 pub mod streams;

@@ -8,7 +8,7 @@ use super::deleted_message::DeletedMessage;
 use super::group_updated::GroupUpdated;
 use super::intent::Intent;
 use super::leave_request::LeaveRequest;
-use super::multi_remote_attachment::MultiRemoteAttachmentPayload;
+use super::multi_remote_attachment::MultiRemoteAttachment;
 use super::reaction::Reaction;
 use super::read_receipt::ReadReceipt;
 use super::remote_attachment::RemoteAttachment;
@@ -20,42 +20,42 @@ use crate::encoded_content::EncodedContent;
 #[napi(string_enum)]
 #[derive(Clone, PartialEq)]
 pub enum DecodedMessageContentType {
-  Text,
-  Markdown,
-  Reply,
-  Reaction,
-  Attachment,
-  RemoteAttachment,
-  MultiRemoteAttachment,
-  TransactionReference,
-  GroupUpdated,
-  ReadReceipt,
-  LeaveRequest,
-  WalletSendCalls,
-  Intent,
   Actions,
-  DeletedMessage,
+  Attachment,
   Custom,
+  GroupUpdated,
+  Intent,
+  LeaveRequest,
+  Markdown,
+  MultiRemoteAttachment,
+  Reaction,
+  ReadReceipt,
+  RemoteAttachment,
+  Reply,
+  Text,
+  TransactionReference,
+  WalletSendCalls,
+  DeletedMessage,
 }
 
 #[derive(Clone)]
 pub enum DecodedMessageContentInner {
-  Text(String),
-  Markdown(String),
-  Reply(EnrichedReply),
-  Reaction(Reaction),
-  Attachment(Attachment),
-  RemoteAttachment(RemoteAttachment),
-  MultiRemoteAttachment(MultiRemoteAttachmentPayload),
-  TransactionReference(TransactionReference),
-  GroupUpdated(GroupUpdated),
-  ReadReceipt(ReadReceipt),
-  LeaveRequest(LeaveRequest),
-  WalletSendCalls(WalletSendCalls),
-  Intent(Option<Intent>),
   Actions(Option<Actions>),
-  DeletedMessage(DeletedMessage),
+  Attachment(Attachment),
   Custom(EncodedContent),
+  GroupUpdated(GroupUpdated),
+  Intent(Option<Intent>),
+  LeaveRequest(LeaveRequest),
+  Markdown(String),
+  MultiRemoteAttachment(MultiRemoteAttachment),
+  Reaction(Reaction),
+  ReadReceipt(ReadReceipt),
+  RemoteAttachment(RemoteAttachment),
+  Reply(EnrichedReply),
+  Text(String),
+  TransactionReference(TransactionReference),
+  WalletSendCalls(WalletSendCalls),
+    DeletedMessage(DeletedMessage),
 }
 
 #[derive(Clone)]
@@ -69,28 +69,28 @@ impl DecodedMessageContent {
   #[napi(getter, js_name = "type")]
   pub fn content_type(&self) -> DecodedMessageContentType {
     match &self.inner {
-      DecodedMessageContentInner::Text(_) => DecodedMessageContentType::Text,
-      DecodedMessageContentInner::Markdown(_) => DecodedMessageContentType::Markdown,
-      DecodedMessageContentInner::Reply(_) => DecodedMessageContentType::Reply,
-      DecodedMessageContentInner::Reaction(_) => DecodedMessageContentType::Reaction,
+      DecodedMessageContentInner::Actions(_) => DecodedMessageContentType::Actions,
       DecodedMessageContentInner::Attachment(_) => DecodedMessageContentType::Attachment,
-      DecodedMessageContentInner::RemoteAttachment(_) => {
-        DecodedMessageContentType::RemoteAttachment
-      }
+      DecodedMessageContentInner::Custom(_) => DecodedMessageContentType::Custom,
+      DecodedMessageContentInner::GroupUpdated(_) => DecodedMessageContentType::GroupUpdated,
+      DecodedMessageContentInner::Intent(_) => DecodedMessageContentType::Intent,
+      DecodedMessageContentInner::LeaveRequest(_) => DecodedMessageContentType::LeaveRequest,
+      DecodedMessageContentInner::Markdown(_) => DecodedMessageContentType::Markdown,
       DecodedMessageContentInner::MultiRemoteAttachment(_) => {
         DecodedMessageContentType::MultiRemoteAttachment
       }
+      DecodedMessageContentInner::Reaction(_) => DecodedMessageContentType::Reaction,
+      DecodedMessageContentInner::ReadReceipt(_) => DecodedMessageContentType::ReadReceipt,
+      DecodedMessageContentInner::RemoteAttachment(_) => {
+        DecodedMessageContentType::RemoteAttachment
+      }
+      DecodedMessageContentInner::Reply(_) => DecodedMessageContentType::Reply,
+      DecodedMessageContentInner::Text(_) => DecodedMessageContentType::Text,
       DecodedMessageContentInner::TransactionReference(_) => {
         DecodedMessageContentType::TransactionReference
       }
-      DecodedMessageContentInner::GroupUpdated(_) => DecodedMessageContentType::GroupUpdated,
-      DecodedMessageContentInner::ReadReceipt(_) => DecodedMessageContentType::ReadReceipt,
-      DecodedMessageContentInner::LeaveRequest(_) => DecodedMessageContentType::LeaveRequest,
       DecodedMessageContentInner::WalletSendCalls(_) => DecodedMessageContentType::WalletSendCalls,
-      DecodedMessageContentInner::Intent(_) => DecodedMessageContentType::Intent,
-      DecodedMessageContentInner::Actions(_) => DecodedMessageContentType::Actions,
       DecodedMessageContentInner::DeletedMessage(_) => DecodedMessageContentType::DeletedMessage,
-      DecodedMessageContentInner::Custom(_) => DecodedMessageContentType::Custom,
     }
   }
 
@@ -143,7 +143,7 @@ impl DecodedMessageContent {
   }
 
   #[napi(getter)]
-  pub fn multi_remote_attachment(&self) -> Option<MultiRemoteAttachmentPayload> {
+  pub fn multi_remote_attachment(&self) -> Option<MultiRemoteAttachment> {
     match &self.inner {
       DecodedMessageContentInner::MultiRemoteAttachment(mra) => Some(mra.clone()),
       _ => None,

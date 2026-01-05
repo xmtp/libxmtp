@@ -9,6 +9,7 @@ members = [
   "xmtp_api",
   "xmtp_id",
   "bindings_wasm",
+  "bindings_wasm_macros",
   "bindings_node",
   "bindings_ffi",
   "xmtp_debug",
@@ -52,7 +53,7 @@ resolver = "2"
 
 [workspace.package]
 license = "MIT"
-version = "1.7.0-dev"
+version = "1.8.0-dev"
 
 [workspace.dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
@@ -66,6 +67,7 @@ async-compression = { default-features = false, version = "0.4", features = [
 async-trait = "0.1.77"
 base64 = "0.22"
 bincode = { version = "1.3" }
+rustc-hash = "2.1.1"
 bytes = "1.9"
 chrono = "0.4.38"
 clap = { version = "4", features = ["derive"] }
@@ -159,6 +161,7 @@ http-body-util = { version = "0.1" }
 
 # Internal Crate Dependencies
 bindings-wasm = { path = "bindings_wasm" }
+bindings_wasm_macros = { path = "bindings_wasm_macros" }
 xmtp_api = { path = "xmtp_api" }
 xmtp_api_d14n = { path = "xmtp_api_d14n" }
 xmtp_api_grpc = { path = "xmtp_api_grpc" }

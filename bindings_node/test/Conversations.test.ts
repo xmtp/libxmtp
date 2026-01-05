@@ -4,24 +4,21 @@ import {
   createRegisteredClient,
   createToxicRegisteredClient,
   createUser,
+  sleep,
 } from '@test/helpers'
 import {
   ConsentState,
+  contentTypeGroupUpdated,
+  contentTypeText,
   Conversation,
   ConversationType,
   GroupPermissionsOptions,
-  groupUpdatedContentType,
   IdentifierKind,
   Message,
   MetadataField,
   PermissionPolicy,
   PermissionUpdateType,
-  textContentType,
 } from '../dist'
-
-const SLEEP_MS = 300
-const sleep = (timeout: number = SLEEP_MS) =>
-  new Promise((resolve) => setTimeout(resolve, timeout))
 
 describe('Conversations', () => {
   it('should not have initial conversations', async () => {
@@ -44,7 +41,7 @@ describe('Conversations', () => {
     ])
     expect(group).toBeDefined()
     expect(group.id()).toBeDefined()
-    expect(group.createdAtNs()).toBeTypeOf('number')
+    expect(group.createdAtNs()).toBeTypeOf('bigint')
     expect(group.isActive()).toBe(true)
     expect(group.groupName()).toBe('')
     expect(group.groupPermissions().policyType()).toBe(
@@ -55,6 +52,7 @@ describe('Conversations', () => {
       removeMemberPolicy: 2,
       addAdminPolicy: 3,
       removeAdminPolicy: 3,
+      updateAppDataPolicy: 0,
       updateGroupNamePolicy: 0,
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
@@ -67,7 +65,9 @@ describe('Conversations', () => {
     const memberInboxIds = members.map((member) => member.inboxId)
     expect(memberInboxIds).toContain(client1.inboxId())
     expect(memberInboxIds).toContain(client2.inboxId())
-    expect((await group.groupMetadata()).conversationType()).toBe('group')
+    expect((await group.groupMetadata()).conversationType()).toBe(
+      ConversationType.Group
+    )
     expect((await group.groupMetadata()).creatorInboxId()).toBe(
       client1.inboxId()
     )
@@ -124,6 +124,7 @@ describe('Conversations', () => {
           addMemberPolicy: 3,
           removeAdminPolicy: 1,
           removeMemberPolicy: 0,
+          updateAppDataPolicy: 1,
           updateGroupNamePolicy: 2,
           updateGroupDescriptionPolicy: 1,
           updateGroupImageUrlSquarePolicy: 0,
@@ -140,6 +141,7 @@ describe('Conversations', () => {
       addMemberPolicy: 3,
       removeAdminPolicy: 1,
       removeMemberPolicy: 0,
+      updateAppDataPolicy: 1,
       updateGroupNamePolicy: 2,
       updateGroupDescriptionPolicy: 1,
       updateGroupImageUrlSquarePolicy: 0,
@@ -164,6 +166,7 @@ describe('Conversations', () => {
       removeMemberPolicy: 2,
       addAdminPolicy: 3,
       removeAdminPolicy: 3,
+      updateAppDataPolicy: 0,
       updateGroupNamePolicy: 0,
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
@@ -180,6 +183,7 @@ describe('Conversations', () => {
       removeMemberPolicy: 2,
       addAdminPolicy: 1,
       removeAdminPolicy: 3,
+      updateAppDataPolicy: 0,
       updateGroupNamePolicy: 0,
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
@@ -197,6 +201,7 @@ describe('Conversations', () => {
       removeMemberPolicy: 2,
       addAdminPolicy: 1,
       removeAdminPolicy: 3,
+      updateAppDataPolicy: 0,
       updateGroupNamePolicy: 1,
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
@@ -215,7 +220,7 @@ describe('Conversations', () => {
     })
     expect(group).toBeDefined()
     expect(group.id()).toBeDefined()
-    expect(group.createdAtNs()).toBeTypeOf('number')
+    expect(group.createdAtNs()).toBeTypeOf('bigint')
     expect(group.isActive()).toBe(true)
     expect(group.groupName()).toBe('')
     expect(group.groupPermissions().policyType()).toBe(
@@ -226,6 +231,7 @@ describe('Conversations', () => {
       addMemberPolicy: 1,
       removeAdminPolicy: 1,
       removeMemberPolicy: 1,
+      updateAppDataPolicy: 0,
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupNamePolicy: 0,
@@ -238,7 +244,9 @@ describe('Conversations', () => {
     const memberInboxIds = members.map((member) => member.inboxId)
     expect(memberInboxIds).toContain(client1.inboxId())
     expect(memberInboxIds).toContain(client2.inboxId())
-    expect((await group.groupMetadata()).conversationType()).toBe('dm')
+    expect((await group.groupMetadata()).conversationType()).toBe(
+      ConversationType.Dm
+    )
     expect((await group.groupMetadata()).creatorInboxId()).toBe(
       client1.inboxId()
     )
@@ -405,6 +413,7 @@ describe('Conversations', () => {
       removeMemberPolicy: 2,
       addAdminPolicy: 3,
       removeAdminPolicy: 3,
+      updateAppDataPolicy: 2,
       updateGroupNamePolicy: 2,
       updateGroupDescriptionPolicy: 2,
       updateGroupImageUrlSquarePolicy: 2,
@@ -493,8 +502,6 @@ describe('Conversations', () => {
   })
 
   it('should error when connection dies', { timeout: 45_000 }, async () => {
-    const long_sleep = () =>
-      new Promise((resolve) => setTimeout(resolve, 30_000))
     const user1 = createUser()
     const user2 = createUser()
     const client2 = await createRegisteredClient(user2)
@@ -522,11 +529,11 @@ describe('Conversations', () => {
     )
 
     await startNewConvo()
-    await sleep()
+    await sleep(1000)
     expect(groups.length).toBe(1)
     await client1.withTimeout('downstream', 60000, 1.0)
     await startNewConvo()
-    await long_sleep() // the stream should end and call on_close
+    await sleep(30000) // the stream should end and call on_close
     expect(groups.length).toBe(2)
     expect(closed).toBe(true)
   })
@@ -567,7 +574,7 @@ describe('Conversations', () => {
       },
     ])
 
-    await sleep()
+    await sleep(1000)
 
     stream.end()
     expect(groups.length).toBe(2)
@@ -610,7 +617,7 @@ describe('Conversations', () => {
       identifierKind: IdentifierKind.Ethereum,
     })
 
-    await sleep()
+    await sleep(1000)
 
     stream.end()
     expect(groups.length).toBe(1)
@@ -780,7 +787,7 @@ describe('Conversations', () => {
     const message1 = await groupsList2[0].conversation.sendText('gm!')
     const message2 = await groupsList3[0].conversation.sendText('gm2!')
 
-    await sleep()
+    await sleep(1000)
 
     stream.end()
     expect(messages.length).toBe(2)
@@ -842,7 +849,7 @@ describe('Conversations', () => {
     await groupsList3[0].conversation.sendText('gm2!')
     const message3 = await groupsList4[0].conversation.sendText('gm3!')
 
-    await sleep()
+    await sleep(1000)
 
     stream.end()
     expect(messages.length).toBe(1)
@@ -878,7 +885,7 @@ describe('Conversations', () => {
     await client_a_conversations[0].conversation.sendText('gm!')
 
     // confirm the agent received the message
-    await sleep(10000)
+    await sleep(1000)
     expect(messages.length).toBe(1)
 
     // User introduce Client B
@@ -898,7 +905,7 @@ describe('Conversations', () => {
     await client_b_conversations[0].conversation.sendText('b')
 
     // confirm the agent received the second message
-    await sleep(10000)
+    await sleep(1000)
     expect(messages.length).toBe(2)
 
     stream.end()
@@ -994,29 +1001,29 @@ describe('Conversations', () => {
     await group2.sync()
     const messages2 = await group2.findMessages()
     expect(messages2.length).toBe(3)
-    expect(messages2[0].content.type).toEqual(groupUpdatedContentType())
-    expect(messages2[1].content.type).toEqual(groupUpdatedContentType())
-    expect(messages2[2].content.type).toEqual(textContentType())
+    expect(messages2[0].content.type).toEqual(contentTypeGroupUpdated())
+    expect(messages2[1].content.type).toEqual(contentTypeGroupUpdated())
+    expect(messages2[2].content.type).toEqual(contentTypeText())
 
     await client3.conversations().sync()
     const group3 = client3.conversations().findGroupById(group1.id())
     await group3.sync()
     const messages3 = await group3.findMessages()
     expect(messages3.length).toBe(6)
-    expect(messages3[0].content.type).toEqual(groupUpdatedContentType())
-    expect(messages3[1].content.type).toEqual(textContentType())
-    expect(messages3[2].content.type).toEqual(groupUpdatedContentType())
-    expect(messages3[3].content.type).toEqual(textContentType())
-    expect(messages3[4].content.type).toEqual(groupUpdatedContentType())
-    expect(messages3[5].content.type).toEqual(textContentType())
+    expect(messages3[0].content.type).toEqual(contentTypeGroupUpdated())
+    expect(messages3[1].content.type).toEqual(contentTypeText())
+    expect(messages3[2].content.type).toEqual(contentTypeGroupUpdated())
+    expect(messages3[3].content.type).toEqual(contentTypeText())
+    expect(messages3[4].content.type).toEqual(contentTypeGroupUpdated())
+    expect(messages3[5].content.type).toEqual(contentTypeText())
 
     await client2_2.conversations().sync()
     const group4 = client2_2.conversations().findGroupById(group1.id())
     await group4.sync()
     const messages4 = await group4.findMessages()
     expect(messages4.length).toBe(3)
-    expect(messages4[0].content.type).toEqual(groupUpdatedContentType())
-    expect(messages4[1].content.type).toEqual(groupUpdatedContentType())
-    expect(messages4[2].content.type).toEqual(textContentType())
+    expect(messages4[0].content.type).toEqual(contentTypeGroupUpdated())
+    expect(messages4[1].content.type).toEqual(contentTypeGroupUpdated())
+    expect(messages4[2].content.type).toEqual(contentTypeText())
   })
 })

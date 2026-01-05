@@ -1,9 +1,9 @@
-use xmtp_db::group_message::{ContentType as DbContentType, MsgQueryArgs};
-
 use crate::context::XmtpSharedContext;
-use crate::groups::{GroupError, MlsGroup};
+use crate::groups::MlsGroup;
 use crate::messages::decoded_message::DecodedMessage;
-use crate::messages::enrichment::enrich_messages;
+use crate::messages::enrichment::{EnrichMessageError, enrich_messages};
+use xmtp_db::DbQuery;
+use xmtp_db::group_message::{ContentType as DbContentType, MsgQueryArgs};
 use xmtp_db::prelude::QueryGroupMessage;
 
 impl<Context> MlsGroup<Context>
@@ -13,15 +13,25 @@ where
     pub fn find_messages_v2(
         &self,
         query: &MsgQueryArgs,
-    ) -> Result<Vec<DecodedMessage>, GroupError> {
+    ) -> Result<Vec<DecodedMessage>, EnrichMessageError> {
         let conn = self.context.db();
+        self.find_messages_v2_with_conn(query, conn)
+    }
 
+    pub fn find_messages_v2_with_conn<C>(
+        &self,
+        query: &MsgQueryArgs,
+        conn: C,
+    ) -> Result<Vec<DecodedMessage>, EnrichMessageError>
+    where
+        C: QueryGroupMessage + DbQuery,
+    {
         let initial_messages = conn.get_group_messages(
             &self.group_id,
             &filter_out_hidden_message_types_from_query(query),
         )?;
 
-        Ok(enrich_messages(conn, &self.group_id, initial_messages)?)
+        enrich_messages(conn, &self.group_id, initial_messages)
     }
 }
 
@@ -33,13 +43,19 @@ fn filter_out_hidden_message_types_from_query(query: &MsgQueryArgs) -> MsgQueryA
         DbContentType::DeleteMessage,
     ];
 
-    let mut exclusions = new_query.exclude_content_types.unwrap_or_default();
-    for content_type in hidden_message_types {
-        if !exclusions.contains(&content_type) {
-            exclusions.push(content_type);
+    let excluded_content_types = match &query.exclude_content_types {
+        Some(excluded) => {
+            let mut content_types = excluded.clone();
+            content_types.extend(
+                hidden_message_types
+                    .into_iter()
+                    .filter(|t| !excluded.contains(t)),
+            );
+            content_types
         }
-    }
-    new_query.exclude_content_types = Some(exclusions);
+        None => hidden_message_types,
+    };
+    new_query.exclude_content_types = Some(excluded_content_types);
     new_query
 }
 
@@ -244,6 +260,53 @@ mod tests {
     }
 
     // ===== Tests =====
+
+    #[tokio::test]
+    async fn test_exclude_content_types_with_custom_exclusions() {
+        let (group, context) = setup_test_group().await;
+        let conn = context.db();
+
+        // Store a text message
+        create_and_store_message(
+            &conn,
+            &group.group_id,
+            vec![1],
+            TestContentGenerator::text_content("Hello World"),
+            0,
+            "sender1",
+        );
+
+        // Store a GroupUpdated message
+        create_and_store_message(
+            &conn,
+            &group.group_id,
+            vec![2],
+            TestContentGenerator::group_updated_content(vec!["inbox1".to_string()]),
+            1000,
+            "sender2",
+        );
+
+        // Query with default args - should return both messages
+        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        assert_message_count(&messages, 2);
+
+        // Query excluding Text messages - should only return the GroupUpdated message
+        let query = MsgQueryArgs {
+            exclude_content_types: Some(vec![DbContentType::Text]),
+            ..Default::default()
+        };
+        let messages = group.find_messages_v2(&query).unwrap();
+
+        assert_message_count(&messages, 1);
+        if let MessageBody::GroupUpdated(_) = &messages[0].content {
+            // Expected
+        } else {
+            panic!(
+                "Expected GroupUpdated message, got {:?}",
+                messages[0].content
+            );
+        }
+    }
 
     #[tokio::test]
     async fn test_find_messages_no_reactions_or_replies() {

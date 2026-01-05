@@ -44,7 +44,7 @@ impl From<ReactionV2> for Reaction {
 }
 
 #[napi]
-pub fn reaction_content_type() -> ContentTypeId {
+pub fn content_type_reaction() -> ContentTypeId {
   ReactionCodec::content_type().into()
 }
 

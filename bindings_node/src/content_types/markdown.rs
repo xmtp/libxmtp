@@ -6,7 +6,7 @@ use crate::ErrorWrapper;
 use crate::encoded_content::{ContentTypeId, EncodedContent};
 
 #[napi]
-pub fn markdown_content_type() -> ContentTypeId {
+pub fn content_type_markdown() -> ContentTypeId {
   MarkdownCodec::content_type().into()
 }
 

@@ -11,14 +11,22 @@ use xmtp_db::{
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn basic_sync() {
-    tester!(alix1, sync_server, sync_worker, stream);
+    tester!(alix1, sync_server, sync_worker);
     tester!(bo);
     // Talk with bo
     let (dm, dm_msg) = alix1.test_talk_in_dm_with(&bo).await?;
     // Create a second client for alix
     tester!(alix2, from: alix1);
 
+    alix1.sync_all_welcomes_and_groups(None).await?;
+    alix1
+        .worker()
+        .register_interest(SyncMetric::PayloadSent, 1)
+        .wait()
+        .await?;
+
     // Have alix2 receive payload and process it
+    alix2.sync_all_welcomes_and_groups(None).await?;
     alix2
         .worker()
         .register_interest(SyncMetric::PayloadProcessed, 1)
@@ -29,7 +37,11 @@ async fn basic_sync() {
     let alix2_dm = alix2.group(&dm.group_id)?;
     let alix2_dm_msgs = alix2_dm.find_messages(&MsgQueryArgs::default())?;
     assert_eq!(alix2_dm_msgs.len(), 2);
-    assert_eq!(alix2_dm_msgs[1].decrypted_message_bytes, dm_msg.as_bytes());
+    assert!(
+        alix2_dm_msgs
+            .iter()
+            .any(|msg| msg.decrypted_message_bytes == dm_msg.as_bytes())
+    );
 }
 
 #[rstest::rstest]

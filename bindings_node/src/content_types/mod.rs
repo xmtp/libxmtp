@@ -20,35 +20,43 @@ pub mod wallet_send_calls;
 
 #[napi]
 pub enum ContentType {
-  Unknown,
-  Text,
-  Markdown,
-  LeaveRequest,
+  Actions,
+  Attachment,
+  Custom,
   GroupMembershipChange,
   GroupUpdated,
+  Intent,
+  LeaveRequest,
+  Markdown,
+  MultiRemoteAttachment,
   Reaction,
   ReadReceipt,
-  Reply,
-  Attachment,
   RemoteAttachment,
+  Reply,
+  Text,
   TransactionReference,
+  WalletSendCalls,
 }
 
 impl From<ContentType> for XmtpContentType {
   fn from(value: ContentType) -> Self {
     match value {
-      ContentType::Unknown => XmtpContentType::Unknown,
-      ContentType::Text => XmtpContentType::Text,
-      ContentType::Markdown => XmtpContentType::Markdown,
-      ContentType::LeaveRequest => XmtpContentType::LeaveRequest,
+      ContentType::Actions => XmtpContentType::Actions,
+      ContentType::Attachment => XmtpContentType::Attachment,
+      ContentType::Custom => XmtpContentType::Unknown,
       ContentType::GroupMembershipChange => XmtpContentType::GroupMembershipChange,
       ContentType::GroupUpdated => XmtpContentType::GroupUpdated,
+      ContentType::Intent => XmtpContentType::Intent,
+      ContentType::LeaveRequest => XmtpContentType::LeaveRequest,
+      ContentType::Markdown => XmtpContentType::Markdown,
+      ContentType::MultiRemoteAttachment => XmtpContentType::MultiRemoteAttachment,
+      ContentType::Text => XmtpContentType::Text,
       ContentType::Reaction => XmtpContentType::Reaction,
       ContentType::ReadReceipt => XmtpContentType::ReadReceipt,
       ContentType::Reply => XmtpContentType::Reply,
-      ContentType::Attachment => XmtpContentType::Attachment,
       ContentType::RemoteAttachment => XmtpContentType::RemoteAttachment,
       ContentType::TransactionReference => XmtpContentType::TransactionReference,
+      ContentType::WalletSendCalls => XmtpContentType::WalletSendCalls,
     }
   }
 }

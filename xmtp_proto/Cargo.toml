@@ -29,6 +29,7 @@ tonic-prost = "0.14"
 tracing.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
+rustc-hash.workspace = true
 
 mockall = { workspace = true, optional = true }
 tokio = { workspace = true, default-features = false, features = [

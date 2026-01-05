@@ -501,6 +501,7 @@ async fn test_dm_permissions_show_expected_values() {
         update_group_description_policy: FfiPermissionPolicy::Allow,
         update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
         update_message_disappearing_policy: FfiPermissionPolicy::Allow,
+        update_app_data_policy: FfiPermissionPolicy::Allow,
     };
     assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
 
@@ -530,6 +531,7 @@ async fn test_dm_permissions_show_expected_values() {
         update_group_description_policy: FfiPermissionPolicy::Allow,
         update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
         update_message_disappearing_policy: FfiPermissionPolicy::Admin,
+        update_app_data_policy: FfiPermissionPolicy::Allow,
     };
     assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
 }
@@ -661,10 +663,10 @@ async fn test_can_successfully_thread_dms() {
         .find_messages(FfiListMessagesOptions::default())
         .await
         .unwrap();
-    assert_eq!(bo_messages.len(), 3, "Bo should see 3 messages after sync");
+    assert_eq!(bo_messages.len(), 4, "Bo should see 3 messages after sync");
     assert_eq!(
         alix_messages.len(),
-        3,
+        4,
         "Alix should see 3 messages after sync"
     );
 
@@ -749,8 +751,8 @@ async fn test_can_successfully_thread_dms() {
         .await
         .unwrap();
 
-    assert_eq!(final_bo_messages.len(), 5, "Bo should see 5 messages");
-    assert_eq!(final_alix_messages.len(), 5, "Alix should see 5 messages");
+    assert_eq!(final_bo_messages.len(), 6, "Bo should see 5 messages");
+    assert_eq!(final_alix_messages.len(), 6, "Alix should see 5 messages");
 }
 
 #[tokio::test]

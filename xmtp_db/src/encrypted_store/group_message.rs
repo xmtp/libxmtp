@@ -24,8 +24,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use xmtp_common::{NS_IN_DAY, time::now_ns};
 use xmtp_content_types::{
-    attachment, delete_message, group_updated, leave_request, markdown, membership_change,
-    reaction, read_receipt, remote_attachment, reply, text, transaction_reference,
+    actions, attachment, delete_message, group_updated, intent,leave_request, markdown, membership_change,
+   multi_remote_attachment, reaction, read_receipt, remote_attachment, reply, text, transaction_reference,
     wallet_send_calls,
 };
 use xmtp_proto::types::Cursor;
@@ -217,7 +217,10 @@ pub enum ContentType {
     WalletSendCalls = 10,
     LeaveRequest = 11,
     Markdown = 12,
-    DeleteMessage = 13,
+    Actions = 13,
+    Intent = 14,
+    MultiRemoteAttachment = 15,
+    DeleteMessage = 16,
 }
 
 impl ContentType {
@@ -236,6 +239,9 @@ impl ContentType {
             ContentType::WalletSendCalls,
             ContentType::LeaveRequest,
             ContentType::Markdown,
+            ContentType::Actions,
+            ContentType::Intent,
+            ContentType::MultiRemoteAttachment,
             ContentType::DeleteMessage,
         ]
     }
@@ -279,6 +285,11 @@ impl std::fmt::Display for ContentType {
             Self::TransactionReference => transaction_reference::TransactionReferenceCodec::TYPE_ID,
             Self::WalletSendCalls => wallet_send_calls::WalletSendCallsCodec::TYPE_ID,
             Self::LeaveRequest => leave_request::LeaveRequestCodec::TYPE_ID,
+            Self::Actions => actions::ActionsCodec::TYPE_ID,
+            Self::Intent => intent::IntentCodec::TYPE_ID,
+            Self::MultiRemoteAttachment => {
+                multi_remote_attachment::MultiRemoteAttachmentCodec::TYPE_ID
+            }
             Self::DeleteMessage => delete_message::DeleteMessageCodec::TYPE_ID,
         };
 
@@ -301,6 +312,11 @@ impl From<String> for ContentType {
             transaction_reference::TransactionReferenceCodec::TYPE_ID => Self::TransactionReference,
             wallet_send_calls::WalletSendCallsCodec::TYPE_ID => Self::WalletSendCalls,
             leave_request::LeaveRequestCodec::TYPE_ID => Self::LeaveRequest,
+            actions::ActionsCodec::TYPE_ID => Self::Actions,
+            intent::IntentCodec::TYPE_ID => Self::Intent,
+            multi_remote_attachment::MultiRemoteAttachmentCodec::TYPE_ID => {
+                Self::MultiRemoteAttachment
+            }
             delete_message::DeleteMessageCodec::TYPE_ID => Self::DeleteMessage,
             _ => Self::Unknown,
         }
@@ -336,7 +352,10 @@ where
             10 => Ok(ContentType::WalletSendCalls),
             11 => Ok(ContentType::LeaveRequest),
             12 => Ok(ContentType::Markdown),
-            13 => Ok(ContentType::DeleteMessage),
+            13 => Ok(ContentType::Actions),
+            14 => Ok(ContentType::Intent),
+            15 => Ok(ContentType::MultiRemoteAttachment),
+            16 => Ok(ContentType::DeleteMessage),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
@@ -414,7 +433,7 @@ where
     }
 }
 
-#[derive(Default, Clone, Builder)]
+#[derive(Default, Clone, Builder, Debug)]
 #[builder(setter(into))]
 pub struct MsgQueryArgs {
     #[builder(default = None)]
@@ -822,15 +841,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         group_id: &[u8],
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
-        use crate::schema::{group_messages::dsl, groups::dsl as groups_dsl};
-
-        // Check if this is a DM group
-        let is_dm = self.raw_query_read(|conn| {
-            groups_dsl::groups
-                .filter(groups_dsl::id.eq(group_id))
-                .select(groups_dsl::conversation_type)
-                .first::<ConversationType>(conn)
-        })? == ConversationType::Dm;
+        use crate::schema::group_messages::dsl;
 
         // Start with base query
         let mut query = dsl::group_messages
@@ -866,39 +877,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             query = query.limit(limit);
         }
 
-        let messages = self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))?;
-
-        // Mirroring previous behaviour, if you explicitly want duplicate group updates for DMs
-        // you can include that type in the content_types argument.
-        let include_duplicate_group_updated = args
-            .content_types
-            .as_ref()
-            .map(|types| types.contains(&ContentType::GroupUpdated))
-            .unwrap_or(false);
-
-        let messages = if is_dm && !include_duplicate_group_updated {
-            // For DM conversations, do some gymnastics to make sure that there is only one GroupUpdated
-            // message and that it is treated as the oldest
-            let (group_updated_msgs, non_group_msgs): (Vec<_>, Vec<_>) = messages
-                .into_iter()
-                .partition(|msg| msg.content_type == ContentType::GroupUpdated);
-
-            let oldest_group_updated = group_updated_msgs
-                .into_iter()
-                .min_by_key(|msg| msg.sent_at_ns);
-
-            match oldest_group_updated {
-                Some(msg) => match args.direction.as_ref().unwrap_or(&SortDirection::Ascending) {
-                    SortDirection::Ascending => [vec![msg], non_group_msgs].concat(),
-                    SortDirection::Descending => [non_group_msgs, vec![msg]].concat(),
-                },
-                None => non_group_msgs,
-            }
-        } else {
-            messages
-        };
-
-        Ok(messages)
+        self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))
     }
 
     /// Count group messages matching the given criteria

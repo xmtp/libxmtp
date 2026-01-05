@@ -17,7 +17,9 @@ use std::error::Error;
 use xmtp_api_d14n::MessageBackendBuilderError;
 use xmtp_common::time::Expired;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_mls::mls_common::group_metadata::GroupMetadataError;
+use xmtp_mls::{
+    messages::enrichment::EnrichMessageError, mls_common::group_metadata::GroupMetadataError,
+};
 
 extern crate tracing as log;
 
@@ -82,6 +84,8 @@ pub enum GenericError {
     BackendBuilder(#[from] MessageBackendBuilderError),
     #[error(transparent)]
     Api(#[from] xmtp_api::ApiError),
+    #[error(transparent)]
+    Enrich(#[from] EnrichMessageError),
 }
 
 // this impl allows us to gracefully handle unexpected errors from foreign code without panicking

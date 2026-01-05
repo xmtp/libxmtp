@@ -306,7 +306,11 @@ mod tests {
         assert_ne!(alix_bo_dm.group_id, alix2_bo_dm.group_id);
         let mut msgs = alix2_bo_dm.find_messages(&MsgQueryArgs::default())?;
         assert_eq!(msgs.len(), 2);
-        assert_eq!(msgs[1].decrypted_message_bytes, b"old group");
+        assert!(
+            msgs.iter()
+                .any(|m| m.decrypted_message_bytes == b"old group")
+        );
+
         // assert_eq!(alix2_bo_dm.test_last_message_bytes().await??, b"old group");
 
         let timestamp2 = alix2
