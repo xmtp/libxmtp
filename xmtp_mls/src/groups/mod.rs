@@ -116,6 +116,7 @@ use xmtp_proto::{
         plaintext_envelope::{Content, V1},
     },
 };
+use crate::messages::enrichment::EnrichMessageError;
 
 const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
@@ -881,7 +882,7 @@ where
     pub fn find_enriched_messages(
         &self,
         args: &MsgQueryArgs,
-    ) -> Result<Vec<crate::messages::decoded_message::DecodedMessage>, GroupError> {
+    ) -> Result<Vec<crate::messages::decoded_message::DecodedMessage>, EnrichMessageError> {
         let conn = self.context.db();
         let messages = conn.get_group_messages(&self.group_id, args)?;
         let enriched =

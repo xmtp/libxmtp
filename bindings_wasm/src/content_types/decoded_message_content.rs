@@ -6,8 +6,8 @@ use xmtp_mls::messages::decoded_message::MessageBody;
 use super::{
   actions::Actions, attachment::Attachment, deleted_message::DeletedMessage,
   group_updated::GroupUpdated, intent::Intent, leave_request::LeaveRequest,
-   multi_remote_attachment::MultiRemoteAttachment, reaction::Reaction,
-  read_receipt::ReadReceipt, remote_attachment::RemoteAttachment, reply::EnrichedReply,
+  multi_remote_attachment::MultiRemoteAttachment, reaction::Reaction, read_receipt::ReadReceipt,
+  remote_attachment::RemoteAttachment, reply::EnrichedReply,
   transaction_reference::TransactionReference, wallet_send_calls::WalletSendCalls,
 };
 use crate::encoded_content::EncodedContent;

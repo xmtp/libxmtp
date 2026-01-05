@@ -40,19 +40,6 @@ use xmtp_configuration::{
     GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
     SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
-use xmtp_db::{
-    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
-    group::{ConversationType, StoredGroup},
-    group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
-    group_message::{ContentType, Deletable, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-    message_deletion::StoredMessageDeletion,
-    remote_commit_log::CommitResult,
-    sql_key_store,
-    user_preferences::StoredUserPreferences,
-};
-use xmtp_db::{TransactionalKeyStore, XmtpMlsStorageProvider, refresh_state::HasEntityKind};
-use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
-use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 
 use futures::future::try_join_all;
 use hkdf::Hkdf;
@@ -85,6 +72,7 @@ use tracing::debug;
 use xmtp_common::{Event, Retry, RetryableError, log_event, retry_async, time::now_ns};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::group::GroupMembershipState;
+use xmtp_db::message_deletion::StoredMessageDeletion;
 use xmtp_db::{
     Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
     group::{ConversationType, StoredGroup},
@@ -94,7 +82,6 @@ use xmtp_db::{
     sql_key_store,
     user_preferences::StoredUserPreferences,
 };
-use xmtp_db::pending_remove::{PendingRemove, QueryPendingRemove};
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_db::{TransactionalKeyStore, XmtpMlsStorageProvider, refresh_state::HasEntityKind};
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
@@ -103,10 +90,9 @@ use xmtp_db::{
     pending_remove::{PendingRemove, QueryPendingRemove},
 };
 use xmtp_id::{InboxId, InboxIdRef};
-use xmtp_proto::types::{Cursor, GroupMessage};
+use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
-use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         GroupMessageInput, WelcomeMessageInput, WelcomeMetadata,
@@ -126,6 +112,7 @@ use xmtp_proto::{
     types::{Cursor, GroupMessage},
 };
 use zeroize::Zeroizing;
+
 pub mod update_group_membership;
 
 #[derive(Debug, Error)]

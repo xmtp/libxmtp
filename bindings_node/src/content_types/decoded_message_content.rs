@@ -55,7 +55,7 @@ pub enum DecodedMessageContentInner {
   Text(String),
   TransactionReference(TransactionReference),
   WalletSendCalls(WalletSendCalls),
-    DeletedMessage(DeletedMessage),
+  DeletedMessage(DeletedMessage),
 }
 
 #[derive(Clone)]
