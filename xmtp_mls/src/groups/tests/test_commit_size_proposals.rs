@@ -1,11 +1,15 @@
 use crate::context::XmtpSharedContext;
 use crate::groups::GroupError;
+use crate::groups::mls_ext::{CommitLogStorer, build_group_join_config};
 use crate::groups::mls_sync::{generate_commit_with_rollback, with_rollback};
+use crate::identity::parse_credential;
 use crate::utils::fixtures::{alix, bola};
-use openmls::prelude::MlsMessageIn;
+use openmls::credentials::BasicCredential;
 use openmls::prelude::hash_ref::HashReference;
 use openmls::prelude::tls_codec::Serialize;
+use openmls::prelude::{MlsMessageIn, StagedWelcome};
 use tls_codec::Deserialize;
+use xmtp_db::XmtpOpenMlsProviderRef;
 
 /// Test to compare commit sizes when using proposals inline vs proposal references
 ///
@@ -464,9 +468,7 @@ async fn test_commit_sizes_with_proposals() {
         let key_package = tester
             .identity()
             .new_key_package(&tester.context.mls_provider(), true)
-            .unwrap()
-            .key_package
-            .clone();
+            .unwrap();
         let storage = groups[0].context.mls_storage();
         let (proposal, old_commit, old_welcome) = groups[0]
             .load_mls_group_with_lock_async(async |mut mls_group| {
@@ -476,7 +478,7 @@ async fn test_commit_sizes_with_proposals() {
                             .update_group_membership(
                                 provider,
                                 &testers[0].identity().installation_keys,
-                                &[key_package.clone()],
+                                &[key_package.key_package.clone()],
                                 &[],
                                 group.extensions().clone(),
                             )
@@ -484,7 +486,7 @@ async fn test_commit_sizes_with_proposals() {
                     })
                     .unwrap();
                 let (proposal, _) = mls_group
-                    .propose_add_member(&provider, &signer, &key_package)
+                    .propose_add_member(&provider, &signer, &key_package.key_package)
                     .map_err(|e| GroupError::Any(e.into()))?;
                 Ok::<_, GroupError>((proposal, old_commit, old_welcome))
             })
@@ -528,6 +530,17 @@ async fn test_commit_sizes_with_proposals() {
                             .map_err(|e| GroupError::Any(e.into()))
                     })
                     .unwrap();
+                // Extract Welcome from MlsMessageOut before serializing
+                let welcome = welcome.and_then(|msg| {
+                    // MlsMessageOut is an enum, extract the Welcome if present
+                    // Serialize and deserialize to extract the inner Welcome
+                    let bytes = msg.tls_serialize_detached().ok()?;
+                    let mls_msg_in = MlsMessageIn::tls_deserialize_exact(&bytes).ok()?;
+                    // For Welcome messages, we can extract it from the protocol message
+                    // But actually, MlsMessageOut::Welcome contains the Welcome directly
+                    // Let's just keep the bytes and extract later
+                    Some(bytes)
+                });
                 Ok::<_, GroupError>((commit, welcome))
             })
             .await
@@ -536,7 +549,8 @@ async fn test_commit_sizes_with_proposals() {
         let old_commit = old_commit.tls_serialize_detached().unwrap();
         let old_welcome = old_welcome.map_or(vec![], |w| w.tls_serialize_detached().unwrap());
         let commit = commit.tls_serialize_detached().unwrap();
-        let welcome_size = welcome.map_or(0, |w| w.tls_serialize_detached().unwrap().len());
+        let welcome_bytes = welcome.unwrap_or_default();
+        let welcome_size = welcome_bytes.len();
 
         tracing::warn!(
             proposal_size,
@@ -570,7 +584,75 @@ async fn test_commit_sizes_with_proposals() {
             result.unwrap();
         }
 
-        // TODO: Send welcome to new tester, process welcome and commit to the group to fill in leaf nodes.
+        // Process welcome directly into OpenMLS group, bypassing network calls and validation
+        if welcome_bytes.is_empty() {
+            // No welcome to process
+            return;
+        }
+
+        // MlsMessageOut when serialized contains the Welcome message
+        // We need to deserialize as MlsMessageIn first, then extract the Welcome
+        use openmls::prelude::tls_codec::Deserialize;
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&welcome_bytes)
+            .map_err(|e| GroupError::Any(e.into()))
+            .unwrap();
+
+        // Extract Welcome from MlsMessageIn
+        // MlsMessageIn contains the Welcome in its body
+        use openmls::prelude::MlsMessageBodyIn;
+        let openmls_welcome = match mls_message_in.extract() {
+            MlsMessageBodyIn::Welcome(w) => w,
+            _ => panic!("Expected Welcome message, got different message type"),
+        };
+
+        let tester_storage = tester.context.mls_storage();
+        let tester_provider = XmtpOpenMlsProviderRef::new(tester_storage);
+
+        // Build staged welcome from the OpenMLS Welcome message
+        let join_config = build_group_join_config();
+        let builder =
+            StagedWelcome::build_from_welcome(&tester_provider, &join_config, openmls_welcome)
+                .map_err(|e| GroupError::Any(e.into()))
+                .unwrap();
+
+        let processed_welcome = builder.processed_welcome();
+        let psks = processed_welcome.psks();
+        if !psks.is_empty() {
+            panic!("No PSK support for welcome");
+        }
+
+        let staged_welcome = builder
+            .skip_lifetime_validation()
+            .build()
+            .map_err(|e| GroupError::Any(e.into()))
+            .unwrap();
+
+        // Get sender information from the staged welcome
+        let added_by_node = staged_welcome
+            .welcome_sender()
+            .map_err(|e| GroupError::Any(e.into()))
+            .unwrap();
+        let added_by_credential = BasicCredential::try_from(added_by_node.credential().clone())
+            .map_err(|e| GroupError::Any(e.into()))
+            .unwrap();
+        let added_by_inbox_id = parse_credential(added_by_credential.identity())
+            .map_err(|e| GroupError::Any(e.into()))
+            .unwrap();
+        let added_by_installation_id = added_by_node.signature_key().as_slice().to_vec();
+
+        // Create the OpenMLS group directly from the staged welcome
+        // The group is automatically stored via the provider's storage implementation
+        use openmls::group::MlsGroup as OpenMlsGroup;
+        let _mls_group = OpenMlsGroup::from_welcome_logged(
+            &tester_provider,
+            staged_welcome,
+            &added_by_inbox_id,
+            &added_by_installation_id,
+        )
+        .map_err(|e| GroupError::Any(e.into()))
+        .unwrap();
+
+        // Group is now stored and ready - the tester can now access it
 
         // Add the tester to the group
         testers.push(tester);
