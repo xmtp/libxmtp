@@ -36,7 +36,7 @@ jobs:
     runs-on: warp-ubuntu-latest-x64-16x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Update rust toolchains
         run: rustup update
       - name: Cache

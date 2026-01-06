@@ -27,7 +27,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           determinate: true
@@ -52,7 +52,7 @@ jobs:
           # Can also run android emulator here after cloning xmtp-android
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           determinate: true

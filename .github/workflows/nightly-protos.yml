@@ -10,7 +10,7 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: bufbuild/buf-setup-action@v1.50.0
       - name: Update rust toolchains
         run: rustup update
@@ -36,7 +36,7 @@ jobs:
       - name: Run format check
         run: taplo format
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           commit-message: Nightly Protos
           title: Update Protos

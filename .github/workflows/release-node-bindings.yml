@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Check versions are in sync
         run: |
@@ -45,7 +45,7 @@ jobs:
             output_target: linux-arm64-musl
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Update rust toolchains, add target
         run: |
@@ -112,7 +112,7 @@ jobs:
       - name: Upload JS
         # only upload the JS files once, target doesn't matter
         if: ${{ matrix.target == 'x86_64-unknown-linux-gnu' }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: bindings_node_js
           path: |
@@ -121,7 +121,7 @@ jobs:
           retention-days: 1
 
       - name: Upload binding
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: bindings_node_${{ matrix.output_target }}
           path: bindings_node/bindings_node.${{ matrix.output_target }}.node
@@ -143,7 +143,7 @@ jobs:
             output_target: darwin-arm64
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Update rust toolchains, add target
         run: |
@@ -180,7 +180,7 @@ jobs:
           yarn build:release --target ${{ matrix.target }}
 
       - name: Upload binding
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: bindings_node_${{ matrix.output_target }}
           path: bindings_node/bindings_node.${{ matrix.output_target }}.node
@@ -204,7 +204,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Update rust toolchains
         run: |
@@ -262,7 +262,7 @@ jobs:
           yarn build:release --target ${{ matrix.target }}
 
       - name: Upload binding
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: bindings_node_${{ matrix.output_target }}
           path: bindings_node/bindings_node.${{ matrix.output_target }}.node
@@ -276,10 +276,10 @@ jobs:
     needs: [build-linux, build-macos, build-windows]
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           pattern: bindings_node_*
           merge-multiple: true
