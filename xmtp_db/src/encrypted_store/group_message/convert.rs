@@ -130,7 +130,6 @@ impl From<DeliveryStatus> for DeliveryStatusSave {
     }
 }
 /// Converts ContentType to ContentTypeSave for device sync backup.
-
 impl From<ContentType> for ContentTypeSave {
     fn from(value: ContentType) -> Self {
         match value {

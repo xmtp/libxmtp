@@ -1113,7 +1113,6 @@ where
                             inserted_at_ns: 0, // Will be set by database
                         };
                         message.store_or_ignore(&storage.db())?;
-                        // make sure internal id is on return type after its stored successfully
                         identifier.internal_id(message_id);
 
                         // If this message was sent by us on another installation, check if it
@@ -1285,17 +1284,7 @@ where
 
     /// Process an incoming DeleteMessage from the network.
     ///
-    /// # Error Handling
-    /// This function intentionally returns `Ok(())` for unauthorized or invalid deletion attempts
-    /// rather than propagating errors. This design choice differs from `delete_message` (which
-    /// returns errors to the caller) because:
-    /// 1. **Sync resilience**: Invalid deletions should not halt message processing for the group
-    /// 2. **Malicious tolerance**: Bad actors could spam invalid deletions to disrupt sync
-    /// 3. **Network consistency**: The message was already accepted by the network; rejecting
-    ///    it locally doesn't prevent others from seeing it
-    ///
-    /// Invalid attempts are logged as warnings for debugging but silently ignored to maintain
-    /// smooth sync operations.
+    /// Returns `Ok(())` for invalid deletions to avoid disrupting sync.
     #[cfg_attr(test, allow(dead_code))]
     pub(crate) fn process_delete_message(
         &self,
@@ -1331,70 +1320,60 @@ where
             }
         };
 
-        // Check if the original message exists
         let original_msg_opt = storage.db().get_group_message(&target_message_id)?;
 
-        // Validate message belongs to this group (prevent cross-group deletion)
-        if let Some(ref original_msg) = original_msg_opt
-            && original_msg.group_id != self.group_id
-        {
-            tracing::warn!(
-                "Cross-group deletion attempt: message from group {:?}, deletion from group {:?}",
-                hex::encode(&original_msg.group_id),
-                hex::encode(&self.group_id)
-            );
-            return Ok(());
-        }
+        let (is_authorized, is_super_admin_deletion) =
+            if let Some(ref original_msg) = original_msg_opt {
+                if original_msg.group_id != self.group_id {
+                    tracing::warn!(
+                        "Cross-group deletion attempt: message {} from group {}",
+                        delete_msg.message_id,
+                        hex::encode(&original_msg.group_id)
+                    );
+                    return Ok(());
+                }
 
-        if let Some(ref original_msg) = original_msg_opt {
-            // Cannot delete non-deletable messages (system messages, metadata, transcript messages)
-            if !original_msg.kind.is_deletable() || !original_msg.content_type.is_deletable() {
-                tracing::warn!(
-                    "Attempted to delete non-deletable message {} (kind: {:?}, content_type: {:?})",
-                    delete_msg.message_id,
-                    original_msg.kind,
-                    original_msg.content_type
-                );
-                return Ok(());
-            }
-        }
+                if !original_msg.kind.is_deletable() || !original_msg.content_type.is_deletable() {
+                    tracing::warn!(
+                        "Non-deletable message {} (kind: {:?}, content_type: {:?})",
+                        delete_msg.message_id,
+                        original_msg.kind,
+                        original_msg.content_type
+                    );
+                    return Ok(());
+                }
 
-        // Determine sender status and authorization
-        // Check if the deleter is the original sender
-        let is_sender = original_msg_opt
-            .as_ref()
-            .map(|msg| msg.sender_inbox_id == message.sender_inbox_id)
-            .unwrap_or(false);
+                let is_sender = original_msg.sender_inbox_id == message.sender_inbox_id;
+                let is_super_admin_deletion = if is_sender {
+                    false
+                } else {
+                    self.is_super_admin_without_lock(mls_group, message.sender_inbox_id.clone())
+                        .unwrap_or(false)
+                };
 
-        // Determine if this is a super admin deletion.
-        // It's only a super admin deletion if:
-        // 1. The deleter is a super admin at processing time, AND
-        // 2. The deleter is NOT the original sender (deleting someone else's message)
-        //
-        // NOTE: Admin status is checked at deletion processing time, not at the time
-        // the original message was sent. This means a super admin can delete messages
-        // that were sent before they became admin—this is intentional behavior for
-        // moderation purposes.
-        let is_super_admin_deletion = if is_sender {
-            false
-        } else {
-            self.is_super_admin_without_lock(mls_group, message.sender_inbox_id.clone())
-                .unwrap_or(false)
-        };
+                let is_authorized = is_sender || is_super_admin_deletion;
+                if !is_authorized {
+                    tracing::warn!(
+                        "Unauthorized deletion by {} for message {}",
+                        message.sender_inbox_id,
+                        delete_msg.message_id
+                    );
+                    return Ok(());
+                }
 
-        // Authorization check: must be either the original sender OR a super admin
-        let is_authorized = is_sender || is_super_admin_deletion;
+                (true, is_super_admin_deletion)
+            } else {
+                // Out-of-order: deletion arrived before the message
+                let is_super_admin = self
+                    .is_super_admin_without_lock(mls_group, message.sender_inbox_id.clone())
+                    .unwrap_or(false);
+                (true, is_super_admin)
+            };
 
         if !is_authorized {
-            tracing::warn!(
-                "Unauthorized deletion attempt by {} for message {}",
-                message.sender_inbox_id,
-                delete_msg.message_id
-            );
             return Ok(());
         }
 
-        // Store the deletion record (or ignore if already exists)
         let deletion = StoredMessageDeletion {
             id: message.id.clone(),
             group_id: self.group_id.clone(),
@@ -1406,8 +1385,6 @@ where
 
         deletion.store_or_ignore(&storage.db())?;
 
-        // Fire local event only if the target message exists
-        // (skip for out-of-order deletions where deletion arrives before the message)
         if original_msg_opt.is_some() {
             let _ = self.context.local_events().send(
                 crate::subscriptions::LocalEvents::MessageDeleted(target_message_id),
@@ -1415,10 +1392,11 @@ where
         }
 
         tracing::info!(
-            "Message {} deleted by {} (super_admin: {})",
+            "Message {} deleted by {} (super_admin: {}, out_of_order: {})",
             delete_msg.message_id,
             message.sender_inbox_id,
-            is_super_admin_deletion
+            is_super_admin_deletion,
+            original_msg_opt.is_none()
         );
 
         Ok(())

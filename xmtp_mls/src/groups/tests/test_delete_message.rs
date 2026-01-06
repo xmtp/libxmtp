@@ -235,6 +235,230 @@ async fn test_out_of_order_deletion() {
     assert!(deletion.is_some());
 }
 
+/// Test deletion record stored before the original message arrives.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_true_out_of_order_deletion_by_sender() {
+    use xmtp_db::Store;
+    use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
+    use xmtp_db::message_deletion::StoredMessageDeletion;
+
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.sync().await?;
+
+    let alix_conn = alix.context.db();
+    let alix_inbox_id = alix.inbox_id().to_string();
+
+    // Simulate a message ID that will be "sent" later
+    let future_message_id = vec![0xDE, 0xAD, 0xBE, 0xEF];
+    let delete_message_id = vec![0x01, 0x02, 0x03];
+
+    // Step 1: First store the DeleteMessage itself in group_messages
+    let delete_msg = xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage {
+        message_id: hex::encode(&future_message_id),
+    };
+    let delete_msg_content =
+        xmtp_content_types::delete_message::DeleteMessageCodec::encode(delete_msg)?;
+    let delete_msg_bytes = xmtp_content_types::encoded_content_to_bytes(delete_msg_content);
+
+    let delete_message = StoredGroupMessage {
+        id: delete_message_id.clone(),
+        group_id: alix_group.group_id.clone(),
+        decrypted_message_bytes: delete_msg_bytes,
+        sent_at_ns: xmtp_common::time::now_ns(),
+        kind: GroupMessageKind::Application,
+        sender_installation_id: alix.context.installation_id().to_vec(),
+        sender_inbox_id: alix_inbox_id.clone(),
+        delivery_status: DeliveryStatus::Published,
+        content_type: ContentType::DeleteMessage,
+        version_major: 1,
+        version_minor: 0,
+        authority_id: "xmtp.org".to_string(),
+        reference_id: None,
+        expire_at_ns: None,
+        sequence_id: 2,
+        originator_id: 1,
+        inserted_at_ns: 0,
+    };
+    delete_message.store(&alix_conn)?;
+
+    // Step 2: Store the deletion record (references the DeleteMessage above)
+    // This simulates the deletion arriving before the original message
+    let deletion = StoredMessageDeletion {
+        id: delete_message_id.clone(),
+        group_id: alix_group.group_id.clone(),
+        deleted_message_id: future_message_id.clone(),
+        deleted_by_inbox_id: alix_inbox_id.clone(), // Sender deleting their own message
+        is_super_admin_deletion: false,             // Regular user deletion
+        deleted_at_ns: xmtp_common::time::now_ns(),
+    };
+    deletion.store(&alix_conn)?;
+
+    // Verify deletion record exists but target message doesn't
+    assert!(alix_conn.get_group_message(&future_message_id)?.is_none());
+    assert!(
+        alix_conn
+            .get_deletion_by_deleted_message_id(&future_message_id)?
+            .is_some()
+    );
+
+    // Step 3: Now store the original message (simulating it arriving later)
+    let text_content = TextCodec::encode("Message to be deleted".to_string())?;
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+
+    let message = StoredGroupMessage {
+        id: future_message_id.clone(),
+        group_id: alix_group.group_id.clone(),
+        decrypted_message_bytes: text_bytes,
+        sent_at_ns: xmtp_common::time::now_ns() - 1000, // Sent before deletion
+        kind: GroupMessageKind::Application,
+        sender_installation_id: alix.context.installation_id().to_vec(),
+        sender_inbox_id: alix_inbox_id.clone(), // Same sender as deleter
+        delivery_status: DeliveryStatus::Published,
+        content_type: ContentType::Text,
+        version_major: 1,
+        version_minor: 0,
+        authority_id: "xmtp.org".to_string(),
+        reference_id: None,
+        expire_at_ns: None,
+        sequence_id: 1,
+        originator_id: 1,
+        inserted_at_ns: 0,
+    };
+    message.store(&alix_conn)?;
+
+    // Step 4: Verify the message is now marked as deleted via is_message_deleted
+    assert!(alix_conn.is_message_deleted(&future_message_id)?);
+
+    // Step 5: Verify enrichment correctly shows the message as deleted
+    let enriched = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let deleted_msg = enriched.iter().find(|m| m.metadata.id == future_message_id);
+    assert!(
+        deleted_msg.is_some(),
+        "Message should be in enriched results"
+    );
+
+    let deleted_msg = deleted_msg.unwrap();
+    let MessageBody::DeletedMessage { deleted_by } = &deleted_msg.content else {
+        panic!(
+            "Expected DeletedMessage placeholder, got {:?}",
+            deleted_msg.content
+        );
+    };
+    assert_eq!(*deleted_by, DeletedBy::Sender);
+}
+
+/// Test that unauthorized deletion records are rejected at query time.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_out_of_order_unauthorized_deletion_rejected() {
+    use xmtp_db::Store;
+    use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
+    use xmtp_db::message_deletion::StoredMessageDeletion;
+
+    tester!(alix);
+    tester!(bo);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = &bo_groups[0];
+    bo_group.sync().await?;
+
+    let bo_conn = bo.context.db();
+    let alix_inbox_id = alix.inbox_id().to_string();
+    let bo_inbox_id = bo.inbox_id().to_string();
+
+    let future_message_id = vec![0xBA, 0xDC, 0x0D, 0xE0];
+    let malicious_delete_msg_id = vec![0x0B, 0xAD, 0x01];
+
+    // Step 1: First store the malicious DeleteMessage in group_messages (FK requirement)
+    let delete_msg = xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage {
+        message_id: hex::encode(&future_message_id),
+    };
+    let delete_msg_content =
+        xmtp_content_types::delete_message::DeleteMessageCodec::encode(delete_msg)?;
+    let delete_msg_bytes = xmtp_content_types::encoded_content_to_bytes(delete_msg_content);
+
+    let malicious_delete_message = StoredGroupMessage {
+        id: malicious_delete_msg_id.clone(),
+        group_id: bo_group.group_id.clone(),
+        decrypted_message_bytes: delete_msg_bytes,
+        sent_at_ns: xmtp_common::time::now_ns(),
+        kind: GroupMessageKind::Application,
+        sender_installation_id: vec![1, 2, 3],
+        sender_inbox_id: bo_inbox_id.clone(), // Bo sending the delete
+        delivery_status: DeliveryStatus::Published,
+        content_type: ContentType::DeleteMessage,
+        version_major: 1,
+        version_minor: 0,
+        authority_id: "xmtp.org".to_string(),
+        reference_id: None,
+        expire_at_ns: None,
+        sequence_id: 3,
+        originator_id: 1,
+        inserted_at_ns: 0,
+    };
+    malicious_delete_message.store(&bo_conn)?;
+
+    // Step 2: Bo (non-admin) tries to delete Alix's message by storing a deletion record
+    // This simulates a malicious deletion arriving before the message
+    let malicious_deletion = StoredMessageDeletion {
+        id: malicious_delete_msg_id.clone(),
+        group_id: bo_group.group_id.clone(),
+        deleted_message_id: future_message_id.clone(),
+        deleted_by_inbox_id: bo_inbox_id.clone(), // Bo trying to delete
+        is_super_admin_deletion: false,           // Bo is not super admin
+        deleted_at_ns: xmtp_common::time::now_ns(),
+    };
+    malicious_deletion.store(&bo_conn)?;
+
+    // Step 3: Store Alix's message (arriving after the malicious deletion)
+    let text_content = TextCodec::encode("Alix's message".to_string())?;
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+
+    let message = StoredGroupMessage {
+        id: future_message_id.clone(),
+        group_id: bo_group.group_id.clone(),
+        decrypted_message_bytes: text_bytes,
+        sent_at_ns: xmtp_common::time::now_ns() - 1000,
+        kind: GroupMessageKind::Application,
+        sender_installation_id: vec![1, 2, 3],
+        sender_inbox_id: alix_inbox_id.clone(), // Message from Alix
+        delivery_status: DeliveryStatus::Published,
+        content_type: ContentType::Text,
+        version_major: 1,
+        version_minor: 0,
+        authority_id: "xmtp.org".to_string(),
+        reference_id: None,
+        expire_at_ns: None,
+        sequence_id: 2,
+        originator_id: 1,
+        inserted_at_ns: 0,
+    };
+    message.store(&bo_conn)?;
+
+    // Deletion record exists but is unauthorized
+    assert!(bo_conn.is_message_deleted(&future_message_id)?);
+
+    // Enrichment should show original message since deletion is unauthorized
+    let enriched = bo_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let msg = enriched.iter().find(|m| m.metadata.id == future_message_id);
+    assert!(msg.is_some(), "Message should be in enriched results");
+
+    let msg = msg.unwrap();
+    match &msg.content {
+        MessageBody::Text(text) => {
+            assert_eq!(text.content, "Alix's message");
+        }
+        MessageBody::DeletedMessage { .. } => {
+            panic!("Message should NOT be deleted - unauthorized deletion should be rejected");
+        }
+        other => {
+            panic!("Unexpected message body: {:?}", other);
+        }
+    }
+}
+
 /// Test that enrichment replaces deleted messages with placeholders
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_enrichment_with_deleted_messages() {
@@ -730,6 +954,99 @@ async fn test_sender_and_admin_both_delete() {
     assert!(deleted_msg.is_some());
 
     let deleted_msg = deleted_msg.unwrap();
+    let MessageBody::DeletedMessage { deleted_by } = &deleted_msg.content else {
+        panic!("Expected DeletedMessage placeholder");
+    };
+    assert_eq!(*deleted_by, DeletedBy::Sender);
+}
+
+/// Test that sender deletion shows DeletedBy::Sender even with is_super_admin_deletion=true.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_out_of_order_sender_deletion_shows_correct_deleted_by() {
+    use xmtp_db::Store;
+    use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
+    use xmtp_db::message_deletion::StoredMessageDeletion;
+
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+    let alix_conn = alix.context.db();
+    let alix_inbox_id = alix.inbox_id().to_string();
+
+    let future_message_id = vec![0xF1, 0xA6, 0xC0, 0xDE];
+    let delete_message_id = vec![0xD3, 0x1E, 0x7E];
+
+    // Step 1: Store the DeleteMessage in group_messages first
+    let delete_msg = xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage {
+        message_id: hex::encode(&future_message_id),
+    };
+    let delete_msg_content =
+        xmtp_content_types::delete_message::DeleteMessageCodec::encode(delete_msg)?;
+    let delete_msg_bytes = xmtp_content_types::encoded_content_to_bytes(delete_msg_content);
+
+    let delete_message = StoredGroupMessage {
+        id: delete_message_id.clone(),
+        group_id: alix_group.group_id.clone(),
+        decrypted_message_bytes: delete_msg_bytes,
+        sent_at_ns: xmtp_common::time::now_ns(),
+        kind: GroupMessageKind::Application,
+        sender_installation_id: vec![1, 2, 3],
+        sender_inbox_id: alix_inbox_id.clone(), // Alix sends the delete
+        delivery_status: DeliveryStatus::Published,
+        content_type: ContentType::DeleteMessage,
+        version_major: 1,
+        version_minor: 0,
+        authority_id: "xmtp.org".to_string(),
+        reference_id: None,
+        expire_at_ns: None,
+        sequence_id: 1,
+        originator_id: 1,
+        inserted_at_ns: 0,
+    };
+    delete_message.store(&alix_conn)?;
+
+    // Store deletion with is_super_admin_deletion=true (out-of-order scenario)
+    let deletion = StoredMessageDeletion {
+        id: delete_message_id.clone(),
+        group_id: alix_group.group_id.clone(),
+        deleted_message_id: future_message_id.clone(),
+        deleted_by_inbox_id: alix_inbox_id.clone(),
+        is_super_admin_deletion: true,
+        deleted_at_ns: xmtp_common::time::now_ns(),
+    };
+    deletion.store(&alix_conn)?;
+
+    // Store the original message (same sender as deleter)
+    let text_content = TextCodec::encode("Alix's message".to_string())?;
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+
+    let original_message = StoredGroupMessage {
+        id: future_message_id.clone(),
+        group_id: alix_group.group_id.clone(),
+        decrypted_message_bytes: text_bytes,
+        sent_at_ns: xmtp_common::time::now_ns() - 1000,
+        kind: GroupMessageKind::Application,
+        sender_installation_id: vec![1, 2, 3],
+        sender_inbox_id: alix_inbox_id.clone(), // Same as deleter
+        delivery_status: DeliveryStatus::Published,
+        content_type: ContentType::Text,
+        version_major: 1,
+        version_minor: 0,
+        authority_id: "xmtp.org".to_string(),
+        reference_id: None,
+        expire_at_ns: None,
+        sequence_id: 2,
+        originator_id: 1,
+        inserted_at_ns: 0,
+    };
+    original_message.store(&alix_conn)?;
+
+    // Verify enrichment shows DeletedBy::Sender since deleter == sender
+    let enriched = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let deleted_msg = enriched
+        .iter()
+        .find(|m| m.metadata.id == future_message_id)
+        .expect("Message should be in enriched results");
+
     let MessageBody::DeletedMessage { deleted_by } = &deleted_msg.content else {
         panic!("Expected DeletedMessage placeholder");
     };
