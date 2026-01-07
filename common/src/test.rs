@@ -119,6 +119,9 @@ where
                 fmt::layer()
                     .compact()
                     .with_ansi(true)
+                    .with_file(true)
+                    .with_line_number(true)
+                    .with_target(false)
                     .with_test_writer()
                     .fmt_fields({
                         format::debug_fn(move |writer, field, value| {

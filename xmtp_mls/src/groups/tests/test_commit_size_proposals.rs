@@ -8,8 +8,9 @@ use crate::utils::fixtures::{alix, bola};
 use openmls::credentials::BasicCredential;
 use openmls::prelude::hash_ref::HashReference;
 use openmls::prelude::tls_codec::Serialize;
-use openmls::prelude::{MlsMessageIn, StagedWelcome};
+use openmls::prelude::{MlsMessageIn, ProcessedMessageContent, StagedWelcome};
 use tls_codec::Deserialize;
+use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs, MsgQueryArgsBuilder};
 use xmtp_db::{
     TransactionalKeyStore, XmtpMlsStorageProvider, XmtpOpenMlsProviderRef, prelude::QueryGroup,
 };
@@ -456,14 +457,15 @@ async fn test_proposal_network_flow() {
 
 #[xmtp_common::test]
 async fn test_commit_sizes_with_proposals() {
-    const TESTER_COUNT: usize = 100;
+    const TESTER_COUNT: usize = 10;
     crate::tester!(alix);
 
     let mut testers = vec![alix];
 
     let mut groups = vec![testers[0].create_group(None, None).unwrap()];
 
-    for _ in 0..TESTER_COUNT {
+    for i in 0..TESTER_COUNT {
+        tracing::warn!("TESTER {i}");
         crate::tester!(tester);
 
         let provider = groups[0].context.mls_provider();
@@ -488,6 +490,8 @@ async fn test_commit_sizes_with_proposals() {
                             .map_err(|e| GroupError::Any(e.into()))
                     })
                     .unwrap();
+                let epoch = mls_group.epoch();
+                tracing::info!("TESTER {i} GROUP 0 EPOCH {epoch}");
                 let (proposal, _) = mls_group
                     .propose_add_member(&provider, &signer, &key_package.key_package)
                     .map_err(|e| GroupError::Any(e.into()))?;
@@ -505,34 +509,50 @@ async fn test_commit_sizes_with_proposals() {
             .unwrap();
 
         // skip over originating group
-        let add_proposals = groups.iter().skip(1).map(|g| {
-            g.load_mls_group_with_lock_async(async |mut mls_group| {
-                let provider = g.context.mls_provider();
-                mls_group
-                    .process_message(&provider, protocol_message.clone())
-                    .unwrap();
-                Ok::<_, GroupError>(())
-            })
+        let add_proposals = groups.iter().enumerate().skip(1).map(|(i, g)| {
+            let protocol_message = protocol_message.clone();
+            let storage = g.context.mls_storage();
+            async move {
+                g.sync().await.unwrap();
+                g.load_mls_group_with_lock_async(async move |mut mls_group| {
+                    let provider = g.context.mls_provider();
+                    let epoch = mls_group.epoch();
+                    tracing::info!("GROUP {i} EPOCH {epoch}");
+                    let x = mls_group
+                        .process_message(&provider, protocol_message)
+                        .unwrap();
+                    let ProcessedMessageContent::ProposalMessage(proposal) = x.into_content()
+                    else {
+                        panic!("Expected ProposalMessage");
+                    };
+                    mls_group
+                        .store_pending_proposal(storage, *proposal)
+                        .unwrap();
+                    Ok::<_, GroupError>(())
+                })
+                .await
+                .unwrap();
+            }
         });
 
         let results = futures::future::join_all(add_proposals).await;
-        for result in results {
-            result.unwrap();
-        }
 
         // Commit to the pending proposals
-        let storage = groups[0].context.mls_storage();
-
         let (commit, welcome) = groups[0]
             .load_mls_group_with_lock_async(async |mut mls_group| {
                 let signer = testers[0].identity().installation_keys.clone();
+                // dbg!(mls_group.pending_commit());
+                // dbg!(mls_group.pending_proposals().collect::<Vec<_>>());
                 let (commit, welcome, _) =
-                    with_rollback(storage, &mut mls_group, |group, provider| {
-                        group
-                            .commit_to_pending_proposals(provider, &signer)
+                    // with_rollback(storage, &mut mls_group, |group, provider| {
+                        mls_group
+                            .commit_to_pending_proposals(&provider, &signer)
                             .map_err(|e| GroupError::Any(e.into()))
-                    })
-                    .unwrap();
+                // })
+                .unwrap();
+                mls_group.merge_pending_commit(&provider).unwrap();
+                // dbg!(mls_group.pending_commit());
+                // dbg!(mls_group.pending_proposals().collect::<Vec<_>>());
                 // Extract Welcome from MlsMessageOut before serializing
                 let welcome = welcome.and_then(|msg| {
                     // MlsMessageOut is an enum, extract the Welcome if present
@@ -556,6 +576,7 @@ async fn test_commit_sizes_with_proposals() {
         let welcome_size = welcome_bytes.len();
 
         tracing::warn!(
+            i,
             proposal_size,
             old_commit_size = old_commit.len(),
             old_welcome_size = old_welcome.len(),
@@ -564,6 +585,8 @@ async fn test_commit_sizes_with_proposals() {
             welcome_diff = (old_welcome.len() as isize - welcome_size as isize),
             commit_diff =
                 (old_commit.len() as isize - commit.len() as isize - proposal_size as isize),
+            commit_pct =
+                (commit.len() as f64 + proposal_size as f64) / (old_commit.len() as f64) * 100.0,
             "Commit sizes"
         );
 
@@ -575,8 +598,15 @@ async fn test_commit_sizes_with_proposals() {
         let commits = groups.iter().skip(1).map(|g| async {
             g.load_mls_group_with_lock_async(async |mut mls_group| {
                 let provider = g.context.mls_provider();
-                mls_group
+                let x = mls_group
                     .process_message(&provider, commit_message.clone())
+                    .unwrap();
+                let ProcessedMessageContent::StagedCommitMessage(staged_commit) = x.into_content()
+                else {
+                    panic!("Expected StagedCommitMessage");
+                };
+                mls_group
+                    .merge_staged_commit(&provider, *staged_commit)
                     .unwrap();
                 Ok::<_, GroupError>(())
             })
@@ -714,17 +744,9 @@ async fn test_commit_sizes_with_proposals() {
             })
             .unwrap();
 
-        // Create the XMTP MlsGroup wrapper that allows sending messages
-        let _xmtp_group = MlsGroup::new(
-            tester.context.clone(),
-            stored_group.id,
-            stored_group.dm_id,
-            stored_group.conversation_type,
-            stored_group.created_at_ns,
-        );
-
         let tester_group = tester.group(&group_id).unwrap();
 
+        // tester_group.sync().await.unwrap();
         // The tester is already fully in the group via the welcome message.
         // The group membership extension should already reflect this.
         // However, if there's a pending intent to add the tester (created before the welcome
@@ -741,48 +763,165 @@ async fn test_commit_sizes_with_proposals() {
         // Group is now fully set up and ready for the tester to use
 
         // Have the new tester send a message directly to the API, bypassing all checks and intents
-        let message_bytes = b"Hello from new tester!";
-        use prost::Message;
-        use xmtp_proto::xmtp::mls::message_contents::{
-            PlaintextEnvelope,
-            plaintext_envelope::{Content, V1},
-        };
+        let message_bytes = format!("Hello from new tester! {}", i.wrapping_sub(1));
 
-        let now = now_ns();
-        let plain_envelope = PlaintextEnvelope {
-            content: Some(Content::V1(V1 {
-                content: message_bytes.to_vec(),
-                idempotency_key: now.to_string(),
-            })),
-        };
-        let mut encoded_envelope = vec![];
-        plain_envelope.encode(&mut encoded_envelope).unwrap();
+        // TODO: this should be tester_group, but if it is used, we end up with a panic due to duplicate signatures.
+        // For some reason waiting a commit fixes it :shrug:
+        let last_group = groups.last().unwrap();
 
-        // Encrypt the message using the MLS group and send directly to API
-        let encrypted_message = tester_group
-            .load_mls_group_with_lock_async(async |mut mls_group| {
-                let provider = tester_group.context.mls_provider();
-                let signer = tester.identity().installation_keys.clone();
-                let msg = mls_group
-                    .create_message(&provider, &signer, &encoded_envelope)
-                    .map_err(|e| GroupError::Any(e.into()))?;
-                Ok::<_, GroupError>(msg.tls_serialize_detached().unwrap())
+        last_group
+            .send_message(message_bytes.as_bytes(), SendMessageOpts::default())
+            .await
+            .unwrap();
+
+        // // Encrypt the message using the MLS group and send directly to API
+        // let encrypted_message = last_group
+        //     .load_mls_group_with_lock_async(async |mut mls_group| {
+        //         let provider = last_group.context.mls_provider();
+        //         let signer = last_group.context.identity().installation_keys.clone();
+        //         let msg = mls_group
+        //             .create_message(&provider, &signer, &encoded_envelope)
+        //             .map_err(|e| GroupError::Any(e.into()))?;
+        //         Ok::<_, GroupError>(msg.tls_serialize_detached().unwrap())
+        //     })
+        //     .await
+        //     .unwrap();
+
+        // // Prepare and send the message directly to the API
+        // let messages = last_group
+        //     .prepare_group_messages(vec![(&encrypted_message, false)])
+        //     .unwrap();
+        // last_group
+        //     .context
+        //     .api()
+        //     .send_group_messages(messages)
+        //     .await
+        //     .unwrap();
+
+        // // Send a self-update commit to update the tester's leaf node
+        // let storage = last_group.context.mls_storage();
+        // let (commit, _, _) = last_group
+        //     .load_mls_group_with_lock_async(async |mut mls_group| {
+        //         let signer = last_group.context.identity().installation_keys.clone();
+        //         generate_commit_with_rollback(storage, &mut mls_group, |group, provider| {
+        //             use openmls::treesync::LeafNodeParameters;
+        //             group
+        //                 .self_update(provider, &signer, LeafNodeParameters::default())
+        //                 .map_err(|e| GroupError::Any(e.into()))
+        //         })
+        //     })
+        //     .await
+        //     .unwrap();
+
+        // let commit_bytes = commit.commit().tls_serialize_detached().unwrap();
+        // let commit_messages = last_group
+        //     .prepare_group_messages(vec![(&commit_bytes, false)])
+        //     .unwrap();
+        // last_group
+        //     .context
+        //     .api()
+        //     .send_group_messages(commit_messages)
+        //     .await
+        //     .unwrap();
+
+        // // Process the self-update commit for all other groups
+        // let self_update_commit_message = MlsMessageIn::tls_deserialize_exact(&commit_bytes)
+        //     .unwrap()
+        //     .try_into_protocol_message()
+        //     .unwrap();
+
+        // let process_commits = groups.iter().take(groups.len() - 1).map(|g| async {
+        //     g.load_mls_group_with_lock_async(async |mut mls_group| {
+        //         let provider = g.context.mls_provider();
+        //         mls_group
+        //             .process_message(&provider, self_update_commit_message.clone())
+        //             .map_err(|e| GroupError::Any(e.into()))
+        //     })
+        //     .await?;
+        //     g.sync().await?;
+        //     Ok::<_, GroupError>(())
+        // });
+
+        // let results = futures::future::join_all(process_commits).await;
+        // for result in results {
+        //     result.unwrap();
+        // }
+
+        let group0 = testers.first().unwrap().group(&group_id).unwrap();
+        group0.sync().await.unwrap();
+        last_group.sync().await.unwrap();
+        let group0_tree = group0
+            .load_mls_group_with_lock_async(async |mls_group| {
+                mls_group.print_ratchet_tree("");
+                Ok::<_, GroupError>(mls_group.export_ratchet_tree())
             })
             .await
             .unwrap();
-
-        // Prepare and send the message directly to the API
-        let messages = tester_group
-            .prepare_group_messages(vec![(&encrypted_message, false)])
-            .unwrap();
-        tester
-            .context
-            .api()
-            .send_group_messages(messages)
+        let last_group_tree = last_group
+            .load_mls_group_with_lock_async(async |mls_group| {
+                // mls_group.print_ratchet_tree("group last");
+                Ok::<_, GroupError>(mls_group.export_ratchet_tree())
+            })
             .await
             .unwrap();
+        assert_eq!(group0_tree, last_group_tree);
+
+        // Only application messages (not system/membership messages)
+        let app_messages = group0
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
+            .unwrap();
+        tracing::warn!("Group 0 has {} application messages", app_messages.len());
+        for message in app_messages {
+            tracing::warn!(
+                "Message: {}, sent at: {}",
+                String::from_utf8_lossy(&message.decrypted_message_bytes),
+                message.sent_at_ns
+            );
+        }
+
+        // Only application messages (not system/membership messages)
+        let app_messages = last_group
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
+            .unwrap();
+        tracing::warn!(
+            "Group last {} has {} application messages",
+            i.wrapping_sub(1),
+            app_messages.len()
+        );
+        for message in app_messages {
+            tracing::warn!(
+                "Message: {}, sent at: {}",
+                String::from_utf8_lossy(&message.decrypted_message_bytes),
+                message.sent_at_ns
+            );
+        }
+
+        let group0_members = group0.members().await.unwrap();
+        let last_group_members = last_group.members().await.unwrap();
+        let inbox_ids = group0_members
+            .iter()
+            .map(|m| &m.inbox_id)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            inbox_ids,
+            last_group_members
+                .iter()
+                .map(|m| &m.inbox_id)
+                .collect::<Vec<_>>()
+        );
+        dbg!(&inbox_ids);
+        tracing::warn!("Group 0 members: {:?}", inbox_ids);
+        tracing::warn!("Group 0 tree: {}", group0_tree);
+        dbg!(&group0_tree);
 
         // Add the tester to the group
         testers.push(tester);
+        groups.push(tester_group);
     }
 }
