@@ -17,7 +17,7 @@ alloy.workspace = true
 async-trait.workspace = true
 clap.workspace = true
 futures = { workspace = true }
-lru = "0.14.0"
+lru = "0.16.0"
 openmls = { workspace = true }
 openmls_rust_crypto = { workspace = true }
 parking_lot.workspace = true
