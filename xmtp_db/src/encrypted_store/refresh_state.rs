@@ -1102,6 +1102,20 @@ pub(crate) mod tests {
     }
 
     #[rstest]
+    #[case::single_topic_minimium(
+        vec![
+            (vec![1, 1, 1], EntityKind::ApplicationMessage, 200, 127),
+            (vec![1, 1, 1], EntityKind::CommitMessage, 0, 115),
+            (vec![1, 1, 1], EntityKind::CommitLogDownload, 100, 0),
+            (vec![1, 1, 1], EntityKind::CommitLogUpload, 100, 2),
+            (vec![1, 1, 1], EntityKind::CommitLogForkCheckLocal, 100, 0),
+            (vec![1, 1, 1], EntityKind::CommitLogForkCheckRemote, 100, 0)
+        ],
+        vec![
+            TopicKind::GroupMessagesV1.create(vec![1, 1, 1]),
+        ],
+        vec![(200, 127), (0, 115)]  // MIN across both topics: min(min(100, 150), min(50, 75)) = 50
+    )]
     #[case::multiple_topics_finds_minimum(
         vec![
             (vec![1, 1, 1], EntityKind::ApplicationMessage, 0, 100),

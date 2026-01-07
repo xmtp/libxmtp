@@ -11,9 +11,11 @@ use crate::app::types::*;
 use alloy::signers::local::PrivateKeySigner;
 use color_eyre::eyre::{WrapErr, eyre};
 use tokio::sync::Mutex;
+use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_db::prelude::Pragmas;
 use xmtp_db::{NativeDb, XmtpDb};
 use xmtp_mls::builder::SyncWorkerMode;
+use xmtp_mls::cursor_store::SqliteCursorStore;
 
 pub async fn new_unregistered_client(
     network: &args::BackendOpts,
@@ -70,8 +72,8 @@ async fn new_client_inner(
     wallet: &PrivateKeySigner,
     db_path: Option<PathBuf>,
 ) -> Result<crate::DbgClient> {
-    let api = network.connect()?;
-
+    let api = network.client_bundle()?;
+    let sync_api = network.client_bundle()?;
     let ident = wallet.get_identifier()?;
     let inbox_id = ident.inbox_id(XDBG_ID_NONCE)?;
 
@@ -88,14 +90,21 @@ async fn new_client_inner(
         .map_err(|_| eyre::eyre!("Conversion failed from OsString"))?;
     let db = NativeDb::new_unencrypted(&StorageOption::Persistent(path))?;
     db.db().set_sqlcipher_log("NONE")?;
+    let db = EncryptedMessageStore::new(db)?;
+    let cursor_store = Arc::new(SqliteCursorStore::new(db.db()));
+    let mut backend = MessageBackendBuilder::default();
+    backend.cursor_store(cursor_store);
+    let api = backend.clone().from_bundle(api)?;
+    let sync_api = backend.from_bundle(sync_api)?;
+
     let client = xmtp_mls::Client::builder(IdentityStrategy::new(
         inbox_id,
         wallet.get_identifier()?,
         XDBG_ID_NONCE,
         None,
     ))
-    .api_clients(api.clone(), api)
-    .store(EncryptedMessageStore::new(db)?)
+    .api_clients(api, sync_api)
+    .store(db)
     .default_mls_store()?
     .with_remote_verifier()?
     .with_device_sync_worker_mode(Some(SyncWorkerMode::Disabled))
@@ -134,7 +143,8 @@ fn existing_client_inner(
     network: &args::BackendOpts,
     db_path: PathBuf,
 ) -> Result<crate::DbgClient> {
-    let api = network.connect()?;
+    let api = network.client_bundle()?;
+    let sync_api = network.client_bundle()?;
 
     let db = xmtp_db::NativeDb::new_unencrypted(&StorageOption::Persistent(
         db_path.clone().into_os_string().into_string().unwrap(),
@@ -144,15 +154,19 @@ fn existing_client_inner(
         db_path.to_string_lossy()
     ))?;
     db.db().set_sqlcipher_log("NONE")?;
-    let store = EncryptedMessageStore::new(db);
-
-    if let Err(e) = &store {
+    let store = EncryptedMessageStore::new(db).inspect_err(|e| {
         error!(db_path = %(&db_path.as_path().display()), "{e}");
-    }
+    })?;
+    let cursor_store = Arc::new(SqliteCursorStore::new(store.db()));
+    let mut backend = MessageBackendBuilder::default();
+    backend.cursor_store(cursor_store);
+    let api = backend.clone().from_bundle(api)?;
+    let sync_api = backend.from_bundle(sync_api)?;
+
     let client = xmtp_mls::Client::builder(IdentityStrategy::CachedOnly)
-        .api_clients(api.clone(), api)
+        .api_clients(api, sync_api)
         .with_remote_verifier()?
-        .store(store?)
+        .store(store)
         .default_mls_store()?
         .with_device_sync_worker_mode(Some(SyncWorkerMode::Disabled))
         .with_allow_offline(Some(true))

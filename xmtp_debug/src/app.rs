@@ -121,7 +121,7 @@ impl App {
             clear,
             ..
         } = opts;
-        info!(fdlimit = get_fdlimit(), "setting fdlimit");
+        debug!(fdlimit = get_fdlimit(), "setting fdlimit");
 
         if cmd.is_none() && !clear {
             AppOpts::command().print_help()?;
