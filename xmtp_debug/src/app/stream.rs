@@ -2,7 +2,11 @@ use color_eyre::eyre::{Result, bail, eyre};
 use futures::stream::StreamExt;
 use rand::{SeedableRng as _, rngs::SmallRng, seq::IteratorRandom};
 use serde::Serialize;
-use std::{fs, io::Write, sync::Arc};
+use std::{
+    fs,
+    io::{BufWriter, Write},
+    sync::Arc,
+};
 use xmtp_db::group::StoredGroup;
 
 use crate::{
@@ -53,9 +57,9 @@ impl Stream {
         let client = app::client_from_identity(&identity, &network)?;
 
         let mut buffer: Box<dyn Write> = if let Some(p) = out {
-            Box::new(fs::File::create(p)?)
+            Box::new(BufWriter::new(fs::File::create(p)?))
         } else {
-            Box::new(std::io::stdout())
+            Box::new(BufWriter::new(std::io::stdout()))
         };
 
         match kind {
@@ -78,6 +82,7 @@ impl Stream {
                         group_description: group.group_description()?,
                     };
                     write(&format, buffer.as_mut(), &item)?;
+                    buffer.flush()?;
                 }
             }
             args::StreamKind::Messages => {
@@ -100,6 +105,7 @@ impl Stream {
                         authority_id: message.authority_id,
                     };
                     write(&format, buffer.as_mut(), &item)?;
+                    buffer.flush()?;
                 }
             }
         };
