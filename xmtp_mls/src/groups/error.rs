@@ -181,6 +181,26 @@ pub enum GroupError {
     Diesel(#[from] xmtp_db::diesel::result::Error),
     #[error(transparent)]
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
+    #[error(transparent)]
+    DeleteMessage(#[from] DeleteMessageError),
+}
+
+#[derive(Error, Debug)]
+pub enum DeleteMessageError {
+    #[error("Message not found: {0}")]
+    MessageNotFound(String),
+    #[error("Not authorized to delete this message")]
+    NotAuthorized,
+    #[error("Cannot delete this message type")]
+    NonDeletableMessage,
+    #[error("Message already deleted")]
+    MessageAlreadyDeleted,
+}
+
+impl RetryableError for DeleteMessageError {
+    fn is_retryable(&self) -> bool {
+        false
+    }
 }
 
 impl From<prost::EncodeError> for GroupError {
@@ -304,6 +324,7 @@ impl RetryableError for GroupError {
             Self::UnwrapWelcome(e) => e.is_retryable(),
             Self::Diesel(e) => e.is_retryable(),
             Self::LeaveCantProcessed(e) => e.is_retryable(),
+            Self::DeleteMessage(e) => e.is_retryable(),
             Self::NotFound(_)
             | Self::UserLimitExceeded
             | Self::InvalidGroupMembership

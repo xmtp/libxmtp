@@ -3,6 +3,7 @@ mod test_commit_log_local;
 mod test_commit_log_readd_requests;
 mod test_commit_log_remote;
 mod test_consent;
+mod test_delete_message;
 mod test_dm;
 mod test_extract_readded_installations;
 mod test_group_updated;

@@ -253,10 +253,6 @@ async fn test_leave_request_message_is_visible() {
         println!("Bo's message {}: kind={:?}", i, msg.kind);
     }
 
-    // Now try to get enriched messages - this will attempt to decode the content
-    // The LeaveRequest message should be decodable for UI display purposes
-    println!("\n--- Testing enriched messages (decoded content) ---");
-
     let enriched_messages = alix_group
         .find_enriched_messages(FfiListMessagesOptions::default())
         .unwrap();

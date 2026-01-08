@@ -13,7 +13,8 @@ use xmtp_content_types::{
 };
 use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
 use xmtp_mls::messages::decoded_message::{
-    DecodedMessage, DecodedMessageMetadata, Markdown, MessageBody, Reply as ProcessedReply, Text,
+    DecodedMessage, DecodedMessageMetadata, DeletedBy, Markdown, MessageBody,
+    Reply as ProcessedReply, Text,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     ContentTypeId, EncodedContent, GroupUpdated, group_updated::MetadataFieldChange,
@@ -54,6 +55,7 @@ pub enum FfiDecodedMessageBody {
     Intent(FfiIntent),
     Actions(FfiActions),
     LeaveRequest(FfiLeaveRequest),
+    DeletedMessage(FfiDeletedMessage),
     Custom(FfiEncodedContent),
 }
 
@@ -67,6 +69,17 @@ pub struct FfiTextContent {
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiMarkdownContent {
     pub content: String,
+}
+
+#[derive(uniffi::Enum, Clone, Debug)]
+pub enum FfiDeletedBy {
+    Sender,
+    Admin { inbox_id: String },
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiDeletedMessage {
+    pub deleted_by: FfiDeletedBy,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -392,6 +405,7 @@ pub enum FfiDecodedMessageContent {
     Intent(Option<FfiIntent>),
     Actions(Option<FfiActions>),
     LeaveRequest(FfiLeaveRequest),
+    DeletedMessage(FfiDeletedMessage),
     Custom(FfiEncodedContent),
 }
 
@@ -409,6 +423,15 @@ impl From<Markdown> for FfiMarkdownContent {
     fn from(markdown: Markdown) -> Self {
         FfiMarkdownContent {
             content: markdown.content,
+        }
+    }
+}
+
+impl From<DeletedBy> for FfiDeletedBy {
+    fn from(deleted_by: DeletedBy) -> Self {
+        match deleted_by {
+            DeletedBy::Sender => FfiDeletedBy::Sender,
+            DeletedBy::Admin(inbox_id) => FfiDeletedBy::Admin { inbox_id },
         }
     }
 }
@@ -1113,6 +1136,11 @@ impl From<MessageBody> for FfiDecodedMessageContent {
             MessageBody::LeaveRequest(leave_request) => {
                 FfiDecodedMessageContent::LeaveRequest(leave_request.into())
             }
+            MessageBody::DeletedMessage { deleted_by } => {
+                FfiDecodedMessageContent::DeletedMessage(FfiDeletedMessage {
+                    deleted_by: deleted_by.into(),
+                })
+            }
             MessageBody::Custom(encoded) => FfiDecodedMessageContent::Custom(encoded.into()),
         }
     }
@@ -1181,6 +1209,11 @@ pub fn content_to_optional_body(content: MessageBody) -> Option<FfiDecodedMessag
         }
         MessageBody::LeaveRequest(leave_request) => {
             Some(FfiDecodedMessageBody::LeaveRequest(leave_request.into()))
+        }
+        MessageBody::DeletedMessage { deleted_by } => {
+            Some(FfiDecodedMessageBody::DeletedMessage(FfiDeletedMessage {
+                deleted_by: deleted_by.into(),
+            }))
         }
         MessageBody::Custom(encoded) => Some(FfiDecodedMessageBody::Custom(encoded.into())),
     }
