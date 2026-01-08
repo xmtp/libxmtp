@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use pest::{Parser, iterators::Pair};
 use std::{
     cell::RefCell,
@@ -147,14 +147,46 @@ struct State {
     clients: HashMap<InboxId, ClientState>,
 }
 
+impl State {
+    fn ingest(&mut self, event: LogEvent) -> Result<()> {
+        let ctx = |key: &str| {
+            event
+                .context
+                .get(key)
+                .with_context(|| format!("Missing context field {key}"))
+        };
+        match event.event {
+            Event::ClientCreated => {
+                let inbox_id = ctx("inbox_id")?.as_str().expect("InboxId should be str");
+                self.clients
+                    .entry(inbox_id.to_string())
+                    .or_insert_with(|| ClientState::new(None));
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+}
+
 struct ClientState {
     name: Option<String>,
     groups: HashMap<Vec<u8>, Rc<RefCell<GroupState>>>,
 }
 
+impl ClientState {
+    fn new(name: Option<String>) -> Self {
+        Self {
+            name,
+            groups: HashMap::default(),
+        }
+    }
+}
+
 #[derive(Clone)]
 struct GroupState {
     prev: Option<Rc<RefCell<Self>>>,
+    dm_target: Option<InboxId>,
     created_at: Option<i64>,
     epoch: i64,
     members: HashSet<InboxId>,

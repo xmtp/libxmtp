@@ -5,7 +5,7 @@ pub use utils::*;
 pub enum Event {
     // ===================== General Client =====================
     /// Client created
-    #[context(inbox_id, device_sync_enabled, disabled_workers)]
+    #[context(device_sync_enabled, disabled_workers)]
     ClientCreated,
 
     // ===================== Group Operations =====================
@@ -21,7 +21,7 @@ pub enum Event {
 
     // ===================== MLS Operations =====================
     /// Received staged commit. Merging and clearing any pending commits.
-    #[context(group_id, inbox_id, sender_inbox_id, msg_epoch, current_epoch)]
+    #[context(group_id, sender_inbox_id, msg_epoch, current_epoch)]
     MLSReceivedStagedCommit,
     /// Processed staged commit.
     #[context(group_id, current_epoch)]

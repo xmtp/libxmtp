@@ -367,6 +367,7 @@ where
         if !self.is_active().map_err(SyncSummary::other)? {
             log_event!(
                 Event::GroupSyncGroupInactive,
+                self.context.inbox_id(),
                 group_id = hex::encode(&self.group_id)
             );
             return Err(SyncSummary::other(GroupError::GroupInactive));
@@ -451,6 +452,7 @@ where
     ) -> Result<SyncSummary, GroupError> {
         log_event!(
             Event::GroupSyncStart,
+            self.context.inbox_id(),
             group_id = hex::encode(&self.group_id)
         );
 
@@ -464,6 +466,7 @@ where
 
         log_event!(
             Event::GroupSyncFinished,
+            self.context.inbox_id(),
             group_id = hex::encode(&self.group_id),
             summary = ?summary,
             success = result.is_ok()
@@ -488,6 +491,7 @@ where
         for attempt in 0..xmtp_configuration::MAX_GROUP_SYNC_RETRIES {
             log_event!(
                 Event::GroupSyncAttempt,
+                self.context.inbox_id(),
                 group_id = hex::encode(&self.group_id),
                 attempt
             );
@@ -522,6 +526,7 @@ where
                 })) => {
                     log_event!(
                         Event::GroupSyncIntentErrored,
+                        self.context.inbox_id(),
                         level = warn,
                         group_id = hex::encode(&self.group_id), intent_id = intent_id,
                         summary = ?summary, intent_kind = ?kind
@@ -531,6 +536,7 @@ where
                 Ok(Some(StoredGroupIntent { state, kind, .. })) => {
                     log_event!(
                         Event::GroupSyncIntentRetry,
+                        self.context.inbox_id(),
                         level = warn, group_id = ?hex::encode(&self.group_id),
                         intent_id = intent_id, state = ?state, intent_kind = ?kind
                     );
@@ -1025,6 +1031,7 @@ where
             if new_epoch > previous_epoch {
                 log_event!(
                     Event::MLSGroupEpochUpdated,
+                    self.context.inbox_id(),
                     group_id = hex::encode(&self.group_id),
                     cursor = ?cursor,
                     epoch = new_epoch,
@@ -1064,7 +1071,7 @@ where
             ProcessedMessageContent::ApplicationMessage(application_message) => {
                 log_event!(
                     Event::MLSReceivedApplicationMessage,
-                    inbox_id = self.context.inbox_id(),
+                    self.context.inbox_id(),
                     sender_inbox_id = sender_inbox_id,
                     sender_installation_id = hex::encode(&sender_installation_id),
                     installation_id = %self.context.installation_id(),group_id = hex::encode(&self.group_id),
@@ -1133,6 +1140,7 @@ where
 
                         log_event!(
                             Event::MLSProcessedApplicationMessage,
+                            self.context.inbox_id(),
                             group_id = msg_group_id,
                         );
 
@@ -1163,7 +1171,7 @@ where
 
                 log_event!(
                     Event::MLSReceivedStagedCommit,
-                    inbox_id = self.context.inbox_id(),
+                    self.context.inbox_id(),
                     sender_inbox_id = sender_inbox_id,
                     installation_id = %self.context.installation_id(),
                     sender_installation_id = hex::encode(&sender_installation_id),
@@ -1213,6 +1221,7 @@ where
 
                 log_event!(
                     Event::MLSProcessedStagedCommit,
+                    self.context.inbox_id(),
                     group_id = hex::encode(&self.group_id),
                     current_epoch = mls_group.epoch().as_u64(),
                 );
@@ -1932,6 +1941,7 @@ where
         if updated {
             log_event!(
                 Event::GroupCursorUpdate,
+                self.context.inbox_id(),
                 group_id = hex::encode(&message.group_id),
                 cursor = ?message.cursor
             );
@@ -2190,6 +2200,7 @@ where
                             (IntentKind::SendMessage, Ok(_)) => {
                                 log_event!(
                                     Event::GroupSyncApplicationMessagePublishSuccess,
+                                    self.context.inbox_id(),
                                     group_id = hex::encode(&intent.group_id),
                                     intent_id = intent.id
                                 );
@@ -2197,6 +2208,7 @@ where
                             (kind, Err(err)) => {
                                 log_event!(
                                     Event::GroupSyncPublishFailed,
+                                    self.context.inbox_id(),
                                     group_id = hex::encode(&intent.group_id),
                                     intent_id = intent.id,
                                     intent_kind = ?kind,
@@ -2207,6 +2219,7 @@ where
                             (kind, Ok(_)) => {
                                 log_event!(
                                     Event::GroupSyncCommitPublishSuccess,
+                                    self.context.inbox_id(),
                                     group_id = hex::encode(&intent.group_id),
                                     intent_id = intent.id,
                                     intent_kind = ?kind,
@@ -2216,7 +2229,7 @@ where
                         }
 
                         if has_staged_commit {
-                            log_event!(Event::GroupSyncStagedCommitPresent, group_id = hex::encode(&intent.group_id));
+                            log_event!(Event::GroupSyncStagedCommitPresent, self.context.inbox_id(), group_id = hex::encode(&intent.group_id));
                             return Ok(());
                         }
                     }

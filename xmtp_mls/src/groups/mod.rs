@@ -879,6 +879,7 @@ where
 
         log_event!(
             Event::AddedMembers,
+            self.context.inbox_id(),
             group_id = %hex::encode(&self.group_id),
             members = ?ids
         );

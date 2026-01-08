@@ -341,9 +341,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         log_event!(
             Event::ClientCreated,
-            inbox_id = context.inbox_id(),
+            context.inbox_id(),
             device_sync_enabled = context.device_sync_worker_enabled(),
-            disabled_workers = disable_workers
+            disabled_workers = disable_workers,
         );
 
         let client = Client {

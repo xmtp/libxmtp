@@ -507,7 +507,7 @@ where
             None,
         )?;
 
-        log_event!(Event::CreatedGroup, group_id = %hex::encode(&group.group_id));
+        log_event!(Event::CreatedGroup, self.context.inbox_id(), group_id = %hex::encode(&group.group_id));
 
         // notify streams of our new group
         let _ = self
@@ -559,7 +559,7 @@ where
             None,
         )?;
 
-        log_event!(Event::CreatedDM, group_id = %hex::encode(&group.group_id), target_inbox_id);
+        log_event!(Event::CreatedDM, self.context.inbox_id(), group_id = %hex::encode(&group.group_id), target_inbox_id);
         group.add_members_by_inbox_id(&[target_inbox_id]).await?;
 
         // notify any streams of the new group
