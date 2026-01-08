@@ -1,12 +1,12 @@
 use anyhow::{Context, Result, bail};
 use pest::{Parser, iterators::Pair};
 use std::{
-    cell::RefCell,
+    cell::{RefCell, RefMut},
     collections::{HashMap, HashSet},
     rc::Rc,
 };
 use tracing::warn;
-use xmtp_common::Event;
+use xmtp_common::{Event, time};
 
 use crate::{LogParser, Rule};
 
@@ -66,24 +66,24 @@ impl Value {
         Ok(val)
     }
 
-    fn as_str(&self) -> Option<&str> {
+    fn as_str(&self) -> Result<&str> {
         match self {
-            Self::String(str) => Some(&str),
-            _ => None,
+            Self::String(str) => Ok(&str),
+            _ => bail!("{self:?} is not string"),
         }
     }
 
-    fn as_int(&self) -> Option<i64> {
+    fn as_int(&self) -> Result<i64> {
         match self {
-            Self::Int(int) => Some(*int),
-            _ => None,
+            Self::Int(int) => Ok(*int),
+            _ => bail!("{self:?} is not string"),
         }
     }
 
-    fn as_obj(&self) -> Option<&HashMap<String, Self>> {
+    fn as_obj(&self) -> Result<&HashMap<String, Self>> {
         match self {
-            Self::Object(obj) => Some(obj),
-            _ => None,
+            Self::Object(obj) => Ok(obj),
+            _ => bail!("{self:?} is not string"),
         }
     }
 }
@@ -91,12 +91,13 @@ impl Value {
 #[derive(Debug)]
 pub struct LogEvent {
     event: Event,
+    inbox: String,
     context: HashMap<String, Value>,
 }
 
 impl LogEvent {
-    pub fn from(line: &str) -> Result<Self> {
-        let line = LogParser::parse(Rule::line, line)?;
+    pub fn from(line_str: &str) -> Result<Self> {
+        let line = LogParser::parse(Rule::line, line_str)?;
         // There should only ever be one event per line.
         let Some(line) = line.last() else {
             bail!("Line has no events");
@@ -133,8 +134,15 @@ impl LogEvent {
             context.insert(key.as_str().to_string(), value);
         }
 
+        let inbox = context
+            .remove("inbox")
+            .with_context(|| format!("{line_str} is missing inbox field."))?
+            .as_str()?
+            .to_string();
+
         Ok(Self {
             event: event_meta.event,
+            inbox,
             context,
         })
     }
@@ -155,12 +163,24 @@ impl State {
                 .get(key)
                 .with_context(|| format!("Missing context field {key}"))
         };
+        let inbox = ctx("inbox")?.as_str().expect("InboxId should be str");
         match event.event {
             Event::ClientCreated => {
-                let inbox_id = ctx("inbox_id")?.as_str().expect("InboxId should be str");
                 self.clients
-                    .entry(inbox_id.to_string())
+                    .entry(inbox.to_string())
                     .or_insert_with(|| ClientState::new(None));
+            }
+            Event::CreatedDM => {
+                let client = self.clients.get_mut(inbox).context("Missing client")?;
+                let group_id = ctx("group_id")?.as_str()?;
+                let mut dm = client
+                    .groups
+                    .entry(group_id.to_string())
+                    .or_insert_with(|| GroupState::new())
+                    .update();
+
+                dm.dm_target = Some(ctx("target_inbox")?.as_str()?.to_string());
+                dm.created_at = Some(ctx("timestamp")?.as_int()?);
             }
             _ => {}
         }
@@ -171,7 +191,7 @@ impl State {
 
 struct ClientState {
     name: Option<String>,
-    groups: HashMap<Vec<u8>, Rc<RefCell<GroupState>>>,
+    groups: HashMap<String, Rc<RefCell<GroupState>>>,
 }
 
 impl ClientState {
@@ -183,21 +203,32 @@ impl ClientState {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct GroupState {
     prev: Option<Rc<RefCell<Self>>>,
     dm_target: Option<InboxId>,
     created_at: Option<i64>,
-    epoch: i64,
+    epoch: Option<i64>,
     members: HashSet<InboxId>,
 }
 
 impl GroupState {
-    fn step(mut group: Rc<RefCell<Self>>) -> Rc<RefCell<Self>> {
-        Rc::new(RefCell::new(Self {
-            prev: Some(group.clone()),
-            ..group.borrow().clone()
-        }))
+    fn new() -> Rc<RefCell<Self>> {
+        Rc::new(RefCell::new(Self::default()))
+    }
+}
+
+trait GroupStateExt {
+    fn update(&mut self) -> RefMut<'_, GroupState>;
+}
+impl GroupStateExt for Rc<RefCell<GroupState>> {
+    fn update(&mut self) -> RefMut<'_, GroupState> {
+        let new_group = GroupState {
+            prev: Some(self.clone()),
+            ..self.borrow().clone()
+        };
+        *self = Rc::new(RefCell::new(new_group));
+        self.borrow_mut()
     }
 }
 
@@ -209,29 +240,29 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_log_parse() {
-        let line = r#"INFO; update_conversation_message_disappear_from_ns:sync_until_intent_resolved:sync_until_intent_resolved_inner:sync_with_conn:process_messages:process_message: xmtp_mls::identity_updates: ➣ Updating group membership. Calculating which installations need to be added / removed. {group_id: "f143ed03a0069366acb7aaad9c529542", old_membership: GroupMembership { members: {"b3fbe1fdc94398def04fa116f6c85bed3463a43e9e69d376156062edfae043d8": 365, "0976e879cb8b05477ec4673be925e9becf8fb1c2fff56488326a6ba0a06b4f0f": 366}, failed_installations: [] }, new_membership: GroupMembership { members: {"b3fbe1fdc94398def04fa116f6c85bed3463a43e9e69d376156062edfae043d8": 365, "0976e879cb8b05477ec4673be925e9becf8fb1c2fff56488326a6ba0a06b4f0f": 366}, failed_installations: [] }, timestamp: 1767884672122893682}"#;
+        let line = r#" INFO update_conversation_message_disappear_from_ns:sync_until_intent_resolved:sync_until_intent_resolved_inner:sync_with_conn:process_messages:process_message: xmtp_mls::identity_updates: ➣ Updating group membership. Calculating which installations need to be added / removed. {group_id: "c7ffe79e510aa970877222b3b4409d1c", old_membership: GroupMembership { members: {"0505be93287e66b32191a47e4107d0379fb34ed7b769f1b8437e733e178ed05b": 380, "f535576f351c902ce5319e46e74f949e835cc9c4bee6112e7b6a532320433e30": 379}, failed_installations: [] }, new_membership: GroupMembership { members: {"0505be93287e66b32191a47e4107d0379fb34ed7b769f1b8437e733e178ed05b": 380, "f535576f351c902ce5319e46e74f949e835cc9c4bee6112e7b6a532320433e30": 379}, failed_installations: [] }, inbox: "33e30", timestamp: 1767908059951353776}"#;
 
         let event = LogEvent::from(line)?;
         assert_eq!(event.event, Event::MembershipInstallationDiff);
 
         let group_id = event.context.get("group_id");
         assert!(group_id.is_some());
-        assert_eq!(group_id?.as_str()?, "f143ed03a0069366acb7aaad9c529542");
+        assert_eq!(group_id?.as_str()?, "c7ffe79e510aa970877222b3b4409d1c");
 
         let new_membership = event.context.get("new_membership")?.as_obj()?;
         let members = new_membership.get("members")?.as_obj()?;
         assert_eq!(
-            *members.get("b3fbe1fdc94398def04fa116f6c85bed3463a43e9e69d376156062edfae043d8")?,
-            Value::Int(365)
+            *members.get("0505be93287e66b32191a47e4107d0379fb34ed7b769f1b8437e733e178ed05b")?,
+            Value::Int(380)
         );
         assert_eq!(
-            *members.get("0976e879cb8b05477ec4673be925e9becf8fb1c2fff56488326a6ba0a06b4f0f")?,
-            Value::Int(366)
+            *members.get("f535576f351c902ce5319e46e74f949e835cc9c4bee6112e7b6a532320433e30")?,
+            Value::Int(379)
         );
 
         assert_eq!(
             event.context.get("timestamp")?.as_int()?,
-            1767884672122893682
+            1767908059951353776
         );
     }
 }

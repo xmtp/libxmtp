@@ -559,7 +559,7 @@ where
             None,
         )?;
 
-        log_event!(Event::CreatedDM, self.context.inbox_id(), group_id = %hex::encode(&group.group_id), target_inbox_id);
+        log_event!(Event::CreatedDM, self.context.inbox_id(), group_id = %hex::encode(&group.group_id), target_inbox = target_inbox_id);
         group.add_members_by_inbox_id(&[target_inbox_id]).await?;
 
         // notify any streams of the new group

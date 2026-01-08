@@ -216,6 +216,7 @@ pub fn build_logging_metadata(
 pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as LogEventInput);
     let event = &input.event;
+    let inbox = &input.inbox;
 
     let provided_names: Vec<String> = input.fields.iter().map(|f| f.name.to_string()).collect();
     let tracing_fields: Vec<TokenStream> =
@@ -268,10 +269,14 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             let __meta = #event.metadata();
 
+            // Truncate inbox to last 5 characters
+            let __inbox_str: &str = #inbox;
+            let __inbox_truncated = if __inbox_str.len() > 5 { &__inbox_str[__inbox_str.len() - 5..] } else { __inbox_str };
+
             // Build message with context for non-structured logging
             let __message = if ::xmtp_common::is_structured_logging() {
-                // Structured logging: fields are already in JSON, don't duplicate in message
-                __meta.doc.to_string()
+                // Structured logging: include inbox and timestamp in message
+                format!("➣ {} {{inbox: \"{}\", timestamp: {}}}", __meta.doc, __inbox_truncated, xmtp_common::time::now_ns())
             } else {
                 // Non-structured logging: embed context in message for readability
                 let __context_parts: ::std::vec::Vec<String> = __meta.context_fields
@@ -286,9 +291,9 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                 let __context_str = __context_parts.join(", ");
                 if __context_str.is_empty() {
-                    format!("➣ {} {{timestamp: {}}}", __meta.doc, xmtp_common::time::now_ns())
+                    format!("➣ {} {{inbox: {}, timestamp: {}}}", __meta.doc, __inbox_truncated, xmtp_common::time::now_ns())
                 } else {
-                    format!("➣ {} {{{__context_str}, timestamp: {}}}", __meta.doc, xmtp_common::time::now_ns())
+                    format!("➣ {} {{{__context_str}, inbox: {}, timestamp: {}}}", __meta.doc, __inbox_truncated, xmtp_common::time::now_ns())
                 }
             };
 

@@ -32,6 +32,7 @@ pub(crate) struct LogEventInput {
     pub(crate) event: Path,
     pub(crate) level: LogLevel,
     pub(crate) fields: Vec<Field>,
+    pub(crate) inbox: Expr,
 }
 
 impl Parse for LogEventInput {
@@ -123,7 +124,7 @@ impl Parse for LogEventInput {
         // Create a field for inbox that truncates to last 5 characters
         let inbox_field = Field {
             name: syn::Ident::new("inbox", proc_macro2::Span::call_site()),
-            sigil: None,
+            sigil: Some('%'),
             value: Some(syn::parse_quote! {
                 {
                     let s: &str = #inbox;
@@ -138,6 +139,7 @@ impl Parse for LogEventInput {
             event,
             level,
             fields,
+            inbox,
         })
     }
 }

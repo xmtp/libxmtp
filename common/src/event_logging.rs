@@ -10,7 +10,7 @@ pub enum Event {
 
     // ===================== Group Operations =====================
     /// DM created.
-    #[context(group_id, target_inbox_id)]
+    #[context(group_id, target_inbox)]
     CreatedDM,
     /// Group created.
     #[context(group_id)]
@@ -21,13 +21,13 @@ pub enum Event {
 
     // ===================== MLS Operations =====================
     /// Received staged commit. Merging and clearing any pending commits.
-    #[context(group_id, sender_inbox_id, msg_epoch, current_epoch)]
+    #[context(group_id, sender_inbox, msg_epoch, current_epoch)]
     MLSReceivedStagedCommit,
     /// Processed staged commit.
     #[context(group_id, current_epoch)]
     MLSProcessedStagedCommit,
     /// Received application message.
-    #[context(group_id, current_epoch, msg_epoch, sender_inbox_id)]
+    #[context(group_id, current_epoch, msg_epoch, sender_inbox)]
     MLSReceivedApplicationMessage,
     /// Processed application message.
     #[context(group_id)]
