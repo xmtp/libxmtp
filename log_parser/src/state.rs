@@ -163,7 +163,7 @@ impl State {
                 .get(key)
                 .with_context(|| format!("Missing context field {key}"))
         };
-        let inbox = ctx("inbox")?.as_str().expect("InboxId should be str");
+        let inbox = &event.inbox;
         match event.event {
             Event::ClientCreated => {
                 self.clients
