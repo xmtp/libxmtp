@@ -4,12 +4,13 @@ use crate::groups::MlsGroup;
 use crate::groups::mls_ext::{CommitLogStorer, build_group_join_config};
 use crate::groups::mls_sync::{generate_commit_with_rollback, with_rollback};
 use crate::groups::send_message_opts::SendMessageOpts;
+use crate::identity::NewKeyPackageResult;
 use crate::identity::parse_credential;
 use openmls::credentials::BasicCredential;
 use openmls::group::MlsGroup as OpenMlsGroup;
 use openmls::prelude::hash_ref::HashReference;
 use openmls::prelude::tls_codec::Serialize;
-use openmls::prelude::{MlsMessageIn, ProcessedMessageContent, StagedWelcome};
+use openmls::prelude::*;
 use tls_codec::Deserialize;
 use xmtp_common::time::now_ns;
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
@@ -20,9 +21,73 @@ use xmtp_db::{
     consent_record::StoredConsentRecord,
     group::{GroupMembershipState, StoredGroup},
 };
+use xmtp_id::InboxOwner;
 use xmtp_mls_common::{
     group_metadata::extract_group_metadata, group_mutable_metadata::extract_group_mutable_metadata,
 };
+
+struct ProposalsAndCommit {
+    proposals: Vec<MlsMessageOut>,
+    commit: MlsMessageOut,
+    welcome: MlsMessageOut,
+    old_commit: MlsMessageOut,
+    old_welcome: MlsMessageOut,
+}
+
+async fn generate_add_proposals_and_commit<Context: XmtpSharedContext>(
+    groups: &[MlsGroup<Context>],
+    testers: &[crate::utils::test::tester_utils::Tester],
+    key_packages: &[NewKeyPackageResult],
+) -> ProposalsAndCommit {
+    let provider = groups[0].context.mls_provider();
+    let signer = testers[0].identity().installation_keys.clone();
+    let storage = groups[0].context.mls_storage();
+    groups[0]
+        .load_mls_group_with_lock_async(async |mut mls_group| {
+            let (old_commit, old_welcome, _) =
+                with_rollback(storage, &mut mls_group, |group, provider| {
+                    group
+                        .update_group_membership(
+                            provider,
+                            &testers[0].identity().installation_keys,
+                            &key_packages
+                                .iter()
+                                .map(|k| k.key_package.clone())
+                                .collect::<Vec<_>>(),
+                            &[],
+                            group.extensions().clone(),
+                        )
+                        .map_err(|e| GroupError::Any(e.into()))
+                })
+                .unwrap();
+            let epoch = mls_group.epoch();
+            let proposals = key_packages
+                .iter()
+                .map(|k| {
+                    let (proposal, _) = mls_group
+                        .propose_add_member(&provider, &signer, &k.key_package)
+                        .map_err(|e| GroupError::Any(e.into()))
+                        .unwrap();
+                    proposal
+                })
+                .collect::<Vec<_>>();
+            let (commit, welcome, _) = mls_group
+                .commit_to_pending_proposals(&provider, &signer)
+                .map_err(|e| GroupError::Any(e.into()))
+                .unwrap();
+            mls_group.merge_pending_commit(&provider).unwrap();
+            let p_and_c = ProposalsAndCommit {
+                proposals,
+                commit: commit,
+                welcome: welcome.unwrap(),
+                old_commit: old_commit,
+                old_welcome: old_welcome.unwrap(),
+            };
+            Ok::<_, GroupError>(p_and_c)
+        })
+        .await
+        .unwrap()
+}
 
 #[xmtp_common::test]
 async fn test_commit_sizes_with_proposals() {
@@ -37,57 +102,34 @@ async fn test_commit_sizes_with_proposals() {
         tracing::warn!("TESTER {i}");
         crate::tester!(tester);
 
-        let provider = groups[0].context.mls_provider();
-        let signer = testers[0].identity().installation_keys.clone();
         let key_package = tester
             .identity()
             .new_key_package(&tester.context.mls_provider(), true)
             .unwrap();
-        let storage = groups[0].context.mls_storage();
-        let (proposal, commit, welcome, old_commit, old_welcome) = groups[0]
-            .load_mls_group_with_lock_async(async |mut mls_group| {
-                let (old_commit, old_welcome, _) =
-                    with_rollback(storage, &mut mls_group, |group, provider| {
-                        group
-                            .update_group_membership(
-                                provider,
-                                &testers[0].identity().installation_keys,
-                                &[key_package.key_package.clone()],
-                                &[],
-                                group.extensions().clone(),
-                            )
-                            .map_err(|e| GroupError::Any(e.into()))
-                    })
-                    .unwrap();
-                let epoch = mls_group.epoch();
-                tracing::info!("TESTER {i} GROUP 0 EPOCH {epoch}");
-                let (proposal, _) = mls_group
-                    .propose_add_member(&provider, &signer, &key_package.key_package)
-                    .map_err(|e| GroupError::Any(e.into()))?;
-                let (commit, welcome, _) = mls_group
-                    .commit_to_pending_proposals(&provider, &signer)
-                    .map_err(|e| GroupError::Any(e.into()))
-                    .unwrap();
-                mls_group.merge_pending_commit(&provider).unwrap();
-                Ok::<_, GroupError>((
-                    proposal,
-                    commit,
-                    welcome.unwrap(),
-                    old_commit,
-                    old_welcome.unwrap(),
-                ))
+        let proposals_and_commit =
+            generate_add_proposals_and_commit(&groups, &testers, &[key_package]).await;
+        let proposals = proposals_and_commit
+            .proposals
+            .iter()
+            .map(|p| p.tls_serialize_detached().unwrap())
+            .collect::<Vec<_>>();
+
+        let proposals_size = proposals.iter().map(|p| p.len()).sum::<usize>();
+
+        let protocol_messages = proposals
+            .iter()
+            .map(|p| {
+                MlsMessageIn::tls_deserialize_exact(p)
+                    .unwrap()
+                    .try_into_protocol_message()
+                    .unwrap()
             })
-            .await
-            .unwrap();
-        let proposal = proposal.tls_serialize_detached().unwrap();
+            .collect::<Vec<_>>();
 
-        let proposal_size = proposal.len();
-
-        let protocol_message = MlsMessageIn::tls_deserialize_exact(&proposal)
-            .unwrap()
-            .try_into_protocol_message()
+        let commit = proposals_and_commit
+            .commit
+            .tls_serialize_detached()
             .unwrap();
-        let commit = commit.tls_serialize_detached().unwrap();
         let commit_message = MlsMessageIn::tls_deserialize_exact(&commit)
             .unwrap()
             .try_into_protocol_message()
@@ -95,7 +137,7 @@ async fn test_commit_sizes_with_proposals() {
 
         // skip over originating group
         let add_proposals_and_commit = groups.iter().enumerate().skip(1).map(|(i, g)| {
-            let protocol_message = protocol_message.clone();
+            let protocol_messages = protocol_messages.clone();
             let commit_message = commit_message.clone();
             let storage = g.context.mls_storage();
             async move {
@@ -104,16 +146,18 @@ async fn test_commit_sizes_with_proposals() {
                     let provider = g.context.mls_provider();
                     let epoch = mls_group.epoch();
                     tracing::info!("GROUP {i} EPOCH {epoch}");
-                    let x = mls_group
-                        .process_message(&provider, protocol_message)
-                        .unwrap();
-                    let ProcessedMessageContent::ProposalMessage(proposal) = x.into_content()
-                    else {
-                        panic!("Expected ProposalMessage");
-                    };
-                    mls_group
-                        .store_pending_proposal(storage, *proposal)
-                        .unwrap();
+                    for protocol_message in protocol_messages {
+                        let x = mls_group
+                            .process_message(&provider, protocol_message)
+                            .unwrap();
+                        let ProcessedMessageContent::ProposalMessage(proposal) = x.into_content()
+                        else {
+                            panic!("Expected ProposalMessage");
+                        };
+                        mls_group
+                            .store_pending_proposal(storage, *proposal)
+                            .unwrap();
+                    }
                     let x = mls_group
                         .process_message(&provider, commit_message)
                         .unwrap();
@@ -134,45 +178,46 @@ async fn test_commit_sizes_with_proposals() {
 
         futures::future::join_all(add_proposals_and_commit).await;
 
-        let old_commit = old_commit.tls_serialize_detached().unwrap();
-        let old_welcome = old_welcome.tls_serialize_detached().unwrap();
-        let welcome_bytes = welcome.tls_serialize_detached().unwrap();
+        let old_commit = proposals_and_commit
+            .old_commit
+            .tls_serialize_detached()
+            .unwrap();
+        let old_welcome = proposals_and_commit
+            .old_welcome
+            .tls_serialize_detached()
+            .unwrap();
+        let welcome_bytes = proposals_and_commit
+            .welcome
+            .tls_serialize_detached()
+            .unwrap();
         let welcome_size = welcome_bytes.len();
 
         tracing::warn!(
             i,
-            proposal_size,
+            proposals_size,
             old_commit_size = old_commit.len(),
             old_welcome_size = old_welcome.len(),
             commit_size = commit.len(),
             welcome_size,
             welcome_diff = (old_welcome.len() as isize - welcome_size as isize),
             commit_diff =
-                (old_commit.len() as isize - commit.len() as isize - proposal_size as isize),
+                (old_commit.len() as isize - commit.len() as isize - proposals_size as isize),
             commit_pct =
-                (commit.len() as f64 + proposal_size as f64) / (old_commit.len() as f64) * 100.0,
+                (commit.len() as f64 + proposals_size as f64) / (old_commit.len() as f64) * 100.0,
             "Commit sizes"
         );
 
         // Process welcome directly into OpenMLS group, bypassing network calls and validation
-        if welcome_bytes.is_empty() {
-            // No welcome to process
-            return;
-        }
-
         // MlsMessageOut when serialized contains the Welcome message
         // We need to deserialize as MlsMessageIn first, then extract the Welcome
-        use openmls::prelude::tls_codec::Deserialize;
         let mls_message_in = MlsMessageIn::tls_deserialize_exact(&welcome_bytes)
             .map_err(|e| GroupError::Any(e.into()))
             .unwrap();
 
         // Extract Welcome from MlsMessageIn
         // MlsMessageIn contains the Welcome in its body
-        use openmls::prelude::MlsMessageBodyIn;
-        let openmls_welcome = match mls_message_in.extract() {
-            MlsMessageBodyIn::Welcome(w) => w,
-            _ => panic!("Expected Welcome message, got different message type"),
+        let MlsMessageBodyIn::Welcome(openmls_welcome) = mls_message_in.extract() else {
+            panic!("Expected Welcome message, got different message type");
         };
 
         let tester_storage = tester.context.mls_storage();
@@ -257,7 +302,7 @@ async fn test_commit_sizes_with_proposals() {
                     .message_disappear_from_ns(disappearing_settings.as_ref().map(|m| m.from_ns))
                     .message_disappear_in_ns(disappearing_settings.as_ref().map(|m| m.in_ns))
                     .should_publish_commit_log(false) // For test, we don't need to publish commit log
-                    .installations_last_checked(now_ns()) // If this isn't set we get errors trying to sync members
+                    .installations_last_checked(now_ns()) // If this isn't set we get errors trying to sync
                     .build()
                     .map_err(|e| GroupError::Any(e.into()))?;
 
