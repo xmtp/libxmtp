@@ -164,6 +164,7 @@ pub fn build_logging_metadata(
         metadata_entries.push(quote! {
             crate::EventMetadata {
                 name: #variant_name_str,
+                event: #enum_name::#variant_name,
                 doc: #doc_comment,
                 context_fields: &[#(#context_fields_tokens),*],
             }
@@ -180,6 +181,7 @@ pub fn build_logging_metadata(
     let expanded = quote! {
         #(#attrs)*
         #[repr(usize)]
+        #[derive(Clone, Copy, Debug)]
         #visibility enum #enum_name {
             #(#cleaned_variants),*
         }
@@ -284,9 +286,9 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                 let __context_str = __context_parts.join(", ");
                 if __context_str.is_empty() {
-                    __meta.doc.to_string()
+                    format!("➣ {} {{timestamp: {}}}", __meta.doc, xmtp_common::time::now_ns())
                 } else {
-                    format!("{} {{{}}}", __meta.doc, __context_str)
+                    format!("➣ {} {{{__context_str}, timestamp: {}}}", __meta.doc, xmtp_common::time::now_ns())
                 }
             };
 

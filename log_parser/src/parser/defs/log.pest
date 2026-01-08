@@ -1,0 +1,54 @@
+// Whitespace handling
+WHITESPACE = _{ " " | "\t" }
+
+// Main line rule - matches full log lines
+line = { SOI ~ prefix? ~ "➣" ~ event ~ object ~ trailing? ~ EOI }
+
+// Everything before the arrow (timestamp, log level, module path, etc.)
+prefix = @{ (!("➣") ~ ANY)* }
+
+// Event name - text between arrow and opening brace
+event = @{ (!"{" ~ ANY)+ }
+
+// Trailing content after the main object (key=value pairs at end of line)
+trailing = @{ ANY* }
+
+// Object with unquoted or quoted keys
+object = {
+    "{" ~ "}"
+  | "{" ~ pair ~ ("," ~ pair)* ~ "}"
+}
+
+// Key-value pair - key can be unquoted identifier or quoted string
+pair = { key ~ ":" ~ value }
+
+// Key can be an unquoted identifier or a quoted string
+key = { identifier | quoted_string }
+
+// Unquoted identifier (letters, digits, underscores)
+identifier = @{ (ASCII_ALPHANUMERIC | "_")+ }
+
+// Quoted string
+quoted_string = ${ "\"" ~ inner ~ "\"" }
+inner         = @{ char* }
+char          =  {
+    !("\"" | "\\") ~ ANY
+  | "\\" ~ ("\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t")
+  | "\\" ~ ("u" ~ ASCII_HEX_DIGIT{4})
+}
+
+// Values
+value = _{ object | array | quoted_string | number | boolean | null }
+
+// Array
+array = {
+    "[" ~ "]"
+  | "[" ~ value ~ ("," ~ value)* ~ "]"
+}
+
+// Primitives
+boolean =  { "true" | "false" }
+null    =  { "null" }
+number  = @{
+    "-"? ~ ("0" | ASCII_NONZERO_DIGIT ~ ASCII_DIGIT*) ~ ("." ~ ASCII_DIGIT*)? ~ (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)?
+}
