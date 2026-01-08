@@ -27,6 +27,7 @@ impl Extractor for OrphanExtractor {
         envelope.cursor(extracted.0.get()?);
         envelope.depends_on(extracted.1.get().unwrap_or_default());
         envelope.payload(extracted.2.get());
+        envelope.group_id(extracted.3.get()?.group_id);
         Ok(envelope.build()?)
     }
 }

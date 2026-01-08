@@ -55,7 +55,7 @@ default-members = [
 
 # Make the feature resolver explicit.
 # See https://doc.rust-lang.org/edition-guide/rust-2021/default-cargo-resolver.html#details
-resolver = "2"
+resolver = "3"
 
 [workspace.package]
 license = "MIT"
@@ -154,9 +154,11 @@ tracing-subscriber = { version = "0.3", default-features = false }
 toxiproxy_rust = { git = "https://github.com/ephemeraHQ/toxiproxy_rust.git" }
 url = "2.5.0"
 uuid = "1.12"
-vergen-git2 = "1.0.2"
+vergen-git2 = "9.1"
+# zstd = { default-features = false, version = "0.13" } # needed to enable wasm feature for async-compression
+
 # Any changes here need to be made with corresponding changes in .github/workflows
-wasm-bindgen = "=0.2.105"
+wasm-bindgen = "=0.2.108"
 wasm-bindgen-futures = "0.4.51"
 wasm-bindgen-test = "0.3.51"
 web-sys = "0.3"

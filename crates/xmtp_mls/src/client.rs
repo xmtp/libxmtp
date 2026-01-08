@@ -1524,6 +1524,7 @@ pub(crate) mod tests {
         assert_eq!(bo_messages2.len(), 3);
     }
 
+    #[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
     #[xmtp_common::test]
     async fn test_sync_100_allowed_groups_performance() {
         tester!(alix);

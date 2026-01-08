@@ -66,7 +66,8 @@ fn assert_depends_on(env: &XmtpEnvelope, dependant: usize, commit: usize) {
     assert_eq!(
         depends_on_cursor,
         cursors[commit],
-        "dependant envelope {} does not have a dependency on {}\n{}",
+        "envelope [{}] has dependency {}, but expected dependency {}\n{}",
+        cursors[dependant],
         client_envelopes[dependant].aad.as_ref().unwrap(),
         cursors[commit],
         message_debug(env)
@@ -136,6 +137,7 @@ async fn messages_dependencies_out_of_order_invites() {
     let caro_group = caro.sync_welcomes().await?.pop()?;
     caro_group.send_msg(b"4").await; // message 5 (application)
     let messages = get_messages(&alix.context, &group_id).await;
+
     // caro depends on bos commit
     assert_depends_on(&messages, 5, 3);
     // now everyone should be synced to the latest state

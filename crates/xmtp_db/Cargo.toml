@@ -44,6 +44,9 @@ xmtp_configuration.workspace = true
 xmtp_proto.workspace = true
 zeroize.workspace = true
 
+ascii_table = { version = "5", optional = true, features = [
+  "auto_table_width",
+] }
 futures = { workspace = true, optional = true }
 mockall = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = [
@@ -75,6 +78,7 @@ wasm-bindgen = { workspace = true }
 
 
 [dev-dependencies]
+ascii_table = { version = "5", features = ["auto_table_width"] }
 futures.workspace = true
 futures-timer.workspace = true
 mockall = { workspace = true }
@@ -99,6 +103,7 @@ test-utils = [
   "dep:futures",
   "xmtp_common/test-utils",
   "dep:mockall",
+  "dep:ascii_table",
   "xmtp_configuration/test-utils",
   "xmtp_cryptography/test-utils",
 ]

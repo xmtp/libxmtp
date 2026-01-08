@@ -92,7 +92,6 @@ pub trait EnvelopeVisitor<'env> {
     type Error: Into<EnvelopeError>;
     /// Visit the OriginatorEnvelope Type
     fn visit_originator(&mut self, _e: &OriginatorEnvelope) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_originator");
         Ok(())
     }
     /// Visit the UnsignedOriginatorEnvelope type
@@ -100,33 +99,27 @@ pub trait EnvelopeVisitor<'env> {
         &mut self,
         _e: &UnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_unsigned_originator");
         Ok(())
     }
     /// Visit the Payer Envelope Type
     fn visit_payer(&mut self, _e: &PayerEnvelope) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_payer");
         Ok(())
     }
     /// Visit the ClientEnvelope type
     fn visit_client(&mut self, _e: &ClientEnvelope) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_client");
         Ok(())
     }
     /// Visit the GroupMessageVersion type
     fn visit_group_message_version(&mut self, _m: &GroupMessageVersion) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_group_message_version");
         Ok(())
     }
     /// Visit the GroupMessageInput containing the welcome message version
     fn visit_group_message_input(&mut self, _m: &GroupMessageInput) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_group_message_input");
         Ok(())
     }
 
     /// Visit a V1 Group Message
     fn visit_group_message_v1(&mut self, _m: &GroupMessageV1) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_group_message_v1");
         Ok(())
     }
     /// Visit the WelcomeMessageInput containing the welcome message version
@@ -134,18 +127,15 @@ pub trait EnvelopeVisitor<'env> {
         &mut self,
         _m: &WelcomeMessageVersion,
     ) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_group_message_version");
         Ok(())
     }
     /// Visit the WelcomeMessageInput containing the welcome message version
     fn visit_welcome_message_input(&mut self, _m: &WelcomeMessageInput) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_welcome_message_input");
         Ok(())
     }
 
     /// Visit a V1 Welcome Message
     fn visit_welcome_message_v1(&mut self, _m: &WelcomeMessageV1) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_welcome_message_v1");
         Ok(())
     }
 
@@ -154,22 +144,18 @@ pub trait EnvelopeVisitor<'env> {
         &mut self,
         _m: &WelcomeMessageWelcomePointer,
     ) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_welcome_pointer");
         Ok(())
     }
 
     fn visit_v3_group_message(&mut self, _m: &V3GroupMessage) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_v3_group_message");
         Ok(())
     }
 
     fn visit_v3_welcome_message(&mut self, _m: &V3WelcomeMessage) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_v3_welcome_message");
         Ok(())
     }
 
     fn visit_v3_welcome_pointer(&mut self, _m: &V3WelcomePointer) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_v3_welcome_pointer");
         Ok(())
     }
 
@@ -178,18 +164,15 @@ pub trait EnvelopeVisitor<'env> {
         &mut self,
         _p: &UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_upload_key_package");
         Ok(())
     }
 
     /// Visit the Identity Update Type
     fn visit_identity_update(&mut self, _u: &IdentityUpdate) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_identity_update");
         Ok(())
     }
 
     fn visit_identity_update_log(&mut self, _u: &IdentityUpdateLog) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_identity_update_log");
         Ok(())
     }
 
@@ -198,12 +181,10 @@ pub trait EnvelopeVisitor<'env> {
         &mut self,
         _u: &get_identity_updates_request::Request,
     ) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_identity_updates_request");
         Ok(())
     }
 
     fn visit_key_package(&mut self, _k: &KeyPackage) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_key_package");
         Ok(())
     }
 
@@ -211,7 +192,6 @@ pub trait EnvelopeVisitor<'env> {
     /// Useful is client expects a constant length between
     /// requests and responses
     fn visit_none(&mut self) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_none");
         Ok(())
     }
 
@@ -220,7 +200,6 @@ pub trait EnvelopeVisitor<'env> {
         &mut self,
         _u: &get_newest_envelope_response::Response,
     ) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_newest_envelope_response");
         Ok(())
     }
 
@@ -229,7 +208,6 @@ pub trait EnvelopeVisitor<'env> {
         &mut self,
         _r: &SubscribeGroupMessagesFilter,
     ) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_subscribe_group_messages_request");
         Ok(())
     }
 
@@ -238,7 +216,6 @@ pub trait EnvelopeVisitor<'env> {
         &mut self,
         _r: &SubscribeWelcomeMessagesFilter,
     ) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_subscribe_group_messages_request");
         Ok(())
     }
 
@@ -246,13 +223,11 @@ pub trait EnvelopeVisitor<'env> {
         &mut self,
         _u: &get_newest_group_message_response::Response,
     ) -> Result<(), Self::Error> {
-        tracing::trace!("noop_visit_newest_group_message_response");
         Ok(())
     }
 
     #[cfg(any(test, feature = "test-utils"))]
     fn test_visit_u32(&mut self, _n: &u32) -> Result<(), Self::Error> {
-        tracing::trace!("noop_test_visit_u32");
         Ok(())
     }
 }

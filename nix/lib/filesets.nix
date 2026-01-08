@@ -29,6 +29,8 @@ let
     ./../../crates/xmtp_proto/src/gen/proto_descriptor.bin
     ./../../bindings/mobile/Makefile
     ./../../webdriver.json
+    ./../../.config/nextest.toml
+    ./../../.cargo/config.toml
   ];
   binaries = lib.fileset.unions [
     (commonCargoSources ./../../apps/cli)
