@@ -13,11 +13,14 @@ event = @{ (!"{" ~ ANY)+ }
 // Trailing content after the main object (key=value pairs at end of line)
 trailing = @{ ANY* }
 
-// Object with unquoted or quoted keys
+// Object with unquoted or quoted keys, optionally preceded by a struct name
 object = {
-    "{" ~ "}"
-  | "{" ~ pair ~ ("," ~ pair)* ~ "}"
+    struct_name? ~ "{" ~ "}"
+  | struct_name? ~ "{" ~ pair ~ ("," ~ pair)* ~ "}"
 }
+
+// Struct name (e.g., GroupMembership, MyStruct)
+struct_name = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 
 // Key-value pair - key can be unquoted identifier or quoted string
 pair = { key ~ ":" ~ value }

@@ -181,7 +181,7 @@ pub fn build_logging_metadata(
     let expanded = quote! {
         #(#attrs)*
         #[repr(usize)]
-        #[derive(Clone, Copy, Debug)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         #visibility enum #enum_name {
             #(#cleaned_variants),*
         }

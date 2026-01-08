@@ -1,10 +1,16 @@
 use anyhow::{Result, bail};
 use pest::{Parser, iterators::Pair};
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    rc::Rc,
+};
+use tracing::warn;
 use xmtp_common::Event;
 
 use crate::{LogParser, Rule};
 
+#[derive(Debug, PartialEq, Eq)]
 enum Value {
     String(String),
     Bytes(Vec<u8>),
@@ -19,7 +25,7 @@ impl Value {
     fn from(pair: Pair<'_, Rule>) -> Result<Self> {
         let pair_str = pair.as_str();
         let val = match pair.as_rule() {
-            Rule::quoted_string => Self::String(pair_str.to_string()),
+            Rule::quoted_string => Self::String(pair_str.replace("\"", "").to_string()),
             Rule::number => Self::Int(pair_str.parse()?),
             Rule::array => {
                 let mut array = Vec::new();
@@ -43,7 +49,7 @@ impl Value {
 
                     // Do this so we don't completely omit the line if a single value fails to parse.
                     if let Ok(value) = Self::from(value) {
-                        object.insert(key.as_str().to_string(), value);
+                        object.insert(key.as_str().replace("\"", "").to_string(), value);
                     }
                 }
                 Self::Object(object)
@@ -59,8 +65,30 @@ impl Value {
 
         Ok(val)
     }
+
+    fn as_str(&self) -> Option<&str> {
+        match self {
+            Self::String(str) => Some(&str),
+            _ => None,
+        }
+    }
+
+    fn as_int(&self) -> Option<i64> {
+        match self {
+            Self::Int(int) => Some(*int),
+            _ => None,
+        }
+    }
+
+    fn as_obj(&self) -> Option<&HashMap<String, Self>> {
+        match self {
+            Self::Object(obj) => Some(obj),
+            _ => None,
+        }
+    }
 }
 
+#[derive(Debug)]
 pub struct LogEvent {
     event: Event,
     context: HashMap<String, Value>,
@@ -91,27 +119,19 @@ impl LogEvent {
             if !matches!(pair.as_rule(), Rule::pair) {
                 continue;
             }
+            let pair_str = pair.as_str();
             let mut pair_inner = pair.into_inner();
+            let Some(key) = pair_inner.next() else {
+                warn!("Missing key for pair: {pair_str}");
+                continue;
+            };
+            let Some(value) = pair_inner.next().and_then(|p| Value::from(p).ok()) else {
+                warn!("Unable to parse value for pair: {pair_str}");
+                continue;
+            };
 
-            let Some(key) = pair_inner.find(|p| matches!(p.as_rule(), Rule::key)) else {
-                continue;
-            };
-            let Some(value) = pair_inner.find(|p| {
-                matches!(
-                    p.as_rule(),
-                    Rule::object
-                        | Rule::array
-                        | Rule::quoted_string
-                        | Rule::number
-                        | Rule::boolean
-                        | Rule::null
-                )
-            }) else {
-                continue;
-            };
+            context.insert(key.as_str().to_string(), value);
         }
-
-        for field in event_meta.context_fields {}
 
         Ok(Self {
             event: event_meta.event,
@@ -120,9 +140,11 @@ impl LogEvent {
     }
 }
 
+type InboxId = String;
+
 struct State {
     // key: inbox_id
-    clients: HashMap<String, ClientState>,
+    clients: HashMap<InboxId, ClientState>,
 }
 
 struct ClientState {
@@ -130,16 +152,54 @@ struct ClientState {
     groups: HashMap<Vec<u8>, Rc<RefCell<GroupState>>>,
 }
 
+#[derive(Clone)]
 struct GroupState {
     prev: Option<Rc<RefCell<Self>>>,
     created_at: Option<i64>,
+    epoch: i64,
+    members: HashSet<InboxId>,
 }
 
 impl GroupState {
     fn step(mut group: Rc<RefCell<Self>>) -> Rc<RefCell<Self>> {
         Rc::new(RefCell::new(Self {
             prev: Some(group.clone()),
-            ..*group.borrow()
+            ..group.borrow().clone()
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use xmtp_common::Event;
+
+    use crate::state::{LogEvent, Value};
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_log_parse() {
+        let line = r#"INFO; update_conversation_message_disappear_from_ns:sync_until_intent_resolved:sync_until_intent_resolved_inner:sync_with_conn:process_messages:process_message: xmtp_mls::identity_updates: ➣ Updating group membership. Calculating which installations need to be added / removed. {group_id: "f143ed03a0069366acb7aaad9c529542", old_membership: GroupMembership { members: {"b3fbe1fdc94398def04fa116f6c85bed3463a43e9e69d376156062edfae043d8": 365, "0976e879cb8b05477ec4673be925e9becf8fb1c2fff56488326a6ba0a06b4f0f": 366}, failed_installations: [] }, new_membership: GroupMembership { members: {"b3fbe1fdc94398def04fa116f6c85bed3463a43e9e69d376156062edfae043d8": 365, "0976e879cb8b05477ec4673be925e9becf8fb1c2fff56488326a6ba0a06b4f0f": 366}, failed_installations: [] }, timestamp: 1767884672122893682}"#;
+
+        let event = LogEvent::from(line)?;
+        assert_eq!(event.event, Event::MembershipInstallationDiff);
+
+        let group_id = event.context.get("group_id");
+        assert!(group_id.is_some());
+        assert_eq!(group_id?.as_str()?, "f143ed03a0069366acb7aaad9c529542");
+
+        let new_membership = event.context.get("new_membership")?.as_obj()?;
+        let members = new_membership.get("members")?.as_obj()?;
+        assert_eq!(
+            *members.get("b3fbe1fdc94398def04fa116f6c85bed3463a43e9e69d376156062edfae043d8")?,
+            Value::Int(365)
+        );
+        assert_eq!(
+            *members.get("0976e879cb8b05477ec4673be925e9becf8fb1c2fff56488326a6ba0a06b4f0f")?,
+            Value::Int(366)
+        );
+
+        assert_eq!(
+            event.context.get("timestamp")?.as_int()?,
+            1767884672122893682
+        );
     }
 }
