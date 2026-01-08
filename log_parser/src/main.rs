@@ -18,7 +18,7 @@ mod tests {
     use xmtp_common::{Event, TestWriter};
     use xmtp_mls::tester;
 
-    use crate::{LogParser, Rule};
+    use crate::{LogParser, Rule, state::LogEvent};
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_log_parsing() {
@@ -39,22 +39,9 @@ mod tests {
         let log = writer.as_string();
         let lines: Vec<&str> = log.split("\n").collect();
         for line in lines {
-            let Ok(line) = LogParser::parse(Rule::line, &line) else {
+            let Ok(event) = LogEvent::from(&line) else {
                 continue;
             };
-            // There should only ever be one event per line.
-            let line = line.last()?;
-            let mut line_inner = line.into_inner();
-            let event = line_inner.find(|e| matches!(e.as_rule(), Rule::event))?;
-
-            let event_str = event.as_str().trim();
-            dbg!(event_str);
-
-            // An object should always follow an event.
-            let data = line_inner.nth(0)?;
-            let event = Event::METADATA.iter().find(|m| m.doc == event_str)?;
-
-            dbg!(event);
         }
     }
 }
