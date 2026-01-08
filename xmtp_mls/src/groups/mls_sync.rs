@@ -828,6 +828,7 @@ where
             }
             Self::mark_readd_requests_as_responded(
                 storage,
+                &self.context.installation_id().to_vec(),
                 &self.group_id,
                 &validated_commit.readded_installations,
                 cursor.sequence_id as i64,
@@ -1206,6 +1207,7 @@ where
 
                 Self::mark_readd_requests_as_responded(
                     storage,
+                    &self.context.installation_id().to_vec(),
                     &self.group_id,
                     &validated_commit.readded_installations,
                     cursor.sequence_id as i64,
@@ -1471,6 +1473,7 @@ where
 
     pub(crate) fn mark_readd_requests_as_responded(
         storage: &impl XmtpMlsStorageProvider,
+        self_installation_id: &[u8],
         group_id: &Vec<u8>,
         readded_installations: &HashSet<Vec<u8>>,
         cursor: i64,
@@ -1481,6 +1484,15 @@ where
                 installation_id.as_slice(),
                 cursor,
             )?;
+        }
+        if readded_installations.contains(self_installation_id)
+            && !storage
+                .db()
+                .is_awaiting_readd(group_id.as_slice(), self_installation_id)?
+        {
+            storage
+                .db()
+                .set_group_commit_log_forked_status(group_id.as_slice(), None)?;
         }
         Ok(())
     }
