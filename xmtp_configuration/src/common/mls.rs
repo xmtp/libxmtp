@@ -47,3 +47,14 @@ pub const MIN_RECOVERY_REQUEST_VERSION: &str = "1.6.0";
 // ingested by the nodes and stored. There is a slight penalty for egress data, but the amount needed
 // to be stored can be 100x less than using regular welcome messages.
 pub const INSTALLATION_THRESHOLD_FOR_WELCOME_POINTER_SENDING: usize = 2;
+
+// Exponential Backoff constants for Intent Sync
+// for max group sync retries of 3 and a max jitter of 25ms with a 50ms base, the maximum possible
+// wait is 2025ms (2.025s) well under the 10s limit
+
+/// the base backoff time that is multiplied by 3
+pub const SYNC_BACKOFF_WAIT_MS: u16 = 50;
+/// the total wait for all attempts
+pub const SYNC_BACKOFF_TOTAL_WAIT_MAX_SECS: u16 = 10;
+/// jitter time between attempts in ms
+pub const SYNC_JITTER_MS: u16 = 25;
