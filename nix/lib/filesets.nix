@@ -35,6 +35,7 @@ let
     (commonCargoSources ./../../mls_validation_service)
     (commonCargoSources ./../../bindings_node)
     (commonCargoSources ./../../bindings_wasm)
+    (commonCargoSources ./../../bindings_wasm_macros)
     (commonCargoSources ./../../bindings_ffi)
     (commonCargoSources ./../../xmtp_debug)
   ];

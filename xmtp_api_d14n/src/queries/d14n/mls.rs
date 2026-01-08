@@ -135,13 +135,14 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip(self))]
     async fn query_group_messages(
         &self,
         group_id: GroupId,
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
         let topic = TopicKind::GroupMessagesV1.create(&group_id);
         let lcc = self.cursor_store.lowest_common_cursor(&[&topic])?;
+        tracing::debug!(%topic, %lcc, "querying messages");
         let mut topic_cursor = TopicCursor::default();
         topic_cursor.insert(topic.clone(), lcc.clone());
         let resolver = resolve::network_backoff(&self.client);
