@@ -46,6 +46,7 @@ impl NeedsDbReconnect for TaskWorkerError {
             TaskWorkerError::InvalidTaskData { .. } => false,
             TaskWorkerError::InvalidHash { .. } => false,
             TaskWorkerError::ReceiverLocked => false,
+            TaskWorkerError::MissingMetrics => false,
         }
     }
 }
