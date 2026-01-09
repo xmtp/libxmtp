@@ -6,7 +6,6 @@ use crate::{
         enrichment::{EnrichMessageError, enrich_messages},
     },
 };
-use parking_lot::RwLock;
 use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
 use xmtp_macro::log_event;
 

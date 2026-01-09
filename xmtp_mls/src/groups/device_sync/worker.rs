@@ -5,10 +5,7 @@ use super::{
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
-    groups::{
-        GroupError,
-        device_sync::{archive::insert_importer, default_archive_options},
-    },
+    groups::{GroupError, device_sync::archive::insert_importer},
     subscriptions::{LocalEvents, SyncWorkerEvent},
     worker::{
         BoxedWorker, DynMetrics, MetricsCasting, Worker, WorkerFactory, WorkerKind, WorkerResult,
@@ -24,22 +21,25 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
 use xmtp_common::task;
-use xmtp_db::prelude::*;
 use xmtp_db::{
     StoreOrIgnore,
     group_message::{MsgQueryArgs, StoredGroupMessage},
     processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
 };
+use xmtp_db::{prelude::*, tasks::NewTask};
 use xmtp_proto::{
     ConversionError,
-    xmtp::device_sync::{
-        BackupElementSelection, BackupOptions,
-        content::{
-            DeviceSyncAcknowledge, DeviceSyncKeyType, DeviceSyncReply as DeviceSyncReplyProto,
-            DeviceSyncRequest as DeviceSyncRequestProto,
-            PreferenceUpdates as PreferenceUpdatesProto,
-            device_sync_content::Content as ContentProto, device_sync_key_type::Key,
+    xmtp::{
+        device_sync::{
+            BackupElementSelection, BackupOptions,
+            content::{
+                DeviceSyncAcknowledge, DeviceSyncKeyType, DeviceSyncReply as DeviceSyncReplyProto,
+                DeviceSyncRequest as DeviceSyncRequestProto,
+                PreferenceUpdates as PreferenceUpdatesProto,
+                device_sync_content::Content as ContentProto, device_sync_key_type::Key,
+            },
         },
+        mls::database::{SendSyncArchive, Task},
     },
 };
 
@@ -311,15 +311,21 @@ where
                     return Ok(());
                 }
 
-                self.send_archive(
-                    Some(request.clone()),
-                    || async {
-                        self.acknowledge_sync_request(msg, &request.request_id)
-                            .await
-                    },
-                    handle,
-                )
-                .await?;
+                self.context.task_channels().send(
+                    NewTask::builder()
+                        .build(Task {
+                            task: Some(
+                                xmtp_proto::xmtp::mls::database::task::Task::SendSyncArchive(
+                                    SendSyncArchive {
+                                        options: request.options,
+                                        request_id: Some(request.request_id),
+                                        sync_group_id: msg.group_id.clone(),
+                                    },
+                                ),
+                            ),
+                        })
+                        .unwrap(),
+                );
             }
             ContentProto::Reply(reply) => {
                 if !is_external {
