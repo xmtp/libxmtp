@@ -5,10 +5,7 @@ use super::{
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
-    groups::{
-        GroupError,
-        device_sync::{archive::insert_importer, default_archive_options},
-    },
+    groups::{GroupError, device_sync::archive::insert_importer},
     subscriptions::{LocalEvents, SyncWorkerEvent},
     worker::{
         BoxedWorker, DynMetrics, MetricsCasting, Worker, WorkerFactory, WorkerKind, WorkerResult,
@@ -17,28 +14,32 @@ use crate::{
 };
 use futures::TryFutureExt;
 use owo_colors::OwoColorize;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tokio::sync::{OnceCell, broadcast};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
-use xmtp_db::prelude::*;
+use xmtp_common::task;
 use xmtp_db::{
     StoreOrIgnore,
     group_message::{MsgQueryArgs, StoredGroupMessage},
     processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
 };
+use xmtp_db::{prelude::*, tasks::NewTask};
 use xmtp_proto::{
     ConversionError,
-    xmtp::device_sync::{
-        BackupElementSelection, BackupOptions,
-        content::{
-            DeviceSyncAcknowledge, DeviceSyncKeyType, DeviceSyncReply as DeviceSyncReplyProto,
-            DeviceSyncRequest as DeviceSyncRequestProto,
-            PreferenceUpdates as PreferenceUpdatesProto,
-            device_sync_content::Content as ContentProto, device_sync_key_type::Key,
+    xmtp::{
+        device_sync::{
+            BackupElementSelection, BackupOptions,
+            content::{
+                DeviceSyncAcknowledge, DeviceSyncKeyType, DeviceSyncReply as DeviceSyncReplyProto,
+                DeviceSyncRequest as DeviceSyncRequestProto,
+                PreferenceUpdates as PreferenceUpdatesProto,
+                device_sync_content::Content as ContentProto, device_sync_key_type::Key,
+            },
         },
+        mls::database::{SendSyncArchive, Task},
     },
 };
 
@@ -128,6 +129,10 @@ where
         self.sync_init().await?;
         self.metrics.increment_metric(SyncMetric::Init);
 
+        // Start a tick task so that the worker will retry failed messages
+        // every 20 seconds.
+        Self::tick(self.client.context.clone()).await;
+
         while let Ok(event) = self.receiver.recv().await {
             tracing::info!(
                 "[{}] New event: {event:?}",
@@ -150,6 +155,19 @@ where
             }
         }
         Ok(())
+    }
+
+    async fn tick(ctx: Context) {
+        task::spawn(async move {
+            loop {
+                xmtp_common::time::sleep(Duration::from_secs(20)).await;
+                // We don't need to worry about a mutex lock for device sync
+                // to ensure that a sync payload is not being processed by two
+                // threads at once because there should only ever be one sync worker
+                // and the sync worker processes all events in series.
+                let _ = ctx.worker_events().send(SyncWorkerEvent::NewSyncGroupMsg);
+            }
+        });
     }
 
     //// Ideally called when the client is registered.
@@ -208,8 +226,7 @@ where
     async fn evt_new_sync_group_msg(&self) -> Result<(), DeviceSyncError> {
         self.client
             .process_new_sync_group_messages(&self.metrics)
-            .await?;
-        Ok(())
+            .await
     }
 
     async fn evt_sync_preferences(
@@ -296,12 +313,21 @@ where
                     return Ok(());
                 }
 
-                self.send_sync_reply(
-                    Some(request.clone()),
-                    || async { self.acknowledge_sync_request(msg, &request).await },
-                    handle,
-                )
-                .await?;
+                self.context.task_channels().send(
+                    NewTask::builder()
+                        .build(Task {
+                            task: Some(
+                                xmtp_proto::xmtp::mls::database::task::Task::SendSyncArchive(
+                                    SendSyncArchive {
+                                        options: request.options,
+                                        request_id: Some(request.request_id),
+                                        sync_group_id: msg.group_id.clone(),
+                                    },
+                                ),
+                            ),
+                        })
+                        .unwrap(),
+                );
             }
             ContentProto::Reply(reply) => {
                 if !is_external {
@@ -341,10 +367,10 @@ where
     /// The first installation to acknowledge the sync request will be the installation to handle the response.
     pub async fn acknowledge_sync_request(
         &self,
-        message: &StoredGroupMessage,
-        request: &DeviceSyncRequestProto,
+        sync_group_id: &Vec<u8>,
+        request_id: &str,
     ) -> Result<(), DeviceSyncError> {
-        let sync_group = self.mls_store.group(&message.group_id)?;
+        let sync_group = self.mls_store.group(sync_group_id)?;
         // Pull down any new messages
         sync_group.sync_with_conn().await?;
 
@@ -355,13 +381,14 @@ where
             let ContentProto::Acknowledge(acknowledge) = content else {
                 continue;
             };
-            if acknowledge.request_id != request.request_id {
+            if acknowledge.request_id != request_id {
                 continue;
             }
 
             if message.sender_installation_id != self.installation_id() {
                 // Request has already been acknowledged by another installation.
                 // Let that installation handle it.
+                tracing::info!("Request was already acknowledged by another installation.");
                 return Err(DeviceSyncError::AlreadyAcknowledged);
             }
 
@@ -370,55 +397,44 @@ where
 
         // Acknowledge and break.
         self.send_device_sync_message(ContentProto::Acknowledge(DeviceSyncAcknowledge {
-            request_id: request.request_id.clone(),
+            request_id: request_id.to_string(),
         }))
         .await?;
 
         Ok(())
     }
 
-    pub(crate) async fn send_sync_reply<F, Fut>(
+    pub(crate) async fn send_archive(
         &self,
-        request: Option<DeviceSyncRequestProto>,
-        acknowledge: F,
-        handle: &WorkerMetrics<SyncMetric>,
+        options: BackupOptions,
+        sync_group_id: &Vec<u8>,
+        request_id: Option<String>,
     ) -> Result<(), DeviceSyncError>
     where
-        F: Fn() -> Fut,
-        Fut: std::future::Future<Output = Result<(), DeviceSyncError>>,
         Context::Db: 'static,
     {
-        if let Some(request) = &request
-            && request.kind() != BackupElementSelection::Unspecified
-        {
-            // This is a v1 request
-            return Ok(());
-        }
-
-        match acknowledge().await {
-            Err(DeviceSyncError::AlreadyAcknowledged) => {
-                tracing::info!("Request was already acknowledged by another installation.");
-                return Ok(());
-            }
-            result => result?,
-        }
-
         let Some(device_sync_server_url) = &self.context.device_sync().server_url else {
             tracing::info!("No message history payload sent - server url not present.");
             return Ok(());
         };
         tracing::info!("{}", "Sending sync payload.".yellow());
 
-        let mut request_id = "".to_string();
-        let options = if let Some(request) = request {
-            let Some(options) = request.options else {
-                return Err(DeviceSyncError::MissingOptions);
-            };
-            request_id = request.request_id;
-            options
-        } else {
-            default_archive_options()
+        let acknowledge = || async {
+            if let Some(request_id) = &request_id {
+                match self
+                    .acknowledge_sync_request(sync_group_id, request_id)
+                    .await
+                {
+                    Err(DeviceSyncError::AlreadyAcknowledged) => return Ok(()),
+                    result => result?,
+                }
+            }
+
+            Ok::<_, DeviceSyncError>(())
         };
+
+        // Acknowledge the sync request
+        acknowledge().await?;
 
         // Generate a random encryption key
         let key = xmtp_common::rand_vec::<32>();
@@ -427,7 +443,7 @@ where
         //
         // 1. Build the exporter
         let db = self.context.db();
-        let exporter = ArchiveExporter::new(options, db, &key);
+        let exporter = ArchiveExporter::new(options.clone(), db, &key);
         let metadata = exporter.metadata().clone();
 
         // 5. Make the request
@@ -439,7 +455,7 @@ where
             encryption_key: Some(DeviceSyncKeyType {
                 key: Some(Key::Aes256Gcm(key)),
             }),
-            request_id,
+            request_id: request_id.clone().unwrap_or_default(),
             url: format!("{device_sync_server_url}/files/{response}",),
             metadata: Some(metadata),
 
@@ -447,20 +463,30 @@ where
             ..Default::default()
         };
 
-        // Check acknowledgement one more time before responding to try to avoid double-responses
-        // from two or more old installations.
-        match acknowledge().await {
-            Err(DeviceSyncError::AlreadyAcknowledged) => {
-                return Ok(());
-            }
-            result => result?,
-        }
+        // Check acknowledgement one more time.
+        // This ensures we were the first to acknowledge.
+        acknowledge().await?;
 
         // Send the message out over the network
         self.send_device_sync_message(ContentProto::Reply(reply))
             .await?;
 
-        handle.increment_metric(SyncMetric::PayloadSent);
+        // Update metrics.
+        if options
+            .elements
+            .contains(&(BackupElementSelection::Consent as i32))
+        {
+            self.metrics
+                .increment_metric(SyncMetric::ConsentPayloadSent);
+        }
+        if options
+            .elements
+            .contains(&(BackupElementSelection::Messages as i32))
+        {
+            self.metrics
+                .increment_metric(SyncMetric::MessagesPayloadSent);
+        }
+        self.metrics.increment_metric(SyncMetric::PayloadSent);
 
         Ok(())
     }
@@ -606,20 +632,16 @@ pub enum SyncMetric {
     SyncGroupCreated,
     SyncGroupWelcomesProcessed,
     RequestReceived,
+    ConsentPayloadSent,
+    ConsentPayloadProcessed,
+    MessagesPayloadSent,
+    MessagesPayloadProcessed,
     PayloadSent,
     PayloadProcessed,
     HmacSent,
     HmacReceived,
     ConsentSent,
     ConsentReceived,
-
-    V1ConsentSent,
-    V1HmacSent,
-    V1PayloadSent,
-    V1PayloadProcessed,
-    V1ConsentReceived,
-    V1HmacReceived,
-    V1RequestSent,
 }
 
 impl WorkerMetrics<SyncMetric> {

@@ -34,12 +34,8 @@ use xmtp_id::{InboxIdRef, associations::DeserializationError};
 use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::xmtp::{
-    device_sync::{
-        BackupElementSelection, BackupOptions,
-        content::{
-            DeviceSyncContent as DeviceSyncContentProto,
-            device_sync_content::Content as ContentProto,
-        },
+    device_sync::content::{
+        DeviceSyncContent as DeviceSyncContentProto, device_sync_content::Content as ContentProto,
     },
     mls::message_contents::{
         ContentTypeId, EncodedContent, PlaintextEnvelope,
@@ -319,16 +315,6 @@ where
             .await?;
 
         Ok(())
-    }
-}
-
-fn default_archive_options() -> BackupOptions {
-    BackupOptions {
-        elements: vec![
-            BackupElementSelection::Messages as i32,
-            BackupElementSelection::Consent as i32,
-        ],
-        ..Default::default()
     }
 }
 
