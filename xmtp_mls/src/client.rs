@@ -738,12 +738,9 @@ where
         if num_deleted > 0
             && let Some(message) = decoded_message
         {
-            let _ = self
-                .context
-                .local_events()
-                .send(crate::subscriptions::LocalEvents::MessageDeleted(Box::new(
-                    message,
-                )));
+            let _ = self.context.local_events().send(
+                crate::subscriptions::LocalEvents::MessageDeleted(Box::new(message)),
+            );
         }
 
         Ok(num_deleted)
