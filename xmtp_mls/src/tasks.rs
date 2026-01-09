@@ -9,6 +9,7 @@ use xmtp_proto::{
 
 use crate::{
     context::XmtpSharedContext,
+    groups::device_sync::{DeviceSyncClient, DeviceSyncError},
     worker::{NeedsDbReconnect, Worker, WorkerFactory, WorkerKind},
 };
 
@@ -18,6 +19,8 @@ pub enum TaskWorkerError {
     Storage(#[from] xmtp_db::StorageError),
     #[error("group error: {0}")]
     Group(#[from] crate::groups::GroupError),
+    #[error("device sync error: {0}")]
+    DeviceSync(#[from] DeviceSyncError),
     #[error("invalid task data for {id}: {error}")]
     InvalidTaskData { id: i64, error: prost::DecodeError },
     #[error("invalid hash for {id}, expected: {expected}, got: {got}")]
@@ -28,15 +31,17 @@ pub enum TaskWorkerError {
     },
     #[error("task runner receiver locked")]
     ReceiverLocked,
+    #[error("Cannot send sync archives without metrics handle")]
+    MissingMetrics,
 }
 
 impl NeedsDbReconnect for TaskWorkerError {
     fn needs_db_reconnect(&self) -> bool {
         match self {
             TaskWorkerError::Storage(s)
-            | TaskWorkerError::Group(crate::groups::GroupError::Storage(s)) => {
-                s.db_needs_connection()
-            }
+            | TaskWorkerError::Group(crate::groups::GroupError::Storage(s))
+            | TaskWorkerError::DeviceSync(DeviceSyncError::Storage(s)) => s.db_needs_connection(),
+            TaskWorkerError::DeviceSync(_) => false,
             TaskWorkerError::Group(_) => false,
             TaskWorkerError::InvalidTaskData { .. } => false,
             TaskWorkerError::InvalidHash { .. } => false,
@@ -216,6 +221,28 @@ where
                 welcome_pointer,
             )) => {
                 Self::process_welcome_pointer(task, welcome_pointer, context).await?;
+            }
+            Some(xmtp_proto::xmtp::mls::database::task::Task::SendSyncArchive(
+                send_sync_archive,
+            )) => {
+                let Some(metrics) = context.sync_metrics().clone() else {
+                    return Err(TaskWorkerError::MissingMetrics);
+                };
+                let Some(options) = send_sync_archive.options else {
+                    tracing::warn!(
+                        "SendSyncArchive task has no archive options. Unable to process."
+                    );
+                    return Ok(());
+                };
+
+                let client = DeviceSyncClient::new(context.clone(), metrics);
+                client
+                    .send_archive(
+                        options,
+                        &send_sync_archive.sync_group_id,
+                        send_sync_archive.request_id,
+                    )
+                    .await?;
             }
             None => {
                 tracing::error!("Task {} has no data. Deleting.", task.id);

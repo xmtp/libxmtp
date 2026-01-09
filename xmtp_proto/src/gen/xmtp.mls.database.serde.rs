@@ -1720,6 +1720,141 @@ impl<'de> serde::Deserialize<'de> for send_message_data::V1 {
         deserializer.deserialize_struct("xmtp.mls.database.SendMessageData.V1", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for SendSyncArchive {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.options.is_some() {
+            len += 1;
+        }
+        if !self.sync_group_id.is_empty() {
+            len += 1;
+        }
+        if self.request_id.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.SendSyncArchive", len)?;
+        if let Some(v) = self.options.as_ref() {
+            struct_ser.serialize_field("options", v)?;
+        }
+        if !self.sync_group_id.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("sync_group_id", pbjson::private::base64::encode(&self.sync_group_id).as_str())?;
+        }
+        if let Some(v) = self.request_id.as_ref() {
+            struct_ser.serialize_field("request_id", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SendSyncArchive {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "options",
+            "sync_group_id",
+            "syncGroupId",
+            "request_id",
+            "requestId",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Options,
+            SyncGroupId,
+            RequestId,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "options" => Ok(GeneratedField::Options),
+                            "syncGroupId" | "sync_group_id" => Ok(GeneratedField::SyncGroupId),
+                            "requestId" | "request_id" => Ok(GeneratedField::RequestId),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SendSyncArchive;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.database.SendSyncArchive")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SendSyncArchive, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut options__ = None;
+                let mut sync_group_id__ = None;
+                let mut request_id__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Options => {
+                            if options__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("options"));
+                            }
+                            options__ = map_.next_value()?;
+                        }
+                        GeneratedField::SyncGroupId => {
+                            if sync_group_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("syncGroupId"));
+                            }
+                            sync_group_id__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::RequestId => {
+                            if request_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("requestId"));
+                            }
+                            request_id__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SendSyncArchive {
+                    options: options__,
+                    sync_group_id: sync_group_id__.unwrap_or_default(),
+                    request_id: request_id__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.database.SendSyncArchive", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for Task {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1737,6 +1872,9 @@ impl serde::Serialize for Task {
                 task::Task::ProcessWelcomePointer(v) => {
                     struct_ser.serialize_field("process_welcome_pointer", v)?;
                 }
+                task::Task::SendSyncArchive(v) => {
+                    struct_ser.serialize_field("send_sync_archive", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -1751,11 +1889,14 @@ impl<'de> serde::Deserialize<'de> for Task {
         const FIELDS: &[&str] = &[
             "process_welcome_pointer",
             "processWelcomePointer",
+            "send_sync_archive",
+            "sendSyncArchive",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ProcessWelcomePointer,
+            SendSyncArchive,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1779,6 +1920,7 @@ impl<'de> serde::Deserialize<'de> for Task {
                     {
                         match value {
                             "processWelcomePointer" | "process_welcome_pointer" => Ok(GeneratedField::ProcessWelcomePointer),
+                            "sendSyncArchive" | "send_sync_archive" => Ok(GeneratedField::SendSyncArchive),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1806,6 +1948,13 @@ impl<'de> serde::Deserialize<'de> for Task {
                                 return Err(serde::de::Error::duplicate_field("processWelcomePointer"));
                             }
                             task__ = map_.next_value::<::std::option::Option<_>>()?.map(task::Task::ProcessWelcomePointer)
+;
+                        }
+                        GeneratedField::SendSyncArchive => {
+                            if task__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sendSyncArchive"));
+                            }
+                            task__ = map_.next_value::<::std::option::Option<_>>()?.map(task::Task::SendSyncArchive)
 ;
                         }
                         GeneratedField::__SkipField__ => {
