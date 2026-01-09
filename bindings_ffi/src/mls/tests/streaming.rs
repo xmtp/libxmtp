@@ -788,10 +788,10 @@ async fn test_stream_message_deletions_with_full_message_details() {
         .await
         .unwrap();
 
-    // Send a message
+    // Send a properly encoded text message
     let message_id = alix_group
         .send(
-            "Hello, world!".as_bytes().to_vec(),
+            encode_text("Hello, world!".to_string()).unwrap(),
             FfiSendMessageOpts::default(),
         )
         .await
