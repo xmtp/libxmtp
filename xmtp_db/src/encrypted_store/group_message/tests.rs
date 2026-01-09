@@ -263,9 +263,9 @@ fn it_deletes_middle_message_by_expiration_time() {
         ];
         assert_ok!(messages.store(conn));
 
-        let deleted_message_ids = conn.delete_expired_messages().unwrap();
-        assert_eq!(deleted_message_ids.len(), 1); // Ensure exactly 1 message is deleted
-        assert_eq!(deleted_message_ids[0], messages[1].id); // Verify the correct message (middle one with expiration) was deleted
+        let deleted_messages = conn.delete_expired_messages().unwrap();
+        assert_eq!(deleted_messages.len(), 1); // Ensure exactly 1 message is deleted
+        assert_eq!(deleted_messages[0].id, messages[1].id); // Verify the correct message (middle one with expiration) was deleted
 
         let remaining_messages = conn
             .get_group_messages(

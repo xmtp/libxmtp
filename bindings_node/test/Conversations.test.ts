@@ -12,6 +12,7 @@ import {
   contentTypeText,
   Conversation,
   ConversationType,
+  DecodedMessage,
   GroupPermissionsOptions,
   IdentifierKind,
   Message,
@@ -1025,5 +1026,51 @@ describe('Conversations', () => {
     expect(messages4[0].content.type).toEqual(contentTypeGroupUpdated())
     expect(messages4[1].content.type).toEqual(contentTypeGroupUpdated())
     expect(messages4[2].content.type).toEqual(contentTypeText())
+  })
+
+  it('should stream deleted messages', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+
+    // Create a group
+    const group = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
+
+    // Send a message
+    const messageId = await group.sendText('Hello, world!')
+
+    // Set up the deletion stream
+    const deletedMessages: DecodedMessage[] = []
+    const stream = await client1
+      .conversations()
+      .streamMessageDeletions((err, message) => {
+        if (message) {
+          deletedMessages.push(message)
+        }
+      })
+
+    // Wait for stream to be ready
+    await sleep(500)
+
+    // Delete the message
+    const deletedCount = client1.conversations().deleteMessageById(messageId)
+    expect(deletedCount).toBe(1)
+
+    // Wait for stream to receive the deleted message
+    await sleep(1000)
+
+    // Verify the stream received the deleted message with full details
+    expect(deletedMessages.length).toBe(1)
+    expect(deletedMessages[0].id).toBe(messageId)
+    expect(deletedMessages[0].senderInboxId).toBe(client1.inboxId())
+    expect(deletedMessages[0].conversationId).toBe(group.id())
+
+    stream.end()
   })
 })

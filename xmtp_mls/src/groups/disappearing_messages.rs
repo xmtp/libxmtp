@@ -1,4 +1,5 @@
 use crate::context::XmtpSharedContext;
+use crate::messages::decoded_message::DecodedMessage;
 use crate::worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory};
 use crate::worker::{WorkerKind, WorkerResult};
 use futures::{StreamExt, TryFutureExt};
@@ -101,17 +102,22 @@ where
     async fn delete_expired_messages(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
         let db = self.context.db();
         match db.delete_expired_messages() {
-            Ok(deleted_message_ids) if !deleted_message_ids.is_empty() => {
+            Ok(deleted_messages) if !deleted_messages.is_empty() => {
                 tracing::info!(
                     "Successfully deleted {} expired messages",
-                    deleted_message_ids.len()
+                    deleted_messages.len()
                 );
 
                 // Emit an event for each deleted message
-                for message_id in deleted_message_ids {
-                    let _ = self.context.local_events().send(
-                        crate::subscriptions::LocalEvents::MessageDeleted(message_id),
-                    );
+                for message in deleted_messages {
+                    // Try to convert to DecodedMessage, skip if conversion fails
+                    if let Ok(decoded_message) = DecodedMessage::try_from(message) {
+                        let _ = self.context.local_events().send(
+                            crate::subscriptions::LocalEvents::MessageDeleted(Box::new(
+                                decoded_message,
+                            )),
+                        );
+                    }
                 }
             }
             Ok(_) => {}

@@ -650,10 +650,12 @@ async fn test_welcome_pointer_task_retry_resolution() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(
-        event,
-        crate::subscriptions::LocalEvents::NewGroup(group.group_id.clone())
-    );
+    match event {
+        crate::subscriptions::LocalEvents::NewGroup(id) => {
+            assert_eq!(id, group.group_id.clone());
+        }
+        _ => panic!("Expected NewGroup event"),
+    }
 
     tracing::info!("Finding group for bo");
     let bo_group = bo

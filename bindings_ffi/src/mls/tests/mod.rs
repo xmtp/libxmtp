@@ -1,20 +1,21 @@
 // Shared test utilities and helpers for FFI MLS tests
 
 use super::{
-    FfiConsentCallback, FfiConversation, FfiMessage, FfiMessageCallback, FfiPreferenceCallback,
-    FfiPreferenceUpdate, FfiSignatureRequest, FfiXmtpClient, create_client,
+    FfiConsentCallback, FfiConversation, FfiMessage, FfiMessageCallback,
+    FfiMessageDeletionCallback, FfiPreferenceCallback, FfiPreferenceUpdate, FfiSignatureRequest,
+    FfiXmtpClient, create_client,
 };
 use crate::{
     FfiAction, FfiActionStyle, FfiActions, FfiAttachment, FfiConsent, FfiConsentEntityType,
     FfiConsentState, FfiContentType, FfiConversationCallback, FfiConversationMessageKind,
-    FfiConversationType, FfiCreateDMOptions, FfiCreateGroupOptions, FfiDecodedMessageBody,
-    FfiDecodedMessageContent, FfiDirection, FfiGroupMembershipState, FfiGroupMessageKind,
-    FfiGroupPermissionsOptions, FfiGroupQueryOrderBy, FfiIntent, FfiListConversationsOptions,
-    FfiListMessagesOptions, FfiMessageDisappearingSettings, FfiMessageWithReactions,
-    FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature, FfiPermissionPolicy,
-    FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReactionAction, FfiReactionPayload,
-    FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply, FfiSendMessageOpts,
-    FfiSignatureKind, FfiSubscribeError, FfiTransactionReference, GenericError,
+    FfiConversationType, FfiCreateDMOptions, FfiCreateGroupOptions, FfiDecodedMessage,
+    FfiDecodedMessageBody, FfiDecodedMessageContent, FfiDirection, FfiGroupMembershipState,
+    FfiGroupMessageKind, FfiGroupPermissionsOptions, FfiGroupQueryOrderBy, FfiIntent,
+    FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
+    FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
+    FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReactionAction,
+    FfiReactionPayload, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply,
+    FfiSendMessageOpts, FfiSignatureKind, FfiSubscribeError, FfiTransactionReference, GenericError,
     apply_signature_request, connect_to_backend, decode_actions, decode_attachment,
     decode_group_updated, decode_intent, decode_leave_request, decode_multi_remote_attachment,
     decode_reaction, decode_read_receipt, decode_remote_attachment, decode_reply, decode_text,
@@ -241,6 +242,51 @@ impl FfiPreferenceCallback for RustStreamCallback {
 
     fn on_close(&self) {
         log::error!("closed");
+    }
+}
+
+// Callback for message deletion streaming tests
+pub(crate) struct RustMessageDeletionCallback {
+    deleted_messages: Mutex<Vec<Arc<FfiDecodedMessage>>>,
+    notify: Arc<Notify>,
+}
+
+impl Default for RustMessageDeletionCallback {
+    fn default() -> Self {
+        RustMessageDeletionCallback {
+            deleted_messages: Default::default(),
+            notify: Arc::new(Notify::new()),
+        }
+    }
+}
+
+impl RustMessageDeletionCallback {
+    pub fn deleted_message_count(&self) -> usize {
+        self.deleted_messages.lock().len()
+    }
+
+    pub fn deleted_messages(&self) -> Vec<Arc<FfiDecodedMessage>> {
+        self.deleted_messages.lock().clone()
+    }
+
+    pub async fn wait_for_delivery(&self, timeout_secs: Option<u64>) -> Result<(), Elapsed> {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(timeout_secs.unwrap_or(60)),
+            async { self.notify.notified().await },
+        )
+        .await?;
+        Ok(())
+    }
+}
+
+impl FfiMessageDeletionCallback for RustMessageDeletionCallback {
+    fn on_message_deleted(&self, message: Arc<FfiDecodedMessage>) {
+        log::info!(
+            "ON MESSAGE DELETED Received\n-------- \nid: {:?}\n----------",
+            message.id()
+        );
+        self.deleted_messages.lock().push(message);
+        self.notify.notify_one();
     }
 }
 
