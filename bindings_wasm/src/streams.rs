@@ -1,5 +1,6 @@
 use crate::client::RustMlsGroup;
 use crate::conversation::Conversation;
+use crate::enriched_message::DecodedMessage;
 use crate::messages::Message;
 use crate::user_preferences::UserPreferenceUpdate;
 use futures::Stream;
@@ -36,7 +37,7 @@ extern "C" {
   pub fn on_conversation(this: &StreamCallback, item: Conversation);
 
   #[wasm_bindgen(structural, method)]
-  pub fn on_message_deleted(this: &StreamCallback, message_id: String);
+  pub fn on_message_deleted(this: &StreamCallback, message: DecodedMessage);
 
   /// Js Fn to call on error
   #[wasm_bindgen(structural, method)]
