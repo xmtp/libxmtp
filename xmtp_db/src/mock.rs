@@ -111,6 +111,12 @@ mock! {
             &self,
             dm_id: &str,
         ) -> Result<Vec<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
+
+        fn get_consent_records_batch(
+            &self,
+            entities: &[String],
+            entity_type: crate::consent_record::ConsentType,
+        ) -> Result<Vec<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
     }
 
     impl QueryConversationList for DbQuery {
@@ -784,6 +790,98 @@ mock! {
         ) -> Result<usize, crate::ConnectionError>;
 
         fn prune_icebox(&self) -> Result<usize, crate::ConnectionError>;
+    }
+
+    impl crate::contacts::QueryContacts for DbQuery {
+        fn add_contact(
+            &self,
+            inbox_id: &str,
+            data: crate::contacts::ContactData,
+        ) -> Result<crate::contacts::StoredContact, StorageError>;
+
+        fn update_contact(&self, inbox_id: &str, data: crate::contacts::ContactData) -> Result<(), StorageError>;
+
+        fn get_contact(&self, inbox_id: &str) -> Result<Option<crate::contacts::FullContact>, StorageError>;
+
+        fn get_contacts(&self, query: Option<crate::contacts::ContactsQuery>) -> Result<Vec<crate::contacts::FullContact>, StorageError>;
+
+        fn delete_contact(&self, inbox_id: &str) -> Result<(), StorageError>;
+
+        fn contacts_paged(&self, limit: i64, offset: i64) -> Result<Vec<crate::contacts::FullContact>, StorageError>;
+
+        fn get_phone_numbers(&self, inbox_id: &str) -> Result<Vec<crate::contacts::PhoneNumber>, StorageError>;
+
+        fn add_phone_number(
+            &self,
+            inbox_id: &str,
+            phone_number: String,
+            label: Option<String>,
+        ) -> Result<crate::contacts::StoredContactPhoneNumber, StorageError>;
+
+        fn update_phone_number(
+            &self,
+            id: i32,
+            phone_number: String,
+            label: Option<String>,
+        ) -> Result<(), StorageError>;
+
+        fn delete_phone_number(&self, id: i32) -> Result<(), StorageError>;
+
+        fn get_emails(&self, inbox_id: &str) -> Result<Vec<crate::contacts::Email>, StorageError>;
+
+        fn add_email(
+            &self,
+            inbox_id: &str,
+            email: String,
+            label: Option<String>,
+        ) -> Result<crate::contacts::StoredContactEmail, StorageError>;
+
+        fn update_email(&self, id: i32, email: String, label: Option<String>) -> Result<(), StorageError>;
+
+        fn delete_email(&self, id: i32) -> Result<(), StorageError>;
+
+        fn get_urls(&self, inbox_id: &str) -> Result<Vec<crate::contacts::Url>, StorageError>;
+
+        fn add_url(
+            &self,
+            inbox_id: &str,
+            url: String,
+            label: Option<String>,
+        ) -> Result<crate::contacts::StoredContactUrl, StorageError>;
+
+        fn update_url(&self, id: i32, url: String, label: Option<String>) -> Result<(), StorageError>;
+
+        fn delete_url(&self, id: i32) -> Result<(), StorageError>;
+
+        fn get_wallet_addresses(&self, inbox_id: &str) -> Result<Vec<crate::contacts::WalletAddress>, StorageError>;
+
+        fn add_wallet_address(
+            &self,
+            inbox_id: &str,
+            wallet_address: String,
+            label: Option<String>,
+        ) -> Result<crate::contacts::StoredContactWalletAddress, StorageError>;
+
+        fn update_wallet_address(
+            &self,
+            id: i32,
+            wallet_address: String,
+            label: Option<String>,
+        ) -> Result<(), StorageError>;
+
+        fn delete_wallet_address(&self, id: i32) -> Result<(), StorageError>;
+
+        fn get_addresses(&self, inbox_id: &str) -> Result<Vec<crate::contacts::AddressData>, StorageError>;
+
+        fn add_address(
+            &self,
+            inbox_id: &str,
+            data: crate::contacts::AddressData,
+        ) -> Result<crate::contacts::StoredContactAddress, StorageError>;
+
+        fn update_address(&self, id: i32, data: crate::contacts::AddressData) -> Result<(), StorageError>;
+
+        fn delete_address(&self, id: i32) -> Result<(), StorageError>;
     }
 
     impl crate::migrations::QueryMigrations for DbQuery {

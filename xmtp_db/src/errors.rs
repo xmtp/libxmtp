@@ -112,6 +112,8 @@ pub enum NotFound {
     PostQuantumPrivateKey,
     #[error("Key Package {kp} not found", kp = hex::encode(_0))]
     KeyPackage(Vec<u8>),
+    #[error("Contact not found")]
+    Contact,
 }
 
 #[derive(Error, Debug)]

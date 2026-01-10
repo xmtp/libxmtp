@@ -2,7 +2,7 @@
 /// Union type representing everything that can be serialied and saved in a backup archive.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BackupElement {
-    #[prost(oneof = "backup_element::Element", tags = "1, 2, 3, 4, 5")]
+    #[prost(oneof = "backup_element::Element", tags = "1, 2, 3, 4, 5, 6")]
     pub element: ::core::option::Option<backup_element::Element>,
 }
 /// Nested message and enum types in `BackupElement`.
@@ -19,6 +19,8 @@ pub mod backup_element {
         Consent(super::consent_backup::ConsentSave),
         #[prost(message, tag = "5")]
         Event(super::event_backup::EventSave),
+        #[prost(message, tag = "6")]
+        Contact(super::contact_backup::ContactSave),
     }
 }
 impl ::prost::Name for BackupElement {
@@ -84,6 +86,7 @@ pub enum BackupElementSelection {
     Messages = 1,
     Consent = 2,
     Event = 3,
+    Contacts = 4,
 }
 impl BackupElementSelection {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -96,6 +99,7 @@ impl BackupElementSelection {
             Self::Messages => "BACKUP_ELEMENT_SELECTION_MESSAGES",
             Self::Consent => "BACKUP_ELEMENT_SELECTION_CONSENT",
             Self::Event => "BACKUP_ELEMENT_SELECTION_EVENT",
+            Self::Contacts => "BACKUP_ELEMENT_SELECTION_CONTACTS",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -105,6 +109,7 @@ impl BackupElementSelection {
             "BACKUP_ELEMENT_SELECTION_MESSAGES" => Some(Self::Messages),
             "BACKUP_ELEMENT_SELECTION_CONSENT" => Some(Self::Consent),
             "BACKUP_ELEMENT_SELECTION_EVENT" => Some(Self::Event),
+            "BACKUP_ELEMENT_SELECTION_CONTACTS" => Some(Self::Contacts),
             _ => None,
         }
     }

@@ -1,6 +1,7 @@
 use crate::ConnectionExt;
 use crate::StorageError;
 use crate::association_state::QueryAssociationStateCache;
+use crate::encrypted_store::contacts::QueryContacts;
 use crate::icebox::QueryIcebox;
 use crate::pending_remove::QueryPendingRemove;
 use crate::prelude::*;
@@ -68,6 +69,7 @@ pub trait DbQuery:
     + MaybeSync
     + ReadOnly
     + QueryConsentRecord
+    + QueryContacts
     + QueryConversationList
     + QueryDms
     + QueryGroup
@@ -98,6 +100,7 @@ impl<T: ?Sized> DbQuery for T where
         + MaybeSync
         + ReadOnly
         + QueryConsentRecord
+        + QueryContacts
         + QueryConversationList
         + QueryDms
         + QueryGroup

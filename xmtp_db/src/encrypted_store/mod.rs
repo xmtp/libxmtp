@@ -12,6 +12,7 @@
 
 pub mod association_state;
 pub mod consent_record;
+pub mod contacts;
 pub mod conversation_list;
 pub mod database;
 pub mod db_connection;

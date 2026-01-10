@@ -1091,12 +1091,14 @@ impl From<FfiArchiveOptions> for BackupOptions {
 pub enum FfiBackupElementSelection {
     Messages,
     Consent,
+    Contacts,
 }
 impl From<FfiBackupElementSelection> for BackupElementSelection {
     fn from(value: FfiBackupElementSelection) -> Self {
         match value {
             FfiBackupElementSelection::Consent => Self::Consent,
             FfiBackupElementSelection::Messages => Self::Messages,
+            FfiBackupElementSelection::Contacts => Self::Contacts,
         }
     }
 }
@@ -1107,6 +1109,7 @@ impl TryFrom<BackupElementSelection> for FfiBackupElementSelection {
         let v = match value {
             BackupElementSelection::Consent => Self::Consent,
             BackupElementSelection::Messages => Self::Messages,
+            BackupElementSelection::Contacts => Self::Contacts,
             _ => {
                 return Err(DeserializationError::Unspecified(
                     "Backup Element Selection",

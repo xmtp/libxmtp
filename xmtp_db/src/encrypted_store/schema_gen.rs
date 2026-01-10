@@ -18,6 +18,77 @@ diesel::table! {
 }
 
 diesel::table! {
+    contact_emails (id) {
+        id -> Integer,
+        contact_id -> Integer,
+        email -> Text,
+        label -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    contact_phone_numbers (id) {
+        id -> Integer,
+        contact_id -> Integer,
+        phone_number -> Text,
+        label -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    contact_addresses (id) {
+        id -> Integer,
+        contact_id -> Integer,
+        address1 -> Nullable<Text>,
+        address2 -> Nullable<Text>,
+        address3 -> Nullable<Text>,
+        city -> Nullable<Text>,
+        region -> Nullable<Text>,
+        postal_code -> Nullable<Text>,
+        country -> Nullable<Text>,
+        label -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    contact_urls (id) {
+        id -> Integer,
+        contact_id -> Integer,
+        url -> Text,
+        label -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    contact_wallet_addresses (id) {
+        id -> Integer,
+        contact_id -> Integer,
+        wallet_address -> Text,
+        label -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    contacts (id) {
+        id -> Integer,
+        inbox_id -> Text,
+        display_name -> Nullable<Text>,
+        first_name -> Nullable<Text>,
+        last_name -> Nullable<Text>,
+        prefix -> Nullable<Text>,
+        suffix -> Nullable<Text>,
+        company -> Nullable<Text>,
+        job_title -> Nullable<Text>,
+        birthday -> Nullable<Text>,
+        note -> Nullable<Text>,
+        image_url -> Nullable<Text>,
+        is_favorite -> Integer,
+        created_at_ns -> BigInt,
+        updated_at_ns -> BigInt,
+    }
+}
+
+diesel::table! {
     group_intents (id) {
         id -> Integer,
         kind -> Integer,
@@ -241,6 +312,11 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(contact_emails -> contacts (contact_id));
+diesel::joinable!(contact_phone_numbers -> contacts (contact_id));
+diesel::joinable!(contact_addresses -> contacts (contact_id));
+diesel::joinable!(contact_urls -> contacts (contact_id));
+diesel::joinable!(contact_wallet_addresses -> contacts (contact_id));
 diesel::joinable!(group_intents -> groups (group_id));
 diesel::joinable!(group_messages -> groups (group_id));
 diesel::joinable!(icebox -> groups (group_id));
@@ -248,6 +324,12 @@ diesel::joinable!(icebox -> groups (group_id));
 diesel::allow_tables_to_appear_in_same_query!(
     association_state,
     consent_records,
+    contact_emails,
+    contact_phone_numbers,
+    contact_addresses,
+    contact_urls,
+    contact_wallet_addresses,
+    contacts,
     group_intents,
     group_messages,
     groups,

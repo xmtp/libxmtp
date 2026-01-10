@@ -6,6 +6,10 @@ pub mod xmtp {
             include!("xmtp.device_sync.consent_backup.rs");
             include!("xmtp.device_sync.consent_backup.serde.rs");
         }
+        pub mod contact_backup {
+            include!("xmtp.device_sync.contact_backup.rs");
+            include!("xmtp.device_sync.contact_backup.serde.rs");
+        }
         pub mod content {
             include!("xmtp.device_sync.content.rs");
             include!("xmtp.device_sync.content.serde.rs");

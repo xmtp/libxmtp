@@ -13,7 +13,7 @@ use xmtp_proto::types::{GroupMessage, WelcomeMessage};
 
 use crate::{
     context::XmtpSharedContext,
-    groups::MlsGroup,
+    groups::{MlsGroup, validated_commit::extract_group_membership},
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use thiserror::Error;
@@ -145,6 +145,40 @@ where
                 )
             })
             .collect())
+    }
+
+    /// Find groups that contain all specified inbox IDs as members
+    pub fn find_groups_with_inbox_ids(
+        &self,
+        inbox_ids: Vec<xmtp_id::InboxId>,
+        opts: Option<GroupQueryArgs>,
+    ) -> Result<Vec<MlsGroup<Context>>, MlsStoreError> {
+        if inbox_ids.is_empty() {
+            return self.find_groups(opts.unwrap_or_default());
+        }
+
+        let groups = self.find_groups(opts.unwrap_or_default())?;
+        let storage = self.context.mls_storage();
+        let mut filtered_groups = Vec::new();
+
+        for group in groups {
+            let group_membership = group
+                .load_mls_group_with_lock(storage, |mls_group| {
+                    Ok(extract_group_membership(mls_group.extensions())?)
+                })
+                .ok();
+
+            if let Some(membership) = group_membership {
+                let all_present = inbox_ids
+                    .iter()
+                    .all(|inbox_id| membership.members.contains_key(inbox_id));
+                if all_present {
+                    filtered_groups.push(group);
+                }
+            }
+        }
+
+        Ok(filtered_groups)
     }
 
     /// Look up a group by its ID
