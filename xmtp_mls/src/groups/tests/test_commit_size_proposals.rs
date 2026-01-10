@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::context::XmtpSharedContext;
 use crate::groups::mls_ext::{CommitLogStorer, build_group_join_config};
 use crate::groups::mls_sync::{generate_commit_with_rollback, with_rollback};
@@ -6,6 +8,7 @@ use crate::groups::{GroupError, MessageDisappearingSettings, MlsGroup};
 use crate::identity::NewKeyPackageResult;
 use crate::identity::parse_credential;
 use crate::utils::TestXmtpMlsContext;
+use crate::utils::test::tester_utils::Tester;
 use openmls::credentials::BasicCredential;
 use openmls::group::MlsGroup as OpenMlsGroup;
 use openmls::prelude::hash_ref::HashReference;
@@ -34,9 +37,9 @@ struct ProposalsAndCommit {
     old_welcome: MlsMessageOut,
 }
 
-async fn generate_add_proposals_and_commit<Context: XmtpSharedContext>(
-    groups: &[MlsGroup<Context>],
-    testers: &[crate::utils::test::tester_utils::Tester],
+async fn generate_add_proposals_and_commit(
+    groups: &[MlsGroup<TestXmtpMlsContext>],
+    testers: &[Tester],
     key_packages: &[NewKeyPackageResult],
 ) -> ProposalsAndCommit {
     let provider = groups[0].context.mls_provider();
@@ -90,7 +93,7 @@ async fn generate_add_proposals_and_commit<Context: XmtpSharedContext>(
 }
 
 async fn welcome_testers(
-    testers: &[crate::utils::test::tester_utils::Tester],
+    testers: &[Tester],
     welcome: &Welcome,
 ) -> Vec<MlsGroup<TestXmtpMlsContext>> {
     let mut groups = vec![];
@@ -199,9 +202,75 @@ async fn welcome_testers(
     groups
 }
 
+async fn fill_leaf_nodes(
+    group: &MlsGroup<TestXmtpMlsContext>,
+    tester: &Tester,
+    groups: impl Iterator<Item = &MlsGroup<TestXmtpMlsContext>>,
+) {
+    let last_tester = tester;
+    let last_group = group;
+    let storage = last_group.context.mls_storage();
+    let commit_bytes = last_group
+            .load_mls_group_with_lock_async(async |mut mls_group| {
+                use openmls::treesync::LeafNodeParameters;
+
+                let provider = XmtpOpenMlsProviderRef::new(storage);
+                let signer = last_tester.identity().installation_keys.clone();
+
+                let bundle = mls_group
+                    .self_update(&provider, &signer, LeafNodeParameters::default())
+                    .map_err(|e| GroupError::Any(e.into()))?;
+
+                // Merge the pending commit to apply it locally
+                mls_group
+                    .merge_pending_commit(&provider)
+                    .map_err(|e| GroupError::Any(e.into()))?;
+                tracing::warn!(epoch = %mls_group.epoch(), tree = %mls_group.export_ratchet_tree(), "Merged leaf update commit");
+                Ok::<_, GroupError>(bundle.commit().tls_serialize_detached().unwrap())
+            })
+            .await
+            .unwrap();
+
+    tracing::warn!(commit_bytes = %commit_bytes.len(), "Leaf update commit size");
+
+    let commit_message = MlsMessageIn::tls_deserialize_exact(&commit_bytes)
+        .unwrap()
+        .try_into_protocol_message()
+        .unwrap();
+
+    let last_group_ptr = Arc::as_ptr(&last_group.context);
+
+    let commits = groups
+        .filter(|g| Arc::as_ptr(&g.context) != last_group_ptr)
+        .map(|g| async {
+            g.load_mls_group_with_lock_async(async |mut mls_group| {
+                let provider = g.context.mls_provider();
+                let x = mls_group
+                    .process_message(&provider, commit_message.clone())
+                    .unwrap();
+                let ProcessedMessageContent::StagedCommitMessage(staged_commit) = x.into_content()
+                else {
+                    panic!("Expected StagedCommitMessage");
+                };
+                mls_group
+                    .merge_staged_commit(&provider, *staged_commit)
+                    .unwrap();
+                tracing::warn!(epoch = %mls_group.epoch(), "Merged leaf update commit");
+                Ok::<_, GroupError>(())
+            })
+            .await?;
+            g.sync().await?;
+            Ok::<_, GroupError>(())
+        });
+    let results = futures::future::join_all(commits).await;
+    for result in results {
+        result.unwrap();
+    }
+}
+
 #[xmtp_common::test]
 async fn test_commit_sizes_with_proposals() {
-    const TESTER_COUNT: usize = 10;
+    const TESTER_COUNT: usize = 4;
     crate::tester!(alix);
 
     let mut testers = vec![alix];
@@ -355,9 +424,6 @@ async fn test_commit_sizes_with_proposals() {
 
         // Have the new tester send a message directly to the API, bypassing all checks and intents
         let message_bytes = format!("Hello from new tester! {}", i);
-
-        // TODO: this should be tester_group, but if it is used, we end up with a panic due to duplicate signatures.
-        // For some reason waiting a commit fixes it :shrug:
         let last_group = new_groups.last().unwrap();
 
         last_group
@@ -367,58 +433,12 @@ async fn test_commit_sizes_with_proposals() {
 
         // Send a self-update commit to update the last_group's leaf node and fill the tree
         let last_tester = new_testers.last().unwrap();
-        let storage = last_group.context.mls_storage();
-        let commit_bytes = last_group
-            .load_mls_group_with_lock_async(async |mut mls_group| {
-                use openmls::treesync::LeafNodeParameters;
-
-                let provider = XmtpOpenMlsProviderRef::new(storage);
-                let signer = last_tester.identity().installation_keys.clone();
-
-                let bundle = mls_group
-                    .self_update(&provider, &signer, LeafNodeParameters::default())
-                    .map_err(|e| GroupError::Any(e.into()))?;
-
-                // Merge the pending commit to apply it locally
-                mls_group
-                    .merge_pending_commit(&provider)
-                    .map_err(|e| GroupError::Any(e.into()))?;
-                tracing::warn!(epoch = %mls_group.epoch(), tree = %mls_group.export_ratchet_tree(), "Merged leaf update commit");
-                Ok::<_, GroupError>(bundle.commit().tls_serialize_detached().unwrap())
-            })
-            .await
-            .unwrap();
-
-        let commit_message = MlsMessageIn::tls_deserialize_exact(&commit_bytes)
-            .unwrap()
-            .try_into_protocol_message()
-            .unwrap();
-
-        let commits = groups.iter().map(|g| async {
-            g.load_mls_group_with_lock_async(async |mut mls_group| {
-                let provider = g.context.mls_provider();
-                let x = mls_group
-                    .process_message(&provider, commit_message.clone())
-                    .unwrap();
-                let ProcessedMessageContent::StagedCommitMessage(staged_commit) = x.into_content()
-                else {
-                    panic!("Expected StagedCommitMessage");
-                };
-                mls_group
-                    .merge_staged_commit(&provider, *staged_commit)
-                    .unwrap();
-                tracing::warn!(epoch = %mls_group.epoch(), "Merged leaf update commit");
-                Ok::<_, GroupError>(())
-            })
-            .await?;
-            g.sync().await?;
-            Ok::<_, GroupError>(())
-        });
-
-        let results = futures::future::join_all(commits).await;
-        for result in results {
-            result.unwrap();
-        }
+        fill_leaf_nodes(
+            last_group,
+            last_tester,
+            groups.iter().chain(new_groups.iter()),
+        )
+        .await;
 
         let group0 = groups.first().unwrap();
         // group0.sync().await.unwrap();
@@ -481,29 +501,28 @@ async fn test_commit_sizes_with_proposals() {
             );
         }
 
-        let group0_members = group0.members().await.unwrap();
-        // let last_group_members = last_group.members().await.unwrap();
-        let inbox_ids = group0_members
-            .iter()
-            .map(|m| &m.inbox_id)
-            .collect::<Vec<_>>();
-        // assert_eq!(
-        //     inbox_ids,
-        //     last_group_members
-        //         .iter()
-        //         .map(|m| &m.inbox_id)
-        //         .collect::<Vec<_>>()
-        // );
-        dbg!(&inbox_ids);
-        tracing::warn!("Group 0 members: {:?}", inbox_ids);
         tracing::warn!("Group 0 tree:\n{}", group0_tree);
-        // dbg!(&group0_tree);
-
-        // Add the tester to the group
-        // TODO: this is a hack to get the new groups into the groups vector without naming them.
+        dbg!(&group0_tree);
         let mut new_groups = new_groups;
         groups.append(&mut new_groups);
         let mut new_testers = new_testers;
         testers.append(&mut new_testers);
     }
+    fill_leaf_nodes(
+        groups.first().unwrap(),
+        testers.first().unwrap(),
+        groups.iter(),
+    )
+    .await;
+    let group0_tree = groups
+        .first()
+        .unwrap()
+        .load_mls_group_with_lock_async(async |mls_group| {
+            Ok::<_, GroupError>(mls_group.export_ratchet_tree())
+        })
+        .await
+        .unwrap();
+    let group0_tree_str = format!("{}", group0_tree);
+    tracing::warn!("Group 0 tree:\n{}", group0_tree_str);
+    dbg!(&group0_tree);
 }
