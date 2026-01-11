@@ -110,13 +110,23 @@ where
 
                 // Emit an event for each deleted message
                 for message in deleted_messages {
-                    // Try to convert to DecodedMessage, skip if conversion fails
-                    if let Ok(decoded_message) = DecodedMessage::try_from(message) {
-                        let _ = self.context.local_events().send(
-                            crate::subscriptions::LocalEvents::MessageDeleted(Box::new(
-                                decoded_message,
-                            )),
-                        );
+                    let message_id = message.id.clone();
+                    // Try to convert to DecodedMessage, log warning if conversion fails
+                    match DecodedMessage::try_from(message) {
+                        Ok(decoded_message) => {
+                            let _ = self.context.local_events().send(
+                                crate::subscriptions::LocalEvents::MessageDeleted(Box::new(
+                                    decoded_message,
+                                )),
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                message_id = hex::encode(&message_id),
+                                error = ?e,
+                                "Failed to decode expired message for deletion event"
+                            );
+                        }
                     }
                 }
             }
