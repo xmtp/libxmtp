@@ -2,7 +2,6 @@ use prost::Message as ProstMessage;
 use xmtp_db::group_message::{
   DeliveryStatus as XmtpDeliveryStatus, GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs,
   SortBy as XmtpMessageSortBy, SortDirection as XmtpSortDirection, StoredGroupMessage,
-  StoredGroupMessageWithReactions,
 };
 
 use napi::bindgen_prelude::BigInt;
@@ -181,25 +180,6 @@ impl From<StoredGroupMessage> for Message {
       kind: msg.kind.into(),
       delivery_status: msg.delivery_status.into(),
       inserted_at_ns: BigInt::from(msg.inserted_at_ns),
-    }
-  }
-}
-
-#[napi(object)]
-pub struct MessageWithReactions {
-  pub message: Message,
-  pub reactions: Vec<Message>,
-}
-
-impl From<StoredGroupMessageWithReactions> for MessageWithReactions {
-  fn from(msg_with_reactions: StoredGroupMessageWithReactions) -> Self {
-    Self {
-      message: msg_with_reactions.message.into(),
-      reactions: msg_with_reactions
-        .reactions
-        .into_iter()
-        .map(|reaction| reaction.into())
-        .collect(),
     }
   }
 }
