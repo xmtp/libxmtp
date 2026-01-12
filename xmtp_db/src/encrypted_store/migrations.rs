@@ -87,12 +87,15 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
             // Find the newest migration by comparing all prefixes.
             // This is more robust than sorting because it handles edge cases
             // where migration naming formats might differ.
-            let newest = applied
+            let Some(newest) = applied
                 .iter()
-                .max_by(|a, b| {
-                    extract_version_prefix(a).cmp(extract_version_prefix(b))
-                })
-                .unwrap();
+                .max_by(|a, b| extract_version_prefix(a).cmp(extract_version_prefix(b)))
+            else {
+                // This should never happen since we checked applied.is_empty() above,
+                // but handle it gracefully just in case.
+                tracing::debug!("No applied migrations found after empty check, stopping rollback");
+                break;
+            };
             let newest_prefix = extract_version_prefix(newest);
 
             tracing::debug!(
