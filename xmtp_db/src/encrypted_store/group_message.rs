@@ -36,7 +36,9 @@ pub mod messages_newer_than_tests;
 #[cfg(test)]
 pub mod tests;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Queryable, Identifiable, Eq, PartialEq)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, Queryable, Selectable, Identifiable, Eq, PartialEq,
+)]
 #[diesel(table_name = group_messages)]
 #[diesel(primary_key(id))]
 #[diesel(check_for_backend(Sqlite))]
@@ -553,7 +555,7 @@ pub trait QueryGroupMessage {
         msg_id: &MessageId,
     ) -> Result<usize, crate::ConnectionError>;
 
-    fn delete_expired_messages(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+    fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
 
     fn delete_message_by_id<MessageId: AsRef<[u8]>>(
         &self,
@@ -710,7 +712,7 @@ where
         (**self).set_delivery_status_to_failed(msg_id)
     }
 
-    fn delete_expired_messages(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+    fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
         (**self).delete_expired_messages()
     }
 
@@ -1227,7 +1229,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         })
     }
 
-    fn delete_expired_messages(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+    fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
         self.raw_query_write(|conn| {
             use diesel::prelude::*;
             let now = now_ns();
@@ -1239,8 +1241,8 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
                     .filter(dsl::expire_at_ns.is_not_null())
                     .filter(dsl::expire_at_ns.le(now)),
             )
-            .returning(dsl::id)
-            .load::<Vec<u8>>(conn)
+            .returning(StoredGroupMessage::as_returning())
+            .load::<StoredGroupMessage>(conn)
         })
     }
 

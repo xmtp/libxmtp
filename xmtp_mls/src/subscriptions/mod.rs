@@ -33,6 +33,7 @@ use crate::{
         GroupError, MlsGroup, device_sync::preference_sync::PreferenceUpdate,
         mls_sync::GroupMessageProcessingError,
     },
+    messages::decoded_message::DecodedMessage,
     subscriptions::d14n_compat::{V3OrD14n, decode_welcome_message},
 };
 use thiserror::Error;
@@ -60,13 +61,13 @@ impl RetryableError for LocalEventError {
 
 /// Events local to this client
 /// are broadcast across all senders/receivers of streams
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum LocalEvents {
     // a new group was created
     NewGroup(Vec<u8>),
     PreferencesChanged(Vec<PreferenceUpdate>),
-    // a message was deleted (contains message ID)
-    MessageDeleted(Vec<u8>),
+    // a message was deleted (contains the decoded message that was deleted)
+    MessageDeleted(Box<DecodedMessage>),
 }
 
 #[derive(Clone)]
@@ -126,9 +127,9 @@ impl LocalEvents {
         }
     }
 
-    fn message_deletion_filter(self) -> Option<Vec<u8>> {
+    fn message_deletion_filter(self) -> Option<Box<DecodedMessage>> {
         match self {
-            Self::MessageDeleted(message_id) => Some(message_id),
+            Self::MessageDeleted(message) => Some(message),
             _ => None,
         }
     }
@@ -137,7 +138,7 @@ impl LocalEvents {
 pub(crate) trait StreamMessages {
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>>;
     fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>>;
-    fn stream_message_deletions(self) -> impl Stream<Item = Result<Vec<u8>>>;
+    fn stream_message_deletions(self) -> impl Stream<Item = Result<Box<DecodedMessage>>>;
 }
 
 impl StreamMessages for broadcast::Receiver<LocalEvents> {
@@ -160,7 +161,7 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
     }
 
     #[instrument(level = "trace", skip_all)]
-    fn stream_message_deletions(self) -> impl Stream<Item = Result<Vec<u8>>> {
+    fn stream_message_deletions(self) -> impl Stream<Item = Result<Box<DecodedMessage>>> {
         BroadcastStream::new(self).filter_map(|event| async {
             xmtp_common::optify!(event, "Missed message due to event queue lag")
                 .and_then(LocalEvents::message_deletion_filter)
@@ -517,7 +518,7 @@ where
 
     pub fn stream_message_deletions_with_callback(
         client: Arc<Client<Context>>,
-        mut callback: impl FnMut(Result<Vec<u8>>) + MaybeSend + 'static,
+        mut callback: impl FnMut(Result<DecodedMessage>) + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -527,8 +528,8 @@ where
 
             futures::pin_mut!(stream);
             let _ = tx.send(());
-            while let Some(message_id) = stream.next().await {
-                callback(message_id)
+            while let Some(message) = stream.next().await {
+                callback(message.map(|boxed| *boxed))
             }
             tracing::debug!("`stream_message_deletions` stream ended, dropping stream");
             Ok::<_, SubscribeError>(())
