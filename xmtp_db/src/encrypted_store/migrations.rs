@@ -41,6 +41,17 @@ fn get_migrations() -> Result<Vec<Box<dyn Migration<Sqlite>>>, ConnectionError> 
         .map_err(|e| ConnectionError::Database(diesel::result::Error::QueryBuilderError(e)))
 }
 
+/// Extract the version prefix from a migration name for comparison.
+/// Migration names follow the format: YYYY-MM-DD-HHMMSS[optional suffix]_name
+/// We extract the first 17 characters (YYYY-MM-DD-HHMMSS) for comparison.
+/// This ensures lexicographic comparison works correctly regardless of suffix format.
+fn extract_version_prefix(version: &str) -> &str {
+    // Take up to the first 17 characters which covers YYYY-MM-DD-HHMMSS
+    // If the version is shorter, take all of it
+    let end = version.len().min(17);
+    &version[..end]
+}
+
 impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
     fn applied_migrations(&self) -> Result<Vec<String>, ConnectionError> {
         let applied: Vec<MigrationVersion<'static>> = self.raw_query_read(|conn| {
@@ -57,10 +68,9 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
     }
 
     fn rollback_to_version(&self, version: &str) -> Result<Vec<String>, ConnectionError> {
-        let target: String = version.chars().filter(|c| c.is_numeric()).collect();
-        let target: u64 = target.parse().map_err(|_| {
-            ConnectionError::InvalidQuery(format!("Invalid migration version: {version}"))
-        })?;
+        // Extract the date-time prefix for comparison (YYYY-MM-DD-HHMMSS format)
+        // We use the first 17 characters which covers the full timestamp portion
+        let target_prefix = extract_version_prefix(version);
 
         let mut reverted = Vec::new();
 
@@ -70,13 +80,11 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
                 break;
             };
 
-            let version_number: String =
-                current_version.chars().filter(|c| c.is_numeric()).collect();
-            let current_num: u64 = version_number.parse().map_err(|_| {
-                ConnectionError::InvalidQuery(format!("Invalid applied version: {current_version}"))
-            })?;
+            let current_prefix = extract_version_prefix(current_version);
 
-            if current_num < target {
+            // Use lexicographic comparison on the version prefix
+            // Migration names are formatted as YYYY-MM-DD-HHMMSS so they sort correctly
+            if current_prefix < target_prefix {
                 break;
             }
 
