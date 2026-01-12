@@ -357,6 +357,14 @@ async fn test_stream_consent() {
         .test_has_same_sync_group_as(&alix_b.inner_client)
         .await
         .unwrap();
+
+    alix_a
+        .worker()
+        .register_interest(SyncMetric::PayloadTaskScheduled, 1)
+        .wait()
+        .await
+        .unwrap();
+
     alix_a
         .worker()
         .register_interest(SyncMetric::PayloadSent, 1)

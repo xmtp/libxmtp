@@ -344,6 +344,8 @@ where
                     message_id: msg.id.clone(),
                 }
                 .store_or_ignore(&self.context.db())?;
+
+                handle.increment_metric(SyncMetric::PayloadTaskScheduled);
             }
             ContentProto::Reply(reply) => {
                 if !is_external {
@@ -653,6 +655,7 @@ pub enum SyncMetric {
     MessagesPayloadSent,
     MessagesPayloadProcessed,
     PayloadSent,
+    PayloadTaskScheduled,
     PayloadProcessed,
     HmacSent,
     HmacReceived,
