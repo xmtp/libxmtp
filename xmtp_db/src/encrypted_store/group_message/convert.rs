@@ -31,8 +31,8 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
                 .originator_id
                 .unwrap_or(Originators::APPLICATION_MESSAGES.into()),
             expire_at_ns: None,
-            inserted_at_ns: 0, // Will be set by database
-            should_push: true, // Default to true for synced messages
+            inserted_at_ns: 0,  // Will be set by database
+            should_push: false, // Default to false for synced messages
         })
     }
 }
