@@ -336,8 +336,7 @@ where
                                     },
                                 ),
                             ),
-                        })
-                        .unwrap(),
+                        })?,
                 );
 
                 // Mark this message as processed immediately.
