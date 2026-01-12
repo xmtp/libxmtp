@@ -38,6 +38,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           allowed_bots: |
             dependabot[bot]
+            macroscopeapp[bot]
           model: "claude-sonnet-4-5-20250929"
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |
