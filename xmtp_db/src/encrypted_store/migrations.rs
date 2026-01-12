@@ -41,15 +41,25 @@ fn get_migrations() -> Result<Vec<Box<dyn Migration<Sqlite>>>, ConnectionError> 
         .map_err(|e| ConnectionError::Database(diesel::result::Error::QueryBuilderError(e)))
 }
 
-/// Extract the version prefix from a migration name for comparison.
+/// Extract the numeric version from a migration name for comparison.
 /// Migration names follow the format: YYYY-MM-DD-HHMMSS[optional suffix]_name
-/// We extract the first 17 characters (YYYY-MM-DD-HHMMSS) for comparison.
-/// This ensures lexicographic comparison works correctly regardless of suffix format.
-fn extract_version_prefix(version: &str) -> &str {
-    // Take up to the first 17 characters which covers YYYY-MM-DD-HHMMSS
-    // If the version is shorter, take all of it
-    let end = version.len().min(17);
-    &version[..end]
+/// We extract only the numeric characters from the version portion (before any underscore
+/// followed by non-numeric characters) for robust comparison regardless of formatting.
+fn extract_numeric_version(version: &str) -> String {
+    // Find where the descriptive name starts (after the version prefix)
+    // The version portion ends at the first underscore that's followed by a letter
+    let version_end = version
+        .char_indices()
+        .zip(version.chars().skip(1))
+        .find(|((_, c), next)| *c == '_' && next.is_alphabetic())
+        .map(|((i, _), _)| i)
+        .unwrap_or(version.len());
+
+    // Extract only numeric characters from the version portion
+    version[..version_end]
+        .chars()
+        .filter(|c| c.is_numeric())
+        .collect()
 }
 
 impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
@@ -68,11 +78,11 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
     }
 
     fn rollback_to_version(&self, version: &str) -> Result<Vec<String>, ConnectionError> {
-        // Extract the date-time prefix for comparison (YYYY-MM-DD-HHMMSS format)
-        // We use the first 17 characters which covers the full timestamp portion
-        let target_prefix = extract_version_prefix(version);
+        // Extract numeric version for comparison
+        // This handles different migration naming formats consistently
+        let target_numeric = extract_numeric_version(version);
 
-        tracing::debug!("Rolling back to version: {version} (prefix: {target_prefix})");
+        tracing::debug!("Rolling back to version: {version} (numeric: {target_numeric})");
 
         let mut reverted = Vec::new();
 
@@ -84,27 +94,26 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
                 break;
             }
 
-            // Find the newest migration by comparing all prefixes.
-            // This is more robust than sorting because it handles edge cases
-            // where migration naming formats might differ.
+            // Find the newest migration by comparing numeric versions.
+            // This is robust regardless of formatting differences (dashes, etc.)
             let Some(newest) = applied
                 .iter()
-                .max_by(|a, b| extract_version_prefix(a).cmp(extract_version_prefix(b)))
+                .max_by(|a, b| extract_numeric_version(a).cmp(&extract_numeric_version(b)))
             else {
                 // This should never happen since we checked applied.is_empty() above,
                 // but handle it gracefully just in case.
                 tracing::debug!("No applied migrations found after empty check, stopping rollback");
                 break;
             };
-            let newest_prefix = extract_version_prefix(newest);
+            let newest_numeric = extract_numeric_version(newest);
 
-            tracing::debug!("Newest applied migration: {newest} (prefix: {newest_prefix})");
+            tracing::debug!("Newest applied migration: {newest} (numeric: {newest_numeric})");
 
-            // Use lexicographic comparison on the version prefix
-            // Migration names are formatted as YYYY-MM-DD-HHMMSS so they sort correctly
+            // Use numeric comparison on the version
+            // Migration versions are numeric timestamps that sort correctly
             // Use <= to ensure the target migration itself is kept applied
-            if newest_prefix <= target_prefix {
-                tracing::debug!("Stopping rollback: {newest_prefix} <= {target_prefix}");
+            if newest_numeric <= target_numeric {
+                tracing::debug!("Stopping rollback: {newest_numeric} <= {target_numeric}");
                 break;
             }
 
@@ -112,7 +121,7 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
 
             // Revert the newest migration via Diesel's revert_last_migration.
             // Note: Diesel determines "last" based on its own ordering, which
-            // should match our lexicographic ordering of version prefixes.
+            // should match our numeric ordering of versions.
             let result = self.raw_query_write(|conn| {
                 conn.revert_last_migration(MIGRATIONS)
                     .map(|v| v.to_string())
@@ -121,22 +130,22 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
 
             match result {
                 Ok(reverted_version) => {
-                    let reverted_prefix = extract_version_prefix(&reverted_version);
+                    let reverted_numeric = extract_numeric_version(&reverted_version);
 
                     // Verify we reverted what we expected to revert
-                    if reverted_prefix != newest_prefix {
+                    if reverted_numeric != newest_numeric {
                         tracing::warn!(
-                            "Migration ordering mismatch: expected to revert {} (prefix: {}), but reverted {} (prefix: {}). \
-                            This may indicate that Diesel's migration ordering differs from our lexicographic ordering.",
+                            "Migration ordering mismatch: expected to revert {} (numeric: {}), but reverted {} (numeric: {}). \
+                            This may indicate that Diesel's migration ordering differs from our numeric ordering.",
                             newest,
-                            newest_prefix,
+                            newest_numeric,
                             reverted_version,
-                            reverted_prefix
+                            reverted_numeric
                         );
 
                         // If what was reverted is at or before our target, we should stop
                         // to avoid reverting too much
-                        if reverted_prefix <= target_prefix {
+                        if reverted_numeric <= target_numeric {
                             tracing::warn!(
                                 "Reverted migration {} is at or before target {}. Stopping to prevent data loss.",
                                 reverted_version,
