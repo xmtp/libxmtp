@@ -772,3 +772,53 @@ async fn test_stream_all_messages_with_optimistic_group_creation() {
     stream_messages.end_and_wait().await.unwrap();
     assert!(stream_messages.is_closed());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_stream_message_deletions_with_full_message_details() {
+    let alix = new_test_client().await;
+    let bo = new_test_client().await;
+
+    // Create a group
+    let alix_group = alix
+        .conversations()
+        .create_group(
+            vec![bo.account_identifier.clone()],
+            FfiCreateGroupOptions::default(),
+        )
+        .await
+        .unwrap();
+
+    // Send a properly encoded text message
+    let message_id = alix_group
+        .send(
+            encode_text("Hello, world!".to_string()).unwrap(),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+
+    // Set up the deletion stream
+    let deletion_callback = Arc::new(RustMessageDeletionCallback::default());
+    let stream = alix
+        .conversations()
+        .stream_message_deletions(deletion_callback.clone())
+        .await;
+    stream.wait_for_ready().await;
+
+    // Delete the message
+    let deleted_count = alix.delete_message(message_id.clone()).unwrap();
+    assert_eq!(deleted_count, 1);
+
+    // Wait for stream to receive the deleted message
+    deletion_callback.wait_for_delivery(Some(5)).await.unwrap();
+
+    // Verify the stream received the deleted message with full details
+    assert_eq!(deletion_callback.deleted_message_count(), 1);
+    let deleted_messages = deletion_callback.deleted_messages();
+    assert_eq!(deleted_messages[0].id(), message_id);
+    assert_eq!(deleted_messages[0].sender_inbox_id(), alix.inbox_id());
+    assert_eq!(deleted_messages[0].conversation_id(), alix_group.id());
+
+    stream.end_and_wait().await.unwrap();
+    assert!(stream.is_closed());
+}
