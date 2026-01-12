@@ -130,7 +130,7 @@ where
         self.metrics.increment_metric(SyncMetric::Init);
 
         let alive = Arc::new(Mutex::new(()));
-        let _guard = alive.lock();
+        let _guard = alive.lock().await;
 
         // Start a tick task so that the worker will retry failed messages
         // every 20 seconds.
