@@ -2,6 +2,7 @@ use crate::StorageError;
 use crate::association_state::QueryAssociationStateCache;
 use crate::group::ConversationType;
 use crate::group::StoredGroupCommitLogPublicKey;
+use crate::group_message::StoredGroupMessage;
 use crate::local_commit_log::{LocalCommitLog, LocalCommitLogOrder};
 use crate::remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder};
 use std::collections::HashMap;
@@ -476,7 +477,7 @@ mock! {
             msg_id: &MessageId,
         ) -> Result<usize, crate::ConnectionError>;
 
-        fn delete_expired_messages(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+        fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
 
         #[mockall::concretize]
         fn delete_message_by_id<MessageId: AsRef<[u8]>>(

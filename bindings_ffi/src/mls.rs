@@ -1895,7 +1895,7 @@ impl FfiConversations {
     }
 
     /// Get notified when a message is deleted by the disappearing messages worker.
-    /// The callback receives the message ID of each deleted message.
+    /// The callback receives the decoded message that was deleted.
     pub async fn stream_message_deletions(
         &self,
         callback: Arc<dyn FfiMessageDeletionCallback>,
@@ -1903,8 +1903,9 @@ impl FfiConversations {
         let handle = RustXmtpClient::stream_message_deletions_with_callback(
             self.inner_client.clone(),
             move |msg| {
-                if let Ok(message_id) = msg {
-                    callback.on_message_deleted(message_id)
+                if let Ok(message) = msg {
+                    let ffi_message: FfiDecodedMessage = message.into();
+                    callback.on_message_deleted(Arc::new(ffi_message))
                 }
             },
         );
@@ -3478,7 +3479,7 @@ pub trait FfiPreferenceCallback: Send + Sync {
 
 #[uniffi::export(with_foreign)]
 pub trait FfiMessageDeletionCallback: Send + Sync {
-    fn on_message_deleted(&self, message_id: Vec<u8>);
+    fn on_message_deleted(&self, message: Arc<FfiDecodedMessage>);
 }
 
 #[derive(uniffi::Enum, Debug)]
