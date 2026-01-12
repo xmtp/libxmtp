@@ -8,7 +8,7 @@ use xxhash_rust::xxh3;
 mod types;
 use std::time::Duration;
 pub use types::*;
-use xmtp_api_d14n::{MessageBackendBuilder, MiddlewareBuilder, ReadWriteClient};
+use xmtp_api_d14n::{ClientBundle, MessageBackendBuilder, MiddlewareBuilder, ReadWriteClient};
 use xmtp_api_grpc::GrpcClient;
 use xmtp_proto::{
     api::Client,
@@ -349,6 +349,22 @@ impl BackendOpts {
         let is_secure = network.scheme() == "https";
 
         let mut builder = MessageBackendBuilder::default();
+        builder.v3_host(network.as_str()).is_secure(is_secure);
+        if self.d14n {
+            let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
+            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
+            Ok(builder.gateway_host(xmtpd_gateway_host.as_str()).build()?)
+        } else {
+            trace!(url = %network, is_secure, "create grpc");
+            Ok(builder.build()?)
+        }
+    }
+
+    pub fn client_bundle(&self) -> eyre::Result<xmtp_mls::XmtpClientBundle> {
+        let network = self.network_url();
+        let is_secure = network.scheme() == "https";
+
+        let mut builder = ClientBundle::builder();
         builder.v3_host(network.as_str()).is_secure(is_secure);
         if self.d14n {
             let xmtpd_gateway_host = self.xmtpd_gateway_url()?;

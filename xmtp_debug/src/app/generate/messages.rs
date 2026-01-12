@@ -99,7 +99,6 @@ impl GenerateMessages {
 
         if r#loop {
             loop {
-                info!(time = ?std::time::Instant::now(), amount = n, "sending messages");
                 tokio::time::sleep(*interval).await;
                 let semaphore = self.semaphore.clone();
                 let group_store = self.group_store.clone();
@@ -276,6 +275,7 @@ impl GenerateMessages {
         let group = group_store
             .random(&network, rng)?
             .ok_or(eyre!("no group in local store"))?;
+        info!(time = ?std::time::Instant::now(), group = hex::encode(group.id), "sending message");
         if let Some(inbox_id) = group.members.choose(rng) {
             let client = clients
                 .get(inbox_id.as_slice())

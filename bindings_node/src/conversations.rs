@@ -757,18 +757,20 @@ impl Conversations {
   #[napi]
   pub async fn stream_message_deletions(
     &self,
-    callback: ThreadsafeFunction<String, ()>,
+    callback: ThreadsafeFunction<DecodedMessage, ()>,
   ) -> Result<StreamCloser> {
     tracing::trace!(inbox_id = self.inner_client.inbox_id());
     let stream_closer = RustXmtpClient::stream_message_deletions_with_callback(
       self.inner_client.clone(),
       move |message| match message {
-        Ok(message_id) => {
-          let _ = callback.call(
-            Ok(hex::encode(message_id)),
-            ThreadsafeFunctionCallMode::Blocking,
-          );
-        }
+        Ok(decoded_message) => match DecodedMessage::try_from(decoded_message) {
+          Ok(msg) => {
+            let _ = callback.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
+          }
+          Err(e) => {
+            let _ = callback.call(Err(e), ThreadsafeFunctionCallMode::Blocking);
+          }
+        },
         Err(e) => {
           let _ = callback.call(
             Err(Error::from(ErrorWrapper::from(e))),

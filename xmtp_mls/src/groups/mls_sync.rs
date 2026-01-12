@@ -60,14 +60,19 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     mem::{Discriminant, discriminant},
     ops::RangeInclusive,
+    time::Duration,
 };
 use thiserror::Error;
 use tracing::debug;
 use update_group_membership::apply_update_group_membership_intent;
-use xmtp_common::{Event, Retry, RetryableError, log_event, retry_async, time::now_ns};
+use xmtp_common::{
+    Event, ExponentialBackoff, Retry, RetryableError, Strategy, log_event, retry_async,
+    time::now_ns,
+};
 use xmtp_configuration::{
-    GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
-    SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
+    GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_GROUP_SYNC_RETRIES,
+    MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS, SYNC_BACKOFF_TOTAL_WAIT_MAX_SECS,
+    SYNC_BACKOFF_WAIT_MS, SYNC_JITTER_MS, SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::group::GroupMembershipState;
@@ -487,14 +492,27 @@ where
         let mut summary = SyncSummary::default();
         let db = self.context.db();
 
+        let time_spent = xmtp_common::time::Instant::now();
+        let backoff = ExponentialBackoff::builder()
+            .duration(Duration::from_millis(SYNC_BACKOFF_WAIT_MS.into()))
+            .total_wait_max(Duration::from_secs(SYNC_BACKOFF_TOTAL_WAIT_MAX_SECS.into()))
+            .max_jitter(Duration::from_millis(SYNC_JITTER_MS.into()))
+            .build();
+
         // Return the last error to the caller if we fail to sync
-        for attempt in 0..xmtp_configuration::MAX_GROUP_SYNC_RETRIES {
+        for attempt in 0..MAX_GROUP_SYNC_RETRIES {
+            let wait_for = backoff
+                .backoff(attempt + 1, time_spent)
+                .unwrap_or(Duration::from_millis(50));
+
             log_event!(
                 Event::GroupSyncAttempt,
                 self.context.inbox_id(),
                 group_id = hex::encode(&self.group_id),
-                attempt
+                attempt,
+                backoff = ?wait_for
             );
+
             match self.sync_with_conn().await {
                 Ok(s) => summary.extend(s),
                 Err(s) => {
@@ -546,6 +564,9 @@ where
                     summary.add_other(GroupError::Storage(err));
                 }
             };
+            if attempt + 1 < MAX_GROUP_SYNC_RETRIES {
+                xmtp_common::time::sleep(wait_for).await;
+            }
         }
         Err(GroupError::SyncFailedToWait(Box::new(summary)))
     }

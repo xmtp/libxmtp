@@ -593,7 +593,7 @@ impl PermissionPolicyOption {
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Task {
-    #[prost(oneof = "task::Task", tags = "1")]
+    #[prost(oneof = "task::Task", tags = "1, 2")]
     pub task: ::core::option::Option<task::Task>,
 }
 /// Nested message and enum types in `Task`.
@@ -602,6 +602,8 @@ pub mod task {
     pub enum Task {
         #[prost(message, tag = "1")]
         ProcessWelcomePointer(super::super::message_contents::WelcomePointer),
+        #[prost(message, tag = "2")]
+        SendSyncArchive(super::SendSyncArchive),
     }
 }
 impl ::prost::Name for Task {
@@ -612,5 +614,24 @@ impl ::prost::Name for Task {
     }
     fn type_url() -> ::prost::alloc::string::String {
         "/xmtp.mls.database.Task".into()
+    }
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SendSyncArchive {
+    #[prost(message, optional, tag = "1")]
+    pub options: ::core::option::Option<super::super::device_sync::BackupOptions>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub sync_group_id: ::prost::alloc::vec::Vec<u8>,
+    #[prost(string, optional, tag = "3")]
+    pub request_id: ::core::option::Option<::prost::alloc::string::String>,
+}
+impl ::prost::Name for SendSyncArchive {
+    const NAME: &'static str = "SendSyncArchive";
+    const PACKAGE: &'static str = "xmtp.mls.database";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.database.SendSyncArchive".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.database.SendSyncArchive".into()
     }
 }

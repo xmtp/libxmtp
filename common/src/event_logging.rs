@@ -41,7 +41,7 @@ pub enum Event {
     #[context(group_id)]
     GroupSyncStart,
     /// Attempting to sync group.
-    #[context(group_id, attempt)]
+    #[context(group_id, attempt, backoff)]
     GroupSyncAttempt,
     /// Group sync complete.
     #[context(group_id, summary, success)]

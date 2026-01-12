@@ -5,7 +5,6 @@ use tsify::Tsify;
 use xmtp_db::group_message::{
   DeliveryStatus as XmtpDeliveryStatus, GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs,
   SortBy as XmtpMessageSortBy, SortDirection as XmtpSortDirection, StoredGroupMessage,
-  StoredGroupMessageWithReactions,
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
@@ -199,27 +198,6 @@ impl From<StoredGroupMessage> for Message {
       content,
       kind: msg.kind.into(),
       delivery_status: msg.delivery_status.into(),
-    }
-  }
-}
-
-#[derive(Clone, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
-pub struct MessageWithReactions {
-  pub message: Message,
-  pub reactions: Vec<Message>,
-}
-
-impl From<StoredGroupMessageWithReactions> for MessageWithReactions {
-  fn from(msg_with_reactions: StoredGroupMessageWithReactions) -> Self {
-    Self {
-      message: msg_with_reactions.message.into(),
-      reactions: msg_with_reactions
-        .reactions
-        .into_iter()
-        .map(|reaction| reaction.into())
-        .collect(),
     }
   }
 }
