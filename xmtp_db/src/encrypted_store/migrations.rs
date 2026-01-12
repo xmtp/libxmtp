@@ -75,9 +75,10 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
         let mut reverted = Vec::new();
 
         loop {
-            let applied = self.applied_migrations()?;
-            // Get the newest applied migration (last in ascending order)
-            // This corresponds to what revert_last_migration() will revert
+            let mut applied = self.applied_migrations()?;
+            // Sort migrations to ensure consistent ordering (ascending by version)
+            applied.sort();
+            // Get the newest applied migration - this corresponds to what revert_last_migration() will revert
             let Some(current_version) = applied.last() else {
                 break;
             };
