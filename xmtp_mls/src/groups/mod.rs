@@ -726,6 +726,10 @@ where
             .get_group_message(message_id)?
             .ok_or_else(|| GroupError::NotFound(NotFound::MessageById(message_id.to_vec())))?;
 
+        if message.group_id != self.group_id {
+            return Err(GroupError::InvalidGroupMembership);
+        }
+
         // Silent no-op if already published
         if message.delivery_status == DeliveryStatus::Published {
             return Ok(());
