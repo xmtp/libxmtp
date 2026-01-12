@@ -124,8 +124,10 @@ mod tests {
         // by checking if the actual schema changes occur.
 
         let target_migration = "2025-11-15-232503_add_inserted_at_ns_to_group_messages";
-        // The migration before our target - rollback keeps this one applied
-        let rollback_to = "2025-10-07-180046_create_tasks";
+        // The migration immediately before our target - rollback keeps this one applied
+        // Using the migration just before target ensures schema compatibility when
+        // running the target migration directly
+        let rollback_to = "2025-11-14-185054-0000_add_dm_id_index";
 
         // First rollback to before the target migration (rollback_to is kept, target is reverted)
         rollback_confirmed(&alix.db(), rollback_to)?;

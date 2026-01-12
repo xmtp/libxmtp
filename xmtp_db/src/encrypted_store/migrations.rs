@@ -72,26 +72,48 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
         // We use the first 17 characters which covers the full timestamp portion
         let target_prefix = extract_version_prefix(version);
 
+        tracing::debug!("Rolling back to version: {version} (prefix: {target_prefix})");
+
         let mut reverted = Vec::new();
 
         loop {
-            let mut applied = self.applied_migrations()?;
-            // Sort migrations to ensure consistent ordering (ascending by version)
-            applied.sort();
-            // Get the newest applied migration - this corresponds to what revert_last_migration() will revert
-            let Some(current_version) = applied.last() else {
+            // Get applied migrations and find the newest one.
+            let applied = self.applied_migrations()?;
+            if applied.is_empty() {
+                tracing::debug!("No more applied migrations, stopping rollback");
                 break;
-            };
+            }
 
-            let current_prefix = extract_version_prefix(current_version);
+            // Find the newest migration by comparing all prefixes.
+            // This is more robust than sorting because it handles edge cases
+            // where migration naming formats might differ.
+            let newest = applied
+                .iter()
+                .max_by(|a, b| {
+                    extract_version_prefix(a).cmp(extract_version_prefix(b))
+                })
+                .unwrap();
+            let newest_prefix = extract_version_prefix(newest);
+
+            tracing::debug!(
+                "Newest applied migration: {newest} (prefix: {newest_prefix})"
+            );
 
             // Use lexicographic comparison on the version prefix
             // Migration names are formatted as YYYY-MM-DD-HHMMSS so they sort correctly
             // Use <= to ensure the target migration itself is kept applied
-            if current_prefix <= target_prefix {
+            if newest_prefix <= target_prefix {
+                tracing::debug!(
+                    "Stopping rollback: {newest_prefix} <= {target_prefix}"
+                );
                 break;
             }
 
+            tracing::debug!("Reverting migration: {newest}");
+
+            // Revert the newest migration via Diesel's revert_last_migration.
+            // Note: Diesel determines "last" based on its own ordering, which
+            // should match our lexicographic ordering of version prefixes.
             let result = self.raw_query_write(|conn| {
                 conn.revert_last_migration(MIGRATIONS)
                     .map(|v| v.to_string())
@@ -99,16 +121,46 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
             });
 
             match result {
-                Ok(version) => {
-                    reverted.push(version);
+                Ok(reverted_version) => {
+                    let reverted_prefix = extract_version_prefix(&reverted_version);
+                    
+                    // Verify we reverted what we expected to revert
+                    if reverted_prefix != newest_prefix {
+                        tracing::warn!(
+                            "Migration ordering mismatch: expected to revert {} (prefix: {}), but reverted {} (prefix: {}). \
+                            This may indicate that Diesel's migration ordering differs from our lexicographic ordering.",
+                            newest,
+                            newest_prefix,
+                            reverted_version,
+                            reverted_prefix
+                        );
+                        
+                        // If what was reverted is at or before our target, we should stop
+                        // to avoid reverting too much
+                        if reverted_prefix <= target_prefix {
+                            tracing::warn!(
+                                "Reverted migration {} is at or before target {}. Stopping to prevent data loss.",
+                                reverted_version,
+                                version
+                            );
+                            // Note: The migration was already reverted, so we can't undo it.
+                            // We log the situation and stop to prevent further damage.
+                            reverted.push(reverted_version);
+                            break;
+                        }
+                    }
+                    
+                    tracing::debug!("Successfully reverted: {reverted_version}");
+                    reverted.push(reverted_version);
                 }
                 Err(e) => {
-                    tracing::warn!("Migration rollback stopped: {e:?}");
+                    tracing::warn!("Migration rollback stopped due to error: {e:?}");
                     break;
                 }
             }
         }
 
+        tracing::debug!("Rollback complete. Reverted {} migrations", reverted.len());
         Ok(reverted)
     }
 
