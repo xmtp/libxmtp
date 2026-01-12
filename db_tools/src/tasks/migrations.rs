@@ -123,11 +123,11 @@ mod tests {
         // without updating the schema_migrations table. This test verifies this behavior
         // by checking if the actual schema changes occur.
 
-        let target_migration = "2025-11-15-232503_add_inserted_at_ns_to_group_messages";
+        // Use a simple migration that just adds a column (no table recreation)
+        // This avoids complex schema dependencies that can cause issues with rollback ordering
+        let target_migration = "2026-01-09-000000_add_should_push_to_group_messages";
         // The migration immediately before our target - rollback keeps this one applied
-        // Using the migration just before target ensures schema compatibility when
-        // running the target migration directly
-        let rollback_to = "2025-11-14-185054-0000_add_dm_id_index";
+        let rollback_to = "2025-12-19-153956-0000_add_dm_group_updates_migrated";
 
         // First rollback to before the target migration (rollback_to is kept, target is reverted)
         rollback_confirmed(&alix.db(), rollback_to)?;
@@ -137,12 +137,12 @@ mod tests {
             Ok(conn.raw_query_read(|c| {
                 use xmtp_db::diesel::connection::SimpleConnection;
                 // Try to select the column - if it fails, the column doesn't exist
-                let result = c.batch_execute("SELECT inserted_at_ns FROM group_messages LIMIT 0");
+                let result = c.batch_execute("SELECT should_push FROM group_messages LIMIT 0");
                 Ok(result.is_ok())
             })?)
         }
 
-        // Verify the inserted_at_ns column doesn't exist after rollback
+        // Verify the should_push column doesn't exist after rollback
         assert!(
             !check_column_exists(&alix.db())?,
             "Column should not exist after rollback"
@@ -177,25 +177,17 @@ mod tests {
         let conn = alix.db();
         let db = xmtp_db::DbConnection::new(&conn);
 
-        // Get migrations sorted by date descending (newest first)
-        let mut available = db.available_migrations()?;
-        available.sort_by(|a, b| b.cmp(a));
-
-        assert!(
-            available.len() >= 10,
-            "Need enough migrations for this test"
-        );
-
-        // Pick migrations from the sorted list
-        let newest = &available[0];
-        let mid_recent = &available[5]; // Rollback target
-        let mid_old = &available[6]; // Just before rollback target
-        let oldest = available.last().unwrap();
+        // Use specific known migrations to avoid fragile array index dependencies
+        // and potential ordering mismatches between our code and Diesel
+        let newest = "2026-01-09-000000_add_should_push_to_group_messages";
+        let rollback_target = "2025-12-19-153956-0000_add_dm_group_updates_migrated";
+        let before_target = "2025-12-08-160215-0000_drop_events_table";
+        let oldest = "2024-05-06-192337_openmls_storage";
 
         let applied_before = db.applied_migrations()?;
 
         // All should be applied initially
-        for name in [newest, mid_recent, mid_old, oldest] {
+        for name in [newest, rollback_target, before_target, oldest] {
             assert_eq!(
                 migration_status(name, &applied_before),
                 "[applied]",
@@ -203,16 +195,21 @@ mod tests {
             );
         }
 
-        // Rollback - mid_recent and newer become pending
-        rollback_confirmed(&alix.db(), mid_recent)?;
+        // Rollback to rollback_target - it stays applied, newest becomes pending
+        rollback_confirmed(&alix.db(), rollback_target)?;
 
         let applied_after = db.applied_migrations()?;
 
-        // Migrations before rollback point should still be applied
+        // Rollback target and older migrations should still be applied
         assert_eq!(
-            migration_status(mid_old, &applied_after),
+            migration_status(rollback_target, &applied_after),
             "[applied]",
-            "{mid_old} should still be applied after rollback"
+            "{rollback_target} should still be applied (it's the rollback target)"
+        );
+        assert_eq!(
+            migration_status(before_target, &applied_after),
+            "[applied]",
+            "{before_target} should still be applied after rollback"
         );
         assert_eq!(
             migration_status(oldest, &applied_after),
@@ -220,7 +217,7 @@ mod tests {
             "{oldest} should still be applied after rollback"
         );
 
-        // Rollback target and newer migrations should be pending
+        // Migrations after rollback target should be pending
         assert_eq!(
             migration_status(newest, &applied_after),
             "[pending]",
@@ -234,9 +231,9 @@ mod tests {
 
         // All migrations should be applied again
         assert_eq!(
-            migration_status(mid_recent, &applied_restored),
+            migration_status(rollback_target, &applied_restored),
             "[applied]",
-            "{mid_recent} should be applied after restore"
+            "{rollback_target} should be applied after restore"
         );
         assert_eq!(
             migration_status(newest, &applied_restored),
