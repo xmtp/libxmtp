@@ -15,12 +15,11 @@ use crate::{
 use futures::TryFutureExt;
 use owo_colors::OwoColorize;
 use std::{sync::Arc, time::Duration};
-use tokio::sync::{Mutex, OnceCell, broadcast};
+use tokio::sync::{OnceCell, broadcast};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
-use xmtp_common::task;
 use xmtp_db::{
     StoreOrIgnore,
     group_message::{MsgQueryArgs, StoredGroupMessage},
@@ -129,13 +128,16 @@ where
         self.sync_init().await?;
         self.metrics.increment_metric(SyncMetric::Init);
 
-        let alive = Arc::new(Mutex::new(()));
-        let _guard = alive.lock().await;
+        let tick_fut = Self::tick(self.client.context.clone());
+        let run_fut = self.run_internal();
 
-        // Start a tick task so that the worker will retry failed messages
-        // every 20 seconds.
-        Self::tick(self.client.context.clone(), alive.clone()).await;
+        tokio::select! {
+            _ = tick_fut => Ok(()),
+            res = run_fut => res,
+        }
+    }
 
+    async fn run_internal(&mut self) -> Result<(), DeviceSyncError> {
         while let Ok(event) = self.receiver.recv().await {
             tracing::info!(
                 "[{}] New event: {event:?}",
@@ -160,23 +162,16 @@ where
         Ok(())
     }
 
-    async fn tick(ctx: Context, alive: Arc<Mutex<()>>) {
-        task::spawn(async move {
-            loop {
-                xmtp_common::time::sleep(Duration::from_secs(20)).await;
+    async fn tick(ctx: Context) {
+        loop {
+            xmtp_common::time::sleep(Duration::from_secs(20)).await;
 
-                if alive.try_lock().is_ok() {
-                    // Worker thread is no longer running
-                    return;
-                }
-
-                // We don't need to worry about a mutex lock for device sync
-                // to ensure that a sync payload is not being processed by two
-                // threads at once because there should only ever be one sync worker
-                // and the sync worker processes all events in series.
-                let _ = ctx.worker_events().send(SyncWorkerEvent::NewSyncGroupMsg);
-            }
-        });
+            // We don't need to worry about a mutex lock for device sync
+            // to ensure that a sync payload is not being processed by two
+            // threads at once because there should only ever be one sync worker
+            // and the sync worker processes all events in series.
+            let _ = ctx.worker_events().send(SyncWorkerEvent::NewSyncGroupMsg);
+        }
     }
 
     //// Ideally called when the client is registered.
@@ -437,7 +432,7 @@ where
         };
         tracing::info!("{}", "Sending sync payload.".yellow());
 
-        let acknowledge = || async {
+        let acknowledge = async || {
             if let Some(request_id) = &request_id {
                 match self
                     .acknowledge_sync_request(sync_group_id, request_id)
