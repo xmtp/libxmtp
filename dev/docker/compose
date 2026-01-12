@@ -1,8 +1,11 @@
 #!/bin/bash
-set -eou pipefail
+set -euo pipefail
 
-if ! docker network ls | grep -q libxmtp-backend; then
-  docker network create libxmtp-backend --label proxynet
+NETWORK_NAME="libxmtp-backend"
+
+# Create network if missing (idempotent)
+if ! docker network inspect "$NETWORK_NAME" >/dev/null 2>&1; then
+  docker network create "$NETWORK_NAME" --label proxynet >/dev/null
 fi
 
 docker compose \
