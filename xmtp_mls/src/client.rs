@@ -794,6 +794,7 @@ where
                         originator_id: conversation_item.originator_id?,
                         expire_at_ns: None, //Question: do we need to include this in conversation last message?
                         inserted_at_ns: 0, // Not used for conversation list display
+                        should_push: true, // Not used for conversation list display
                     });
                     if msg.is_none() {
                         tracing::warn!("tried listing message, but message had missing fields so it was skipped");
