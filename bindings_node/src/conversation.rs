@@ -52,7 +52,7 @@ use crate::{
   encoded_content::EncodedContent,
   enriched_message::DecodedMessage,
   identity::{Identifier, IdentityExt},
-  message::{ListMessagesOptions, Message, MessageWithReactions},
+  message::{ListMessagesOptions, Message},
   permissions::{GroupPermissions, MetadataField, PermissionPolicy, PermissionUpdateType},
   streams::StreamCloser,
 };
@@ -379,25 +379,6 @@ impl Conversation {
       .map_err(ErrorWrapper::from)?;
 
     Ok(count)
-  }
-
-  #[napi]
-  pub async fn find_messages_with_reactions(
-    &self,
-    opts: Option<ListMessagesOptions>,
-  ) -> Result<Vec<MessageWithReactions>> {
-    let opts = opts.unwrap_or_default();
-    let group = self.create_mls_group();
-    let opts = MsgQueryArgs { ..opts.into() };
-
-    let messages: Vec<MessageWithReactions> = group
-      .find_messages_with_reactions(&opts)
-      .map_err(ErrorWrapper::from)?
-      .into_iter()
-      .map(Into::into)
-      .collect();
-
-    Ok(messages)
   }
 
   #[napi]
