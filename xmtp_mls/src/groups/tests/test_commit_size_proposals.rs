@@ -31,28 +31,39 @@ use xmtp_mls_common::{
 
 struct ProposalsAndCommit {
     proposals: Vec<MlsMessageOut>,
+    adds: usize,
+    removes: usize,
     commit: MlsMessageOut,
-    welcome: MlsMessageOut,
-    old_commit: MlsMessageOut,
-    old_welcome: MlsMessageOut,
+    welcome: Option<MlsMessageOut>,
+    old_commit_len: usize,
+    old_welcome_len: usize,
 }
 
-async fn generate_add_proposals_and_commit(
+async fn commit_to_proposals(
+    proposals_and_commit: ProposalsAndCommit,
     groups: &[MlsGroup<TestXmtpMlsContext>],
-    testers: &[Tester],
+) {
+}
+
+async fn generate_proposals_and_commit(
+    testers: &[(Tester, MlsGroup<TestXmtpMlsContext>)],
     key_packages: &[NewKeyPackageResult],
+    leaf_nodes_to_remove: &[LeafNodeIndex],
 ) -> ProposalsAndCommit {
-    let provider = groups[0].context.mls_provider();
-    let signer = testers[0].identity().installation_keys.clone();
-    let storage = groups[0].context.mls_storage();
-    groups[0]
+    let provider = testers[0].1.context.mls_provider();
+    let signer = testers[0].0.identity().installation_keys.clone();
+    let storage = testers[0].1.context.mls_storage();
+    testers[0]
+        .1
         .load_mls_group_with_lock_async(async |mut mls_group| {
-            let (old_commit, old_welcome, _) =
+            let (old_commit, old_welcome) = if key_packages.is_empty() {
+                (0, 0)
+            } else {
                 with_rollback(storage, &mut mls_group, |group, provider| {
-                    group
+                    let (commit, welcome, _) = group
                         .update_group_membership(
                             provider,
-                            &testers[0].identity().installation_keys,
+                            &testers[0].0.identity().installation_keys,
                             &key_packages
                                 .iter()
                                 .map(|k| k.key_package.clone())
@@ -61,10 +72,43 @@ async fn generate_add_proposals_and_commit(
                             group.extensions().clone(),
                         )
                         .map_err(|e| GroupError::Any(e.into()))
+                        .unwrap();
+                    Ok::<_, GroupError>((
+                        commit.tls_serialize_detached().unwrap().len(),
+                        welcome.unwrap().tls_serialize_detached().unwrap().len(),
+                    ))
                 })
-                .unwrap();
-            let epoch = mls_group.epoch();
-            let proposals = key_packages
+                .unwrap()
+            };
+            let old_remove_commit = if leaf_nodes_to_remove.is_empty() {
+                0
+            } else {
+                with_rollback(storage, &mut mls_group, |group, provider| {
+                    let (commit, _, _) = group
+                        .remove_members(
+                            provider,
+                            &testers[0].0.identity().installation_keys,
+                            &leaf_nodes_to_remove,
+                        )
+                        .map_err(|e| GroupError::Any(e.into()))
+                        .unwrap();
+                    Ok::<_, GroupError>(commit.tls_serialize_detached().unwrap().len())
+                })
+                .unwrap()
+            };
+
+            let remove_proposals = leaf_nodes_to_remove
+                .iter()
+                .map(|i| {
+                    tracing::warn!("Proposing to remove leaf node {i}");
+                    let (proposal, _) = mls_group
+                        .propose_remove_member(&provider, &signer, *i)
+                        .map_err(|e| GroupError::Any(e.into()))
+                        .unwrap();
+                    proposal
+                })
+                .collect::<Vec<_>>();
+            let add_proposals = key_packages
                 .iter()
                 .map(|k| {
                     let (proposal, _) = mls_group
@@ -79,14 +123,90 @@ async fn generate_add_proposals_and_commit(
                 .map_err(|e| GroupError::Any(e.into()))
                 .unwrap();
             mls_group.merge_pending_commit(&provider).unwrap();
-            let p_and_c = ProposalsAndCommit {
-                proposals,
-                commit: commit,
-                welcome: welcome.unwrap(),
-                old_commit: old_commit,
-                old_welcome: old_welcome.unwrap(),
+            let proposals_and_commit = ProposalsAndCommit {
+                adds: add_proposals.len(),
+                removes: remove_proposals.len(),
+                proposals: add_proposals.into_iter().chain(remove_proposals).collect(),
+                commit,
+                welcome,
+                old_commit_len: old_commit + old_remove_commit,
+                old_welcome_len: old_welcome,
             };
-            Ok::<_, GroupError>(p_and_c)
+            let proposals = proposals_and_commit
+                .proposals
+                .iter()
+                .map(|p| p.tls_serialize_detached().unwrap())
+                .collect::<Vec<_>>();
+
+            let protocol_messages = proposals
+                .iter()
+                .map(|p| {
+                    MlsMessageIn::tls_deserialize_exact(p)
+                        .unwrap()
+                        .try_into_protocol_message()
+                        .unwrap()
+                })
+                .collect::<Vec<_>>();
+
+            let commit = proposals_and_commit
+                .commit
+                .tls_serialize_detached()
+                .unwrap();
+            let commit_message = MlsMessageIn::tls_deserialize_exact(&commit)
+                .unwrap()
+                .try_into_protocol_message()
+                .unwrap();
+
+            // skip over originating group
+            let add_proposals_and_commit =
+                testers
+                    .iter()
+                    .enumerate()
+                    .skip(1)
+                    .map(|(i, (tester, group))| {
+                        let protocol_messages = protocol_messages.clone();
+                        let commit_message = commit_message.clone();
+                        let storage = group.context.mls_storage();
+                        async move {
+                            group.sync().await.unwrap();
+                            group
+                            .load_mls_group_with_lock_async(async move |mut mls_group| {
+                                let provider = group.context.mls_provider();
+                                let epoch = mls_group.epoch();
+                                tracing::info!("GROUP {i} EPOCH {epoch}");
+                                for protocol_message in protocol_messages {
+                                    let x = mls_group
+                                        .process_message(&provider, protocol_message)
+                                        .unwrap();
+                                    let ProcessedMessageContent::ProposalMessage(proposal) =
+                                        x.into_content()
+                                    else {
+                                        panic!("Expected ProposalMessage");
+                                    };
+                                    mls_group
+                                        .store_pending_proposal(storage, *proposal)
+                                        .unwrap();
+                                }
+                                let x = mls_group
+                                    .process_message(&provider, commit_message)
+                                    .unwrap();
+                                let ProcessedMessageContent::StagedCommitMessage(staged_commit) =
+                                    x.into_content()
+                                else {
+                                    panic!("Expected StagedCommitMessage");
+                                };
+                                mls_group
+                                    .merge_staged_commit(&provider, *staged_commit)
+                                    .unwrap();
+                                Ok::<_, GroupError>(())
+                            })
+                            .await
+                            .unwrap();
+                        }
+                    });
+
+            futures::future::join_all(add_proposals_and_commit).await;
+            Ok::<_, GroupError>(proposals_and_commit)
         })
         .await
         .unwrap()
@@ -150,7 +270,7 @@ async fn welcome_testers(
         let metadata = extract_group_metadata(mls_group.extensions())
             .map_err(|e| GroupError::Any(e.into()))
             .unwrap();
-        let mutable_metadata = extract_group_mutable_metadata(&mls_group).ok();
+        // let mutable_metadata = extract_group_mutable_metadata(&mls_group).ok();
         let conversation_type = metadata.conversation_type;
         let dm_members = metadata.dm_members;
 
@@ -203,12 +323,11 @@ async fn welcome_testers(
 }
 
 async fn fill_leaf_nodes(
-    group: &MlsGroup<TestXmtpMlsContext>,
-    tester: &Tester,
-    groups: impl Iterator<Item = &MlsGroup<TestXmtpMlsContext>>,
+    tester: &(Tester, MlsGroup<TestXmtpMlsContext>),
+    testers: impl Iterator<Item = &(Tester, MlsGroup<TestXmtpMlsContext>)>,
 ) {
-    let last_tester = tester;
-    let last_group = group;
+    let last_tester = &tester.0;
+    let last_group = &tester.1;
     let storage = last_group.context.mls_storage();
     let commit_bytes = last_group
             .load_mls_group_with_lock_async(async |mut mls_group| {
@@ -240,7 +359,8 @@ async fn fill_leaf_nodes(
 
     let last_group_ptr = Arc::as_ptr(&last_group.context);
 
-    let commits = groups
+    let commits = testers
+        .map(|(_, g)| g)
         .filter(|g| Arc::as_ptr(&g.context) != last_group_ptr)
         .map(|g| async {
             g.load_mls_group_with_lock_async(async |mut mls_group| {
@@ -270,12 +390,12 @@ async fn fill_leaf_nodes(
 
 #[xmtp_common::test]
 async fn test_commit_sizes_with_proposals() {
-    const TESTER_COUNT: usize = 4;
+    const TESTER_COUNT: usize = 10;
     crate::tester!(alix);
 
-    let mut testers = vec![alix];
+    let new_group = alix.create_group(None, None).unwrap();
 
-    let mut groups = vec![testers[0].create_group(None, None).unwrap()];
+    let mut testers = vec![(alix, new_group.clone())];
 
     for i in 0..TESTER_COUNT {
         tracing::warn!("TESTER {i}");
@@ -291,156 +411,91 @@ async fn test_commit_sizes_with_proposals() {
                     .unwrap()
             })
             .collect::<Vec<_>>();
+        // remove one every 3rd iteration.
+        let leaf_nodes_to_remove = if i % 3 == 0 && testers.len() > 4 {
+            vec![LeafNodeIndex::new(testers.len() as u32 / 2)]
+        } else {
+            vec![]
+        };
         let proposals_and_commit =
-            generate_add_proposals_and_commit(&groups, &testers, &key_packages).await;
-        let proposals = proposals_and_commit
+            generate_proposals_and_commit(&testers, &key_packages, &leaf_nodes_to_remove).await;
+
+        testers.retain(|(_, group)| group.is_active().unwrap_or(false));
+        if testers.is_empty() {
+            panic!("No testers left");
+        }
+
+        let welcome_size = proposals_and_commit
+            .welcome
+            .as_ref()
+            .map(|w| w.tls_serialize_detached().unwrap().len())
+            .unwrap_or(0);
+        let proposals_size = proposals_and_commit
             .proposals
             .iter()
-            .map(|p| p.tls_serialize_detached().unwrap())
-            .collect::<Vec<_>>();
+            .map(|p| p.tls_serialize_detached().unwrap().len())
+            .sum::<usize>();
 
-        let proposals_size = proposals.iter().map(|p| p.len()).sum::<usize>();
-
-        let protocol_messages = proposals
-            .iter()
-            .map(|p| {
-                MlsMessageIn::tls_deserialize_exact(p)
-                    .unwrap()
-                    .try_into_protocol_message()
-                    .unwrap()
-            })
-            .collect::<Vec<_>>();
-
-        let commit = proposals_and_commit
+        let commit_size = proposals_and_commit
             .commit
             .tls_serialize_detached()
-            .unwrap();
-        let commit_message = MlsMessageIn::tls_deserialize_exact(&commit)
             .unwrap()
-            .try_into_protocol_message()
-            .unwrap();
-
-        // skip over originating group
-        let add_proposals_and_commit = groups.iter().enumerate().skip(1).map(|(i, g)| {
-            let protocol_messages = protocol_messages.clone();
-            let commit_message = commit_message.clone();
-            let storage = g.context.mls_storage();
-            async move {
-                g.sync().await.unwrap();
-                g.load_mls_group_with_lock_async(async move |mut mls_group| {
-                    let provider = g.context.mls_provider();
-                    let epoch = mls_group.epoch();
-                    tracing::info!("GROUP {i} EPOCH {epoch}");
-                    for protocol_message in protocol_messages {
-                        let x = mls_group
-                            .process_message(&provider, protocol_message)
-                            .unwrap();
-                        let ProcessedMessageContent::ProposalMessage(proposal) = x.into_content()
-                        else {
-                            panic!("Expected ProposalMessage");
-                        };
-                        mls_group
-                            .store_pending_proposal(storage, *proposal)
-                            .unwrap();
-                    }
-                    let x = mls_group
-                        .process_message(&provider, commit_message)
-                        .unwrap();
-                    let ProcessedMessageContent::StagedCommitMessage(staged_commit) =
-                        x.into_content()
-                    else {
-                        panic!("Expected StagedCommitMessage");
-                    };
-                    mls_group
-                        .merge_staged_commit(&provider, *staged_commit)
-                        .unwrap();
-                    Ok::<_, GroupError>(())
-                })
-                .await
-                .unwrap();
-            }
-        });
-
-        futures::future::join_all(add_proposals_and_commit).await;
-
-        let old_commit = proposals_and_commit
-            .old_commit
-            .tls_serialize_detached()
-            .unwrap();
-        let old_welcome = proposals_and_commit
-            .old_welcome
-            .tls_serialize_detached()
-            .unwrap();
-        let welcome_bytes = proposals_and_commit
-            .welcome
-            .tls_serialize_detached()
-            .unwrap();
-        let welcome_size = welcome_bytes.len();
+            .len();
 
         tracing::warn!(
             i,
             proposals_size,
-            old_commit_size = old_commit.len(),
-            old_welcome_size = old_welcome.len(),
-            commit_size = commit.len(),
+            adds = proposals_and_commit.adds,
+            removes = proposals_and_commit.removes,
+            old_commit_size = proposals_and_commit.old_commit_len,
+            old_welcome_size = proposals_and_commit.old_welcome_len,
+            commit_size = commit_size,
             welcome_size,
-            welcome_diff = (old_welcome.len() as isize - welcome_size as isize),
-            commit_diff =
-                (old_commit.len() as isize - commit.len() as isize - proposals_size as isize),
-            commit_pct =
-                (commit.len() as f64 + proposals_size as f64) / (old_commit.len() as f64) * 100.0,
+            welcome_diff = (proposals_and_commit.old_welcome_len as isize - welcome_size as isize),
+            commit_diff = (proposals_and_commit.old_commit_len as isize
+                - commit_size as isize
+                - proposals_size as isize),
+            commit_pct = (commit_size as f64 + proposals_size as f64)
+                / (proposals_and_commit.old_commit_len as f64)
+                * 100.0,
             "Commit sizes"
         );
 
-        // Process welcome directly into OpenMLS group, bypassing network calls and validation
-        // MlsMessageOut when serialized contains the Welcome message
-        // We need to deserialize as MlsMessageIn first, then extract the Welcome
-        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&welcome_bytes)
-            .map_err(|e| GroupError::Any(e.into()))
-            .unwrap();
+        if let Some(welcome) = &proposals_and_commit.welcome {
+            let welcome_bytes = welcome.tls_serialize_detached().unwrap();
+            // Process welcome directly into OpenMLS group, bypassing network calls and validation
+            // MlsMessageOut when serialized contains the Welcome message
+            // We need to deserialize as MlsMessageIn first, then extract the Welcome
+            let mls_message_in = MlsMessageIn::tls_deserialize_exact(&welcome_bytes)
+                .map_err(|e| GroupError::Any(e.into()))
+                .unwrap();
 
-        // Extract Welcome from MlsMessageIn
-        // MlsMessageIn contains the Welcome in its body
-        let MlsMessageBodyIn::Welcome(openmls_welcome) = mls_message_in.extract() else {
-            panic!("Expected Welcome message, got different message type");
-        };
+            // Extract Welcome from MlsMessageIn
+            // MlsMessageIn contains the Welcome in its body
+            let MlsMessageBodyIn::Welcome(openmls_welcome) = mls_message_in.extract() else {
+                panic!("Expected Welcome message, got different message type");
+            };
 
-        let new_groups = welcome_testers(&new_testers, &openmls_welcome).await;
+            let new_groups = welcome_testers(&new_testers, &openmls_welcome).await;
+            assert_eq!(new_groups.len(), new_testers.len());
+            let tester_start = testers.len();
+            for (tester, group) in new_testers.into_iter().zip(new_groups) {
+                testers.push((tester, group));
+            }
+            for (i, tester) in testers[tester_start..].iter().enumerate() {
+                fill_leaf_nodes(tester, testers.iter()).await;
+                let message_bytes = format!("Hello from new tester! {}", tester_start + i);
 
-        // The tester is already fully in the group via the welcome message.
-        // The group membership extension should already reflect this.
-        // However, if there's a pending intent to add the tester (created before the welcome
-        // was processed), syncing will try to process it and fail with "Duplicate signature key".
-        // The intent system should detect that the tester is already in the group and skip
-        // the intent, but to be safe, we ensure the group state is consistent first.
-        //
-        // Note: We don't process the commit message here because it was already applied
-        // via the welcome. Processing it again would fail.
+                tester
+                    .1
+                    .send_message(message_bytes.as_bytes(), SendMessageOpts::default())
+                    .await
+                    .unwrap();
+            }
+        }
 
-        // Sync the group. The intent system should detect that the tester is already
-        // in the group and skip any conflicting intents.
-        // tester_group.sync().await.unwrap();
-        // Group is now fully set up and ready for the tester to use
-
-        // Have the new tester send a message directly to the API, bypassing all checks and intents
-        let message_bytes = format!("Hello from new tester! {}", i);
-        let last_group = new_groups.last().unwrap();
-
-        last_group
-            .send_message(message_bytes.as_bytes(), SendMessageOpts::default())
-            .await
-            .unwrap();
-
-        // Send a self-update commit to update the last_group's leaf node and fill the tree
-        let last_tester = new_testers.last().unwrap();
-        fill_leaf_nodes(
-            last_group,
-            last_tester,
-            groups.iter().chain(new_groups.iter()),
-        )
-        .await;
-
-        let group0 = groups.first().unwrap();
+        let group0 = &testers.first().unwrap().1;
+        let last_group = &testers.last().unwrap().1;
         // group0.sync().await.unwrap();
         // last_group.sync().await.unwrap();
         let group0_tree = group0
@@ -502,21 +557,12 @@ async fn test_commit_sizes_with_proposals() {
         }
 
         tracing::warn!("Group 0 tree:\n{}", group0_tree);
-        dbg!(&group0_tree);
-        let mut new_groups = new_groups;
-        groups.append(&mut new_groups);
-        let mut new_testers = new_testers;
-        testers.append(&mut new_testers);
     }
-    fill_leaf_nodes(
-        groups.first().unwrap(),
-        testers.first().unwrap(),
-        groups.iter(),
-    )
-    .await;
-    let group0_tree = groups
+    fill_leaf_nodes(testers.first().unwrap(), testers.iter()).await;
+    let group0_tree = testers
         .first()
         .unwrap()
+        .1
         .load_mls_group_with_lock_async(async |mls_group| {
             Ok::<_, GroupError>(mls_group.export_ratchet_tree())
         })
@@ -524,5 +570,5 @@ async fn test_commit_sizes_with_proposals() {
         .unwrap();
     let group0_tree_str = format!("{}", group0_tree);
     tracing::warn!("Group 0 tree:\n{}", group0_tree_str);
-    dbg!(&group0_tree);
+    // dbg!(&group0_tree);
 }
