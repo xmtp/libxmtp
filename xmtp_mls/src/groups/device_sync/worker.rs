@@ -315,6 +315,8 @@ where
 
                 self.context.task_channels().send(
                     NewTask::builder()
+                        .originating_message_originator_id(1)
+                        .originating_message_sequence_id(1)
                         .build(Task {
                             task: Some(
                                 xmtp_proto::xmtp::mls::database::task::Task::SendSyncArchive(
