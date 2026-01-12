@@ -76,7 +76,9 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
 
         loop {
             let applied = self.applied_migrations()?;
-            let Some(current_version) = applied.first() else {
+            // Get the newest applied migration (last in ascending order)
+            // This corresponds to what revert_last_migration() will revert
+            let Some(current_version) = applied.last() else {
                 break;
             };
 
