@@ -1,0 +1,33 @@
+import { Button, VerticalBox } from "std-widgets.slint";
+
+export component AppWindow inherits Window {
+    in-out property <int> counter: 42;
+    callback request-increase-value();
+    callback request-open-file();
+    callback file-selected(string);
+
+    MenuBar {
+        Menu {
+            title: "File";
+            MenuItem {
+                title: "Open";
+                activated => {
+                    root.request-open-file();
+                }
+            }
+        }
+    }
+
+    VerticalBox {
+        Text {
+            text: "Counter: \{root.counter}";
+        }
+
+        Button {
+            text: "Increase value";
+            clicked => {
+                root.request-increase-value();
+            }
+        }
+    }
+}

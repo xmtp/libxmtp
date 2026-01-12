@@ -10,6 +10,11 @@ pest_derive = "2.8.5"
 xmtp_common.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
+slint = "1.14.1"
+native-dialog = "0.7"
+
+[build-dependencies]
+slint-build = "1.14.1"
 
 [lints]
 workspace = true

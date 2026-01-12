@@ -1,14 +1,33 @@
+use anyhow::Result;
 use pest::Parser;
 use pest_derive::Parser;
 
+use crate::ui::file_open::{file_selected, open_file_dialog};
+
 mod state;
+mod ui;
 
 #[derive(Parser)]
 #[grammar = "parser/defs/log.pest"]
 struct LogParser;
 
-fn main() {
-    println!("Hello, world!");
+slint::include_modules!();
+
+fn main() -> Result<()> {
+    let ui = AppWindow::new()?;
+
+    ui.on_request_open_file({
+        let ui_handle = ui.as_weak();
+        move || open_file_dialog(ui_handle.clone())
+    });
+
+    ui.on_file_selected({
+        let ui_handle = ui.as_weak();
+        move |path| file_selected(ui_handle.clone(), path)
+    });
+
+    ui.run()?;
+    Ok(())
 }
 
 #[cfg(test)]
