@@ -78,7 +78,9 @@ impl NewTaskBuilder {
             backoff_scaling_factor: self.backoff_scaling_factor.unwrap_or(1.5),
             max_backoff_duration_ns: self.max_backoff_duration_ns.unwrap_or(60 * NS_IN_SEC),
             initial_backoff_duration_ns: self.initial_backoff_duration_ns.unwrap_or(2 * NS_IN_SEC),
-            next_attempt_at_ns: self.next_attempt_at_ns.unwrap_or(NS_IN_MIN * 5),
+            next_attempt_at_ns: self
+                .next_attempt_at_ns
+                .unwrap_or_else(|| now_ns() + NS_IN_MIN * 5),
             data_hash,
             data,
         };
