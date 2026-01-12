@@ -133,7 +133,13 @@ impl TryFrom<EncodedContent> for MessageBody {
             }
             (ReplyCodec::TYPE_ID, ReplyCodec::MAJOR_VERSION) => {
                 let reply = ReplyCodec::decode(value)?;
-                let content: MessageBody = reply.content.try_into()?;
+                // if the inner content uses a custom content type, try_into
+                // will fail. in that case, wrap it as custom content.
+                let content: MessageBody = reply
+                    .content
+                    .clone()
+                    .try_into()
+                    .unwrap_or(MessageBody::Custom(reply.content));
                 Ok(MessageBody::Reply(Reply {
                     in_reply_to: None,
                     content: Box::new(content),
