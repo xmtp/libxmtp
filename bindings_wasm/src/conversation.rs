@@ -199,6 +199,38 @@ impl Conversation {
     Ok(hex::encode(id.clone()))
   }
 
+  /// Prepare a message for later publishing.
+  /// Stores the message locally without publishing. Returns the message ID.
+  #[wasm_bindgen(js_name = prepareMessage)]
+  pub fn prepare_message(
+    &self,
+    #[wasm_bindgen(js_name = encodedContent)] encoded_content: EncodedContent,
+    #[wasm_bindgen(js_name = shouldPush)] should_push: bool,
+  ) -> Result<String, JsError> {
+    let encoded_content: XmtpEncodedContent = encoded_content.into();
+    let group = self.to_mls_group();
+    let message_id = group
+      .prepare_message_for_later_publish(encoded_content.encode_to_vec().as_slice(), should_push)
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    Ok(hex::encode(message_id))
+  }
+
+  /// Publish a previously prepared message by ID.
+  #[wasm_bindgen(js_name = publishStoredMessage)]
+  pub async fn publish_stored_message(
+    &self,
+    #[wasm_bindgen(js_name = messageId)] message_id: String,
+  ) -> Result<(), JsError> {
+    let group = self.to_mls_group();
+    let message_id_bytes =
+      hex::decode(&message_id).map_err(|e| JsError::new(&format!("Invalid hex: {}", e)))?;
+    group
+      .publish_stored_message(&message_id_bytes)
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    Ok(())
+  }
+
   #[wasm_bindgen(js_name = sendText)]
   pub async fn send_text(&self, text: String, optimistic: Option<bool>) -> Result<String, JsError> {
     let encoded_content = TextCodec::encode(text).map_err(|e| JsError::new(&format!("{e}")))?;

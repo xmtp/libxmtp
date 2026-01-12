@@ -2428,6 +2428,25 @@ impl FfiConversation {
         Ok(())
     }
 
+    /// Prepare a message for later publishing.
+    /// Stores the message locally without publishing. Returns the message ID.
+    pub fn prepare_message(
+        &self,
+        content_bytes: Vec<u8>,
+        should_push: bool,
+    ) -> Result<Vec<u8>, GenericError> {
+        let id = self
+            .inner
+            .prepare_message_for_later_publish(content_bytes.as_slice(), should_push)?;
+        Ok(id)
+    }
+
+    /// Publish a previously prepared message by ID.
+    pub async fn publish_stored_message(&self, message_id: Vec<u8>) -> Result<(), GenericError> {
+        self.inner.publish_stored_message(&message_id).await?;
+        Ok(())
+    }
+
     pub async fn sync(&self) -> Result<(), GenericError> {
         self.inner.sync().await?;
 
