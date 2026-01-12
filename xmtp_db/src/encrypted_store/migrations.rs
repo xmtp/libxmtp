@@ -98,17 +98,13 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
             };
             let newest_prefix = extract_version_prefix(newest);
 
-            tracing::debug!(
-                "Newest applied migration: {newest} (prefix: {newest_prefix})"
-            );
+            tracing::debug!("Newest applied migration: {newest} (prefix: {newest_prefix})");
 
             // Use lexicographic comparison on the version prefix
             // Migration names are formatted as YYYY-MM-DD-HHMMSS so they sort correctly
             // Use <= to ensure the target migration itself is kept applied
             if newest_prefix <= target_prefix {
-                tracing::debug!(
-                    "Stopping rollback: {newest_prefix} <= {target_prefix}"
-                );
+                tracing::debug!("Stopping rollback: {newest_prefix} <= {target_prefix}");
                 break;
             }
 
@@ -126,7 +122,7 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
             match result {
                 Ok(reverted_version) => {
                     let reverted_prefix = extract_version_prefix(&reverted_version);
-                    
+
                     // Verify we reverted what we expected to revert
                     if reverted_prefix != newest_prefix {
                         tracing::warn!(
@@ -137,7 +133,7 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
                             reverted_version,
                             reverted_prefix
                         );
-                        
+
                         // If what was reverted is at or before our target, we should stop
                         // to avoid reverting too much
                         if reverted_prefix <= target_prefix {
@@ -152,7 +148,7 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
                             break;
                         }
                     }
-                    
+
                     tracing::debug!("Successfully reverted: {reverted_version}");
                     reverted.push(reverted_version);
                 }
