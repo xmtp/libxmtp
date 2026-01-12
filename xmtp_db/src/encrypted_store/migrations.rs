@@ -87,7 +87,8 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
 
             // Use lexicographic comparison on the version prefix
             // Migration names are formatted as YYYY-MM-DD-HHMMSS so they sort correctly
-            if current_prefix < target_prefix {
+            // Use <= to ensure the target migration itself is kept applied
+            if current_prefix <= target_prefix {
                 break;
             }
 
