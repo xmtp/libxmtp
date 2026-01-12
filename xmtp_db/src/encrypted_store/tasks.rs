@@ -66,19 +66,17 @@ impl NewTaskBuilder {
             originating_message_originator_id: self
                 .originating_message_originator_id
                 .ok_or_else(|| err("originating_message_originator_id"))?,
-            created_at_ns: self.created_at_ns.unwrap_or_else(xmtp_common::time::now_ns),
+            created_at_ns: self.created_at_ns.unwrap_or_else(now_ns),
             expires_at_ns: self
                 .expires_at_ns
                 .unwrap_or_else(|| now_ns() + NS_IN_DAY * 3),
             attempts: self.attempts.unwrap_or(0),
             max_attempts: self.max_attempts.unwrap_or(20),
-            last_attempted_at_ns: self
-                .last_attempted_at_ns
-                .unwrap_or_else(xmtp_common::time::now_ns),
+            last_attempted_at_ns: self.last_attempted_at_ns.unwrap_or_else(now_ns),
             backoff_scaling_factor: self.backoff_scaling_factor.unwrap_or(1.5),
             max_backoff_duration_ns: self.max_backoff_duration_ns.unwrap_or(60 * NS_IN_SEC),
             initial_backoff_duration_ns: self.initial_backoff_duration_ns.unwrap_or(2 * NS_IN_SEC),
-            next_attempt_at_ns: self.next_attempt_at_ns.unwrap_or_else(|| now_ns()),
+            next_attempt_at_ns: self.next_attempt_at_ns.unwrap_or_else(now_ns),
             data_hash,
             data,
         };
