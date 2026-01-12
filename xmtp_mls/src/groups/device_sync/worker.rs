@@ -15,7 +15,7 @@ use crate::{
 use futures::TryFutureExt;
 use owo_colors::OwoColorize;
 use std::{sync::Arc, time::Duration};
-use tokio::sync::{OnceCell, broadcast};
+use tokio::sync::{Mutex, OnceCell, broadcast};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
@@ -129,9 +129,12 @@ where
         self.sync_init().await?;
         self.metrics.increment_metric(SyncMetric::Init);
 
+        let alive = Arc::new(Mutex::new(()));
+        let _guard = alive.lock();
+
         // Start a tick task so that the worker will retry failed messages
         // every 20 seconds.
-        Self::tick(self.client.context.clone()).await;
+        Self::tick(self.client.context.clone(), alive.clone()).await;
 
         while let Ok(event) = self.receiver.recv().await {
             tracing::info!(
@@ -157,10 +160,16 @@ where
         Ok(())
     }
 
-    async fn tick(ctx: Context) {
+    async fn tick(ctx: Context, alive: Arc<Mutex<()>>) {
         task::spawn(async move {
             loop {
                 xmtp_common::time::sleep(Duration::from_secs(20)).await;
+
+                if alive.try_lock().is_ok() {
+                    // Worker thread is no longer running
+                    return;
+                }
+
                 // We don't need to worry about a mutex lock for device sync
                 // to ensure that a sync payload is not being processed by two
                 // threads at once because there should only ever be one sync worker
