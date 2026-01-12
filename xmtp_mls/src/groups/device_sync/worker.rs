@@ -339,6 +339,12 @@ where
                         })
                         .unwrap(),
                 );
+
+                // Mark this message as processed immediately.
+                StoredProcessedDeviceSyncMessages {
+                    message_id: msg.id.clone(),
+                }
+                .store_or_ignore(&self.context.db())?;
             }
             ContentProto::Reply(reply) => {
                 if !is_external {
