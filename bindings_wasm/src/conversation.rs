@@ -20,7 +20,7 @@ use crate::conversations::{
 };
 use crate::encoded_content::EncodedContent;
 use crate::identity::{Identifier, IdentityExt};
-use crate::messages::{ListMessagesOptions, Message, MessageWithReactions};
+use crate::messages::{ListMessagesOptions, Message};
 use crate::permissions::{MetadataField, PermissionPolicy, PermissionUpdateType};
 use crate::streams::{StreamCallback, StreamCloser};
 use crate::{
@@ -180,23 +180,6 @@ impl Conversation {
     };
 
     Ok(hex::encode(message_id.clone()))
-  }
-
-  /// send a message without immediately publishing to the delivery service.
-  #[wasm_bindgen(js_name = sendOptimistic)]
-  pub fn send_optimistic(
-    &self,
-    #[wasm_bindgen(js_name = encodedContent)] encoded_content: EncodedContent,
-    opts: SendMessageOpts,
-  ) -> Result<String, JsError> {
-    let encoded_content: XmtpEncodedContent = encoded_content.into();
-    let group = self.to_mls_group();
-
-    let id = group
-      .send_message_optimistic(encoded_content.encode_to_vec().as_slice(), opts.into())
-      .map_err(|e| JsError::new(&format!("{e}")))?;
-
-    Ok(hex::encode(id.clone()))
   }
 
   #[wasm_bindgen(js_name = sendText)]
@@ -423,22 +406,6 @@ impl Conversation {
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
     Ok(count)
-  }
-
-  #[wasm_bindgen(js_name = findMessagesWithReactions)]
-  pub async fn find_messages_with_reactions(
-    &self,
-    opts: Option<ListMessagesOptions>,
-  ) -> Result<Vec<MessageWithReactions>, JsError> {
-    let opts = opts.unwrap_or_default();
-    let group = self.to_mls_group();
-    let messages: Vec<MessageWithReactions> = group
-      .find_messages_with_reactions(&opts.into())?
-      .into_iter()
-      .map(Into::into)
-      .collect();
-
-    Ok(messages)
   }
 
   #[wasm_bindgen(js_name = listMembers)]
