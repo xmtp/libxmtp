@@ -3,7 +3,7 @@ use crate::StorageError;
 use derive_builder::Builder;
 use diesel::prelude::*;
 use prost::Message;
-use xmtp_common::{NS_IN_DAY, NS_IN_MIN, NS_IN_SEC, time::now_ns};
+use xmtp_common::{NS_IN_DAY, NS_IN_SEC, time::now_ns};
 use xmtp_proto::xmtp::mls::database::Task as TaskProto;
 
 #[derive(Queryable, Identifiable, Debug, Clone)]

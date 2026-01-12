@@ -443,16 +443,18 @@ where
                     .acknowledge_sync_request(sync_group_id, request_id)
                     .await
                 {
-                    Err(DeviceSyncError::AlreadyAcknowledged) => return Ok(()),
+                    Err(DeviceSyncError::AlreadyAcknowledged) => return Ok(false),
                     result => result?,
                 }
             }
 
-            Ok::<_, DeviceSyncError>(())
+            Ok::<_, DeviceSyncError>(true)
         };
 
         // Acknowledge the sync request
-        acknowledge().await?;
+        if !acknowledge().await? {
+            return Ok(());
+        };
 
         // Generate a random encryption key
         let key = xmtp_common::rand_vec::<32>();
@@ -483,7 +485,9 @@ where
 
         // Check acknowledgement one more time.
         // This ensures we were the first to acknowledge.
-        acknowledge().await?;
+        if !acknowledge().await? {
+            return Ok(());
+        };
 
         // Send the message out over the network
         self.send_device_sync_message(ContentProto::Reply(reply))
