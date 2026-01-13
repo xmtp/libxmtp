@@ -53,9 +53,10 @@ async fn generate_proposals_and_commit(
     let provider = testers[0].1.context.mls_provider();
     let signer = testers[0].0.identity().installation_keys.clone();
     let storage = testers[0].1.context.mls_storage();
-    testers[0]
+    let proposals_and_commit = testers[0]
         .1
         .load_mls_group_with_lock_async(async |mut mls_group| {
+            tracing::warn!("Creating proposals for group 0 epoch {}", mls_group.epoch());
             let (old_commit, old_welcome) = if key_packages.is_empty() {
                 (0, 0)
             } else {
@@ -132,84 +133,86 @@ async fn generate_proposals_and_commit(
                 old_commit_len: old_commit + old_remove_commit,
                 old_welcome_len: old_welcome,
             };
-            let proposals = proposals_and_commit
-                .proposals
-                .iter()
-                .map(|p| p.tls_serialize_detached().unwrap())
-                .collect::<Vec<_>>();
-
-            let protocol_messages = proposals
-                .iter()
-                .map(|p| {
-                    MlsMessageIn::tls_deserialize_exact(p)
-                        .unwrap()
-                        .try_into_protocol_message()
-                        .unwrap()
-                })
-                .collect::<Vec<_>>();
-
-            let commit = proposals_and_commit
-                .commit
-                .tls_serialize_detached()
-                .unwrap();
-            let commit_message = MlsMessageIn::tls_deserialize_exact(&commit)
-                .unwrap()
-                .try_into_protocol_message()
-                .unwrap();
-
-            // skip over originating group
-            let add_proposals_and_commit =
-                testers
-                    .iter()
-                    .enumerate()
-                    .skip(1)
-                    .map(|(i, (tester, group))| {
-                        let protocol_messages = protocol_messages.clone();
-                        let commit_message = commit_message.clone();
-                        let storage = group.context.mls_storage();
-                        async move {
-                            group.sync().await.unwrap();
-                            group
-                            .load_mls_group_with_lock_async(async move |mut mls_group| {
-                                let provider = group.context.mls_provider();
-                                let epoch = mls_group.epoch();
-                                tracing::info!("GROUP {i} EPOCH {epoch}");
-                                for protocol_message in protocol_messages {
-                                    let x = mls_group
-                                        .process_message(&provider, protocol_message)
-                                        .unwrap();
-                                    let ProcessedMessageContent::ProposalMessage(proposal) =
-                                        x.into_content()
-                                    else {
-                                        panic!("Expected ProposalMessage");
-                                    };
-                                    mls_group
-                                        .store_pending_proposal(storage, *proposal)
-                                        .unwrap();
-                                }
-                                let x = mls_group
-                                    .process_message(&provider, commit_message)
-                                    .unwrap();
-                                let ProcessedMessageContent::StagedCommitMessage(staged_commit) =
-                                    x.into_content()
-                                else {
-                                    panic!("Expected StagedCommitMessage");
-                                };
-                                mls_group
-                                    .merge_staged_commit(&provider, *staged_commit)
-                                    .unwrap();
-                                Ok::<_, GroupError>(())
-                            })
-                            .await
-                            .unwrap();
-                        }
-                    });
-
-            futures::future::join_all(add_proposals_and_commit).await;
             Ok::<_, GroupError>(proposals_and_commit)
         })
         .await
+        .unwrap();
+
+    let proposals = proposals_and_commit
+        .proposals
+        .iter()
+        .map(|p| p.tls_serialize_detached().unwrap())
+        .collect::<Vec<_>>();
+
+    let protocol_messages = proposals
+        .iter()
+        .map(|p| {
+            MlsMessageIn::tls_deserialize_exact(p)
+                .unwrap()
+                .try_into_protocol_message()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+
+    let commit = proposals_and_commit
+        .commit
+        .tls_serialize_detached()
+        .unwrap();
+    let commit_message = MlsMessageIn::tls_deserialize_exact(&commit)
         .unwrap()
+        .try_into_protocol_message()
+        .unwrap();
+
+    // skip over originating group
+    let add_proposals_and_commit =
+        testers
+            .iter()
+            .enumerate()
+            .skip(1)
+            .map(|(i, (tester, group))| {
+                let protocol_messages = protocol_messages.clone();
+                let commit_message = commit_message.clone();
+                let storage = group.context.mls_storage();
+                async move {
+                    // group.sync().await.unwrap();
+                    group
+                        .load_mls_group_with_lock_async(async move |mut mls_group| {
+                            let provider = group.context.mls_provider();
+                            let epoch = mls_group.epoch();
+                            tracing::info!("GROUP {i} EPOCH {epoch}");
+                            for protocol_message in protocol_messages {
+                                let x = mls_group
+                                    .process_message(&provider, protocol_message)
+                                    .unwrap();
+                                let ProcessedMessageContent::ProposalMessage(proposal) =
+                                    x.into_content()
+                                else {
+                                    panic!("Expected ProposalMessage");
+                                };
+                                mls_group
+                                    .store_pending_proposal(storage, *proposal)
+                                    .unwrap();
+                            }
+                            let x = mls_group
+                                .process_message(&provider, commit_message)
+                                .unwrap();
+                            let ProcessedMessageContent::StagedCommitMessage(staged_commit) =
+                                x.into_content()
+                            else {
+                                panic!("Expected StagedCommitMessage");
+                            };
+                            mls_group
+                                .merge_staged_commit(&provider, *staged_commit)
+                                .unwrap();
+                            Ok::<_, GroupError>(())
+                        })
+                        .await
+                        .unwrap();
+                }
+            });
+
+    futures::future::join_all(add_proposals_and_commit).await;
+    proposals_and_commit
 }
 
 async fn welcome_testers(
@@ -315,21 +318,27 @@ async fn welcome_testers(
 
         groups.push(tester_group);
     }
-    let sync_groups = futures::future::join_all(groups.iter().map(|g| g.sync())).await;
-    for group in sync_groups {
-        group.unwrap();
-    }
+    // let sync_groups = futures::future::join_all(groups.iter().map(|g| g.sync())).await;
+    // for group in sync_groups {
+    //     group.unwrap();
+    // }
     groups
 }
 
+async fn sync_groups(testers: impl Iterator<Item = &(Tester, MlsGroup<TestXmtpMlsContext>)>) {
+    let sync_groups = futures::future::join_all(testers.map(|(_, g)| g.sync())).await;
+    for group in sync_groups {
+        group.unwrap();
+    }
+}
+
 async fn fill_leaf_nodes(
-    tester: &(Tester, MlsGroup<TestXmtpMlsContext>),
-    testers: impl Iterator<Item = &(Tester, MlsGroup<TestXmtpMlsContext>)>,
+    new_testers: impl Iterator<Item = &(Tester, MlsGroup<TestXmtpMlsContext>)>,
+    testers: impl Iterator<Item = &(Tester, MlsGroup<TestXmtpMlsContext>)> + Clone,
 ) {
-    let last_tester = &tester.0;
-    let last_group = &tester.1;
-    let storage = last_group.context.mls_storage();
-    let commit_bytes = last_group
+    for (last_tester, last_group) in new_testers {
+        let storage = last_group.context.mls_storage();
+        let commit_bytes = last_group
             .load_mls_group_with_lock_async(async |mut mls_group| {
                 use openmls::treesync::LeafNodeParameters;
 
@@ -349,59 +358,71 @@ async fn fill_leaf_nodes(
             })
             .await
             .unwrap();
+        last_group.sync().await.unwrap();
 
-    tracing::warn!(commit_bytes = %commit_bytes.len(), "Leaf update commit size");
+        tracing::warn!(commit_bytes = %commit_bytes.len(), "Leaf update commit size");
 
-    let commit_message = MlsMessageIn::tls_deserialize_exact(&commit_bytes)
-        .unwrap()
-        .try_into_protocol_message()
-        .unwrap();
+        let commit_message = MlsMessageIn::tls_deserialize_exact(&commit_bytes)
+            .unwrap()
+            .try_into_protocol_message()
+            .unwrap();
 
-    let last_group_ptr = Arc::as_ptr(&last_group.context);
+        let last_group_ptr = Arc::as_ptr(&last_group.context);
 
-    let commits = testers
-        .map(|(_, g)| g)
-        .filter(|g| Arc::as_ptr(&g.context) != last_group_ptr)
-        .map(|g| async {
-            g.load_mls_group_with_lock_async(async |mut mls_group| {
-                let provider = g.context.mls_provider();
-                let x = mls_group
-                    .process_message(&provider, commit_message.clone())
-                    .unwrap();
-                let ProcessedMessageContent::StagedCommitMessage(staged_commit) = x.into_content()
-                else {
-                    panic!("Expected StagedCommitMessage");
-                };
-                mls_group
-                    .merge_staged_commit(&provider, *staged_commit)
-                    .unwrap();
-                tracing::warn!(epoch = %mls_group.epoch(), "Merged leaf update commit");
+        let commits = testers
+            .clone()
+            .map(|(_, g)| g)
+            .filter(|g| Arc::as_ptr(&g.context) != last_group_ptr)
+            .map(|g| async {
+                g.load_mls_group_with_lock_async(async |mut mls_group| {
+                    let provider = g.context.mls_provider();
+                    let x = mls_group
+                        .process_message(&provider, commit_message.clone())
+                        .unwrap();
+                    let ProcessedMessageContent::StagedCommitMessage(staged_commit) =
+                        x.into_content()
+                    else {
+                        panic!("Expected StagedCommitMessage");
+                    };
+                    mls_group
+                        .merge_staged_commit(&provider, *staged_commit)
+                        .unwrap();
+                    tracing::warn!(epoch = %mls_group.epoch(), "Merged leaf update commit");
+                    Ok::<_, GroupError>(())
+                })
+                .await?;
+                g.sync().await.unwrap();
                 Ok::<_, GroupError>(())
-            })
-            .await?;
-            g.sync().await?;
-            Ok::<_, GroupError>(())
-        });
-    let results = futures::future::join_all(commits).await;
-    for result in results {
-        result.unwrap();
+            });
+        let results = futures::future::join_all(commits).await;
+        for result in results {
+            result.unwrap();
+        }
     }
 }
 
 #[xmtp_common::test]
 async fn test_commit_sizes_with_proposals() {
-    const TESTER_COUNT: usize = 10;
+    const TESTER_COUNT: usize = 20;
     crate::tester!(alix);
 
     let new_group = alix.create_group(None, None).unwrap();
 
-    let mut testers = vec![(alix, new_group.clone())];
+    let mut testers = vec![(alix, new_group)];
 
     for i in 0..TESTER_COUNT {
         tracing::warn!("TESTER {i}");
+        sync_groups(testers.iter()).await;
         crate::tester!(tester);
 
-        let new_testers = vec![tester];
+        let mut installations = vec![];
+        for _ in 0..3 {
+            installations.push(tester.new_installation().await);
+        }
+        let new_testers = [tester]
+            .into_iter()
+            .chain(installations)
+            .collect::<Vec<_>>();
 
         let key_packages = new_testers
             .iter()
@@ -412,7 +433,7 @@ async fn test_commit_sizes_with_proposals() {
             })
             .collect::<Vec<_>>();
         // remove one every 3rd iteration.
-        let leaf_nodes_to_remove = if i % 3 == 0 && testers.len() > 4 {
+        let leaf_nodes_to_remove = if i % 2 == 0 && testers.len() > 4 {
             vec![LeafNodeIndex::new(testers.len() as u32 / 2)]
         } else {
             vec![]
@@ -482,8 +503,9 @@ async fn test_commit_sizes_with_proposals() {
             for (tester, group) in new_testers.into_iter().zip(new_groups) {
                 testers.push((tester, group));
             }
+            sync_groups(testers.iter()).await;
             for (i, tester) in testers[tester_start..].iter().enumerate() {
-                fill_leaf_nodes(tester, testers.iter()).await;
+                fill_leaf_nodes([tester].into_iter(), testers.iter()).await;
                 let message_bytes = format!("Hello from new tester! {}", tester_start + i);
 
                 tester
@@ -558,7 +580,7 @@ async fn test_commit_sizes_with_proposals() {
 
         tracing::warn!("Group 0 tree:\n{}", group0_tree);
     }
-    fill_leaf_nodes(testers.first().unwrap(), testers.iter()).await;
+    fill_leaf_nodes([testers.first().unwrap()].into_iter(), testers.iter()).await;
     let group0_tree = testers
         .first()
         .unwrap()
