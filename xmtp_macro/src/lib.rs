@@ -276,7 +276,7 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             // Build message with context for non-structured logging
             let __message = if ::xmtp_common::is_structured_logging() {
                 // Structured logging: include inbox and timestamp in message
-                format!("➣ {} {{inbox: \"{}\", timestamp: {}}}", __meta.doc, __inbox_truncated, xmtp_common::time::now_ns())
+                format!("➣ {} {{inbox: {}, timestamp: {}}}", __meta.doc, __inbox_truncated, xmtp_common::time::now_ns())
             } else {
                 // Non-structured logging: embed context in message for readability
                 let __context_parts: ::std::vec::Vec<String> = __meta.context_fields
@@ -291,9 +291,9 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                 let __context_str = __context_parts.join(", ");
                 if __context_str.is_empty() {
-                    format!("➣ {} {{inbox: \"{}\", timestamp: {}}}", __meta.doc, __inbox_truncated, xmtp_common::time::now_ns())
+                    format!("➣ {} {{inbox: {}, timestamp: {}}}", __meta.doc, __inbox_truncated, xmtp_common::time::now_ns())
                 } else {
-                    format!("➣ {} {{{__context_str}, inbox: \"{}\", timestamp: {}}}", __meta.doc, __inbox_truncated, xmtp_common::time::now_ns())
+                    format!("➣ {} {{{__context_str}, inbox: {}, timestamp: {}}}", __meta.doc, __inbox_truncated, xmtp_common::time::now_ns())
                 }
             };
 
