@@ -1,7 +1,8 @@
 [workspace]
 members = [
   # Applications
-  "apps/[!android]*",
+  "apps/[!(android|xnet)]*",
+  "apps/xnet/*",
   # Bindings
   "bindings/*",
   # Core crates
@@ -12,12 +13,14 @@ members = [
 
 default-members = [
   # Applications
-  "apps/[!android]*",
+  "apps/[!(android|xnet)]*",
+  "apps/xnet/*",
   # Bindings (excluding wasm - only for wasm32 target)
-  "bindings/[!wasm]*",
+  "bindings/[!(wasm)]*",
   # Core crates
   "crates/*",
-] # Used when cargo commands in the workspace root, such as `cargo test`, are run without flags.
+]
+# Used when cargo commands in the workspace root, such as `cargo test`, are run without flags.
 # Excludes `bindings/wasm` by default, since those bindings only build for the WASM target.
 
 # Make the feature resolver explicit.
@@ -83,6 +86,7 @@ openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "beb0884d
 openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374" }
 owo-colors = { version = "4.1" }
 p256 = { version = "0.13.2", features = ["ecdsa"] }
+ecdsa = "0.16"
 parking_lot = "0.12.3"
 pbjson = "0.8"
 pbjson-types = "0.8"
@@ -135,6 +139,7 @@ zeroize = "1.8"
 smallvec = { version = "1.15", features = ["union"] }
 http-body-util = { version = "0.1" }
 time = "0.3.47"
+clap-verbosity-flag = { version = "3.0", features = ["tracing"] }
 
 # Internal Crate Dependencies
 bindings-wasm = { path = "bindings/wasm" }
@@ -154,6 +159,9 @@ xmtp_macro = { path = "crates/xmtp_macro" }
 xmtp_mls = { path = "crates/xmtp_mls" }
 xmtp_mls_common = { path = "crates/xmtp_mls_common" }
 xmtp_proto = { path = "crates/xmtp_proto" }
+xnet-lib = { path = "apps/xnet/lib" }
+xnet-gui = { path = "apps/xnet/gui" }
+xnet-cli = { path = "apps/xnet/cli" }
 
 [profile.dbg]
 inherits = "dev"

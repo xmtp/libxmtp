@@ -1,0 +1,39 @@
+[package]
+name = "xnet-lib"
+edition = "2024"
+license.workspace = true
+version.workspace = true
+description = "test orchestrator for xmtpd"
+
+[features]
+default = []
+
+[dependencies]
+alloy = { workspace = true, features = ["signer-local"] }
+async-trait = "0.1"
+bollard = "0.20.0"
+bon = "3.8"
+clap.workspace = true
+clap-verbosity-flag.workspace = true
+color-eyre.workspace = true
+dotenvy = "0.15"
+futures.workspace = true
+itertools.workspace = true
+map-macro = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+tokio.workspace = true
+toml = "0.9.11"
+toxiproxy_rust = { workspace = true }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+url = "2"
+xmtp_api_d14n.workspace = true
+xmtp_api_grpc.workspace = true
+xmtp_proto.workspace = true
+
+[build-dependencies]
+vergen-gix = { workspace = true, features = ["build"] }
+
+[lints]
+workspace = true

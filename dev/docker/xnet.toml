@@ -1,0 +1,27 @@
+# XNet configuration that starts a single XMTPD migrator node and a normal XMTPD node
+[xnet]
+use_standard_ports = true
+toxiproxy_port = 8474
+
+[xmtpd]
+image = "ghcr.io/xmtp/xmtpd"
+version = "sha-e20524b"
+
+[v3]
+image = "ghcr.io/xmtp/node-go"
+version = "main"
+port = 5556
+
+[gateway]
+image = "ghcr.io/xmtp/xmtpd-gateway"
+version = "sha-e20524b"
+
+[[xmtpd.nodes]]
+enable = true
+name = "alice-operator"
+port = 5050
+migrator = true
+
+[[xmtpd.nodes]] # add the node but use defaults everywhere
+enable = true
+name = "bob-operator"

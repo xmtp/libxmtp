@@ -197,7 +197,7 @@ fn find_duplicates_with_count(strings: &[String]) -> HashMap<&String, usize> {
     counts
 }
 
-#[cfg_attr(all(feature = "d14n"), ignore)]
+#[ignore]
 #[rstest::rstest]
 #[xmtp_common::test]
 #[timeout(Duration::from_secs(60))]

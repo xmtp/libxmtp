@@ -35,13 +35,13 @@ jobs:
       - name: Install cargo llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: test workspace with v3
-        run: cargo llvm-cov nextest --no-fail-fast --no-report --profile ci --workspace --exclude bindings_wasm
+        run: cargo llvm-cov nextest --no-fail-fast --no-report --profile ci --workspace --exclude bindings_wasm --exclude xnet-gui
       - name: test workspace with decentralization
         run: |
           cargo llvm-cov nextest \
           --features d14n --no-fail-fast --no-report --profile ci-d14n \
           -E 'package(xmtp_mls)' -E 'rdeps(xmtp_mls)' \
-          --workspace --exclude bindings_wasm
+          --workspace --exclude bindings_wasm --exclude xnet-gui
       - name: generate coverage
         run: cargo llvm-cov report --output-path lcov.info --lcov
       - name: upload coverage
