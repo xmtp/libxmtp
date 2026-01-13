@@ -259,7 +259,9 @@ impl Deletable for ContentType {
             | ContentType::ReadReceipt
             | ContentType::Actions
             | ContentType::Intent
-            | ContentType::DeleteMessage => false,
+            | ContentType::DeleteMessage
+            // Unknown content types default to non-deletable for safety
+            |ContentType::Unknown => false,
 
             ContentType::Text
             | ContentType::Markdown
@@ -268,8 +270,7 @@ impl Deletable for ContentType {
             | ContentType::RemoteAttachment
             | ContentType::TransactionReference
             | ContentType::MultiRemoteAttachment
-            | ContentType::WalletSendCalls
-            | ContentType::Unknown => true,
+            | ContentType::WalletSendCalls => true,
         }
     }
 }

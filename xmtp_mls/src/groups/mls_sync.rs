@@ -1342,57 +1342,51 @@ where
 
         let original_msg_opt = storage.db().get_group_message(&target_message_id)?;
 
-        let (is_authorized, is_super_admin_deletion) =
-            if let Some(ref original_msg) = original_msg_opt {
-                if original_msg.group_id != self.group_id {
-                    tracing::warn!(
-                        "Cross-group deletion attempt: message {} from group {}",
-                        delete_msg.message_id,
-                        hex::encode(&original_msg.group_id)
-                    );
-                    return Ok(());
-                }
+        let is_super_admin_deletion = if let Some(ref original_msg) = original_msg_opt {
+            if original_msg.group_id != self.group_id {
+                tracing::warn!(
+                    "Cross-group deletion attempt: message {} from group {}",
+                    delete_msg.message_id,
+                    hex::encode(&original_msg.group_id)
+                );
+                return Ok(());
+            }
 
-                if !original_msg.kind.is_deletable() || !original_msg.content_type.is_deletable() {
-                    tracing::warn!(
-                        "Non-deletable message {} (kind: {:?}, content_type: {:?})",
-                        delete_msg.message_id,
-                        original_msg.kind,
-                        original_msg.content_type
-                    );
-                    return Ok(());
-                }
+            if !original_msg.kind.is_deletable() || !original_msg.content_type.is_deletable() {
+                tracing::warn!(
+                    "Non-deletable message {} (kind: {:?}, content_type: {:?})",
+                    delete_msg.message_id,
+                    original_msg.kind,
+                    original_msg.content_type
+                );
+                return Ok(());
+            }
 
-                let is_sender = original_msg.sender_inbox_id == message.sender_inbox_id;
-                let is_super_admin_deletion = if is_sender {
-                    false
-                } else {
-                    self.is_super_admin_without_lock(mls_group, message.sender_inbox_id.clone())
-                        .unwrap_or(false)
-                };
-
-                let is_authorized = is_sender || is_super_admin_deletion;
-                if !is_authorized {
-                    tracing::warn!(
-                        "Unauthorized deletion by {} for message {}",
-                        message.sender_inbox_id,
-                        delete_msg.message_id
-                    );
-                    return Ok(());
-                }
-
-                (true, is_super_admin_deletion)
+            let is_sender = original_msg.sender_inbox_id == message.sender_inbox_id;
+            let is_super_admin_deletion = if is_sender {
+                false
             } else {
-                // Out-of-order: deletion arrived before the message
-                let is_super_admin = self
-                    .is_super_admin_without_lock(mls_group, message.sender_inbox_id.clone())
-                    .unwrap_or(false);
-                (true, is_super_admin)
+                self.is_super_admin_without_lock(mls_group, message.sender_inbox_id.clone())
+                    .unwrap_or(false)
             };
 
-        if !is_authorized {
-            return Ok(());
-        }
+            let is_authorized = is_sender || is_super_admin_deletion;
+            if !is_authorized {
+                tracing::warn!(
+                    "Unauthorized deletion by {} for message {}",
+                    message.sender_inbox_id,
+                    delete_msg.message_id
+                );
+                return Ok(());
+            }
+
+            is_super_admin_deletion
+        } else {
+            // Out-of-order: deletion arrived before the message.
+            // Authorization is validated at enrichment time via is_deletion_valid().
+            self.is_super_admin_without_lock(mls_group, message.sender_inbox_id.clone())
+                .unwrap_or(false)
+        };
 
         let deletion = StoredMessageDeletion {
             id: message.id.clone(),

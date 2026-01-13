@@ -2698,7 +2698,6 @@ fn test_content_type_is_deletable() {
     assert!(ContentType::RemoteAttachment.is_deletable());
     assert!(ContentType::TransactionReference.is_deletable());
     assert!(ContentType::WalletSendCalls.is_deletable());
-    assert!(ContentType::Unknown.is_deletable());
 
     // System messages should NOT be deletable
     assert!(!ContentType::GroupMembershipChange.is_deletable());
@@ -2711,6 +2710,10 @@ fn test_content_type_is_deletable() {
 
     // Delete messages should NOT be deletable (prevents recursive deletion)
     assert!(!ContentType::DeleteMessage.is_deletable());
+
+    // Unknown content types should NOT be deletable for safety
+    // (we don't know if they're system messages that shouldn't be deleted)
+    assert!(!ContentType::Unknown.is_deletable());
 }
 
 #[test]
