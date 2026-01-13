@@ -53,8 +53,13 @@ fn main() -> Result<()> {
                 .block_on(async {
                     tester!(bo);
                     tester!(alix);
+                    tester!(caro);
                     bo.test_talk_in_dm_with(&alix).await?;
-                    bo.test_talk_in_new_group_with(&alix).await?;
+                    let (group, _) = bo.test_talk_in_new_group_with(&alix).await?;
+                    group.add_members_by_inbox_id(&[caro.inbox_id()]).await?;
+                    caro.sync_all_welcomes_and_groups(None).await?;
+                    bo.sync_all_welcomes_and_groups(None).await?;
+
                     anyhow::Ok(())
                 })
                 .unwrap();
