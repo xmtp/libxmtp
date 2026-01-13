@@ -1,8 +1,8 @@
-{ inputs, ... }: {
+{ inputs, self, ... }: {
   flake.lib = {
     pkgConfig = {
       # Rust Overlay
-      overlays = [ inputs.fenix.overlays.default inputs.foundry.overlay ];
+      overlays = [ inputs.fenix.overlays.default inputs.foundry.overlay self.overlays.default ];
       config = {
         android_sdk.accept_license = true;
         allowUnfree = true;

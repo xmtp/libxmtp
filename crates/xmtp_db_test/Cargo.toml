@@ -3,6 +3,7 @@ name = "xmtp_db_test"
 edition = "2024"
 license.workspace = true
 version.workspace = true
+description = "local db chaos testing"
 
 [lints]
 workspace = true

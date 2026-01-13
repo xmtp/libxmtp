@@ -11,6 +11,7 @@
     crane = {
       url = "github:ipetkov/crane";
     };
+    rust-flake.url = "github:juspay/rust-flake";
     rust-manifest = {
       url = "https://static.rust-lang.org/dist/channel-rust-1.92.0.toml";
       flake = false;
@@ -23,13 +24,7 @@
   };
 
   outputs =
-    inputs @ { self
-    , flake-parts
-    , fenix
-    , crane
-    , foundry
-    , ...
-    }:
+    inputs @ { flake-parts, self, crane, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = [
         "aarch64-darwin"
@@ -38,25 +33,13 @@
       imports = [
         ./nix/lib
         flake-parts.flakeModules.easyOverlay
+        inputs.rust-flake.flakeModules.default
+        inputs.rust-flake.flakeModules.nixpkgs
+        ./nix/binaries.nix
       ];
       perSystem =
-        { pkgs
-        , system
-        , ...
-        }:
-        let
-          pkgConfig = {
-            inherit system;
-            # Rust Overlay
-            overlays = [ fenix.overlays.default foundry.overlay self.overlays.default ];
-            config = {
-              android_sdk.accept_license = true;
-              allowUnfree = true;
-            };
-          };
-        in
-        {
-          _module.args.pkgs = import inputs.nixpkgs pkgConfig;
+        { pkgs, ... }: {
+          nixpkgs = self.lib.pkgConfig;
           devShells = {
             # shell for general xmtp rust dev
             default = pkgs.callPackage ./nix/libxmtp.nix { };
@@ -70,6 +53,7 @@
           };
           packages.wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { craneLib = crane.mkLib pkgs; }).bin;
           packages.wasm-bindgen-cli = pkgs.callPackage ./nix/lib/packages/wasm-bindgen-cli.nix { };
+          #packages.xdbg provided by rust-flake
         };
     };
 }

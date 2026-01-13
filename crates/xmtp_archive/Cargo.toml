@@ -3,6 +3,7 @@ name = "xmtp_archive"
 edition = "2024"
 license.workspace = true
 version.workspace = true
+description = "archive and backup features for xmtp"
 
 [lints]
 workspace = true

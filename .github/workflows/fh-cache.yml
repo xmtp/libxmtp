@@ -9,11 +9,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
-  flakehub-publish:
+  build:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest] # Define the operating systems for the matrix
-    runs-on: ${{ matrix.os }} # Use the 'os' variable from the matrix for the runner
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     permissions:
       id-token: write
       contents: read
@@ -24,18 +24,58 @@ jobs:
         with:
           hatchet-protocol: "cleave"
       - uses: DeterminateSystems/determinate-nix-action@v3
+      - uses: DeterminateSystems/flakehub-cache-action@main
       - name: Install omnix
         run: nix profile install nixpkgs#omnix
       - name: build all flake outputs
         run: om ci run --include-all-dependencies --results=om.json
+      - name: Upload build results
+        uses: actions/upload-artifact@v4
+        with:
+          name: om-results-${{ matrix.os }}
+          path: om.json
+
+  push-cachix:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: wimpysworld/nothing-but-nix@main
+        if: runner.os == 'Linux'
+        with:
+          hatchet-protocol: "cleave"
+      - uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Download build results
+        uses: actions/download-artifact@v4
+        with:
+          name: om-results-${{ matrix.os }}
       - name: push to cachix
-        if: env.BRANCH_NAME == 'main'
         run: nix run github:juspay/cachix-push -- --cache xmtp --subflake ROOT --prefix "$BRANCH_NAME" < om.json
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+
+  push-flakehub:
+    needs: build
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: wimpysworld/nothing-but-nix@main
+        if: runner.os == 'Linux'
+        with:
+          hatchet-protocol: "cleave"
+      - uses: DeterminateSystems/determinate-nix-action@v3
       - uses: DeterminateSystems/flakehub-cache-action@main
-      - run: om ci run --include-all-dependencies
       - uses: DeterminateSystems/flakehub-push@main
         with:
           visibility: "public"
