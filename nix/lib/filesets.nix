@@ -33,9 +33,12 @@ let
     (commonCargoSources (src + /crates/xmtp_archive))
     (commonCargoSources (src + /crates/xmtp_mls_common))
     (commonCargoSources (src + /crates/wasm_macros))
+
   ];
   binaries = lib.fileset.unions [
     (src + /bindings/mobile/Makefile)
+    (commonCargoSources (src + /apps/xnet/cli))
+    (commonCargoSources (src + /apps/xnet/gui))
     (commonCargoSources (src + /apps/cli))
     (commonCargoSources (src + /apps/mls_validation_service))
     (commonCargoSources (src + /apps/android/xmtpv3_example))

@@ -47,6 +47,9 @@
       perSystem =
         { pkgs, lib, self', ... }: {
           nixpkgs = self.lib.pkgConfig;
+          overlayAttrs = {
+            inherit (self'.packages) xnet-gui xnet-cli;
+          };
           devShells = {
             # shell for general xmtp rust dev
             default = pkgs.callPackage ./nix/libxmtp.nix { };
