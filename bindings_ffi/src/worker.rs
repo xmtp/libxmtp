@@ -35,11 +35,6 @@ pub enum FfiSyncMetric {
     HmacReceived,
     ConsentSent,
     ConsentReceived,
-
-    V1ConsentSent,
-    V1HmacSent,
-    V1PayloadSent,
-    V1PayloadProcessed,
 }
 
 impl From<FfiSyncMetric> for SyncMetric {
@@ -55,10 +50,6 @@ impl From<FfiSyncMetric> for SyncMetric {
             FfiSyncMetric::HmacReceived => Self::HmacReceived,
             FfiSyncMetric::ConsentSent => Self::ConsentSent,
             FfiSyncMetric::ConsentReceived => Self::ConsentReceived,
-            FfiSyncMetric::V1ConsentSent => Self::V1ConsentSent,
-            FfiSyncMetric::V1HmacSent => Self::V1HmacSent,
-            FfiSyncMetric::V1PayloadSent => Self::V1PayloadSent,
-            FfiSyncMetric::V1PayloadProcessed => Self::V1PayloadProcessed,
         }
     }
 }

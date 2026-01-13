@@ -769,4 +769,72 @@ mod tests {
             panic!("Expected reply message");
         }
     }
+
+    #[tokio::test]
+    async fn test_reply_with_custom_inner_content() {
+        let (group, context) = setup_test_group().await;
+        let conn = context.db();
+
+        // Store original message
+        let msg_id = vec![1, 2, 3];
+        let msg_id_hex = msg_id.encode_hex();
+        create_and_store_message(
+            &conn,
+            &group.group_id,
+            msg_id.clone(),
+            TestContentGenerator::text_content("Original message"),
+            0,
+            "sender1",
+        );
+
+        // Create a custom/unknown content type
+        let custom_content_type = ContentTypeId {
+            authority_id: "custom.org".to_string(),
+            type_id: "custom/payload".to_string(),
+            version_major: 1,
+            version_minor: 0,
+        };
+
+        // Store a reply with custom inner content
+        let reply_id = create_and_store_message(
+            &conn,
+            &group.group_id,
+            vec![4, 5, 6],
+            TestContentGenerator::reply_content(
+                &msg_id_hex,
+                custom_content_type,
+                b"custom payload data".to_vec(),
+            ),
+            1000,
+            "replier1",
+        );
+
+        // Query messages
+        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+        assert_message_count(&messages, 2);
+
+        // Find the reply message
+        let reply_msg = find_message_by_id(&messages, &reply_id);
+
+        // Verify the message is decoded as Reply (not Custom)
+        if let MessageBody::Reply(reply) = &reply_msg.content {
+            // The reply should reference the original message
+            assert!(reply.in_reply_to.is_some());
+            let referenced = reply.in_reply_to.as_ref().unwrap();
+            assert_eq!(referenced.metadata.id, msg_id);
+
+            // The inner content should be Custom (since we used an unknown content type)
+            if let MessageBody::Custom(custom) = reply.content.as_ref() {
+                assert_eq!(custom.r#type.as_ref().unwrap().type_id, "custom/payload");
+                assert_eq!(custom.content, b"custom payload data");
+            } else {
+                panic!(
+                    "Expected Custom inner content in Reply, got {:?}",
+                    reply.content
+                );
+            }
+        } else {
+            panic!("Expected Reply message, got {:?}", reply_msg.content);
+        }
+    }
 }
