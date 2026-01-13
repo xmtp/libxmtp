@@ -6138,6 +6138,7 @@ name = "log_parser"
 version = "1.8.0-dev"
 dependencies = [
  "anyhow",
+ "futures",
  "native-dialog",
  "pest",
  "pest_derive",

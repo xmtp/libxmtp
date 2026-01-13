@@ -170,6 +170,7 @@ export component AppWindow inherits Window {
 
     callback request-open-file();
     callback file-selected(string);
+    callback build-log();
 
     MenuBar {
         Menu {
@@ -193,6 +194,14 @@ export component AppWindow inherits Window {
                 text: root.log-streams.length > 0 ? root.log-streams.length + " log stream(s) loaded" : "No files loaded - use File > Open to load a log";
                 vertical-alignment: center;
                 color: root.log-streams.length > 0 ? #333333 : #888888;
+                horizontal-stretch: 1;
+            }
+
+            Button {
+                text: "Build Log";
+                clicked => {
+                    root.build-log();
+                }
             }
         }
 

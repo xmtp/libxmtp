@@ -96,14 +96,17 @@ pub fn file_selected(handle: Weak<AppWindow>, path: impl AsRef<Path>) {
     let path = path.as_ref();
     tracing::info!("Selected logs file {path:?}");
 
-    let log_file = match LogFile::load(path) {
+    let log_file = match LogFile::from_path(path) {
         Ok(log) => log,
         Err(err) => {
             tracing::error!("Unable to open log {path:?} {err:?}");
             return;
         }
     };
+    open_log(handle, log_file);
+}
 
+pub fn open_log(handle: Weak<AppWindow>, log_file: LogFile) {
     // Convert each inbox stream to a StreamData
     let streams: Vec<StreamData> = log_file
         .streams

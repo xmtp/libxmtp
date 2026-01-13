@@ -18,6 +18,9 @@ pub enum Event {
     /// Added members to group.
     #[context(group_id, members)]
     AddedMembers,
+    /// Received welcome into group.
+    #[context(group_id, conversation_type)]
+    ProcessedWelcome,
 
     // ===================== MLS Operations =====================
     /// Received staged commit. Merging and clearing any pending commits.
