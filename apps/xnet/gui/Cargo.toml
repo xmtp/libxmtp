@@ -1,0 +1,29 @@
+[package]
+name = "xnet-gui"
+edition = "2024"
+license.workspace = true
+version.workspace = true
+description = "test orchestrator for xmtpd"
+
+[dependencies]
+color-eyre.workspace = true
+futures.workspace = true
+gpui = { version = "0.2" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio-stream.workspace = true
+toxiproxy_rust = { workspace = true }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+url = "2"
+xmtp_api_d14n.workspace = true
+xmtp_api_grpc.workspace = true
+xmtp_proto.workspace = true
+xnet = { path = "../lib", package = "xnet-lib" }
+# https://github.com/zed-industries/zed/issues/47168
+gpui-tokio-bridge = "0.1"
+
+[target.'cfg(all(target_arch = "aarch64", target_os = "macos"))'.dependencies]
+core-text = "=21.0.0"
+
+[lints]
+workspace = true

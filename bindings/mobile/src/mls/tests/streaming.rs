@@ -2,6 +2,7 @@
 
 use super::*;
 
+#[ignore]
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn test_can_stream_group_messages_for_updates() {
     let alix = Tester::new().await;

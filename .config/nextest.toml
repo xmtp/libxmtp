@@ -6,7 +6,6 @@ fail-fast = false
 
 [profile.ci]
 slow-timeout = "90sec"
-default-filter = "not (test(test_stream_all_messages_does_not_lose_messages)|test(test_can_stream_group_messages_for_updates))"
 failure-output = "immediate-final"
 fail-fast = false
 
@@ -17,10 +16,6 @@ slow-timeout = "1m"
 # test_db_migrates experiences random failures b/c of 'corrupted double-linked list' coming from glibc/sqlcipher https://github.com/xmtp/libxmtp/issues/2402
 [[profile.ci.overrides]]
 filter = 'test(/\btest_db_migrates/)'
-retries = 3
-
-[[profile.ci.overrides]]
-filter = 'test(/\btest_can_stream_group_messages_for_updates/)'
 retries = 3
 
 [profile.ci-d14n]
