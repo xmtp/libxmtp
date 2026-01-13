@@ -43,6 +43,7 @@ let
     (commonCargoSources (src + /bindings/mobile))
     (commonCargoSources (src + /crates/xmtp_debug))
     (commonCargoSources (src + /crates/db_tools))
+    (commonCargoSources (src + /crates/xnet))
   ];
   forCrate = crate: lib.fileset.unions [
     libraries

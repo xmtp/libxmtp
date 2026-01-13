@@ -15,7 +15,8 @@ default-members = [
   "bindings/[!wasm]*",
   # Core crates
   "crates/*",
-] # Used when cargo commands in the workspace root, such as `cargo test`, are run without flags.
+]
+# Used when cargo commands in the workspace root, such as `cargo test`, are run without flags.
 # Excludes `bindings/wasm` by default, since those bindings only build for the WASM target.
 
 # Make the feature resolver explicit.

@@ -1,0 +1,23 @@
+[package]
+name = "xnet"
+edition = "2024"
+license.workspace = true
+version.workspace = true
+description = "test orchestrator for xmtpd"
+
+[dependencies]
+alloy = { workspace = true, features = ["signer-local"] }
+async-trait = "0.1"
+bollard = "0.20.0"
+bon = "3.8"
+clap.workspace = true
+color-eyre.workspace = true
+futures.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+toml = "0.9.11"
+toxiproxy_rust = { workspace = true }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true
