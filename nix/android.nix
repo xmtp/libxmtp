@@ -55,6 +55,7 @@ let
   };
 in
 mkShell {
+  meta.description = "Android Development environment for Android SDK and Emulator";
   OPENSSL_DIR = "${openssl.dev}";
   ANDROID_HOME = androidHome;
   NDK_HOME = "${androidComposition.androidsdk}/libexec/android-sdk/ndk/${builtins.head (lib.lists.reverseList (builtins.split "-" "${androidComposition.ndk-bundle}"))}";

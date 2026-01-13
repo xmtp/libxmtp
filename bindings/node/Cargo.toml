@@ -2,6 +2,7 @@
 edition = "2024"
 name = "bindings_node"
 version.workspace = true
+description = "nodeJS bindings to the XMTP mls libraries"
 
 [lints]
 workspace = true

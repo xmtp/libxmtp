@@ -15,6 +15,7 @@ let
   inherit (darwin.apple_sdk) frameworks;
 in
 mkShell {
+  meta.description = "Javascript/BrowserSDK Development Environment";
   PLAYWRIGHT_BROWSERS_PATH = "${playwright-driver.browsers}";
   PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
   PLAYWRIGHT_VERSION = "${playwright.version}";

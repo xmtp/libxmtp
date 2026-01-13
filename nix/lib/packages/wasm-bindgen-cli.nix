@@ -31,4 +31,7 @@ rustPlatform.buildRustPackage {
 
   # tests require it to be ran in the wasm-bindgen monorepo
   doCheck = false;
+  meta = {
+    description = "Custom maintained wasm-bindgen-cli package to match Cargo.toml";
+  };
 }

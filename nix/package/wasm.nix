@@ -30,6 +30,7 @@ let
   };
 
   commonArgs = {
+    meta.description = "WebAssembly Bindings";
     src = rust.cleanCargoSource ./../..;
     strictDeps = true;
     # EM_CACHE = "$TMPDIR/.emscripten_cache";

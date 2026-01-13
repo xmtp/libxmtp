@@ -50,6 +50,9 @@ let
   rust-toolchain = xmtp.mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "rust-src" "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
 in
 mkShell {
+  meta = {
+    description = "full libXMTP Development Environment";
+  };
   OPENSSL_DIR = "${openssl.dev}";
   # disable -fzerocallusedregs in clang
   hardeningDisable = [ "zerocallusedregs" "stackprotector" ];

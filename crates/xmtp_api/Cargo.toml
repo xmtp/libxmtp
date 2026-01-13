@@ -3,6 +3,7 @@ name = "xmtp_api"
 edition = "2024"
 license.workspace = true
 version.workspace = true
+description = "XMTP Api high level wrapper"
 
 [lints]
 workspace = true

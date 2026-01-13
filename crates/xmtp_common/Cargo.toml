@@ -3,6 +3,7 @@ name = "xmtp_common"
 edition = "2024"
 version.workspace = true
 license.workspace = true
+description = "common utilities"
 
 [dependencies]
 async-trait.workspace = true

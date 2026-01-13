@@ -157,6 +157,46 @@ environment (ex: android) can be done using `nix develop .#environment`. EX:
 `nix develop .#android`. the environment description must be available in nix
 flake `devShells` output.
 
+### Using [`omnix`](https://github.com/juspay/omnix)
+
+<small>(omnix is installed in the nix shell environment for libxmtp)</small>
+
+- `om show .` to show all flake outputs
+- `om ci run` to build all flake outputs
+- `om health` to check health of nix flake
+
+### Flake Outputs
+
+```
+╭──────────────────┬────────────────────────────────────────────────────────────────╮
+│ name             │ description                                                    │
+├──────────────────┼────────────────────────────────────────────────────────────────┤
+│ wasm-bindings    │ WebAssembly Bindings                                           │
+│ xmtp_cli         │ cli that can send and receive messages on XMTP                 │
+│ wasm-bindgen-cli │ Custom maintained wasm-bindgen-cli package to match Cargo.toml │
+│ xdbg             │ Debug and Inspection Tool for the XMTP Network                 │
+│ default          │ Debug and Inspection Tool for the XMTP Network                 │
+╰──────────────────┴────────────────────────────────────────────────────────────────╯
+
+🐚 Devshells (nix develop .#<name>)
+╭─────────┬──────────────────────────────────────────────────────────────╮
+│ name    │ description                                                  │
+├─────────┼──────────────────────────────────────────────────────────────┤
+│ android │ Android Development environment for Android SDK and Emulator │
+│ rust    │ Rust development environment, created by rust-flake          │
+│ default │ full libXMTP Development Environment                         │
+│ wasm    │ WebAssembly Bindings                                         │
+│ js      │ Javascript/BrowserSDK Development Environment                │
+╰─────────┴──────────────────────────────────────────────────────────────╯
+
+🎨 Overlays
+╭─────────┬─────────────╮
+│ name    │ description │
+├─────────┼─────────────┤
+│ default │ N/A         │
+╰─────────┴─────────────╯
+```
+
 ## Structure
 
 libxmtp/

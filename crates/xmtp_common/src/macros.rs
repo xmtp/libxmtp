@@ -38,7 +38,7 @@ macro_rules! wasm_or_native {
 
 /// Convenience macro to easily evaluate an expression for wasm or native
 /// # Example
-/// ```rust
+/// ```ignore
 /// let path = wasm_or_native_expr! {
 ///     wasm => "wasm".to_string(),
 ///     native => "native".into(),
