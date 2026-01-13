@@ -43,6 +43,10 @@
 , lldb
 , wasm-tools
 , rr
+, libxkbcommon
+, libxcb
+, wayland
+, wayland-protocols
 , ...
 }:
 let
@@ -62,7 +66,7 @@ mkShell {
   CC_wasm32_unknown_unknown = "${llvmPackages.clang-unwrapped}/bin/clang";
   AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
   CFLAGS_wasm32_unknown_unknown = "-I ${llvmPackages.clang-unwrapped.lib}/lib/clang/21/include";
-  LD_LIBRARY_PATH = lib.makeLibraryPath [ openssl zlib ];
+  LD_LIBRARY_PATH = lib.makeLibraryPath [ openssl zlib libxcb libxkbcommon ];
   nativeBuildInputs = [ pkg-config zstd openssl zlib ];
   XMTP_NIX_ENV = "yes";
   buildInputs =
@@ -121,5 +125,5 @@ mkShell {
     ++ lib.optionals isDarwin [
       darwin.cctools
     ]
-    ++ lib.optionals isLinux [ cargo-llvm-cov rr ];
+    ++ lib.optionals isLinux [ cargo-llvm-cov rr libxkbcommon libxcb wayland wayland-protocols ];
 }

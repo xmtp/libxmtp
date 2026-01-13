@@ -16,23 +16,42 @@
         rust."clippy-preview"
       ];
       src = ./..;
+      craneLib = config.rust-project.crane-lib;
+      xnetFileset = crate: lib.fileset.toSource {
+        root = ./..;
+        fileset = lib.fileset.unions [
+          (pkgs.xmtp.filesets { inherit lib craneLib; }).libraries
+          (craneLib.fileset.commonCargoSources (src + /apps/xnet/lib))
+          crate
+        ];
+      };
+      callPackage = lib.callPackageWith
+        (pkgs // {
+          inherit craneLib xnetFileset;
+        });
     in
     {
-      packages.musl-mls_validation_service =
-        config.rust-project.crates.mls_validation_service.crane.outputs.drv.crate.overrideAttrs
-          (old:
-            old // {
-              CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
-              CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
-            }
-          );
+      packages = {
+        # validation service compiled with musl to make ultra-small docker containers (12MB)
+        musl-mls_validation_service =
+          config.rust-project.crates.mls_validation_service.crane.outputs.drv.crate.overrideAttrs
+            (old:
+              old // {
+                CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
+                CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
+              }
+            );
+        xnet-gui = (callPackage ./package/xnet-gui.nix { }).bin;
+        default = self'.packages.xdbg;
+      };
+      devShells.xnet-gui = (callPackage ./package/xnet-gui.nix { }).devShell;
       rust-project = {
         inherit toolchain;
         # Override the default src to use our workspace fileset which includes
-        # non-Cargo files like proto_descriptor.bin
+        # non-Cargo files like proto_descriptor.bin (used for building dependencies)
         src = lib.fileset.toSource {
           root = ./..;
-          fileset = (pkgs.xmtp.filesets { inherit lib; craneLib = config.rust-project.crane-lib; }).workspace;
+          fileset = (pkgs.xmtp.filesets { inherit lib craneLib; }).libraries;
         };
         defaults = {
           perCrate.crane.args = {
@@ -44,6 +63,8 @@
                 openssl
                 sqlite
                 sqlcipher
+                zlib
+                zstd
               ];
           };
         };
@@ -64,8 +85,20 @@
             # wasm bindings have custom build in wasm.nix
             autoWire = [ ];
           };
+          "xnet" = {
+            path = src + /apps/xnet/lib;
+            autoWire = [ "crate" ];
+          };
+          "xnet-gui" = {
+            path = src + /apps/xnet/gui;
+            autoWire = [ ];
+          };
+          "xnet-cli" = {
+            crane.args.src = xnetFileset (src + /apps/xnet/cli);
+            path = src + /apps/xnet/cli;
+            autoWire = [ "crate" ];
+          };
         };
       };
-      packages.default = self'.packages.xdbg;
     };
 }
