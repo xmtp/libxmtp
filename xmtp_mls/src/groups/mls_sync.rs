@@ -35,12 +35,6 @@ use crate::{
         time::hmac_epoch,
     },
 };
-use update_group_membership::apply_update_group_membership_intent;
-use xmtp_configuration::{
-    GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
-    SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
-};
-
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -80,7 +74,6 @@ use xmtp_configuration::{
     MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS, SYNC_BACKOFF_TOTAL_WAIT_MAX_SECS,
     SYNC_BACKOFF_WAIT_MS, SYNC_JITTER_MS, SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
-use xmtp_common::{Event, Retry, RetryableError, log_event, retry_async, time::now_ns};
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::group::GroupMembershipState;
 use xmtp_db::message_deletion::StoredMessageDeletion;
@@ -1412,10 +1405,24 @@ where
 
         deletion.store_or_ignore(&storage.db())?;
 
-        if original_msg_opt.is_some() {
-            let _ = self.context.local_events().send(
-                crate::subscriptions::LocalEvents::MessageDeleted(target_message_id),
-            );
+        let out_of_order = original_msg_opt.is_none();
+        if let Some(original_msg) = original_msg_opt {
+            match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
+                Ok(decoded_message) => {
+                    let _ = self.context.local_events().send(
+                        crate::subscriptions::LocalEvents::MessageDeleted(Box::new(
+                            decoded_message,
+                        )),
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        message_id = hex::encode(&target_message_id),
+                        error = ?e,
+                        "Failed to decode deleted message for deletion event"
+                    );
+                }
+            }
         }
 
         tracing::info!(
@@ -1423,7 +1430,7 @@ where
             delete_msg.message_id,
             message.sender_inbox_id,
             is_super_admin_deletion,
-            original_msg_opt.is_none()
+            out_of_order
         );
 
         Ok(())
