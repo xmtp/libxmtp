@@ -1,0 +1,20 @@
+[package]
+name = "xnet-cli"
+edition = "2024"
+license.workspace = true
+version.workspace = true
+description = "test orchestrator for xmtpd"
+
+[features]
+default = []
+
+[dependencies]
+clap.workspace = true
+color-eyre.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+xnet = { path = "../lib", package = "xnet-lib" }
+
+[lints]
+workspace = true

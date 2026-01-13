@@ -174,6 +174,7 @@ where
         })
         .await
     }
+
     async fn query_group_messages(
         &self,
         group_id: GroupId,
