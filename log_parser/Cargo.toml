@@ -10,6 +10,7 @@ pest_derive = "2.8.5"
 xmtp_common.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
 slint = "1.14.1"
 native-dialog = "0.7"
 
@@ -21,7 +22,6 @@ workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
-tracing-subscriber = { workspace = true, features = ["fmt"] }
 xmtp_mls = { workspace = true, features = ["test-utils"] }
 
 [features]

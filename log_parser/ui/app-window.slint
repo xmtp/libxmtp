@@ -1,8 +1,173 @@
-import { Button, VerticalBox } from "std-widgets.slint";
+import {
+    Button,
+    VerticalBox,
+    HorizontalBox,
+    ScrollView,
+} from "std-widgets.slint";
+
+export struct ContextEntry {
+    key: string,
+    value: string,
+}
+
+export struct LogEntry {
+    event: string,
+    inbox: string,
+    duration-to-next: string,
+    context: [ContextEntry],
+    group-color: color,
+    has-group: bool,
+}
+
+export struct LogStream {
+    inbox: string,
+    entries: [LogEntry],
+}
+
+component DurationBadge inherits Rectangle {
+    in property <string> duration-text;
+
+    height: 24px;
+    background: #f0f0f0;
+    border-radius: 4px;
+
+    HorizontalBox {
+        padding: 4px;
+        alignment: center;
+
+        Text {
+            text: root.duration-text;
+            font-size: 11px;
+            color: #888888;
+            horizontal-alignment: center;
+        }
+    }
+}
+
+component LogEntryRow inherits Rectangle {
+    in property <LogEntry> entry;
+    in property <length> available-width;
+
+    min-height: layout.preferred-height;
+    preferred-height: layout.preferred-height;
+    width: available-width;
+    border-width: 1px;
+    border-color: #e0e0e0;
+    border-radius: 4px;
+    background: #ffffff;
+
+    layout := HorizontalBox {
+        spacing: 0px;
+
+        // Group color indicator
+        if root.entry.has-group: Rectangle {
+            width: 6px;
+            background: root.entry.group-color;
+        }
+
+        VerticalBox {
+            padding: 8px;
+            spacing: 2px;
+            min-height: ctx-text.preferred-height + min(ctx-scroll.preferred-height, ctx-scroll.max-height) + 2px;
+
+            ctx-text := Text {
+                text: root.entry.event;
+                font-weight: 600;
+                overflow: elide;
+                color: #333333;
+            }
+
+            // Context entries
+            ctx-scroll := ScrollView {
+                min-height: min(120px, ctx-layout.preferred-height + 10px);
+                max-height: 150px;
+                preferred-height: ctx-layout.preferred-height + 10px;
+
+                ctx-layout := VerticalLayout {
+                    alignment: start;
+                    spacing: 2px;
+
+                    for ctx in root.entry.context: VerticalBox {
+                        // spacing: 4px;
+                        alignment: LayoutAlignment.start;
+
+                        Text {
+                            text: ctx.key + ":";
+                            font-size: 11px;
+                            color: #888888;
+                            font-weight: 500;
+                            vertical-alignment: top;
+                        }
+
+                        Text {
+                            text: ctx.value;
+                            font-size: 11px;
+                            color: #555555;
+                            wrap: word-wrap;
+                            horizontal-stretch: 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component LogColumn inherits Rectangle {
+    in property <LogStream> log-stream;
+
+    border-width: 1px;
+    border-color: #cccccc;
+    background: #fafafa;
+
+    VerticalBox {
+        padding: 8px;
+        spacing: 0px;
+
+        // Header
+        Rectangle {
+            height: 40px;
+            background: #e8e8e8;
+            border-radius: 4px;
+
+            HorizontalBox {
+                padding: 8px;
+
+                Text {
+                    text: root.log-stream.inbox;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                Text {
+                    text: " (" + root.log-stream.entries.length + " events)";
+                    font-size: 12px;
+                    color: #666666;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Scrollable log entries
+        scroll := ScrollView {
+            VerticalLayout {
+                alignment: start;
+                padding: 4px;
+                spacing: 4px;
+
+                for entry in root.log-stream.entries: LogEntryRow {
+                    entry: entry;
+                    available-width: scroll.visible-width - 8px;
+                }
+            }
+        }
+    }
+}
 
 export component AppWindow inherits Window {
-    in-out property <int> counter: 42;
-    callback request-increase-value();
+    in-out property <[LogStream]> log-streams: [];
+
     callback request-open-file();
     callback file-selected(string);
 
@@ -19,14 +184,39 @@ export component AppWindow inherits Window {
     }
 
     VerticalBox {
-        Text {
-            text: "Counter: \{root.counter}";
+        // Header bar
+        HorizontalBox {
+            height: 40px;
+            padding: 8px;
+
+            Text {
+                text: root.log-streams.length > 0 ? root.log-streams.length + " log stream(s) loaded" : "No files loaded - use File > Open to load a log";
+                vertical-alignment: center;
+                color: root.log-streams.length > 0 ? #333333 : #888888;
+            }
         }
 
-        Button {
-            text: "Increase value";
-            clicked => {
-                root.request-increase-value();
+        // Main content area with side-by-side log columns
+        HorizontalBox {
+            padding: 8px;
+            spacing: 8px;
+
+            if root.log-streams.length == 0: Rectangle {
+                background: #f5f5f5;
+                border-radius: 8px;
+
+                Text {
+                    text: "Open a log file to begin";
+                    color: #888888;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            for log-stream in root.log-streams: LogColumn {
+                log-stream: log-stream;
+                min-width: 300px;
+                horizontal-stretch: 1;
             }
         }
     }

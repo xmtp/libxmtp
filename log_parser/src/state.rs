@@ -1,17 +1,17 @@
+pub mod log;
+
+use crate::{LogParser, Rule};
 use anyhow::{Context, Result, bail};
 use pest::{Parser, iterators::Pair};
 use std::{
-    cell::{RefCell, RefMut},
     collections::{HashMap, HashSet},
-    rc::Rc,
+    sync::{Arc, RwLock, RwLockWriteGuard},
 };
 use tracing::warn;
-use xmtp_common::{Event, time};
-
-use crate::{LogParser, Rule};
+use xmtp_common::Event;
 
 #[derive(Debug, PartialEq, Eq)]
-enum Value {
+pub enum Value {
     String(String),
     Bytes(Vec<u8>),
     Int(i64),
@@ -21,7 +21,46 @@ enum Value {
     None,
 }
 
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.fmt_indented(f, 0)
+    }
+}
+
 impl Value {
+    fn fmt_indented(&self, f: &mut std::fmt::Formatter<'_>, indent: usize) -> std::fmt::Result {
+        match self {
+            Value::String(s) => write!(f, "{}", s),
+            Value::Bytes(b) => write!(f, "{:?}", b),
+            Value::Int(i) => write!(f, "{}", i),
+            Value::Object(obj) => {
+                if obj.is_empty() {
+                    return write!(f, "{{}}");
+                }
+                let indent_str = "  ".repeat(indent);
+                let inner_indent = "  ".repeat(indent + 1);
+                writeln!(f, "{{")?;
+                let mut first = true;
+                for (k, v) in obj.iter() {
+                    if !first {
+                        writeln!(f, ",")?;
+                    }
+                    first = false;
+                    write!(f, "{}{}: ", inner_indent, k)?;
+                    v.fmt_indented(f, indent + 1)?;
+                }
+                writeln!(f)?;
+                write!(f, "{}}}", indent_str)
+            }
+            Value::Array(arr) => {
+                let items: Vec<String> = arr.iter().map(|v| v.to_string()).collect();
+                write!(f, "[{}]", items.join(", "))
+            }
+            Value::Boolean(b) => write!(f, "{}", b),
+            Value::None => write!(f, "null"),
+        }
+    }
+
     fn from(pair: Pair<'_, Rule>) -> Result<Self> {
         let pair_str = pair.as_str();
         let val = match pair.as_rule() {
@@ -96,6 +135,41 @@ pub struct LogEvent {
 }
 
 impl LogEvent {
+    pub fn event_name(&self) -> &str {
+        self.event.metadata().doc
+    }
+
+    pub fn inbox(&self) -> &str {
+        &self.inbox
+    }
+
+    pub fn timestamp_str(&self) -> String {
+        self.context
+            .get("timestamp")
+            .and_then(|v| v.as_int().ok())
+            .map(|ts| ts.to_string())
+            .unwrap_or_default()
+    }
+
+    pub fn timestamp(&self) -> i64 {
+        self.context
+            .get("timestamp")
+            .and_then(|v| v.as_int().ok())
+            .unwrap_or(0)
+    }
+
+    pub fn context_entries(&self) -> Vec<(String, String)> {
+        self.context
+            .iter()
+            .filter(|(k, _)| *k != "timestamp") // timestamp is handled separately
+            .map(|(k, v)| (k.clone(), v.to_string()))
+            .collect()
+    }
+
+    pub fn group_id(&self) -> Option<&str> {
+        self.context.get("group_id").and_then(|v| v.as_str().ok())
+    }
+
     pub fn from(line_str: &str) -> Result<Self> {
         let line = LogParser::parse(Rule::line, line_str)?;
         // There should only ever be one event per line.
@@ -191,7 +265,7 @@ impl State {
 
 struct ClientState {
     name: Option<String>,
-    groups: HashMap<String, Rc<RefCell<GroupState>>>,
+    groups: HashMap<String, Arc<RwLock<GroupState>>>,
 }
 
 impl ClientState {
@@ -205,7 +279,7 @@ impl ClientState {
 
 #[derive(Clone, Default)]
 struct GroupState {
-    prev: Option<Rc<RefCell<Self>>>,
+    prev: Option<Arc<RwLock<Self>>>,
     dm_target: Option<InboxId>,
     created_at: Option<i64>,
     epoch: Option<i64>,
@@ -213,22 +287,22 @@ struct GroupState {
 }
 
 impl GroupState {
-    fn new() -> Rc<RefCell<Self>> {
-        Rc::new(RefCell::new(Self::default()))
+    fn new() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self::default()))
     }
 }
 
 trait GroupStateExt {
-    fn update(&mut self) -> RefMut<'_, GroupState>;
+    fn update(&mut self) -> RwLockWriteGuard<'_, GroupState>;
 }
-impl GroupStateExt for Rc<RefCell<GroupState>> {
-    fn update(&mut self) -> RefMut<'_, GroupState> {
+impl GroupStateExt for Arc<RwLock<GroupState>> {
+    fn update(&mut self) -> RwLockWriteGuard<'_, GroupState> {
         let new_group = GroupState {
             prev: Some(self.clone()),
-            ..self.borrow().clone()
+            ..self.read().unwrap().clone()
         };
-        *self = Rc::new(RefCell::new(new_group));
-        self.borrow_mut()
+        *self = Arc::new(RwLock::new(new_group));
+        self.write().unwrap()
     }
 }
 

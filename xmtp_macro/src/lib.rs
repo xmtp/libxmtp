@@ -291,9 +291,9 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                 let __context_str = __context_parts.join(", ");
                 if __context_str.is_empty() {
-                    format!("➣ {} {{inbox: {}, timestamp: {}}}", __meta.doc, __inbox_truncated, xmtp_common::time::now_ns())
+                    format!("➣ {} {{inbox: \"{}\", timestamp: {}}}", __meta.doc, __inbox_truncated, xmtp_common::time::now_ns())
                 } else {
-                    format!("➣ {} {{{__context_str}, inbox: {}, timestamp: {}}}", __meta.doc, __inbox_truncated, xmtp_common::time::now_ns())
+                    format!("➣ {} {{{__context_str}, inbox: \"{}\", timestamp: {}}}", __meta.doc, __inbox_truncated, xmtp_common::time::now_ns())
                 }
             };
 
