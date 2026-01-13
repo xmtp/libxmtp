@@ -8,6 +8,17 @@ use xmtp_db::group_message::{
     ContentType as DbContentType, Deletable, RelationCounts, RelationQuery, StoredGroupMessage,
 };
 use xmtp_db::message_deletion::StoredMessageDeletion;
+use xmtp_proto::xmtp::mls::message_contents::ContentTypeId;
+
+/// Content type ID for deleted message placeholders shown in enriched message lists
+pub fn deleted_message_content_type() -> ContentTypeId {
+    ContentTypeId {
+        authority_id: "xmtp.org".to_string(),
+        type_id: "deletedMessage".to_string(),
+        version_major: 1,
+        version_minor: 0,
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum EnrichMessageError {
@@ -93,6 +104,7 @@ pub fn enrich_messages(
                         DeletedBy::Admin(deletion.deleted_by_inbox_id.clone())
                     },
                 };
+                decoded.metadata.content_type = deleted_message_content_type();
                 decoded.reactions = Vec::new();
                 decoded.num_replies = 0;
             } else {
