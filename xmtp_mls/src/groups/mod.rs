@@ -717,6 +717,9 @@ where
         tracing::instrument(level = "trace", skip(self))
     )]
     pub async fn publish_stored_message(&self, message_id: &[u8]) -> Result<(), GroupError> {
+        if !self.is_active()? {
+            return Err(GroupError::GroupInactive);
+        }
         self.ensure_not_paused().await?;
 
         // Fetch the message
@@ -745,6 +748,8 @@ where
             .queue(self)?;
 
         // Publish
+        self.maybe_update_installations(Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS))
+            .await?;
         self.sync_until_last_intent_resolved().await?;
 
         // Implicitly set group consent state to allowed
