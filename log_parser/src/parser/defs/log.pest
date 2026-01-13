@@ -41,7 +41,10 @@ char          =  {
 }
 
 // Values
-value = _{ object | array | quoted_string | number | boolean | null }
+value = _{ object | array | quoted_string | number | boolean | null | unquoted_string }
+
+// Unquoted string value (alphanumeric, underscores, hyphens - for hex strings, identifiers, etc.)
+unquoted_string = @{ (ASCII_ALPHANUMERIC | "_" | "-")+ }
 
 // Array
 array = {
@@ -53,5 +56,5 @@ array = {
 boolean =  { "true" | "false" }
 null    =  { "null" }
 number  = @{
-    "-"? ~ ("0" | ASCII_NONZERO_DIGIT ~ ASCII_DIGIT*) ~ ("." ~ ASCII_DIGIT*)? ~ (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)?
+    "-"? ~ ("0" | ASCII_NONZERO_DIGIT ~ ASCII_DIGIT*) ~ ("." ~ ASCII_DIGIT*)? ~ (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)? ~ !(ASCII_ALPHA)
 }
