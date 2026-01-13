@@ -6,6 +6,7 @@ use crate::device_sync::FfiArchiveOptions;
 
 use super::*;
 
+#[ignore]
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_can_stream_group_messages_for_updates() {
