@@ -3354,13 +3354,11 @@ pub(crate) mod tests {
         let storage = alix.context.mls_storage();
         let result: Result<(), crate::groups::GroupError> =
             alix_group.load_mls_group_with_lock(storage, |mls_group| {
-                // process_delete_message should return Ok(()) for malformed content
                 let inner_result =
                     alix_group.process_delete_message(&mls_group, storage, &malformed_message);
-                // Convert the inner result - we expect Ok(()) from graceful handling
                 match inner_result {
                     Ok(()) => Ok(()),
-                    Err(_) => Err(crate::groups::GroupError::InvalidGroupMembership), // Should not happen
+                    Err(_) => Err(crate::groups::GroupError::InvalidGroupMembership),
                 }
             });
 

@@ -181,7 +181,9 @@ mod tests {
     /// Extract numeric version from migration name for proper ordering.
     /// Uses the version portion before the first underscore.
     fn migration_numeric_version(name: &str) -> u64 {
-        extract_version(name).parse().unwrap_or(0)
+        extract_version(name)
+            .parse()
+            .expect("invalid migration version")
     }
 
     #[xmtp_common::test(unwrap_try = true)]
