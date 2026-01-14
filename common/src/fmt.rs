@@ -40,7 +40,7 @@ impl TruncatedHex for Vec<u8> {
 }
 impl TruncatedHex for &[u8] {
     fn short_hex(&self) -> String {
-        hex::encode(&self[(self.len() - SHORT_LEN)..])
+        hex::encode(&self[self.len().saturating_sub(SHORT_LEN)..])
     }
 }
 

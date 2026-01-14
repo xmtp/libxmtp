@@ -90,6 +90,7 @@ impl std::fmt::Debug for SyncWorkerEvent {
             Self::NewSyncGroupMsg => write!(f, "NewSyncGroupMsg"),
             Self::SyncPreferences(arg0) => f.debug_tuple("SyncPreferences").field(arg0).finish(),
             Self::CycleHMAC => write!(f, "CycleHMAC"),
+            Self::Tick => write!(f, "Tick"),
         }
     }
 }

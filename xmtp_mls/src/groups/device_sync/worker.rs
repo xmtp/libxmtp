@@ -361,7 +361,9 @@ where
                     // Ignore our own messages
                     return Ok(());
                 }
-                self.process_sync_payload(reply).await?;
+                self.process_sync_payload(msg, reply).await.inspect_err(
+                    |err| log_event!(Event::DeviceSyncPayloadImportFailure, err = %err),
+                )?;
                 handle.increment_metric(SyncMetric::PayloadProcessed);
             }
             ContentProto::PreferenceUpdates(PreferenceUpdatesProto { updates }) => {
@@ -583,9 +585,16 @@ where
 
     pub async fn process_sync_payload(
         &self,
+        msg: &StoredGroupMessage,
         reply: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
+        log_event!(
+            Event::DeviceSyncPayloadProcessingStart,
+            msg_id = msg.id.short_hex(),
+            group_id = msg.group_id.short_hex()
+        );
         if reply.kind() != BackupElementSelection::Unspecified {
+            log_event!(Event::DeviceSyncV1Payload);
             // This is a legacy payload, the legacy function will process it.
             return Ok(());
         }
@@ -595,33 +604,28 @@ where
         // Check if this reply was asked for by this installation.
         if !self.is_reply_requested_by_installation(&reply).await? {
             // This installation didn't ask for it. Ignore the reply.
-            tracing::info!(
-                "{}",
-                "Sync response was not intended for this installation.".yellow()
-            );
+            log_event!(Event::DeviceSyncPayloadNotRequested);
             return Ok(());
         }
 
         // If a payload was sent to this installation,
         // that means they also sent this installation a bunch of welcomes.
-        tracing::info!(
-            "{}",
-            "Sync response is for this installation. Syncing welcomes.".yellow()
-        );
+        log_event!(Event::DeviceSyncPayloadAccepted);
         self.welcome_service.sync_welcomes().await?;
 
         // Get a download stream of the payload.
-        tracing::info!("Downloading sync payload.");
+        log_event!(Event::DeviceSyncPayloadDownloading);
         let response = reqwest::Client::new().get(reply.url).send().await?;
         if let Err(err) = response.error_for_status_ref() {
-            tracing::error!(
-                "Failed to download file. Status code: {} Response: {:?}",
-                response.status(),
-                response
+            log_event!(
+                Event::DeviceSyncPayloadDownloadFailure,
+                status = %response.status(),
+                err = %err
             );
             return Err(DeviceSyncError::Reqwest(err));
         }
 
+        log_event!(Event::DeviceSyncPayloadImportStart);
         #[cfg(not(target_arch = "wasm32"))]
         let reader = {
             use futures::StreamExt;
@@ -642,7 +646,6 @@ where
         };
 
         // Create an importer around that futures_reader.
-
         let Some(DeviceSyncKeyType {
             key: Some(Key::Aes256Gcm(key)),
         }) = reply.encryption_key
@@ -656,6 +659,7 @@ where
         // Run the import.
         insert_importer(&mut importer, &self.context).await?;
 
+        log_event!(Event::DeviceSyncPayloadImportSuccess);
         Ok(())
     }
 }

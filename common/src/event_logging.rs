@@ -102,4 +102,26 @@ pub enum Event {
     /// Failed to process device sync message.
     #[context(msg_id, err)]
     DeviceSyncMessageProcessingError,
+    /// Processing sync payload.
+    #[context(msg_id, group_id)]
+    DeviceSyncPayloadProcessingStart,
+    /// Received a V1 sync payload. V1 is no longer supported. Ignoring.
+    DeviceSyncV1Payload,
+    /// Received a sync payload message, but it was not requested by this instalaltion. Skipping.
+    DeviceSyncPayloadNotRequested,
+    /// Received a sync paylaod message. Syncing any welcomes the originating
+    /// installation might have also sent.
+    DeviceSyncPayloadAccepted,
+    /// Downloading sync payload.
+    DeviceSyncPayloadDownloading,
+    /// Sync payload download failure.
+    #[context(status, err)]
+    DeviceSyncPayloadDownloadFailure,
+    /// Beginning sync payload import.
+    DeviceSyncPayloadImportStart,
+    /// Finished sync payload import.
+    DeviceSyncPayloadImportSuccess,
+    ///  Payload import failed.
+    #[context(err)]
+    DeviceSyncPayloadImportFailure,
 }
