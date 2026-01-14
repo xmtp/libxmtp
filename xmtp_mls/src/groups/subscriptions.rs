@@ -346,6 +346,7 @@ pub(crate) mod tests {
                         originator_id: 0,
                         expire_at_ns: None,
                         inserted_at_ns: 0,
+                        should_push: true,
                     }))
                 });
             mock_db
@@ -429,6 +430,7 @@ pub(crate) mod tests {
                         originator_id: 1,
                         expire_at_ns: None,
                         inserted_at_ns: 0,
+                        should_push: true,
                     }))
                 });
             mock_db.expect_future_dependents().returning(|_| Ok(vec![]));

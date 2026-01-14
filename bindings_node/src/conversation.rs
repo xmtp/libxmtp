@@ -191,6 +191,34 @@ impl Conversation {
     Ok(hex::encode(message_id))
   }
 
+  /// Prepare a message for later publishing.
+  /// Stores the message locally without publishing. Returns the message ID.
+  #[napi]
+  pub fn prepare_message(
+    &self,
+    encoded_content: EncodedContent,
+    should_push: bool,
+  ) -> Result<String> {
+    let encoded_content: XmtpEncodedContent = encoded_content.into();
+    let group = self.create_mls_group();
+    let message_id = group
+      .prepare_message_for_later_publish(encoded_content.encode_to_vec().as_slice(), should_push)
+      .map_err(ErrorWrapper::from)?;
+    Ok(hex::encode(message_id))
+  }
+
+  /// Publish a previously prepared message by ID.
+  #[napi]
+  pub async fn publish_stored_message(&self, message_id: String) -> Result<()> {
+    let group = self.create_mls_group();
+    let message_id_bytes = hex::decode(&message_id).map_err(ErrorWrapper::from)?;
+    group
+      .publish_stored_message(&message_id_bytes)
+      .await
+      .map_err(ErrorWrapper::from)?;
+    Ok(())
+  }
+
   #[napi]
   pub async fn send_text(&self, text: String, optimistic: Option<bool>) -> Result<String> {
     let encoded_content = TextCodec::encode(text).map_err(ErrorWrapper::from)?;

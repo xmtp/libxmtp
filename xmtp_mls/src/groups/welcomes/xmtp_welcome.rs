@@ -525,6 +525,7 @@ where
             originator_id: Originators::MLS_COMMITS as i64,
             expire_at_ns: None,
             inserted_at_ns: 0, // Will be set by database
+            should_push: true,
         };
 
         added_msg.store_or_ignore(&db)?;

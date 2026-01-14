@@ -79,6 +79,8 @@ pub struct StoredGroupMessage {
     pub inserted_at_ns: i64,
     /// Timestamp (in NS) after which the message must be deleted
     pub expire_at_ns: Option<i64>,
+    /// Whether to send a push notification when publishing this message
+    pub should_push: bool,
 }
 
 impl StoredGroupMessage {
@@ -108,6 +110,7 @@ struct NewStoredGroupMessage {
     pub sequence_id: i64,
     // inserted_at_ns is NOT included - let database set it
     pub expire_at_ns: Option<i64>,
+    pub should_push: bool,
 }
 
 impl From<&StoredGroupMessage> for NewStoredGroupMessage {
@@ -129,6 +132,7 @@ impl From<&StoredGroupMessage> for NewStoredGroupMessage {
             originator_id: msg.originator_id,
             sequence_id: msg.sequence_id,
             expire_at_ns: msg.expire_at_ns,
+            should_push: msg.should_push,
         }
     }
 }

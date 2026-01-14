@@ -661,6 +661,103 @@ where
         Ok(message_id)
     }
 
+    /// Prepare a message for later publishing.
+    ///
+    /// Stores the message locally with `Unpublished` delivery status but does NOT
+    /// create an intent to publish. Use `publish_stored_message` to publish later.
+    ///
+    /// # Arguments
+    /// * `message` - The message content bytes
+    /// * `should_push` - Whether to send a push notification when publishing
+    ///
+    /// Returns the message ID.
+    pub fn prepare_message_for_later_publish(
+        &self,
+        message: &[u8],
+        should_push: bool,
+    ) -> Result<Vec<u8>, GroupError> {
+        let now = now_ns();
+        let queryable_content_fields = Self::extract_queryable_content_fields(message);
+
+        let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
+        let group_message = StoredGroupMessage {
+            id: message_id.clone(),
+            group_id: self.group_id.clone(),
+            decrypted_message_bytes: message.to_vec(),
+            sent_at_ns: now,
+            kind: GroupMessageKind::Application,
+            sender_installation_id: self.context.installation_id().into(),
+            sender_inbox_id: self.context.inbox_id().to_string(),
+            delivery_status: DeliveryStatus::Unpublished,
+            content_type: queryable_content_fields.content_type,
+            version_major: queryable_content_fields.version_major,
+            version_minor: queryable_content_fields.version_minor,
+            authority_id: queryable_content_fields.authority_id,
+            reference_id: queryable_content_fields.reference_id,
+            sequence_id: 0,
+            originator_id: 0,
+            expire_at_ns: None,
+            inserted_at_ns: 0,
+            should_push,
+        };
+        group_message.store(&self.context.db())?;
+
+        Ok(message_id)
+    }
+
+    /// Publish a previously stored message by ID.
+    ///
+    /// Creates an intent for the message and publishes it to the network.
+    /// Uses the `should_push` value that was stored with the message.
+    /// This is a no-op if the message is already published.
+    ///
+    /// Returns an error if the message is not found.
+    #[cfg_attr(
+        not(any(test, feature = "test-utils")),
+        tracing::instrument(level = "trace", skip(self))
+    )]
+    pub async fn publish_stored_message(&self, message_id: &[u8]) -> Result<(), GroupError> {
+        if !self.is_active()? {
+            return Err(GroupError::GroupInactive);
+        }
+        self.ensure_not_paused().await?;
+
+        // Fetch the message
+        let message = self
+            .context
+            .db()
+            .get_group_message(message_id)?
+            .ok_or_else(|| GroupError::NotFound(NotFound::MessageById(message_id.to_vec())))?;
+
+        // Silent no-op if already published
+        if message.delivery_status == DeliveryStatus::Published {
+            return Ok(());
+        }
+
+        // Create envelope from stored message
+        let plain_envelope =
+            Self::into_envelope(&message.decrypted_message_bytes, message.sent_at_ns);
+        let mut encoded_envelope = vec![];
+        plain_envelope.encode(&mut encoded_envelope)?;
+
+        // Queue the intent (use should_push from stored message)
+        let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
+        QueueIntent::send_message()
+            .data(intent_data)
+            .should_push(message.should_push)
+            .queue(self)?;
+
+        // Publish
+        self.maybe_update_installations(Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS))
+            .await?;
+        self.sync_until_last_intent_resolved().await?;
+
+        // Implicitly set group consent state to allowed
+        self.update_consent_state(ConsentState::Allowed)?;
+
+        Ok(())
+    }
+
     /// Helper function to extract queryable content fields from a message
     fn extract_queryable_content_fields(message: &[u8]) -> QueryableContentFields {
         // Return early with default if decoding fails or type is missing
@@ -696,41 +793,27 @@ where
     where
         F: FnOnce(i64) -> PlaintextEnvelope,
     {
-        let now = now_ns();
-        let plain_envelope = envelope(now);
+        // Store the message locally first (with should_push preference)
+        let message_id = self.prepare_message_for_later_publish(message, opts.should_push)?;
+
+        // Fetch the stored message to get the sent_at_ns timestamp
+        let stored_message = self
+            .context
+            .db()
+            .get_group_message(&message_id)?
+            .ok_or_else(|| GroupError::NotFound(NotFound::MessageById(message_id.clone())))?;
+
+        // Create envelope using the stored timestamp for consistency
+        let plain_envelope = envelope(stored_message.sent_at_ns);
         let mut encoded_envelope = vec![];
         plain_envelope.encode(&mut encoded_envelope)?;
 
+        // Queue the intent (use should_push from stored message)
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        let queryable_content_fields: QueryableContentFields =
-            Self::extract_queryable_content_fields(message);
         QueueIntent::send_message()
             .data(intent_data)
-            .should_push(opts.should_push)
+            .should_push(stored_message.should_push)
             .queue(self)?;
-
-        // store this unpublished message locally before sending
-        let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
-        let group_message = StoredGroupMessage {
-            id: message_id.clone(),
-            group_id: self.group_id.clone(),
-            decrypted_message_bytes: message.to_vec(),
-            sent_at_ns: now,
-            kind: GroupMessageKind::Application,
-            sender_installation_id: self.context.installation_id().into(),
-            sender_inbox_id: self.context.inbox_id().to_string(),
-            delivery_status: DeliveryStatus::Unpublished,
-            content_type: queryable_content_fields.content_type,
-            version_major: queryable_content_fields.version_major,
-            version_minor: queryable_content_fields.version_minor,
-            authority_id: queryable_content_fields.authority_id,
-            reference_id: queryable_content_fields.reference_id,
-            sequence_id: 0,
-            originator_id: 0,
-            expire_at_ns: None,
-            inserted_at_ns: 0, // Will be set by database
-        };
-        group_message.store(&self.context.db())?;
 
         Ok(message_id)
     }

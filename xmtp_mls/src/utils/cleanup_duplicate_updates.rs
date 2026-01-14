@@ -162,6 +162,7 @@ mod tests {
                 originator_id: 0,
                 expire_at_ns: None,
                 inserted_at_ns: 0,
+                should_push: true,
             }
         };
 

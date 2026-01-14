@@ -54,6 +54,7 @@ diesel::table! {
         sequence_id -> BigInt,
         inserted_at_ns -> BigInt,
         expire_at_ns -> Nullable<BigInt>,
+        should_push -> Bool,
     }
 }
 
