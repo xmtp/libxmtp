@@ -99,4 +99,7 @@ pub enum Event {
     /// Processing new sync message.
     #[context(msg_type, external, msg_id, group_id)]
     DeviceSyncProcessingMessages,
+    /// Failed to process device sync message.
+    #[context(msg_id, err)]
+    DeviceSyncMessageProcessingError,
 }

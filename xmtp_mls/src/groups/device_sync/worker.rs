@@ -295,7 +295,11 @@ where
             );
 
             if let Err(err) = self.process_message(handle, &msg, content).await {
-                tracing::error!("Message processing: {err:?}");
+                log_event!(
+                    Event::DeviceSyncMessageProcessingError,
+                    err = %err,
+                    msg_id = msg.id.short_hex()
+                );
             };
         }
 
