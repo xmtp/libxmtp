@@ -1136,6 +1136,7 @@ where
                             originator_id: cursor.originator_id as i64,
                             expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                             inserted_at_ns: 0, // Will be set by database
+                            should_push: true,
                         };
                         message.store_or_ignore(&storage.db())?;
                         // make sure internal id is on return type after its stored successfully
@@ -2045,6 +2046,7 @@ where
             originator_id: cursor.originator_id as i64,
             expire_at_ns: None,
             inserted_at_ns: 0, // Will be set by database
+            should_push: true,
         };
 
         msg.store_or_ignore(&storage.db())?;
