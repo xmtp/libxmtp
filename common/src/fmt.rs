@@ -59,7 +59,7 @@ mod tests {
     #[test]
     fn test_short_hex() {
         let hex = "0x5bf078bd83995fe83092d93c5655f059";
-        let bytes = hex::decode(&hex).unwrap();
+        let bytes = hex::decode(hex).unwrap();
         let short_hex = bytes.short_hex();
 
         assert_eq!(short_hex.len(), SHORT_LEN * 2);
