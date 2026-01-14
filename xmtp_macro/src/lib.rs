@@ -216,7 +216,7 @@ pub fn build_logging_metadata(
 pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as LogEventInput);
     let event = &input.event;
-    let inbox = &input.inbox;
+    let installation_id = &input.installation_id;
 
     let provided_names: Vec<String> = input.fields.iter().map(|f| f.name.to_string()).collect();
     let tracing_fields: Vec<TokenStream> =
@@ -269,14 +269,18 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             let __meta = #event.metadata();
 
-            // Truncate inbox to last 5 characters
-            let __inbox_str: &str = #inbox;
-            let __inbox_truncated = if __inbox_str.len() > 5 { &__inbox_str[__inbox_str.len() - 5..] } else { __inbox_str };
+            // Bind installation_id to a variable to extend its lifetime
+            let __installation_id = #installation_id;
+            // Hex encode last 4 bytes of installation_id
+            let __installation_bytes: &[u8] = __installation_id.as_ref();
+            let __installation_len = __installation_bytes.len();
+            let __installation_last_4 = if __installation_len >= 4 { &__installation_bytes[__installation_len - 4..] } else { __installation_bytes };
+            let __installation_truncated = hex::encode(__installation_last_4);
 
             // Build message with context for non-structured logging
             let __message = if ::xmtp_common::is_structured_logging() {
-                // Structured logging: include inbox and timestamp in message
-                format!("➣ {} {{inbox: {}, timestamp: {}}}", __meta.doc, __inbox_truncated, xmtp_common::time::now_ns())
+                // Structured logging: include installation_id and timestamp in message
+                format!("➣ {} {{installation_id: {}, timestamp: {}}}", __meta.doc, __installation_truncated, xmtp_common::time::now_ns())
             } else {
                 // Non-structured logging: embed context in message for readability
                 let __context_parts: ::std::vec::Vec<String> = __meta.context_fields
@@ -291,9 +295,9 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                 let __context_str = __context_parts.join(", ");
                 if __context_str.is_empty() {
-                    format!("➣ {} {{inbox: {}, timestamp: {}}}", __meta.doc, __inbox_truncated, xmtp_common::time::now_ns())
+                    format!("➣ {} {{installation_id: {}, timestamp: {}}}", __meta.doc, __installation_truncated, xmtp_common::time::now_ns())
                 } else {
-                    format!("➣ {} {{{__context_str}, inbox: {}, timestamp: {}}}", __meta.doc, __inbox_truncated, xmtp_common::time::now_ns())
+                    format!("➣ {} {{{__context_str}, installation_id: {}, timestamp: {}}}", __meta.doc, __installation_truncated, xmtp_common::time::now_ns())
                 }
             };
 

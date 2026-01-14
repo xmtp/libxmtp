@@ -509,7 +509,7 @@ where
 
         log_event!(
             Event::CreatedGroup,
-            self.context.inbox_id(),
+            self.context.installation_id(),
             group_id = group.group_id.short_hex()
         );
 
@@ -565,7 +565,7 @@ where
 
         log_event!(
             Event::CreatedDM,
-            self.context.inbox_id(),
+            self.context.installation_id(),
             group_id = group.group_id.short_hex(),
             target_inbox_id
         );

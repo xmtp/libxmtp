@@ -188,7 +188,7 @@ where
             let conn = self.client.context.db();
             log_event!(
                 Event::DeviceSyncInitializing,
-                self.client.context.inbox_id(),
+                self.client.context.installation_id(),
                 server_url = client.context.device_sync().server_url
             );
 
@@ -196,12 +196,12 @@ where
             if conn.primary_sync_group()?.is_none() {
                 log_event!(
                     Event::DeviceSyncNoPrimarySyncGroup,
-                    self.client.context.inbox_id()
+                    self.client.context.installation_id()
                 );
                 let sync_group = client.get_sync_group().await?;
                 log_event!(
                     Event::DeviceSyncCreatedPrimarySyncGroup,
-                    self.client.context.inbox_id(),
+                    self.client.context.installation_id(),
                     group_id = sync_group.group_id.short_hex()
                 );
 
@@ -213,7 +213,7 @@ where
 
             log_event!(
                 Event::DeviceSyncInitializingFinished,
-                self.client.context.inbox_id()
+                self.client.context.installation_id()
             );
 
             Ok(())
@@ -295,7 +295,7 @@ where
 
             log_event!(
                 Event::DeviceSyncProcessingMessages,
-                self.context.inbox_id(),
+                self.context.installation_id(),
                 msg_type,
                 external = is_external,
                 msg_id = msg.id.short_hex(),
@@ -305,7 +305,7 @@ where
             if let Err(err) = self.process_message(handle, &msg, content).await {
                 log_event!(
                     Event::DeviceSyncMessageProcessingError,
-                    self.context.inbox_id(),
+                    self.context.installation_id(),
                     err = %err,
                     msg_id = msg.id.short_hex()
                 );
@@ -371,7 +371,7 @@ where
                     return Ok(());
                 }
                 self.process_sync_payload(msg, reply).await.inspect_err(
-                    |err| log_event!(Event::DeviceSyncArchiveImportFailure, self.context.inbox_id(), err = %err),
+                    |err| log_event!(Event::DeviceSyncArchiveImportFailure, self.context.installation_id(), err = %err),
                 )?;
                 handle.increment_metric(SyncMetric::PayloadProcessed);
             }
@@ -428,7 +428,7 @@ where
                 // Let that installation handle it.
                 log_event!(
                     Event::DeviceSyncRequestAlreadyAcknowledged,
-                    self.context.inbox_id(),
+                    self.context.installation_id(),
                     request_id,
                     acknowledged_by = message.sender_installation_id.short_hex()
                 );
@@ -445,7 +445,7 @@ where
         .await?;
         log_event!(
             Event::DeviceSyncRequestAcknowledged,
-            self.context.inbox_id(),
+            self.context.installation_id(),
             request_id
         );
         Ok(())
@@ -462,7 +462,7 @@ where
     {
         log_event!(
             Event::DeviceSyncArchiveUploadStart,
-            self.context.inbox_id(),
+            self.context.installation_id(),
             group_id = sync_group_id.short_hex()
         );
         let Some(device_sync_server_url) = &self.context.device_sync().server_url else {
@@ -575,7 +575,7 @@ where
 
         log_event!(
             Event::DeviceSyncSentSyncRequest,
-            self.context.inbox_id(),
+            self.context.installation_id(),
             group_id = sync_group.group_id.short_hex()
         );
 
@@ -616,12 +616,12 @@ where
     ) -> Result<(), DeviceSyncError> {
         log_event!(
             Event::DeviceSyncArchiveProcessingStart,
-            self.context.inbox_id(),
+            self.context.installation_id(),
             msg_id = msg.id.short_hex(),
             group_id = msg.group_id.short_hex()
         );
         if reply.kind() != BackupElementSelection::Unspecified {
-            log_event!(Event::DeviceSyncV1Archive, self.context.inbox_id());
+            log_event!(Event::DeviceSyncV1Archive, self.context.installation_id());
             // This is a legacy payload, the legacy function will process it.
             return Ok(());
         }
@@ -633,30 +633,39 @@ where
             // This installation didn't ask for it. Ignore the reply.
             log_event!(
                 Event::DeviceSyncArchiveNotRequested,
-                self.context.inbox_id()
+                self.context.installation_id()
             );
             return Ok(());
         }
 
         // If a payload was sent to this installation,
         // that means they also sent this installation a bunch of welcomes.
-        log_event!(Event::DeviceSyncArchiveAccepted, self.context.inbox_id());
+        log_event!(
+            Event::DeviceSyncArchiveAccepted,
+            self.context.installation_id()
+        );
         self.welcome_service.sync_welcomes().await?;
 
         // Get a download stream of the payload.
-        log_event!(Event::DeviceSyncArchiveDownloading, self.context.inbox_id());
+        log_event!(
+            Event::DeviceSyncArchiveDownloading,
+            self.context.installation_id()
+        );
         let response = reqwest::Client::new().get(reply.url).send().await?;
         if let Err(err) = response.error_for_status_ref() {
             log_event!(
                 Event::DeviceSyncPayloadDownloadFailure,
-                self.context.inbox_id(),
+                self.context.installation_id(),
                 status = %response.status(),
                 err = %err
             );
             return Err(DeviceSyncError::Reqwest(err));
         }
 
-        log_event!(Event::DeviceSyncArchiveImportStart, self.context.inbox_id());
+        log_event!(
+            Event::DeviceSyncArchiveImportStart,
+            self.context.installation_id()
+        );
         #[cfg(not(target_arch = "wasm32"))]
         let reader = {
             use futures::StreamExt;
@@ -692,7 +701,7 @@ where
 
         log_event!(
             Event::DeviceSyncArchiveImportSuccess,
-            self.context.inbox_id()
+            self.context.installation_id()
         );
         Ok(())
     }

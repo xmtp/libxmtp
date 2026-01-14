@@ -879,7 +879,7 @@ where
 
         log_event!(
             Event::AddedMembers,
-            self.context.inbox_id(),
+            self.context.installation_id(),
             group_id = self.group_id.short_hex(),
             members = ?ids
         );
