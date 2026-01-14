@@ -102,26 +102,42 @@ pub enum Event {
     /// Failed to process device sync message.
     #[context(msg_id, err)]
     DeviceSyncMessageProcessingError,
-    /// Processing sync payload.
+    /// Processing sync archive.
     #[context(msg_id, group_id)]
-    DeviceSyncPayloadProcessingStart,
+    DeviceSyncArchiveProcessingStart,
     /// Received a V1 sync payload. V1 is no longer supported. Ignoring.
-    DeviceSyncV1Payload,
-    /// Received a sync payload message, but it was not requested by this instalaltion. Skipping.
-    DeviceSyncPayloadNotRequested,
-    /// Received a sync paylaod message. Syncing any welcomes the originating
+    DeviceSyncV1Archive,
+    /// Received a sync archive message, but it was not requested by this instalaltion. Skipping.
+    DeviceSyncArchiveNotRequested,
+    /// Received a sync archive message. Syncing any welcomes the originating
     /// installation might have also sent.
-    DeviceSyncPayloadAccepted,
-    /// Downloading sync payload.
-    DeviceSyncPayloadDownloading,
-    /// Sync payload download failure.
+    DeviceSyncArchiveAccepted,
+    /// Downloading sync archive.
+    DeviceSyncArchiveDownloading,
+    /// Sync archive download failure.
     #[context(status, err)]
     DeviceSyncPayloadDownloadFailure,
-    /// Beginning sync payload import.
-    DeviceSyncPayloadImportStart,
-    /// Finished sync payload import.
-    DeviceSyncPayloadImportSuccess,
-    ///  Payload import failed.
+    /// Beginning archive import.
+    DeviceSyncArchiveImportStart,
+    /// Finished sync archive import.
+    DeviceSyncArchiveImportSuccess,
+    /// Archive import failed.
     #[context(err)]
-    DeviceSyncPayloadImportFailure,
+    DeviceSyncArchiveImportFailure,
+    /// Attempted to acknowledge a sync request, but it was already acknowledged
+    /// by another installation.
+    #[context(request_id, acknowledged_by)]
+    DeviceSyncRequestAlreadyAcknowledged,
+    /// Acknowledged sync request.
+    #[context(request_id)]
+    DeviceSyncRequestAcknowledged,
+    /// Scheduled task to respond to sync request.
+    #[context(request_id)]
+    DeviceSyncResponseTaskScheduled,
+    /// Sending sync archive
+    #[context(group_id)]
+    DeviceSyncArchiveUploadStart,
+    /// Failed to respond to sync request.
+    #[context(group_id, request_id, err)]
+    DeviceSyncArchiveUploadFailure,
 }

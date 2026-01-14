@@ -13,7 +13,6 @@ use crate::{
     },
 };
 use futures::TryFutureExt;
-use owo_colors::OwoColorize;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{OnceCell, broadcast};
 #[cfg(not(target_arch = "wasm32"))]
@@ -362,7 +361,7 @@ where
                     return Ok(());
                 }
                 self.process_sync_payload(msg, reply).await.inspect_err(
-                    |err| log_event!(Event::DeviceSyncPayloadImportFailure, err = %err),
+                    |err| log_event!(Event::DeviceSyncArchiveImportFailure, err = %err),
                 )?;
                 handle.increment_metric(SyncMetric::PayloadProcessed);
             }
@@ -417,7 +416,11 @@ where
             if message.sender_installation_id != self.installation_id() {
                 // Request has already been acknowledged by another installation.
                 // Let that installation handle it.
-                tracing::info!("Request was already acknowledged by another installation.");
+                log_event!(
+                    Event::DeviceSyncRequestAlreadyAcknowledged,
+                    request_id,
+                    acknowledged_by = message.sender_installation_id.short_hex()
+                );
                 return Err(DeviceSyncError::AlreadyAcknowledged);
             }
 
@@ -429,24 +432,27 @@ where
             request_id: request_id.to_string(),
         }))
         .await?;
-
+        log_event!(Event::DeviceSyncRequestAcknowledged, request_id);
         Ok(())
     }
 
     pub(crate) async fn send_archive(
         &self,
-        options: BackupOptions,
+        options: &BackupOptions,
         sync_group_id: &Vec<u8>,
-        request_id: Option<String>,
+        request_id: Option<&str>,
     ) -> Result<(), DeviceSyncError>
     where
         Context::Db: 'static,
     {
+        log_event!(
+            Event::DeviceSyncArchiveUploadStart,
+            group_id = sync_group_id.short_hex()
+        );
         let Some(device_sync_server_url) = &self.context.device_sync().server_url else {
             tracing::info!("No message history payload sent - server url not present.");
             return Ok(());
         };
-        tracing::info!("{}", "Sending sync payload.".yellow());
 
         let acknowledge = async || {
             if let Some(request_id) = &request_id {
@@ -470,6 +476,7 @@ where
         // Generate a random encryption key
         let key = xmtp_common::rand_vec::<32>();
 
+        tracing::info!("Building the exporter.");
         // Now we want to create an encrypted stream from our database to the history server.
         //
         // 1. Build the exporter
@@ -477,6 +484,7 @@ where
         let exporter = ArchiveExporter::new(options.clone(), db, &key);
         let metadata = exporter.metadata().clone();
 
+        tracing::info!("Uploading the archive.");
         // 5. Make the request
         let url = format!("{device_sync_server_url}/upload");
         let response = exporter.post_to_url(&url).await?;
@@ -486,7 +494,7 @@ where
             encryption_key: Some(DeviceSyncKeyType {
                 key: Some(Key::Aes256Gcm(key)),
             }),
-            request_id: request_id.clone().unwrap_or_default(),
+            request_id: request_id.map(str::to_string).unwrap_or_default(),
             url: format!("{device_sync_server_url}/files/{response}",),
             metadata: Some(metadata),
 
@@ -500,6 +508,7 @@ where
             return Ok(());
         };
 
+        tracing::info!("Sending sync request reply message.");
         // Send the message out over the network
         self.send_device_sync_message(ContentProto::Reply(reply))
             .await?;
@@ -589,12 +598,12 @@ where
         reply: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
         log_event!(
-            Event::DeviceSyncPayloadProcessingStart,
+            Event::DeviceSyncArchiveProcessingStart,
             msg_id = msg.id.short_hex(),
             group_id = msg.group_id.short_hex()
         );
         if reply.kind() != BackupElementSelection::Unspecified {
-            log_event!(Event::DeviceSyncV1Payload);
+            log_event!(Event::DeviceSyncV1Archive);
             // This is a legacy payload, the legacy function will process it.
             return Ok(());
         }
@@ -604,17 +613,17 @@ where
         // Check if this reply was asked for by this installation.
         if !self.is_reply_requested_by_installation(&reply).await? {
             // This installation didn't ask for it. Ignore the reply.
-            log_event!(Event::DeviceSyncPayloadNotRequested);
+            log_event!(Event::DeviceSyncArchiveNotRequested);
             return Ok(());
         }
 
         // If a payload was sent to this installation,
         // that means they also sent this installation a bunch of welcomes.
-        log_event!(Event::DeviceSyncPayloadAccepted);
+        log_event!(Event::DeviceSyncArchiveAccepted);
         self.welcome_service.sync_welcomes().await?;
 
         // Get a download stream of the payload.
-        log_event!(Event::DeviceSyncPayloadDownloading);
+        log_event!(Event::DeviceSyncArchiveDownloading);
         let response = reqwest::Client::new().get(reply.url).send().await?;
         if let Err(err) = response.error_for_status_ref() {
             log_event!(
@@ -625,7 +634,7 @@ where
             return Err(DeviceSyncError::Reqwest(err));
         }
 
-        log_event!(Event::DeviceSyncPayloadImportStart);
+        log_event!(Event::DeviceSyncArchiveImportStart);
         #[cfg(not(target_arch = "wasm32"))]
         let reader = {
             use futures::StreamExt;
@@ -659,7 +668,7 @@ where
         // Run the import.
         insert_importer(&mut importer, &self.context).await?;
 
-        log_event!(Event::DeviceSyncPayloadImportSuccess);
+        log_event!(Event::DeviceSyncArchiveImportSuccess);
         Ok(())
     }
 }
