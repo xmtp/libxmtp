@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use prost::Message;
-use xmtp_common::{Event, fmt::TruncatedHex};
+use xmtp_common::{Event, fmt::ShortHex};
 use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask};
 use xmtp_macro::log_event;
 use xmtp_proto::{

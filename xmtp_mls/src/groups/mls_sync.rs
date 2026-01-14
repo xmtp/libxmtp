@@ -66,7 +66,7 @@ use thiserror::Error;
 use tracing::debug;
 use update_group_membership::apply_update_group_membership_intent;
 use xmtp_common::{
-    Event, ExponentialBackoff, Retry, RetryableError, Strategy, fmt::TruncatedHex, log_event,
+    Event, ExponentialBackoff, Retry, RetryableError, Strategy, fmt::ShortHex, log_event,
     retry_async, time::now_ns,
 };
 use xmtp_configuration::{

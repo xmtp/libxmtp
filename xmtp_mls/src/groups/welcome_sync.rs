@@ -14,7 +14,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 use xmtp_common::Event;
-use xmtp_common::fmt::TruncatedHex;
+use xmtp_common::fmt::ShortHex;
 use xmtp_common::{Retry, retry_async};
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};

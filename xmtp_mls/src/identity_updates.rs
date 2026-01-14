@@ -9,7 +9,7 @@ use crate::{
 use futures::{StreamExt, future::try_join_all, stream::FuturesUnordered};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use xmtp_common::{Event, Retry, RetryableError, fmt::TruncatedHex, retry_async, retryable};
+use xmtp_common::{Event, Retry, RetryableError, fmt::ShortHex, retry_async, retryable};
 use xmtp_configuration::Originators;
 use xmtp_cryptography::CredentialSign;
 use xmtp_db::StorageError;

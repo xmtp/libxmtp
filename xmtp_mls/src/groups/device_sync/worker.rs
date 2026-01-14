@@ -19,7 +19,7 @@ use tokio::sync::{OnceCell, broadcast};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
-use xmtp_common::{Event, fmt::TruncatedHex};
+use xmtp_common::{Event, fmt::ShortHex};
 use xmtp_db::{
     StoreOrIgnore,
     group_message::{MsgQueryArgs, StoredGroupMessage},

@@ -30,15 +30,15 @@ pub fn truncate_hex(hex_string: impl AsRef<str>) -> String {
 
 const SHORT_LEN: usize = 4;
 
-pub trait TruncatedHex {
+pub trait ShortHex {
     fn short_hex(&self) -> String;
 }
-impl TruncatedHex for Vec<u8> {
+impl ShortHex for Vec<u8> {
     fn short_hex(&self) -> String {
         self.as_slice().short_hex()
     }
 }
-impl TruncatedHex for &[u8] {
+impl ShortHex for &[u8] {
     fn short_hex(&self) -> String {
         hex::encode(&self[self.len().saturating_sub(SHORT_LEN)..])
     }
