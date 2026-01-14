@@ -20,12 +20,14 @@ use tokio::sync::{OnceCell, broadcast};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
+use xmtp_common::{Event, fmt::TruncatedHex};
 use xmtp_db::{
     StoreOrIgnore,
     group_message::{MsgQueryArgs, StoredGroupMessage},
     processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
 };
 use xmtp_db::{prelude::*, tasks::NewTask};
+use xmtp_macro::log_event;
 use xmtp_proto::{
     ConversionError,
     xmtp::{
@@ -149,7 +151,10 @@ where
                     self.evt_new_sync_group_from_welcome().await?;
                 }
                 SyncWorkerEvent::NewSyncGroupMsg => {
-                    self.evt_new_sync_group_msg().await?;
+                    self.evt_new_sync_group_msg(false).await?;
+                }
+                SyncWorkerEvent::Tick => {
+                    self.evt_new_sync_group_msg(true).await?;
                 }
                 SyncWorkerEvent::SyncPreferences(preference_updates) => {
                     self.evt_sync_preferences(preference_updates).await?;
@@ -170,7 +175,7 @@ where
             // to ensure that a sync payload is not being processed by two
             // threads at once because there should only ever be one sync worker
             // and the sync worker processes all events in series.
-            let _ = ctx.worker_events().send(SyncWorkerEvent::NewSyncGroupMsg);
+            let _ = ctx.worker_events().send(SyncWorkerEvent::Tick);
         }
     }
 
@@ -182,16 +187,19 @@ where
 
         init.get_or_try_init(|| async {
             let conn = self.client.context.db();
-            tracing::info!(
-                inbox_id = client.inbox_id(),
-                installation_id = hex::encode(client.context.installation_id()),
-                "Initializing device sync... url: {:?}",
-                client.context.device_sync().server_url
+            log_event!(
+                Event::DeviceSyncInitializing,
+                server_url = client.context.device_sync().server_url
             );
 
             // The only thing that sync init really does right now is ensures that there's a sync group.
             if conn.primary_sync_group()?.is_none() {
-                client.get_sync_group().await?;
+                log_event!(Event::DeviceSyncNoPrimarySyncGroup);
+                let sync_group = client.get_sync_group().await?;
+                log_event!(
+                    Event::DeviceSyncCreatedPrimarySyncGroup,
+                    group_id = sync_group.group_id.short_hex()
+                );
 
                 // Ask the sync group for a sync payload if the url is present.
                 if self.client.context.device_sync_server_url().is_some() {
@@ -199,11 +207,7 @@ where
                 }
             }
 
-            tracing::info!(
-                inbox_id = client.inbox_id(),
-                installation_id = hex::encode(client.context.installation_id()),
-                "Device sync initialized."
-            );
+            log_event!(Event::DeviceSyncInitializingFinished);
 
             Ok(())
         })
@@ -227,9 +231,15 @@ where
         Ok(())
     }
 
-    async fn evt_new_sync_group_msg(&self) -> Result<(), DeviceSyncError> {
+    async fn evt_new_sync_group_msg(&self, is_tick: bool) -> Result<(), DeviceSyncError> {
+        let unprocessed_messages = self.client.context.db().unprocessed_sync_group_messages()?;
+
+        if !is_tick || !unprocessed_messages.is_empty() {
+            tracing::info!("Processing {} messages.", unprocessed_messages.len());
+        }
+
         self.client
-            .process_new_sync_group_messages(&self.metrics)
+            .process_sync_group_messages(&self.metrics, unprocessed_messages)
             .await
     }
 
@@ -256,19 +266,17 @@ impl<Context> DeviceSyncClient<Context>
 where
     Context: XmtpSharedContext,
 {
-    async fn process_new_sync_group_messages(
+    async fn process_sync_group_messages(
         &self,
         handle: &WorkerMetrics<SyncMetric>,
+        messages: Vec<StoredGroupMessage>,
     ) -> Result<(), DeviceSyncError>
     where
         Context::Db: 'static,
     {
-        let unprocessed_messages = self.context.db().unprocessed_sync_group_messages()?;
         let installation_id = self.installation_id();
 
-        tracing::info!("Processing {} messages.", unprocessed_messages.len());
-
-        for (msg, content) in unprocessed_messages.clone().iter_with_content() {
+        for (msg, content) in messages.clone().iter_with_content() {
             let is_external = msg.sender_installation_id != installation_id;
 
             let msg_type = match &content {
@@ -278,10 +286,12 @@ where
                 ContentProto::Acknowledge(_) => "Acknowledge",
             };
 
-            tracing::info!(
-                "Message content: (external: {is_external}) id={}, type={}",
-                xmtp_common::fmt::truncate_hex(hex::encode(&msg.id)),
-                msg_type
+            log_event!(
+                Event::DeviceSyncProcessingMessages,
+                msg_type,
+                external = is_external,
+                msg_id = msg.id.short_hex(),
+                group_id = msg.group_id.short_hex()
             );
 
             if let Err(err) = self.process_message(handle, &msg, content).await {
@@ -289,7 +299,7 @@ where
             };
         }
 
-        for msg in unprocessed_messages {
+        for msg in messages {
             StoredProcessedDeviceSyncMessages { message_id: msg.id }
                 .store_or_ignore(&self.context.db())?;
         }
@@ -509,8 +519,6 @@ where
     }
 
     pub async fn send_sync_request(&self) -> Result<(), ClientError> {
-        tracing::info!("{}", "Sending a sync request.".yellow());
-
         let sync_group = self.get_sync_group().await?;
         sync_group
             .sync_with_conn()
@@ -533,6 +541,11 @@ where
 
         self.send_device_sync_message(ContentProto::Request(request))
             .await?;
+
+        log_event!(
+            Event::DeviceSyncSentSyncRequest,
+            group_id = sync_group.group_id.short_hex()
+        );
 
         Ok(())
     }

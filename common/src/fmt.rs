@@ -28,6 +28,20 @@ pub fn truncate_hex(hex_string: impl AsRef<str>) -> String {
     )
 }
 
+pub trait TruncatedHex {
+    fn short_hex(&self) -> String;
+}
+impl TruncatedHex for Vec<u8> {
+    fn short_hex(&self) -> String {
+        self.as_slice().short_hex()
+    }
+}
+impl TruncatedHex for &[u8] {
+    fn short_hex(&self) -> String {
+        truncate_hex(hex::encode(self))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
