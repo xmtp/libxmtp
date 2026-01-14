@@ -492,6 +492,7 @@ where
     ) -> Result<InstallationDiff, InstallationDiffError> {
         log_event!(
             Event::MembershipInstallationDiff,
+            self.context.inbox_id(),
             group_id = group_id.short_hex(),
             old_membership = ?old_group_membership,
             new_membership = ?new_group_membership
@@ -564,6 +565,7 @@ where
 
         log_event!(
             Event::MembershipInstallationDiffComputed,
+            self.context.inbox_id(),
             group_id = group_id.short_hex(),
             added_installations = ?added_installations,
             removed_installations = ?removed_installations

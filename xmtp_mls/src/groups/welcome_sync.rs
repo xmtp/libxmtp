@@ -75,6 +75,7 @@ where
                 if let Some(mls_group) = &mls_group {
                     log_event!(
                         Event::ProcessedWelcome,
+                        self.context.inbox_id(),
                         group_id = mls_group.group_id.as_slice().short_hex(),
                         conversation_type = %mls_group.conversation_type
                     );

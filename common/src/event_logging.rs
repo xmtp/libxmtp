@@ -5,7 +5,7 @@ pub use utils::*;
 pub enum Event {
     // ===================== General Client =====================
     /// Client created
-    #[context(inbox_id, device_sync_enabled, disabled_workers)]
+    #[context(device_sync_enabled, disabled_workers)]
     ClientCreated,
 
     // ===================== Group Operations =====================
