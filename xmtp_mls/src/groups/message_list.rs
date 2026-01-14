@@ -115,6 +115,7 @@ mod tests {
             originator_id: Originators::APPLICATION_MESSAGES.into(),
             expire_at_ns: None,
             inserted_at_ns: 0,
+            should_push: true,
         }
     }
 
@@ -158,6 +159,7 @@ mod tests {
             originator_id: Originators::APPLICATION_MESSAGES.into(),
             expire_at_ns: None,
             inserted_at_ns: 0,
+            should_push: true,
         }
     }
 

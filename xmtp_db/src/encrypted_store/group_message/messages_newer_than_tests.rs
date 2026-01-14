@@ -30,6 +30,7 @@ fn generate_message_with_cursor(
         sequence_id,
         originator_id,
         expire_at_ns: None,
+        should_push: true,
     }
 }
 
