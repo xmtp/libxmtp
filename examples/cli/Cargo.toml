@@ -12,10 +12,6 @@ version.workspace = true
 name = "xmtp_cli"
 path = "cli-client.rs"
 
-[[bin]]
-name = "simple_stream_test"
-path = "simple_stream_test.rs"
-
 [dependencies]
 alloy = { workspace = true, features = ["signer-mnemonic"] }
 chrono.workspace = true
