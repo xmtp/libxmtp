@@ -279,6 +279,7 @@ async fn test_true_out_of_order_deletion_by_sender() {
         sequence_id: 2,
         originator_id: 1,
         inserted_at_ns: 0,
+        should_push: false,
     };
     delete_message.store(&alix_conn)?;
 
@@ -324,6 +325,7 @@ async fn test_true_out_of_order_deletion_by_sender() {
         sequence_id: 1,
         originator_id: 1,
         inserted_at_ns: 0,
+        should_push: false,
     };
     message.store(&alix_conn)?;
 
@@ -397,6 +399,7 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
         sequence_id: 3,
         originator_id: 1,
         inserted_at_ns: 0,
+        should_push: false,
     };
     malicious_delete_message.store(&bo_conn)?;
 
@@ -434,6 +437,7 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
         sequence_id: 2,
         originator_id: 1,
         inserted_at_ns: 0,
+        should_push: false,
     };
     message.store(&bo_conn)?;
 
@@ -1001,6 +1005,7 @@ async fn test_out_of_order_sender_deletion_shows_correct_deleted_by() {
         sequence_id: 1,
         originator_id: 1,
         inserted_at_ns: 0,
+        should_push: false,
     };
     delete_message.store(&alix_conn)?;
 
@@ -1037,6 +1042,7 @@ async fn test_out_of_order_sender_deletion_shows_correct_deleted_by() {
         sequence_id: 2,
         originator_id: 1,
         inserted_at_ns: 0,
+        should_push: false,
     };
     original_message.store(&alix_conn)?;
 

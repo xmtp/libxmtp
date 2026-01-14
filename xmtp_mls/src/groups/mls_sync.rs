@@ -3344,6 +3344,7 @@ pub(crate) mod tests {
             sequence_id: 1,
             originator_id: 1,
             inserted_at_ns: 0,
+            should_push: false,
         };
 
         // Use load_mls_group_with_lock to get access to the MLS group and call process_delete_message
@@ -3410,6 +3411,7 @@ pub(crate) mod tests {
             sequence_id: 2,
             originator_id: 1,
             inserted_at_ns: 0,
+            should_push: false,
         };
 
         let storage = alix.context.mls_storage();
@@ -3483,6 +3485,7 @@ pub(crate) mod tests {
             sequence_id: 3,
             originator_id: 1,
             inserted_at_ns: 0,
+            should_push: false,
         };
 
         let storage = alix.context.mls_storage();

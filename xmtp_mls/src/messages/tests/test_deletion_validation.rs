@@ -30,6 +30,7 @@ fn create_test_message(
         sequence_id: 1,
         originator_id: 1,
         inserted_at_ns: 0,
+        should_push: false,
     }
 }
 
