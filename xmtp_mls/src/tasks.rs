@@ -243,7 +243,7 @@ where
                     .send_archive(
                         options,
                         &send_sync_archive.sync_group_id,
-                        send_sync_archive.request_id.as_ref().map(String::as_str),
+                        send_sync_archive.request_id.as_deref(),
                     )
                     .await
                     .inspect_err(|e| {
