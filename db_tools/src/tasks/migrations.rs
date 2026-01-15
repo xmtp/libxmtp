@@ -55,12 +55,22 @@ mod tests {
     use super::{applied_migrations, revert_migration_confirmed, run_migration_confirmed};
     use crate::tasks::rollback_confirmed;
 
+    /// Extract the version portion from a migration name.
+    /// Migration names are formatted as `YYYY-MM-DD-HHMMSS[-NNNN]_name`.
+    /// The version is everything before the first underscore, with dashes removed.
+    fn extract_version(name: &str) -> String {
+        // Get the timestamp portion (before the first underscore)
+        let version_part = name.split('_').next().unwrap_or(name);
+        // Remove dashes to get the numeric version
+        version_part.chars().filter(|c| c.is_numeric()).collect()
+    }
+
     /// Determine if a migration is applied based on its name and the list of applied versions.
     fn migration_status(name: &str, applied: &[String]) -> &'static str {
-        let name_version: String = name.chars().filter(|c| c.is_numeric()).collect();
+        let name_version = extract_version(name);
         if applied.iter().any(|a| {
-            let applied_version: String = a.chars().filter(|c| c.is_numeric()).collect();
-            name_version == applied_version
+            // Applied versions are already just the numeric version
+            a == &name_version
         }) {
             "[applied]"
         } else {
@@ -168,6 +178,14 @@ mod tests {
         xmtp_db::DbConnection::new(&alix.db()).run_pending_migrations()?;
     }
 
+    /// Extract numeric version from migration name for proper ordering.
+    /// Uses the version portion before the first underscore.
+    fn migration_numeric_version(name: &str) -> u64 {
+        extract_version(name)
+            .parse()
+            .expect("invalid migration version")
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_migration_status_applied_and_pending() {
         tester!(alix, persistent_db);
@@ -175,9 +193,10 @@ mod tests {
         let conn = alix.db();
         let db = xmtp_db::DbConnection::new(&conn);
 
-        // Get migrations sorted by date descending (newest first)
+        // Get migrations sorted by numeric version descending (newest first)
+        // This matches how the rollback function compares versions
         let mut available = db.available_migrations()?;
-        available.sort_by(|a, b| b.cmp(a));
+        available.sort_by_key(|m| std::cmp::Reverse(migration_numeric_version(m)));
 
         assert!(
             available.len() >= 10,

@@ -40,6 +40,7 @@ use crate::groups::{
     mls_ext::CommitLogStorer,
     validated_commit::LibXMTPVersion,
 };
+use crate::messages::enrichment::EnrichMessageError;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::{GroupCommitLock, context::XmtpSharedContext};
 use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
@@ -69,6 +70,7 @@ use xmtp_configuration::{
     MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, Originators,
     SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
+use xmtp_content_types::delete_message::DeleteMessageCodec;
 use xmtp_content_types::leave_request::LeaveRequestCodec;
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
 use xmtp_content_types::{
@@ -76,6 +78,7 @@ use xmtp_content_types::{
     reply::ReplyCodec,
 };
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
+use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
@@ -105,7 +108,7 @@ use xmtp_mls_common::{
         GroupMutableMetadata, GroupMutableMetadataError, MessageDisappearingSettings, MetadataField,
     },
 };
-use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
+use xmtp_proto::xmtp::mls::message_contents::content_types::{DeleteMessage, LeaveRequest};
 use xmtp_proto::{
     types::Cursor,
     xmtp::mls::message_contents::{
@@ -247,6 +250,11 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
             }
             (ReactionCodec::TYPE_ID, _) => LegacyReaction::decode(&content.content)
                 .and_then(|legacy_reaction| hex::decode(legacy_reaction.reference).ok()),
+            (DeleteMessageCodec::TYPE_ID, DeleteMessageCodec::MAJOR_VERSION) => {
+                DeleteMessage::decode(content.content.as_slice())
+                    .ok()
+                    .and_then(|delete_msg| hex::decode(delete_msg.message_id).ok())
+            }
             _ => None,
         };
 
@@ -758,6 +766,80 @@ where
         Ok(())
     }
 
+    /// Delete a message by its ID. Returns the ID of the deletion message.
+    ///
+    /// Only the original sender or a super admin can delete a message.
+    ///
+    /// # Wire Protocol
+    /// The `DeleteMessage` protobuf encodes `message_id` as a hex-encoded string for wire
+    /// transmission, while the database stores message IDs as raw bytes. This function handles
+    /// the conversion: it accepts raw bytes, hex-encodes them for the wire protocol, and when
+    /// processing incoming deletions (in `process_delete_message`), the hex string is decoded
+    /// back to bytes for database lookups.
+    ///
+    /// # Arguments
+    /// * `message_id` - The message ID as bytes
+    ///
+    /// # Returns
+    /// The ID of the deletion message
+    pub fn delete_message(&self, message_id: Vec<u8>) -> Result<Vec<u8>, GroupError> {
+        use error::DeleteMessageError;
+
+        let conn = self.context.db();
+
+        // Load the original message
+        let original_msg = conn
+            .get_group_message(&message_id)?
+            .ok_or_else(|| DeleteMessageError::MessageNotFound(hex::encode(&message_id)))?;
+
+        // Validate message belongs to this group (prevent cross-group deletion)
+        if original_msg.group_id != self.group_id {
+            return Err(DeleteMessageError::NotAuthorized.into());
+        }
+
+        // Check if message is already deleted
+        if conn.is_message_deleted(&message_id)? {
+            return Err(DeleteMessageError::MessageAlreadyDeleted.into());
+        }
+
+        let sender_inbox_id = self.context.inbox_id();
+        let is_sender = original_msg.sender_inbox_id == sender_inbox_id;
+        let is_super_admin = self.is_super_admin(sender_inbox_id.to_string())?;
+
+        if !is_sender && !is_super_admin {
+            return Err(DeleteMessageError::NotAuthorized.into());
+        }
+
+        if !original_msg.kind.is_deletable() || !original_msg.content_type.is_deletable() {
+            return Err(DeleteMessageError::NonDeletableMessage.into());
+        }
+
+        let delete_msg = DeleteMessage {
+            message_id: hex::encode(&message_id),
+        };
+
+        let encoded_delete = DeleteMessageCodec::encode(delete_msg)?;
+        let mut buf = Vec::new();
+        encoded_delete.encode(&mut buf)?;
+
+        let deletion_message_id = self.send_message_optimistic(&buf, SendMessageOpts::default())?;
+
+        let is_super_admin_deletion = !is_sender && is_super_admin;
+
+        let deletion = StoredMessageDeletion {
+            id: deletion_message_id.clone(),
+            group_id: self.group_id.clone(),
+            deleted_message_id: message_id,
+            deleted_by_inbox_id: sender_inbox_id.to_string(),
+            is_super_admin_deletion,
+            deleted_at_ns: now_ns(),
+        };
+
+        deletion.store(&conn)?;
+
+        Ok(deletion_message_id)
+    }
+
     /// Helper function to extract queryable content fields from a message
     fn extract_queryable_content_fields(message: &[u8]) -> QueryableContentFields {
         // Return early with default if decoding fails or type is missing
@@ -854,6 +936,18 @@ where
         let conn = self.context.db();
         let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
         Ok(messages)
+    }
+
+    /// Query for enriched messages (with reactions, replies, and deletion status)
+    pub fn find_enriched_messages(
+        &self,
+        args: &MsgQueryArgs,
+    ) -> Result<Vec<crate::messages::decoded_message::DecodedMessage>, EnrichMessageError> {
+        let conn = self.context.db();
+        let messages = conn.get_group_messages(&self.group_id, args)?;
+        let enriched =
+            crate::messages::enrichment::enrich_messages(conn, &self.group_id, messages)?;
+        Ok(enriched)
     }
 
     pub fn get_last_read_times(&self) -> Result<LatestMessageTimeBySender, GroupError> {
