@@ -203,7 +203,7 @@ In this section we describe the parameters, selected for instating MLS, as well 
 
 ### Parameter Selection
 
-The MLS group is [built](https://github.com/xmtp/libxmtp/blob/428826ecc7b86ac49787db4c9a49eb0e63e7a05e/xmtp_mls/src/groups/mod.rs#L1218-L1225) with the following parameters.
+The MLS group is [built](https://github.com/xmtp/libxmtp/blob/428826ecc7b86ac49787db4c9a49eb0e63e7a05e/crates/xmtp_mls/src/groups/mod.rs#L1218-L1225) with the following parameters.
 
 - ciphersuite: MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519
 - maximum past epochs: 3
@@ -296,7 +296,7 @@ The backend maintains a directory that maps Wallet Addresses to Inbox IDs and ma
 
 The [MLS architecture](https://datatracker.ietf.org/doc/html/draft-ietf-mls-architecture) recommends in Section 8.1. to use transport channels that are reliable and hide metadata.
 This is because MLS messages may still leak metadata.
-However, note that [XMTP uses private messages everywhere](https://github.com/xmtp/libxmtp/blob/3af97cb69435e5b9daa4577bad6a3bd187834d97/xmtp_mls/src/groups/mod.rs#L1222C29-L1222C45), which has the highest metadata hiding properties possible in MLS.
+However, note that [XMTP uses private messages everywhere](https://github.com/xmtp/libxmtp/blob/3af97cb69435e5b9daa4577bad6a3bd187834d97/crates/xmtp_mls/src/groups/mod.rs#L1222C29-L1222C45), which has the highest metadata hiding properties possible in MLS.
 Further note that the secure transport is supposed to protect MLS and XMTP metadata but is not necessary for the end-to-end security of the MLS-based messaging.
 
 To hide the remaining metadata, XMTP uses GRPC with TLS.
