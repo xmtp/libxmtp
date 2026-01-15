@@ -16,14 +16,15 @@ LibXMTP is a shared library encapsulating the core functionality of the XMTP mes
 
 ## Key Directories
 
-- `xmtp_mls/` - Core MLS v3 implementation
-- `xmtp_cryptography/` - Cryptographic operations
-- `xmtp_api_grpc/` - gRPC API client
-- `xmtp_db/` - Database layer and migrations
-- `bindings_ffi/` - FFI bindings for mobile
-- `bindings_wasm/` - WebAssembly bindings
-- `bindings_node/` - Node.js bindings
-- `examples/cli/` - Command-line example client
+- `crates/xmtp_mls/` - Core MLS v3 implementation
+- `crates/xmtp_cryptography/` - Cryptographic operations
+- `crates/xmtp_api_grpc/` - gRPC API client
+- `crates/xmtp_db/` - Database layer and migrations
+- `bindings/mobile/` - FFI bindings for mobile (Android/iOS)
+- `bindings/wasm/` - WebAssembly bindings
+- `bindings/node/` - Node.js bindings
+- `apps/cli/` - Command-line example client
+- `apps/mls_validation_service/` - MLS validation service
 - `dev/` - Development scripts and tools
 
 ## Development Commands
@@ -169,12 +170,12 @@ dev/lint
 
 ## Database
 
-Uses Diesel ORM with SQLite backend. Migrations are in `xmtp_db/migrations/`.
+Uses Diesel ORM with SQLite backend. Migrations are in `crates/xmtp_db/migrations/`.
 
 ### Code Change Requirements
 
 When making code changes in Rust, always ensure that the code is linted and formatted by running the `./dev/lint` script.
 
-For changes in the `bindings_node` crate, run the `./dev/lint` script, but also run `yarn` and `yarn format:check` in the `bindings_node` folder.
+For changes in the `bindings_node` crate, run the `./dev/lint` script, but also run `yarn` and `yarn format:check` in the `bindings/node` folder.
 
 Add new test coverage when appropriate.

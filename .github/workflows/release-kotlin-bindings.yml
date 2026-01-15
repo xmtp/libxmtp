@@ -33,22 +33,22 @@ jobs:
         with:
           workspaces: |
             .
-            bindings_ffi
+            bindings/mobile
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-ndk
       - name: Build target
         run: |
-          cargo ndk --platform 23 -o bindings_ffi/jniLibs/ --manifest-path bindings_ffi/Cargo.toml -t ${{ matrix.target }} build --release
+          cargo ndk --platform 23 -o bindings/mobile/jniLibs/ --manifest-path bindings/mobile/Cargo.toml -t ${{ matrix.target }} build --release
       - name: Prepare JNI libs
         run: |
-          mkdir -p bindings_ffi/jniLibs/${{ matrix.output_target }}/ && \
-          cp target/${{ matrix.target }}/release/libxmtpv3.so bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
+          mkdir -p bindings/mobile/jniLibs/${{ matrix.output_target }}/ && \
+          cp target/${{ matrix.target }}/release/libxmtpv3.so bindings/mobile/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
       - name: Upload binary
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.output_target }}
-          path: bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
+          path: bindings/mobile/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
           retention-days: 1
   package-kotlin:
     needs: [build-linux]
@@ -59,9 +59,9 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v7
         with:
-          path: bindings_ffi/jniLibs
+          path: bindings/mobile/jniLibs
       - name: Build archive
-        working-directory: bindings_ffi
+        working-directory: bindings/mobile
         run: |
           zip -r LibXMTPKotlinFFI.zip jniLibs
       - name: Get short SHA
@@ -70,7 +70,7 @@ jobs:
       - name: Get crate version
         id: version
         run: |
-          echo "::set-output name=value::$(cargo metadata --manifest-path bindings_ffi/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')"
+          echo "::set-output name=value::$(cargo metadata --manifest-path bindings/mobile/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')"
       - name: Create release
         id: create_release
         uses: actions/create-release@v1
@@ -87,6 +87,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./bindings_ffi/LibXMTPKotlinFFI.zip
+          asset_path: ./bindings/mobile/LibXMTPKotlinFFI.zip
           asset_name: LibXMTPKotlinFFI.zip
           asset_content_type: application/zip
