@@ -8,9 +8,10 @@ pub mod content_types;
 pub mod debug;
 pub mod disappearing_messages;
 pub mod dm;
-pub mod group;
 pub mod hmac_key;
+pub mod membership;
 pub mod messages;
+pub mod metadata;
 pub mod permissions;
 pub mod streams;
 
