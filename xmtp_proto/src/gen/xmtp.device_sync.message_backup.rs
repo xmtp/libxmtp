@@ -18,8 +18,9 @@ pub struct GroupMessageSave {
     pub sender_inbox_id: ::prost::alloc::string::String,
     #[prost(enumeration = "DeliveryStatusSave", tag = "8")]
     pub delivery_status: i32,
+    #[deprecated]
     #[prost(enumeration = "ContentTypeSave", tag = "9")]
-    pub content_type: i32,
+    pub content_type_save: i32,
     #[prost(int32, tag = "10")]
     pub version_major: i32,
     #[prost(int32, tag = "11")]
@@ -32,6 +33,8 @@ pub struct GroupMessageSave {
     pub sequence_id: ::core::option::Option<i64>,
     #[prost(int64, optional, tag = "15")]
     pub originator_id: ::core::option::Option<i64>,
+    #[prost(string, tag = "16")]
+    pub content_type: ::prost::alloc::string::String,
 }
 impl ::prost::Name for GroupMessageSave {
     const NAME: &'static str = "GroupMessageSave";
