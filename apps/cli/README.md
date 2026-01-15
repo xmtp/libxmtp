@@ -11,9 +11,9 @@ This is a demo XMTP MLS console client (CLI) that you can use to send and receiv
 
 Use the CLI to send a [double ratchet message](https://github.com/xmtp/libxmtp/blob/main/README.md#double-ratchet-messaging) between test wallets on the XMTP `dev` network.
 
-1. Go to the `examples/cli` directory.
+1. Go to the `apps/cli` directory.
 
-2. Create a sender wallet account (user1). Create an [XMTP identity](../../xmtp_mls/IDENTITY.md) and store it in the database. Grant the installation key bundle permission to message on behalf of the sender address. This will allow the CLI to message on behalf of the sender address.
+2. Create a sender wallet account (user1). Create an XMTP identity and store it in the database. Grant the installation key bundle permission to message on behalf of the sender address. This will allow the CLI to message on behalf of the sender address.
 
    ```bash
    ./xli.sh --db user1.db3 register
