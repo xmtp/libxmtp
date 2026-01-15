@@ -341,7 +341,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         log_event!(
             Event::ClientCreated,
+            context.installation_id(),
             inbox_id = context.inbox_id(),
+            full_installation_id = hex::encode(context.installation_id()),
             device_sync_enabled = context.device_sync_worker_enabled(),
             disabled_workers = disable_workers
         );

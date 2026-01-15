@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use prost::Message;
+use xmtp_common::{Event, fmt::ShortHex};
 use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask};
+use xmtp_macro::log_event;
 use xmtp_proto::{
     types::{WelcomeMessage, WelcomeMessageType},
     xmtp::mls::database::Task as TaskProto,
@@ -229,7 +231,7 @@ where
                 let Some(metrics) = context.sync_metrics().clone() else {
                     return Err(TaskWorkerError::MissingMetrics);
                 };
-                let Some(options) = send_sync_archive.options else {
+                let Some(options) = &send_sync_archive.options else {
                     tracing::warn!(
                         "SendSyncArchive task has no archive options. Unable to process."
                     );
@@ -241,9 +243,17 @@ where
                     .send_archive(
                         options,
                         &send_sync_archive.sync_group_id,
-                        send_sync_archive.request_id,
+                        send_sync_archive.request_id.as_deref(),
                     )
-                    .await?;
+                    .await
+                    .inspect_err(|e| {
+                        log_event!(Event::DeviceSyncArchiveUploadFailure,
+                        context.installation_id(),
+                        group_id = send_sync_archive.sync_group_id.short_hex(),
+                        request_id = send_sync_archive.request_id(),
+                        err = %e
+                        )
+                    })?;
             }
             None => {
                 tracing::error!("Task {} has no data. Deleting.", task.id);

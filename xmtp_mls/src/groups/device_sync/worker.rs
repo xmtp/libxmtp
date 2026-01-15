@@ -13,19 +13,20 @@ use crate::{
     },
 };
 use futures::TryFutureExt;
-use owo_colors::OwoColorize;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{OnceCell, broadcast};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
+use xmtp_common::{Event, fmt::ShortHex};
 use xmtp_db::{
     StoreOrIgnore,
     group_message::{MsgQueryArgs, StoredGroupMessage},
     processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
 };
 use xmtp_db::{prelude::*, tasks::NewTask};
+use xmtp_macro::log_event;
 use xmtp_proto::{
     ConversionError,
     xmtp::{
@@ -149,7 +150,10 @@ where
                     self.evt_new_sync_group_from_welcome().await?;
                 }
                 SyncWorkerEvent::NewSyncGroupMsg => {
-                    self.evt_new_sync_group_msg().await?;
+                    self.evt_new_sync_group_msg(false).await?;
+                }
+                SyncWorkerEvent::Tick => {
+                    self.evt_new_sync_group_msg(true).await?;
                 }
                 SyncWorkerEvent::SyncPreferences(preference_updates) => {
                     self.evt_sync_preferences(preference_updates).await?;
@@ -170,7 +174,7 @@ where
             // to ensure that a sync payload is not being processed by two
             // threads at once because there should only ever be one sync worker
             // and the sync worker processes all events in series.
-            let _ = ctx.worker_events().send(SyncWorkerEvent::NewSyncGroupMsg);
+            let _ = ctx.worker_events().send(SyncWorkerEvent::Tick);
         }
     }
 
@@ -182,16 +186,24 @@ where
 
         init.get_or_try_init(|| async {
             let conn = self.client.context.db();
-            tracing::info!(
-                inbox_id = client.inbox_id(),
-                installation_id = hex::encode(client.context.installation_id()),
-                "Initializing device sync... url: {:?}",
-                client.context.device_sync().server_url
+            log_event!(
+                Event::DeviceSyncInitializing,
+                self.client.context.installation_id(),
+                server_url = client.context.device_sync().server_url
             );
 
             // The only thing that sync init really does right now is ensures that there's a sync group.
             if conn.primary_sync_group()?.is_none() {
-                client.get_sync_group().await?;
+                log_event!(
+                    Event::DeviceSyncNoPrimarySyncGroup,
+                    self.client.context.installation_id()
+                );
+                let sync_group = client.get_sync_group().await?;
+                log_event!(
+                    Event::DeviceSyncCreatedPrimarySyncGroup,
+                    self.client.context.installation_id(),
+                    group_id = sync_group.group_id.short_hex()
+                );
 
                 // Ask the sync group for a sync payload if the url is present.
                 if self.client.context.device_sync_server_url().is_some() {
@@ -199,10 +211,9 @@ where
                 }
             }
 
-            tracing::info!(
-                inbox_id = client.inbox_id(),
-                installation_id = hex::encode(client.context.installation_id()),
-                "Device sync initialized."
+            log_event!(
+                Event::DeviceSyncInitializingFinished,
+                self.client.context.installation_id()
             );
 
             Ok(())
@@ -227,9 +238,15 @@ where
         Ok(())
     }
 
-    async fn evt_new_sync_group_msg(&self) -> Result<(), DeviceSyncError> {
+    async fn evt_new_sync_group_msg(&self, is_tick: bool) -> Result<(), DeviceSyncError> {
+        let unprocessed_messages = self.client.context.db().unprocessed_sync_group_messages()?;
+
+        if !is_tick || !unprocessed_messages.is_empty() {
+            tracing::info!("Processing {} messages.", unprocessed_messages.len());
+        }
+
         self.client
-            .process_new_sync_group_messages(&self.metrics)
+            .process_sync_group_messages(&self.metrics, unprocessed_messages)
             .await
     }
 
@@ -256,19 +273,17 @@ impl<Context> DeviceSyncClient<Context>
 where
     Context: XmtpSharedContext,
 {
-    async fn process_new_sync_group_messages(
+    async fn process_sync_group_messages(
         &self,
         handle: &WorkerMetrics<SyncMetric>,
+        messages: Vec<StoredGroupMessage>,
     ) -> Result<(), DeviceSyncError>
     where
         Context::Db: 'static,
     {
-        let unprocessed_messages = self.context.db().unprocessed_sync_group_messages()?;
         let installation_id = self.installation_id();
 
-        tracing::info!("Processing {} messages.", unprocessed_messages.len());
-
-        for (msg, content) in unprocessed_messages.clone().iter_with_content() {
+        for (msg, content) in messages.clone().iter_with_content() {
             let is_external = msg.sender_installation_id != installation_id;
 
             let msg_type = match &content {
@@ -278,18 +293,26 @@ where
                 ContentProto::Acknowledge(_) => "Acknowledge",
             };
 
-            tracing::info!(
-                "Message content: (external: {is_external}) id={}, type={}",
-                xmtp_common::fmt::truncate_hex(hex::encode(&msg.id)),
-                msg_type
+            log_event!(
+                Event::DeviceSyncProcessingMessages,
+                self.context.installation_id(),
+                msg_type,
+                external = is_external,
+                msg_id = msg.id.short_hex(),
+                group_id = msg.group_id.short_hex()
             );
 
             if let Err(err) = self.process_message(handle, &msg, content).await {
-                tracing::error!("Message processing: {err:?}");
+                log_event!(
+                    Event::DeviceSyncMessageProcessingError,
+                    self.context.installation_id(),
+                    err = %err,
+                    msg_id = msg.id.short_hex()
+                );
             };
         }
 
-        for msg in unprocessed_messages {
+        for msg in messages {
             StoredProcessedDeviceSyncMessages { message_id: msg.id }
                 .store_or_ignore(&self.context.db())?;
         }
@@ -347,7 +370,9 @@ where
                     // Ignore our own messages
                     return Ok(());
                 }
-                self.process_sync_payload(reply).await?;
+                self.process_sync_payload(msg, reply).await.inspect_err(
+                    |err| log_event!(Event::DeviceSyncArchiveImportFailure, self.context.installation_id(), err = %err),
+                )?;
                 handle.increment_metric(SyncMetric::PayloadProcessed);
             }
             ContentProto::PreferenceUpdates(PreferenceUpdatesProto { updates }) => {
@@ -401,7 +426,12 @@ where
             if message.sender_installation_id != self.installation_id() {
                 // Request has already been acknowledged by another installation.
                 // Let that installation handle it.
-                tracing::info!("Request was already acknowledged by another installation.");
+                log_event!(
+                    Event::DeviceSyncRequestAlreadyAcknowledged,
+                    self.context.installation_id(),
+                    request_id,
+                    acknowledged_by = message.sender_installation_id.short_hex()
+                );
                 return Err(DeviceSyncError::AlreadyAcknowledged);
             }
 
@@ -413,24 +443,32 @@ where
             request_id: request_id.to_string(),
         }))
         .await?;
-
+        log_event!(
+            Event::DeviceSyncRequestAcknowledged,
+            self.context.installation_id(),
+            request_id
+        );
         Ok(())
     }
 
     pub(crate) async fn send_archive(
         &self,
-        options: BackupOptions,
+        options: &BackupOptions,
         sync_group_id: &Vec<u8>,
-        request_id: Option<String>,
+        request_id: Option<&str>,
     ) -> Result<(), DeviceSyncError>
     where
         Context::Db: 'static,
     {
+        log_event!(
+            Event::DeviceSyncArchiveUploadStart,
+            self.context.installation_id(),
+            group_id = sync_group_id.short_hex()
+        );
         let Some(device_sync_server_url) = &self.context.device_sync().server_url else {
             tracing::info!("No message history payload sent - server url not present.");
             return Ok(());
         };
-        tracing::info!("{}", "Sending sync payload.".yellow());
 
         let acknowledge = async || {
             if let Some(request_id) = &request_id {
@@ -454,6 +492,7 @@ where
         // Generate a random encryption key
         let key = xmtp_common::rand_vec::<32>();
 
+        tracing::info!("Building the exporter.");
         // Now we want to create an encrypted stream from our database to the history server.
         //
         // 1. Build the exporter
@@ -461,6 +500,7 @@ where
         let exporter = ArchiveExporter::new(options.clone(), db, &key);
         let metadata = exporter.metadata().clone();
 
+        tracing::info!("Uploading the archive.");
         // 5. Make the request
         let url = format!("{device_sync_server_url}/upload");
         let response = exporter.post_to_url(&url).await?;
@@ -470,7 +510,7 @@ where
             encryption_key: Some(DeviceSyncKeyType {
                 key: Some(Key::Aes256Gcm(key)),
             }),
-            request_id: request_id.clone().unwrap_or_default(),
+            request_id: request_id.map(str::to_string).unwrap_or_default(),
             url: format!("{device_sync_server_url}/files/{response}",),
             metadata: Some(metadata),
 
@@ -484,6 +524,7 @@ where
             return Ok(());
         };
 
+        tracing::info!("Sending sync request reply message.");
         // Send the message out over the network
         self.send_device_sync_message(ContentProto::Reply(reply))
             .await?;
@@ -509,8 +550,6 @@ where
     }
 
     pub async fn send_sync_request(&self) -> Result<(), ClientError> {
-        tracing::info!("{}", "Sending a sync request.".yellow());
-
         let sync_group = self.get_sync_group().await?;
         sync_group
             .sync_with_conn()
@@ -533,6 +572,12 @@ where
 
         self.send_device_sync_message(ContentProto::Request(request))
             .await?;
+
+        log_event!(
+            Event::DeviceSyncSentSyncRequest,
+            self.context.installation_id(),
+            group_id = sync_group.group_id.short_hex()
+        );
 
         Ok(())
     }
@@ -566,9 +611,17 @@ where
 
     pub async fn process_sync_payload(
         &self,
+        msg: &StoredGroupMessage,
         reply: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
+        log_event!(
+            Event::DeviceSyncArchiveProcessingStart,
+            self.context.installation_id(),
+            msg_id = msg.id.short_hex(),
+            group_id = msg.group_id.short_hex()
+        );
         if reply.kind() != BackupElementSelection::Unspecified {
+            log_event!(Event::DeviceSyncV1Archive, self.context.installation_id());
             // This is a legacy payload, the legacy function will process it.
             return Ok(());
         }
@@ -578,33 +631,41 @@ where
         // Check if this reply was asked for by this installation.
         if !self.is_reply_requested_by_installation(&reply).await? {
             // This installation didn't ask for it. Ignore the reply.
-            tracing::info!(
-                "{}",
-                "Sync response was not intended for this installation.".yellow()
+            log_event!(
+                Event::DeviceSyncArchiveNotRequested,
+                self.context.installation_id()
             );
             return Ok(());
         }
 
         // If a payload was sent to this installation,
         // that means they also sent this installation a bunch of welcomes.
-        tracing::info!(
-            "{}",
-            "Sync response is for this installation. Syncing welcomes.".yellow()
+        log_event!(
+            Event::DeviceSyncArchiveAccepted,
+            self.context.installation_id()
         );
         self.welcome_service.sync_welcomes().await?;
 
         // Get a download stream of the payload.
-        tracing::info!("Downloading sync payload.");
+        log_event!(
+            Event::DeviceSyncArchiveDownloading,
+            self.context.installation_id()
+        );
         let response = reqwest::Client::new().get(reply.url).send().await?;
         if let Err(err) = response.error_for_status_ref() {
-            tracing::error!(
-                "Failed to download file. Status code: {} Response: {:?}",
-                response.status(),
-                response
+            log_event!(
+                Event::DeviceSyncPayloadDownloadFailure,
+                self.context.installation_id(),
+                status = %response.status(),
+                err = %err
             );
             return Err(DeviceSyncError::Reqwest(err));
         }
 
+        log_event!(
+            Event::DeviceSyncArchiveImportStart,
+            self.context.installation_id()
+        );
         #[cfg(not(target_arch = "wasm32"))]
         let reader = {
             use futures::StreamExt;
@@ -625,7 +686,6 @@ where
         };
 
         // Create an importer around that futures_reader.
-
         let Some(DeviceSyncKeyType {
             key: Some(Key::Aes256Gcm(key)),
         }) = reply.encryption_key
@@ -639,6 +699,10 @@ where
         // Run the import.
         insert_importer(&mut importer, &self.context).await?;
 
+        log_event!(
+            Event::DeviceSyncArchiveImportSuccess,
+            self.context.installation_id()
+        );
         Ok(())
     }
 }

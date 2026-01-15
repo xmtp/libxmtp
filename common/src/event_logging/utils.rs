@@ -1,11 +1,14 @@
 use std::sync::atomic::{AtomicU8, Ordering};
 
+use crate::Event;
+
 /// Metadata about a log event variant, including its doc comment and required context fields.
 /// This struct is used by proc macros to access event metadata at compile time.
 #[derive(Debug, Clone, Copy)]
 pub struct EventMetadata {
     /// The name of the enum variant
     pub name: &'static str,
+    pub event: Event,
     /// The doc comment describing the event
     pub doc: &'static str,
     /// The required context fields for this event
