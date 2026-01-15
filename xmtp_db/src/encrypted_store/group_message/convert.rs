@@ -130,6 +130,7 @@ impl From<DeliveryStatus> for DeliveryStatusSave {
         }
     }
 }
+/// Converts ContentType to ContentTypeSave for device sync backup.
 impl From<ContentType> for ContentTypeSave {
     fn from(value: ContentType) -> Self {
         match value {
@@ -142,8 +143,16 @@ impl From<ContentType> for ContentTypeSave {
             ContentType::Reply => Self::Reply,
             ContentType::Text => Self::Text,
             ContentType::TransactionReference => Self::TransactionReference,
-            ContentType::Unknown => Self::Unknown,
-            _ => Self::Unknown,
+
+            // question: do we need to include these in the backup?
+            ContentType::Unknown
+            | ContentType::WalletSendCalls
+            | ContentType::LeaveRequest
+            | ContentType::Markdown
+            | ContentType::Actions
+            | ContentType::Intent
+            | ContentType::MultiRemoteAttachment
+            | ContentType::DeleteMessage => Self::Unknown,
         }
     }
 }

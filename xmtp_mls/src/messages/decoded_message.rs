@@ -49,6 +49,14 @@ pub struct Markdown {
     pub content: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeletedBy {
+    /// Deleted by the original sender
+    Sender,
+    /// Deleted by a super admin
+    Admin(String), // inbox_id of the admin who deleted the message
+}
+
 #[derive(Debug, Clone)]
 pub enum MessageBody {
     Text(Text),
@@ -65,6 +73,10 @@ pub enum MessageBody {
     Intent(Option<Intent>),
     Actions(Option<Actions>),
     LeaveRequest(LeaveRequest),
+    /// Placeholder for a message that has been deleted (shown in message lists)
+    DeletedMessage {
+        deleted_by: DeletedBy,
+    },
     Custom(EncodedContent),
 }
 

@@ -809,6 +809,33 @@ mock! {
 
         fn run_pending_migrations(&self) -> Result<Vec<String>, crate::ConnectionError>;
     }
+    impl crate::message_deletion::QueryMessageDeletion for DbQuery {
+        fn get_message_deletion(
+            &self,
+            _id: &[u8],
+        ) -> Result<Option<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
+
+        fn get_deletion_by_deleted_message_id(
+            &self,
+            _deleted_message_id: &[u8],
+        ) -> Result<Option<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
+
+        fn get_deletions_for_messages(
+            &self,
+            _message_ids: Vec<Vec<u8>>,
+        ) -> Result<Vec<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
+
+        fn get_group_deletions(
+            &self,
+            _group_id: &[u8],
+        ) -> Result<Vec<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
+
+        fn is_message_deleted(
+            &self,
+            _message_id: &[u8],
+        ) -> Result<bool, crate::ConnectionError>;
+    }
+
 }
 
 impl ConnectionExt for MockDbQuery {

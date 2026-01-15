@@ -37,7 +37,11 @@ where
 
 fn filter_out_hidden_message_types_from_query(query: &MsgQueryArgs) -> MsgQueryArgs {
     let mut new_query = query.clone();
-    let hidden_message_types = vec![DbContentType::Reaction, DbContentType::ReadReceipt];
+    let hidden_message_types = vec![
+        DbContentType::Reaction,
+        DbContentType::ReadReceipt,
+        DbContentType::DeleteMessage,
+    ];
 
     let excluded_content_types = match &query.exclude_content_types {
         Some(excluded) => {
@@ -600,6 +604,77 @@ mod tests {
         // Should only have the valid reaction, invalid one should be filtered out
         assert_reaction_count(original_msg, 1);
         assert_has_reaction(original_msg, "👍");
+    }
+
+    #[tokio::test]
+    async fn test_hidden_message_types_are_filtered() {
+        let (group, context) = setup_test_group().await;
+        let conn = context.db();
+
+        // Store a regular text message
+        create_and_store_message(
+            &conn,
+            &group.group_id,
+            vec![1],
+            TestContentGenerator::text_content("Hello World"),
+            0,
+            "sender1",
+        );
+
+        // Store a reaction (should be hidden)
+        let msg_id_hex = vec![1].encode_hex();
+        create_and_store_message(
+            &conn,
+            &group.group_id,
+            vec![2],
+            TestContentGenerator::reaction_content(&msg_id_hex, "👍", ReactionAction::Added),
+            1000,
+            "reactor1",
+        );
+
+        // Store a read receipt (should be hidden)
+        create_and_store_message(
+            &conn,
+            &group.group_id,
+            vec![3],
+            TestContentGenerator::read_receipt_content(),
+            2000,
+            "reader1",
+        );
+
+        // Store a delete message (should be hidden)
+        create_and_store_message(
+            &conn,
+            &group.group_id,
+            vec![4],
+            TestContentGenerator::delete_message_content(&msg_id_hex),
+            3000,
+            "deleter1",
+        );
+
+        // Store another text message
+        create_and_store_message(
+            &conn,
+            &group.group_id,
+            vec![5],
+            TestContentGenerator::text_content("Second message"),
+            4000,
+            "sender2",
+        );
+
+        // Query messages - should only return the 2 text messages
+        // Reactions, ReadReceipt, and DeleteMessage should be filtered out
+        let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
+
+        // We expect only 2 messages (the text messages)
+        // Reaction is attached to message 1, ReadReceipt and DeleteMessage are filtered
+        assert_message_count(&messages, 2);
+        assert_text_content(&messages[0], "Hello World");
+        assert_text_content(&messages[1], "Second message");
+
+        // The reaction should be attached to the first message
+        assert_reaction_count(&messages[0], 1);
+        assert_has_reaction(&messages[0], "👍");
     }
 
     #[tokio::test]

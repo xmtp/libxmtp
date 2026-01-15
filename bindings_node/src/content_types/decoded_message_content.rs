@@ -4,6 +4,7 @@ use xmtp_mls::messages::decoded_message::MessageBody;
 
 use super::actions::Actions;
 use super::attachment::Attachment;
+use super::deleted_message::DeletedMessage;
 use super::group_updated::GroupUpdated;
 use super::intent::Intent;
 use super::leave_request::LeaveRequest;
@@ -34,6 +35,7 @@ pub enum DecodedMessageContentType {
   Text,
   TransactionReference,
   WalletSendCalls,
+  DeletedMessage,
 }
 
 #[derive(Clone)]
@@ -53,6 +55,7 @@ pub enum DecodedMessageContentInner {
   Text(String),
   TransactionReference(TransactionReference),
   WalletSendCalls(WalletSendCalls),
+  DeletedMessage(DeletedMessage),
 }
 
 #[derive(Clone)]
@@ -87,6 +90,7 @@ impl DecodedMessageContent {
         DecodedMessageContentType::TransactionReference
       }
       DecodedMessageContentInner::WalletSendCalls(_) => DecodedMessageContentType::WalletSendCalls,
+      DecodedMessageContentInner::DeletedMessage(_) => DecodedMessageContentType::DeletedMessage,
     }
   }
 
@@ -203,6 +207,14 @@ impl DecodedMessageContent {
   }
 
   #[napi(getter)]
+  pub fn deleted_message(&self) -> Option<DeletedMessage> {
+    match &self.inner {
+      DecodedMessageContentInner::DeletedMessage(dm) => Some(dm.clone()),
+      _ => None,
+    }
+  }
+
+  #[napi(getter)]
   pub fn custom(&self) -> Option<EncodedContent> {
     match &self.inner {
       DecodedMessageContentInner::Custom(c) => Some(c.clone()),
@@ -243,6 +255,9 @@ impl TryFrom<MessageBody> for DecodedMessageContent {
           None => None,
         };
         DecodedMessageContentInner::Actions(actions)
+      }
+      MessageBody::DeletedMessage { deleted_by } => {
+        DecodedMessageContentInner::DeletedMessage(deleted_by.into())
       }
       MessageBody::Custom(c) => DecodedMessageContentInner::Custom(c.into()),
     };
