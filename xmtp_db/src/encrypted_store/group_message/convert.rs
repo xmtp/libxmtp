@@ -11,6 +11,11 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
         let kind = value.kind().try_into()?;
         let delivery_status = value.delivery_status().try_into()?;
 
+        let mut content_type: ContentType = value.content_type_save().into();
+        if matches!(content_type, ContentType::Unknown) {
+            content_type = value.content_type.into();
+        }
+
         Ok(Self {
             id: value.id,
             group_id: value.group_id,
@@ -20,7 +25,7 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
             sender_installation_id: value.sender_installation_id,
             sender_inbox_id: value.sender_inbox_id,
             delivery_status,
-            content_type: value.content_type.into(),
+            content_type,
             version_major: value.version_major,
             version_minor: value.version_minor,
             authority_id: value.authority_id,
@@ -65,10 +70,9 @@ impl TryFrom<DeliveryStatusSave> for DeliveryStatus {
     }
 }
 
-impl TryFrom<ContentTypeSave> for ContentType {
-    type Error = xmtp_proto::ConversionError;
-    fn try_from(value: ContentTypeSave) -> Result<Self, Self::Error> {
-        let content_type = match value {
+impl From<ContentTypeSave> for ContentType {
+    fn from(value: ContentTypeSave) -> Self {
+        match value {
             ContentTypeSave::Attachment => Self::Attachment,
             ContentTypeSave::GroupMembershipChange => Self::GroupMembershipChange,
             ContentTypeSave::GroupUpdated => Self::GroupUpdated,
@@ -78,12 +82,8 @@ impl TryFrom<ContentTypeSave> for ContentType {
             ContentTypeSave::Reply => Self::Reply,
             ContentTypeSave::Text => Self::Text,
             ContentTypeSave::TransactionReference => Self::TransactionReference,
-            ContentTypeSave::Unknown => Self::Unknown,
-            ContentTypeSave::Unspecified => {
-                return Err(ConversionError::Unspecified("content_type"));
-            }
-        };
-        Ok(content_type)
+            _ => Self::Unknown,
+        }
     }
 }
 
@@ -129,32 +129,6 @@ impl From<DeliveryStatus> for DeliveryStatusSave {
             DeliveryStatus::Failed => Self::Failed,
             DeliveryStatus::Published => Self::Published,
             DeliveryStatus::Unpublished => Self::Unpublished,
-        }
-    }
-}
-/// Converts ContentType to ContentTypeSave for device sync backup.
-impl From<ContentType> for ContentTypeSave {
-    fn from(value: ContentType) -> Self {
-        match value {
-            ContentType::Attachment => Self::Attachment,
-            ContentType::GroupMembershipChange => Self::GroupMembershipChange,
-            ContentType::GroupUpdated => Self::GroupUpdated,
-            ContentType::Reaction => Self::Reaction,
-            ContentType::ReadReceipt => Self::ReadReceipt,
-            ContentType::RemoteAttachment => Self::RemoteAttachment,
-            ContentType::Reply => Self::Reply,
-            ContentType::Text => Self::Text,
-            ContentType::TransactionReference => Self::TransactionReference,
-
-            // question: do we need to include these in the backup?
-            ContentType::Unknown
-            | ContentType::WalletSendCalls
-            | ContentType::LeaveRequest
-            | ContentType::Markdown
-            | ContentType::Actions
-            | ContentType::Intent
-            | ContentType::MultiRemoteAttachment
-            | ContentType::DeleteMessage => Self::Unknown,
         }
     }
 }
