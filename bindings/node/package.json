@@ -4,7 +4,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://git@github.com/xmtp/libxmtp.git",
-    "directory": "bindings_node"
+    "directory": "bindings/node"
   },
   "license": "MIT",
   "type": "module",
