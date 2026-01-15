@@ -10,7 +10,6 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
     fn try_from(value: GroupMessageSave) -> Result<Self, Self::Error> {
         let kind = value.kind().try_into()?;
         let delivery_status = value.delivery_status().try_into()?;
-        let content_type = value.content_type().try_into()?;
 
         Ok(Self {
             id: value.id,
@@ -21,7 +20,7 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
             sender_installation_id: value.sender_installation_id,
             sender_inbox_id: value.sender_inbox_id,
             delivery_status,
-            content_type,
+            content_type: value.content_type.into(),
             version_major: value.version_major,
             version_minor: value.version_minor,
             authority_id: value.authority_id,
@@ -92,7 +91,6 @@ impl From<StoredGroupMessage> for GroupMessageSave {
     fn from(value: StoredGroupMessage) -> Self {
         let kind: GroupMessageKindSave = value.kind.into();
         let delivery_status: DeliveryStatusSave = value.delivery_status.into();
-        let content_type: ContentTypeSave = value.content_type.into();
 
         Self {
             id: value.id,
@@ -103,13 +101,17 @@ impl From<StoredGroupMessage> for GroupMessageSave {
             sender_installation_id: value.sender_installation_id,
             sender_inbox_id: value.sender_inbox_id,
             delivery_status: delivery_status as i32,
-            content_type: content_type as i32,
+            content_type: value.content_type.to_string(),
             version_major: value.version_major,
             version_minor: value.version_minor,
             authority_id: value.authority_id,
             reference_id: value.reference_id,
             sequence_id: Some(value.sequence_id),
             originator_id: Some(value.originator_id),
+
+            // Deprecated
+            #[allow(deprecated)]
+            content_type_save: 0,
         }
     }
 }

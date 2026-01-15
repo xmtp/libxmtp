@@ -279,7 +279,7 @@ impl serde::Serialize for GroupMessageSave {
         if self.delivery_status != 0 {
             len += 1;
         }
-        if self.content_type != 0 {
+        if self.content_type_save != 0 {
             len += 1;
         }
         if self.version_major != 0 {
@@ -298,6 +298,9 @@ impl serde::Serialize for GroupMessageSave {
             len += 1;
         }
         if self.originator_id.is_some() {
+            len += 1;
+        }
+        if !self.content_type.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.message_backup.GroupMessageSave", len)?;
@@ -339,10 +342,10 @@ impl serde::Serialize for GroupMessageSave {
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.delivery_status)))?;
             struct_ser.serialize_field("delivery_status", &v)?;
         }
-        if self.content_type != 0 {
-            let v = ContentTypeSave::try_from(self.content_type)
-                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.content_type)))?;
-            struct_ser.serialize_field("content_type", &v)?;
+        if self.content_type_save != 0 {
+            let v = ContentTypeSave::try_from(self.content_type_save)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.content_type_save)))?;
+            struct_ser.serialize_field("content_type_save", &v)?;
         }
         if self.version_major != 0 {
             struct_ser.serialize_field("version_major", &self.version_major)?;
@@ -368,6 +371,9 @@ impl serde::Serialize for GroupMessageSave {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("originator_id", ToString::to_string(&v).as_str())?;
         }
+        if !self.content_type.is_empty() {
+            struct_ser.serialize_field("content_type", &self.content_type)?;
+        }
         struct_ser.end()
     }
 }
@@ -392,8 +398,8 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
             "senderInboxId",
             "delivery_status",
             "deliveryStatus",
-            "content_type",
-            "contentType",
+            "content_type_save",
+            "contentTypeSave",
             "version_major",
             "versionMajor",
             "version_minor",
@@ -406,6 +412,8 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
             "sequenceId",
             "originator_id",
             "originatorId",
+            "content_type",
+            "contentType",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -418,13 +426,14 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
             SenderInstallationId,
             SenderInboxId,
             DeliveryStatus,
-            ContentType,
+            ContentTypeSave,
             VersionMajor,
             VersionMinor,
             AuthorityId,
             ReferenceId,
             SequenceId,
             OriginatorId,
+            ContentType,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -455,13 +464,14 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
                             "senderInstallationId" | "sender_installation_id" => Ok(GeneratedField::SenderInstallationId),
                             "senderInboxId" | "sender_inbox_id" => Ok(GeneratedField::SenderInboxId),
                             "deliveryStatus" | "delivery_status" => Ok(GeneratedField::DeliveryStatus),
-                            "contentType" | "content_type" => Ok(GeneratedField::ContentType),
+                            "contentTypeSave" | "content_type_save" => Ok(GeneratedField::ContentTypeSave),
                             "versionMajor" | "version_major" => Ok(GeneratedField::VersionMajor),
                             "versionMinor" | "version_minor" => Ok(GeneratedField::VersionMinor),
                             "authorityId" | "authority_id" => Ok(GeneratedField::AuthorityId),
                             "referenceId" | "reference_id" => Ok(GeneratedField::ReferenceId),
                             "sequenceId" | "sequence_id" => Ok(GeneratedField::SequenceId),
                             "originatorId" | "originator_id" => Ok(GeneratedField::OriginatorId),
+                            "contentType" | "content_type" => Ok(GeneratedField::ContentType),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -489,13 +499,14 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
                 let mut sender_installation_id__ = None;
                 let mut sender_inbox_id__ = None;
                 let mut delivery_status__ = None;
-                let mut content_type__ = None;
+                let mut content_type_save__ = None;
                 let mut version_major__ = None;
                 let mut version_minor__ = None;
                 let mut authority_id__ = None;
                 let mut reference_id__ = None;
                 let mut sequence_id__ = None;
                 let mut originator_id__ = None;
+                let mut content_type__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -556,11 +567,11 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
                             }
                             delivery_status__ = Some(map_.next_value::<DeliveryStatusSave>()? as i32);
                         }
-                        GeneratedField::ContentType => {
-                            if content_type__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("contentType"));
+                        GeneratedField::ContentTypeSave => {
+                            if content_type_save__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("contentTypeSave"));
                             }
-                            content_type__ = Some(map_.next_value::<ContentTypeSave>()? as i32);
+                            content_type_save__ = Some(map_.next_value::<ContentTypeSave>()? as i32);
                         }
                         GeneratedField::VersionMajor => {
                             if version_major__.is_some() {
@@ -608,6 +619,12 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
+                        GeneratedField::ContentType => {
+                            if content_type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("contentType"));
+                            }
+                            content_type__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -622,13 +639,14 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
                     sender_installation_id: sender_installation_id__.unwrap_or_default(),
                     sender_inbox_id: sender_inbox_id__.unwrap_or_default(),
                     delivery_status: delivery_status__.unwrap_or_default(),
-                    content_type: content_type__.unwrap_or_default(),
+                    content_type_save: content_type_save__.unwrap_or_default(),
                     version_major: version_major__.unwrap_or_default(),
                     version_minor: version_minor__.unwrap_or_default(),
                     authority_id: authority_id__.unwrap_or_default(),
                     reference_id: reference_id__,
                     sequence_id: sequence_id__,
                     originator_id: originator_id__,
+                    content_type: content_type__.unwrap_or_default(),
                 })
             }
         }
