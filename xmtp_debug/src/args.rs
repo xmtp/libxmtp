@@ -44,6 +44,7 @@ pub enum Commands {
     Info(InfoOpts),
     Export(ExportOpts),
     Stream(StreamOpts),
+    Test(TestOpts),
 }
 
 /// Send Data on the network
@@ -237,6 +238,24 @@ pub enum StreamKind {
     /// Stream only messages for this inbox id
     #[default]
     Messages,
+}
+
+/// Run test scenarios
+#[derive(Args, Debug)]
+pub struct TestOpts {
+    /// The test scenario to run
+    #[arg(value_enum)]
+    pub scenario: TestScenario,
+
+    /// Number of iterations to run
+    #[arg(long, short, default_value = "1")]
+    pub iterations: usize,
+}
+
+#[derive(ValueEnum, Debug, Clone)]
+pub enum TestScenario {
+    /// Measure message visibility latency
+    MessageVisibility,
 }
 
 #[derive(ValueEnum, Debug, Clone)]

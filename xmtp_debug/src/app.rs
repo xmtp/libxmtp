@@ -20,6 +20,8 @@ mod send;
 mod store;
 /// Message/Conversation Streaming
 mod stream;
+/// Test scenarios
+mod test;
 /// Types shared between App Functions
 mod types;
 
@@ -138,6 +140,7 @@ impl App {
                 Export(e) => export::Export::new(e, backend)?.run(),
                 Modify(m) => modify::Modify::new(m, backend)?.run().await,
                 Stream(s) => stream::Stream::new(s, backend)?.run().await,
+                Test(t) => test::Test::new(t, backend).run().await,
             }?;
         }
 
