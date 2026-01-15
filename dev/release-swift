@@ -26,7 +26,7 @@ if [[ "${OSTYPE}" == "darwin"* ]]; then
 fi
 # Maybe set IPHONEOS_DEPLOYMENT_TARGET to 10?
 cd $BINDINGS_PATH
-nix develop ../ --command make swift
+nix develop ../.. --command make swift
 for file in "build/swift/xmtpv3.swift" "build/swift/libxmtp-version.txt"; do
   if [ -f "$file" ]; then
     cp "$file" "$XMTP_SWIFT/Sources/LibXMTP/$(basename "$file")"

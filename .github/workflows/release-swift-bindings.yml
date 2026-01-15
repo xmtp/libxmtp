@@ -103,7 +103,7 @@ jobs:
           mkdir -p Sources/LibXMTP
           mv build/swift/static/xmtpv3.swift Sources/LibXMTP/
           make framework
-          cp ../LICENSE ./LICENSE
+          cp ../../LICENSE ./LICENSE
           zip -r LibXMTPSwiftFFI.zip Sources LibXMTPSwiftFFI.xcframework LICENSE
       - name: Upload static
         uses: actions/upload-artifact@v6
@@ -128,7 +128,7 @@ jobs:
           mkdir -p Sources/LibXMTP/Dynamic
           mv build/swift/dynamic/xmtpv3.swift Sources/LibXMTP/Dynamic
           make frameworkdyn
-          cp ../LICENSE ./LICENSE
+          cp ../../LICENSE ./LICENSE
           zip -r LibXMTPSwiftFFIDynamic.zip Sources LibXMTPSwiftFFIDynamic.xcframework LICENSE
       - name: Upload dynamic
         uses: actions/upload-artifact@v6
