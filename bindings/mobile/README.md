@@ -47,7 +47,7 @@ There is no support for using breakpoints or a debugger with FFI currently. Meth
 1. Examine any error messages that are returned from libxmtp.
 1. Produce a minimal repro of the issue.
 1. Use platform-native logging:
-   1. Set up an FFI logger for your platform ([example](https://github.com/xmtp/libxmtp/blob/7e7bf7aabe7c758507ae982834d583c1d88c3ce2/bindings_ffi/examples/MainActivity.kt#L33))
+   1. Set up an FFI logger for your platform ([example](https://github.com/xmtp/libxmtp/blob/7e7bf7aabe7c758507ae982834d583c1d88c3ce2/bindings/mobile/examples/MainActivity.kt#L33))
    1. Add logs where you need them ([example](https://github.com/xmtp/libxmtp/assets/696206/bb1be87e-7a9b-47f2-a0f4-e93a92346b18))
    1. Examine the logs for your platform (for example, on Android emulator this would be logcat in Android Studio)
 1. Examine the database in your app
