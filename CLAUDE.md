@@ -81,7 +81,8 @@ cargo bench --features bench -p xmtp_mls --bench group_limit  # Run benchmark ca
 
 ## Writing Tests
 
-- **ALWAYS use `#[xmtp_common::test]` instead of `#[test]`** - ensures tests run in both native and WASM environments
+- **ALWAYS use `#[xmtp_common::test(unwrap_try = true)]` instead of `#[test]`** - ensures tests run in both native and WASM environments
+- **Use `unwrap_try = true`** - automatically unwraps `?` operators in tests, providing better error messages
 - Use `rstest` for parameterized tests with `#[case]` attributes
 - Use the `tester!` macro for tests that require a wallet
 - `cargo nextest` provides better test isolation
@@ -94,9 +95,9 @@ fn test_function(#[case] input: &str, #[case] expected: &str) {
     assert_eq!(function_to_test(input), expected);
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_simple() {
-    // Single test case
+    // Single test case - can use ? operator freely
 }
 ```
 
@@ -109,16 +110,6 @@ async fn test_simple() {
 ## Database
 
 Uses Diesel ORM with encrypted SQLite. Migrations are in `crates/xmtp_db/migrations/`.
-
-## Nix Development Environment (Recommended)
-
-```bash
-dev/nix-up                    # Install Nix + direnv
-nix develop                   # Default Rust shell
-nix develop .#android         # Android with NDK
-nix develop .#ios             # iOS (macOS only)
-nix develop .#wasm            # WebAssembly
-```
 
 ## Code Change Requirements
 
