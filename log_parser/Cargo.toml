@@ -1,0 +1,31 @@
+[package]
+name = "log_parser"
+edition = "2024"
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+pest = "2.8.5"
+pest_derive = "2.8.5"
+xmtp_common.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
+slint = "1.14.1"
+native-dialog = "0.7"
+futures.workspace = true
+tokio.workspace = true
+xmtp_mls = { workspace = true, features = ["test-utils"] }
+
+[build-dependencies]
+slint-build = "1.14.1"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+
+[features]
+bench = []
+test-utils = []
