@@ -59,7 +59,7 @@ jobs:
       - name: Build
         working-directory: bindings/wasm
         run: |
-          source ./../emsdk/emsdk_env.sh
+          source ../../emsdk/emsdk_env.sh
           yarn build
       - name: Update version for dev releases
         working-directory: bindings/wasm
