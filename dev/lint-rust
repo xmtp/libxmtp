@@ -5,6 +5,6 @@ set -eou pipefail
 
 cargo fmt &
 cargo clippy --workspace --all-features --all-targets --no-deps --exclude bindings_wasm -- -Dwarnings &
-cargo clippy --workspace --manifest-path "./bindings_wasm/Cargo.toml" --all-features --all-targets --no-deps --exclude bindings_wasm -- -Dwarnings
+cargo clippy --workspace --manifest-path "./bindings/wasm/Cargo.toml" --all-features --all-targets --no-deps --exclude bindings_wasm -- -Dwarnings
 
 wait

@@ -31,7 +31,7 @@ jobs:
       - name: Build target
         run: |
           nix develop --command \
-            cargo build --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
+            cargo build --release --target ${{ matrix.target }} --manifest-path bindings/mobile/Cargo.toml
       - name: Upload binary
         uses: actions/upload-artifact@v6
         with:
@@ -56,14 +56,14 @@ jobs:
           extra_nix_config: |
             access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
       - name: Generate bindings
-        working-directory: bindings_ffi
+        working-directory: bindings/mobile
         run: |
           nix develop ./../ --command make swift
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
           name: swift
-          path: bindings_ffi/build/swift/
+          path: bindings/mobile/build/swift/
           retention-days: 1
   package-swift:
     needs: [build-macos, swift]
@@ -74,9 +74,9 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v7
         with:
-          path: bindings_ffi/build
+          path: bindings/mobile/build
       - name: Build archive
-        working-directory: bindings_ffi
+        working-directory: bindings/mobile
         run: |
           mkdir -p Sources/LibXMTP
           mv build/swift/xmtpv3.swift Sources/LibXMTP/
@@ -85,7 +85,7 @@ jobs:
           zip -r LibXMTPSwiftFFI.zip Sources LibXMTPSwiftFFI.xcframework LICENSE
       - name: Calculate checksum
         id: checksum
-        working-directory: bindings_ffi
+        working-directory: bindings/mobile
         run: |
           echo "checksum=$(shasum -a 256 "LibXMTPSwiftFFI.zip" | awk '{ print $1 }')" >> "$GITHUB_OUTPUT"
       - name: Get short SHA
@@ -94,7 +94,7 @@ jobs:
       - name: Create release and upload asset
         uses: softprops/action-gh-release@v2
         with:
-          files: ./bindings_ffi/LibXMTPSwiftFFI.zip
+          files: ./bindings/mobile/LibXMTPSwiftFFI.zip
           tag_name: swift-bindings-${{ steps.slug.outputs.sha7 }}
           name: Swift-Bindings-${{ steps.slug.outputs.sha7 }}
           draft: false

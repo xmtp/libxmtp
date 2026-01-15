@@ -3,7 +3,7 @@ set -eou pipefail
 
 cargo clippy --quiet --locked --workspace --all-features --all-targets --no-deps --exclude bindings_wasm -- -Dwarnings &
 pid1=$!
-cargo clippy --quiet --locked --manifest-path "./bindings_wasm/Cargo.toml" --all-features --target wasm32-unknown-unknown --no-deps -- -Dwarnings &
+cargo clippy --quiet --locked --manifest-path "./bindings/wasm/Cargo.toml" --all-features --target wasm32-unknown-unknown --no-deps -- -Dwarnings &
 pid2=$!
 cargo check --quiet --locked --tests --target wasm32-unknown-unknown -p bindings_wasm &
 pid3=$!

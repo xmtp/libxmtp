@@ -2,4 +2,4 @@
 set -eou pipefail
 
 nix develop .#android --command \
-    cargo check --target x86_64-linux-android --manifest-path bindings_ffi/Cargo.toml
+    cargo check --target x86_64-linux-android --manifest-path bindings/mobile/Cargo.toml
