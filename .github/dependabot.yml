@@ -4,12 +4,9 @@ updates:
   - package-ecosystem: "cargo"
     directories:
       - "/"
-      - "/xmtp_*"
-      - "/bindings_*"
-      - "/mls_validation_service"
-      - "/examples/cli"
-      - "/xtask"
-      - "/common"
+      - "/crates/*"
+      - "/bindings/*"
+      - "/apps/*"
     schedule:
       interval: "weekly"
     groups:
@@ -35,7 +32,7 @@ updates:
         update-types: ["version-update:semver-patch"]
   # Maintain dependencies for yarn
   - package-ecosystem: "npm"
-    directory: "/bindings_wasm"
+    directory: "/bindings/wasm"
     schedule:
       interval: "weekly"
     groups:
@@ -48,7 +45,7 @@ updates:
         update-types: ["version-update:semver-patch"]
   # Maintain dependencies for yarn
   - package-ecosystem: "npm"
-    directory: "/bindings_node"
+    directory: "/bindings/node"
     schedule:
       interval: "weekly"
     groups:
