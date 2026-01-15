@@ -1,12 +1,11 @@
+use crate::{
+  ErrorWrapper,
+  messages::encoded_content::{ContentTypeId, EncodedContent},
+};
 use chrono::DateTime;
 use napi::bindgen_prelude::{BigInt, Error, Result};
 use napi_derive::napi;
 use xmtp_content_types::{ContentCodec, actions::ActionsCodec};
-
-use crate::{
-  ErrorWrapper,
-  encoded_content::{ContentTypeId, EncodedContent},
-};
 
 #[derive(Clone)]
 #[napi(object)]

@@ -1,7 +1,3 @@
-use napi::bindgen_prelude::*;
-use napi_derive::napi;
-use xmtp_mls::messages::decoded_message::MessageBody;
-
 use super::actions::Actions;
 use super::attachment::Attachment;
 use super::deleted_message::DeletedMessage;
@@ -15,7 +11,10 @@ use super::remote_attachment::RemoteAttachment;
 use super::reply::EnrichedReply;
 use super::transaction_reference::TransactionReference;
 use super::wallet_send_calls::WalletSendCalls;
-use crate::encoded_content::EncodedContent;
+use crate::messages::encoded_content::EncodedContent;
+use napi::bindgen_prelude::*;
+use napi_derive::napi;
+use xmtp_mls::messages::decoded_message::MessageBody;
 
 #[napi(string_enum)]
 #[derive(Clone, PartialEq)]

@@ -1,3 +1,6 @@
+use super::attachment::Attachment;
+use crate::ErrorWrapper;
+use crate::messages::encoded_content::{ContentTypeId, EncodedContent};
 use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::convert::TryInto;
@@ -8,10 +11,6 @@ use xmtp_content_types::{
     encrypt_attachment as xmtp_encrypt_attachment,
   },
 };
-
-use super::attachment::Attachment;
-use crate::ErrorWrapper;
-use crate::encoded_content::{ContentTypeId, EncodedContent};
 
 #[napi(object)]
 pub struct RemoteAttachment {

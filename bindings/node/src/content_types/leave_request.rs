@@ -1,8 +1,7 @@
+use crate::messages::encoded_content::ContentTypeId;
 use napi::bindgen_prelude::Uint8Array;
 use napi_derive::napi;
 use xmtp_content_types::{ContentCodec, leave_request::LeaveRequestCodec};
-
-use crate::encoded_content::ContentTypeId;
 
 #[napi(object)]
 pub struct LeaveRequest {

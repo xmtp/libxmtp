@@ -4,16 +4,16 @@
 pub mod client;
 mod consent_state;
 pub mod content_types;
-mod conversation;
-mod conversations;
-mod encoded_content;
-pub mod enriched_message;
+pub mod conversation;
+pub mod conversations;
+pub mod hmac_key;
 mod identity;
 pub mod inbox_id;
 mod inbox_state;
-mod message;
+mod messages;
 mod permissions;
 mod signatures;
+pub mod stats;
 mod streams;
 xmtp_common::if_test! {
   pub mod test_utils;

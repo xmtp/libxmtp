@@ -1,14 +1,15 @@
+use crate::{content_types::ContentType, messages::encoded_content::EncodedContent};
+use napi::bindgen_prelude::BigInt;
+use napi_derive::napi;
 use prost::Message as ProstMessage;
 use xmtp_db::group_message::{
   DeliveryStatus as XmtpDeliveryStatus, GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs,
   SortBy as XmtpMessageSortBy, SortDirection as XmtpSortDirection, StoredGroupMessage,
 };
-
-use napi::bindgen_prelude::BigInt;
-use napi_derive::napi;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
-use crate::{content_types::ContentType, encoded_content::EncodedContent};
+pub mod decoded_message;
+pub mod encoded_content;
 
 #[napi]
 #[derive(Clone)]

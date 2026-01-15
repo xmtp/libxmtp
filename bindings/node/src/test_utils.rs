@@ -1,6 +1,10 @@
 #![allow(clippy::unwrap_used)]
 use crate::{
-  client::{Client, LogOptions, SyncWorkerMode, create_client},
+  client::{
+    Client,
+    create_client::create_client,
+    options::{LogOptions, SyncWorkerMode},
+  },
   identity::Identifier,
 };
 use napi::bindgen_prelude::Uint8Array;

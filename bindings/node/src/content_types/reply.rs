@@ -1,11 +1,10 @@
-use crate::encoded_content::{ContentTypeId, EncodedContent};
-use crate::enriched_message::DecodedMessage;
+use super::decoded_message_content::DecodedMessageContent;
+use crate::messages::decoded_message::DecodedMessage;
+use crate::messages::encoded_content::{ContentTypeId, EncodedContent};
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::reply::ReplyCodec;
-
-use super::decoded_message_content::DecodedMessageContent;
 use xmtp_mls::messages::decoded_message::DecodedMessage as RustDecodedMessage;
 
 #[derive(Clone)]

@@ -1,11 +1,10 @@
+use crate::ErrorWrapper;
+use crate::messages::encoded_content::{ContentTypeId, EncodedContent};
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
-
-use crate::ErrorWrapper;
-use crate::encoded_content::{ContentTypeId, EncodedContent};
 
 #[derive(Clone)]
 #[napi(object)]
