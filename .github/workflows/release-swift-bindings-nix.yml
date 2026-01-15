@@ -58,7 +58,7 @@ jobs:
       - name: Generate bindings
         working-directory: bindings/mobile
         run: |
-          nix develop ./../ --command make swift
+          nix develop ../.. --command make swift
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
@@ -81,7 +81,7 @@ jobs:
           mkdir -p Sources/LibXMTP
           mv build/swift/xmtpv3.swift Sources/LibXMTP/
           make framework
-          cp ../LICENSE ./LICENSE
+          cp ../../LICENSE ./LICENSE
           zip -r LibXMTPSwiftFFI.zip Sources LibXMTPSwiftFFI.xcframework LICENSE
       - name: Calculate checksum
         id: checksum
