@@ -53,6 +53,8 @@ jobs:
   package-kotlin:
     needs: [build-linux]
     runs-on: warp-ubuntu-latest-x64-16x
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v6

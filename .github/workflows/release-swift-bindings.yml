@@ -140,6 +140,8 @@ jobs:
   create-release:
     needs: [package-swift, package-swift-dynamic]
     runs-on: warp-macos-15-arm64-12x
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v6
