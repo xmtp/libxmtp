@@ -1,3 +1,4 @@
+mod test_commit_log_e2e;
 mod test_commit_log_fork_detection;
 mod test_commit_log_local;
 mod test_commit_log_readd_requests;

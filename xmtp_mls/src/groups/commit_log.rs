@@ -416,7 +416,7 @@ where
 
         // Skip API call if there are no requests to make
         if query_log_requests.is_empty() {
-            tracing::info!("No commit log requests to query");
+            tracing::info!("No remote commit logs to query");
             return Ok(HashMap::new());
         }
 
@@ -440,7 +440,8 @@ where
             }
             tracing::info!(
                 group_id = hex::encode(&response.group_id),
-                "Saving remote commit log entries and updating cursors for group",
+                "Saving {} remote commit log entries and updating cursors for group",
+                response.commit_log_entries.len(),
             );
             let num_entries = self.save_remote_commit_log_entries_and_update_cursors(
                 conn,
@@ -895,6 +896,17 @@ where
         if local_logs.is_empty() {
             return Ok(conn.get_group_commit_log_forked_status(conversation_id)?);
         }
+
+        tracing::info!(
+            conversation_id = hex::encode(conversation_id),
+            local_cursor = fork_check_local_cursor.sequence_id,
+            remote_cursor = fork_check_remote_cursor.sequence_id,
+            "Checking fork state with {} new local logs and {} new remote logs",
+            local_logs.len(),
+            remote_logs.len(),
+        );
+        tracing::debug!("Local logs: {:?}", local_logs);
+        tracing::debug!("Remote logs: {:?}", remote_logs);
 
         let mut is_remote_log_up_to_date = true;
         // Check each local log against remote logs for matching commit_sequence_id
