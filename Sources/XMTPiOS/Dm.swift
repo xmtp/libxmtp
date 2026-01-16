@@ -140,12 +140,14 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	}
 
 	public func processMessage(messageBytes: Data) async throws -> DecodedMessage? {
-		let message =
+		let messages =
 			try await ffiConversation.processStreamedConversationMessage(
 				envelopeBytes: messageBytes
 			)
-		// TODO: Handle multiple messages, which is now possible with d14n iceboxes
-		return DecodedMessage.create(ffiMessage: message[0])
+		guard let firstMessage = messages.first else {
+			return nil
+		}
+		return DecodedMessage.create(ffiMessage: firstMessage)
 	}
 
 	public func send<T>(content: T, options: SendOptions? = nil) async throws
@@ -581,5 +583,13 @@ public struct Dm: Identifiable, Equatable, Hashable {
 
 	public func getLastReadTimes() throws -> [String: Int64] {
 		try ffiConversation.getLastReadTimes()
+	}
+
+	/// Delete a message by its ID.
+	/// - Parameter messageId: The hex-encoded message ID to delete.
+	/// - Returns: The hex-encoded ID of the deletion message.
+	/// - Throws: An error if the deletion fails (e.g., unauthorized deletion).
+	public func deleteMessage(messageId: String) async throws -> String {
+		try await ffiConversation.deleteMessage(messageId: messageId.hexToData).toHex
 	}
 }

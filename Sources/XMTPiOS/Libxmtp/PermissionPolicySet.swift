@@ -67,6 +67,7 @@ public class PermissionPolicySet {
 	public var updateGroupDescriptionPolicy: PermissionOption
 	public var updateGroupImagePolicy: PermissionOption
 	public var updateMessageDisappearingPolicy: PermissionOption
+	public var updateAppDataPolicy: PermissionOption
 
 	public init(
 		addMemberPolicy: PermissionOption, removeMemberPolicy: PermissionOption,
@@ -74,7 +75,8 @@ public class PermissionPolicySet {
 		updateGroupNamePolicy: PermissionOption,
 		updateGroupDescriptionPolicy: PermissionOption,
 		updateGroupImagePolicy: PermissionOption,
-		updateMessageDisappearingPolicy: PermissionOption
+		updateMessageDisappearingPolicy: PermissionOption,
+		updateAppDataPolicy: PermissionOption = .allow
 	) {
 		self.addMemberPolicy = addMemberPolicy
 		self.removeMemberPolicy = removeMemberPolicy
@@ -84,6 +86,7 @@ public class PermissionPolicySet {
 		self.updateGroupDescriptionPolicy = updateGroupDescriptionPolicy
 		self.updateGroupImagePolicy = updateGroupImagePolicy
 		self.updateMessageDisappearingPolicy = updateMessageDisappearingPolicy
+		self.updateAppDataPolicy = updateAppDataPolicy
 	}
 
 	static func toFfiPermissionPolicySet(
@@ -116,6 +119,10 @@ public class PermissionPolicySet {
 			updateMessageDisappearingPolicy:
 			PermissionOption.toFfiPermissionPolicy(
 				option: permissionPolicySet.updateMessageDisappearingPolicy
+			),
+			updateAppDataPolicy:
+			PermissionOption.toFfiPermissionPolicy(
+				option: permissionPolicySet.updateAppDataPolicy
 			)
 		)
 	}
@@ -152,6 +159,11 @@ public class PermissionPolicySet {
 			PermissionOption.fromFfiPermissionPolicy(
 				ffiPolicy: ffiPermissionPolicySet
 					.updateMessageDisappearingPolicy
+			),
+			updateAppDataPolicy:
+			PermissionOption.fromFfiPermissionPolicy(
+				ffiPolicy: ffiPermissionPolicySet
+					.updateAppDataPolicy
 			)
 		)
 	}

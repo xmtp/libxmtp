@@ -352,11 +352,13 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func processMessage(messageBytes: Data) async throws
 		-> DecodedMessage?
 	{
-		let message = try await ffiGroup.processStreamedConversationMessage(
+		let messages = try await ffiGroup.processStreamedConversationMessage(
 			envelopeBytes: messageBytes
 		)
-		// TODO: Handle multiple messages, which is now possible with d14n iceboxes
-		return DecodedMessage.create(ffiMessage: message[0])
+		guard let firstMessage = messages.first else {
+			return nil
+		}
+		return DecodedMessage.create(ffiMessage: firstMessage)
 	}
 
 	public func send<T>(content: T, options: SendOptions? = nil) async throws
@@ -811,5 +813,13 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 	public func leaveGroup() async throws {
 		try await ffiGroup.leaveGroup()
+	}
+
+	/// Delete a message by its ID.
+	/// - Parameter messageId: The hex-encoded message ID to delete.
+	/// - Returns: The hex-encoded ID of the deletion message.
+	/// - Throws: An error if the deletion fails (e.g., unauthorized deletion).
+	public func deleteMessage(messageId: String) async throws -> String {
+		try await ffiGroup.deleteMessage(messageId: messageId.hexToData).toHex
 	}
 }
