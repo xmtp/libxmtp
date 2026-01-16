@@ -43,7 +43,7 @@
     "@types/uuid": "^11.0.0",
     "@xmtp/content-type-remote-attachment": "^2.0.3",
     "fast-glob": "^3.3.3",
-    "prettier": "^3.7.4",
+    "prettier": "^3.8.0",
     "prettier-plugin-packagejson": "^2.5.19",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
