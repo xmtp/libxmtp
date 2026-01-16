@@ -89,7 +89,7 @@ if_wasm! {
 
 if_native! {
      impl GrpcUrlsDev {
-        pub const NODE: &'static str = "https://grpc.dev.xmtp.network:443";
+        pub const NODE: &'static str = "https://grpc.production.xmtp.network:443";
     }
 }
 

@@ -1,3 +1,7 @@
+use std::time::Duration;
+
+use tokio_stream::StreamExt;
+use tracing::info;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::consent_record::{ConsentState, ConsentType};
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
@@ -102,4 +106,54 @@ async fn test_group_update_dedupes() {
     // Continue to dedupe because the field did not change.
     dm.update_conversation_message_disappear_from_ns(1).await?;
     assert_eq!(updates().len(), 4);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_open_dm_from_stream() {
+    let dev = true;
+
+    tester!(alix, with_dev: dev);
+    for _ in 0..9 {
+        tester!(_alix, from: alix);
+    }
+    tester!(bo, with_dev: dev);
+    let mut bo = vec![bo];
+    for _ in 0..9 {
+        tester!(bo2, from: bo[0]);
+        bo.push(bo2);
+    }
+
+    // Start up all of bo's streams.
+    for bo in &bo {
+        let mut stream = bo.stream_all_messages_owned_with_stats(None, None).await?;
+        xmtp_common::spawn(None, async move {
+            loop {
+                let _ = stream.next().await;
+            }
+        });
+    }
+
+    // Have alix create a dm to bo
+    let alix_bo_dm = alix
+        .find_or_create_dm_by_inbox_id(bo[0].inbox_id(), None)
+        .await?;
+
+    // Check n times for all bo groups to be received.
+    // Waiting 1 second between each check.
+    for _ in 0..7 {
+        xmtp_common::time::sleep(Duration::from_secs(1)).await;
+
+        if bo.iter().all(|b| b.group(&alix_bo_dm.group_id).is_ok()) {
+            return;
+        }
+    }
+
+    // If we get here, that means the checks failed, some installations are missing groups.
+    // Let's find out which.
+    let missing: Vec<_> = bo
+        .iter()
+        .enumerate()
+        .filter_map(|(i, b)| b.group(&alix_bo_dm.group_id).is_err().then(|| i))
+        .collect();
+    panic!("installations missing group: {missing:?}");
 }
