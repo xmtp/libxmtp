@@ -392,6 +392,39 @@ where
         Ok(state)
     }
 
+    /// Get the total number of inbox updates for `inbox_ids`. `refresh_from_network` will force
+    /// a network refresh. May still access network if an inbox_id does not yet exist in the local
+    /// cache.
+    pub async fn fetch_inbox_updates_count(
+        &self,
+        refresh_from_network: bool,
+        inbox_ids: Vec<InboxIdRef<'_>>,
+    ) -> Result<HashMap<InboxId, u32>, ClientError> {
+        let conn = self.context.db();
+        if refresh_from_network {
+            load_identity_updates(self.context.api(), &conn, &inbox_ids).await?;
+        }
+        let inbox_id_strs = inbox_ids.to_vec();
+        let counts = conn.count_inbox_updates(&inbox_id_strs)?;
+        Ok(counts.into_iter().map(|(k, v)| (k, v as u32)).collect())
+    }
+
+    /// Get the total number of inbox updates for the client's inbox_id.
+    /// Setting `refresh_from_network` forces a network refresh, otherwise
+    /// this operation is offline.
+    pub async fn fetch_own_inbox_updates_count(
+        &self,
+        refresh_from_network: bool,
+    ) -> Result<u32, ClientError> {
+        let inbox_id = self.inbox_id();
+        Ok(self
+            .fetch_inbox_updates_count(refresh_from_network, vec![inbox_id])
+            .await?
+            .get(inbox_id)
+            .copied()
+            .unwrap_or(0))
+    }
+
     /// Get the signature kind used to create an inbox.
     ///
     /// # Arguments
