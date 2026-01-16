@@ -14,8 +14,8 @@ services:
       - --wait-for-db=30s
       - --api.authn.enable
     ports:
-      - 5555:5555
-      - 5556:5556
+      - "0.0.0.0:5555:5555"
+      - "0.0.0.0:5556:5556"
     depends_on:
       - db
 
@@ -29,13 +29,13 @@ services:
     entrypoint: ["anvil", "--host", "0.0.0.0"]
     working_dir: /anvil
     ports:
-      - 8545:8545
+      - "0.0.0.0:8545:8545"
 
   history-server:
     image: ghcr.io/xmtp/message-history-server:main
     platform: linux/amd64
     ports:
-      - "5558:5558"
+      - "0.0.0.0:5558:5558"
 
   db:
     image: postgres:16
