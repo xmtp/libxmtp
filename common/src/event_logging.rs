@@ -5,7 +5,7 @@ pub use utils::*;
 pub enum Event {
     // ===================== General Client =====================
     /// Client created
-    #[context(inbox_id, device_sync_enabled, disabled_workers)]
+    #[context(device_sync_enabled, disabled_workers, inbox_id, full_installation_id)]
     ClientCreated,
 
     // ===================== Group Operations =====================
@@ -18,6 +18,9 @@ pub enum Event {
     /// Added members to group.
     #[context(group_id, members)]
     AddedMembers,
+    /// Received new group from welcome.
+    #[context(group_id, conversation_type)]
+    ProcessedWelcome,
 
     // ===================== MLS Operations =====================
     /// Received staged commit. Merging and clearing any pending commits.
@@ -78,4 +81,63 @@ pub enum Event {
     /// Result: The following installations need to be added / removed.
     #[context(group_id, added_installations, removed_installations)]
     MembershipInstallationDiffComputed,
+
+    // ===================== Device Sync =====================
+    /// Device Sync worker initializing.
+    #[context(server_url)]
+    DeviceSyncInitializing,
+    /// Device sync initialized.
+    DeviceSyncInitializingFinished,
+    /// No primary sync group found.
+    DeviceSyncNoPrimarySyncGroup,
+    /// Created primary sync group.
+    #[context(group_id)]
+    DeviceSyncCreatedPrimarySyncGroup,
+    /// Sent a sync request.
+    #[context(group_id)]
+    DeviceSyncSentSyncRequest,
+    /// Processing new sync message.
+    #[context(msg_type, external, msg_id, group_id)]
+    DeviceSyncProcessingMessages,
+    /// Failed to process device sync message.
+    #[context(msg_id, err)]
+    DeviceSyncMessageProcessingError,
+    /// Processing sync archive.
+    #[context(msg_id, group_id)]
+    DeviceSyncArchiveProcessingStart,
+    /// Received a V1 sync payload. V1 is no longer supported. Ignoring.
+    DeviceSyncV1Archive,
+    /// Received a sync archive message, but it was not requested by this instalaltion. Skipping.
+    DeviceSyncArchiveNotRequested,
+    /// Received a sync archive message. Syncing any welcomes the originating
+    /// installation might have also sent.
+    DeviceSyncArchiveAccepted,
+    /// Downloading sync archive.
+    DeviceSyncArchiveDownloading,
+    /// Sync archive download failure.
+    #[context(status, err)]
+    DeviceSyncPayloadDownloadFailure,
+    /// Beginning archive import.
+    DeviceSyncArchiveImportStart,
+    /// Finished sync archive import.
+    DeviceSyncArchiveImportSuccess,
+    /// Archive import failed.
+    #[context(err)]
+    DeviceSyncArchiveImportFailure,
+    /// Attempted to acknowledge a sync request, but it was already acknowledged
+    /// by another installation.
+    #[context(request_id, acknowledged_by)]
+    DeviceSyncRequestAlreadyAcknowledged,
+    /// Acknowledged sync request.
+    #[context(request_id)]
+    DeviceSyncRequestAcknowledged,
+    /// Scheduled task to respond to sync request.
+    #[context(request_id)]
+    DeviceSyncResponseTaskScheduled,
+    /// Sending sync archive
+    #[context(group_id)]
+    DeviceSyncArchiveUploadStart,
+    /// Failed to respond to sync request.
+    #[context(group_id, request_id, err)]
+    DeviceSyncArchiveUploadFailure,
 }
