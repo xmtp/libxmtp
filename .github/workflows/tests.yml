@@ -61,18 +61,25 @@ jobs:
           echo "Waiting for services at ${NODE_URL}..."
 
           for i in {1..60}; do
-            # Try to connect - the service might return an error but that's OK
-            # We just need to verify TLS handshake works
-            if curl -sf --max-time 10 "${NODE_URL}" > /dev/null 2>&1 || \
-               curl -sf --max-time 10 -o /dev/null -w '%{http_code}' "${NODE_URL}" 2>&1 | grep -qE '^[2-5]'; then
+            # Get HTTP status code (no -f flag so we always get the code)
+            http_code=$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' "${NODE_URL}" 2>/dev/null || echo "000")
+
+            echo "Attempt $i/60: HTTP $http_code"
+
+            # 000 = connection failed or timeout
+            # 5xx = Fly proxy error (502/503) or backend error - keep waiting
+            # 2xx/3xx/4xx = backend service is responding (4xx is expected for non-gRPC requests)
+            if [[ "$http_code" =~ ^[234][0-9][0-9]$ ]]; then
               echo "Services are ready!"
               exit 0
             fi
-            echo "Waiting... (attempt $i/60)"
+
             sleep 5
           done
 
-          echo "Services failed to become ready"
+          echo "Services failed to become ready after 5 minutes"
+          echo "Final diagnostic:"
+          curl -v --max-time 10 "${NODE_URL}" 2>&1 || true
           exit 1
 
   tests:
