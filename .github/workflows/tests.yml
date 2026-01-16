@@ -35,7 +35,10 @@ jobs:
           echo "Creating app: $APP_NAME"
 
           # Create the app explicitly (so we know the name)
-          flyctl apps create "$APP_NAME" --org xmtp-labs || true
+          # Fail if creation fails for reasons other than "already exists"
+          flyctl apps create "$APP_NAME" --org xmtp-labs || {
+            flyctl apps show "$APP_NAME" >/dev/null 2>&1 || { echo "Failed to create app: $APP_NAME"; exit 1; }
+          }
 
           # Allocate shared IPv4 for the app
           flyctl ips allocate-v4 --shared --app "$APP_NAME" || true
