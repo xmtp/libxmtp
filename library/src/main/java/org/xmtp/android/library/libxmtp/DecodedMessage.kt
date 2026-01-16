@@ -46,6 +46,9 @@ class DecodedMessage private constructor(
     val senderInboxId: InboxId
         get() = libXMTPMessage.senderInboxId
 
+    val kind: FfiConversationMessageKind
+        get() = libXMTPMessage.kind
+
     val sentAt: Date
         get() = Date(libXMTPMessage.sentAtNs / 1_000_000)
 
