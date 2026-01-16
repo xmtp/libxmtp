@@ -170,6 +170,24 @@ class Dm(
 
     suspend fun publishMessages() = withContext(Dispatchers.IO) { libXMTPGroup.publishMessages() }
 
+    /**
+     * Delete a message by its ID.
+     *
+     * Users can delete their own messages in a DM conversation.
+     *
+     * @param messageId The hex-encoded ID of the message to delete.
+     * @return The hex-encoded ID of the deletion message.
+     * @throws XMTPException if deletion fails (e.g., message not found, not authorized, already deleted).
+     */
+    suspend fun deleteMessage(messageId: String): String =
+        withContext(Dispatchers.IO) {
+            try {
+                libXMTPGroup.deleteMessage(messageId.hexToByteArray()).toHex()
+            } catch (e: Exception) {
+                throw XMTPException("Unable to delete message: ${e.message}", e)
+            }
+        }
+
     suspend fun sync() = withContext(Dispatchers.IO) { libXMTPGroup.sync() }
 
     suspend fun lastMessage(): DecodedMessage? =

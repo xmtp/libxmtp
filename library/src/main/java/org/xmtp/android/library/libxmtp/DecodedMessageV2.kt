@@ -6,6 +6,8 @@ import org.xmtp.android.library.InboxId
 import org.xmtp.android.library.codecs.Attachment
 import org.xmtp.android.library.codecs.ContentTypeId
 import org.xmtp.android.library.codecs.ContentTypeIdBuilder
+import org.xmtp.android.library.codecs.DeletedBy
+import org.xmtp.android.library.codecs.DeletedMessage
 import org.xmtp.android.library.codecs.LeaveRequest
 import org.xmtp.android.library.codecs.MultiRemoteAttachment
 import org.xmtp.android.library.codecs.Reaction
@@ -22,6 +24,8 @@ import uniffi.xmtpv3.FfiAttachment
 import uniffi.xmtpv3.FfiDecodedMessage
 import uniffi.xmtpv3.FfiDecodedMessageBody
 import uniffi.xmtpv3.FfiDecodedMessageContent
+import uniffi.xmtpv3.FfiDeletedBy
+import uniffi.xmtpv3.FfiDeletedMessage
 import uniffi.xmtpv3.FfiDeliveryStatus
 import uniffi.xmtpv3.FfiGroupUpdated
 import uniffi.xmtpv3.FfiInbox
@@ -188,6 +192,15 @@ class DecodedMessageV2 private constructor(
         private fun mapLeaveRequest(ffiLeaveRequest: FfiLeaveRequest): LeaveRequest =
             LeaveRequest.create(authenticatedNote = ffiLeaveRequest.authenticatedNote)
 
+        private fun mapDeletedMessage(ffiDeleted: FfiDeletedMessage): DeletedMessage {
+            val deletedBy =
+                when (val ffiDeletedBy = ffiDeleted.deletedBy) {
+                    is FfiDeletedBy.Sender -> DeletedBy.Sender
+                    is FfiDeletedBy.Admin -> DeletedBy.Admin(ffiDeletedBy.inboxId)
+                }
+            return DeletedMessage(deletedBy)
+        }
+
         // Helper functions for GroupUpdated proto mapping
 
         private fun mapFfiInboxToProto(
@@ -258,6 +271,7 @@ class DecodedMessageV2 private constructor(
                 is FfiDecodedMessageContent.GroupUpdated -> mapGroupUpdated(content.v1)
                 is FfiDecodedMessageContent.ReadReceipt -> ReadReceipt
                 is FfiDecodedMessageContent.LeaveRequest -> mapLeaveRequest(content.v1)
+                is FfiDecodedMessageContent.DeletedMessage -> mapDeletedMessage(content.v1)
                 is FfiDecodedMessageContent.Custom -> {
                     val encodedContent = encodedContentFromFfi(content.v1)
                     encodedContent.decoded<Any>()
@@ -280,6 +294,7 @@ class DecodedMessageV2 private constructor(
                 is FfiDecodedMessageBody.WalletSendCalls -> body.v1
                 is FfiDecodedMessageBody.GroupUpdated -> mapGroupUpdated(body.v1)
                 is FfiDecodedMessageBody.LeaveRequest -> mapLeaveRequest(body.v1)
+                is FfiDecodedMessageBody.DeletedMessage -> mapDeletedMessage(body.v1)
                 is FfiDecodedMessageBody.Custom -> {
                     val encodedContent = encodedContentFromFfi(body.v1)
                     encodedContent.decoded<Any>()

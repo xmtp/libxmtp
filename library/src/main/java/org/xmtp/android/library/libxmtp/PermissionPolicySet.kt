@@ -57,6 +57,7 @@ data class PermissionPolicySet(
     val updateGroupDescriptionPolicy: PermissionOption,
     val updateGroupImagePolicy: PermissionOption,
     val updateMessageDisappearingPolicy: PermissionOption,
+    val updateAppDataPolicy: PermissionOption = PermissionOption.Allow,
 ) {
     companion object {
         fun toFfiPermissionPolicySet(permissionPolicySet: PermissionPolicySet): FfiPermissionPolicySet =
@@ -80,6 +81,10 @@ data class PermissionPolicySet(
                 updateMessageDisappearingPolicy =
                     PermissionOption.toFfiPermissionPolicy(
                         permissionPolicySet.updateMessageDisappearingPolicy,
+                    ),
+                updateAppDataPolicy =
+                    PermissionOption.toFfiPermissionPolicy(
+                        permissionPolicySet.updateAppDataPolicy,
                     ),
             )
 
@@ -107,6 +112,10 @@ data class PermissionPolicySet(
                 updateMessageDisappearingPolicy =
                     PermissionOption.fromFfiPermissionPolicy(
                         ffiPermissionPolicySet.updateMessageDisappearingPolicy,
+                    ),
+                updateAppDataPolicy =
+                    PermissionOption.fromFfiPermissionPolicy(
+                        ffiPermissionPolicySet.updateAppDataPolicy,
                     ),
             )
     }

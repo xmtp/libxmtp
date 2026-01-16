@@ -223,6 +223,23 @@ sealed class Conversation {
             }
         }
 
+    /**
+     * Delete a message by its ID.
+     *
+     * Users can delete their own messages. In groups, super admins can delete any message.
+     *
+     * @param messageId The hex-encoded ID of the message to delete.
+     * @return The hex-encoded ID of the deletion message.
+     * @throws XMTPException if deletion fails (e.g., message not found, not authorized, already deleted).
+     */
+    suspend fun deleteMessage(messageId: String): String =
+        withContext(Dispatchers.IO) {
+            when (this@Conversation) {
+                is Group -> group.deleteMessage(messageId)
+                is Dm -> dm.deleteMessage(messageId)
+            }
+        }
+
     suspend fun sync() =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
