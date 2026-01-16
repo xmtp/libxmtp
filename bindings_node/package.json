@@ -1,6 +1,6 @@
 {
   "name": "@xmtp/node-bindings",
-  "version": "1.6.6",
+  "version": "1.6.6-dev",
   "repository": {
     "type": "git",
     "url": "git+https://git@github.com/xmtp/libxmtp.git",
