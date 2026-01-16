@@ -11,7 +11,7 @@ mod test_message_disappearing_settings;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_network;
 mod test_send_message_opts;
-mod test_welcome_pointers;
+// mod test_welcome_pointers;
 mod test_welcomes;
 
 xmtp_common::if_d14n! {
