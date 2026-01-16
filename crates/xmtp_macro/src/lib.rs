@@ -164,6 +164,7 @@ pub fn build_logging_metadata(
         metadata_entries.push(quote! {
             crate::EventMetadata {
                 name: #variant_name_str,
+                event: #enum_name::#variant_name,
                 doc: #doc_comment,
                 context_fields: &[#(#context_fields_tokens),*],
             }
@@ -180,6 +181,7 @@ pub fn build_logging_metadata(
     let expanded = quote! {
         #(#attrs)*
         #[repr(usize)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         #visibility enum #enum_name {
             #(#cleaned_variants),*
         }
@@ -214,6 +216,7 @@ pub fn build_logging_metadata(
 pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as LogEventInput);
     let event = &input.event;
+    let installation_id = &input.installation_id;
 
     let provided_names: Vec<String> = input.fields.iter().map(|f| f.name.to_string()).collect();
     let tracing_fields: Vec<TokenStream> =
@@ -266,10 +269,18 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             let __meta = #event.metadata();
 
+            // Bind installation_id to a variable to extend its lifetime
+            let __installation_id = #installation_id;
+            // Hex encode last 4 bytes of installation_id
+            let __installation_bytes: &[u8] = __installation_id.as_ref();
+            let __installation_len = __installation_bytes.len();
+            let __installation_last_4 = if __installation_len >= 4 { &__installation_bytes[__installation_len - 4..] } else { __installation_bytes };
+            let __installation_truncated = hex::encode(__installation_last_4);
+
             // Build message with context for non-structured logging
             let __message = if ::xmtp_common::is_structured_logging() {
-                // Structured logging: fields are already in JSON, don't duplicate in message
-                __meta.doc.to_string()
+                // Structured logging: include installation_id and timestamp in message
+                format!("➣ {} {{installation_id: {}, timestamp: {}}}", __meta.doc, __installation_truncated, xmtp_common::time::now_ns())
             } else {
                 // Non-structured logging: embed context in message for readability
                 let __context_parts: ::std::vec::Vec<String> = __meta.context_fields
@@ -284,9 +295,9 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                 let __context_str = __context_parts.join(", ");
                 if __context_str.is_empty() {
-                    __meta.doc.to_string()
+                    format!("➣ {} {{installation_id: {}, timestamp: {}}}", __meta.doc, __installation_truncated, xmtp_common::time::now_ns())
                 } else {
-                    format!("{} {{{}}}", __meta.doc, __context_str)
+                    format!("➣ {} {{{__context_str}, installation_id: {}, timestamp: {}}}", __meta.doc, __installation_truncated, xmtp_common::time::now_ns())
                 }
             };
 
