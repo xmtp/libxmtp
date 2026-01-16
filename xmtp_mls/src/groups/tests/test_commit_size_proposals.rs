@@ -15,6 +15,7 @@ use openmls::prelude::hash_ref::HashReference;
 use openmls::prelude::tls_codec::Serialize;
 use openmls::prelude::*;
 use rand::Rng;
+use rand::distributions::uniform::SampleRange;
 use tls_codec::Deserialize;
 use xmtp_common::time::now_ns;
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
@@ -29,6 +30,11 @@ use xmtp_id::InboxOwner;
 use xmtp_mls_common::{
     group_metadata::extract_group_metadata, group_mutable_metadata::extract_group_mutable_metadata,
 };
+
+const ITERATION_COUNT: usize = 50;
+const TESTERS_PER_ITERATION: std::ops::RangeInclusive<usize> = 1..=1;
+const INSTALLATIONS_PER_TESTER: std::ops::RangeInclusive<usize> = 9..=9;
+const PCT_FILL_LEAF_NODES: f64 = 0.5;
 
 struct ProposalsAndCommit {
     proposals: Vec<MlsMessageOut>,
@@ -491,23 +497,30 @@ async fn fill_leaf_nodes(
 
 #[xmtp_common::test]
 async fn test_commit_sizes_with_proposals() {
-    const TESTER_COUNT: usize = 3;
+    let mut rng = rand::thread_rng();
     crate::tester!(alix);
 
     let new_group = alix.create_group(None, None).unwrap();
 
     let mut testers = vec![(alix, new_group)];
 
-    for i in 0..TESTER_COUNT {
+    for i in 0..ITERATION_COUNT {
         tracing::warn!("TESTER {i}");
         sync_groups(testers.iter()).await;
-        crate::tester!(tester);
+
+        let mut new_testers = vec![];
+        for _ in 0..(TESTERS_PER_ITERATION.sample_single(&mut rng)) {
+            crate::tester!(tester);
+            new_testers.push(tester);
+        }
 
         let mut installations = vec![];
-        for _ in 0..9 {
-            installations.push(tester.new_installation().await);
+        for tester in &new_testers {
+            for _ in 0..(INSTALLATIONS_PER_TESTER.sample_single(&mut rng)) {
+                installations.push(tester.new_installation().await);
+            }
         }
-        let new_testers = [tester]
+        let new_testers = new_testers
             .into_iter()
             .chain(installations)
             .collect::<Vec<_>>();
@@ -575,7 +588,27 @@ async fn test_commit_sizes_with_proposals() {
                 * 100.0,
             "Commit sizes"
         );
-
+        println!(
+            "CSV: {},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            i,
+            TESTERS_PER_ITERATION.end(),
+            INSTALLATIONS_PER_TESTER.end(),
+            PCT_FILL_LEAF_NODES,
+            proposals_size,
+            testers.len(),
+            proposals_and_commit.adds,
+            proposals_and_commit.removes,
+            proposals_and_commit.add_avg_size,
+            proposals_and_commit.remove_avg_size,
+            proposals_and_commit.add_total_size,
+            proposals_and_commit.remove_total_size,
+            proposals_and_commit.old_commit_len,
+            proposals_and_commit.old_welcome_len,
+            proposals_and_commit.old_commit_builder_len,
+            proposals_and_commit.old_welcome_builder_len,
+            commit_size,
+            welcome_size,
+        );
         if let Some(welcome) = &proposals_and_commit.welcome {
             let welcome_bytes = welcome.tls_serialize_detached().unwrap();
             // Process welcome directly into OpenMLS group, bypassing network calls and validation
@@ -599,7 +632,7 @@ async fn test_commit_sizes_with_proposals() {
             }
             sync_groups(testers.iter()).await;
             for (i, tester) in testers[tester_start..].iter().enumerate() {
-                if rand::thread_rng().gen_bool(0.5) {
+                if rng.gen_bool(PCT_FILL_LEAF_NODES) {
                     fill_leaf_nodes([tester].into_iter(), testers.iter()).await;
                 }
                 let message_bytes = format!("Hello from new tester! {}", tester_start + i);
