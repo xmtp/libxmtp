@@ -1,11 +1,8 @@
-use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::{
   ConsentState as XmtpConsentState, ConsentType as XmtpConsentType, StoredConsentRecord,
 };
-
-use crate::{ErrorWrapper, client::Client};
 
 #[napi]
 pub enum ConsentState {
@@ -83,36 +80,5 @@ impl From<StoredConsentRecord> for Consent {
       state: consent.state.into(),
       entity: consent.entity,
     }
-  }
-}
-
-#[napi]
-impl Client {
-  #[napi]
-  pub async fn set_consent_states(&self, records: Vec<Consent>) -> Result<()> {
-    let stored_records: Vec<StoredConsentRecord> =
-      records.into_iter().map(StoredConsentRecord::from).collect();
-
-    self
-      .inner_client()
-      .set_consent_states(&stored_records)
-      .await
-      .map_err(ErrorWrapper::from)?;
-    Ok(())
-  }
-
-  #[napi]
-  pub async fn get_consent_state(
-    &self,
-    entity_type: ConsentEntityType,
-    entity: String,
-  ) -> Result<ConsentState> {
-    let result = self
-      .inner_client()
-      .get_consent_state(entity_type.into(), entity)
-      .await
-      .map_err(ErrorWrapper::from)?;
-
-    Ok(result.into())
   }
 }

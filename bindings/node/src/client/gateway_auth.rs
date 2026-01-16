@@ -1,7 +1,6 @@
-use std::sync::Arc;
-
 use napi::{bindgen_prelude::Promise, threadsafe_function::ThreadsafeFunction};
 use napi_derive::napi;
+use std::sync::Arc;
 use xmtp_common::BoxDynError;
 
 #[napi(object, constructor)]

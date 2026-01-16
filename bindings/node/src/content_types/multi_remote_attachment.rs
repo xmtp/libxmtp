@@ -1,3 +1,5 @@
+use crate::ErrorWrapper;
+use crate::messages::encoded_content::{ContentTypeId, EncodedContent};
 use napi::bindgen_prelude::{Result, Uint8Array};
 use napi_derive::napi;
 use xmtp_content_types::ContentCodec;
@@ -6,9 +8,6 @@ use xmtp_proto::xmtp::mls::message_contents::content_types::{
   MultiRemoteAttachment as XmtpMultiRemoteAttachment,
   RemoteAttachmentInfo as XmtpRemoteAttachmentInfo,
 };
-
-use crate::ErrorWrapper;
-use crate::encoded_content::{ContentTypeId, EncodedContent};
 
 #[napi(object)]
 pub struct RemoteAttachmentInfo {

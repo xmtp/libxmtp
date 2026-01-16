@@ -1,11 +1,9 @@
-use std::collections::HashMap;
-
+use crate::ErrorWrapper;
+use crate::messages::encoded_content::{ContentTypeId, EncodedContent};
 use napi::bindgen_prelude::{Error, Result};
 use napi_derive::napi;
+use std::collections::HashMap;
 use xmtp_content_types::{ContentCodec, wallet_send_calls::WalletSendCallsCodec};
-
-use crate::ErrorWrapper;
-use crate::encoded_content::{ContentTypeId, EncodedContent};
 
 #[derive(Clone)]
 #[napi(object)]

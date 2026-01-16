@@ -1,11 +1,10 @@
+use crate::content_types::decoded_message_content::DecodedMessageContent;
+use crate::messages::encoded_content::ContentTypeId;
+use crate::messages::{DeliveryStatus, GroupMessageKind};
 use napi::Error;
 use napi::bindgen_prelude::{BigInt, Result};
 use napi_derive::napi;
 use xmtp_mls::messages::decoded_message::DecodedMessage as XmtpDecodedMessage;
-
-use crate::content_types::decoded_message_content::DecodedMessageContent;
-use crate::encoded_content::ContentTypeId;
-use crate::message::{DeliveryStatus, GroupMessageKind};
 
 #[derive(Clone)]
 #[napi]

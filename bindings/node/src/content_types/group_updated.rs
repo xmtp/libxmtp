@@ -1,7 +1,6 @@
+use crate::messages::encoded_content::ContentTypeId;
 use napi_derive::napi;
 use xmtp_content_types::{ContentCodec, group_updated::GroupUpdatedCodec};
-
-use crate::encoded_content::ContentTypeId;
 
 #[derive(Clone)]
 #[napi(object)]
