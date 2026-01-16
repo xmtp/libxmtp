@@ -52,7 +52,7 @@ resolver = "2"
 
 [workspace.package]
 license = "MIT"
-version = "1.7.0-rc3"
+version = "1.7.0-dev"
 
 [workspace.dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
