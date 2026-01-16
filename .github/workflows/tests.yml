@@ -73,7 +73,7 @@ jobs:
               echo "Services are ready!"
               exit 0
             fi
-            echo "Waiting... (attempt $i/60)"
+            echo "Waiting... (attempt $i/120)"
             sleep 5
           done
 
