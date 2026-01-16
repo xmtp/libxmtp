@@ -46,4 +46,4 @@ pub const MIN_RECOVERY_REQUEST_VERSION: &str = "1.6.0";
 // so as long as we have 2 installations that need a single welcome it will result in less data being
 // ingested by the nodes and stored. There is a slight penalty for egress data, but the amount needed
 // to be stored can be 100x less than using regular welcome messages.
-pub const INSTALLATION_THRESHOLD_FOR_WELCOME_POINTER_SENDING: usize = 2;
+pub const INSTALLATION_THRESHOLD_FOR_WELCOME_POINTER_SENDING: usize = 100_000;
