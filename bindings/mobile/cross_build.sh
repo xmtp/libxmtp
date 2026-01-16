@@ -13,7 +13,7 @@ main() {
   WORKSPACE_MANIFEST="$(cargo locate-project --workspace --message-format=plain)"
   WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
   TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | jq -r '.target_directory')"
-  BINDINGS_MANIFEST="$WORKSPACE_PATH/bindings_ffi/Cargo.toml"
+  BINDINGS_MANIFEST="$WORKSPACE_PATH/bindings/mobile/Cargo.toml"
   # Go to the workspace root so that the workspace config can be found by cross
   cd $WORKSPACE_PATH
   if ! cross &>/dev/null; then
@@ -29,7 +29,7 @@ main() {
   # Move everything to jniLibs folder and rename
   LIBRARY_NAME="libxmtpv3"
   TARGET_NAME="libuniffi_xmtpv3"
-  cd $(dirname $BINDINGS_MANIFEST) # cd bindings_ffi
+  cd $(dirname $BINDINGS_MANIFEST) # cd bindings/mobile
   rm -rf jniLibs/
   mkdir -p jniLibs/armeabi-v7a/ && \
       cp ${TARGET_DIR}/armv7-linux-androideabi/$BINARY_PROFILE/$LIBRARY_NAME.so jniLibs/armeabi-v7a/$TARGET_NAME.so && \

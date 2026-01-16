@@ -20,14 +20,14 @@ jobs:
         with:
           workspaces: |
             .
-            bindings_wasm
+            bindings/wasm
       - name: Check versions are in sync
         run: |
           chmod +x dev/sync-versions.sh
           ./dev/sync-versions.sh
           # Check if there are any changes after syncing versions
           if [[ -n $(git status --porcelain) ]]; then
-            echo "::error::Version mismatch detected! Please run 'dev/sync-versions.sh' locally, commit the changes before releasing bindings_wasm"
+            echo "::error::Version mismatch detected! Please run 'dev/sync-versions.sh' locally, commit the changes before releasing bindings/wasm"
             echo "Changes detected:"
             git status --porcelain
             exit 1
@@ -40,14 +40,14 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: ".node-version"
-          cache-dependency-path: "bindings_wasm/yarn.lock"
+          cache-dependency-path: "bindings/wasm/yarn.lock"
           cache: "yarn"
         env:
           SKIP_YARN_COREPACK_CHECK: "1"
       - name: Enable corepack
         run: corepack enable
       - name: Install dependencies
-        working-directory: bindings_wasm
+        working-directory: bindings/wasm
         run: |
           yarn
       - name: Install emscripten toolchains
@@ -57,12 +57,12 @@ jobs:
           ./emsdk install latest
           ./emsdk activate latest
       - name: Build
-        working-directory: bindings_wasm
+        working-directory: bindings/wasm
         run: |
-          source ./../emsdk/emsdk_env.sh
+          source ../../emsdk/emsdk_env.sh
           yarn build
       - name: Update version for dev releases
-        working-directory: bindings_wasm
+        working-directory: bindings/wasm
         run: |
           # Read the current version from package.json
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
@@ -83,7 +83,7 @@ jobs:
           fi
       - name: Determine NPM tag
         id: npm-tag
-        working-directory: bindings_wasm
+        working-directory: bindings/wasm
         run: |
           # Read the current version from package.json
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
@@ -98,7 +98,7 @@ jobs:
         if: contains(steps.npm-tag.outputs.tag, 'prerelease')
         run: |
           # Read the current version from package.json
-          PACKAGE_VERSION=$(node -p "require('./bindings_wasm/package.json').version")
+          PACKAGE_VERSION=$(node -p "require('./bindings/wasm/package.json').version")
 
           # Create and push the tag
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
@@ -112,7 +112,7 @@ jobs:
       - name: Publish to NPM
         uses: JS-DevTools/npm-publish@v4
         with:
-          package: bindings_wasm
+          package: bindings/wasm
           tag: ${{ steps.npm-tag.outputs.tag }}
           dry-run: false
         env:

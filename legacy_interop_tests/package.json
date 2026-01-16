@@ -9,7 +9,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "current-bindings": "file:../bindings_node",
+    "current-bindings": "file:../bindings/node",
     "legacy-bindings": "npm:@xmtp/node-bindings@0.0.38"
   }
 }

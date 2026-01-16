@@ -29,7 +29,7 @@ jobs:
         with:
           workspaces: |
             .
-            bindings_ffi
+            bindings/mobile
       - name: Install Nix
         uses: cachix/install-nix-action@v31
         with:
@@ -40,29 +40,31 @@ jobs:
       - name: Build jniLibs
         run: |
           nix develop --command \
-            cargo ndk -o bindings_ffi/jniLibs --manifest-path ./bindings_ffi/Cargo.toml \
+            cargo ndk -o bindings/mobile/jniLibs --manifest-path ./bindings/mobile/Cargo.toml \
             -t ${{ matrix.target }} -- build --release
       - name: Prepare JNI libs
         run: |
-          cp bindings_ffi/jniLibs/${{ matrix.output_target }}/libxmtpv3.so bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
+          cp bindings/mobile/jniLibs/${{ matrix.output_target }}/libxmtpv3.so bindings/mobile/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
       - name: Upload binary
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.output_target }}
-          path: bindings_ffi/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
+          path: bindings/mobile/jniLibs/${{ matrix.output_target }}/libuniffi_xmtpv3.so
           retention-days: 1
   package-kotlin:
     needs: [build-linux]
     runs-on: warp-ubuntu-latest-x64-16x
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v6
       - name: Download artifacts
         uses: actions/download-artifact@v7
         with:
-          path: bindings_ffi/jniLibs
+          path: bindings/mobile/jniLibs
       - name: Build archive
-        working-directory: bindings_ffi
+        working-directory: bindings/mobile
         run: |
           zip -r LibXMTPKotlinFFI.zip jniLibs
       - name: Get short SHA
@@ -71,7 +73,7 @@ jobs:
       - name: Create release and upload asset
         uses: softprops/action-gh-release@v2
         with:
-          files: ./bindings_ffi/LibXMTPKotlinFFI.zip
+          files: ./bindings/mobile/LibXMTPKotlinFFI.zip
           tag_name: kotlin-bindings-${{ steps.slug.outputs.sha7 }}
           name: Kotlin-Bindings-${{ steps.slug.outputs.sha7 }}
           draft: false
