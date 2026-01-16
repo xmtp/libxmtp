@@ -660,6 +660,11 @@ mock! {
             &'a self,
             inbox_ids: &'a [&'a str],
         ) -> Result<std::collections::HashMap<String, i64>, crate::ConnectionError>;
+
+        fn count_inbox_updates<'a>(
+            &'a self,
+            inbox_ids: &'a [&'a str],
+        ) -> Result<std::collections::HashMap<String, i64>, crate::ConnectionError>;
     }
 
     impl QueryLocalCommitLog for DbQuery {

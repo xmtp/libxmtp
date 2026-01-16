@@ -74,6 +74,12 @@ pub trait QueryIdentityUpdates {
         &self,
         inbox_ids: &[&str],
     ) -> Result<HashMap<String, i64>, crate::ConnectionError>;
+
+    /// Returns the count of identity updates for inbox_ids
+    fn count_inbox_updates(
+        &self,
+        inbox_ids: &[&str],
+    ) -> Result<HashMap<String, i64>, crate::ConnectionError>;
 }
 
 impl<T> QueryIdentityUpdates for &T
@@ -108,6 +114,13 @@ where
         inbox_ids: &[&str],
     ) -> Result<HashMap<String, i64>, crate::ConnectionError> {
         (**self).get_latest_sequence_id(inbox_ids)
+    }
+
+    fn count_inbox_updates(
+        &self,
+        inbox_ids: &[&str],
+    ) -> Result<HashMap<String, i64>, crate::ConnectionError> {
+        (**self).count_inbox_updates(inbox_ids)
     }
 }
 
@@ -189,6 +202,22 @@ impl<C: ConnectionExt> QueryIdentityUpdates for DbConnection<C> {
 
         // Convert the Vec to a HashMap
         Ok(HashMap::from_iter(result_tuples))
+    }
+
+    fn count_inbox_updates(
+        &self,
+        inbox_ids: &[&str],
+    ) -> Result<HashMap<String, i64>, crate::ConnectionError> {
+        use diesel::dsl::count_star;
+        let query = dsl::identity_updates
+            .group_by(dsl::inbox_id)
+            .select((dsl::inbox_id, count_star()))
+            .filter(dsl::inbox_id.eq_any(inbox_ids));
+        self.raw_query_read(|conn| {
+            query
+                .load_iter::<(String, i64), _>(conn)?
+                .collect::<Result<HashMap<_, _>, _>>()
+        })
     }
 }
 
@@ -316,6 +345,26 @@ pub(crate) mod tests {
                 .get_latest_sequence_id_for_inbox(inbox_id)
                 .expect("query should work");
             assert_eq!(sequence_id, 2);
+        })
+    }
+
+    #[xmtp_common::test]
+    fn test_count_inbox_updates() {
+        with_connection(|conn| {
+            let inbox_1 = "inbox_1";
+            let inbox_2 = "inbox_2";
+            conn.insert_or_ignore_identity_updates(&[
+                build_update(inbox_1, 1),
+                build_update(inbox_1, 2),
+                build_update(inbox_2, 1),
+            ])
+            .unwrap();
+            let counts = conn
+                .count_inbox_updates(&[inbox_1, inbox_2, "missing"])
+                .unwrap();
+            assert_eq!(counts.get(inbox_1), Some(&2));
+            assert_eq!(counts.get(inbox_2), Some(&1));
+            assert_eq!(counts.get("missing"), None);
         })
     }
 }
