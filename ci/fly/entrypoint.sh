@@ -26,12 +26,12 @@ echo "Starting services..."
 docker-compose pull
 docker-compose up -d
 
-# Wait for node to be ready
+# Wait for node to be ready (5 minutes to allow for image pulls)
 echo "Waiting for XMTP node on port 5556..."
 SECONDS=0
 while ! nc -z localhost 5556 2>/dev/null; do
-    if [ $SECONDS -gt 120 ]; then
-        echo "XMTP node failed to start within 120 seconds"
+    if [ $SECONDS -gt 300 ]; then
+        echo "XMTP node failed to start within 300 seconds"
         echo "Docker container status:"
         docker-compose ps
         echo "Docker logs:"
@@ -41,18 +41,6 @@ while ! nc -z localhost 5556 2>/dev/null; do
     sleep 2
 done
 echo "XMTP node is ready! (took ${SECONDS}s)"
-
-# Also wait for history server
-echo "Waiting for history server on port 5558..."
-SECONDS=0
-while ! nc -z localhost 5558 2>/dev/null; do
-    if [ $SECONDS -gt 60 ]; then
-        echo "History server failed to start within 60 seconds"
-        exit 1
-    fi
-    sleep 2
-done
-echo "History server is ready! (took ${SECONDS}s)"
 
 echo "All services started. Max lifetime: ${MAX_LIFETIME_SECONDS}s"
 

@@ -50,8 +50,8 @@ jobs:
             --region sjc \
             --rm \
             --restart no \
-            --vm-size shared-cpu-4x \
-            --vm-memory 4096 \
+            --vm-size shared-cpu-8x \
+            --vm-memory 8192 \
             --env MAX_LIFETIME_SECONDS=3600 \
             --port 443:5556/tcp:tls:http \
             --port 5558:5558/tcp:tls:http
@@ -65,7 +65,7 @@ jobs:
           NODE_URL="${{ steps.deploy.outputs.node_url }}"
           echo "Waiting for services at ${NODE_URL}..."
 
-          for i in {1..60}; do
+          for i in {1..120}; do
             # Try to connect - the service might return an error but that's OK
             # We just need to verify TLS handshake works
             if curl -sf --max-time 10 "${NODE_URL}" > /dev/null 2>&1 || \
