@@ -675,12 +675,15 @@ data class Conversations(
             awaitClose { stream.end() }
         }
 
-    fun streamMessageDeletions(onClose: (() -> Unit)? = null): Flow<String> =
+    fun streamMessageDeletions(onClose: (() -> Unit)? = null): Flow<DecodedMessageV2> =
         callbackFlow {
             val deletionCallback =
                 object : FfiMessageDeletionCallback {
                     override fun onMessageDeleted(message: FfiDecodedMessage) {
-                        trySend(message.id().toHex())
+                        val decodedMessage = DecodedMessageV2.create(message)
+                        if (decodedMessage != null) {
+                            trySend(decodedMessage)
+                        }
                     }
                 }
 

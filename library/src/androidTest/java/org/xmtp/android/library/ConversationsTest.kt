@@ -657,8 +657,8 @@ class ConversationsTest : BaseInstrumentedTest() {
         val job =
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    boClient.conversations.streamMessageDeletions().collect { messageId ->
-                        deletedMessageIds.add(messageId)
+                    boClient.conversations.streamMessageDeletions().collect { message ->
+                        deletedMessageIds.add(message.id)
                     }
                 } catch (e: Exception) {
                 }

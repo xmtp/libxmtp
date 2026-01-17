@@ -171,25 +171,41 @@ sealed class Conversation {
             }
         }
 
+    /**
+     * Prepares a message for sending.
+     * @param noSend When true, the prepared message will not be published until
+     *               [publishMessage] is called with the returned message ID.
+     *               When false (default), uses optimistic sending and the message
+     *               will be published with the next [publishMessages] call.
+     */
     suspend fun <T> prepareMessage(
         content: T,
         options: SendOptions? = null,
+        noSend: Boolean = false,
     ): String =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
-                is Group -> group.prepareMessage(content, options)
-                is Dm -> dm.prepareMessage(content, options)
+                is Group -> group.prepareMessage(content, options, noSend)
+                is Dm -> dm.prepareMessage(content, options, noSend)
             }
         }
 
+    /**
+     * Prepares a message for sending.
+     * @param noSend When true, the prepared message will not be published until
+     *               [publishMessage] is called with the returned message ID.
+     *               When false (default), uses optimistic sending and the message
+     *               will be published with the next [publishMessages] call.
+     */
     suspend fun prepareMessage(
         encodedContent: EncodedContent,
         opts: MessageVisibilityOptions = MessageVisibilityOptions(shouldPush = true),
+        noSend: Boolean = false,
     ): String =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
-                is Group -> group.prepareMessage(encodedContent, opts)
-                is Dm -> dm.prepareMessage(encodedContent, opts)
+                is Group -> group.prepareMessage(encodedContent, opts, noSend)
+                is Dm -> dm.prepareMessage(encodedContent, opts, noSend)
             }
         }
 
@@ -430,6 +446,18 @@ sealed class Conversation {
             when (this@Conversation) {
                 is Group -> group.publishMessages()
                 is Dm -> dm.publishMessages()
+            }
+        }
+
+    /**
+     * Publishes a message that was prepared with noSend = true.
+     * @param id The message ID returned from [prepareMessage] when called with noSend = true
+     */
+    suspend fun publishMessage(id: String) =
+        withContext(Dispatchers.IO) {
+            when (this@Conversation) {
+                is Group -> group.publishMessage(id)
+                is Dm -> dm.publishMessage(id)
             }
         }
 

@@ -195,24 +195,51 @@ class Group(
         }
     }
 
+    /**
+     * Prepares a message for sending.
+     * @param noSend When true, the prepared message will not be published until
+     *               [publishMessage] is called with the returned message ID.
+     *               When false (default), uses optimistic sending and the message
+     *               will be published with the next [publishMessages] call.
+     */
     suspend fun prepareMessage(
         encodedContent: EncodedContent,
         opts: MessageVisibilityOptions = MessageVisibilityOptions(shouldPush = true),
+        noSend: Boolean = false,
     ): String =
         withContext(Dispatchers.IO) {
-            libXMTPGroup.sendOptimistic(encodedContent.toByteArray(), opts.toFfi()).toHex()
+            if (noSend) {
+                libXMTPGroup.prepareMessage(encodedContent.toByteArray(), opts.shouldPush).toHex()
+            } else {
+                libXMTPGroup.sendOptimistic(encodedContent.toByteArray(), opts.toFfi()).toHex()
+            }
         }
 
+    /**
+     * Prepares a message for sending.
+     * @param noSend When true, the prepared message will not be published until
+     *               [publishMessage] is called with the returned message ID.
+     *               When false (default), uses optimistic sending and the message
+     *               will be published with the next [publishMessages] call.
+     */
     suspend fun <T> prepareMessage(
         content: T,
         options: SendOptions? = null,
+        noSend: Boolean = false,
     ): String =
         withContext(Dispatchers.IO) {
             val (encodedContent, opts) = encodeContent(content = content, options = options)
-            libXMTPGroup.sendOptimistic(encodedContent.toByteArray(), opts.toFfi()).toHex()
+            prepareMessage(encodedContent, opts, noSend)
         }
 
     suspend fun publishMessages() = withContext(Dispatchers.IO) { libXMTPGroup.publishMessages() }
+
+    /**
+     * Publishes a message that was prepared with noSend = true.
+     * @param id The message ID returned from [prepareMessage] when called with noSend = true
+     */
+    suspend fun publishMessage(id: String) =
+        withContext(Dispatchers.IO) { libXMTPGroup.publishStoredMessage(id.hexToByteArray()) }
 
     /**
      * Delete a message by its ID.

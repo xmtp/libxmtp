@@ -328,6 +328,7 @@ class GroupPermissionsTest : BaseInstrumentedTest() {
                     updateGroupDescriptionPolicy = PermissionOption.Allow,
                     updateGroupImagePolicy = PermissionOption.Admin,
                     updateMessageDisappearingPolicy = PermissionOption.Admin,
+                    updateAppDataPolicy = PermissionOption.Allow,
                 )
             val boGroup =
                 runBlocking {
@@ -348,6 +349,7 @@ class GroupPermissionsTest : BaseInstrumentedTest() {
             assert(alixPermissionSet.updateGroupNamePolicy == PermissionOption.Admin)
             assert(alixPermissionSet.updateGroupDescriptionPolicy == PermissionOption.Allow)
             assert(alixPermissionSet.updateGroupImagePolicy == PermissionOption.Admin)
+            assert(alixPermissionSet.updateAppDataPolicy == PermissionOption.Allow)
         }
 
     @Test
@@ -363,6 +365,7 @@ class GroupPermissionsTest : BaseInstrumentedTest() {
                 updateGroupDescriptionPolicy = PermissionOption.Allow,
                 updateGroupImagePolicy = PermissionOption.Admin,
                 updateMessageDisappearingPolicy = PermissionOption.Admin,
+                updateAppDataPolicy = PermissionOption.Admin,
             )
 
         assertThrows(GenericException.GroupMutablePermissions::class.java) {
@@ -385,6 +388,7 @@ class GroupPermissionsTest : BaseInstrumentedTest() {
                 updateGroupDescriptionPolicy = PermissionOption.Allow,
                 updateGroupImagePolicy = PermissionOption.Admin,
                 updateMessageDisappearingPolicy = PermissionOption.Allow,
+                updateAppDataPolicy = PermissionOption.Admin,
             )
 
         // Valid custom policy works as expected
@@ -415,6 +419,7 @@ class GroupPermissionsTest : BaseInstrumentedTest() {
                     updateGroupDescriptionPolicy = PermissionOption.Allow,
                     updateGroupImagePolicy = PermissionOption.Admin,
                     updateMessageDisappearingPolicy = PermissionOption.Admin,
+                    updateAppDataPolicy = PermissionOption.Admin,
                 )
             val boGroup =
                 runBlocking {
@@ -445,5 +450,6 @@ class GroupPermissionsTest : BaseInstrumentedTest() {
             assert(alixPermissionSet.updateGroupNamePolicy == PermissionOption.Admin)
             assert(alixPermissionSet.updateGroupDescriptionPolicy == PermissionOption.Allow)
             assert(alixPermissionSet.updateGroupImagePolicy == PermissionOption.Admin)
+            assert(alixPermissionSet.updateAppDataPolicy == PermissionOption.Admin)
         }
 }
