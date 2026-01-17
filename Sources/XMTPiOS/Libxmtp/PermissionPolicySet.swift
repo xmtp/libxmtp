@@ -76,7 +76,7 @@ public class PermissionPolicySet {
 		updateGroupDescriptionPolicy: PermissionOption,
 		updateGroupImagePolicy: PermissionOption,
 		updateMessageDisappearingPolicy: PermissionOption,
-		updateAppDataPolicy: PermissionOption = .allow
+		updateAppDataPolicy: PermissionOption
 	) {
 		self.addMemberPolicy = addMemberPolicy
 		self.removeMemberPolicy = removeMemberPolicy
@@ -162,8 +162,7 @@ public class PermissionPolicySet {
 			),
 			updateAppDataPolicy:
 			PermissionOption.fromFfiPermissionPolicy(
-				ffiPolicy: ffiPermissionPolicySet
-					.updateAppDataPolicy
+				ffiPolicy: ffiPermissionPolicySet.updateAppDataPolicy
 			)
 		)
 	}

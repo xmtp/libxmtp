@@ -748,12 +748,12 @@ public class Conversations {
 	// that will be emitted as the messages are removed from the database
 	public func streamMessageDeletions(
 		onClose: (() -> Void)? = nil
-	) -> AsyncThrowingStream<String, Error> {
+	) -> AsyncThrowingStream<DecodedMessageV2, Error> {
 		AsyncThrowingStream { continuation in
 			let ffiStreamActor = FfiStreamActor()
 
 			let deletionCallback = MessageDeletionCallback {
-				message in
+				ffiMessage in
 				guard !Task.isCancelled else {
 					continuation.finish()
 					Task {
@@ -761,7 +761,9 @@ public class Conversations {
 					}
 					return
 				}
-				continuation.yield(message.id().toHex)
+				if let message = DecodedMessageV2(ffiMessage: ffiMessage) {
+					continuation.yield(message)
+				}
 			} onClose: {
 				onClose?()
 				continuation.finish()
