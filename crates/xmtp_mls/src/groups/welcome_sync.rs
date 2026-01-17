@@ -13,9 +13,12 @@ use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+use xmtp_common::Event;
+use xmtp_common::fmt::ShortHex;
 use xmtp_common::{Retry, retry_async};
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
+use xmtp_macro::log_event;
 use xmtp_proto::types::GlobalCursor;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::types::GroupMessageMetadata;
@@ -68,7 +71,18 @@ where
             .await;
 
         match result {
-            Ok(mls_group) => Ok(mls_group),
+            Ok(mls_group) => {
+                if let Some(mls_group) = &mls_group {
+                    log_event!(
+                        Event::ProcessedWelcome,
+                        self.context.installation_id(),
+                        group_id = mls_group.group_id.as_slice().short_hex(),
+                        conversation_type = %mls_group.conversation_type
+                    );
+                }
+
+                Ok(mls_group)
+            }
             Err(err) => {
                 use crate::DuplicateItem::*;
                 use crate::StorageError::*;
