@@ -1,7 +1,7 @@
-x-xmtpd-server-image: &x-xmtpd-server-image ghcr.io/xmtp/xmtpd:sha-ba66d54
-x-xmtpd-gateway-image: &x-xmtpd-gateway-image ghcr.io/xmtp/xmtpd-gateway:sha-ba66d54
-x-xmtpd-cli-image: &x-xmtpd-cli-image ghcr.io/xmtp/xmtpd-cli:sha-ba66d54
-x-xmtpd-contracts-image: &x-xmtpd-contracts-image ghcr.io/xmtp/contracts:v0.5.5
+x-xmtpd-server-image: &x-xmtpd-server-image ghcr.io/xmtp/xmtpd:sha-824683a
+x-xmtpd-gateway-image: &x-xmtpd-gateway-image ghcr.io/xmtp/xmtpd-gateway:sha-824683a
+x-xmtpd-cli-image: &x-xmtpd-cli-image ghcr.io/xmtp/xmtpd-cli:sha-824683a
+x-xmtpd-contracts-image: &x-xmtpd-contracts-image ghcr.io/xmtp/contracts:sha-7efe09f
 x-postgres-image: &x-postgres-image postgres:16
 x-redis-image: &x-redis-image redis:7-alpine
 
