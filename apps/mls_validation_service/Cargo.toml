@@ -4,6 +4,7 @@ edition = "2024"
 name = "mls_validation_service"
 version.workspace = true
 license.workspace = true
+description = "backend validation service for XMTP"
 
 [[bin]] # Bin to run the Validation Service
 name = "mls-validation-service"

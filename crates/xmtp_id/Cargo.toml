@@ -3,6 +3,7 @@ edition = "2024"
 license.workspace = true
 name = "xmtp_id"
 version.workspace = true
+description = "XMTP Identity implementation according to XIP-46"
 
 [lints]
 workspace = true

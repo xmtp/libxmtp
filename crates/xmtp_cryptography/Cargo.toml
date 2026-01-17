@@ -4,6 +4,7 @@ name = "xmtp_cryptography"
 rust-version = "1.85"
 version.workspace = true
 license.workspace = true
+description = "cryptography primitives for xmtp"
 
 [package.metadata.docs.rs]
 targets = [
