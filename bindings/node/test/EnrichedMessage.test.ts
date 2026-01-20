@@ -25,7 +25,7 @@ describe.concurrent('EnrichedMessage', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
+    const conversation = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -1164,14 +1164,16 @@ describe.concurrent('EnrichedMessage', () => {
         await createRegisteredClient(user2)
         await createRegisteredClient(user3)
 
-        const conversation = await client1.conversations().createGroup([
-          {
-            identifier: user2.account.address,
-            identifierKind: IdentifierKind.Ethereum,
-          },
-        ])
+        const conversation = await client1
+          .conversations()
+          .createGroupByIdentity([
+            {
+              identifier: user2.account.address,
+              identifierKind: IdentifierKind.Ethereum,
+            },
+          ])
 
-        await conversation.addMembers([
+        await conversation.addMembersByIdentity([
           {
             identifier: user3.account.address,
             identifierKind: IdentifierKind.Ethereum,
@@ -1204,18 +1206,20 @@ describe.concurrent('EnrichedMessage', () => {
         const client2 = await createRegisteredClient(user2)
         await createRegisteredClient(user3)
 
-        const conversation = await client1.conversations().createGroup([
-          {
-            identifier: user2.account.address,
-            identifierKind: IdentifierKind.Ethereum,
-          },
-          {
-            identifier: user3.account.address,
-            identifierKind: IdentifierKind.Ethereum,
-          },
-        ])
+        const conversation = await client1
+          .conversations()
+          .createGroupByIdentity([
+            {
+              identifier: user2.account.address,
+              identifierKind: IdentifierKind.Ethereum,
+            },
+            {
+              identifier: user3.account.address,
+              identifierKind: IdentifierKind.Ethereum,
+            },
+          ])
 
-        await conversation.removeMembersByInboxId([client2.inboxId()])
+        await conversation.removeMembers([client2.inboxId()])
 
         const messages = await conversation.findEnrichedMessages()
         const groupUpdatedMessages = messages.filter(
@@ -1240,12 +1244,14 @@ describe.concurrent('EnrichedMessage', () => {
         const client1 = await createRegisteredClient(user1)
         await createRegisteredClient(user2)
 
-        const conversation = await client1.conversations().createGroup([
-          {
-            identifier: user2.account.address,
-            identifierKind: IdentifierKind.Ethereum,
-          },
-        ])
+        const conversation = await client1
+          .conversations()
+          .createGroupByIdentity([
+            {
+              identifier: user2.account.address,
+              identifierKind: IdentifierKind.Ethereum,
+            },
+          ])
 
         await conversation.updateGroupName('New Group Name')
 

@@ -109,7 +109,7 @@ async fn messages_dependencies_out_of_order_invites() {
     tester!(caro, with_name: "caro");
 
     let alix_group = alix
-        .create_group(&[bo.inbox_id()], None, None) // message 0
+        .create_group_with_members(&[bo.inbox_id()], None, None) // message 0
         .await?;
     let group_id = alix_group.group_id.clone();
     let messages = get_messages(&alix.context, &group_id).await;

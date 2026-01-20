@@ -520,7 +520,7 @@ impl Conversation {
     Ok(super_admin_list.contains(&inbox_id))
   }
 
-  #[wasm_bindgen(js_name = addMembers)]
+  #[wasm_bindgen(js_name = addMembersByIdentity)]
   pub async fn add_members_by_identity(
     &self,
     #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
@@ -605,7 +605,7 @@ impl Conversation {
     Ok(permissions.into())
   }
 
-  #[wasm_bindgen(js_name = addMembersByInboxId)]
+  #[wasm_bindgen(js_name = addMembers)]
   pub async fn add_members(
     &self,
     #[wasm_bindgen(js_name = inboxIds)] inbox_ids: Vec<String>,
@@ -620,7 +620,7 @@ impl Conversation {
     Ok(())
   }
 
-  #[wasm_bindgen(js_name = removeMembers)]
+  #[wasm_bindgen(js_name = removeMembersByIdentity)]
   pub async fn remove_members_by_identity(
     &self,
     #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
@@ -635,7 +635,7 @@ impl Conversation {
     Ok(())
   }
 
-  #[wasm_bindgen(js_name = removeMembersByInboxId)]
+  #[wasm_bindgen(js_name = removeMembers)]
   pub async fn remove_members(
     &self,
     #[wasm_bindgen(js_name = inboxIds)] inbox_ids: Vec<String>,

@@ -14,7 +14,7 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
+    const conversation = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -44,7 +44,7 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
+    const conversation = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -74,7 +74,7 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
+    const conversation = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -106,7 +106,7 @@ describe.concurrent('Conversation', () => {
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
-    const conversation = await client1.conversations().createGroup([
+    const conversation = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -120,7 +120,7 @@ describe.concurrent('Conversation', () => {
     expect(memberInboxIds).toContain(client2.inboxId())
     expect(memberInboxIds).not.toContain(client3.inboxId())
 
-    await conversation.addMembers([
+    await conversation.addMembersByIdentity([
       {
         identifier: user3.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -135,7 +135,7 @@ describe.concurrent('Conversation', () => {
     expect(memberInboxIds2).toContain(client2.inboxId())
     expect(memberInboxIds2).toContain(client3.inboxId())
 
-    await conversation.removeMembers([
+    await conversation.removeMembersByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -158,7 +158,7 @@ describe.concurrent('Conversation', () => {
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
-    const conversation = await client1.conversations().createGroup([
+    const conversation = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -171,7 +171,7 @@ describe.concurrent('Conversation', () => {
     expect(memberInboxIds).toContain(client2.inboxId())
     expect(memberInboxIds).not.toContain(client3.inboxId())
 
-    await conversation.addMembersByInboxId([client3.inboxId()])
+    await conversation.addMembers([client3.inboxId()])
 
     const members2 = await conversation.listMembers()
     expect(members2.length).toBe(3)
@@ -181,7 +181,7 @@ describe.concurrent('Conversation', () => {
     expect(memberInboxIds2).toContain(client2.inboxId())
     expect(memberInboxIds2).toContain(client3.inboxId())
 
-    await conversation.removeMembersByInboxId([client2.inboxId()])
+    await conversation.removeMembers([client2.inboxId()])
 
     const members3 = await conversation.listMembers()
     expect(members3.length).toBe(2)
@@ -197,7 +197,7 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
+    const conversation = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -227,7 +227,7 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
+    const conversation = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -264,7 +264,7 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
+    const conversation = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -300,7 +300,7 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
+    const conversation = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -329,7 +329,7 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
+    const conversation = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -360,7 +360,7 @@ describe.concurrent('Conversation', () => {
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
-    const group = await client1.conversations().createGroup([
+    const group = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -393,7 +393,7 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
+    const conversation = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -468,7 +468,7 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     await createRegisteredClient(user2)
-    const group = await client1.conversations().createGroup([
+    const group = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -493,7 +493,7 @@ describe.concurrent('Conversation', () => {
     const client2 = await createRegisteredClient(user2)
 
     // Create a group with client1
-    const group = await client1.conversations().createGroup([
+    const group = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
