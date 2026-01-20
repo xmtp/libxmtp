@@ -601,7 +601,7 @@ pub(crate) mod tests {
 
         // Alix creates a group and adds Bo
         let alix_group = alix.create_group(None, None)?;
-        alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+        alix_group.add_members(&[bo.inbox_id()]).await?;
 
         // Query the welcome message envelope using query_at
         let envelope = alix
@@ -657,7 +657,7 @@ pub(crate) mod tests {
 
         // Alix creates a group and adds Bo
         let alix_group = alix.create_group(None, None)?;
-        alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+        alix_group.add_members(&[bo.inbox_id()]).await?;
 
         // Query the welcome envelope using query_at for D14n format
         let envelope = alix

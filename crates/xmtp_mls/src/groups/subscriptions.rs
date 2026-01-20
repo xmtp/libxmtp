@@ -214,10 +214,7 @@ pub(crate) mod tests {
 
         let amal_group = amal.create_group(None, None).unwrap();
         // Add bola
-        amal_group
-            .add_members_by_inbox_id(&[bola.inbox_id()])
-            .await
-            .unwrap();
+        amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
         // Get bola's version of the same group
         let bola_groups = bola.sync_welcomes().await.unwrap();
@@ -289,10 +286,7 @@ pub(crate) mod tests {
         let stream = amal_group.stream().await.unwrap();
         futures::pin_mut!(stream);
 
-        amal_group
-            .add_members_by_inbox_id(&[bola.inbox_id()])
-            .await
-            .unwrap();
+        amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
         let first_val = stream.next().await.unwrap().unwrap();
         assert_eq!(first_val.kind, GroupMessageKind::MembershipChange);

@@ -164,7 +164,7 @@ impl GenerateMessages {
             hex::encode(group.id)
         ))?;
         owner_group
-            .add_members_by_inbox_id(&[hex::encode(not_in_group)])
+            .add_members(&[hex::encode(not_in_group)])
             .await?;
         // make sure to update the group metadata
         let mut new_group = group.clone();

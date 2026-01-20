@@ -574,10 +574,7 @@ pub mod tests {
         let alice_group = alice.create_group(None, None).unwrap();
         tracing::info!("Group Id = [{}]", hex::encode(&alice_group.group_id));
 
-        alice_group
-            .add_members_by_inbox_id(&[bob.inbox_id()])
-            .await
-            .unwrap();
+        alice_group.add_members(&[bob.inbox_id()]).await.unwrap();
         let bob_groups = bob.sync_welcomes().await.unwrap();
         let bob_group = bob_groups.first().unwrap();
         alice_group.sync().await.unwrap();

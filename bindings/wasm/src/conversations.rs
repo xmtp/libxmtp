@@ -376,14 +376,14 @@ impl Conversations {
 
     let group = self
       .inner_client
-      .create_group(group_permissions, Some(metadata_options))
+      .create_group_by_identity(group_permissions, Some(metadata_options))
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
     Ok(group.into())
   }
 
   #[wasm_bindgen(js_name = createGroup)]
-  pub async fn create_group(
+  pub async fn create_group_by_identity(
     &self,
     #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
     options: Option<CreateGroupOptions>,
@@ -391,7 +391,7 @@ impl Conversations {
     let convo = self.create_group_optimistic(options)?;
 
     if !account_identifiers.is_empty() {
-      convo.add_members(account_identifiers).await?;
+      convo.add_members_by_identity(account_identifiers).await?;
     } else {
       convo.sync().await?;
     };
@@ -400,7 +400,7 @@ impl Conversations {
   }
 
   #[wasm_bindgen(js_name = createGroupByInboxIds)]
-  pub async fn create_group_by_inbox_ids(
+  pub async fn create_group(
     &self,
     #[wasm_bindgen(js_name = inboxIds)] inbox_ids: Vec<String>,
     options: Option<CreateGroupOptions>,
@@ -408,7 +408,7 @@ impl Conversations {
     let convo = self.create_group_optimistic(options)?;
 
     if !inbox_ids.is_empty() {
-      convo.add_members_by_inbox_id(inbox_ids).await?;
+      convo.add_members(inbox_ids).await?;
     } else {
       convo.sync().await?;
     };

@@ -194,7 +194,7 @@ mod tests {
         tester!(bo, disable_workers);
 
         let alix_group = alix
-            .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+            .create_group_with_members(&[bo.inbox_id()], None, None)
             .await?;
         alix_group.send_message(b"hi", Default::default()).await?;
 
@@ -338,10 +338,7 @@ mod tests {
         tester!(bo);
 
         let alix_group = alix.create_group(None, None).unwrap();
-        alix_group
-            .add_members_by_inbox_id(&[bo.inbox_id()])
-            .await
-            .unwrap();
+        alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
         alix_group
             .send_message(b"hello there", SendMessageOpts::default())
             .await
@@ -408,7 +405,7 @@ mod tests {
         // wait for user preference update
         wait_for_min_intents(&alix.context.db(), 2).await?;
 
-        alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+        alix_group.add_members(&[bo.inbox_id()]).await?;
         alix_group.update_group_name("My group".to_string()).await?;
 
         bo.sync_welcomes().await?;
@@ -520,7 +517,7 @@ mod tests {
 
         // Add the new inbox to the groups
         alix.group(&old_group.id)?
-            .add_members_by_inbox_id(&[alix2.inbox_id()])
+            .add_members(&[alix2.inbox_id()])
             .await?;
         alix2.sync_welcomes().await?;
 

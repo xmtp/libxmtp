@@ -28,10 +28,7 @@ async fn test_stream_all_messages_changing_group_list() {
 
     let alix_group = alix.create_group(None, None).unwrap();
     tracing::info!("Created alix group {}", hex::encode(&alix_group.group_id));
-    alix_group
-        .add_members_by_inbox_id(&[caro.inbox_id()])
-        .await
-        .unwrap();
+    alix_group.add_members(&[caro.inbox_id()]).await.unwrap();
 
     let stream = caro.stream_all_messages(None, None).await.unwrap();
     futures::pin_mut!(stream);
@@ -59,10 +56,7 @@ async fn test_stream_all_messages_changing_group_list() {
     assert_msg!(stream, "third");
 
     let alix_group_2 = alix.create_group(None, None).unwrap();
-    alix_group_2
-        .add_members_by_inbox_id(&[caro.inbox_id()])
-        .await
-        .unwrap();
+    alix_group_2.add_members(&[caro.inbox_id()]).await.unwrap();
 
     alix_group
         .send_message(b"fourth", SendMessageOpts::default())
@@ -86,16 +80,10 @@ async fn test_stream_all_messages_unchanging_group_list() {
     let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
     let alix_group = alix.create_group(None, None).unwrap();
-    alix_group
-        .add_members_by_inbox_id(&[caro.inbox_id()])
-        .await
-        .unwrap();
+    alix_group.add_members(&[caro.inbox_id()]).await.unwrap();
 
     let bo_group = bo.create_group(None, None).unwrap();
-    bo_group
-        .add_members_by_inbox_id(&[caro.inbox_id()])
-        .await
-        .unwrap();
+    bo_group.add_members(&[caro.inbox_id()]).await.unwrap();
 
     let stream = caro.stream_all_messages(None, None).await.unwrap();
     futures::pin_mut!(stream);
@@ -131,10 +119,7 @@ async fn test_dm_stream_all_messages() {
     tester!(bo, with_name: "bo");
 
     let alix_group = alix.create_group(None, None).unwrap();
-    alix_group
-        .add_members_by_inbox_id(&[bo.inbox_id()])
-        .await
-        .unwrap();
+    alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
 
     let alix_dm = alix
         .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
@@ -226,7 +211,7 @@ async fn test_stream_all_messages_does_not_lose_messages() {
 
     let alix_group = alix.create_group(None, None).unwrap();
     alix_group
-        .add_members_by_inbox_id(&[caro.inbox_id(), bo.inbox_id()])
+        .add_members(&[caro.inbox_id(), bo.inbox_id()])
         .await
         .unwrap();
 
@@ -254,7 +239,7 @@ async fn test_stream_all_messages_does_not_lose_messages() {
         let caro = &caro_id;
         for i in 0..15 {
             let new_group = eve.create_group(None, None).unwrap();
-            new_group.add_members_by_inbox_id(&[caro]).await.unwrap();
+            new_group.add_members(&[caro]).await.unwrap();
             let msg = format!("EVE spam {i} from new group");
             new_group
                 .send_message(msg.as_bytes(), SendMessageOpts::default())
@@ -322,7 +307,7 @@ async fn test_stream_all_messages_detached_group_changes() {
         let caro = &caro_id;
         for i in 0..5 {
             let new_group = hale.create_group(None, None).unwrap();
-            new_group.add_members_by_inbox_id(&[caro]).await.unwrap();
+            new_group.add_members(&[caro]).await.unwrap();
             tracing::info!(
                 "\n\n HALE SENDING {i} to group {}\n\n",
                 hex::encode(&new_group.group_id)
@@ -378,14 +363,14 @@ async fn test_stream_all_messages_filters_by_consent_state(
     // Create group with Allowed consent
     let allowed_group = sender.create_group(None, None).unwrap();
     allowed_group
-        .add_members_by_inbox_id(&[receiver.inbox_id()])
+        .add_members(&[receiver.inbox_id()])
         .await
         .unwrap();
 
     // Create group with Denied consent
     let denied_group = sender.create_group(None, None).unwrap();
     denied_group
-        .add_members_by_inbox_id(&[receiver.inbox_id()])
+        .add_members(&[receiver.inbox_id()])
         .await
         .unwrap();
     denied_group
@@ -395,7 +380,7 @@ async fn test_stream_all_messages_filters_by_consent_state(
     // Create group with Unknown consent
     let unknown_group = sender.create_group(None, None).unwrap();
     unknown_group
-        .add_members_by_inbox_id(&[receiver.inbox_id()])
+        .add_members(&[receiver.inbox_id()])
         .await
         .unwrap();
     unknown_group
@@ -440,7 +425,7 @@ async fn stream_messages_keeps_track_of_cursor() {
     let alice_group = alice.create_group(None, None).unwrap();
 
     alice_group
-        .add_members_by_inbox_id(&[bo.inbox_id(), eve.inbox_id()])
+        .add_members(&[bo.inbox_id(), eve.inbox_id()])
         .await
         .unwrap();
     let _bo_groups = bo.sync_welcomes().await.unwrap();
@@ -515,10 +500,7 @@ async fn test_stream_all_messages_filters_conversations_created_after_init() {
 
     // Create new group that will arrive via conversation stream
     let new_group = sender.create_group(None, None).unwrap();
-    new_group
-        .add_members_by_inbox_id(&[receiver.inbox_id()])
-        .await
-        .unwrap();
+    new_group.add_members(&[receiver.inbox_id()]).await.unwrap();
 
     new_group
         .send_message(b"new message", SendMessageOpts::default())
@@ -564,10 +546,7 @@ async fn test_stream_all_messages_filters_new_group_when_dm_only() {
 
     // Create new group that will arrive via conversation stream
     let new_group = sender.create_group(None, None).unwrap();
-    new_group
-        .add_members_by_inbox_id(&[receiver.inbox_id()])
-        .await
-        .unwrap();
+    new_group.add_members(&[receiver.inbox_id()]).await.unwrap();
 
     // Send message in group - should NOT appear in stream
     new_group
@@ -592,10 +571,7 @@ async fn test_stream_all_messages_respects_cursor_between_streams() {
 
     // Step 1: Sender invites receiver to a group
     let group = sender.create_group(None, None).unwrap();
-    group
-        .add_members_by_inbox_id(&[receiver.inbox_id()])
-        .await
-        .unwrap();
+    group.add_members(&[receiver.inbox_id()]).await.unwrap();
 
     {
         // Step 2: Create initial stream with no filters
@@ -659,12 +635,12 @@ async fn test_stream_all_concurrent_writes() {
 
     // Create two groups
     let alix_group = alix
-        .create_group_with_inbox_ids(&[caro.inbox_id(), bo.inbox_id()], None, None)
+        .create_group_with_members(&[caro.inbox_id(), bo.inbox_id()], None, None)
         .await
         .unwrap();
 
     let caro_group_2 = caro
-        .create_group_with_inbox_ids(&[alix.inbox_id(), bo.inbox_id()], None, None)
+        .create_group_with_members(&[alix.inbox_id(), bo.inbox_id()], None, None)
         .await
         .unwrap();
 
@@ -741,7 +717,7 @@ async fn test_stream_all_concurrent_writes() {
         for i in 0..20 {
             let spam_message = format!("Davon Spam Message {}", i);
             let group = davon
-                .create_group_with_inbox_ids(&[&caro_inbox_id], None, None)
+                .create_group_with_members(&[&caro_inbox_id], None, None)
                 .await
                 .unwrap();
 
@@ -893,7 +869,7 @@ async fn test_new_group_does_not_duplicate_messages() {
     let mut initial_groups = Vec::with_capacity(50);
     for i in 0..50 {
         let group = alix.create_group(Default::default(), Default::default())?;
-        group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+        group.add_members(&[bo.inbox_id()]).await?;
         group
             .send_message(
                 format!("Initial message {}", i).as_bytes(),

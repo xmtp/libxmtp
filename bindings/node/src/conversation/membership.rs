@@ -141,11 +141,11 @@ impl Conversation {
   }
 
   #[napi]
-  pub async fn add_members(&self, account_identities: Vec<Identifier>) -> Result<()> {
+  pub async fn add_members_by_identity(&self, account_identities: Vec<Identifier>) -> Result<()> {
     let group = self.create_mls_group();
 
     group
-      .add_members(&account_identities.to_internal()?)
+      .add_members_by_identity(&account_identities.to_internal()?)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -206,11 +206,11 @@ impl Conversation {
   }
 
   #[napi]
-  pub async fn add_members_by_inbox_id(&self, inbox_ids: Vec<String>) -> Result<()> {
+  pub async fn add_members(&self, inbox_ids: Vec<String>) -> Result<()> {
     let group = self.create_mls_group();
 
     group
-      .add_members_by_inbox_id(&inbox_ids)
+      .add_members(&inbox_ids)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -218,11 +218,14 @@ impl Conversation {
   }
 
   #[napi]
-  pub async fn remove_members(&self, account_identities: Vec<Identifier>) -> Result<()> {
+  pub async fn remove_members_by_identity(
+    &self,
+    account_identities: Vec<Identifier>,
+  ) -> Result<()> {
     let group = self.create_mls_group();
 
     group
-      .remove_members(&account_identities.to_internal()?)
+      .remove_members_by_identity(&account_identities.to_internal()?)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -230,11 +233,11 @@ impl Conversation {
   }
 
   #[napi]
-  pub async fn remove_members_by_inbox_id(&self, inbox_ids: Vec<String>) -> Result<()> {
+  pub async fn remove_members(&self, inbox_ids: Vec<String>) -> Result<()> {
     let group = self.create_mls_group();
 
     group
-      .remove_members_by_inbox_id(
+      .remove_members(
         inbox_ids
           .iter()
           .map(AsRef::as_ref)

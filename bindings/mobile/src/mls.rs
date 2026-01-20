@@ -1570,7 +1570,7 @@ impl FfiConversations {
         Ok(Arc::new(convo.into()))
     }
 
-    pub async fn create_group(
+    pub async fn create_group_by_identity(
         &self,
         account_identities: Vec<FfiIdentifier>,
         opts: FfiCreateGroupOptions,
@@ -1587,7 +1587,7 @@ impl FfiConversations {
         let convo = self.create_group_optimistic(opts)?;
 
         if !account_identities.is_empty() {
-            convo.add_members(account_identities).await?;
+            convo.add_members_by_identity(account_identities).await?;
         } else {
             convo.sync().await?;
         }
@@ -1595,7 +1595,7 @@ impl FfiConversations {
         Ok(convo)
     }
 
-    pub async fn create_group_with_inbox_ids(
+    pub async fn create_group(
         &self,
         inbox_ids: Vec<String>,
         opts: FfiCreateGroupOptions,
@@ -1608,7 +1608,7 @@ impl FfiConversations {
         let convo = self.create_group_optimistic(opts)?;
 
         if !inbox_ids.is_empty() {
-            convo.add_members_by_inbox_id(inbox_ids).await?;
+            convo.add_members(inbox_ids).await?;
         } else {
             convo.sync().await?;
         };
@@ -1616,7 +1616,7 @@ impl FfiConversations {
         Ok(convo)
     }
 
-    pub async fn find_or_create_dm(
+    pub async fn find_or_create_dm_by_identity(
         &self,
         target_identity: FfiIdentifier,
         opts: FfiCreateDMOptions,
@@ -1630,7 +1630,7 @@ impl FfiConversations {
             .map_err(Into::into)
     }
 
-    pub async fn find_or_create_dm_by_inbox_id(
+    pub async fn find_or_create_dm(
         &self,
         inbox_id: String,
         opts: FfiCreateDMOptions,
@@ -2544,7 +2544,7 @@ impl FfiConversation {
         Ok(state.into())
     }
 
-    pub async fn add_members(
+    pub async fn add_members_by_identity(
         &self,
         account_identifiers: Vec<FfiIdentifier>,
     ) -> Result<FfiUpdateGroupMembershipResult, GenericError> {
@@ -2559,43 +2559,38 @@ impl FfiConversation {
         );
 
         self.inner
-            .add_members(&account_identifiers)
+            .add_members_by_identity(&account_identifiers)
             .await
             .map(FfiUpdateGroupMembershipResult::from)
             .map_err(Into::into)
     }
 
-    pub async fn add_members_by_inbox_id(
+    pub async fn add_members(
         &self,
         inbox_ids: Vec<String>,
     ) -> Result<FfiUpdateGroupMembershipResult, GenericError> {
         log::info!("Adding members by inbox ID: {}", inbox_ids.join(", "));
 
         self.inner
-            .add_members_by_inbox_id(&inbox_ids)
+            .add_members(&inbox_ids)
             .await
             .map(FfiUpdateGroupMembershipResult::from)
             .map_err(Into::into)
     }
 
-    pub async fn remove_members(
+    pub async fn remove_members_by_identity(
         &self,
         account_identifiers: Vec<FfiIdentifier>,
     ) -> Result<(), GenericError> {
         self.inner
-            .remove_members(&account_identifiers.to_internal()?)
+            .remove_members_by_identity(&account_identifiers.to_internal()?)
             .await
             .map_err(Into::into)
     }
 
-    pub async fn remove_members_by_inbox_id(
-        &self,
-        inbox_ids: Vec<String>,
-    ) -> Result<(), GenericError> {
+    pub async fn remove_members(&self, inbox_ids: Vec<String>) -> Result<(), GenericError> {
         let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
-        self.inner
-            .remove_members_by_inbox_id(ids.as_slice())
-            .await?;
+        self.inner.remove_members(ids.as_slice()).await?;
         Ok(())
     }
 

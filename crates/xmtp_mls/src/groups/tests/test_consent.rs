@@ -9,7 +9,7 @@ async fn test_auto_consent_to_own_group() {
 
     tester!(bo);
     let unwanted_bo = bo
-        .create_group_with_inbox_ids(&[alix1.inbox_id()], None, None)
+        .create_group_with_members(&[alix1.inbox_id()], None, None)
         .await?;
 
     alix1.sync_welcomes().await?;

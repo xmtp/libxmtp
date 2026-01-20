@@ -69,10 +69,7 @@ pub(crate) mod tests {
         let group = amal_a
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
-        group
-            .add_members_by_inbox_id(&[alix.inbox_id()])
-            .await
-            .unwrap();
+        group.add_members(&[alix.inbox_id()]).await.unwrap();
         group.send_message(&[1, 2, 3]).await.unwrap();
 
         // Ensure that groups and messages now exists.

@@ -90,7 +90,7 @@ impl Conversations {
   }
 
   #[napi]
-  pub async fn create_group(
+  pub async fn create_group_by_identity(
     &self,
     account_identities: Vec<Identifier>,
     options: Option<CreateGroupOptions>,
@@ -98,7 +98,7 @@ impl Conversations {
     let convo = self.create_group_optimistic(options)?;
 
     if !account_identities.is_empty() {
-      convo.add_members(account_identities).await?;
+      convo.add_members_by_identity(account_identities).await?;
     } else {
       convo.sync().await.map_err(ErrorWrapper::from)?;
     };
@@ -107,7 +107,7 @@ impl Conversations {
   }
 
   #[napi]
-  pub async fn create_group_by_inbox_id(
+  pub async fn create_group(
     &self,
     inbox_ids: Vec<String>,
     options: Option<CreateGroupOptions>,
@@ -115,7 +115,7 @@ impl Conversations {
     let convo = self.create_group_optimistic(options)?;
 
     if !inbox_ids.is_empty() {
-      convo.add_members_by_inbox_id(inbox_ids).await?;
+      convo.add_members(inbox_ids).await?;
     } else {
       convo.sync().await.map_err(ErrorWrapper::from)?;
     }

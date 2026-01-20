@@ -234,7 +234,7 @@ async fn test_hmac_and_consent_preference_sync() {
 
     // Now alix1 receives a group from bo, alix1 consents. Alix2 should see the group as consented as well.
     let bo_group = bo
-        .create_group_with_inbox_ids(&[alix1.inbox_id()], None, None)
+        .create_group_with_members(&[alix1.inbox_id()], None, None)
         .await?;
     alix1.sync_welcomes().await?;
     let alix1_group = alix1.group(&bo_group.group_id)?;
@@ -261,7 +261,7 @@ async fn test_only_added_to_correct_groups() {
     tester!(bo);
 
     let old_group = alix1
-        .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+        .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     old_group
         .send_message(b"hi there", SendMessageOpts::default())
@@ -273,10 +273,10 @@ async fn test_only_added_to_correct_groups() {
     })?;
 
     let bo_group_denied = bo
-        .create_group_with_inbox_ids(&[alix1.inbox_id()], None, None)
+        .create_group_with_members(&[alix1.inbox_id()], None, None)
         .await?;
     let bo_group_unknown = bo
-        .create_group_with_inbox_ids(&[alix1.inbox_id()], None, None)
+        .create_group_with_members(&[alix1.inbox_id()], None, None)
         .await?;
     let bo_dm = bo
         .find_or_create_dm_by_inbox_id(alix1.inbox_id(), None)
@@ -291,7 +291,7 @@ async fn test_only_added_to_correct_groups() {
     alix_bo_group_denied.update_consent_state(ConsentState::Denied)?;
 
     let new_group = alix1
-        .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+        .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     new_group
         .send_message(b"hi there", SendMessageOpts::default())

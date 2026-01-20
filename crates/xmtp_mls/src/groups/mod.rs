@@ -980,7 +980,7 @@ where
     ///   - `members_with_errors`: A list of members that encountered errors during the update.
     /// - `Err(GroupError)`: If the operation fails due to an error.
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn add_members(
+    pub async fn add_members_by_identity(
         &self,
         account_identifiers: &[Identifier],
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
@@ -1014,7 +1014,7 @@ where
             ));
         }
 
-        self.add_members_by_inbox_id(&inbox_id_map.into_values().collect::<Vec<_>>())
+        self.add_members(&inbox_id_map.into_values().collect::<Vec<_>>())
             .await
     }
 
@@ -1023,7 +1023,7 @@ where
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip_all)
     )]
-    pub async fn add_members_by_inbox_id<S: AsIdRef>(
+    pub async fn add_members<S: AsIdRef>(
         &self,
         inbox_ids: impl AsRef<[S]>,
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
@@ -1071,7 +1071,7 @@ where
     ///
     /// # Returns
     /// A `Result` indicating success or failure of the operation.
-    pub async fn remove_members(
+    pub async fn remove_members_by_identity(
         &self,
         account_addresses_to_remove: &[Identifier],
     ) -> Result<(), GroupError> {
@@ -1088,7 +1088,7 @@ where
             .values()
             .map(AsRef::as_ref)
             .collect::<Vec<&str>>();
-        self.remove_members_by_inbox_id(ids.as_slice()).await
+        self.remove_members(ids.as_slice()).await
     }
 
     /// Removes members from the group by their inbox IDs.
@@ -1104,10 +1104,7 @@ where
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip_all)
     )]
-    pub async fn remove_members_by_inbox_id(
-        &self,
-        inbox_ids: &[InboxIdRef<'_>],
-    ) -> Result<(), GroupError> {
+    pub async fn remove_members(&self, inbox_ids: &[InboxIdRef<'_>]) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         let intent_data = self.get_membership_update_intent(&[], inbox_ids).await?;
         let intent = QueueIntent::update_group_membership()
@@ -1232,7 +1229,7 @@ where
             "Removing pending members from group"
         );
 
-        match self.remove_members_by_inbox_id(&valid_removals).await {
+        match self.remove_members(&valid_removals).await {
             Ok(_) => {
                 tracing::info!(
                     group_id = hex::encode(&self.group_id),

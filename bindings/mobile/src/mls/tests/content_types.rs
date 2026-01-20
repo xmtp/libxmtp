@@ -11,7 +11,7 @@ async fn test_can_send_and_receive_reaction() {
     // Create a conversation between them
     let alix_conversation = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -289,7 +289,7 @@ async fn test_long_messages() {
 
     let dm = alix
         .conversations()
-        .find_or_create_dm_by_inbox_id(bo.inbox_id(), FfiCreateDMOptions::default())
+        .find_or_create_dm(bo.inbox_id(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
@@ -310,7 +310,7 @@ async fn test_long_messages() {
 
     let bo_dm = bo
         .conversations()
-        .find_or_create_dm_by_inbox_id(alix.inbox_id(), FfiCreateDMOptions::default())
+        .find_or_create_dm(alix.inbox_id(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
@@ -331,7 +331,7 @@ async fn test_find_enriched_messages_with_reactions() {
     let alix_group = alix
         .client
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -476,7 +476,7 @@ async fn test_find_enriched_messages_with_replies() {
     let alix_dm = alix
         .client
         .conversations()
-        .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
