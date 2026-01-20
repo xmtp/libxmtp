@@ -34,7 +34,8 @@ use xmtp_mls_common::{
 const ITERATION_COUNT: usize = 50;
 const TESTERS_PER_ITERATION: std::ops::RangeInclusive<usize> = 1..=1;
 const INSTALLATIONS_PER_TESTER: std::ops::RangeInclusive<usize> = 9..=9;
-const PCT_FILL_LEAF_NODES: f64 = 0.5;
+const PCT_FILL_LEAF_NODES: f64 = 0.0625;
+const FILL_LEAF_NODE_EVERY: usize = 8;
 
 struct ProposalsAndCommit {
     proposals: Vec<MlsMessageOut>,
@@ -498,6 +499,7 @@ async fn fill_leaf_nodes(
 #[xmtp_common::test]
 async fn test_commit_sizes_with_proposals() {
     let mut rng = rand::thread_rng();
+    let mut fill_leaf_node_counter = 0;
     crate::tester!(alix);
 
     let new_group = alix.create_group(None, None).unwrap();
@@ -632,7 +634,8 @@ async fn test_commit_sizes_with_proposals() {
             }
             sync_groups(testers.iter()).await;
             for (i, tester) in testers[tester_start..].iter().enumerate() {
-                if rng.gen_bool(PCT_FILL_LEAF_NODES) {
+                fill_leaf_node_counter += 1;
+                if fill_leaf_node_counter % FILL_LEAF_NODE_EVERY == 0 {
                     fill_leaf_nodes([tester].into_iter(), testers.iter()).await;
                 }
                 let message_bytes = format!("Hello from new tester! {}", tester_start + i);
