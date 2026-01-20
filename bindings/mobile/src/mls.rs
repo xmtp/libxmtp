@@ -735,6 +735,28 @@ impl FfiXmtpClient {
         Ok(state.into())
     }
 
+    pub async fn fetch_inbox_updates_count(
+        &self,
+        refresh_from_network: bool,
+        inbox_ids: Vec<String>,
+    ) -> Result<HashMap<InboxId, u32>, GenericError> {
+        let ids = inbox_ids.iter().map(AsRef::as_ref).collect();
+        self.inner_client
+            .fetch_inbox_updates_count(refresh_from_network, ids)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn fetch_own_inbox_updates_count(
+        &self,
+        refresh_from_network: bool,
+    ) -> Result<u32, GenericError> {
+        self.inner_client
+            .fetch_own_inbox_updates_count(refresh_from_network)
+            .await
+            .map_err(Into::into)
+    }
+
     pub async fn set_consent_states(&self, records: Vec<FfiConsent>) -> Result<(), GenericError> {
         let inner = self.inner_client.as_ref();
         let stored_records: Vec<StoredConsentRecord> =

@@ -77,6 +77,7 @@ pub enum SyncWorkerEvent {
     // The sync worker will auto-sync these with other devices.
     SyncPreferences(Vec<PreferenceUpdate>),
     CycleHMAC,
+    Tick,
 }
 
 impl std::fmt::Debug for SyncWorkerEvent {
@@ -89,6 +90,7 @@ impl std::fmt::Debug for SyncWorkerEvent {
             Self::NewSyncGroupMsg => write!(f, "NewSyncGroupMsg"),
             Self::SyncPreferences(arg0) => f.debug_tuple("SyncPreferences").field(arg0).finish(),
             Self::CycleHMAC => write!(f, "CycleHMAC"),
+            Self::Tick => write!(f, "Tick"),
         }
     }
 }
