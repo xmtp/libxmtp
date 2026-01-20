@@ -32,7 +32,7 @@ pub(crate) struct LogEventInput {
     pub(crate) event: Path,
     pub(crate) level: LogLevel,
     pub(crate) fields: Vec<Field>,
-    pub(crate) inbox: Expr,
+    pub(crate) installation_id: Expr,
 }
 
 impl Parse for LogEventInput {
@@ -40,8 +40,8 @@ impl Parse for LogEventInput {
         let event: Path = input.parse()?;
         input.parse::<Token![,]>()?;
 
-        // Parse inbox as the second argument
-        let inbox: Expr = input.parse()?;
+        // Parse installation_id as the second argument
+        let installation_id: Expr = input.parse()?;
         let mut level = LogLevel::Info;
         let mut fields = Vec::new();
 
@@ -121,25 +121,26 @@ impl Parse for LogEventInput {
             fields.push(Field { name, sigil, value });
         }
 
-        // Create a field for inbox that truncates to last 5 characters
-        let inbox_field = Field {
-            name: syn::Ident::new("inbox", proc_macro2::Span::call_site()),
+        // Create a field for installation_id that hex encodes the last 4 bytes
+        let installation_id_field = Field {
+            name: syn::Ident::new("installation_id", proc_macro2::Span::call_site()),
             sigil: Some('%'),
             value: Some(syn::parse_quote! {
                 {
-                    let s: &str = #inbox;
-                    let len = s.len();
-                    if len > 5 { &s[len - 5..] } else { s }
+                    let bytes: &[u8] = __installation_id.as_ref();
+                    let len = bytes.len();
+                    let last_4 = if len >= 4 { &bytes[len - 4..] } else { bytes };
+                    hex::encode(last_4)
                 }
             }),
         };
-        fields.push(inbox_field);
+        fields.push(installation_id_field);
 
         Ok(LogEventInput {
             event,
             level,
             fields,
-            inbox,
+            installation_id,
         })
     }
 }

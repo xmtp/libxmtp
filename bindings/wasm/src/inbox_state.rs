@@ -164,6 +164,34 @@ impl Client {
     Ok(state.into())
   }
 
+  #[wasm_bindgen(js_name = fetchLatestInboxUpdatesCount)]
+  pub async fn fetch_inbox_updates_count(
+    &self,
+    refresh_from_network: bool,
+    inbox_ids: Vec<String>,
+  ) -> Result<JsValue, JsError> {
+    let ids = inbox_ids.iter().map(AsRef::as_ref).collect();
+    self
+      .inner_client()
+      .fetch_inbox_updates_count(refresh_from_network, ids)
+      .await
+      .map(|map| crate::to_value(&map).map_err(JsError::from))
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))
+      .flatten()
+  }
+
+  #[wasm_bindgen(js_name = fetchOwnInboxUpdatesCount)]
+  pub async fn fetch_own_inbox_updates_count(
+    &self,
+    refresh_from_network: bool,
+  ) -> Result<u32, JsError> {
+    self
+      .inner_client()
+      .fetch_own_inbox_updates_count(refresh_from_network)
+      .await
+      .map_err(Into::into)
+  }
+
   /**
    * Get key package statuses for a list of installation IDs.
    *

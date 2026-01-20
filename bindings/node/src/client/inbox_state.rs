@@ -4,6 +4,7 @@ use crate::inbox_state::{InboxState, KeyPackageStatus};
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use std::collections::HashMap;
+use xmtp_id::InboxId;
 
 #[napi]
 impl Client {
@@ -50,6 +51,31 @@ impl Client {
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(state.into())
+  }
+
+  #[napi]
+  pub async fn fetch_inbox_updates_count(
+    &self,
+    refresh_from_network: bool,
+    inbox_ids: Vec<String>,
+  ) -> Result<HashMap<InboxId, u32>> {
+    let ids = inbox_ids.iter().map(AsRef::as_ref).collect();
+    let res = self
+      .inner_client()
+      .fetch_inbox_updates_count(refresh_from_network, ids)
+      .await
+      .map_err(ErrorWrapper::from)?;
+    Ok(res)
+  }
+
+  #[napi]
+  pub async fn fetch_own_inbox_updates_count(&self, refresh_from_network: bool) -> Result<u32> {
+    let res = self
+      .inner_client()
+      .fetch_own_inbox_updates_count(refresh_from_network)
+      .await
+      .map_err(ErrorWrapper::from)?;
+    Ok(res)
   }
 
   /**
