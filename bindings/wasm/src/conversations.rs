@@ -376,7 +376,7 @@ impl Conversations {
 
     let group = self
       .inner_client
-      .create_group_by_identity(group_permissions, Some(metadata_options))
+      .create_group(group_permissions, Some(metadata_options))
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
     Ok(group.into())

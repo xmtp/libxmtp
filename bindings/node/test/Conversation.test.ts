@@ -367,7 +367,7 @@ describe.concurrent('Conversation', () => {
       },
     ])
     expect(group).toBeDefined()
-    const dmGroup = await client1.conversations().createDm({
+    const dmGroup = await client1.conversations().createDmByIdentity({
       identifier: user3.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
