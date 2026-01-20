@@ -31,7 +31,7 @@ use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
-use xmtp_common::{Event, Retry, retry_async, retryable};
+use xmtp_common::{Event, Retry, fmt::ShortHex, retry_async, retryable};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::{
     ConnectionExt, NotFound, StorageError, XmtpDb,
@@ -540,7 +540,11 @@ where
             None,
         )?;
 
-        log_event!(Event::CreatedGroup, group_id = %hex::encode(&group.group_id));
+        log_event!(
+            Event::CreatedGroup,
+            self.context.installation_id(),
+            group_id = group.group_id.short_hex()
+        );
 
         // notify streams of our new group
         let _ = self
@@ -592,7 +596,12 @@ where
             None,
         )?;
 
-        log_event!(Event::CreatedDM, group_id = %hex::encode(&group.group_id), target_inbox_id);
+        log_event!(
+            Event::CreatedDM,
+            self.context.installation_id(),
+            group_id = group.group_id.short_hex(),
+            target_inbox_id
+        );
         group.add_members_by_inbox_id(&[target_inbox_id]).await?;
 
         // notify any streams of the new group
