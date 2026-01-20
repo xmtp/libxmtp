@@ -52,10 +52,7 @@ impl Client {
   }
 
   #[napi]
-  pub async fn find_inbox_id_by_identifier(
-    &self,
-    identifier: Identifier,
-  ) -> Result<Option<String>> {
+  pub async fn find_inbox_id_by_identity(&self, identifier: Identifier) -> Result<Option<String>> {
     let conn = self.inner_client().context.store().db();
 
     let inbox_id = self

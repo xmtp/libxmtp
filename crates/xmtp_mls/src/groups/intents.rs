@@ -939,10 +939,7 @@ pub(crate) mod tests {
 
         // client A makes a group with client B, and then sends a message to client B.
         let group_a = client_a.create_group(None, None).expect("create group");
-        group_a
-            .add_members_by_inbox_id(&[client_b.inbox_id()])
-            .await
-            .unwrap();
+        group_a.add_members(&[client_b.inbox_id()]).await.unwrap();
         group_a
             .send_message(b"First message from A", SendMessageOpts::default())
             .await

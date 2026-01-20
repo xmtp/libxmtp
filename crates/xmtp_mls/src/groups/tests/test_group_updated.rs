@@ -247,7 +247,7 @@ async fn test_group_updated_admin_changes() {
         .expect("Failed to create group");
 
     alix_group
-        .add_members_by_inbox_id(&[
+        .add_members(&[
             bola.inbox_id().to_string(),
             caro.inbox_id().to_string(),
             devon.inbox_id().to_string(),
@@ -386,7 +386,7 @@ async fn test_group_updated_admin_changes() {
     // Add a new member to trigger a member-only change
     let alix_group2 = alix.create_group(None, Default::default()).unwrap();
     alix_group2
-        .add_members_by_inbox_id(&[bola.inbox_id().to_string()])
+        .add_members(&[bola.inbox_id().to_string()])
         .await
         .unwrap();
 

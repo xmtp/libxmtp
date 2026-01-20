@@ -13,7 +13,7 @@ async fn test_delete_message_by_sender() {
     tester!(alix);
     tester!(bo);
     let alix_group = alix.create_group(None, None)?;
-    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Alix sends a message
     let text_content = TextCodec::encode("Hello, world!".to_string())?;
@@ -64,7 +64,7 @@ async fn test_delete_message_by_super_admin() {
     tester!(alix);
     tester!(bo);
     let alix_group = alix.create_group(None, None)?;
-    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Bola sends a message
     let bo_groups = bo.sync_welcomes().await?;
@@ -105,7 +105,7 @@ async fn test_delete_message_authorization_failure() {
     tester!(alix);
     tester!(bo);
     let alix_group = alix.create_group(None, None)?;
-    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Alix sends a message
     let text_content = TextCodec::encode("Alix's message".to_string())?;
@@ -133,7 +133,7 @@ async fn test_cannot_delete_transcript_messages() {
     tester!(alix);
     tester!(bo);
     let alix_group = alix.create_group(None, None)?;
-    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Sync to get the membership change message
     alix_group.sync().await?;
@@ -208,7 +208,7 @@ async fn test_out_of_order_deletion() {
     tester!(alix);
     tester!(bo);
     let alix_group = alix.create_group(None, None)?;
-    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Alix sends a message
     let text_content = TextCodec::encode("Test message".to_string())?;
@@ -360,7 +360,7 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
     tester!(alix);
     tester!(bo);
     let alix_group = alix.create_group(None, None)?;
-    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
 
     let bo_groups = bo.sync_welcomes().await?;
     let bo_group = &bo_groups[0];
@@ -469,7 +469,7 @@ async fn test_enrichment_with_deleted_messages() {
     tester!(alix);
     tester!(bo);
     let alix_group = alix.create_group(None, None)?;
-    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Alix sends a message
     let text_content = TextCodec::encode("Secret message".to_string())?;
@@ -593,7 +593,7 @@ async fn test_admin_deletion_flag() {
     tester!(alix);
     tester!(bo);
     let alix_group = alix.create_group(None, None)?;
-    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
 
     let bo_groups = bo.sync_welcomes().await?;
     let bo_group = &bo_groups[0];
@@ -643,7 +643,7 @@ async fn test_reply_to_deleted_message() {
     tester!(alix);
     tester!(bo);
     let alix_group = alix.create_group(None, None)?;
-    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Alix sends an original message
     let text_content = TextCodec::encode("Original message".to_string())?;
@@ -726,10 +726,10 @@ async fn test_cannot_delete_message_from_different_group() {
 
     // Create two separate groups
     let group1 = alix.create_group(None, None)?;
-    group1.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+    group1.add_members(&[bo.inbox_id()]).await?;
 
     let group2 = alix.create_group(None, None)?;
-    group2.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+    group2.add_members(&[bo.inbox_id()]).await?;
 
     // Alix sends a message in group1
     let text_content = TextCodec::encode("Message in group 1".to_string())?;
@@ -766,7 +766,7 @@ async fn test_cannot_delete_delete_message() {
     tester!(alix);
     tester!(bo);
     let alix_group = alix.create_group(None, None)?;
-    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Alix sends a message
     let text_content = TextCodec::encode("Original message".to_string())?;
@@ -814,7 +814,7 @@ async fn test_concurrent_deletions() {
     // Alix creates a group with Bo and Caro, making Bo also a super admin
     let alix_group = alix.create_group(None, None)?;
     alix_group
-        .add_members_by_inbox_id(&[bo.inbox_id(), caro.inbox_id()])
+        .add_members(&[bo.inbox_id(), caro.inbox_id()])
         .await?;
 
     // Bo syncs and gets the group
@@ -919,7 +919,7 @@ async fn test_sender_and_admin_both_delete() {
 
     // Alix creates a group with Bo
     let alix_group = alix.create_group(None, None)?;
-    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Bo syncs and gets the group
     let bo_groups = bo.sync_welcomes().await?;

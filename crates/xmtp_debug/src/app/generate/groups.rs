@@ -86,7 +86,7 @@ impl GenerateGroups {
                         }
                         let client = client.lock().await;
                         let group = client.create_group(Default::default(), Default::default())?;
-                        group.add_members_by_inbox_id(ids.as_slice()).await?;
+                        group.add_members(ids.as_slice()).await?;
                         bar_pointer.inc(1);
                         let mut members = invitees
                             .into_iter()

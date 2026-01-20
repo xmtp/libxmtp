@@ -203,10 +203,7 @@ async fn test_receive_message_from_other() {
     let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let alix_group = alix.create_group(None, None).expect("create group");
-    alix_group
-        .add_members_by_inbox_id(&[bo.inbox_id()])
-        .await
-        .unwrap();
+    alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
     let alix_message = b"hello from alix";
     alix_group
         .send_message(alix_message, SendMessageOpts::default())
@@ -234,10 +231,7 @@ async fn test_members_func_from_non_creator() {
     let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
     let amal_group = amal.create_group(None, None).unwrap();
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     // Get bola's version of the same group
     let bola_groups = bola.sync_welcomes().await.unwrap();
@@ -285,10 +279,7 @@ async fn test_add_member_conflict() {
 
     let amal_group = amal.create_group(None, None).unwrap();
     // Add bola
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     // Get bola's version of the same group
     let bola_groups = bola.sync_welcomes().await.unwrap();
@@ -298,12 +289,12 @@ async fn test_add_member_conflict() {
     tracing::info!("Adding charlie from amal");
     // Have amal and bola both invite charlie.
     amal_group
-        .add_members_by_inbox_id(&[charlie.inbox_id()])
+        .add_members(&[charlie.inbox_id()])
         .await
         .expect("failed to add charlie");
     tracing::info!("Adding charlie from bola");
     bola_group
-        .add_members_by_inbox_id(&[charlie.inbox_id()])
+        .add_members(&[charlie.inbox_id()])
         .await
         .expect("bola's add should succeed in a no-op");
 
@@ -497,10 +488,7 @@ async fn test_add_inbox() {
     let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let group = client.create_group(None, None).expect("create group");
 
-    group
-        .add_members_by_inbox_id(&[client_2.inbox_id()])
-        .await
-        .unwrap();
+    group.add_members(&[client_2.inbox_id()]).await.unwrap();
 
     let group_id = group.group_id;
 
@@ -535,7 +523,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
 
     // 3) Create the group, inviting bola (which internally includes bola_1 and bola_2)
     let group = alix
-        .create_group_with_members(&[bola_wallet.identifier()], None, None)
+        .create_group_with_identifiers(&[bola_wallet.identifier()], None, None)
         .await
         .unwrap();
 
@@ -642,7 +630,7 @@ async fn test_create_group_with_member_all_malformed_installations() {
 
     // 3) Attempt to create the group, which should fail
     let result = alix
-        .create_group_with_members(&[bola_wallet.identifier()], None, None)
+        .create_group_with_identifiers(&[bola_wallet.identifier()], None, None)
         .await;
     // 4) Ensure group creation failed
     assert!(
@@ -844,11 +832,13 @@ async fn test_add_inbox_with_bad_installation_to_group() {
     );
 
     let group = alix
-        .create_group_with_members(&[caro_wallet.identifier()], None, None)
+        .create_group_with_identifiers(&[caro_wallet.identifier()], None, None)
         .await
         .unwrap();
 
-    let _ = group.add_members(&[bo_wallet.identifier()]).await;
+    let _ = group
+        .add_members_by_identity(&[bo_wallet.identifier()])
+        .await;
 
     bo_2.sync_welcomes().await.unwrap();
     caro.sync_welcomes().await.unwrap();
@@ -880,11 +870,13 @@ async fn test_add_inbox_with_good_installation_to_group_with_bad_installation() 
     );
 
     let group = alix
-        .create_group_with_members(&[bo_wallet.identifier()], None, None)
+        .create_group_with_identifiers(&[bo_wallet.identifier()], None, None)
         .await
         .unwrap();
 
-    let _ = group.add_members(&[caro_wallet.identifier()]).await;
+    let _ = group
+        .add_members_by_identity(&[caro_wallet.identifier()])
+        .await;
 
     caro.sync_welcomes().await.unwrap();
     bo_2.sync_welcomes().await.unwrap();
@@ -916,7 +908,7 @@ async fn test_remove_inbox_with_good_installation_from_group_with_bad_installati
     );
 
     let group = alix_1
-        .create_group_with_members(
+        .create_group_with_identifiers(
             &[bo_wallet.identifier(), caro_wallet.identifier()],
             None,
             None,
@@ -925,7 +917,9 @@ async fn test_remove_inbox_with_good_installation_from_group_with_bad_installati
         .unwrap();
 
     assert_eq!(group.members().await.unwrap().len(), 3);
-    let _ = group.remove_members(&[caro_wallet.identifier()]).await;
+    let _ = group
+        .remove_members_by_identity(&[caro_wallet.identifier()])
+        .await;
 
     caro.sync_welcomes().await.unwrap();
     bo.sync_welcomes().await.unwrap();
@@ -962,7 +956,7 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
     );
 
     let group = alix
-        .create_group_with_members(
+        .create_group_with_identifiers(
             &[bo_wallet.identifier(), caro_wallet.identifier()],
             None,
             None,
@@ -1010,7 +1004,7 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
 
     // Remove Bo
     group
-        .remove_members(&[bo_wallet.identifier()])
+        .remove_members_by_identity(&[bo_wallet.identifier()])
         .await
         .unwrap();
 
@@ -1064,7 +1058,7 @@ async fn test_add_invalid_member() {
     let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let group = client.create_group(None, None).expect("create group");
 
-    let result = group.add_members_by_inbox_id(&["1234".to_string()]).await;
+    let result = group.add_members(&["1234".to_string()]).await;
 
     assert!(result.is_err());
 }
@@ -1074,7 +1068,7 @@ async fn test_add_unregistered_member() {
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let unconnected_ident = Identifier::rand_ethereum();
     let group = amal.create_group(None, None).unwrap();
-    let result = group.add_members(&[unconnected_ident]).await;
+    let result = group.add_members_by_identity(&[unconnected_ident]).await;
 
     assert!(result.is_err());
 }
@@ -1087,7 +1081,7 @@ async fn test_remove_inbox() {
 
     let group = client_1.create_group(None, None).expect("create group");
     group
-        .add_members_by_inbox_id(&[client_2.inbox_id()])
+        .add_members(&[client_2.inbox_id()])
         .await
         .expect("group create failure");
 
@@ -1096,7 +1090,7 @@ async fn test_remove_inbox() {
 
     // Try and add another member without merging the pending commit
     group
-        .remove_members_by_inbox_id(&[client_2.inbox_id()])
+        .remove_members(&[client_2.inbox_id()])
         .await
         .expect("group remove members failure");
 
@@ -1148,7 +1142,7 @@ async fn test_self_remove_dm_must_fail() {
     assert_eq!(message.decrypted_message_bytes, b"test one");
 
     // Amal cannot remove bola
-    let result = amal_dm.remove_members_by_inbox_id(&[bola.inbox_id()]).await;
+    let result = amal_dm.remove_members(&[bola.inbox_id()]).await;
     assert!(result.is_err());
     amal_dm.sync().await.unwrap();
     let members = amal_dm.members().await.unwrap();
@@ -1214,10 +1208,7 @@ async fn test_self_remove_super_admin_must_fail() {
     let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
     let amal_group = amal.create_group(None, None).unwrap();
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     let result = amal_group.leave_group().await;
     assert_err!(
@@ -1232,10 +1223,7 @@ async fn test_non_member_cannot_leave_group() {
 
     // Create a group and verify it has the default group name
     let amal_group = amal.create_group(None, None).unwrap();
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     amal_group.sync().await.unwrap();
     bola.sync_welcomes().await.unwrap();
@@ -1261,10 +1249,7 @@ async fn test_non_member_cannot_leave_group() {
         .unwrap();
     assert!(bola_group_pending_leave_users.is_empty());
 
-    amal_group
-        .remove_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.remove_members(&[bola.inbox_id()]).await.unwrap();
     bola_group.sync().await.unwrap();
     let bola_not_member_leave_result = bola_group.leave_group().await;
     assert_err!(
@@ -1282,10 +1267,7 @@ async fn test_self_removal() {
     let bola_i2 = ClientBuilder::new_test_client(&bola_wallet).await;
 
     let amal_group = amal.create_group(None, None).unwrap();
-    amal_group
-        .add_members_by_inbox_id(&[bola_i1.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola_i1.inbox_id()]).await.unwrap();
 
     amal_group.sync().await.unwrap();
     bola_i1.sync_welcomes().await.unwrap();
@@ -1397,10 +1379,7 @@ async fn test_self_removal_simple() {
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let amal_group = amal.create_group(None, None).unwrap();
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
@@ -1442,10 +1421,7 @@ async fn test_membership_state_after_readd() {
 
     // Amal creates a group and adds Bola
     let amal_group = amal.create_group(None, None).unwrap();
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     // Bola syncs and gets the group
     bola.sync_welcomes().await.unwrap();
@@ -1485,10 +1461,7 @@ async fn test_membership_state_after_readd() {
     );
 
     // Amal re-adds Bola to the group
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     // Amal syncs to send the add
     amal_group.sync().await.unwrap();
@@ -1538,10 +1511,7 @@ async fn test_self_removal_group_update_message() {
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let amal_group = amal.create_group(None, None).unwrap();
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
@@ -1579,10 +1549,7 @@ async fn test_self_removal_single_installations() {
     let bola = ClientBuilder::new_test_client(&bola_wallet).await;
 
     let amal_group = amal.create_group(None, None).unwrap();
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     amal_group.sync().await.unwrap();
     bola.sync_welcomes().await.unwrap();
@@ -1676,10 +1643,7 @@ async fn test_self_removal_with_multiple_initial_installations() {
     let bola_i2 = ClientBuilder::new_test_client(&bola_wallet).await;
 
     let amal_group = amal.create_group(None, None).unwrap();
-    amal_group
-        .add_members_by_inbox_id(&[bola_i1.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola_i1.inbox_id()]).await.unwrap();
 
     amal_group.sync().await.unwrap();
     bola_i1.sync_welcomes().await.unwrap();
@@ -1744,10 +1708,7 @@ async fn test_self_removal_with_late_installation() {
     let bola_i1 = ClientBuilder::new_test_client(&bola_wallet).await;
 
     let amal_group = amal.create_group(None, None).unwrap();
-    amal_group
-        .add_members_by_inbox_id(&[bola_i1.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola_i1.inbox_id()]).await.unwrap();
 
     amal_group.sync().await.unwrap();
     bola_i1.sync_welcomes().await.unwrap();
@@ -1824,7 +1785,7 @@ async fn test_clean_pending_remove_list_on_member_removal() {
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id(), caro.inbox_id()])
+        .add_members(&[bola.inbox_id(), caro.inbox_id()])
         .await
         .unwrap();
 
@@ -1854,7 +1815,7 @@ async fn test_clean_pending_remove_list_on_member_removal() {
     // Amal removes Bola from the group
     amal_group.sync().await.unwrap();
     amal_group
-        .remove_members(&[bola_wallet.identifier()])
+        .remove_members_by_identity(&[bola_wallet.identifier()])
         .await
         .unwrap();
 
@@ -1930,7 +1891,7 @@ async fn test_super_admin_promotion_marks_pending_leave_requests() {
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id(), caro.inbox_id()])
+        .add_members(&[bola.inbox_id(), caro.inbox_id()])
         .await
         .unwrap();
 
@@ -1997,7 +1958,7 @@ async fn test_super_admin_demotion_clears_pending_leave_requests() {
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id(), caro.inbox_id()])
+        .add_members(&[bola.inbox_id(), caro.inbox_id()])
         .await
         .unwrap();
 
@@ -2071,10 +2032,7 @@ async fn test_no_status_change_when_not_in_pending_remove_list() {
     let bola = ClientBuilder::new_test_client(&bola_wallet).await;
 
     let amal_group = amal.create_group(None, None).unwrap();
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     amal_group.sync().await.unwrap();
     bola.sync_welcomes().await.unwrap();
@@ -2125,10 +2083,7 @@ async fn test_promotion_excludes_self_from_pending_check() {
     let bola = ClientBuilder::new_test_client(&bola_wallet).await;
 
     let amal_group = amal.create_group(None, None).unwrap();
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     amal_group.sync().await.unwrap();
     bola.sync_welcomes().await.unwrap();
@@ -2186,7 +2141,7 @@ async fn test_admin_removal_without_pending_shows_as_removed() {
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id(), caro.inbox_id()])
+        .add_members(&[bola.inbox_id(), caro.inbox_id()])
         .await
         .unwrap();
 
@@ -2211,7 +2166,7 @@ async fn test_admin_removal_without_pending_shows_as_removed() {
 
     // Amal removes Bola from the group (admin removal, not self-removal)
     amal_group
-        .remove_members(&[bola_wallet.identifier()])
+        .remove_members_by_identity(&[bola_wallet.identifier()])
         .await
         .unwrap();
 
@@ -2263,10 +2218,7 @@ async fn test_key_update() {
     tester!(bola_client);
 
     let group = client.create_group(None, None).expect("create group");
-    group
-        .add_members_by_inbox_id(&[bola_client.inbox_id()])
-        .await
-        .unwrap();
+    group.add_members(&[bola_client.inbox_id()]).await.unwrap();
 
     group.key_update().await.unwrap();
 
@@ -2305,10 +2257,7 @@ async fn test_post_commit() {
     let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let group = client.create_group(None, None).expect("create group");
 
-    group
-        .add_members_by_inbox_id(&[client_2.inbox_id()])
-        .await
-        .unwrap();
+    group.add_members(&[client_2.inbox_id()]).await.unwrap();
 
     // Check if the welcome was actually sent
     let welcome_messages = client
@@ -2334,7 +2283,7 @@ async fn test_remove_by_account_address() {
 
     let group = amal.create_group(None, None).unwrap();
     group
-        .add_members(&[bola_wallet.identifier(), charlie_wallet.identifier()])
+        .add_members_by_identity(&[bola_wallet.identifier(), charlie_wallet.identifier()])
         .await
         .unwrap();
     tracing::info!("created the group with 2 additional members");
@@ -2350,7 +2299,7 @@ async fn test_remove_by_account_address() {
     assert_eq!(group_update.left_inboxes.len(), 0);
 
     group
-        .remove_members(&[bola_wallet.identifier()])
+        .remove_members_by_identity(&[bola_wallet.identifier()])
         .await
         .unwrap();
     assert_eq!(group.members().await.unwrap().len(), 2);
@@ -2380,13 +2329,13 @@ async fn test_removed_members_cannot_send_message_to_others() {
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
-        .add_members(&[bola_wallet.identifier(), charlie_wallet.identifier()])
+        .add_members_by_identity(&[bola_wallet.identifier(), charlie_wallet.identifier()])
         .await
         .unwrap();
     assert_eq!(amal_group.members().await.unwrap().len(), 3);
 
     amal_group
-        .remove_members(&[bola_wallet.identifier()])
+        .remove_members_by_identity(&[bola_wallet.identifier()])
         .await
         .unwrap();
     assert_eq!(amal_group.members().await.unwrap().len(), 2);
@@ -2446,10 +2395,7 @@ async fn test_add_missing_installations() {
     let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
     let group = amal.create_group(None, None).unwrap();
-    group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     assert_eq!(group.members().await.unwrap().len(), 2);
     // Finished with setup
@@ -2480,23 +2426,14 @@ async fn test_self_resolve_epoch_mismatch() {
     let dave = ClientBuilder::new_test_client(&dave_wallet).await;
     let amal_group = amal.create_group(None, None).unwrap();
     // Add bola to the group
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     let bola_group = receive_group_invite(&bola).await;
     bola_group.sync().await.unwrap();
     // Both Amal and Bola are up to date on the group state. Now each of them want to add someone else
-    amal_group
-        .add_members_by_inbox_id(&[charlie.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[charlie.inbox_id()]).await.unwrap();
 
-    bola_group
-        .add_members_by_inbox_id(&[dave.inbox_id()])
-        .await
-        .unwrap();
+    bola_group.add_members(&[dave.inbox_id()]).await.unwrap();
 
     // Send a message to the group, now that everyone is invited
     amal_group.sync().await.unwrap();
@@ -2535,19 +2472,11 @@ async fn test_group_permissions() {
         )
         .unwrap();
     // Add bola to the group
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     let bola_group = receive_group_invite(&bola).await;
     bola_group.sync().await.unwrap();
-    assert!(
-        bola_group
-            .add_members_by_inbox_id(&[charlie.inbox_id()])
-            .await
-            .is_err(),
-    );
+    assert!(bola_group.add_members(&[charlie.inbox_id()]).await.is_err(),);
 }
 
 #[xmtp_common::test]
@@ -2623,12 +2552,12 @@ async fn test_max_limit_add() {
         ClientBuilder::new_test_client(&wallet).await;
         clients.push(wallet.identifier());
     }
-    amal_group.add_members(&clients).await.unwrap();
+    amal_group.add_members_by_identity(&clients).await.unwrap();
     let bola_wallet = generate_local_wallet();
     ClientBuilder::new_test_client(&bola_wallet).await;
     assert!(
         amal_group
-            .add_members_by_inbox_id(&[bola_wallet.get_inbox_id(0)])
+            .add_members(&[bola_wallet.get_inbox_id(0)])
             .await
             .is_err(),
     );
@@ -2655,10 +2584,7 @@ async fn test_group_mutable_data() {
     );
 
     // Add bola to the group
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
     bola.sync_welcomes().await.unwrap();
 
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
@@ -2728,7 +2654,7 @@ async fn test_update_policies_empty_group() {
     // Create a group with amal and bola
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
     let amal_group = amal
-        .create_group_with_members(&[bola_wallet.identifier()], policy_set, None)
+        .create_group_with_identifiers(&[bola_wallet.identifier()], policy_set, None)
         .await
         .unwrap();
 
@@ -2888,7 +2814,7 @@ async fn test_group_mutable_data_group_permissions() {
 
     // Add bola to the group
     amal_group
-        .add_members(&[bola_wallet.identifier()])
+        .add_members_by_identity(&[bola_wallet.identifier()])
         .await
         .unwrap();
     bola.sync_welcomes().await.unwrap();
@@ -2959,7 +2885,7 @@ async fn test_group_admin_list_update() {
 
     // Add bola to the group
     amal_group
-        .add_members(&[bola_wallet.identifier()])
+        .add_members_by_identity(&[bola_wallet.identifier()])
         .await
         .unwrap();
     bola.sync_welcomes().await.unwrap();
@@ -2982,7 +2908,7 @@ async fn test_group_admin_list_update() {
     let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     bola_group
-        .add_members_by_inbox_id(&[caro.inbox_id()])
+        .add_members(&[caro.inbox_id()])
         .await
         .expect_err("expected err");
 
@@ -3002,10 +2928,7 @@ async fn test_group_admin_list_update() {
     );
 
     // Verify that bola can now add caro because they are an admin
-    bola_group
-        .add_members_by_inbox_id(&[caro.inbox_id()])
-        .await
-        .unwrap();
+    bola_group.add_members(&[caro.inbox_id()]).await.unwrap();
 
     bola_group.sync().await.unwrap();
 
@@ -3041,7 +2964,7 @@ async fn test_group_admin_list_update() {
     let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     bola_group
-        .add_members_by_inbox_id(&[charlie.inbox_id()])
+        .add_members(&[charlie.inbox_id()])
         .await
         .expect_err("expected err");
 }
@@ -3058,10 +2981,7 @@ async fn test_group_super_admin_list_update() {
     amal_group.sync().await.unwrap();
 
     // Add bola to the group
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
     assert_eq!(bola_groups.len(), 1);
@@ -3118,7 +3038,7 @@ async fn test_group_super_admin_list_update() {
 
     // Verify that no one can remove a super admin from a group
     amal_group
-        .remove_members(&[bola_wallet.identifier()])
+        .remove_members_by_identity(&[bola_wallet.identifier()])
         .await
         .expect_err("expected err");
 
@@ -3161,7 +3081,7 @@ async fn test_group_members_permission_level_update() {
 
     // Add Bola and Caro to the group
     amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id(), caro.inbox_id()])
+        .add_members(&[bola.inbox_id(), caro.inbox_id()])
         .await
         .unwrap();
     amal_group.sync().await.unwrap();
@@ -3254,10 +3174,7 @@ async fn test_staged_welcome() {
     let amal_group = amal.create_group(None, None).unwrap();
 
     // Amal adds Bola to the group
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     // Bola syncs groups - this will decrypt the Welcome, identify who added Bola
     // and then store that value on the group and insert into the database
@@ -3312,10 +3229,7 @@ async fn test_can_update_gce_after_failed_commit() {
 
     // Step 2:  Amal adds Bola to the group
     let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     // Step 3: Verify that Bola can update the group name, and amal sees the update
     bola.sync_welcomes().await.unwrap();
@@ -3368,10 +3282,7 @@ async fn test_can_update_permissions_after_group_creation() {
 
     // Step 2:  Amal adds Bola to the group
     let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    amal_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     // Step 3: Bola attempts to add Caro, but fails because group is admin only
     let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3380,7 +3291,7 @@ async fn test_can_update_permissions_after_group_creation() {
 
     let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
-    let result = bola_group.add_members_by_inbox_id(&[caro.inbox_id()]).await;
+    let result = bola_group.add_members(&[caro.inbox_id()]).await;
     if let Err(e) = &result {
         eprintln!("Error adding member: {:?}", e);
     } else {
@@ -3412,10 +3323,7 @@ async fn test_can_update_permissions_after_group_creation() {
         .unwrap();
 
     // Step 6: Bola can now add Caro to the group
-    bola_group
-        .add_members_by_inbox_id(&[caro.inbox_id()])
-        .await
-        .unwrap();
+    bola_group.add_members(&[caro.inbox_id()]).await.unwrap();
     bola_group.sync().await.unwrap();
     let members = bola_group.members().await.unwrap();
     assert_eq!(members.len(), 3);
@@ -3430,7 +3338,7 @@ async fn test_optimistic_send() {
     amal_group.sync().await.unwrap();
     // Add bola to the group
     amal_group
-        .add_members(&[bola_wallet.identifier()])
+        .add_members_by_identity(&[bola_wallet.identifier()])
         .await
         .unwrap();
     let bola_group = receive_group_invite(&bola).await;
@@ -3528,12 +3436,12 @@ async fn test_dm_creation() {
         .unwrap();
 
     // Amal can not add caro to the dm group
-    let result = amal_dm.add_members_by_inbox_id(&[caro.inbox_id()]).await;
+    let result = amal_dm.add_members(&[caro.inbox_id()]).await;
     assert!(result.is_err());
 
     // Bola is already a member
     let result = amal_dm
-        .add_members_by_inbox_id(&[bola.inbox_id(), caro.inbox_id()])
+        .add_members(&[bola.inbox_id(), caro.inbox_id()])
         .await;
     assert!(result.is_err());
     amal_dm.sync().await.unwrap();
@@ -3558,7 +3466,7 @@ async fn test_dm_creation() {
     assert_eq!(message.decrypted_message_bytes, b"test one");
 
     // Amal can not remove bola
-    let result = amal_dm.remove_members_by_inbox_id(&[bola.inbox_id()]).await;
+    let result = amal_dm.remove_members(&[bola.inbox_id()]).await;
     assert!(result.is_err());
     amal_dm.sync().await.unwrap();
     let members = amal_dm.members().await.unwrap();
@@ -3584,10 +3492,7 @@ async fn process_messages_abort_on_retryable_error() {
 
     let alix_group = alix.create_group(None, None).unwrap();
 
-    alix_group
-        .add_members_by_inbox_id(&[bo.inbox_id()])
-        .await
-        .unwrap();
+    alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
 
     // Create two commits
     alix_group
@@ -3634,10 +3539,7 @@ async fn skip_already_processed_messages() {
 
     let alix_group = alix.create_group(None, None).unwrap();
 
-    alix_group
-        .add_members_by_inbox_id(&[bo.inbox_id()])
-        .await
-        .unwrap();
+    alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
 
     let alix_message = vec![1];
     alix_group
@@ -3691,7 +3593,7 @@ async fn skip_already_processed_intents() {
     let alix_group = alix.create_group(None, None).unwrap();
 
     alix_group
-        .add_members_by_inbox_id(&[bo_client.inbox_id()])
+        .add_members(&[bo_client.inbox_id()])
         .await
         .unwrap();
 
@@ -3961,10 +3863,7 @@ async fn test_get_and_set_consent(
         .unwrap();
     assert_eq!(alix_group.consent_state().unwrap(), ConsentState::Denied);
 
-    alix_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    alix_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
@@ -3980,10 +3879,7 @@ async fn test_get_and_set_consent(
     // group consent state should be allowed if user sends a message to the group
     assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Allowed);
 
-    alix_group
-        .add_members_by_inbox_id(&[caro.inbox_id()])
-        .await
-        .unwrap();
+    alix_group.add_members(&[caro.inbox_id()]).await.unwrap();
 
     caro.sync_welcomes().await.unwrap();
     let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
@@ -4007,7 +3903,7 @@ async fn test_max_past_epochs() {
     let alix = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
     let bo = ClientBuilder::new_test_client_vanilla(&bo_wallet).await;
     let alix_group = alix
-        .create_group_with_members(&[bo_wallet.identifier()], None, None)
+        .create_group_with_identifiers(&[bo_wallet.identifier()], None, None)
         .await
         .unwrap();
 
@@ -4478,7 +4374,7 @@ async fn test_can_set_min_supported_protocol_version_for_commit() {
     // Step 2: Amal creates a group and adds bo as a member
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
-        .add_members_by_inbox_id(&[bo.context.identity.inbox_id()])
+        .add_members(&[bo.context.identity.inbox_id()])
         .await
         .unwrap();
 
@@ -4574,7 +4470,7 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
     // Step 2: Amal creates a group and adds bo as a member
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
-        .add_members_by_inbox_id(&[bo.context.identity.inbox_id()])
+        .add_members(&[bo.context.identity.inbox_id()])
         .await
         .unwrap();
 
@@ -4613,7 +4509,7 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
 
     // Step 7: Amal adds caro as a member
     amal_group
-        .add_members_by_inbox_id(&[caro.context.identity.inbox_id()])
+        .add_members(&[caro.context.identity.inbox_id()])
         .await
         .unwrap();
 
@@ -4669,7 +4565,7 @@ async fn test_only_super_admins_can_set_min_supported_protocol_version() {
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
-        .add_members_by_inbox_id(&[bo.context.identity.inbox_id()])
+        .add_members(&[bo.context.identity.inbox_id()])
         .await
         .unwrap();
     amal_group
@@ -4741,7 +4637,7 @@ async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
     // Amal creates a group and adds bo
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
-        .add_members_by_inbox_id(&[bo.context.identity.inbox_id()])
+        .add_members(&[bo.context.identity.inbox_id()])
         .await
         .unwrap();
 
@@ -4799,7 +4695,7 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
     // Amal creates a group and adds bo
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
-        .add_members_by_inbox_id(&[bo.context.identity.inbox_id()])
+        .add_members(&[bo.context.identity.inbox_id()])
         .await
         .unwrap();
 
@@ -4903,18 +4799,16 @@ async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
     amal_group.sync().await.unwrap();
 
     // 3) Add charlie to the group (normal member)
-    let result = amal_group
-        .add_members_by_inbox_id(&[charlie.inbox_id()])
-        .await;
+    let result = amal_group.add_members(&[charlie.inbox_id()]).await;
     assert!(result.is_ok());
 
     // 4) Initially fail to add bola since they only have one bad key package
-    let result = amal_group.add_members_by_inbox_id(&[bola.inbox_id()]).await;
+    let result = amal_group.add_members(&[bola.inbox_id()]).await;
     assert!(result.is_err());
 
     // 5) Add a second installation for bola and try and re-add them
     let bola_2 = ClientBuilder::new_test_client(&bola_wallet).await;
-    let result = amal_group.add_members_by_inbox_id(&[bola.inbox_id()]).await;
+    let result = amal_group.add_members(&[bola.inbox_id()]).await;
     assert!(result.is_ok());
 
     // 6) Test that bola can not perform an admin only action
@@ -4967,10 +4861,7 @@ async fn test_when_processing_message_return_future_wrong_epoch_group_marked_pro
     let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
     let group_a = client_a.create_group(None, None).unwrap();
-    group_a
-        .add_members_by_inbox_id(&[client_b.inbox_id()])
-        .await
-        .unwrap();
+    group_a.add_members(&[client_b.inbox_id()]).await.unwrap();
 
     client_b.sync_welcomes().await.unwrap();
 
@@ -5011,7 +4902,7 @@ async fn can_stream_out_of_order_without_forking() {
 
     // Add client_b and client_c to the group
     group_a
-        .add_members_by_inbox_id(&[client_b.inbox_id(), client_c.inbox_id()])
+        .add_members(&[client_b.inbox_id(), client_c.inbox_id()])
         .await
         .unwrap();
 
@@ -5110,7 +5001,7 @@ async fn non_retryable_error_increments_cursor() {
 
     // Create a group
     let group = alice.create_group(None, None).unwrap();
-    group.add_members_by_inbox_id::<String>(&[]).await.unwrap();
+    group.add_members::<String>(&[]).await.unwrap();
 
     let storage = alice.context.mls_storage();
 
@@ -5174,10 +5065,7 @@ async fn test_generate_commit_with_rollback() {
     tester!(alix);
     tester!(bo);
     let group = alix.create_group(None, None).unwrap();
-    group
-        .add_members_by_inbox_id(&[bo.inbox_id()])
-        .await
-        .unwrap();
+    group.add_members(&[bo.inbox_id()]).await.unwrap();
     group.sync().await.unwrap();
 
     let provider = alix.context.mls_storage();
@@ -5251,7 +5139,7 @@ async fn test_membership_state() {
     assert_eq!(state, GroupMembershipState::Allowed);
 
     // Add bola to the group
-    group.add_members_by_inbox_id(&[bola.inbox_id()]).await?;
+    group.add_members(&[bola.inbox_id()]).await?;
 
     // Sync so bola receives the welcome
     bola.sync_welcomes().await?;

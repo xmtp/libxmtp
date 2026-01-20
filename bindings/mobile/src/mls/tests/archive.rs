@@ -14,7 +14,7 @@ async fn test_archive_excludes_disappearing_messages() {
     // Step 1: Create a group and send one message
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )

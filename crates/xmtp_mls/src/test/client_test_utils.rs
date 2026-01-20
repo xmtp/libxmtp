@@ -29,7 +29,7 @@ where
     ) -> Result<(MlsGroup<Context>, String), TestError> {
         self.sync_welcomes().await?;
         let group = self
-            .create_group_with_inbox_ids(&[other.inbox_id()], None, None)
+            .create_group_with_members(&[other.inbox_id()], None, None)
             .await?;
 
         other.sync_welcomes().await?;

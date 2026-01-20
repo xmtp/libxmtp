@@ -47,7 +47,7 @@ impl Oneshot {
 
         // Add the specified inbox IDs to the group
         if !inbox_ids.as_ref().is_empty() {
-            group.add_members_by_inbox_id(&inbox_ids).await?;
+            group.add_members(&inbox_ids).await?;
         } else {
             group.add_missing_installations().await?;
         }
@@ -174,7 +174,7 @@ mod tests {
         tester!(caro);
 
         let a_group = alix
-            .create_group_with_inbox_ids(&[bo.inbox_id(), caro.inbox_id()], None, None)
+            .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
             .await
             .unwrap();
         let group_id = a_group.group_id.clone();

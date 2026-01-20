@@ -15,7 +15,7 @@ async fn test_find_or_create_dm() {
     let inbox_id2 = client2.inbox_id();
     let dm_by_inbox = client1
         .conversations()
-        .find_or_create_dm_by_inbox_id(inbox_id2, FfiCreateDMOptions::default())
+        .find_or_create_dm(inbox_id2, FfiCreateDMOptions::default())
         .await
         .expect("Should create DM with inbox ID");
 
@@ -38,7 +38,7 @@ async fn test_find_or_create_dm() {
     // First client tries to create another DM with the same inbox id
     let dm_by_inbox2 = client1
         .conversations()
-        .find_or_create_dm_by_inbox_id(client2.inbox_id(), FfiCreateDMOptions::default())
+        .find_or_create_dm(client2.inbox_id(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
@@ -61,7 +61,7 @@ async fn test_find_or_create_dm() {
     // Second client tries to create a DM with the client 1 inbox id
     let dm_by_inbox3 = client2
         .conversations()
-        .find_or_create_dm_by_inbox_id(client1.inbox_id(), FfiCreateDMOptions::default())
+        .find_or_create_dm(client1.inbox_id(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
@@ -91,7 +91,7 @@ async fn test_dms_sync_but_do_not_list() {
     let bola_conversations = bola.conversations();
 
     let _alix_dm = alix_conversations
-        .find_or_create_dm(
+        .find_or_create_dm_by_identity(
             bola.account_identifier.clone(),
             FfiCreateDMOptions::default(),
         )
@@ -152,7 +152,7 @@ async fn test_dm_stream_correct_type() {
         .stream_dms(stream_callback.clone())
         .await;
     amal.conversations()
-        .find_or_create_dm(
+        .find_or_create_dm_by_identity(
             bola.account_identifier.clone(),
             FfiCreateDMOptions::default(),
         )
@@ -177,7 +177,7 @@ async fn test_dm_streaming() {
     let stream = bo.conversations().stream(stream_callback.clone()).await;
 
     alix.conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -188,7 +188,7 @@ async fn test_dm_streaming() {
 
     assert_eq!(stream_callback.message_count(), 1);
     alix.conversations()
-        .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
         .await
         .unwrap();
     stream_callback.wait_for_delivery(None).await.unwrap();
@@ -208,7 +208,7 @@ async fn test_dm_streaming() {
         .await;
 
     alix.conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -219,7 +219,7 @@ async fn test_dm_streaming() {
     assert_eq!(stream_callback.message_count(), 1);
 
     alix.conversations()
-        .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
         .await
         .unwrap();
     let result = stream_callback.wait_for_delivery(Some(1)).await;
@@ -235,14 +235,14 @@ async fn test_dm_streaming() {
     let stream_callback = Arc::new(RustStreamCallback::default());
     let stream = bo.conversations().stream_dms(stream_callback.clone()).await;
     caro.conversations()
-        .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
         .await
         .unwrap();
     stream_callback.wait_for_delivery(Some(2)).await.unwrap();
     assert_eq!(stream_callback.message_count(), 1);
 
     alix.conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -263,13 +263,13 @@ async fn test_stream_all_dm_messages() {
     let bo = Tester::new().await;
     let alix_dm = alix
         .conversations()
-        .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -372,14 +372,14 @@ async fn test_dm_first_messages() {
     // Alix creates DM with Bo
     let alix_dm = alix
         .conversations()
-        .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
     // Alix creates group with Bo
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -461,7 +461,7 @@ async fn test_get_dm_peer_inbox_id() {
 
     let alix_dm = alix
         .conversations()
-        .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
@@ -482,7 +482,7 @@ async fn test_dm_permissions_show_expected_values() {
 
     let alix_group_admin_only = alix
         .conversations()
-        .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
@@ -512,7 +512,7 @@ async fn test_dm_permissions_show_expected_values() {
     };
     let alix_group_all_members = alix
         .conversations()
-        .create_group(vec![bo.account_identifier.clone()], all_members_options)
+        .create_group_by_identity(vec![bo.account_identifier.clone()], all_members_options)
         .await
         .unwrap();
 
@@ -545,7 +545,7 @@ async fn test_set_disappearing_messages_when_creating_dm() {
     // Step 1: Create a group
     let alix_group = alix
         .conversations()
-        .find_or_create_dm(
+        .find_or_create_dm_by_identity(
             bola.account_identifier.clone(),
             FfiCreateDMOptions::new(disappearing_settings.clone()),
         )
@@ -612,12 +612,12 @@ async fn test_can_successfully_thread_dms() {
     // Find or create DM conversations
     let convo_bo = client_bo
         .conversations()
-        .find_or_create_dm_by_inbox_id(client_alix.inbox_id(), FfiCreateDMOptions::default())
+        .find_or_create_dm(client_alix.inbox_id(), FfiCreateDMOptions::default())
         .await
         .unwrap();
     let convo_alix = client_alix
         .conversations()
-        .find_or_create_dm_by_inbox_id(client_bo.inbox_id(), FfiCreateDMOptions::default())
+        .find_or_create_dm(client_bo.inbox_id(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
@@ -673,12 +673,12 @@ async fn test_can_successfully_thread_dms() {
     // Ensure conversations remain the same
     let convo_alix_2 = client_alix
         .conversations()
-        .find_or_create_dm_by_inbox_id(client_bo.inbox_id(), FfiCreateDMOptions::default())
+        .find_or_create_dm(client_bo.inbox_id(), FfiCreateDMOptions::default())
         .await
         .unwrap();
     let convo_bo_2 = client_bo
         .conversations()
-        .find_or_create_dm_by_inbox_id(client_alix.inbox_id(), FfiCreateDMOptions::default())
+        .find_or_create_dm(client_alix.inbox_id(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
@@ -767,12 +767,12 @@ async fn test_can_successfully_thread_dms_with_no_messages() {
     // Find or create DM conversations
     let convo_bo = client_bo
         .conversations()
-        .find_or_create_dm_by_inbox_id(client_alix.inbox_id(), FfiCreateDMOptions::default())
+        .find_or_create_dm(client_alix.inbox_id(), FfiCreateDMOptions::default())
         .await
         .unwrap();
     let convo_alix = client_alix
         .conversations()
-        .find_or_create_dm_by_inbox_id(client_bo.inbox_id(), FfiCreateDMOptions::default())
+        .find_or_create_dm(client_bo.inbox_id(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
@@ -813,7 +813,7 @@ async fn test_can_quickly_fetch_dm_peer_inbox_id() {
     // Test find_or_create_dm returns correct dm_peer_inbox_id
     let dm = client_a
         .conversations()
-        .find_or_create_dm_by_inbox_id(client_b.inbox_id(), FfiCreateDMOptions::default())
+        .find_or_create_dm(client_b.inbox_id(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
@@ -885,7 +885,7 @@ async fn test_create_new_installation_can_see_dm() {
     // Create DM from client1 to client2
     let dm_group = client1
         .conversations()
-        .find_or_create_dm(
+        .find_or_create_dm_by_identity(
             client2.account_identifier.clone(),
             FfiCreateDMOptions::default(),
         )
@@ -969,13 +969,13 @@ async fn test_can_find_duplicate_dms_for_group() {
     // Create two DMs (same logical participants, will generate duplicate dm_id)
     let dm1 = client_a
         .conversations()
-        .find_or_create_dm_by_inbox_id(client_b.inbox_id(), FfiCreateDMOptions::default())
+        .find_or_create_dm(client_b.inbox_id(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
     let _dm2 = client_b
         .conversations()
-        .find_or_create_dm_by_inbox_id(client_a.inbox_id(), FfiCreateDMOptions::default())
+        .find_or_create_dm(client_a.inbox_id(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
@@ -1003,7 +1003,7 @@ async fn test_set_and_get_dm_consent() {
 
     let alix_dm = alix
         .conversations()
-        .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 

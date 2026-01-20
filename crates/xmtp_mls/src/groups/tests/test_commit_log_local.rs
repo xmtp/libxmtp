@@ -52,7 +52,7 @@ async fn test_successful_commit_log_types() {
     let b_client: &FullXmtpClient = &bo;
 
     let a = a_client
-        .create_group_with_inbox_ids(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
     assert_eq!(
         get_type(&a.local_commit_log().await?),
@@ -73,7 +73,7 @@ async fn test_successful_commit_log_types() {
     b.sync().await?;
     assert!(last_commit_type_matches(&a, &b, CommitType::KeyUpdate).await);
 
-    a.remove_members_by_inbox_id(&[caro.inbox_id()]).await?;
+    a.remove_members(&[caro.inbox_id()]).await?;
     b.sync().await?;
     assert!(last_commit_type_matches(&a, &b, CommitType::UpdateGroupMembership).await);
 
@@ -115,7 +115,7 @@ async fn test_failed_application_message_not_added_to_commit_log() {
     let b_client: &FullXmtpClient = &bo;
 
     let a = a_client
-        .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+        .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     assert_eq!(
         get_type(&a.local_commit_log().await?),
@@ -128,9 +128,9 @@ async fn test_failed_application_message_not_added_to_commit_log() {
     // Fast-forward 3 epochs so that a's next message will initially fail with an epoch error
     let b = b_client.sync_welcomes().await?.first()?.to_owned();
     b.sync().await?;
-    b.add_members_by_inbox_id(&[caro.inbox_id()]).await?;
-    b.add_members_by_inbox_id(&[devon.inbox_id()]).await?;
-    b.add_members_by_inbox_id(&[eri.inbox_id()]).await?;
+    b.add_members(&[caro.inbox_id()]).await?;
+    b.add_members(&[devon.inbox_id()]).await?;
+    b.add_members(&[eri.inbox_id()]).await?;
 
     // Message intent should fail with an epoch error, then get retried after syncing
     a.send_message(b"Hi", SendMessageOpts::default()).await?;
@@ -155,9 +155,9 @@ async fn test_welcome_commit_log() {
     tester!(caro);
 
     let a = alix
-        .create_group_with_inbox_ids(&[caro.inbox_id()], None, None)
+        .create_group_with_members(&[caro.inbox_id()], None, None)
         .await?;
-    a.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+    a.add_members(&[bo.inbox_id()]).await?;
     a.update_group_name("foo".to_string()).await?;
     assert_eq!(
         get_type(&a.local_commit_log().await?),
@@ -202,7 +202,7 @@ async fn test_commit_log_retriable_error() {
         let b_client: &FullXmtpClient = &bo;
 
         let a = a_client
-            .create_group_with_inbox_ids(&[bo.inbox_id(), caro.inbox_id()], None, None)
+            .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
             .await?;
         let b = b_client.sync_welcomes().await?.first()?.to_owned();
         b.sync().await?;
@@ -243,7 +243,7 @@ async fn test_commit_log_non_retriable_error() {
     let b_client: &FullXmtpClient = &bo;
 
     let a = a_client
-        .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+        .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     let b = b_client.sync_welcomes().await?.first()?.to_owned();
     assert_eq!(

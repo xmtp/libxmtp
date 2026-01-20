@@ -445,10 +445,7 @@ mod test {
         for _ in 0..group_size {
             let alix_bo_group = alix.create_group(None, None).unwrap();
             groups.push(alix_bo_group.group_id.clone());
-            alix_bo_group
-                .add_members_by_inbox_id(&[bo.inbox_id()])
-                .await
-                .unwrap();
+            alix_bo_group.add_members(&[bo.inbox_id()]).await.unwrap();
         }
         while !groups.is_empty() {
             let bo_received_groups = stream.next().await.unwrap().unwrap();
@@ -501,10 +498,7 @@ mod test {
             .unwrap();
 
         let group = alix.create_group(None, None).unwrap();
-        group
-            .add_members_by_inbox_id(&[bo.inbox_id()])
-            .await
-            .unwrap();
+        group.add_members(&[bo.inbox_id()]).await.unwrap();
 
         let group = stream.next().await.unwrap();
         let metadata = group.unwrap().metadata().await.unwrap();
@@ -545,18 +539,13 @@ mod test {
             .find_or_create_dm_by_inbox_id(alix.inbox_id().to_string(), None)
             .await
             .unwrap();
-        dm.add_members_by_inbox_id(&[alix.inbox_id()])
-            .await
-            .unwrap();
+        dm.add_members(&[alix.inbox_id()]).await.unwrap();
         let group = stream.next().await.unwrap();
         assert!(group.is_ok());
         groups.push(group.unwrap());
 
         let group = alix.create_group(None, None).unwrap();
-        group
-            .add_members_by_inbox_id(&[bo.inbox_id()])
-            .await
-            .unwrap();
+        group.add_members(&[bo.inbox_id()]).await.unwrap();
         let group = stream.next().await.unwrap();
         assert!(group.is_ok());
         groups.push(group.unwrap());
@@ -581,10 +570,7 @@ mod test {
         let _self_group = stream.next().await.unwrap();
 
         let group = bo.create_group(None, None).unwrap();
-        group
-            .add_members_by_inbox_id(&[alix.inbox_id()])
-            .await
-            .unwrap();
+        group.add_members(&[alix.inbox_id()]).await.unwrap();
         let _bo_group = stream.next().await.unwrap();
 
         // Verify syncing welcomes while streaming causes no issues
@@ -601,14 +587,11 @@ mod test {
         tester!(bo);
 
         let alix_group = alix
-            .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)
+            .create_group_with_members(&[bo.inbox_id().to_string()], None, None)
             .await
             .unwrap();
 
-        alix_group
-            .remove_members_by_inbox_id(&[bo.inbox_id()])
-            .await
-            .unwrap();
+        alix_group.remove_members(&[bo.inbox_id()]).await.unwrap();
         bo.sync_welcomes().await.unwrap();
         let stream = bo
             .stream_conversations(Some(ConversationType::Group), false)
@@ -616,7 +599,7 @@ mod test {
             .unwrap();
         futures::pin_mut!(stream);
         alix_group
-            .add_members_by_inbox_id(&[bo.inbox_id().to_string()])
+            .add_members(&[bo.inbox_id().to_string()])
             .await
             .unwrap();
 

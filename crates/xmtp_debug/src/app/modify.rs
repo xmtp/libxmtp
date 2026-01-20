@@ -54,9 +54,7 @@ impl Modify {
                 let inbox_id = inbox_id.expect("Checked for none");
                 local_group.member_size -= 1;
                 local_group.members.retain(|m| *m != *inbox_id);
-                group
-                    .remove_members_by_inbox_id(&[&hex::encode(*inbox_id)])
-                    .await?;
+                group.remove_members(&[&hex::encode(*inbox_id)]).await?;
                 // make sure the locally stored group is up to date
                 group_store.set(local_group, &network)?;
                 info!(
@@ -77,9 +75,7 @@ impl Modify {
                     .ok_or(eyre!("Identity not found"))?;
                 local_group.member_size -= 1;
                 local_group.members.push(identity.inbox_id);
-                group
-                    .add_members_by_inbox_id(&[hex::encode(identity.inbox_id)])
-                    .await?;
+                group.add_members(&[hex::encode(identity.inbox_id)]).await?;
                 info!(
                     inbox_id = hex::encode(identity.inbox_id),
                     group_id = hex::encode(local_group.id),
@@ -91,10 +87,9 @@ impl Modify {
                 let Some(inbox_id) = inbox_id else {
                     bail!("Inbox ID to add must be specified")
                 };
-                group
-                    .add_members_by_inbox_id(&[hex::encode(*inbox_id)])
-                    .await
-                    .context("the identity/inbox_id might not exist for this network in the local database")?;
+                group.add_members(&[hex::encode(*inbox_id)]).await.context(
+                    "the identity/inbox_id might not exist for this network in the local database",
+                )?;
                 group
                     .update_admin_list(UpdateAdminListType::AddSuper, inbox_id.to_string())
                     .await?;

@@ -1234,7 +1234,7 @@ describe("EnrichedMessage", () => {
           .conversations()
           .createGroupByInboxIds([client2.inboxId]);
 
-        await conversation.addMembersByInboxId([client3.inboxId]);
+        await conversation.addMembers([client3.inboxId]);
 
         const messages = await conversation.findEnrichedMessages();
         const groupUpdatedMessages = messages.filter(
@@ -1259,7 +1259,7 @@ describe("EnrichedMessage", () => {
           .conversations()
           .createGroupByInboxIds([client2.inboxId, client3.inboxId]);
 
-        await conversation.removeMembersByInboxId([client2.inboxId]);
+        await conversation.removeMembers([client2.inboxId]);
 
         const messages = await conversation.findEnrichedMessages();
         const groupUpdatedMessages = messages.filter(

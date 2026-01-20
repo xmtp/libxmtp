@@ -379,7 +379,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
                 .expect("failed to get group");
 
             group
-                .add_members(&address_to_identity(account_addresses))
+                .add_members_by_identity(&address_to_identity(account_addresses))
                 .await
                 .expect("failed to add member");
 
@@ -400,7 +400,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
                 .expect("failed to get group");
 
             group
-                .remove_members(&address_to_identity(account_addresses))
+                .remove_members_by_identity(&address_to_identity(account_addresses))
                 .await
                 .expect("failed to add member");
 

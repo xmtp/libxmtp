@@ -18,7 +18,7 @@ async fn test_can_stream_group_messages_for_updates() {
     // Create group and send first message
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -59,7 +59,7 @@ async fn test_can_stream_group_messages_for_updates() {
 
     let dm = bo
         .conversations()
-        .find_or_create_dm(
+        .find_or_create_dm_by_identity(
             alix.account_identifier.clone(),
             FfiCreateDMOptions::default(),
         )
@@ -99,7 +99,7 @@ async fn test_conversation_streaming() {
     let stream = bola.conversations().stream(stream_callback.clone()).await;
 
     amal.conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bola.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -111,7 +111,7 @@ async fn test_conversation_streaming() {
     assert_eq!(stream_callback.message_count(), 1);
     // Create another group and add bola
     amal.conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bola.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -133,7 +133,7 @@ async fn test_stream_all_messages() {
 
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![caro.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -156,7 +156,7 @@ async fn test_stream_all_messages() {
 
     let bo_group = bo
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![caro.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -192,7 +192,7 @@ async fn test_message_streaming() {
 
     let amal_group: Arc<FfiConversation> = amal
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bola.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -235,7 +235,7 @@ async fn test_message_streaming_when_removed_then_added() {
 
     let amal_group = amal
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bola.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -264,7 +264,7 @@ async fn test_message_streaming_when_removed_then_added() {
     assert!(!stream_closer.is_closed());
 
     amal_group
-        .remove_members_by_inbox_id(vec![bola.inbox_id().clone()])
+        .remove_members(vec![bola.inbox_id().clone()])
         .await
         .unwrap();
     stream_callback.wait_for_delivery(None).await.unwrap();
@@ -280,7 +280,7 @@ async fn test_message_streaming_when_removed_then_added() {
     assert!(!stream_closer.is_closed());
 
     amal_group
-        .add_members(vec![bola.account_identifier.clone()])
+        .add_members_by_identity(vec![bola.account_identifier.clone()])
         .await
         .unwrap();
 
@@ -319,7 +319,7 @@ async fn test_stream_groups_gets_callback_when_streaming_messages() {
     // Create group and send first message
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -591,7 +591,7 @@ async fn test_overlapping_streams() {
     // Create group and send first message
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -630,7 +630,7 @@ async fn test_can_stream_and_update_name_without_forking_group() {
     // Create group and send first message
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -727,7 +727,7 @@ async fn test_stream_all_messages_with_optimistic_group_creation() {
 
     // add bo
     alix_group
-        .add_members(vec![bo.account_identifier.clone()])
+        .add_members_by_identity(vec![bo.account_identifier.clone()])
         .await
         .unwrap();
 
@@ -748,7 +748,7 @@ async fn test_stream_all_messages_with_optimistic_group_creation() {
         .create_group_optimistic(FfiCreateGroupOptions::default())
         .unwrap();
     alix_group_2
-        .add_members(vec![bo.account_identifier.clone()])
+        .add_members_by_identity(vec![bo.account_identifier.clone()])
         .await
         .unwrap();
 
@@ -789,7 +789,7 @@ async fn test_stream_message_deletions_with_full_message_details() {
     // Create a group
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )

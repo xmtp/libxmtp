@@ -11,7 +11,7 @@ async fn test_request_readd() {
     tester!(bo);
     tester!(caro);
     let group = alix
-        .create_group_with_inbox_ids(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await
         .unwrap();
     group
@@ -170,7 +170,7 @@ async fn test_readd_installation_succeeds() {
     tester!(caro);
 
     let a_group = alix
-        .create_group_with_inbox_ids(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await
         .unwrap();
 
@@ -212,7 +212,7 @@ async fn test_readd_bookkeeping() {
     tester!(caro);
     tester!(devon);
     let group = alix
-        .create_group_with_inbox_ids(
+        .create_group_with_members(
             &[bo.inbox_id(), caro.inbox_id(), devon.inbox_id()],
             None,
             None,
@@ -336,7 +336,7 @@ async fn test_request_readd_with_allowlisted_groups() {
     tester!(caro);
 
     let group = bo
-        .create_group_with_inbox_ids(&[caro.inbox_id()], None, None)
+        .create_group_with_members(&[caro.inbox_id()], None, None)
         .await
         .unwrap();
 
@@ -349,7 +349,7 @@ async fn test_request_readd_with_allowlisted_groups() {
 
     // Step 3: Bo adds Alix to the group
     group
-        .add_members_by_inbox_id(&[alix.inbox_id().to_string()])
+        .add_members(&[alix.inbox_id().to_string()])
         .await
         .unwrap();
 
