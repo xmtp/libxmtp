@@ -1,50 +1,57 @@
 [workspace]
 members = [
-  "examples/cli",
-  "mls_validation_service",
-  "xmtp_cryptography",
-  "xmtp_api_grpc",
-  "xmtp_proto",
-  "xmtp_mls",
-  "xmtp_api",
-  "xmtp_id",
-  "bindings_wasm",
-  "bindings_wasm_macros",
-  "bindings_node",
-  "bindings_ffi",
-  "xmtp_debug",
-  "xmtp_content_types",
-  "common",
-  "xmtp_api_d14n",
-  "xmtp_macro",
-  "xmtp_db",
-  "xmtp_db_test",
-  "xmtp_archive",
-  "xmtp_mls_common",
-  "xmtp_configuration",
-  "db_tools", "log_parser",
+  # Applications
+  "apps/cli",
+  "apps/mls_validation_service",
+  "log_parser",
+  # Bindings
+  "bindings/mobile",
+  "bindings/node",
+  "bindings/wasm",
+  # Core crates
+  "crates/db_tools",
+  "crates/wasm_macros",
+  "crates/xmtp_api",
+  "crates/xmtp_api_d14n",
+  "crates/xmtp_api_grpc",
+  "crates/xmtp_archive",
+  "crates/xmtp_common",
+  "crates/xmtp_configuration",
+  "crates/xmtp_content_types",
+  "crates/xmtp_cryptography",
+  "crates/xmtp_db",
+  "crates/xmtp_db_test",
+  "crates/xmtp_debug",
+  "crates/xmtp_id",
+  "crates/xmtp_macro",
+  "crates/xmtp_mls",
+  "crates/xmtp_mls_common",
+  "crates/xmtp_proto",
 ]
 
 # Used when cargo commands in the workspace root, such as `cargo test`, are run without flags.
-# Excludes `bindings_wasm` by default, since those bindings only build for the WASM target.
+# Excludes `bindings/wasm` by default, since those bindings only build for the WASM target.
 default-members = [
-  "examples/cli",
-  "mls_validation_service",
-  "xmtp_cryptography",
-  "xmtp_api_grpc",
-  "xmtp_proto",
-  "xmtp_mls",
-  "xmtp_api",
-  "xmtp_id",
-  "bindings_node",
-  "bindings_ffi",
-  "xmtp_debug",
-  "xmtp_content_types",
-  "common",
-  "xmtp_api_d14n",
-  "xmtp_macro",
-  "xmtp_db",
-  "xmtp_configuration",
+  # Applications
+  "apps/cli",
+  "apps/mls_validation_service",
+  # Bindings (excluding wasm - only for wasm32 target)
+  "bindings/mobile",
+  "bindings/node",
+  # Core crates
+  "crates/xmtp_api",
+  "crates/xmtp_api_d14n",
+  "crates/xmtp_api_grpc",
+  "crates/xmtp_common",
+  "crates/xmtp_configuration",
+  "crates/xmtp_content_types",
+  "crates/xmtp_cryptography",
+  "crates/xmtp_db",
+  "crates/xmtp_debug",
+  "crates/xmtp_id",
+  "crates/xmtp_macro",
+  "crates/xmtp_mls",
+  "crates/xmtp_proto",
 ]
 
 # Make the feature resolver explicit.
@@ -160,23 +167,23 @@ smallvec = { version = "1.15", features = ["union"] }
 http-body-util = { version = "0.1" }
 
 # Internal Crate Dependencies
-bindings-wasm = { path = "bindings_wasm" }
-bindings_wasm_macros = { path = "bindings_wasm_macros" }
-xmtp_api = { path = "xmtp_api" }
-xmtp_api_d14n = { path = "xmtp_api_d14n" }
-xmtp_api_grpc = { path = "xmtp_api_grpc" }
-xmtp_archive = { path = "xmtp_archive" }
-xmtp_common = { path = "common" }
-xmtp_configuration = { path = "xmtp_configuration" }
-xmtp_content_types = { path = "xmtp_content_types" }
-xmtp_cryptography = { path = "xmtp_cryptography" }
-xmtp_db = { path = "xmtp_db" }
-xmtp_db_test = { path = "xmtp_db_test" }
-xmtp_id = { path = "xmtp_id" }
-xmtp_macro = { path = "xmtp_macro" }
-xmtp_mls = { path = "xmtp_mls" }
-xmtp_mls_common = { path = "xmtp_mls_common" }
-xmtp_proto = { path = "xmtp_proto" }
+bindings-wasm = { path = "bindings/wasm" }
+bindings_wasm_macros = { path = "crates/wasm_macros" }
+xmtp_api = { path = "crates/xmtp_api" }
+xmtp_api_d14n = { path = "crates/xmtp_api_d14n" }
+xmtp_api_grpc = { path = "crates/xmtp_api_grpc" }
+xmtp_archive = { path = "crates/xmtp_archive" }
+xmtp_common = { path = "crates/xmtp_common" }
+xmtp_configuration = { path = "crates/xmtp_configuration" }
+xmtp_content_types = { path = "crates/xmtp_content_types" }
+xmtp_cryptography = { path = "crates/xmtp_cryptography" }
+xmtp_db = { path = "crates/xmtp_db" }
+xmtp_db_test = { path = "crates/xmtp_db_test" }
+xmtp_id = { path = "crates/xmtp_id" }
+xmtp_macro = { path = "crates/xmtp_macro" }
+xmtp_mls = { path = "crates/xmtp_mls" }
+xmtp_mls_common = { path = "crates/xmtp_mls_common" }
+xmtp_proto = { path = "crates/xmtp_proto" }
 
 [profile.dbg]
 inherits = "dev"
