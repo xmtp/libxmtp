@@ -1,6 +1,5 @@
 use crate::encoded_content::{ContentTypeId, EncodedContent};
 use serde::{Deserialize, Serialize};
-use std::convert::TryInto;
 use tsify::Tsify;
 use wasm_bindgen::JsError;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -28,36 +27,26 @@ pub struct RemoteAttachment {
   #[tsify(type = "Uint8Array")]
   pub nonce: Vec<u8>,
   pub scheme: String,
-  pub content_length: u32,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[tsify(optional)]
+  pub content_length: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[tsify(optional)]
   pub filename: Option<String>,
 }
 
-impl TryFrom<xmtp_content_types::remote_attachment::RemoteAttachment> for RemoteAttachment {
-  type Error = JsError;
-
-  fn try_from(
-    remote: xmtp_content_types::remote_attachment::RemoteAttachment,
-  ) -> std::result::Result<Self, Self::Error> {
-    let content_length = u32::try_from(remote.content_length).map_err(|_| {
-      JsError::new(&format!(
-        "content_length {} exceeds maximum value of {} bytes",
-        remote.content_length,
-        u32::MAX
-      ))
-    })?;
-
-    Ok(Self {
+impl From<xmtp_content_types::remote_attachment::RemoteAttachment> for RemoteAttachment {
+  fn from(remote: xmtp_content_types::remote_attachment::RemoteAttachment) -> Self {
+    Self {
       url: remote.url,
       content_digest: remote.content_digest,
       secret: remote.secret,
       salt: remote.salt,
       nonce: remote.nonce,
       scheme: remote.scheme,
-      content_length,
+      content_length: remote.content_length,
       filename: remote.filename,
-    })
+    }
   }
 }
 
@@ -70,7 +59,7 @@ impl From<RemoteAttachment> for xmtp_content_types::remote_attachment::RemoteAtt
       salt: remote.salt,
       nonce: remote.nonce,
       scheme: remote.scheme,
-      content_length: remote.content_length as usize,
+      content_length: remote.content_length,
       filename: remote.filename,
     }
   }
@@ -123,38 +112,28 @@ pub struct EncryptedAttachment {
   pub filename: Option<String>,
 }
 
-impl TryFrom<xmtp_content_types::remote_attachment::EncryptedAttachment> for EncryptedAttachment {
-  type Error = JsError;
-
-  fn try_from(
-    encrypted: xmtp_content_types::remote_attachment::EncryptedAttachment,
-  ) -> std::result::Result<Self, Self::Error> {
-    let content_length = u32::try_from(encrypted.content_length).map_err(|_| {
-      JsError::new(&format!(
-        "content_length {} exceeds maximum value of {} bytes",
-        encrypted.content_length,
-        u32::MAX
-      ))
-    })?;
-
-    Ok(Self {
+impl From<xmtp_content_types::remote_attachment::EncryptedAttachment> for EncryptedAttachment {
+  fn from(encrypted: xmtp_content_types::remote_attachment::EncryptedAttachment) -> Self {
+    Self {
       payload: encrypted.payload,
       content_digest: encrypted.content_digest,
       secret: encrypted.secret,
       salt: encrypted.salt,
       nonce: encrypted.nonce,
-      content_length,
+      content_length: encrypted.content_length,
       filename: encrypted.filename,
-    })
+    }
   }
 }
 
 /// Encrypts an attachment for storage as a remote attachment.
 #[wasm_bindgen(js_name = "encryptAttachment")]
 pub fn encrypt_attachment(attachment: Attachment) -> Result<EncryptedAttachment, JsError> {
-  xmtp_encrypt_attachment(attachment.into())
-    .map_err(|e| JsError::new(&format!("{}", e)))?
-    .try_into()
+  Ok(
+    xmtp_encrypt_attachment(attachment.into())
+      .map_err(|e| JsError::new(&format!("{}", e)))?
+      .into(),
+  )
 }
 
 /// Decrypts an encrypted payload from a remote attachment.

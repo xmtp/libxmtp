@@ -8,9 +8,10 @@ use crate::{
     encryption::{self, EncryptedPayload, SECRET_SIZE},
     utils::get_param_or_default,
 };
-use serde::{Deserialize, Serialize};
 
-use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
+use xmtp_proto::xmtp::mls::message_contents::{
+    ContentTypeId, EncodedContent, content_types::RemoteAttachmentInfo,
+};
 
 pub struct RemoteAttachmentCodec {}
 
@@ -30,7 +31,7 @@ pub struct EncryptedAttachment {
     /// The 12-byte nonce used in encryption
     pub nonce: Vec<u8>,
     /// The length of the encrypted content
-    pub content_length: usize,
+    pub content_length: u32,
     /// The filename of the attachment
     pub filename: Option<String>,
 }
@@ -58,8 +59,16 @@ pub fn encrypt_attachment(attachment: Attachment) -> Result<EncryptedAttachment,
     let digest = encryption::sha256(&encrypted_payload.payload);
     let content_digest = hex::encode(digest);
 
+    let content_length = u32::try_from(encrypted_payload.payload.len()).map_err(|_| {
+        CodecError::Encode(format!(
+            "attachment size {} exceeds maximum of {} bytes",
+            encrypted_payload.payload.len(),
+            u32::MAX
+        ))
+    })?;
+
     Ok(EncryptedAttachment {
-        content_length: encrypted_payload.payload.len(),
+        content_length,
         payload: encrypted_payload.payload,
         content_digest,
         secret: secret.to_vec(),
@@ -139,11 +148,14 @@ impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
             ("nonce", hex::encode(data.nonce)),
             ("secret", hex::encode(data.secret)),
             ("scheme", data.scheme),
-            ("contentLength", data.content_length.to_string()),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
         .collect::<HashMap<_, _>>();
+
+        if let Some(content_length) = data.content_length {
+            parameters.insert("contentLength".to_string(), content_length.to_string());
+        }
 
         if let Some(filename) = data.filename {
             parameters.insert("filename".to_string(), filename);
@@ -170,9 +182,14 @@ impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
         let secret = hex::decode(get_param_or_default(parameters, "secret"))
             .map_err(|e| CodecError::Decode(format!("invalid hex in secret parameter: {e}")))?;
         let scheme = get_param_or_default(parameters, "scheme").to_string();
-        let content_length = get_param_or_default(parameters, "contentLength")
-            .parse()
-            .map_err(|e| CodecError::Decode(format!("invalid contentLength parameter: {e}")))?;
+        let content_length = parameters
+            .get("contentLength")
+            .map(|s| {
+                s.parse().map_err(|e| {
+                    CodecError::Decode(format!("invalid contentLength parameter: {e}"))
+                })
+            })
+            .transpose()?;
 
         let filename = parameters.get("filename").cloned();
 
@@ -196,33 +213,12 @@ impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
     }
 }
 
-/// The main content type for remote attachments
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct RemoteAttachment {
-    /// The filename of the remote attachment
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub filename: Option<String>,
-
-    /// The URL where the remote attachment is stored
-    pub url: String,
-
-    /// The content digest (SHA256 hash) of the remote attachment
-    pub content_digest: String,
-
-    /// The secret key for decrypting the remote attachment
-    pub secret: Vec<u8>,
-
-    /// The nonce used for encryption
-    pub nonce: Vec<u8>,
-
-    /// The salt used for encryption
-    pub salt: Vec<u8>,
-
-    /// The scheme used to fetch the file
-    pub scheme: String,
-
-    pub content_length: usize,
-}
+/// The main content type for remote attachments.
+///
+/// This is a type alias for [`RemoteAttachmentInfo`] from the proto definitions,
+/// allowing the same type to be used for both single remote attachments and
+/// entries in [`MultiRemoteAttachment`].
+pub type RemoteAttachment = RemoteAttachmentInfo;
 
 #[cfg(test)]
 pub(crate) mod tests {
@@ -235,7 +231,7 @@ pub(crate) mod tests {
     fn test_encode_decode_remote_attachment() {
         let remote_attachment = RemoteAttachment {
             filename: Some("test.pdf".to_string()),
-            content_length: 1024,
+            content_length: Some(1024),
             url: "https://example.com/file.pdf".to_string(),
             content_digest: "abc123".to_string(),
             secret: vec![1, 2, 3, 4],
@@ -285,7 +281,7 @@ pub(crate) mod tests {
             salt: encrypted.salt,
             nonce: encrypted.nonce,
             scheme: "https".to_string(),
-            content_length: encrypted.content_length,
+            content_length: Some(encrypted.content_length),
         };
 
         // Decrypt the attachment
@@ -314,7 +310,7 @@ pub(crate) mod tests {
             salt: encrypted.salt,
             nonce: encrypted.nonce,
             scheme: "https".to_string(),
-            content_length: encrypted.content_length,
+            content_length: Some(encrypted.content_length),
         };
 
         let result = decrypt_attachment(&encrypted.payload, &remote_attachment);
@@ -346,7 +342,7 @@ pub(crate) mod tests {
             salt: encrypted.salt,
             nonce: encrypted.nonce,
             scheme: "https".to_string(),
-            content_length: encrypted.content_length,
+            content_length: Some(encrypted.content_length),
         };
 
         let result = decrypt_attachment(&encrypted.payload, &remote_attachment);

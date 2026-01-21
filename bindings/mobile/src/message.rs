@@ -22,7 +22,6 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use xmtp_proto::xmtp::mls::message_contents::{
     content_types::{
         LeaveRequest, MultiRemoteAttachment, ReactionAction, ReactionSchema, ReactionV2,
-        RemoteAttachmentInfo,
     },
     group_updated::Inbox,
 };
@@ -89,7 +88,7 @@ pub struct FfiAttachment {
     pub content: Vec<u8>,
 }
 
-#[derive(uniffi::Record, Clone, Debug)]
+#[derive(uniffi::Record, Clone, Default, Debug)]
 pub struct FfiRemoteAttachment {
     pub url: String,
     pub content_digest: String,
@@ -97,7 +96,7 @@ pub struct FfiRemoteAttachment {
     pub salt: Vec<u8>,
     pub nonce: Vec<u8>,
     pub scheme: String,
-    pub content_length: u32,
+    pub content_length: Option<u32>,
     pub filename: Option<String>,
 }
 
@@ -214,19 +213,7 @@ impl From<ReactionSchema> for FfiReactionSchema {
 
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiMultiRemoteAttachment {
-    pub attachments: Vec<FfiRemoteAttachmentInfo>,
-}
-
-#[derive(uniffi::Record, Clone, Default, Debug)]
-pub struct FfiRemoteAttachmentInfo {
-    pub url: String,
-    pub content_digest: String,
-    pub secret: Vec<u8>,
-    pub salt: Vec<u8>,
-    pub nonce: Vec<u8>,
-    pub scheme: String,
-    pub content_length: Option<u32>,
-    pub filename: Option<String>,
+    pub attachments: Vec<FfiRemoteAttachment>,
 }
 
 // Reply FFI structures
@@ -485,56 +472,15 @@ impl From<RemoteAttachment> for FfiRemoteAttachment {
             salt: remote.salt,
             nonce: remote.nonce,
             scheme: remote.scheme,
-            content_length: remote.content_length as u32,
+            content_length: remote.content_length,
             filename: remote.filename,
         }
     }
 }
 
-impl TryFrom<FfiRemoteAttachment> for RemoteAttachment {
-    type Error = GenericError;
-
-    fn try_from(ffi: FfiRemoteAttachment) -> Result<Self, Self::Error> {
-        let content_length =
-            usize::try_from(ffi.content_length).map_err(|_| GenericError::Generic {
-                err: format!(
-                    "content_length {} exceeds maximum value for this platform ({} bytes)",
-                    ffi.content_length,
-                    usize::MAX
-                ),
-            })?;
-
-        Ok(RemoteAttachment {
-            url: ffi.url,
-            content_digest: ffi.content_digest,
-            secret: ffi.secret,
-            salt: ffi.salt,
-            nonce: ffi.nonce,
-            scheme: ffi.scheme,
-            content_length,
-            filename: ffi.filename,
-        })
-    }
-}
-
-impl From<RemoteAttachmentInfo> for FfiRemoteAttachmentInfo {
-    fn from(info: RemoteAttachmentInfo) -> Self {
-        FfiRemoteAttachmentInfo {
-            url: info.url,
-            content_digest: info.content_digest,
-            secret: info.secret,
-            salt: info.salt,
-            nonce: info.nonce,
-            scheme: info.scheme,
-            content_length: info.content_length,
-            filename: info.filename,
-        }
-    }
-}
-
-impl From<FfiRemoteAttachmentInfo> for RemoteAttachmentInfo {
-    fn from(ffi: FfiRemoteAttachmentInfo) -> Self {
-        RemoteAttachmentInfo {
+impl From<FfiRemoteAttachment> for RemoteAttachment {
+    fn from(ffi: FfiRemoteAttachment) -> Self {
+        RemoteAttachment {
             url: ffi.url,
             content_digest: ffi.content_digest,
             secret: ffi.secret,

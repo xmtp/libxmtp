@@ -136,7 +136,7 @@ async fn test_multi_remote_attachment_encode_decode() {
     // Create a test attachment
     let original_attachment = FfiMultiRemoteAttachment {
         attachments: vec![
-            FfiRemoteAttachmentInfo {
+            FfiRemoteAttachment {
                 filename: Some("test1.jpg".to_string()),
                 content_length: Some(1000),
                 secret: vec![1, 2, 3],
@@ -146,7 +146,7 @@ async fn test_multi_remote_attachment_encode_decode() {
                 scheme: "https".to_string(),
                 url: "https://example.com/test1.jpg".to_string(),
             },
-            FfiRemoteAttachmentInfo {
+            FfiRemoteAttachment {
                 filename: Some("test2.pdf".to_string()),
                 content_length: Some(2000),
                 secret: vec![4, 5, 6],
@@ -261,7 +261,7 @@ async fn test_read_receipt_roundtrip() {
 async fn test_remote_attachment_roundtrip() {
     let original = FfiRemoteAttachment {
         filename: Some("remote_file.txt".to_string()),
-        content_length: 2048,
+        content_length: Some(2048),
         url: "https://example.com/file.txt".to_string(),
         content_digest: "sha256:abc123def456".to_string(),
         scheme: "https".to_string(),

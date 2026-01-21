@@ -59,9 +59,9 @@ impl TryFrom<MessageBody> for DecodedMessageContent {
       }),
       MessageBody::Reaction(r) => Ok(DecodedMessageContent::Reaction { content: r.into() }),
       MessageBody::ReadReceipt(rr) => Ok(DecodedMessageContent::ReadReceipt { content: rr.into() }),
-      MessageBody::RemoteAttachment(ra) => Ok(DecodedMessageContent::RemoteAttachment {
-        content: ra.try_into()?,
-      }),
+      MessageBody::RemoteAttachment(ra) => {
+        Ok(DecodedMessageContent::RemoteAttachment { content: ra.into() })
+      }
       MessageBody::Reply(r) => Ok(DecodedMessageContent::Reply {
         content: Box::new(r.try_into()?),
       }),

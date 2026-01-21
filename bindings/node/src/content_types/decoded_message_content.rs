@@ -232,9 +232,7 @@ impl TryFrom<MessageBody> for DecodedMessageContent {
       MessageBody::Reply(r) => DecodedMessageContentInner::Reply(r.into()),
       MessageBody::Reaction(r) => DecodedMessageContentInner::Reaction(r.into()),
       MessageBody::Attachment(a) => DecodedMessageContentInner::Attachment(a.into()),
-      MessageBody::RemoteAttachment(ra) => {
-        DecodedMessageContentInner::RemoteAttachment(ra.try_into()?)
-      }
+      MessageBody::RemoteAttachment(ra) => DecodedMessageContentInner::RemoteAttachment(ra.into()),
       MessageBody::MultiRemoteAttachment(mra) => {
         DecodedMessageContentInner::MultiRemoteAttachment(mra.into())
       }
