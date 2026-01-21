@@ -60,7 +60,7 @@ describe('Conversations', () => {
       updateMessageDisappearingPolicy: 2,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
-    expect((await group.findMessages()).length).toBe(1)
+    expect((await group.listMessages()).length).toBe(1)
     const members = await group.listMembers()
     expect(members.length).toBe(2)
     const memberInboxIds = members.map((member) => member.inboxId)
@@ -239,7 +239,7 @@ describe('Conversations', () => {
       updateMessageDisappearingPolicy: 0,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
-    expect((await group.findMessages()).length).toBe(1)
+    expect((await group.listMessages()).length).toBe(1)
     const members = await group.listMembers()
     expect(members.length).toBe(2)
     const memberInboxIds = members.map((member) => member.inboxId)
@@ -286,11 +286,11 @@ describe('Conversations', () => {
         .length
     ).toBe(0)
 
-    const dm1 = client1.conversations().findDmByTargetInboxId(client2.inboxId())
+    const dm1 = client1.conversations().getDmByInboxId(client2.inboxId())
     expect(dm1).toBeDefined()
     expect(dm1!.id()).toBe(group.id())
 
-    const dm2 = client2.conversations().findDmByTargetInboxId(client1.inboxId())
+    const dm2 = client2.conversations().getDmByInboxId(client1.inboxId())
     expect(dm2).toBeDefined()
     expect(dm2!.id()).toBe(group.id())
   })
@@ -308,7 +308,7 @@ describe('Conversations', () => {
     ])
     expect(group).toBeDefined()
     expect(group.id()).toBeDefined()
-    const foundGroup = client1.conversations().findGroupById(group.id())
+    const foundGroup = client1.conversations().getConversationById(group.id())
     expect(foundGroup).toBeDefined()
     expect(foundGroup!.id()).toBe(group.id())
   })
@@ -327,7 +327,7 @@ describe('Conversations', () => {
     const messageId = await group.sendText('gm!')
     expect(messageId).toBeDefined()
 
-    const message = client1.conversations().findMessageById(messageId)
+    const message = client1.conversations().getMessageById(messageId)
     expect(message).toBeDefined()
     expect(message!.id).toBe(messageId)
   })
@@ -935,7 +935,7 @@ describe('Conversations', () => {
       identifier: user2.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
-    const hmacKeys = client1.conversations().getHmacKeys()
+    const hmacKeys = client1.conversations().hmacKeys()
     expect(hmacKeys).toBeDefined()
     const keys = Object.keys(hmacKeys)
     expect(keys.length).toBe(2)
@@ -1002,22 +1002,22 @@ describe('Conversations', () => {
     await group1.addMembers([client2.inboxId()])
     await group1.sendText('gm3')
 
-    const messages1 = await group1.findMessages()
+    const messages1 = await group1.listMessages()
     expect(messages1.length).toBe(6)
 
     await client2.conversations().sync()
-    const group2 = client2.conversations().findGroupById(group1.id())
+    const group2 = client2.conversations().getConversationById(group1.id())
     await group2.sync()
-    const messages2 = await group2.findMessages()
+    const messages2 = await group2.listMessages()
     expect(messages2.length).toBe(3)
     expect(messages2[0].content.type).toEqual(contentTypeGroupUpdated())
     expect(messages2[1].content.type).toEqual(contentTypeGroupUpdated())
     expect(messages2[2].content.type).toEqual(contentTypeText())
 
     await client3.conversations().sync()
-    const group3 = client3.conversations().findGroupById(group1.id())
+    const group3 = client3.conversations().getConversationById(group1.id())
     await group3.sync()
-    const messages3 = await group3.findMessages()
+    const messages3 = await group3.listMessages()
     expect(messages3.length).toBe(6)
     expect(messages3[0].content.type).toEqual(contentTypeGroupUpdated())
     expect(messages3[1].content.type).toEqual(contentTypeText())
@@ -1027,9 +1027,9 @@ describe('Conversations', () => {
     expect(messages3[5].content.type).toEqual(contentTypeText())
 
     await client2_2.conversations().sync()
-    const group4 = client2_2.conversations().findGroupById(group1.id())
+    const group4 = client2_2.conversations().getConversationById(group1.id())
     await group4.sync()
-    const messages4 = await group4.findMessages()
+    const messages4 = await group4.listMessages()
     expect(messages4.length).toBe(3)
     expect(messages4[0].content.type).toEqual(contentTypeGroupUpdated())
     expect(messages4[1].content.type).toEqual(contentTypeGroupUpdated())

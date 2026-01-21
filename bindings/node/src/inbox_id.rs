@@ -11,7 +11,7 @@ use xmtp_id::associations::MemberIdentifier;
 use xmtp_proto::types::ApiIdentifier;
 
 #[napi]
-pub async fn get_inbox_id_for_identifier(
+pub async fn get_inbox_id_by_identity(
   v3_host: String,
   gateway_host: Option<String>,
   is_secure: bool,

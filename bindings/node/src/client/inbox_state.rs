@@ -9,10 +9,10 @@ use xmtp_id::InboxId;
 #[napi]
 impl Client {
   #[napi]
-  pub async fn addresses_from_inbox_id(
+  pub async fn fetch_inbox_states_by_inbox_ids(
     &self,
-    refresh_from_network: bool,
     inbox_ids: Vec<String>,
+    refresh_from_network: bool,
   ) -> Result<Vec<InboxState>> {
     let state = self
       .inner_client
@@ -42,22 +42,10 @@ impl Client {
   }
 
   #[napi]
-  pub async fn get_latest_inbox_state(&self, inbox_id: String) -> Result<InboxState> {
-    let conn = self.inner_client().context.store().db();
-    let state = self
-      .inner_client()
-      .identity_updates()
-      .get_latest_association_state(&conn, &inbox_id)
-      .await
-      .map_err(ErrorWrapper::from)?;
-    Ok(state.into())
-  }
-
-  #[napi]
   pub async fn fetch_inbox_updates_count(
     &self,
-    refresh_from_network: bool,
     inbox_ids: Vec<String>,
+    refresh_from_network: bool,
   ) -> Result<HashMap<InboxId, u32>> {
     let ids = inbox_ids.iter().map(AsRef::as_ref).collect();
     let res = self
@@ -79,12 +67,12 @@ impl Client {
   }
 
   /**
-   * Get key package statuses for a list of installation IDs.
+   * Fetch key package statuses from the network for a list of installation IDs.
    *
    * Returns a JavaScript Object mapping installation ID strings to KeyPackageStatus objects.
    */
   #[napi]
-  pub async fn get_key_package_statuses_for_installation_ids(
+  pub async fn fetch_key_package_statuses_by_installation_ids(
     &self,
     installation_ids: Vec<String>,
   ) -> Result<HashMap<String, KeyPackageStatus>> {

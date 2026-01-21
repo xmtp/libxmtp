@@ -12,8 +12,8 @@ import {
   applySignatureRequest,
   ConsentEntityType,
   ConsentState,
+  fetchInboxStatesByInboxIds,
   IdentifierKind,
-  inboxStateFromInboxIds,
   revokeInstallationsSignatureRequest,
   verifySignedWithPublicKey,
 } from '../dist'
@@ -60,7 +60,7 @@ describe('Client', () => {
   it('should find an inbox ID from an address', async () => {
     const user = createUser()
     const client = await createRegisteredClient(user)
-    const inboxId = await client.findInboxIdByIdentity({
+    const inboxId = await client.getInboxIdByIdentity({
       identifier: user.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
@@ -89,22 +89,22 @@ describe('Client', () => {
     })
 
     const user2 = createUser()
-    const client2 = await createClient(user2)
-    const inboxState2 = await client2.getLatestInboxState(client.inboxId())
-    expect(inboxState2.inboxId).toBe(client.inboxId())
-    expect(inboxState.installations.length).toBe(1)
-    expect(inboxState.installations[0].id).toBe(client.installationId())
-    expect(inboxState.installations[0].bytes).toEqual(
-      client.installationIdBytes()
+    const client2 = await createRegisteredClient(user2)
+    const inboxState2 = await client2.inboxState(true)
+    expect(inboxState2.inboxId).toBe(client2.inboxId())
+    expect(inboxState2.installations.length).toBe(1)
+    expect(inboxState2.installations[0].id).toBe(client2.installationId())
+    expect(inboxState2.installations[0].bytes).toEqual(
+      client2.installationIdBytes()
     )
     expect(inboxState2.identifiers).toEqual([
       {
-        identifier: user.account.address.toLowerCase(),
+        identifier: user2.account.address.toLowerCase(),
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
     expect(inboxState2.recoveryIdentifier).toEqual({
-      identifier: user.account.address.toLowerCase(),
+      identifier: user2.account.address.toLowerCase(),
       identifierKind: IdentifierKind.Ethereum,
     })
   })
@@ -276,7 +276,7 @@ describe('Client', () => {
     ])
 
     await client2.conversations().sync()
-    const group2 = client2.conversations().findGroupById(group.id())
+    const group2 = client2.conversations().getConversationById(group.id())
 
     expect(
       await client2.getConsentState(ConsentEntityType.GroupId, group2.id())
@@ -308,9 +308,10 @@ describe('Client', () => {
     const user2 = createUser()
     const client = await createRegisteredClient(user)
     const client2 = await createRegisteredClient(user2)
-    const inboxAddresses = await client.addressesFromInboxId(true, [
-      client.inboxId(),
-    ])
+    const inboxAddresses = await client.fetchInboxStatesByInboxIds(
+      [client.inboxId()],
+      true
+    )
     expect(inboxAddresses.length).toBe(1)
     expect(inboxAddresses[0].inboxId).toBe(client.inboxId())
     expect(inboxAddresses[0].identifiers).toEqual([
@@ -320,9 +321,10 @@ describe('Client', () => {
       },
     ])
 
-    const inboxAddresses2 = await client2.addressesFromInboxId(true, [
-      client2.inboxId(),
-    ])
+    const inboxAddresses2 = await client2.fetchInboxStatesByInboxIds(
+      [client2.inboxId()],
+      true
+    )
     expect(inboxAddresses2.length).toBe(1)
     expect(inboxAddresses2[0].inboxId).toBe(client2.inboxId())
     expect(inboxAddresses2[0].identifiers).toEqual([
@@ -341,7 +343,7 @@ describe('Client', () => {
     const client2 = await createRegisteredClient(user)
     user.uuid = v4()
 
-    const state = await inboxStateFromInboxIds(TEST_API_URL, undefined, [
+    const state = await fetchInboxStatesByInboxIds(TEST_API_URL, undefined, [
       client1.inboxId(),
     ])
     expect(state[0].inboxId).toBe(client1.inboxId())
@@ -405,10 +407,10 @@ describe('Streams', () => {
     ])
 
     await client2.conversations().sync()
-    const group2 = client2.conversations().findGroupById(group.id())
+    const group2 = client2.conversations().getConversationById(group.id())
 
     let messages = new Array()
-    client2.conversations().syncAllConversations()
+    await client2.conversations().syncAll()
     let stream = await client2.conversations().streamAllMessages(
       (msg) => {
         messages.push(msg)

@@ -111,7 +111,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub fn admin_list(&self) -> Result<Vec<String>> {
+  pub fn list_admins(&self) -> Result<Vec<String>> {
     let group = self.create_mls_group();
 
     let admin_list = group.admin_list().map_err(ErrorWrapper::from)?;
@@ -120,7 +120,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub fn super_admin_list(&self) -> Result<Vec<String>> {
+  pub fn list_super_admins(&self) -> Result<Vec<String>> {
     let group = self.create_mls_group();
 
     let super_admin_list = group.super_admin_list().map_err(ErrorWrapper::from)?;
@@ -130,13 +130,13 @@ impl Conversation {
 
   #[napi]
   pub fn is_admin(&self, inbox_id: String) -> Result<bool> {
-    let admin_list = self.admin_list().map_err(ErrorWrapper::from)?;
+    let admin_list = self.list_admins().map_err(ErrorWrapper::from)?;
     Ok(admin_list.contains(&inbox_id))
   }
 
   #[napi]
   pub fn is_super_admin(&self, inbox_id: String) -> Result<bool> {
-    let super_admin_list = self.super_admin_list().map_err(ErrorWrapper::from)?;
+    let super_admin_list = self.list_super_admins().map_err(ErrorWrapper::from)?;
     Ok(super_admin_list.contains(&inbox_id))
   }
 
