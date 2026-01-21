@@ -613,7 +613,7 @@ where
     }
 
     /// Find or create a Direct Message with the default settings
-    pub async fn find_or_create_dm(
+    pub async fn find_or_create_dm_by_identity(
         &self,
         target_identity: Identifier,
         opts: Option<DMMetadataOptions>,
@@ -630,11 +630,11 @@ where
             }
         };
 
-        self.find_or_create_dm_by_inbox_id(inbox_id, opts).await
+        self.find_or_create_dm(inbox_id, opts).await
     }
 
     /// Find or create a Direct Message by inbox_id with the default settings
-    pub async fn find_or_create_dm_by_inbox_id(
+    pub async fn find_or_create_dm(
         &self,
         inbox_id: impl AsIdRef,
         opts: Option<DMMetadataOptions>,
@@ -1775,7 +1775,7 @@ pub(crate) mod tests {
 
         // First call should create a new DM
         let dm1 = client1
-            .find_or_create_dm_by_inbox_id(client2.inbox_id().to_string(), None)
+            .find_or_create_dm(client2.inbox_id().to_string(), None)
             .await
             .unwrap();
 
@@ -1792,7 +1792,7 @@ pub(crate) mod tests {
 
         // Second call should find the existing DM
         let dm2 = client1
-            .find_or_create_dm_by_inbox_id(client2.inbox_id().to_string(), None)
+            .find_or_create_dm(client2.inbox_id().to_string(), None)
             .await
             .unwrap();
 

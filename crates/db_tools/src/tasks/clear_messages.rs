@@ -35,9 +35,7 @@ mod tests {
         tester!(alix, disable_workers);
         tester!(bo);
 
-        let bo_alix_dm = bo
-            .find_or_create_dm_by_inbox_id(alix.inbox_id(), None)
-            .await?;
+        let bo_alix_dm = bo.find_or_create_dm(alix.inbox_id(), None).await?;
         bo_alix_dm
             .send_message(b"Hello there", Default::default())
             .await?;
@@ -82,9 +80,7 @@ mod tests {
         tester!(alix, disable_workers);
         tester!(bo);
 
-        let dm = alix
-            .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
-            .await?;
+        let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
         dm.send_message(b"Message 1", Default::default()).await?;
         dm.send_message(b"Message 2", Default::default()).await?;
 
