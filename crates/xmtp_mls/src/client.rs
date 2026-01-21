@@ -600,7 +600,7 @@ where
             Event::CreatedDM,
             self.context.installation_id(),
             group_id = group.group_id.short_hex(),
-            target_inbox_id
+            target_inbox = target_inbox_id
         );
         group.add_members_by_inbox_id(&[target_inbox_id]).await?;
 

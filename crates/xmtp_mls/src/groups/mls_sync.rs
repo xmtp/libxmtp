@@ -1099,7 +1099,7 @@ where
                     Event::MLSReceivedApplicationMessage,
                     self.context.installation_id(),
                     inbox_id = self.context.inbox_id(),
-                    sender_inbox_id = sender_inbox_id,
+                    sender_inbox = sender_inbox_id,
                     sender_installation_id = hex::encode(&sender_installation_id),
                     installation_id = %self.context.installation_id(),group_id = hex::encode(&self.group_id),
                     current_epoch = mls_group.epoch().as_u64(),
