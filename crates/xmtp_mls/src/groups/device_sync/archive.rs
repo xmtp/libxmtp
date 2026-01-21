@@ -265,9 +265,7 @@ mod tests {
         tester!(alix, disable_workers);
         tester!(bo, disable_workers);
 
-        let alix_bo_dm = alix
-            .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
-            .await?;
+        let alix_bo_dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
         alix_bo_dm
             .send_message(b"old group", Default::default())
             .await?;
@@ -300,9 +298,7 @@ mod tests {
         let mut importer = ArchiveImporter::load(reader, &key).await?;
         insert_importer(&mut importer, &alix2.context).await?;
 
-        let alix2_bo_dm = alix2
-            .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
-            .await?;
+        let alix2_bo_dm = alix2.find_or_create_dm(bo.inbox_id(), None).await?;
         assert_ne!(alix_bo_dm.group_id, alix2_bo_dm.group_id);
         let mut msgs = alix2_bo_dm.find_messages(&MsgQueryArgs::default())?;
         assert_eq!(msgs.len(), 2);

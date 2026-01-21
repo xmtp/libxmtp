@@ -278,9 +278,7 @@ async fn test_only_added_to_correct_groups() {
     let bo_group_unknown = bo
         .create_group_with_members(&[alix1.inbox_id()], None, None)
         .await?;
-    let bo_dm = bo
-        .find_or_create_dm_by_inbox_id(alix1.inbox_id(), None)
-        .await?;
+    let bo_dm = bo.find_or_create_dm(alix1.inbox_id(), None).await?;
 
     alix1.sync_welcomes().await?;
     let alix_bo_group_denied = alix1.group(&bo_group_denied.group_id)?;

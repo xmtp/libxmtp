@@ -104,7 +104,7 @@ async fn test_request_readd_dm() {
     tester!(alix, enable_fork_recovery_requests);
     tester!(bo);
     let dm = alix
-        .find_or_create_dm_by_inbox_id(bo.inbox_id().to_string(), None)
+        .find_or_create_dm(bo.inbox_id().to_string(), None)
         .await
         .unwrap();
     bo.sync_all_welcomes_and_groups(None).await.unwrap();

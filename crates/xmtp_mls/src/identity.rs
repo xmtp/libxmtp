@@ -1094,7 +1094,7 @@ mod tests {
 
             // Create a DM from Amal -> Bola
             // This should use Bola's XWingMLKEM512 key package
-            amal.find_or_create_dm_by_inbox_id(
+            amal.find_or_create_dm(
                 bola.inbox_id().to_string(),
                 Some(DMMetadataOptions::default()),
             )

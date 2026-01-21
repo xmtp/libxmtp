@@ -33,7 +33,7 @@ impl Conversations {
   ) -> Result<Conversation> {
     let convo = self
       .inner_client
-      .find_or_create_dm(
+      .find_or_create_dm_by_identity(
         account_identity.try_into()?,
         options.map(|opt| opt.into_dm_metadata_options()),
       )
@@ -51,7 +51,7 @@ impl Conversations {
   ) -> Result<Conversation> {
     let convo = self
       .inner_client
-      .find_or_create_dm_by_inbox_id(inbox_id, options.map(|opt| opt.into_dm_metadata_options()))
+      .find_or_create_dm(inbox_id, options.map(|opt| opt.into_dm_metadata_options()))
       .await
       .map_err(ErrorWrapper::from)?;
 

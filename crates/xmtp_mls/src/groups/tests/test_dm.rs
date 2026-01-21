@@ -19,9 +19,7 @@ async fn auto_consent_dms_for_new_installations() {
     tester!(bo2, from: bo1);
 
     // Bo creates a new installation and immediately creates a new DM with alix
-    let bo2_dm = bo2
-        .find_or_create_dm_by_inbox_id(alix.inbox_id(), None)
-        .await?;
+    let bo2_dm = bo2.find_or_create_dm(alix.inbox_id(), None).await?;
 
     // Alix pulls down the new DM from bo
     alix.sync_welcomes().await?;
@@ -54,7 +52,7 @@ async fn test_dm_welcome_with_preexisting_consent() {
     );
     bo2.context.db().insert_newer_consent_record(cr)?;
     // Now bo2 processes the welcome
-    bo1.find_or_create_dm_by_inbox_id(alix.inbox_id(), None)
+    bo1.find_or_create_dm(alix.inbox_id(), None)
         .await?
         .update_installations()
         .await?;
@@ -62,9 +60,7 @@ async fn test_dm_welcome_with_preexisting_consent() {
 
     // The welcome should succeed
     assert_eq!(
-        bo2.find_or_create_dm_by_inbox_id(alix.inbox_id(), None)
-            .await?
-            .group_id,
+        bo2.find_or_create_dm(alix.inbox_id(), None).await?.group_id,
         a_group.group_id
     );
 }

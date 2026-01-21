@@ -493,7 +493,7 @@ mod test {
             .unwrap();
         futures::pin_mut!(stream);
 
-        alix.find_or_create_dm_by_inbox_id(bo.inbox_id().to_string(), None)
+        alix.find_or_create_dm(bo.inbox_id().to_string(), None)
             .await
             .unwrap();
 
@@ -528,7 +528,7 @@ mod test {
         let stream = alix.stream_conversations(None, false).await.unwrap();
         futures::pin_mut!(stream);
 
-        alix.find_or_create_dm_by_inbox_id(davon.inbox_id().to_string(), None)
+        alix.find_or_create_dm(davon.inbox_id().to_string(), None)
             .await
             .unwrap();
         let group = stream.next().await.unwrap();
@@ -536,7 +536,7 @@ mod test {
         groups.push(group.unwrap());
 
         let dm = eri
-            .find_or_create_dm_by_inbox_id(alix.inbox_id().to_string(), None)
+            .find_or_create_dm(alix.inbox_id().to_string(), None)
             .await
             .unwrap();
         dm.add_members(&[alix.inbox_id()]).await.unwrap();
@@ -622,7 +622,7 @@ mod test {
 
         // First DM - should stream
         let dm1 = client1
-            .find_or_create_dm_by_inbox_id(client2.inbox_id().to_string(), None)
+            .find_or_create_dm(client2.inbox_id().to_string(), None)
             .await
             .unwrap();
 
@@ -632,7 +632,7 @@ mod test {
 
         // Create a second DM with same participants — triggers duplicate logic
         let dm2 = client2
-            .find_or_create_dm_by_inbox_id(client1.inbox_id().to_string(), None)
+            .find_or_create_dm(client1.inbox_id().to_string(), None)
             .await
             .unwrap();
 
@@ -667,7 +667,7 @@ mod test {
                 let c = client.clone();
                 async move {
                     xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
-                    let dm = c.find_or_create_dm_by_inbox_id(id.as_ref(), None).await?;
+                    let dm = c.find_or_create_dm(id.as_ref(), None).await?;
                     dm.send_message(b"hi", SendMessageOpts::default()).await?;
                     Ok::<_, crate::client::ClientError>(())
                 }
