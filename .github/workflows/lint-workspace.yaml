@@ -6,20 +6,20 @@ on:
   pull_request:
     paths:
       - ".github/workflows/lint-workspace.yaml"
-      - "mls_validation_service/**"
-      - "xmtp_api_grpc/**"
-      - "xmtp_cryptography/**"
-      - "xmtp_id/**"
-      - "xmtp_mls/**"
-      - "xmtp_db/**"
-      - "xmtp_api/**"
-      - "xmtp_api_d14n/**"
-      - "xmtp_content_types/**"
-      - "xmtp_proto/**"
-      - "xmtp_debug/**"
-      - "db_tools/**"
-      - "bindings_node/**"
-      - "bindings_ffi/**"
+      - "apps/mls_validation_service/**"
+      - "crates/xmtp_api_grpc/**"
+      - "crates/xmtp_cryptography/**"
+      - "crates/xmtp_id/**"
+      - "crates/xmtp_mls/**"
+      - "crates/xmtp_db/**"
+      - "crates/xmtp_api/**"
+      - "crates/xmtp_api_d14n/**"
+      - "crates/xmtp_content_types/**"
+      - "crates/xmtp_proto/**"
+      - "crates/xmtp_debug/**"
+      - "crates/db_tools/**"
+      - "bindings/node/**"
+      - "bindings/mobile/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".cargo/**"
@@ -36,7 +36,7 @@ jobs:
     runs-on: warp-ubuntu-latest-x64-16x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Update rust toolchains
         run: rustup update
       - name: Cache

@@ -1,0 +1,83 @@
+[package]
+edition = "2024"
+license.workspace = true
+name = "xmtp_proto"
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+derive_builder.workspace = true
+ed25519-dalek.workspace = true
+futures = { workspace = true }
+hex.workspace = true
+http = "1.2"
+pbjson.workspace = true
+pbjson-types.workspace = true
+pin-project-lite.workspace = true
+prost = { workspace = true, features = ["derive"] }
+prost-types = "0.14"
+serde = { workspace = true }
+smallvec.workspace = true
+thiserror.workspace = true
+tonic = { workspace = true, default-features = false }
+tonic-prost = "0.14"
+tracing.workspace = true
+xmtp_common.workspace = true
+xmtp_configuration.workspace = true
+rustc-hash.workspace = true
+
+mockall = { workspace = true, optional = true }
+tokio = { workspace = true, default-features = false, features = [
+  "sync",
+], optional = true }
+toxiproxy_rust = { workspace = true, optional = true }
+
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+openmls = { workspace = true }
+tonic = { workspace = true, features = ["codegen", "server", "channel"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+openmls = { workspace = true, features = ["js"] }
+wasm-bindgen-test = { workspace = true }
+
+[dev-dependencies]
+mockall = { workspace = true }
+rstest.workspace = true
+tokio = { workspace = true, default-features = false, features = ["sync"] }
+toxiproxy_rust = { workspace = true }
+xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_configuration = { workspace = true, features = ["test-utils"] }
+
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+ctor.workspace = true
+
+[build-dependencies]
+tonic-prost-build = "0.14"
+walkdir = "2.5"
+color-eyre.workspace = true
+relative-path = "2"
+xshell = "0.2"
+pbjson-build = "0.8"
+tonic = { workspace = true, features = ["codegen"] }
+# this puts protoc on path with std::env::set_var("PROTOC", protobuf_src::protoc());
+# but takes forever to compile
+# protobuf-src = "2.1"
+
+[features]
+default = []
+dev = ["xmtp_configuration/dev"]
+test-utils = [
+  "xmtp_common/test-utils",
+  "xmtp_configuration/test-utils",
+  "dep:mockall",
+  "dep:tokio",
+  "dep:toxiproxy_rust",
+]
+grpc_server_impls = ["tonic/codegen"]

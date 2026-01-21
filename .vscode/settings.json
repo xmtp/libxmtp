@@ -12,7 +12,7 @@
     "macro-error"
   ],
   "rust-analyzer.cargo.buildScripts.enable": true,
-  "rust-analyzer.files.exclude": ["bindings_wasm/**"],
+  "rust-analyzer.files.exclude": ["bindings/wasm/**"],
   "rust-analyzer.procMacro.attributes.enable": true,
   "rust-analyzer.procMacro.ignored": {
     "tracing": ["instrument"],

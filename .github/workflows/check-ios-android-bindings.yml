@@ -6,7 +6,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/check-ios-android-bindings.yml"
-      - "bindings_ffi/**"
+      - "bindings/mobile/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "dev/up"
@@ -27,7 +27,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           determinate: true
@@ -35,7 +35,7 @@ jobs:
       - name: Build target
         run: |
           nix develop .#ios --command \
-            cargo check --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
+            cargo check --target ${{ matrix.target }} --manifest-path bindings/mobile/Cargo.toml
   check-android:
     runs-on: warp-ubuntu-latest-x64-16x
     permissions:
@@ -52,7 +52,7 @@ jobs:
           # Can also run android emulator here after cloning xmtp-android
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           determinate: true
@@ -64,4 +64,4 @@ jobs:
       - name: check target
         run: |
           nix develop .#android --command \
-            cargo check --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
+            cargo check --target ${{ matrix.target }} --manifest-path bindings/mobile/Cargo.toml

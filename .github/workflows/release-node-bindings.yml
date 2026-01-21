@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Check versions are in sync
         run: |
@@ -17,7 +17,7 @@ jobs:
 
           # Check if there are any changes after syncing versions
           if [[ -n $(git status --porcelain) ]]; then
-            echo "::error::Version mismatch detected! Please run 'dev/sync-versions.sh' locally, commit the changes before releasing bindings_node"
+            echo "::error::Version mismatch detected! Please run 'dev/sync-versions.sh' locally, commit the changes before releasing bindings/node"
             echo "Changes detected:"
             git status --porcelain
             exit 1
@@ -45,7 +45,7 @@ jobs:
             output_target: linux-arm64-musl
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Update rust toolchains, add target
         run: |
@@ -57,7 +57,7 @@ jobs:
         with:
           workspaces: |
             .
-            bindings_node
+            bindings/node
 
       - name: Configure aarch64 toolchain
         if: startsWith(matrix.target, 'aarch64')
@@ -81,7 +81,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: ".node-version"
-          cache-dependency-path: "bindings_node/yarn.lock"
+          cache-dependency-path: "bindings/node/yarn.lock"
           cache: "yarn"
         env:
           SKIP_YARN_COREPACK_CHECK: "1"
@@ -90,13 +90,13 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
-        working-directory: bindings_node
+        working-directory: bindings/node
         run: |
           yarn
 
       - name: Build target
         if: ${{ ! startsWith(matrix.target, 'aarch64') }}
-        working-directory: bindings_node
+        working-directory: bindings/node
         run: |
           yarn build:release --target ${{ matrix.target }}
 
@@ -105,26 +105,26 @@ jobs:
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
           CC: aarch64-linux-gnu-gcc
-        working-directory: bindings_node
+        working-directory: bindings/node
         run: |
           yarn build:release --target ${{ matrix.target }}
 
       - name: Upload JS
         # only upload the JS files once, target doesn't matter
         if: ${{ matrix.target == 'x86_64-unknown-linux-gnu' }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: bindings_node_js
           path: |
-            bindings_node/index.js
-            bindings_node/index.d.ts
+            bindings/node/index.js
+            bindings/node/index.d.ts
           retention-days: 1
 
       - name: Upload binding
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: bindings_node_${{ matrix.output_target }}
-          path: bindings_node/bindings_node.${{ matrix.output_target }}.node
+          path: bindings/node/bindings_node.${{ matrix.output_target }}.node
           retention-days: 1
 
   build-macos:
@@ -143,7 +143,7 @@ jobs:
             output_target: darwin-arm64
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Update rust toolchains, add target
         run: |
@@ -155,13 +155,13 @@ jobs:
         with:
           workspaces: |
             .
-            bindings_node
+            bindings/node
 
       - name: Setup node
         uses: actions/setup-node@v6
         with:
           node-version-file: ".node-version"
-          cache-dependency-path: "bindings_node/yarn.lock"
+          cache-dependency-path: "bindings/node/yarn.lock"
           cache: "yarn"
         env:
           SKIP_YARN_COREPACK_CHECK: "1"
@@ -170,20 +170,20 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
-        working-directory: bindings_node
+        working-directory: bindings/node
         run: |
           yarn
 
       - name: Build target
-        working-directory: bindings_node
+        working-directory: bindings/node
         run: |
           yarn build:release --target ${{ matrix.target }}
 
       - name: Upload binding
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: bindings_node_${{ matrix.output_target }}
-          path: bindings_node/bindings_node.${{ matrix.output_target }}.node
+          path: bindings/node/bindings_node.${{ matrix.output_target }}.node
           retention-days: 1
 
   build-windows:
@@ -204,7 +204,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Update rust toolchains
         run: |
@@ -216,7 +216,7 @@ jobs:
         with:
           workspaces: |
             .
-            bindings_node
+            bindings/node
 
       - name: Disable usePackageExitCodes feature
         uses: crazy-max/ghaction-chocolatey@v3
@@ -243,7 +243,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: ".node-version"
-          cache-dependency-path: "bindings_node/yarn.lock"
+          cache-dependency-path: "bindings/node/yarn.lock"
           cache: "yarn"
         env:
           SKIP_YARN_COREPACK_CHECK: "1"
@@ -252,20 +252,20 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
-        working-directory: bindings_node
+        working-directory: bindings/node
         run: |
           yarn
 
       - name: Build target
-        working-directory: bindings_node
+        working-directory: bindings/node
         run: |
           yarn build:release --target ${{ matrix.target }}
 
       - name: Upload binding
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: bindings_node_${{ matrix.output_target }}
-          path: bindings_node/bindings_node.${{ matrix.output_target }}.node
+          path: bindings/node/bindings_node.${{ matrix.output_target }}.node
           retention-days: 1
 
   publish:
@@ -276,20 +276,20 @@ jobs:
     needs: [build-linux, build-macos, build-windows]
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           pattern: bindings_node_*
           merge-multiple: true
-          path: bindings_node/dist
+          path: bindings/node/dist
 
       - name: Setup node
         uses: actions/setup-node@v6
         with:
           node-version-file: ".node-version"
-          cache-dependency-path: "bindings_node/yarn.lock"
+          cache-dependency-path: "bindings/node/yarn.lock"
           cache: "yarn"
         env:
           SKIP_YARN_COREPACK_CHECK: "1"
@@ -298,11 +298,11 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
-        working-directory: bindings_node
+        working-directory: bindings/node
         run: yarn
 
       - name: Update version for dev releases
-        working-directory: bindings_node
+        working-directory: bindings/node
         run: |
           # Read the current version from package.json
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
@@ -310,13 +310,13 @@ jobs:
           # Check if this is a dev version
           if [[ "$PACKAGE_VERSION" == *"dev"* ]]; then
             GIT_HASH=$(git log -1 --pretty=format:"%h")
-            
+
             # Create a new version string with the git hash
             NEW_VERSION="${PACKAGE_VERSION}.${GIT_HASH}"
-            
+
             # Update package.json with the new version
             npm version "$NEW_VERSION" --no-git-tag-version
-            
+
             echo "Updated version to $NEW_VERSION for publishing"
           else
             echo "Not a dev version, keeping original version: $PACKAGE_VERSION"
@@ -324,7 +324,7 @@ jobs:
 
       - name: Determine NPM tag
         id: npm-tag
-        working-directory: bindings_node
+        working-directory: bindings/node
         run: |
           # Read the current version from package.json
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
@@ -340,7 +340,7 @@ jobs:
         if: contains(steps.npm-tag.outputs.tag, 'prerelease')
         run: |
           # Read the current version from package.json
-          PACKAGE_VERSION=$(node -p "require('./bindings_node/package.json').version")
+          PACKAGE_VERSION=$(node -p "require('./bindings/node/package.json').version")
 
           # Create and push the tag
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
@@ -356,7 +356,7 @@ jobs:
       - name: Publish to NPM
         uses: JS-DevTools/npm-publish@v4
         with:
-          package: bindings_node
+          package: bindings/node
           tag: ${{ steps.npm-tag.outputs.tag }}
           dry-run: false
         env:

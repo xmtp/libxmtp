@@ -7,13 +7,13 @@ on:
     # only run tests when related changes are made
     paths:
       - ".github/workflows/test-webassembly.yml"
-      - "xmtp_mls/src/**"
-      - "xmtp_id/src/**"
-      - "xmtp_db/**"
-      - "xmtp_api_d14n/**"
-      - "xmtp_content_types/**"
-      - "xmtp_proto/**"
-      - "bindings_wasm/**"
+      - "crates/xmtp_mls/src/**"
+      - "crates/xmtp_id/src/**"
+      - "crates/xmtp_db/**"
+      - "crates/xmtp_api_d14n/**"
+      - "crates/xmtp_content_types/**"
+      - "crates/xmtp_proto/**"
+      - "bindings/wasm/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".cargo/**"
@@ -30,7 +30,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Install wasm-bindgen
         uses: taiki-e/install-action@v2
         with:
@@ -70,15 +70,11 @@ jobs:
           nix develop .#wasm --command \
             cargo test --locked --release -p xmtp_mls -- subscriptions::
         working-directory: ./
-      - name: yarn install
-        working-directory: bindings_wasm
-        run: |
-          yarn
-      - working-directory: bindings_wasm/tests/integration/browser
-        run: |
-          yarn
       - name: webassembly integration tests
-        working-directory: bindings_wasm/tests/integration/browser
+        working-directory: bindings/wasm
         run: |
+          yarn
+          yarn build:test
+          yarn typecheck
           yarn playwright install
-          yarn test
+          yarn test:integration

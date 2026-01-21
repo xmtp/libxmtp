@@ -2,7 +2,7 @@ name: Lint WASM Bindings
 on:
   pull_request:
     paths:
-      - "bindings_wasm/**"
+      - "bindings/wasm/**"
       - ".github/workflows/lint-wasm-bindings.yaml"
       - "rustfmt.toml"
       - "Cargo.toml"
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Update rust toolchains
         run: |
           rustup update
@@ -28,7 +28,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            bindings_wasm
+            bindings/wasm
       - name: Install emscripten toolchains
         run: |
           git clone https://github.com/emscripten-core/emsdk.git
@@ -38,6 +38,11 @@ jobs:
       - name: Run clippy and fail on warnings
         run: |
           source ./emsdk/emsdk_env.sh
-          cargo clippy --locked --manifest-path bindings_wasm/Cargo.toml --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings
+          cargo clippy --locked --manifest-path bindings/wasm/Cargo.toml --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings
       - name: Run format check
-        run: cargo fmt --manifest-path bindings_wasm/Cargo.toml --check
+        run: cargo fmt --manifest-path bindings/wasm/Cargo.toml --check
+      - name: Run format check on typescript files
+        working-directory: bindings/wasm
+        run: |
+          yarn
+          yarn format:check

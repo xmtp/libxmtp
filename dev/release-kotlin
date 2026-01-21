@@ -24,7 +24,7 @@ SED="nix $ADD_EXPERIMENTAL_FEATURES develop -i .#android --command sed"
 
 WORKSPACE_MANIFEST="$($CARGO locate-project --workspace --message-format=plain)"
 WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
-BINDINGS_MANIFEST="$WORKSPACE_PATH/bindings_ffi/Cargo.toml"
+BINDINGS_MANIFEST="$WORKSPACE_PATH/bindings/mobile/Cargo.toml"
 BINDINGS_PATH="$(dirname $BINDINGS_MANIFEST)"
 TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | jq -r '.target_directory')"
 
@@ -82,7 +82,7 @@ cd $WORKSPACE_PATH
 LIBRARY_NAME="libxmtpv3"
 TARGET_NAME="libuniffi_xmtpv3"
 
-$CARGO ndk --platform 23 -o bindings_ffi/jniLibs/ --manifest-path ./bindings_ffi/Cargo.toml \
+$CARGO ndk --platform 23 -o bindings/mobile/jniLibs/ --manifest-path ./bindings/mobile/Cargo.toml \
   -t aarch64-linux-android \
   -t x86_64-linux-android \
   -t i686-linux-android \
@@ -90,7 +90,7 @@ $CARGO ndk --platform 23 -o bindings_ffi/jniLibs/ --manifest-path ./bindings_ffi
   -- build --release
 
 for arch in arm64-v8a armeabi-v7a x86 x86_64; do
-  mv "./bindings_ffi/jniLibs/$arch/$LIBRARY_NAME.so" "./bindings_ffi/jniLibs/$arch/$TARGET_NAME.so"
+  mv "./bindings/mobile/jniLibs/$arch/$LIBRARY_NAME.so" "./bindings/mobile/jniLibs/$arch/$TARGET_NAME.so"
 done
 
 echo -e "${WHITE}jniLib generation successful.${NC}"
@@ -100,7 +100,7 @@ response=${response}
 if [[ "$response" =~ ^(yes|y)$ ]]
 then
   rm -rf $XMTP_ANDROID/library/src/main/jniLibs
-  cp -r "./bindings_ffi/jniLibs" $XMTP_ANDROID/library/src/main
+  cp -r "./bindings/mobile/jniLibs" $XMTP_ANDROID/library/src/main
   echo "libs copied"
 else
   echo "done"

@@ -2,7 +2,7 @@ name: Lint Node Bindings
 on:
   pull_request:
     paths:
-      - "bindings_node/**"
+      - "bindings/node/**"
       - ".github/workflows/lint-node-bindings.yaml"
       - "rustfmt.toml"
       - "Cargo.toml"
@@ -15,22 +15,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Setup node
         uses: actions/setup-node@v6
         with:
           node-version-file: ".node-version"
-          cache-dependency-path: "bindings_node/yarn.lock"
+          cache-dependency-path: "bindings/node/yarn.lock"
           cache: "yarn"
         env:
           SKIP_YARN_COREPACK_CHECK: "1"
       - name: Enable corepack
         run: corepack enable
       - name: Install dependencies
-        working-directory: bindings_node
+        working-directory: bindings/node
         run: |
           yarn
       - name: Format check
-        working-directory: bindings_node
+        working-directory: bindings/node
         run: |
           yarn format:check

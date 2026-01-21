@@ -15,7 +15,7 @@ jobs:
           - aarch64-apple-darwin
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Update rust toolchains, add target
         run: |
           rustup update
@@ -26,7 +26,7 @@ jobs:
           prefix-key: "macos-15"
           workspaces: |
             .
-            bindings_ffi
+            bindings/mobile
       - name: Install Cross
         uses: taiki-e/install-action@cross
       - name: Build target
@@ -45,9 +45,9 @@ jobs:
             export SDKROOT=$(xcrun --sdk iphonesimulator --show-sdk-path)
             export BINDGEN_EXTRA_CLANG_ARGS="--target=x86_64-apple-ios-simulator -isysroot $SDKROOT"
           fi
-          cross build --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
+          cross build --release --target ${{ matrix.target }} --manifest-path bindings/mobile/Cargo.toml
       - name: Upload binary
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.target }}
           path: |
@@ -58,7 +58,7 @@ jobs:
     runs-on: warp-macos-15-arm64-12x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Update rust toolchains, add target
         run: |
           rustup update
@@ -68,83 +68,85 @@ jobs:
         with:
           workspaces: |
             .
-            bindings_ffi
+            bindings/mobile
       - name: Install swift
         run: brew install swiftformat
       - name: Generate static bindings
-        working-directory: bindings_ffi
+        working-directory: bindings/mobile
         run: |
           make bindgenstatic
           make swift
       - name: Generate dynamic bindings
-        working-directory: bindings_ffi
+        working-directory: bindings/mobile
         run: |
           make bindgendynamic
           make swiftdyn
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: swift
-          path: bindings_ffi/build/swift/
+          path: bindings/mobile/build/swift/
           retention-days: 1
   package-swift:
     needs: [build-macos, swift]
     runs-on: warp-macos-15-arm64-12x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Download artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
-          path: bindings_ffi/build
+          path: bindings/mobile/build
       - name: Build static archive
-        working-directory: bindings_ffi
+        working-directory: bindings/mobile
         run: |
           mkdir -p Sources/LibXMTP
           mv build/swift/static/xmtpv3.swift Sources/LibXMTP/
           make framework
-          cp ../LICENSE ./LICENSE
+          cp ../../LICENSE ./LICENSE
           zip -r LibXMTPSwiftFFI.zip Sources LibXMTPSwiftFFI.xcframework LICENSE
       - name: Upload static
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: LibXMTPSwiftFFI
           retention-days: 1
-          path: ./bindings_ffi/LibXMTPSwiftFFI.zip
+          path: ./bindings/mobile/LibXMTPSwiftFFI.zip
           if-no-files-found: error
   package-swift-dynamic:
     needs: [build-macos, swift]
     runs-on: warp-macos-15-arm64-12x
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Download artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
-          path: bindings_ffi/build
+          path: bindings/mobile/build
       - name: Build dynamic archive
-        working-directory: bindings_ffi
+        working-directory: bindings/mobile
         run: |
           mkdir -p Sources/LibXMTP/Dynamic
           mv build/swift/dynamic/xmtpv3.swift Sources/LibXMTP/Dynamic
           make frameworkdyn
-          cp ../LICENSE ./LICENSE
+          cp ../../LICENSE ./LICENSE
           zip -r LibXMTPSwiftFFIDynamic.zip Sources LibXMTPSwiftFFIDynamic.xcframework LICENSE
       - name: Upload dynamic
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: LibXMTPSwiftFFIDynamic
           retention-days: 1
-          path: ./bindings_ffi/LibXMTPSwiftFFIDynamic.zip
+          path: ./bindings/mobile/LibXMTPSwiftFFIDynamic.zip
           if-no-files-found: error
   create-release:
     needs: [package-swift, package-swift-dynamic]
     runs-on: warp-macos-15-arm64-12x
+    permissions:
+      contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Download artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v7
         with:
           pattern: LibXMTPSwiftFFI*
           merge-multiple: true
@@ -162,7 +164,7 @@ jobs:
       - name: Get crate version
         id: version
         run: |
-          echo "value=$(cargo metadata --manifest-path bindings_ffi/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')" >> $GITHUB_OUTPUT
+          echo "value=$(cargo metadata --manifest-path bindings/mobile/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')" >> $GITHUB_OUTPUT
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:

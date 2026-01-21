@@ -66,7 +66,7 @@ let
       inherit cargoArtifacts;
       src = workspaceFileset;
       inherit (rust.crateNameFromCargoToml {
-        cargoToml = ./../../bindings_wasm/Cargo.toml;
+        cargoToml = ./../../bindings/wasm/Cargo.toml;
       }) pname;
       inherit (rust.crateNameFromCargoToml {
         cargoToml = ./../../Cargo.toml;
@@ -75,7 +75,7 @@ let
         mkdir -p $out/dist
         cargoBuildLog=$(mktemp cargoBuildLogXXXX.json)
 
-        HOME=$(mktemp -d fake-homeXXXX) wasm-pack --verbose build --target web --out-dir $out/dist --no-pack --release ./bindings_wasm -- --message-format json-render-diagnostics > "$cargoBuildLog"
+        HOME=$(mktemp -d fake-homeXXXX) wasm-pack --verbose build --target web --out-dir $out/dist --no-pack --release ./bindings/wasm -- --message-format json-render-diagnostics > "$cargoBuildLog"
       '';
     });
   devShell = mkShell

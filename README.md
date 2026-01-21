@@ -1,7 +1,7 @@
 # LibXMTP
 
-![https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg](https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg)
-![https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg)
+[![Lint](https://github.com/xmtp/libxmtp/actions/workflows/lint-workspace.yaml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/lint-workspace.yaml)
+[![Test](https://github.com/xmtp/libxmtp/actions/workflows/test-workspace.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/test-workspace.yml)
 ![Status](https://img.shields.io/badge/Project_status-Alpha-orange)
 
 LibXMTP is a shared library encapsulating the core functionality of the XMTP
@@ -161,29 +161,35 @@ flake `devShells` output.
 
 libxmtp/
 
-├ [`bindings_ffi`](./bindings_ffi): FFI bindings for Android and iOS (in
-progress)
+├ apps/
 
-├ [`bindings_wasm`](./bindings_wasm): Wasm bindings (in progress)
+│ ├ [`android`](./apps/android): Example Android app (in progress)
 
-├ examples/
-
-│ ├ [`android/xmtpv3_example`](./examples/android/xmtpv3_example): Example
-Android app (in progress)
-
-│ └ [`cli`](./examples/cli): Example XMTP console client. Use the CLI to try out
+│ ├ [`cli`](./apps/cli): Example XMTP console client. Use the CLI to try out
 sending double ratchet messages on the XMTP `dev` network.
 
-├ [`xmtp_api_grpc`](./xmtp_api_grpc): API client for XMTP's gRPC API, using code
-from `xmtp_proto`
+│ └ [`mls_validation_service`](./apps/mls_validation_service): MLS validation
+service
 
-├ [`xmtp_cryptography`](./xmtp_cryptography): Cryptographic operations
+├ bindings/
 
-├ [`xmtp_mls`](./xmtp_mls): Version 3 of XMTP which implements
-[Messaging Layer Security](https://messaginglayersecurity.rocks/).
+│ ├ [`mobile`](./bindings/mobile): FFI bindings for Android and iOS
 
-├ [`xmtp_proto`](./xmtp_proto): Generated code for handling XMTP protocol
-buffers
+│ ├ [`node`](./bindings/node): Node.js bindings
+
+│ └ [`wasm`](./bindings/wasm): WebAssembly bindings
+
+├ crates/
+
+│ ├ [`xmtp_api_grpc`](./crates/xmtp_api_grpc): API client for XMTP's gRPC API
+
+│ ├ [`xmtp_cryptography`](./crates/xmtp_cryptography): Cryptographic operations
+
+│ ├ [`xmtp_mls`](./crates/xmtp_mls): Version 3 of XMTP which implements
+[Messaging Layer Security](https://messaginglayersecurity.rocks/)
+
+│ └ [`xmtp_proto`](./crates/xmtp_proto): Generated code for handling XMTP
+protocol buffers
 
 ### Run the benchmarks
 

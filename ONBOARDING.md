@@ -22,7 +22,7 @@ A trustless, decentralized replacement is currently under development. More info
 - Libxmtp repo: https://github.com/xmtp/libxmtp
 - OpenMLS repo (fork): https://github.com/xmtp/openmls
 
-This is the core client SDK. It fetches and publishes payloads from the [backend](https://github.com/xmtp/proto/blob/8b46912744d89e29236f21ed81b33facb5384239/proto/identity/api/v1/identity.proto#L19), encrypting and decrypting them using [OpenMLS](https://book.openmls.tech/), and storing them in the [database](https://github.com/xmtp/libxmtp/blob/2ab5529d4bc0ca1aa90e986a78cb23d2c6f227b7/xmtp_db/src/encrypted_store/schema_gen.rs#L1) before exposing results to the native SDK's via [bindings](https://github.com/xmtp/libxmtp/tree/main/bindings_ffi).
+This is the core client SDK. It fetches and publishes payloads from the [backend](https://github.com/xmtp/proto/blob/8b46912744d89e29236f21ed81b33facb5384239/proto/identity/api/v1/identity.proto#L19), encrypting and decrypting them using [OpenMLS](https://book.openmls.tech/), and storing them in the [database](https://github.com/xmtp/libxmtp/blob/2ab5529d4bc0ca1aa90e986a78cb23d2c6f227b7/xmtp_db/src/encrypted_store/schema_gen.rs#L1) before exposing results to the native SDK's via [bindings](https://github.com/xmtp/libxmtp/tree/main/bindings/mobile).
 
 It's recommended to start by understanding [envelope types](https://docs.xmtp.org/protocol/envelope-types) and [intents](https://docs.xmtp.org/protocol/intents), before moving onto deeper level concepts in the Core Concepts section below.
 
@@ -39,7 +39,7 @@ This is simply a library in the libxmtp repo for validating payloads that is use
 - JS (browser/node.js) repo: https://github.com/xmtp/xmtp-js
 - Push notif server example: https://github.com/xmtp/example-notification-server-go
 
-This is a set of SDK's for each native platform. The interface to Rust is described in the [bindings](https://github.com/xmtp/libxmtp/tree/main/bindings_ffi), and the user interface is described in the [docs](https://docs.xmtp.org). 
+This is a set of SDK's for each native platform. The interface to Rust is described in the [bindings](https://github.com/xmtp/libxmtp/tree/main/bindings/mobile), and the user interface is described in the [docs](https://docs.xmtp.org). 
 
 #### Reference apps and agents
 

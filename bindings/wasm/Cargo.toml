@@ -1,0 +1,69 @@
+[package]
+edition = "2024"
+name = "bindings_wasm"
+version.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+async-trait.workspace = true
+bindings_wasm_macros.workspace = true
+chrono.workspace = true
+console_error_panic_hook.workspace = true
+futures.workspace = true
+hex.workspace = true
+js-sys.workspace = true
+pin-project-lite = { workspace = true }
+prost.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde-wasm-bindgen = "0.6.5"
+serde_bytes = "0.11"
+serde_json.workspace = true
+tracing = { workspace = true, features = ["release_max_level_debug"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+tracing-web = "0.1"
+tsify = { version = "0.5", default-features = false, features = ["js"] }
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+wasm-streams = { version = "0.4" }
+web-sys = { workspace = true, features = [
+  "Window",
+  "DomException",
+  "ReadableStream",
+] }
+xmtp_api.workspace = true
+xmtp_api_d14n.workspace = true
+xmtp_common = { workspace = true, features = ["logging"] }
+xmtp_content_types.workspace = true
+xmtp_cryptography.workspace = true
+xmtp_db.workspace = true
+xmtp_id.workspace = true
+xmtp_mls = { workspace = true }
+xmtp_proto = { workspace = true }
+
+alloy = { workspace = true, optional = true }
+wasm-bindgen-test = { workspace = true, optional = true }
+xmtp_configuration = { workspace = true, optional = true }
+
+
+[dev-dependencies]
+alloy.workspace = true
+chrono = { workspace = true }
+tokio.workspace = true
+wasm-bindgen-test.workspace = true
+xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_configuration.workspace = true
+xmtp_mls = { workspace = true, features = ["test-utils"] }
+
+[features]
+test-utils = [
+  "dep:alloy",
+  "dep:wasm-bindgen-test",
+  "xmtp_common/test-utils",
+  "dep:xmtp_configuration",
+  "xmtp_configuration/test-utils",
+]
