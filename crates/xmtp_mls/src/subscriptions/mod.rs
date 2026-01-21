@@ -618,7 +618,7 @@ pub(crate) mod tests {
 
         // Get the welcome messages and encode the first one as V3 protobuf
         let welcomes = envelope.welcome_messages()?;
-        assert!(welcomes.len() > 0, "Should have at least one welcome");
+        assert!(!welcomes.is_empty(), "Should have at least one welcome");
 
         let welcome = &welcomes[0];
         let v1 = welcome.as_v1().expect("Should be a V1 welcome");

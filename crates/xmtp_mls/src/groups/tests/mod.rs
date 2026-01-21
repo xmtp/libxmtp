@@ -5083,7 +5083,7 @@ async fn test_generate_commit_with_rollback() {
     let in_generate_commit_before_hash_mut = &mut in_generate_commit_before_hash;
     let in_generate_commit_after_hash_mut = &mut in_generate_commit_after_hash;
     group
-        .load_mls_group_with_lock_async(|mut mls_group| async move {
+        .load_mls_group_with_lock_async(async |mut mls_group| {
             let extensions = super::build_extensions_for_metadata_update(
                 &mls_group,
                 "foo".to_string(),
