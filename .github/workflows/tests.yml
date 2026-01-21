@@ -30,30 +30,11 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
-          # Generate unique app name for this run
           APP_NAME="xmtp-ios-test-${{ github.run_id }}-${{ github.run_attempt }}"
-          echo "Creating app: $APP_NAME"
-
-          # Create the app explicitly (so we know the name)
-          # Fail if creation fails for reasons other than "already exists"
-          flyctl apps create "$APP_NAME" --org xmtp-labs || {
-            flyctl apps show "$APP_NAME" >/dev/null 2>&1 || { echo "Failed to create app: $APP_NAME"; exit 1; }
-          }
-
-          # Allocate shared IPv4 for the app
-          flyctl ips allocate-v4 --shared --app "$APP_NAME" || true
-
-          # Deploy multi-container machine using native Fly feature
-          flyctl machine run \
-            --app "$APP_NAME" \
-            --region sjc \
-            --rm \
-            --restart no \
-            --machine-config ci/fly/machine-config.json
-
-          echo "app_name=$APP_NAME" >> "$GITHUB_OUTPUT"
-          echo "node_url=https://${APP_NAME}.fly.dev" >> "$GITHUB_OUTPUT"
-          echo "history_url=https://${APP_NAME}.fly.dev:5558" >> "$GITHUB_OUTPUT"
+          ./dev/fly/deploy "$APP_NAME"
+          echo "app_name=$APP_NAME"
+          echo "node_url=https://${APP_NAME}.fly.dev"
+          echo "history_url=https://${APP_NAME}.fly.dev:5558"
 
       - name: Wait for services to be ready
         run: |

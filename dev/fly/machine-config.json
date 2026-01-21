@@ -118,7 +118,13 @@
       "ports": [
         {
           "port": 443,
-          "handlers": ["tls"]
+          "handlers": ["tls", "http"],
+          "tls_options": {
+            "alpn": ["h2"]
+          },
+          "http_options": {
+            "h2_backend": true
+          }
         }
       ]
     },
@@ -128,7 +134,13 @@
       "ports": [
         {
           "port": 5558,
-          "handlers": ["tls", "http"]
+          "handlers": ["tls", "http"],
+          "tls_options": {
+            "alpn": ["h2"]
+          },
+          "http_options": {
+            "h2_backend": true
+          }
         }
       ]
     }
