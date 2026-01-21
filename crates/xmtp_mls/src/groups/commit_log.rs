@@ -840,7 +840,7 @@ where
             .collect::<HashSet<_>>();
 
         let (unverified, verified) = mls_group
-            .load_mls_group_with_lock_async(|openmls_group| async move {
+            .load_mls_group_with_lock_async(async |openmls_group| {
                 let mut verified = HashSet::new();
                 for member in openmls_group.members() {
                     if unverified.contains(&member.signature_key) {
