@@ -9,7 +9,7 @@ async fn test_create_group_with_members() {
 
     let group = amal
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bola.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -29,7 +29,7 @@ async fn test_create_group_with_metadata() {
 
     let group = amal
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bola.account_identifier.clone()],
             FfiCreateGroupOptions {
                 permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
@@ -76,7 +76,7 @@ async fn test_removed_members_no_longer_update() {
 
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -101,7 +101,7 @@ async fn test_removed_members_no_longer_update() {
     assert_eq!(bo_messages.len(), 1);
 
     alix_group
-        .remove_members(vec![bo.account_identifier.clone()])
+        .remove_members_by_identity(vec![bo.account_identifier.clone()])
         .await
         .unwrap();
 
@@ -142,7 +142,7 @@ async fn test_group_permissions_show_expected_values() {
     };
     let alix_group_admin_only = alix
         .conversations()
-        .create_group(vec![bo.account_identifier.clone()], admin_only_options)
+        .create_group_by_identity(vec![bo.account_identifier.clone()], admin_only_options)
         .await
         .unwrap();
 
@@ -172,7 +172,7 @@ async fn test_group_permissions_show_expected_values() {
     };
     let alix_group_all_members = alix
         .conversations()
-        .create_group(vec![bo.account_identifier.clone()], all_members_options)
+        .create_group_by_identity(vec![bo.account_identifier.clone()], all_members_options)
         .await
         .unwrap();
 
@@ -207,7 +207,7 @@ async fn test_permissions_updates() {
     };
     let alix_group = alix
         .conversations()
-        .create_group(vec![bola.account_identifier.clone()], admin_only_options)
+        .create_group_by_identity(vec![bola.account_identifier.clone()], admin_only_options)
         .await
         .unwrap();
 
@@ -305,7 +305,7 @@ async fn test_app_data_permission_update() {
     };
     let alix_group = alix
         .conversations()
-        .create_group(vec![bola.account_identifier.clone()], admin_only_options)
+        .create_group_by_identity(vec![bola.account_identifier.clone()], admin_only_options)
         .await
         .unwrap();
 
@@ -403,7 +403,7 @@ async fn test_group_creation_custom_permissions() {
 
     let alix_group = alix
         .conversations()
-        .create_group(vec![bola.account_identifier.clone()], create_group_options)
+        .create_group_by_identity(vec![bola.account_identifier.clone()], create_group_options)
         .await
         .unwrap();
 
@@ -485,7 +485,7 @@ async fn test_group_creation_custom_permissions() {
 
     // Verify that Alix can not remove bola even though they are a super admin
     let result = alix_group
-        .remove_members(vec![bola.account_identifier.clone()])
+        .remove_members_by_identity(vec![bola.account_identifier.clone()])
         .await;
     assert!(result.is_err());
 }
@@ -532,7 +532,7 @@ async fn test_group_creation_custom_permissions_fails_when_invalid() {
 
     let results_1 = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bola.account_identifier.clone()],
             create_group_options_invalid_1,
         )
@@ -552,7 +552,7 @@ async fn test_group_creation_custom_permissions_fails_when_invalid() {
 
     let results_2 = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bola.account_identifier.clone()],
             create_group_options_invalid_2,
         )
@@ -572,7 +572,7 @@ async fn test_group_creation_custom_permissions_fails_when_invalid() {
 
     let results_3 = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bola.account_identifier.clone()],
             create_group_options_invalid_3,
         )
@@ -592,7 +592,7 @@ async fn test_group_creation_custom_permissions_fails_when_invalid() {
 
     let results_4 = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bola.account_identifier.clone()],
             create_group_options_valid,
         )
@@ -613,7 +613,7 @@ async fn test_update_policies_empty_group() {
     };
     let amal_group = amal
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bola.account_identifier.clone()],
             admin_only_options.clone(),
         )
@@ -633,7 +633,7 @@ async fn test_update_policies_empty_group() {
     // Create a group with just amal
     let amal_solo_group = amal
         .conversations()
-        .create_group(vec![], admin_only_options)
+        .create_group_by_identity(vec![], admin_only_options)
         .await
         .unwrap();
 
@@ -665,7 +665,7 @@ async fn test_can_stream_and_receive_metadata_update() {
     // Create group and perform actions
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -754,7 +754,7 @@ async fn test_disappearing_messages_deletion() {
     // Step 1: Create a group
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bola.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -943,7 +943,7 @@ async fn test_disappearing_messages_with_0_from_ns_settings() {
     // Step 1: Create a group
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bola.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -1104,7 +1104,7 @@ async fn test_set_disappearing_messages_when_creating_group() {
     // Step 1: Create a group
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bola.account_identifier.clone()],
             FfiCreateGroupOptions {
                 permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
@@ -1190,7 +1190,7 @@ async fn test_group_who_added_me() {
 
     // Amal creates a group and adds Bola to the group
     amal.conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bola.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -1232,7 +1232,7 @@ async fn test_conversation_debug_info_returns_correct_values() {
 
     // Create a group
     let group = alix_conversations
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -1260,7 +1260,7 @@ async fn test_list_conversations_last_message() {
 
     // Create a group
     let group = alix_conversations
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -1317,7 +1317,7 @@ async fn test_list_conversations_no_messages() {
 
     // Step 2: Create a group with Bo but do not send messages
     alix_conversations
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -1355,7 +1355,7 @@ async fn test_conversation_list_filters_readable_messages() {
     let mut groups = Vec::with_capacity(9);
     for _ in 0..9 {
         let group = conversations_api
-            .create_group(vec![], FfiCreateGroupOptions::default())
+            .create_group_by_identity(vec![], FfiCreateGroupOptions::default())
             .await
             .unwrap();
         groups.push(group);
@@ -1644,7 +1644,7 @@ async fn test_can_list_messages_with_content_types() {
     // Alix creates group with Bo
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -1744,7 +1744,7 @@ async fn test_get_last_read_times() {
     // Create a DM between Alix and Bo
     let alix_dm = alix_client
         .conversations()
-        .find_or_create_dm(
+        .find_or_create_dm_by_identity(
             bo_client.account_identifier.clone(),
             FfiCreateDMOptions {
                 message_disappearing_settings: None,
@@ -1755,7 +1755,7 @@ async fn test_get_last_read_times() {
 
     let bo_dm = bo_client
         .conversations()
-        .find_or_create_dm(
+        .find_or_create_dm_by_identity(
             alix_client.account_identifier.clone(),
             FfiCreateDMOptions {
                 message_disappearing_settings: None,
@@ -1814,7 +1814,7 @@ async fn test_pagination_of_conversations_list() {
     for i in 0..15 {
         let group = bo_client
             .conversations()
-            .create_group(
+            .create_group_by_identity(
                 vec![caro_client.account_identifier.clone()],
                 FfiCreateGroupOptions {
                     group_name: Some(format!("Test Group {}", i)),
@@ -1914,7 +1914,7 @@ async fn test_membership_state() {
     // Create a group with amal as creator
     let group = amal
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bola.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )

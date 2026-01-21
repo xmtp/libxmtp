@@ -45,7 +45,7 @@ mod tests {
         alix.sync_all_welcomes_and_groups(None).await?;
         let alix_bo_dm = alix.group(&bo_alix_dm.group_id)?;
         let alix_group = alix
-            .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+            .create_group_with_members(&[bo.inbox_id()], None, None)
             .await?;
         alix_group
             .send_message(b"This message needs to remain", Default::default())

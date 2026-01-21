@@ -520,15 +520,15 @@ impl Conversation {
     Ok(super_admin_list.contains(&inbox_id))
   }
 
-  #[wasm_bindgen(js_name = addMembers)]
-  pub async fn add_members(
+  #[wasm_bindgen(js_name = addMembersByIdentity)]
+  pub async fn add_members_by_identity(
     &self,
     #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
   ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
-      .add_members(&account_identifiers.to_internal()?)
+      .add_members_by_identity(&account_identifiers.to_internal()?)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -605,15 +605,30 @@ impl Conversation {
     Ok(permissions.into())
   }
 
-  #[wasm_bindgen(js_name = addMembersByInboxId)]
-  pub async fn add_members_by_inbox_id(
+  #[wasm_bindgen(js_name = addMembers)]
+  pub async fn add_members(
     &self,
     #[wasm_bindgen(js_name = inboxIds)] inbox_ids: Vec<String>,
   ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
-      .add_members_by_inbox_id(&inbox_ids)
+      .add_members(&inbox_ids)
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(())
+  }
+
+  #[wasm_bindgen(js_name = removeMembersByIdentity)]
+  pub async fn remove_members_by_identity(
+    &self,
+    #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
+  ) -> Result<(), JsError> {
+    let group = self.to_mls_group();
+
+    group
+      .remove_members_by_identity(&account_identifiers.to_internal()?)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -623,28 +638,13 @@ impl Conversation {
   #[wasm_bindgen(js_name = removeMembers)]
   pub async fn remove_members(
     &self,
-    #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
-  ) -> Result<(), JsError> {
-    let group = self.to_mls_group();
-
-    group
-      .remove_members(&account_identifiers.to_internal()?)
-      .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
-
-    Ok(())
-  }
-
-  #[wasm_bindgen(js_name = removeMembersByInboxId)]
-  pub async fn remove_members_by_inbox_id(
-    &self,
     #[wasm_bindgen(js_name = inboxIds)] inbox_ids: Vec<String>,
   ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
     group
-      .remove_members_by_inbox_id(ids.as_slice())
+      .remove_members(ids.as_slice())
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 

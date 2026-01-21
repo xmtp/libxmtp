@@ -474,7 +474,7 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
     // Alix creates DM with Bo
     let bo_dm = bo
         .conversations()
-        .find_or_create_dm(wallet_a.identifier().into(), FfiCreateDMOptions::default())
+        .find_or_create_dm_by_identity(wallet_a.identifier().into(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
@@ -706,7 +706,7 @@ async fn test_cannot_create_more_than_max_installations() {
     // Create a group with one of the valid installations
     let bo_group = bo
         .conversations()
-        .create_group_with_inbox_ids(
+        .create_group(
             vec![installations[2].inbox_id()],
             FfiCreateGroupOptions::default(),
         )

@@ -28,7 +28,7 @@ use crate::{
     inbox_state_from_inbox_ids, is_connected,
     message::{
         FfiEncodedContent, FfiGroupUpdated, FfiInbox, FfiLeaveRequest, FfiMetadataFieldChange,
-        FfiRemoteAttachmentInfo, FfiTransactionMetadata,
+        FfiTransactionMetadata,
     },
     mls::{
         MessageBackendBuilder,

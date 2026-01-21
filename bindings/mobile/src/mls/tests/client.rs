@@ -281,7 +281,7 @@ async fn test_get_hmac_keys() {
 
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )

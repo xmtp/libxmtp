@@ -85,7 +85,11 @@ fn add_to_empty_group(c: &mut Criterion) {
                     )
                 },
                 |(group, addrs, span)| async move {
-                    group.add_members(&addrs).instrument(span).await.unwrap();
+                    group
+                        .add_members_by_identity(&addrs)
+                        .instrument(span)
+                        .await
+                        .unwrap();
                 },
                 BatchSize::SmallInput,
             );
@@ -121,11 +125,7 @@ fn add_to_empty_group_by_inbox_id(c: &mut Criterion) {
                     )
                 },
                 |(group, span, ids)| async move {
-                    group
-                        .add_members_by_inbox_id(&ids)
-                        .instrument(span)
-                        .await
-                        .unwrap();
+                    group.add_members(&ids).instrument(span).await.unwrap();
                 },
                 BatchSize::SmallInput,
             );
@@ -164,7 +164,7 @@ fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
                     bench_async_setup(|| async {
                         let group = client.create_group(None, None).unwrap();
                         group
-                            .add_members_by_inbox_id(
+                            .add_members(
                                 // it is OK to take from the back for now because we aren't getting
                                 // near MAX_IDENTITIES
                                 &inbox_ids,
@@ -177,11 +177,7 @@ fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
                     })
                 },
                 |(group, span, id_slice)| async move {
-                    group
-                        .add_members_by_inbox_id(&id_slice)
-                        .instrument(span)
-                        .await
-                        .unwrap();
+                    group.add_members(&id_slice).instrument(span).await.unwrap();
                 },
                 BatchSize::SmallInput,
             );
@@ -214,17 +210,13 @@ fn remove_all_members_from_group(c: &mut Criterion) {
                 || {
                     bench_async_setup(|| async {
                         let group = client.create_group(None, None).unwrap();
-                        group.add_members_by_inbox_id(ids).await.unwrap();
+                        group.add_members(ids).await.unwrap();
                         let ids = id_slice.clone();
                         (group, span.clone(), ids)
                     })
                 },
                 |(group, span, ids)| async move {
-                    group
-                        .remove_members_by_inbox_id(&ids)
-                        .instrument(span)
-                        .await
-                        .unwrap();
+                    group.remove_members(&ids).instrument(span).await.unwrap();
                 },
                 BatchSize::SmallInput,
             );
@@ -256,7 +248,7 @@ fn remove_half_members_from_group(c: &mut Criterion) {
                 || {
                     bench_async_setup(|| async {
                         let group = client.create_group(None, None).unwrap();
-                        group.add_members_by_inbox_id(ids).await.unwrap();
+                        group.add_members(ids).await.unwrap();
                         let ids = ids
                             .iter()
                             .map(AsRef::as_ref)
@@ -266,11 +258,7 @@ fn remove_half_members_from_group(c: &mut Criterion) {
                     })
                 },
                 |(group, span, ids)| async move {
-                    group
-                        .remove_members_by_inbox_id(&ids)
-                        .instrument(span)
-                        .await
-                        .unwrap();
+                    group.remove_members(&ids).instrument(span).await.unwrap();
                 },
                 BatchSize::SmallInput,
             );
@@ -302,17 +290,13 @@ fn add_1_member_to_group(c: &mut Criterion) {
                 || {
                     bench_async_setup(|| async {
                         let group = client.create_group(None, None).unwrap();
-                        group.add_members_by_inbox_id(ids).await.unwrap();
+                        group.add_members(ids).await.unwrap();
                         let member = inbox_ids.last().unwrap().clone();
                         (group, vec![member], span.clone())
                     })
                 },
                 |(group, member, span)| async move {
-                    group
-                        .add_members_by_inbox_id(&member)
-                        .instrument(span)
-                        .await
-                        .unwrap();
+                    group.add_members(&member).instrument(span).await.unwrap();
                 },
                 BatchSize::SmallInput,
             );

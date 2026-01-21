@@ -121,7 +121,7 @@ async fn test_get_newest_message_metadata() {
     // Create a group with alix and bo
     let group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -167,7 +167,7 @@ async fn test_get_newest_message_metadata() {
     // Test with a group that has no messages (new empty group)
     let empty_group = alix
         .conversations()
-        .create_group(vec![], FfiCreateGroupOptions::default())
+        .create_group_by_identity(vec![], FfiCreateGroupOptions::default())
         .await
         .unwrap();
 

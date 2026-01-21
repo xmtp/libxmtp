@@ -80,7 +80,7 @@ async fn test_commit_log_signer_on_group_creation() {
     );
 
     let a = alix
-        .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+        .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     let b = bo.sync_welcomes().await?.first()?.to_owned();
     let a_metadata = a.mutable_metadata()?;
@@ -106,7 +106,7 @@ async fn test_device_sync_mutable_metadata_is_overwritten() {
     tester!(bo);
 
     let a = alix
-        .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+        .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     // Pretend that Bo received the group via device sync
     // Currently, device sync creates a placeholder OpenMLS group with its own commit log secret
@@ -249,10 +249,7 @@ async fn test_should_publish_commit_log() {
     tester!(bo);
 
     let alix_group = alix.create_group(None, None).unwrap();
-    alix_group
-        .add_members_by_inbox_id(&[bo.inbox_id()])
-        .await
-        .unwrap();
+    alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
 
     let binding = bo.list_conversations(GroupQueryArgs::default()).unwrap();
@@ -285,10 +282,7 @@ async fn test_publish_commit_log_to_remote() {
 
     // Alix creates a group with Bo
     let alix_group = alix.create_group(None, None).unwrap();
-    alix_group
-        .add_members_by_inbox_id(&[bo.inbox_id()])
-        .await
-        .unwrap();
+    alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
 
     let binding = bo.list_conversations(GroupQueryArgs::default()).unwrap();
@@ -371,10 +365,7 @@ async fn test_download_commit_log_from_remote() {
 
     // Alix creates a group with Bo (1 commit)
     let alix_group = alix.create_group(None, None).unwrap();
-    alix_group
-        .add_members_by_inbox_id(&[bo.inbox_id()])
-        .await
-        .unwrap();
+    alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
 
     // Alix updates the group name (2 commits)
     alix_group
@@ -1174,7 +1165,7 @@ async fn test_bad_signature_handling() {
 
     // Create a group with a member to get an UpdateGroupMembership commit
     let alice_group = alice
-        .create_group_with_inbox_ids(&[bob.inbox_id()], None, None)
+        .create_group_with_members(&[bob.inbox_id()], None, None)
         .await?;
     let alice_logs = alice_group.local_commit_log().await?;
     let valid_entry = PlaintextCommitLogEntry::from(&alice_logs[1]); // Use UpdateGroupMembership entry
@@ -1280,7 +1271,7 @@ async fn test_update_commit_log_signer_sync_across_parties() {
 
     println!("Creating group with alix, bo, and charlie");
     let alix_group = alix
-        .create_group_with_inbox_ids(&[bo.inbox_id(), charlie.inbox_id()], None, None)
+        .create_group_with_members(&[bo.inbox_id(), charlie.inbox_id()], None, None)
         .await
         .unwrap();
 
@@ -1413,10 +1404,7 @@ async fn test_updating_group_name_preserves_commit_log_signer() {
     let group = alix.create_group(Some(PolicySet::default()), None).unwrap();
 
     // Add bo to the group
-    group
-        .add_members_by_inbox_id(&[bo.inbox_id()])
-        .await
-        .unwrap();
+    group.add_members(&[bo.inbox_id()]).await.unwrap();
 
     let bo_groups = bo.sync_welcomes().await.unwrap();
     assert_eq!(bo_groups.len(), 1);
@@ -1488,7 +1476,7 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
 
     // Add bo and charlie to the group
     group
-        .add_members_by_inbox_id(&[bo.inbox_id(), charlie.inbox_id()])
+        .add_members(&[bo.inbox_id(), charlie.inbox_id()])
         .await
         .unwrap();
 

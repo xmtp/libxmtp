@@ -11,7 +11,7 @@ async fn test_can_send_and_receive_reaction() {
     // Create a conversation between them
     let alix_conversation = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -136,7 +136,7 @@ async fn test_multi_remote_attachment_encode_decode() {
     // Create a test attachment
     let original_attachment = FfiMultiRemoteAttachment {
         attachments: vec![
-            FfiRemoteAttachmentInfo {
+            FfiRemoteAttachment {
                 filename: Some("test1.jpg".to_string()),
                 content_length: Some(1000),
                 secret: vec![1, 2, 3],
@@ -146,7 +146,7 @@ async fn test_multi_remote_attachment_encode_decode() {
                 scheme: "https".to_string(),
                 url: "https://example.com/test1.jpg".to_string(),
             },
-            FfiRemoteAttachmentInfo {
+            FfiRemoteAttachment {
                 filename: Some("test2.pdf".to_string()),
                 content_length: Some(2000),
                 secret: vec![4, 5, 6],
@@ -261,7 +261,7 @@ async fn test_read_receipt_roundtrip() {
 async fn test_remote_attachment_roundtrip() {
     let original = FfiRemoteAttachment {
         filename: Some("remote_file.txt".to_string()),
-        content_length: 2048,
+        content_length: Some(2048),
         url: "https://example.com/file.txt".to_string(),
         content_digest: "sha256:abc123def456".to_string(),
         scheme: "https".to_string(),
@@ -289,7 +289,7 @@ async fn test_long_messages() {
 
     let dm = alix
         .conversations()
-        .find_or_create_dm_by_inbox_id(bo.inbox_id(), FfiCreateDMOptions::default())
+        .find_or_create_dm(bo.inbox_id(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
@@ -310,7 +310,7 @@ async fn test_long_messages() {
 
     let bo_dm = bo
         .conversations()
-        .find_or_create_dm_by_inbox_id(alix.inbox_id(), FfiCreateDMOptions::default())
+        .find_or_create_dm(alix.inbox_id(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 
@@ -331,7 +331,7 @@ async fn test_find_enriched_messages_with_reactions() {
     let alix_group = alix
         .client
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -476,7 +476,7 @@ async fn test_find_enriched_messages_with_replies() {
     let alix_dm = alix
         .client
         .conversations()
-        .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
         .await
         .unwrap();
 

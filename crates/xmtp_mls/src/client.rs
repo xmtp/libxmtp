@@ -555,7 +555,7 @@ where
     }
 
     /// Create a group with an initial set of members added
-    pub async fn create_group_with_members(
+    pub async fn create_group_with_identifiers(
         &self,
         account_identifiers: &[Identifier],
         permissions_policy_set: Option<PolicySet>,
@@ -563,12 +563,12 @@ where
     ) -> Result<MlsGroup<Context>, ClientError> {
         let group = self.create_group(permissions_policy_set, opts)?;
 
-        group.add_members(account_identifiers).await?;
+        group.add_members_by_identity(account_identifiers).await?;
 
         Ok(group)
     }
 
-    pub async fn create_group_with_inbox_ids(
+    pub async fn create_group_with_members(
         &self,
         inbox_ids: &[impl AsIdRef],
         permissions_policy_set: Option<PolicySet>,
@@ -577,7 +577,7 @@ where
         tracing::info!("creating group");
         let group = self.create_group(permissions_policy_set, opts)?;
 
-        group.add_members_by_inbox_id(inbox_ids).await?;
+        group.add_members(inbox_ids).await?;
 
         Ok(group)
     }
@@ -602,7 +602,7 @@ where
             group_id = group.group_id.short_hex(),
             target_inbox = target_inbox_id
         );
-        group.add_members_by_inbox_id(&[target_inbox_id]).await?;
+        group.add_members(&[target_inbox_id]).await?;
 
         // notify any streams of the new group
         let _ = self
@@ -1127,7 +1127,7 @@ pub(crate) mod tests {
 
         // Add both of Bola's installations to the group
         group
-            .add_members_by_inbox_id(&[bola_a.inbox_id(), bola_b.inbox_id()])
+            .add_members(&[bola_a.inbox_id(), bola_b.inbox_id()])
             .await
             .unwrap();
 
@@ -1301,7 +1301,7 @@ pub(crate) mod tests {
 
         let alice_bob_group = alice.create_group(None, None).unwrap();
         alice_bob_group
-            .add_members_by_inbox_id(&[bob.inbox_id()])
+            .add_members(&[bob.inbox_id()])
             .await
             .unwrap();
 
@@ -1330,7 +1330,7 @@ pub(crate) mod tests {
 
         let alice_bob_group = alice.create_group(None, None).unwrap();
         alice_bob_group
-            .add_members_by_inbox_id(&[cat.inbox_id()])
+            .add_members(&[cat.inbox_id()])
             .await
             .unwrap();
 
@@ -1347,7 +1347,7 @@ pub(crate) mod tests {
 
         // Alice invites Bob with short living KP
         alice_bob_group
-            .add_members_by_inbox_id(&[bob.inbox_id()])
+            .add_members(&[bob.inbox_id()])
             .await
             .unwrap();
 
@@ -1371,7 +1371,7 @@ pub(crate) mod tests {
         set_test_mode_limit_key_package_lifetime(false, 0);
         let dave = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         alice_bob_group
-            .add_members_by_inbox_id(&[dave.inbox_id()])
+            .add_members(&[dave.inbox_id()])
             .await
             .unwrap();
         // Dave should be okay receiving a welcome where members of the group are expired
@@ -1398,14 +1398,8 @@ pub(crate) mod tests {
 
         let alix_bo_group1 = alix.create_group(None, None).unwrap();
         let alix_bo_group2 = alix.create_group(None, None).unwrap();
-        alix_bo_group1
-            .add_members_by_inbox_id(&[bo.inbox_id()])
-            .await
-            .unwrap();
-        alix_bo_group2
-            .add_members_by_inbox_id(&[bo.inbox_id()])
-            .await
-            .unwrap();
+        alix_bo_group1.add_members(&[bo.inbox_id()]).await.unwrap();
+        alix_bo_group2.add_members(&[bo.inbox_id()]).await.unwrap();
 
         let bob_received_groups = bo.sync_welcomes().await.unwrap();
         assert_eq!(bob_received_groups.len(), 2);
@@ -1445,14 +1439,8 @@ pub(crate) mod tests {
         let alix_bo_group1 = alix.create_group(None, None).unwrap();
         let alix_bo_group2 = alix.create_group(None, None).unwrap();
 
-        alix_bo_group1
-            .add_members_by_inbox_id(&[bo.inbox_id()])
-            .await
-            .unwrap();
-        alix_bo_group2
-            .add_members_by_inbox_id(&[bo.inbox_id()])
-            .await
-            .unwrap();
+        alix_bo_group1.add_members(&[bo.inbox_id()]).await.unwrap();
+        alix_bo_group2.add_members(&[bo.inbox_id()]).await.unwrap();
 
         // Initial sync (None): Bob should fetch both groups
         let bob_received_groups = bo.sync_all_welcomes_and_groups(None).await.unwrap();
@@ -1546,10 +1534,7 @@ pub(crate) mod tests {
 
         for _ in 0..group_count {
             let group = alix.create_group(None, None).unwrap();
-            group
-                .add_members_by_inbox_id(&[bo.inbox_id()])
-                .await
-                .unwrap();
+            group.add_members(&[bo.inbox_id()]).await.unwrap();
             groups.push(group);
         }
 
@@ -1597,17 +1582,11 @@ pub(crate) mod tests {
 
         // Create a group and invite bola
         let amal_group = amal.create_group(None, None).unwrap();
-        amal_group
-            .add_members_by_inbox_id(&[bola.inbox_id()])
-            .await
-            .unwrap();
+        amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
         assert_eq!(amal_group.members().await.unwrap().len(), 2);
 
         // Now remove bola
-        amal_group
-            .remove_members_by_inbox_id(&[bola.inbox_id()])
-            .await
-            .unwrap();
+        amal_group.remove_members(&[bola.inbox_id()]).await.unwrap();
         assert_eq!(amal_group.members().await.unwrap().len(), 1);
 
         // See if Bola can see that they were added to the group
@@ -1625,10 +1604,7 @@ pub(crate) mod tests {
         assert_eq!(bola_messages.len(), 2);
 
         // Add Bola back to the group
-        amal_group
-            .add_members_by_inbox_id(&[bola.inbox_id()])
-            .await
-            .unwrap();
+        amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
         bola.sync_welcomes().await.unwrap();
 
         // Send a message from Amal, now that Bola is back in the group
@@ -1695,7 +1671,7 @@ pub(crate) mod tests {
             .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone());
         assert!(bo_original_from_db.is_ok());
 
-        alix.create_group_with_members(&[bo_wallet.identifier()], None, None)
+        alix.create_group_with_identifiers(&[bo_wallet.identifier()], None, None)
             .await
             .unwrap();
         let bo_keys_queued_for_rotation = bo.context.db().is_identity_needs_rotation().unwrap();
@@ -1774,7 +1750,7 @@ pub(crate) mod tests {
         // Alix's key should not have changed at all
         assert_eq!(alix_original_init_key, alix_key_2);
 
-        alix.create_group_with_members(&[bo_wallet.identifier()], None, None)
+        alix.create_group_with_identifiers(&[bo_wallet.identifier()], None, None)
             .await
             .unwrap();
         bo.sync_welcomes().await.unwrap();
@@ -1840,7 +1816,7 @@ pub(crate) mod tests {
         futures::pin_mut!(stream);
 
         let group = alix
-            .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)
+            .create_group_with_members(&[bo.inbox_id().to_string()], None, None)
             .await
             .unwrap();
         xmtp_common::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -1909,7 +1885,7 @@ pub(crate) mod tests {
             let bo = Tester::builder().build().await;
 
             let start_new_convo = || async {
-                bo.create_group_with_inbox_ids(&[alix.inbox_id().to_string()], None, None)
+                bo.create_group_with_members(&[alix.inbox_id().to_string()], None, None)
                     .await
                     .unwrap()
             };
@@ -1965,7 +1941,7 @@ pub(crate) mod tests {
         let mut all_group_ids = Vec::new();
         for i in 0..15 {
             let group = alix
-                .create_group_with_inbox_ids(
+                .create_group_with_members(
                     &[bo.inbox_id().to_string()],
                     None,
                     Some(GroupMetadataOptions {
@@ -2041,7 +2017,7 @@ pub(crate) mod tests {
 
         // Create a group with both users
         let group = alix
-            .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)
+            .create_group_with_members(&[bo.inbox_id().to_string()], None, None)
             .await
             .unwrap();
 

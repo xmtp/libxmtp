@@ -15,7 +15,7 @@ async fn test_bad_network() {
         })
         .await;
         let result = alix
-            .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+            .create_group_with_members(&[bo.inbox_id()], None, None)
             .await;
 
         // The group should be created, but an error should be reported from trying to add members
@@ -33,7 +33,7 @@ async fn test_bad_network() {
         alix.for_each_proxy(async |p| p.enable().await.unwrap())
             .await;
         // Try adding bo again.
-        g.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+        g.add_members(&[bo.inbox_id()]).await?;
 
         // Bo should get the welcome for the group.
         bo.sync_welcomes().await?;

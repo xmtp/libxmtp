@@ -27,7 +27,7 @@ async fn radio_silence() {
     let bo = Tester::new().await;
     let conversation = alex
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -150,7 +150,7 @@ async fn ffi_api_stats_exposed_correctly() {
     let bo = Tester::new().await;
     let _conversation = client
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -194,7 +194,7 @@ async fn ffi_api_stats_exposed_correctly() {
 
     let _conversation2 = client
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )

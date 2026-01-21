@@ -79,10 +79,7 @@ async fn setup_sync_conversations_bench(
         let group = client.create_group(None, None).unwrap();
 
         // Add other_client to the group
-        group
-            .add_members_by_inbox_id(&[other_client.inbox_id()])
-            .await
-            .unwrap();
+        group.add_members(&[other_client.inbox_id()]).await.unwrap();
 
         all_groups.push(group.clone());
         other_client_groups.push(group.group_id.clone());

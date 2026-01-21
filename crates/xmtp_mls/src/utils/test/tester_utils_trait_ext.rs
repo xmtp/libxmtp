@@ -19,7 +19,7 @@ impl<C: XmtpSharedContext> MlsGroupExt for MlsGroup<C> {
         &self,
         other: &Client<C2>,
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
-        self.add_members_by_inbox_id(&[other.inbox_id()]).await
+        self.add_members(&[other.inbox_id()]).await
     }
 
     async fn send_msg(&self, m: &[u8]) {

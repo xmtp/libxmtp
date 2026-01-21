@@ -141,10 +141,7 @@ async fn test_welcome_pointer_round_trip(
     alix_group.sync().await.unwrap();
 
     // Add bola to the group - this should trigger welcome message creation
-    alix_group
-        .add_members_by_inbox_id(&[bola.inbox_id()])
-        .await
-        .unwrap();
+    alix_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     // Sync the group to ensure the welcome is sent
     alix_group.sync().await.unwrap();
@@ -213,7 +210,7 @@ async fn test_welcome_pointer_round_trip(
         }
     }
     alix_group
-        .add_members_by_inbox_id(testers.iter().map(|i| i.inbox_id()).collect::<Vec<_>>())
+        .add_members(testers.iter().map(|i| i.inbox_id()).collect::<Vec<_>>())
         .await
         .unwrap();
 

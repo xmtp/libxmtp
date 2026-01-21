@@ -351,8 +351,8 @@ impl Client {
     Ok(())
   }
 
-  #[wasm_bindgen(js_name = findInboxIdByIdentifier)]
-  pub async fn find_inbox_id_by_identifier(
+  #[wasm_bindgen(js_name = findInboxIdByIdentity)]
+  pub async fn find_inbox_id_by_identity(
     &self,
     identifier: Identifier,
   ) -> Result<Option<String>, JsError> {

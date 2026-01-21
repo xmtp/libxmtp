@@ -10,7 +10,7 @@ async fn test_self_removal_with_pending_state() {
     // Alix creates a group and adds Bo
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -66,7 +66,7 @@ async fn test_membership_state_after_readd() {
     // Alix creates a group and adds Bo
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -113,7 +113,7 @@ async fn test_membership_state_after_readd() {
 
     // Alix re-adds Bo to the group
     alix_group
-        .add_members(vec![bo.account_identifier.clone()])
+        .add_members_by_identity(vec![bo.account_identifier.clone()])
         .await
         .unwrap();
 
@@ -177,7 +177,7 @@ async fn test_leave_request_message_is_visible() {
     // Alix creates a group and adds Bo
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )

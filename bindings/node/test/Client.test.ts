@@ -60,7 +60,7 @@ describe('Client', () => {
   it('should find an inbox ID from an address', async () => {
     const user = createUser()
     const client = await createRegisteredClient(user)
-    const inboxId = await client.findInboxIdByIdentifier({
+    const inboxId = await client.findInboxIdByIdentity({
       identifier: user.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
@@ -268,7 +268,7 @@ describe('Client', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const group = await client1.conversations().createGroup([
+    const group = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -397,7 +397,7 @@ describe('Streams', () => {
     const user2 = createUser()
     const client2 = await createRegisteredClient(user2)
 
-    const group = await client1.conversations().createGroup([
+    const group = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,

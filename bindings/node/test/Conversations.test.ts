@@ -34,7 +34,7 @@ describe('Conversations', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const group = await client1.conversations().createGroup([
+    const group = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -111,7 +111,7 @@ describe('Conversations', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const group = await client1.conversations().createGroup(
+    const group = await client1.conversations().createGroupByIdentity(
       [
         {
           identifier: user2.account.address,
@@ -155,7 +155,7 @@ describe('Conversations', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const group = await client1.conversations().createGroup([
+    const group = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -215,7 +215,7 @@ describe('Conversations', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const group = await client1.conversations().createDm({
+    const group = await client1.conversations().createDmByIdentity({
       identifier: user2.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
@@ -300,7 +300,7 @@ describe('Conversations', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const group = await client1.conversations().createGroup([
+    const group = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -318,7 +318,7 @@ describe('Conversations', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     await createRegisteredClient(user2)
-    const group = await client1.conversations().createGroup([
+    const group = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -343,7 +343,7 @@ describe('Conversations', () => {
     await createRegisteredClient(user3)
     await createRegisteredClient(user4)
     await createRegisteredClient(user5)
-    const groupWithName = await client1.conversations().createGroup(
+    const groupWithName = await client1.conversations().createGroupByIdentity(
       [
         {
           identifier: user2.account.address,
@@ -358,50 +358,56 @@ describe('Conversations', () => {
     expect(groupWithName.groupName()).toBe('foo')
     expect(groupWithName.groupImageUrlSquare()).toBe('')
 
-    const groupWithImageUrl = await client1.conversations().createGroup(
-      [
+    const groupWithImageUrl = await client1
+      .conversations()
+      .createGroupByIdentity(
+        [
+          {
+            identifier: user3.account.address,
+            identifierKind: IdentifierKind.Ethereum,
+          },
+        ],
         {
-          identifier: user3.account.address,
-          identifierKind: IdentifierKind.Ethereum,
-        },
-      ],
-      {
-        groupImageUrlSquare: 'https://foo/bar.png',
-      }
-    )
+          groupImageUrlSquare: 'https://foo/bar.png',
+        }
+      )
     expect(groupWithImageUrl).toBeDefined()
     expect(groupWithImageUrl.groupName()).toBe('')
     expect(groupWithImageUrl.groupImageUrlSquare()).toBe('https://foo/bar.png')
 
-    const groupWithNameAndImageUrl = await client1.conversations().createGroup(
-      [
+    const groupWithNameAndImageUrl = await client1
+      .conversations()
+      .createGroupByIdentity(
+        [
+          {
+            identifier: user4.account.address,
+            identifierKind: IdentifierKind.Ethereum,
+          },
+        ],
         {
-          identifier: user4.account.address,
-          identifierKind: IdentifierKind.Ethereum,
-        },
-      ],
-      {
-        groupImageUrlSquare: 'https://foo/bar.png',
-        groupName: 'foo',
-      }
-    )
+          groupImageUrlSquare: 'https://foo/bar.png',
+          groupName: 'foo',
+        }
+      )
     expect(groupWithNameAndImageUrl).toBeDefined()
     expect(groupWithNameAndImageUrl.groupName()).toBe('foo')
     expect(groupWithNameAndImageUrl.groupImageUrlSquare()).toBe(
       'https://foo/bar.png'
     )
 
-    const groupWithPermissions = await client1.conversations().createGroup(
-      [
+    const groupWithPermissions = await client1
+      .conversations()
+      .createGroupByIdentity(
+        [
+          {
+            identifier: user4.account.address,
+            identifierKind: IdentifierKind.Ethereum,
+          },
+        ],
         {
-          identifier: user4.account.address,
-          identifierKind: IdentifierKind.Ethereum,
-        },
-      ],
-      {
-        permissions: GroupPermissionsOptions.AdminOnly,
-      }
-    )
+          permissions: GroupPermissionsOptions.AdminOnly,
+        }
+      )
     expect(groupWithPermissions).toBeDefined()
     expect(groupWithPermissions.groupName()).toBe('')
     expect(groupWithPermissions.groupImageUrlSquare()).toBe('')
@@ -421,17 +427,19 @@ describe('Conversations', () => {
       updateMessageDisappearingPolicy: 2,
     })
 
-    const groupWithDescription = await client1.conversations().createGroup(
-      [
+    const groupWithDescription = await client1
+      .conversations()
+      .createGroupByIdentity(
+        [
+          {
+            identifier: user2.account.address,
+            identifierKind: IdentifierKind.Ethereum,
+          },
+        ],
         {
-          identifier: user2.account.address,
-          identifierKind: IdentifierKind.Ethereum,
-        },
-      ],
-      {
-        groupDescription: 'foo',
-      }
-    )
+          groupDescription: 'foo',
+        }
+      )
     expect(groupWithDescription).toBeDefined()
     expect(groupWithDescription.groupName()).toBe('')
     expect(groupWithDescription.groupImageUrlSquare()).toBe('')
@@ -443,7 +451,7 @@ describe('Conversations', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     await createRegisteredClient(user2)
-    const group = await client1.conversations().createGroup([
+    const group = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -478,19 +486,19 @@ describe('Conversations', () => {
         console.log('closed')
       }
     )
-    const group1 = await client1.conversations().createGroup([
+    const group1 = await client1.conversations().createGroupByIdentity([
       {
         identifier: user3.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    const group2 = await client2.conversations().createGroup([
+    const group2 = await client2.conversations().createGroupByIdentity([
       {
         identifier: user3.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    const group3 = await client4.conversations().createDm({
+    const group3 = await client4.conversations().createDmByIdentity({
       identifier: user3.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
@@ -510,7 +518,7 @@ describe('Conversations', () => {
     let groups: Conversation[] = []
 
     const startNewConvo = async () => {
-      await client2.conversations().createGroup([
+      await client2.conversations().createGroupByIdentity([
         {
           identifier: user1.account.address,
           identifierKind: IdentifierKind.Ethereum,
@@ -558,17 +566,17 @@ describe('Conversations', () => {
       },
       ConversationType.Group
     )
-    const group3 = await client4.conversations().createDm({
+    const group3 = await client4.conversations().createDmByIdentity({
       identifier: user3.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
-    const group1 = await client1.conversations().createGroup([
+    const group1 = await client1.conversations().createGroupByIdentity([
       {
         identifier: user3.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    const group2 = await client2.conversations().createGroup([
+    const group2 = await client2.conversations().createGroupByIdentity([
       {
         identifier: user3.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -601,19 +609,19 @@ describe('Conversations', () => {
       },
       ConversationType.Dm
     )
-    const group1 = await client1.conversations().createGroup([
+    const group1 = await client1.conversations().createGroupByIdentity([
       {
         identifier: user3.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    const group2 = await client2.conversations().createGroup([
+    const group2 = await client2.conversations().createGroupByIdentity([
       {
         identifier: user3.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    const group3 = await client4.conversations().createDm({
+    const group3 = await client4.conversations().createDmByIdentity({
       identifier: user3.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
@@ -634,19 +642,19 @@ describe('Conversations', () => {
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
-    await client1.conversations().createGroup([
+    await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    await client1.conversations().createGroup([
+    await client1.conversations().createGroupByIdentity([
       {
         identifier: user3.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    await client1.conversations().createDm({
+    await client1.conversations().createDmByIdentity({
       identifier: user4.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
@@ -742,19 +750,19 @@ describe('Conversations', () => {
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
-    await client1.conversations().createGroup([
+    await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    await client1.conversations().createGroup([
+    await client1.conversations().createGroupByIdentity([
       {
         identifier: user3.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    await client1.conversations().createDm({
+    await client1.conversations().createDmByIdentity({
       identifier: user4.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
@@ -804,19 +812,19 @@ describe('Conversations', () => {
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
-    await client1.conversations().createGroup([
+    await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    await client1.conversations().createGroup([
+    await client1.conversations().createGroupByIdentity([
       {
         identifier: user3.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    await client1.conversations().createDm({
+    await client1.conversations().createDmByIdentity({
       identifier: user4.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
@@ -863,7 +871,7 @@ describe('Conversations', () => {
     const agent_client = await createRegisteredClient(agent)
     const user_client_a = await createRegisteredClient(user)
 
-    await user_client_a.conversations().createDm({
+    await user_client_a.conversations().createDmByIdentity({
       identifier: agent.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
@@ -894,7 +902,7 @@ describe('Conversations', () => {
     const user_client_b = await createRegisteredClient(user)
 
     // Client B Creates a DM with the Agent
-    await user_client_b.conversations().createDm({
+    await user_client_b.conversations().createDmByIdentity({
       identifier: agent.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
@@ -917,13 +925,13 @@ describe('Conversations', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     await createRegisteredClient(user2)
-    const group = await client1.conversations().createGroup([
+    const group = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    const dm = await client1.conversations().createDm({
+    const dm = await client1.conversations().createDmByIdentity({
       identifier: user2.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
@@ -952,7 +960,7 @@ describe('Conversations', () => {
     const user2 = createUser()
     await createRegisteredClient(user2)
 
-    const group = await client.conversations().createGroup([
+    const group = await client.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -963,7 +971,7 @@ describe('Conversations', () => {
     expect(convos.length).toBe(1)
     expect(convos[0].conversation.id()).toBe(group.id())
 
-    const group2 = await client.conversations().createDm({
+    const group2 = await client.conversations().createDmByIdentity({
       identifier: user2.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
@@ -987,11 +995,11 @@ describe('Conversations', () => {
 
     const group1 = await client1
       .conversations()
-      .createGroupByInboxId([client2.inboxId(), client3.inboxId()])
+      .createGroup([client2.inboxId(), client3.inboxId()])
     await group1.sendText('gm1')
-    await group1.removeMembersByInboxId([client2.inboxId()])
+    await group1.removeMembers([client2.inboxId()])
     await group1.sendText('gm2')
-    await group1.addMembersByInboxId([client2.inboxId()])
+    await group1.addMembers([client2.inboxId()])
     await group1.sendText('gm3')
 
     const messages1 = await group1.findMessages()
@@ -1035,7 +1043,7 @@ describe('Conversations', () => {
     const client2 = await createRegisteredClient(user2)
 
     // Create a group
-    const group = await client1.conversations().createGroup([
+    const group = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,

@@ -14,7 +14,7 @@ async fn test_create_new_installation_without_breaking_group() {
 
     let group = client1
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![client2.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -87,7 +87,7 @@ async fn test_create_new_installations_does_not_fork_group() {
     // Alix creates a group with Bo and Caro
     let group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![
                 bo.account_identifier.clone(),
                 caro.account_identifier.clone(),
@@ -225,7 +225,7 @@ async fn test_can_sync_all_groups() {
 
     for _i in 0..30 {
         alix.conversations()
-            .create_group(
+            .create_group_by_identity(
                 vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
@@ -298,7 +298,7 @@ async fn test_can_sync_all_groups_active_only() {
     // Create 30 groups with alix and bo and sync them
     for _i in 0..30 {
         alix.conversations()
-            .create_group(
+            .create_group_by_identity(
                 vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
@@ -321,7 +321,7 @@ async fn test_can_sync_all_groups_active_only() {
     {
         group
             .conversation
-            .remove_members(vec![bo.account_identifier.clone()])
+            .remove_members_by_identity(vec![bo.account_identifier.clone()])
             .await
             .unwrap();
     }
@@ -367,7 +367,7 @@ async fn test_can_send_message_when_out_of_sync() {
 
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -392,21 +392,21 @@ async fn test_can_send_message_when_out_of_sync() {
     // Move the group forward by 3 epochs (as Alix's max_past_epochs is
     // configured to 3) without Bo syncing
     alix_group
-        .add_members(vec![
+        .add_members_by_identity(vec![
             caro.account_identifier.clone(),
             davon.account_identifier.clone(),
         ])
         .await
         .unwrap();
     alix_group
-        .remove_members(vec![
+        .remove_members_by_identity(vec![
             caro.account_identifier.clone(),
             davon.account_identifier.clone(),
         ])
         .await
         .unwrap();
     alix_group
-        .add_members(vec![
+        .add_members_by_identity(vec![
             eri.account_identifier.clone(),
             frankie.account_identifier.clone(),
         ])
@@ -458,7 +458,7 @@ async fn test_can_send_messages_when_epochs_behind() {
 
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -535,7 +535,7 @@ async fn test_can_add_members_when_out_of_sync() {
 
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -557,27 +557,27 @@ async fn test_can_add_members_when_out_of_sync() {
     // Move the group forward by 3 epochs (as Alix's max_past_epochs is
     // configured to 3) without Bo syncing
     alix_group
-        .add_members(vec![
+        .add_members_by_identity(vec![
             caro.account_identifier.clone(),
             davon.account_identifier.clone(),
         ])
         .await
         .unwrap();
     alix_group
-        .remove_members(vec![
+        .remove_members_by_identity(vec![
             caro.account_identifier.clone(),
             davon.account_identifier.clone(),
         ])
         .await
         .unwrap();
     alix_group
-        .add_members(vec![eri.account_identifier.clone()])
+        .add_members_by_identity(vec![eri.account_identifier.clone()])
         .await
         .unwrap();
 
     // Bo adds a member while 3 epochs behind
     bo_group
-        .add_members(vec![frankie.account_identifier.clone()])
+        .add_members_by_identity(vec![frankie.account_identifier.clone()])
         .await
         .unwrap();
 
@@ -610,7 +610,7 @@ async fn test_revoke_installation_for_two_users_and_group_modification() {
     // Step 2: Create a group
     let group = alix_client_1
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bola_client_1.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -707,7 +707,7 @@ async fn test_revoke_installation_for_one_user_and_group_modification() {
     // Step 2: Create a group
     let group = alix_client_1
         .conversations()
-        .create_group(vec![], FfiCreateGroupOptions::default())
+        .create_group_by_identity(vec![], FfiCreateGroupOptions::default())
         .await
         .unwrap();
 
@@ -779,7 +779,7 @@ async fn test_new_installation_group_message_visibility() {
 
     let group = alix
         .conversations()
-        .create_group_with_inbox_ids(vec![bo.inbox_id()], Default::default())
+        .create_group(vec![bo.inbox_id()], Default::default())
         .await
         .unwrap();
 
@@ -879,7 +879,7 @@ async fn test_sync_consent() {
     // Create a group conversation
     let alix_group = alix
         .conversations()
-        .create_group_with_inbox_ids(vec![bo.inbox_id()], FfiCreateGroupOptions::default())
+        .create_group(vec![bo.inbox_id()], FfiCreateGroupOptions::default())
         .await
         .unwrap();
     let initial_consent = alix_group.consent_state().unwrap();
@@ -953,7 +953,7 @@ async fn test_set_and_get_group_consent() {
 
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )
@@ -992,7 +992,7 @@ async fn test_set_and_get_member_consent() {
 
     let alix_group = alix
         .conversations()
-        .create_group(
+        .create_group_by_identity(
             vec![bo.account_identifier.clone()],
             FfiCreateGroupOptions::default(),
         )

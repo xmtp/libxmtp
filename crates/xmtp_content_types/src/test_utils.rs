@@ -44,7 +44,7 @@ impl TestContentGenerator {
             salt: b"test-salt".to_vec(),
             nonce: b"test-nonce".to_vec(),
             scheme: "https".to_string(),
-            content_length: 100,
+            content_length: Some(100),
         };
         RemoteAttachmentCodec::encode(remote_attachment)
             .expect("Failed to encode remote attachment")
