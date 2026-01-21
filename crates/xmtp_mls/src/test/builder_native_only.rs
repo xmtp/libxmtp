@@ -569,7 +569,7 @@ async fn test_operations_fail_when_not_ready() {
     // Try to create a DM - should fail with UninitializedIdentity
     let target_wallet = generate_local_wallet();
     let find_or_create_dm_result = client
-        .find_or_create_dm(target_wallet.identifier(), None)
+        .find_or_create_dm_by_identity(target_wallet.identifier(), None)
         .await;
     assert!(
         find_or_create_dm_result.is_err(),

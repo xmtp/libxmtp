@@ -59,9 +59,7 @@ async fn test_commit_log_signer_on_group_creation() {
     tester!(alix);
     tester!(bo);
 
-    let a = alix
-        .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
-        .await?;
+    let a = alix.find_or_create_dm(bo.inbox_id(), None).await?;
     let b = bo.sync_welcomes().await?.first()?.to_owned();
     let a_metadata = a.mutable_metadata()?;
     let b_metadata = b.mutable_metadata()?;
@@ -938,9 +936,7 @@ async fn test_all_users_use_same_signing_key_for_publishing() {
     tester!(bo);
 
     // Create a DM between alix and bo
-    let alix_dm = alix
-        .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
-        .await?;
+    let alix_dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
     let bo_dm = bo.sync_welcomes().await?.first()?.to_owned();
 
     // Both parties make commits to generate entries for publishing
@@ -1022,9 +1018,7 @@ async fn test_consecutive_entries_verification_happy_case() {
     tester!(bo, with_commit_log_worker: false);
 
     // Create a DM between alix and bo
-    let alix_dm = alix
-        .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
-        .await?;
+    let alix_dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
     let bo_dm = bo.sync_welcomes().await?.first()?.to_owned();
 
     // Sync messages to bo

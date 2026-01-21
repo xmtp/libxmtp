@@ -51,14 +51,10 @@ where
         other: &Self,
     ) -> Result<(MlsGroup<Context>, String), TestError> {
         self.sync_welcomes().await?;
-        let dm = self
-            .find_or_create_dm_by_inbox_id(other.inbox_id(), None)
-            .await?;
+        let dm = self.find_or_create_dm(other.inbox_id(), None).await?;
 
         other.sync_welcomes().await?;
-        let other_dm = other
-            .find_or_create_dm_by_inbox_id(self.inbox_id(), None)
-            .await?;
+        let other_dm = other.find_or_create_dm(self.inbox_id(), None).await?;
 
         // Since the other client synced welcomes before creating a DM
         // the group_id should be the same.

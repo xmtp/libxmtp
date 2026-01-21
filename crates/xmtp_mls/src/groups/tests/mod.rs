@@ -413,11 +413,11 @@ async fn test_dm_stitching() {
     let bo = Tester::new().await;
 
     let bo_dm = bo
-        .find_or_create_dm_by_inbox_id(alix.inbox_id().to_string(), None)
+        .find_or_create_dm(alix.inbox_id().to_string(), None)
         .await
         .unwrap();
     let alix_dm = alix
-        .find_or_create_dm_by_inbox_id(bo.inbox_id().to_string(), None)
+        .find_or_create_dm(bo.inbox_id().to_string(), None)
         .await
         .unwrap();
 
@@ -681,7 +681,7 @@ async fn test_dm_creation_with_user_two_installations_one_malformed() {
 
     // 3) Amal creates a DM group targeting Bola
     let amal_dm = amal
-        .find_or_create_dm_by_inbox_id(bola_1.inbox_id().to_string(), None)
+        .find_or_create_dm(bola_1.inbox_id().to_string(), None)
         .await
         .unwrap();
 
@@ -789,7 +789,9 @@ async fn test_dm_creation_with_user_all_malformed_installations() {
 
     // 3) Attempt to create the DM group, which should fail
 
-    let result = amal.find_or_create_dm(bola_wallet.identifier(), None).await;
+    let result = amal
+        .find_or_create_dm_by_identity(bola_wallet.identifier(), None)
+        .await;
 
     // 4) Ensure DM creation fails with the correct error
     assert!(result.is_err());
@@ -1117,7 +1119,7 @@ async fn test_self_remove_dm_must_fail() {
 
     // Amal creates a dm group with bola
     let amal_dm = amal
-        .find_or_create_dm_by_inbox_id(bola.inbox_id().to_string(), None)
+        .find_or_create_dm(bola.inbox_id().to_string(), None)
         .await
         .unwrap();
     amal_dm.sync().await.unwrap();
@@ -3431,7 +3433,7 @@ async fn test_dm_creation() {
 
     // Amal creates a dm group targeting bola
     let amal_dm = amal
-        .find_or_create_dm_by_inbox_id(bola.inbox_id().to_string(), None)
+        .find_or_create_dm(bola.inbox_id().to_string(), None)
         .await
         .unwrap();
 
@@ -4243,7 +4245,7 @@ async fn test_app_data_in_dm() {
 
     // Create a DM
     let dm = amal
-        .find_or_create_dm_by_inbox_id(bola.inbox_id().to_string(), None)
+        .find_or_create_dm(bola.inbox_id().to_string(), None)
         .await
         .unwrap();
 
