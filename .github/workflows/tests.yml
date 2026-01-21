@@ -32,9 +32,9 @@ jobs:
         run: |
           APP_NAME="xmtp-ios-test-${{ github.run_id }}-${{ github.run_attempt }}"
           ./dev/fly/deploy "$APP_NAME"
-          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
-          echo "node_url=https://${APP_NAME}.fly.dev" >> $GITHUB_OUTPUT
-          echo "history_url=https://${APP_NAME}.fly.dev:5558" >> $GITHUB_OUTPUT
+          echo "app_name=$APP_NAME" >> "$GITHUB_OUTPUT"
+          echo "node_url=https://${APP_NAME}.fly.dev" >> "$GITHUB_OUTPUT"
+          echo "history_url=https://${APP_NAME}.fly.dev:5558" >> "$GITHUB_OUTPUT"
 
       - name: Wait for services to be ready
         run: |
