@@ -16,6 +16,7 @@ env:
 jobs:
   deploy-backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       node_url: ${{ steps.deploy.outputs.node_url }}
       history_url: ${{ steps.deploy.outputs.history_url }}
@@ -37,24 +38,35 @@ jobs:
           echo "history_url=https://${APP_NAME}.fly.dev:5558" >> "$GITHUB_OUTPUT"
 
       - name: Wait for services to be ready
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
+          APP_NAME="${{ steps.deploy.outputs.app_name }}"
           NODE_URL="${{ steps.deploy.outputs.node_url }}"
-          # Extract hostname from URL
           NODE_HOST="${NODE_URL#https://}"
-          echo "Waiting for gRPC service at ${NODE_HOST}:443..."
 
-          for i in {1..60}; do
-            # Use openssl to verify TLS connection to the gRPC service
+          MAX_RETRIES=60
+          RETRY_INTERVAL=5
+
+          # Verify machine is running before waiting for services
+          echo "Checking machine status..."
+          if ! flyctl machine list --app "$APP_NAME" --json | jq -e '.[0].state == "started"' >/dev/null 2>&1; then
+            echo "Warning: Machine may not be in started state"
+            flyctl machine list --app "$APP_NAME" || true
+          fi
+
+          echo "Waiting for gRPC service at ${NODE_HOST}:443..."
+          for i in $(seq 1 $MAX_RETRIES); do
             if echo | openssl s_client -connect "${NODE_HOST}:443" -servername "${NODE_HOST}" 2>/dev/null | grep -q "CONNECTED"; then
               echo "Services are ready! (TLS connection successful)"
               exit 0
             fi
 
-            echo "Waiting... (attempt $i/60)"
-            sleep 5
+            echo "Waiting... (attempt $i of $MAX_RETRIES)"
+            sleep $RETRY_INTERVAL
           done
 
-          echo "Services failed to become ready after 5 minutes"
+          echo "Services failed to become ready after $((MAX_RETRIES * RETRY_INTERVAL / 60)) minutes"
           echo "Final diagnostic:"
           echo | openssl s_client -connect "${NODE_HOST}:443" -servername "${NODE_HOST}" 2>&1 || true
           exit 1
@@ -88,18 +100,13 @@ jobs:
     steps:
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
-      - name: Stop machine (triggers auto-destroy via --rm)
+      - name: Destroy app
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
           APP_NAME="${{ needs.deploy-backend.outputs.app_name }}"
           if [ -n "$APP_NAME" ]; then
-            echo "Cleaning up app: $APP_NAME"
-            # Stop all machines - this triggers the --rm auto-destroy
-            flyctl machine stop --app "$APP_NAME" --select || true
-            # Give it a moment to clean up
-            sleep 5
-            # Force destroy the app
+            echo "Destroying app: $APP_NAME"
             flyctl apps destroy "$APP_NAME" --yes || true
           fi
-          echo "Cleanup complete (timeout provides fallback if this fails)"
+          echo "Cleanup complete"

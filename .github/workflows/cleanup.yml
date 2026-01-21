@@ -33,7 +33,7 @@ jobs:
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             ARGS="$ARGS --dry-run"
           fi
-          if [ -n "${{ inputs.max_age }}" ]; then
-            ARGS="$ARGS --max-age ${{ inputs.max_age }}"
-          fi
+          # inputs.max_age is empty for scheduled runs, so use default
+          MAX_AGE="${{ inputs.max_age }}"
+          ARGS="$ARGS --max-age ${MAX_AGE:-2}"
           ./dev/fly/cleanup $ARGS

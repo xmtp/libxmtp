@@ -14,6 +14,12 @@
 
 set -e
 
+# Validate required environment variables
+if [ -z "$FLY_API_TOKEN" ]; then
+    echo "Error: FLY_API_TOKEN is not set" >&2
+    exit 1
+fi
+
 APP_PREFIX="xmtp-ios-test"
 MAX_AGE_HOURS=2
 DRY_RUN=false
@@ -68,11 +74,17 @@ for APP_NAME in $APPS; do
     # Handle both Linux and macOS date commands
     if date --version >/dev/null 2>&1; then
         # GNU date (Linux)
-        CREATED_EPOCH=$(date -u -d "$CREATED_AT" +%s 2>/dev/null) || continue
+        CREATED_EPOCH=$(date -u -d "$CREATED_AT" +%s 2>/dev/null) || {
+            echo "Warning: Failed to parse date for $APP_NAME: $CREATED_AT" >&2
+            continue
+        }
     else
         # BSD date (macOS) - use TZ=UTC to interpret the timestamp correctly
         CREATED_EPOCH=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$CREATED_AT" +%s 2>/dev/null) || \
-            CREATED_EPOCH=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%S" "${CREATED_AT%%Z}" +%s 2>/dev/null) || continue
+            CREATED_EPOCH=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%S" "${CREATED_AT%%Z}" +%s 2>/dev/null) || {
+            echo "Warning: Failed to parse date for $APP_NAME: $CREATED_AT" >&2
+            continue
+        }
     fi
 
     AGE_SECONDS=$((NOW - CREATED_EPOCH))
