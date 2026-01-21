@@ -50,8 +50,8 @@ flyctl apps create "$APP_NAME" --org "$FLY_ORG" 2>/dev/null || {
     }
 }
 
-# Allocate IP addresses for the app
-flyctl ips allocate-v4 --shared --app "$APP_NAME" 2>/dev/null
+# Allocate IP addresses for the app (ignore if already allocated)
+flyctl ips allocate-v4 --shared --app "$APP_NAME" 2>/dev/null || true
 
 # Deploy multi-container machine
 flyctl machine run \

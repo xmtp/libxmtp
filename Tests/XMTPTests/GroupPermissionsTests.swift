@@ -353,7 +353,8 @@ class GroupPermissionsTests: XCTestCase {
 			updateGroupNamePolicy: PermissionOption.admin,
 			updateGroupDescriptionPolicy: PermissionOption.allow,
 			updateGroupImagePolicy: PermissionOption.admin,
-			updateMessageDisappearingPolicy: PermissionOption.allow
+			updateMessageDisappearingPolicy: PermissionOption.allow,
+			updateAppDataPolicy: PermissionOption.allow
 		)
 		_ = try await fixtures.boClient.conversations
 			.newGroupCustomPermissions(
@@ -386,6 +387,10 @@ class GroupPermissionsTests: XCTestCase {
 		XCTAssert(
 			alixPermissionSet.updateGroupImagePolicy == PermissionOption.admin
 		)
+		XCTAssert(
+			alixPermissionSet.updateAppDataPolicy == PermissionOption.allow
+		)
+
 		try fixtures.cleanUpDatabases()
 	}
 
@@ -399,7 +404,8 @@ class GroupPermissionsTests: XCTestCase {
 			updateGroupNamePolicy: PermissionOption.admin,
 			updateGroupDescriptionPolicy: PermissionOption.allow,
 			updateGroupImagePolicy: PermissionOption.admin,
-			updateMessageDisappearingPolicy: PermissionOption.allow
+			updateMessageDisappearingPolicy: PermissionOption.allow,
+			updateAppDataPolicy: PermissionOption.allow
 		)
 		_ = try await fixtures.boClient.conversations
 			.newGroupCustomPermissionsWithIdentities(
@@ -444,7 +450,8 @@ class GroupPermissionsTests: XCTestCase {
 			updateGroupNamePolicy: PermissionOption.admin,
 			updateGroupDescriptionPolicy: PermissionOption.allow,
 			updateGroupImagePolicy: PermissionOption.admin,
-			updateMessageDisappearingPolicy: PermissionOption.allow
+			updateMessageDisappearingPolicy: PermissionOption.allow,
+			updateAppDataPolicy: PermissionOption.allow
 		)
 		try await assertThrowsAsyncError(
 			await fixtures.boClient.conversations

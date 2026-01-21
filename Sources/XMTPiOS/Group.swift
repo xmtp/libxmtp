@@ -352,11 +352,13 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func processMessage(messageBytes: Data) async throws
 		-> DecodedMessage?
 	{
-		let message = try await ffiGroup.processStreamedConversationMessage(
+		let messages = try await ffiGroup.processStreamedConversationMessage(
 			envelopeBytes: messageBytes
 		)
-		// TODO: Handle multiple messages, which is now possible with d14n iceboxes
-		return DecodedMessage.create(ffiMessage: message[0])
+		guard let firstMessage = messages.first else {
+			return nil
+		}
+		return DecodedMessage.create(ffiMessage: firstMessage)
 	}
 
 	public func send<T>(content: T, options: SendOptions? = nil) async throws
@@ -436,32 +438,48 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 
 	public func prepareMessage(
-		encodedContent: EncodedContent, visibilityOptions: MessageVisibilityOptions? = nil
+		encodedContent: EncodedContent,
+		visibilityOptions: MessageVisibilityOptions? = nil,
+		noSend: Bool = false
 	) async throws
 		-> String
 	{
-		let opts = visibilityOptions?.toFfi() ?? FfiSendMessageOpts(shouldPush: true)
-		let messageId = try ffiGroup.sendOptimistic(
-			contentBytes: encodedContent.serializedData(),
-			opts: opts
-		)
+		let shouldPush = visibilityOptions?.shouldPush ?? true
+		let messageId: Data
+		if noSend {
+			messageId = try ffiGroup.prepareMessage(
+				contentBytes: encodedContent.serializedData(),
+				shouldPush: shouldPush
+			)
+		} else {
+			let opts = visibilityOptions?.toFfi() ?? FfiSendMessageOpts(shouldPush: true)
+			messageId = try ffiGroup.sendOptimistic(
+				contentBytes: encodedContent.serializedData(),
+				opts: opts
+			)
+		}
 		return messageId.toHex
 	}
 
-	public func prepareMessage<T>(content: T, options: SendOptions? = nil)
+	public func prepareMessage<T>(content: T, options: SendOptions? = nil, noSend: Bool = false)
 		async throws -> String
 	{
 		let (encodeContent, visibilityOptions) = try await encodeContent(
 			content: content, options: options
 		)
-		return try ffiGroup.sendOptimistic(
-			contentBytes: encodeContent.serializedData(),
-			opts: visibilityOptions.toFfi()
-		).toHex
+		return try await prepareMessage(
+			encodedContent: encodeContent,
+			visibilityOptions: visibilityOptions,
+			noSend: noSend
+		)
 	}
 
 	public func publishMessages() async throws {
 		try await ffiGroup.publishMessages()
+	}
+
+	public func publishMessage(messageId: String) async throws {
+		try await ffiGroup.publishStoredMessage(messageId: messageId.hexToData)
 	}
 
 	public func endStream() {
@@ -811,5 +829,13 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 	public func leaveGroup() async throws {
 		try await ffiGroup.leaveGroup()
+	}
+
+	/// Delete a message by its ID.
+	/// - Parameter messageId: The hex-encoded message ID to delete.
+	/// - Returns: The hex-encoded ID of the deletion message.
+	/// - Throws: An error if the deletion fails (e.g., unauthorized deletion).
+	public func deleteMessage(messageId: String) async throws -> String {
+		try await ffiGroup.deleteMessage(messageId: messageId.hexToData).toHex
 	}
 }

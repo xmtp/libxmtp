@@ -796,10 +796,10 @@ class ConversationTests: XCTestCase {
 		var deletedMessageIds: [String] = []
 
 		let task = Task {
-			for try await messageId in fixtures.alixClient.conversations
+			for try await message in fixtures.alixClient.conversations
 				.streamMessageDeletions()
 			{
-				deletedMessageIds.append(messageId)
+				deletedMessageIds.append(message.id)
 			}
 		}
 

@@ -124,6 +124,9 @@ public struct DecodedMessageV2: Identifiable {
 		case let .text(textContent):
 			return textContent.content
 
+		case let .markdown(markdownContent):
+			return markdownContent.content
+
 		case let .reply(enrichedReply):
 			return try mapReply(enrichedReply)
 
@@ -165,9 +168,20 @@ public struct DecodedMessageV2: Identifiable {
 		case let .actions(actions):
 			return actions
 
-		case let .markdown(markdownContent):
-			return markdownContent.content
+		case let .deletedMessage(ffiDeletedMessage):
+			return mapDeletedMessage(ffiDeletedMessage)
 		}
+	}
+
+	private func mapDeletedMessage(_ ffiDeletedMessage: FfiDeletedMessage) -> DeletedMessage {
+		let deletedBy: DeletedBy
+		switch ffiDeletedMessage.deletedBy {
+		case .sender:
+			deletedBy = .sender
+		case let .admin(inboxId):
+			deletedBy = .admin(inboxId: inboxId)
+		}
+		return DeletedMessage(deletedBy: deletedBy)
 	}
 
 	private func mapLeaveRequest(_ ffiLeaveRequest: FfiLeaveRequest) -> LeaveRequest {
@@ -199,6 +213,8 @@ public struct DecodedMessageV2: Identifiable {
 		switch body {
 		case let .text(textContent):
 			return textContent.content
+		case let .markdown(markdownContent):
+			return markdownContent.content
 		case let .reaction(reactionPayload):
 			return mapReaction(reactionPayload)
 		case let .attachment(ffiAttachment):
@@ -223,10 +239,10 @@ public struct DecodedMessageV2: Identifiable {
 			return try codec.decode(content: encoded)
 		case let .intent(intent):
 			return intent as Intent
-		case let .markdown(markdownContent):
-			return markdownContent.content
 		case let .actions(actions):
 			return actions as Actions
+		case let .deletedMessage(ffiDeletedMessage):
+			return mapDeletedMessage(ffiDeletedMessage)
 		}
 	}
 
@@ -234,6 +250,13 @@ public struct DecodedMessageV2: Identifiable {
 		switch body {
 		case .text:
 			return ContentTypeText
+		case .markdown:
+			return ContentTypeID(
+				authorityID: "xmtp.org",
+				typeID: "markdown",
+				versionMajor: 1,
+				versionMinor: 0
+			)
 		case .reaction:
 			return ContentTypeReaction
 		case .attachment:
@@ -283,13 +306,8 @@ public struct DecodedMessageV2: Identifiable {
 				versionMajor: 1,
 				versionMinor: 0
 			)
-		case .markdown:
-			return ContentTypeID(
-				authorityID: "xmtp.org",
-				typeID: "markdown",
-				versionMajor: 1,
-				versionMinor: 0
-			)
+		case .deletedMessage:
+			return ContentTypeDeletedMessage
 		}
 	}
 

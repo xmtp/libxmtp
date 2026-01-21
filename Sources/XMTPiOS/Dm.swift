@@ -140,12 +140,14 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	}
 
 	public func processMessage(messageBytes: Data) async throws -> DecodedMessage? {
-		let message =
+		let messages =
 			try await ffiConversation.processStreamedConversationMessage(
 				envelopeBytes: messageBytes
 			)
-		// TODO: Handle multiple messages, which is now possible with d14n iceboxes
-		return DecodedMessage.create(ffiMessage: message[0])
+		guard let firstMessage = messages.first else {
+			return nil
+		}
+		return DecodedMessage.create(ffiMessage: firstMessage)
 	}
 
 	public func send<T>(content: T, options: SendOptions? = nil) async throws
@@ -221,32 +223,48 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	}
 
 	public func prepareMessage(
-		encodedContent: EncodedContent, visibilityOptions: MessageVisibilityOptions? = nil
+		encodedContent: EncodedContent,
+		visibilityOptions: MessageVisibilityOptions? = nil,
+		noSend: Bool = false
 	) async throws
 		-> String
 	{
-		let opts = visibilityOptions?.toFfi() ?? FfiSendMessageOpts(shouldPush: true)
-		let messageId = try ffiConversation.sendOptimistic(
-			contentBytes: encodedContent.serializedData(),
-			opts: opts
-		)
+		let shouldPush = visibilityOptions?.shouldPush ?? true
+		let messageId: Data
+		if noSend {
+			messageId = try ffiConversation.prepareMessage(
+				contentBytes: encodedContent.serializedData(),
+				shouldPush: shouldPush
+			)
+		} else {
+			let opts = visibilityOptions?.toFfi() ?? FfiSendMessageOpts(shouldPush: true)
+			messageId = try ffiConversation.sendOptimistic(
+				contentBytes: encodedContent.serializedData(),
+				opts: opts
+			)
+		}
 		return messageId.toHex
 	}
 
-	public func prepareMessage<T>(content: T, options: SendOptions? = nil)
+	public func prepareMessage<T>(content: T, options: SendOptions? = nil, noSend: Bool = false)
 		async throws -> String
 	{
 		let (encodeContent, visibilityOptions) = try await encodeContent(
 			content: content, options: options
 		)
-		return try ffiConversation.sendOptimistic(
-			contentBytes: encodeContent.serializedData(),
-			opts: visibilityOptions.toFfi()
-		).toHex
+		return try await prepareMessage(
+			encodedContent: encodeContent,
+			visibilityOptions: visibilityOptions,
+			noSend: noSend
+		)
 	}
 
 	public func publishMessages() async throws {
 		try await ffiConversation.publishMessages()
+	}
+
+	public func publishMessage(messageId: String) async throws {
+		try await ffiConversation.publishStoredMessage(messageId: messageId.hexToData)
 	}
 
 	public func endStream() {
@@ -581,5 +599,13 @@ public struct Dm: Identifiable, Equatable, Hashable {
 
 	public func getLastReadTimes() throws -> [String: Int64] {
 		try ffiConversation.getLastReadTimes()
+	}
+
+	/// Delete a message by its ID.
+	/// - Parameter messageId: The hex-encoded message ID to delete.
+	/// - Returns: The hex-encoded ID of the deletion message.
+	/// - Throws: An error if the deletion fails (e.g., unauthorized deletion).
+	public func deleteMessage(messageId: String) async throws -> String {
+		try await ffiConversation.deleteMessage(messageId: messageId.hexToData).toHex
 	}
 }

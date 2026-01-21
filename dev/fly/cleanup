@@ -49,7 +49,11 @@ NOW=$(date -u +%s)
 echo "Looking for apps with prefix '$APP_PREFIX' older than $MAX_AGE_HOURS hours..."
 
 # Get all apps as JSON and filter by prefix
-APPS=$(flyctl apps list --org "$FLY_ORG" --json 2>/dev/null | jq -r ".[] | select(.Name | startswith(\"$APP_PREFIX\")) | .Name")
+APPS=$(flyctl apps list --org "$FLY_ORG" --json 2>/dev/null) || {
+    echo "Error: Failed to list apps in org $FLY_ORG" >&2
+    exit 1
+}
+APPS=$(echo "$APPS" | jq -r ".[] | select(.Name | startswith(\"$APP_PREFIX\")) | .Name")
 
 if [ -z "$APPS" ]; then
     echo "No matching apps found."
@@ -95,7 +99,9 @@ for APP_NAME in $APPS; do
             echo "[DRY RUN] Would delete: $APP_NAME (age: ${AGE_HOURS}h)"
         else
             echo "Deleting: $APP_NAME (age: ${AGE_HOURS}h)"
-            flyctl apps destroy "$APP_NAME" --yes 2>/dev/null || echo "  Warning: Failed to delete $APP_NAME"
+            if ! flyctl apps destroy "$APP_NAME" --yes 2>&1; then
+                echo "  Warning: Failed to delete $APP_NAME, may require manual cleanup" >&2
+            fi
             DELETED_COUNT=$((DELETED_COUNT + 1))
         fi
     else
