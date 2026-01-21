@@ -28,7 +28,7 @@ impl LogFile {
             };
 
             let events = streams
-                .entry(log.inbox.clone())
+                .entry(log.installation.clone())
                 .or_insert_with(|| VecDeque::new());
 
             events.push_back(log);

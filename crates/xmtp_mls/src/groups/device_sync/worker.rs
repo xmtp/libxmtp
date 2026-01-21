@@ -19,7 +19,7 @@ use tokio::sync::{OnceCell, broadcast};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
-use xmtp_common::{Event, fmt::ShortHex};
+use xmtp_common::Event;
 use xmtp_db::{
     StoreOrIgnore,
     group_message::{MsgQueryArgs, StoredGroupMessage},
@@ -202,7 +202,7 @@ where
                 log_event!(
                     Event::DeviceSyncCreatedPrimarySyncGroup,
                     self.client.context.installation_id(),
-                    group_id = sync_group.group_id.short_hex()
+                    group_id = #sync_group.group_id
                 );
 
                 // Ask the sync group for a sync payload if the url is present.
@@ -298,8 +298,8 @@ where
                 self.context.installation_id(),
                 msg_type,
                 external = is_external,
-                msg_id = msg.id.short_hex(),
-                group_id = msg.group_id.short_hex()
+                msg_id = #msg.id,
+                group_id = #msg.group_id
             );
 
             if let Err(err) = self.process_message(handle, &msg, content).await {
@@ -307,7 +307,7 @@ where
                     Event::DeviceSyncMessageProcessingError,
                     self.context.installation_id(),
                     err = %err,
-                    msg_id = msg.id.short_hex()
+                    msg_id = #msg.id
                 );
             };
         }
@@ -430,7 +430,7 @@ where
                     Event::DeviceSyncRequestAlreadyAcknowledged,
                     self.context.installation_id(),
                     request_id,
-                    acknowledged_by = message.sender_installation_id.short_hex()
+                    acknowledged_by = #message.sender_installation_id
                 );
                 return Err(DeviceSyncError::AlreadyAcknowledged);
             }
@@ -463,7 +463,7 @@ where
         log_event!(
             Event::DeviceSyncArchiveUploadStart,
             self.context.installation_id(),
-            group_id = sync_group_id.short_hex()
+            group_id = #sync_group_id
         );
         let Some(device_sync_server_url) = &self.context.device_sync().server_url else {
             tracing::info!("No message history payload sent - server url not present.");
@@ -576,7 +576,7 @@ where
         log_event!(
             Event::DeviceSyncSentSyncRequest,
             self.context.installation_id(),
-            group_id = sync_group.group_id.short_hex()
+            group_id = #sync_group.group_id
         );
 
         Ok(())
@@ -617,8 +617,8 @@ where
         log_event!(
             Event::DeviceSyncArchiveProcessingStart,
             self.context.installation_id(),
-            msg_id = msg.id.short_hex(),
-            group_id = msg.group_id.short_hex()
+            msg_id = #msg.id,
+            group_id = #msg.group_id
         );
         if reply.kind() != BackupElementSelection::Unspecified {
             log_event!(Event::DeviceSyncV1Archive, self.context.installation_id());

@@ -9,7 +9,7 @@ use crate::{
 use futures::{StreamExt, future::try_join_all, stream::FuturesUnordered};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use xmtp_common::{Event, Retry, RetryableError, fmt::ShortHex, retry_async, retryable};
+use xmtp_common::{Event, Retry, RetryableError, retry_async, retryable};
 use xmtp_configuration::Originators;
 use xmtp_cryptography::CredentialSign;
 use xmtp_db::StorageError;
@@ -493,7 +493,7 @@ where
         log_event!(
             Event::MembershipInstallationDiff,
             self.context.installation_id(),
-            group_id = group_id.short_hex(),
+            #group_id,
             old_membership = ?old_group_membership,
             new_membership = ?new_group_membership,
         );
@@ -566,7 +566,7 @@ where
         log_event!(
             Event::MembershipInstallationDiffComputed,
             self.context.installation_id(),
-            group_id = group_id.short_hex(),
+            #group_id,
             added_installations = ?added_installations,
             removed_installations = ?removed_installations
         );

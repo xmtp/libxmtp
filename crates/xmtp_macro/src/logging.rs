@@ -57,6 +57,9 @@ impl Parse for LogEventInput {
             } else if input.peek(Token![?]) {
                 input.parse::<Token![?]>()?;
                 Some('?')
+            } else if input.peek(Token![#]) {
+                input.parse::<Token![#]>()?;
+                Some('#')
             } else {
                 None
             };
@@ -72,6 +75,9 @@ impl Parse for LogEventInput {
                 } else if input.peek(Token![?]) {
                     input.parse::<Token![?]>()?;
                     Some('?')
+                } else if input.peek(Token![#]) {
+                    input.parse::<Token![#]>()?;
+                    Some('#')
                 } else {
                     None
                 };
@@ -118,19 +124,33 @@ impl Parse for LogEventInput {
                 continue;
             }
 
+            // Handle # sigil for short_hex transformation
+            if sigil == Some('#') {
+                let value_expr = value.unwrap_or_else(|| {
+                    let name_clone = name.clone();
+                    syn::parse_quote!(#name_clone)
+                });
+                let transformed_value: Expr = syn::parse_quote! {
+                    xmtp_common::fmt::short_hex(&(#value_expr))
+                };
+                fields.push(Field {
+                    name,
+                    sigil: Some('%'),
+                    value: Some(transformed_value),
+                });
+                continue;
+            }
+
             fields.push(Field { name, sigil, value });
         }
 
         // Create a field for installation_id that hex encodes the last 4 bytes
         let installation_id_field = Field {
-            name: syn::Ident::new("installation_id", proc_macro2::Span::call_site()),
+            name: syn::Ident::new("inst", proc_macro2::Span::call_site()),
             sigil: Some('%'),
             value: Some(syn::parse_quote! {
                 {
-                    let bytes: &[u8] = __installation_id.as_ref();
-                    let len = bytes.len();
-                    let last_4 = if len >= 4 { &bytes[len - 4..] } else { bytes };
-                    hex::encode(last_4)
+                    xmtp_common::fmt::short_hex(__installation_id.as_ref())
                 }
             }),
         };

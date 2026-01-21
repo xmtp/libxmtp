@@ -9,7 +9,7 @@ use crate::{LogParser, Rule, state::Value};
 #[derive(Debug)]
 pub struct LogEvent {
     pub event: Event,
-    pub inbox: String,
+    pub installation: String,
     pub context: HashMap<String, Value>,
 }
 
@@ -19,12 +19,12 @@ impl LogEvent {
     }
 
     pub fn inbox(&self) -> &str {
-        &self.inbox
+        &self.installation
     }
 
     pub fn timestamp_str(&self) -> String {
         self.context
-            .get("timestamp")
+            .get("time")
             .and_then(|v| v.as_int().ok())
             .map(|ts| ts.to_string())
             .unwrap_or_default()
@@ -40,7 +40,7 @@ impl LogEvent {
     pub fn context_entries(&self) -> Vec<(String, String)> {
         self.context
             .iter()
-            .filter(|(k, _)| *k != "timestamp") // timestamp is handled separately
+            .filter(|(k, _)| *k != "time") // timestamp is handled separately
             .map(|(k, v)| (k.clone(), v.to_string()))
             .collect()
     }
@@ -88,14 +88,14 @@ impl LogEvent {
         }
 
         let inbox = context
-            .remove("inbox")
+            .remove("inst")
             .with_context(|| format!("{line_str} is missing inbox field."))?
             .as_str()?
             .to_string();
 
         Ok(Self {
             event: event_meta.event,
-            inbox,
+            installation: inbox,
             context,
         })
     }

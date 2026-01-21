@@ -64,7 +64,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
-use xmtp_common::{Event, fmt::ShortHex, log_event, time::now_ns};
+use xmtp_common::{Event, log_event, time::now_ns};
 use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
     MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, Originators,
@@ -1057,7 +1057,7 @@ where
         log_event!(
             Event::AddedMembers,
             self.context.installation_id(),
-            group_id = self.group_id.short_hex(),
+            group_id = #self.group_id,
             members = ?ids
         );
 

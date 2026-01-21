@@ -26,7 +26,7 @@ impl State {
                 .get(key)
                 .with_context(|| format!("Missing context field {key}"))
         };
-        let inbox = &event.inbox;
+        let inbox = &event.installation;
         match event.event {
             Event::ClientCreated => {
                 self.clients

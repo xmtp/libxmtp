@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use prost::Message;
-use xmtp_common::{Event, fmt::ShortHex};
+use xmtp_common::Event;
 use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask};
 use xmtp_macro::log_event;
 use xmtp_proto::{
@@ -249,7 +249,7 @@ where
                     .inspect_err(|e| {
                         log_event!(Event::DeviceSyncArchiveUploadFailure,
                         context.installation_id(),
-                        group_id = send_sync_archive.sync_group_id.short_hex(),
+                        group_id = #send_sync_archive.sync_group_id,
                         request_id = send_sync_archive.request_id(),
                         err = %e
                         )

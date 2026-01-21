@@ -66,7 +66,7 @@ use thiserror::Error;
 use tracing::debug;
 use update_group_membership::apply_update_group_membership_intent;
 use xmtp_common::{
-    Event, ExponentialBackoff, Retry, RetryableError, Strategy, fmt::ShortHex, log_event,
+    Event, ExponentialBackoff, Retry, RetryableError, Strategy, fmt::short_hex, log_event,
     retry_async, time::now_ns,
 };
 use xmtp_configuration::{
@@ -377,7 +377,7 @@ where
             log_event!(
                 Event::GroupSyncGroupInactive,
                 self.context.installation_id(),
-                group_id = self.group_id.short_hex()
+                group_id = #self.group_id
             );
             return Err(SyncSummary::other(GroupError::GroupInactive));
         }
@@ -462,7 +462,7 @@ where
         log_event!(
             Event::GroupSyncStart,
             self.context.installation_id(),
-            group_id = self.group_id.short_hex()
+            group_id = #self.group_id
         );
 
         let result = self.sync_until_intent_resolved_inner(intent_id).await;
@@ -476,7 +476,7 @@ where
         log_event!(
             Event::GroupSyncFinished,
             self.context.installation_id(),
-            group_id = self.group_id.short_hex(),
+            group_id = #self.group_id,
             summary = ?summary,
             success = result.is_ok()
         );
@@ -512,7 +512,7 @@ where
             log_event!(
                 Event::GroupSyncAttempt,
                 self.context.installation_id(),
-                group_id = self.group_id.short_hex(),
+                group_id = #self.group_id,
                 attempt,
                 backoff = ?wait_for
             );
@@ -550,7 +550,7 @@ where
                         Event::GroupSyncIntentErrored,
                         self.context.installation_id(),
                         level = warn,
-                        group_id = self.group_id.short_hex(), intent_id = intent_id,
+                        group_id = #self.group_id, intent_id = intent_id,
                         summary = ?summary, intent_kind = ?kind
                     );
                     return Err(GroupError::from(summary));
@@ -559,7 +559,7 @@ where
                     log_event!(
                         Event::GroupSyncIntentRetry,
                         self.context.installation_id(),
-                        level = warn, group_id = self.group_id.short_hex(),
+                        level = warn, group_id = #self.group_id,
                         intent_id = intent_id, state = ?state, intent_kind = ?kind
                     );
                 }
@@ -1057,7 +1057,7 @@ where
                 log_event!(
                     Event::MLSGroupEpochUpdated,
                     self.context.installation_id(),
-                    group_id = self.group_id.short_hex(),
+                    group_id = #self.group_id,
                     cursor = ?cursor,
                     epoch = new_epoch,
                     previous_epoch
@@ -1088,7 +1088,7 @@ where
         let envelope_timestamp_ns = message_envelope.timestamp();
         let msg_epoch = processed_message.epoch().as_u64();
         let msg_group_id = hex::encode(processed_message.group_id().as_slice());
-        let msg_group_id_short_hex = processed_message.group_id().as_slice().short_hex();
+        let msg_group_id_short_hex = short_hex(processed_message.group_id().as_slice());
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns as u64)?;
 
@@ -1207,7 +1207,7 @@ where
                     sender_inbox = sender_inbox_id,
                     installation_id = %self.context.installation_id(),
                     sender_installation_id = hex::encode(&sender_installation_id),
-                    group_id = self.group_id.short_hex(),
+                    group_id = #self.group_id,
                     current_epoch = mls_group.epoch().as_u64(),
                     msg_epoch,
                     msg_group_id,
@@ -1254,7 +1254,7 @@ where
                 log_event!(
                     Event::MLSProcessedStagedCommit,
                     self.context.installation_id(),
-                    group_id = self.group_id.short_hex(),
+                    group_id = #self.group_id,
                     current_epoch = mls_group.epoch().as_u64(),
                 );
 
@@ -2102,7 +2102,7 @@ where
             log_event!(
                 Event::GroupCursorUpdate,
                 self.context.installation_id(),
-                group_id = message.group_id.as_slice().short_hex(),
+                group_id = message.group_id.as_slice(),
                 cursor = ?message.cursor
             );
         } else {
@@ -2362,7 +2362,7 @@ where
                                 log_event!(
                                     Event::GroupSyncApplicationMessagePublishSuccess,
                                     self.context.installation_id(),
-                                    group_id = intent.group_id.short_hex(),
+                                    group_id = #intent.group_id,
                                     intent_id = intent.id
                                 );
                             }
@@ -2370,7 +2370,7 @@ where
                                 log_event!(
                                     Event::GroupSyncPublishFailed,
                                     self.context.installation_id(),
-                                    group_id = intent.group_id.short_hex(),
+                                    group_id = #intent.group_id,
                                     intent_id = intent.id,
                                     intent_kind = ?kind,
                                     err = ?err
@@ -2381,7 +2381,7 @@ where
                                 log_event!(
                                     Event::GroupSyncCommitPublishSuccess,
                                     self.context.installation_id(),
-                                    group_id = intent.group_id.short_hex(),
+                                    group_id = #intent.group_id,
                                     intent_id = intent.id,
                                     intent_kind = ?kind,
                                     commit_hash = hex::encode(sha256(payload_slice))
@@ -2390,7 +2390,7 @@ where
                         }
 
                         if has_staged_commit {
-                            log_event!(Event::GroupSyncStagedCommitPresent, self.context.installation_id(), group_id = intent.group_id.short_hex());
+                            log_event!(Event::GroupSyncStagedCommitPresent, self.context.installation_id(), group_id = #intent.group_id);
                             return Ok(());
                         }
                     }
