@@ -179,7 +179,7 @@ async fn test_spoofed_inbox_id() {
     let signer = &group.context.identity().installation_keys;
     let context = &group.context;
     let send_welcome_action = group
-        .load_mls_group_with_lock_async(|mut openmls_group| async move {
+        .load_mls_group_with_lock_async(async |mut openmls_group| {
             let publish_intent_data =
                 apply_update_group_membership_intent(&context, &mut openmls_group, intent, signer)
                     .await?

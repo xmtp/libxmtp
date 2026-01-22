@@ -18,6 +18,7 @@ impl Client {
       .set_consent_states(&stored_records)
       .await
       .map_err(ErrorWrapper::from)?;
+
     Ok(())
   }
 

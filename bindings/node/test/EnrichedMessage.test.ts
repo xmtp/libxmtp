@@ -34,7 +34,7 @@ describe.concurrent('EnrichedMessage', () => {
     await client2.conversations().sync()
     const conversation2 = client2
       .conversations()
-      .findGroupById(conversation.id())
+      .getConversationById(conversation.id())
     return { user1, user2, client1, client2, conversation, conversation2 }
   }
 
@@ -45,7 +45,7 @@ describe.concurrent('EnrichedMessage', () => {
       await conversation.sendText('Hello World')
       await conversation.sendText('Second message')
 
-      const messages = await conversation.findEnrichedMessages()
+      const messages = await conversation.listEnrichedMessages()
       expect(messages.length).toEqual(3)
 
       const textMessages = messages.filter((m) => m.content.text !== null)
@@ -71,7 +71,7 @@ describe.concurrent('EnrichedMessage', () => {
       await conversation.sendText('Message 2')
       await conversation.sendText('Message 3')
 
-      const limitedMessages = await conversation.findEnrichedMessages({
+      const limitedMessages = await conversation.listEnrichedMessages({
         limit: 2,
         direction: SortDirection.Descending,
       })
@@ -80,7 +80,7 @@ describe.concurrent('EnrichedMessage', () => {
       )
       expect(limitedTextMessages.length).toBe(2)
 
-      const allMessages = await conversation.findEnrichedMessages()
+      const allMessages = await conversation.listEnrichedMessages()
       const allTextMessages = allMessages.filter((m) => m.content.text !== null)
       expect(allTextMessages.length).toEqual(3)
     })
@@ -92,7 +92,7 @@ describe.concurrent('EnrichedMessage', () => {
 
       await conversation.sendText('Test')
 
-      const messages = await conversation.findEnrichedMessages()
+      const messages = await conversation.listEnrichedMessages()
 
       expect(messages.length).toEqual(2)
       // Messages should have kinds defined
@@ -112,7 +112,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const textMessage = messages.find((m) => m.id === messageId)
         expect(textMessage).toBeDefined()
         expect(textMessage!.content.type).toBe(DecodedMessageContentType.Text)
@@ -135,7 +135,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const markdownMessage = messages.find((m) => m.id === messageId)
         expect(markdownMessage).toBeDefined()
         expect(markdownMessage!.content.type).toBe(
@@ -169,7 +169,7 @@ describe.concurrent('EnrichedMessage', () => {
         await conversation2.sync()
 
         // Reactions are attached to parent messages in enriched messages
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const textMessage = messages.find((m) => m.id === textMessageId)
         expect(textMessage).toBeDefined()
         expect(textMessage!.reactions.length).toBe(1)
@@ -220,7 +220,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const textMessage = messages.find((m) => m.id === textMessageId)
         expect(textMessage).toBeDefined()
         // After removal, the reactions array should reflect the removal
@@ -251,7 +251,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const textMessage = messages.find((m) => m.id === textMessageId)
         const reaction = textMessage!.reactions.find((r) => r.id === reactionId)
         expect(reaction).toBeDefined()
@@ -277,7 +277,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const textMessage = messages.find((m) => m.id === textMessageId)
         const reaction = textMessage!.reactions.find((r) => r.id === reactionId)
         expect(reaction).toBeDefined()
@@ -302,7 +302,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const replyMessage = messages.find((m) => m.id === replyId)
         expect(replyMessage).toBeDefined()
         expect(replyMessage!.content.type).toBe(DecodedMessageContentType.Reply)
@@ -332,7 +332,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const replyMessage = messages.find((m) => m.id === replyId)
         expect(replyMessage).toBeDefined()
         expect(replyMessage!.content.reply?.inReplyTo).toBeDefined()
@@ -357,7 +357,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const replyMessage = messages.find((m) => m.id === replyId)
         expect(replyMessage).toBeDefined()
         expect(replyMessage!.content.type).toBe(DecodedMessageContentType.Reply)
@@ -384,7 +384,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const attachmentMessage = messages.find((m) => m.id === attachmentId)
         expect(attachmentMessage).toBeDefined()
         expect(attachmentMessage!.content.type).toBe(
@@ -416,7 +416,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const attachmentMessage = messages.find((m) => m.id === attachmentId)
         expect(attachmentMessage).toBeDefined()
         expect(attachmentMessage!.content.attachment?.filename).toBeUndefined()
@@ -447,7 +447,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const remoteAttachmentMessage = messages.find(
           (m) => m.id === remoteAttachmentId
         )
@@ -497,7 +497,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const remoteAttachmentMessage = messages.find(
           (m) => m.id === remoteAttachmentId
         )
@@ -543,7 +543,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const multiRemoteAttachmentMessage = messages.find(
           (m) => m.id === multiRemoteAttachmentId
         )
@@ -595,7 +595,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const multiRemoteAttachmentMessage = messages.find(
           (m) => m.id === multiRemoteAttachmentId
         )
@@ -615,7 +615,7 @@ describe.concurrent('EnrichedMessage', () => {
         expect(receiptId).toBeDefined()
 
         // Read receipts are excluded from enriched messages by design
-        const messages = await conversation.findEnrichedMessages()
+        const messages = await conversation.listEnrichedMessages()
         const receiptMessage = messages.find((m) => m.id === receiptId)
         expect(receiptMessage).toBeUndefined()
       })
@@ -637,7 +637,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const transactionReferenceMessage = messages.find(
           (m) => m.id === transactionReferenceId
         )
@@ -676,7 +676,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const transactionReferenceMessage = messages.find(
           (m) => m.id === transactionReferenceId
         )
@@ -703,7 +703,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const transactionReferenceMessage = messages.find(
           (m) => m.id === transactionReferenceId
         )
@@ -734,7 +734,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const transactionReferenceMessage = messages.find(
           (m) => m.id === transactionReferenceId
         )
@@ -780,7 +780,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const walletSendCallsMessage = messages.find(
           (m) => m.id === walletSendCallsId
         )
@@ -832,7 +832,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const walletSendCallsMessage = messages.find(
           (m) => m.id === walletSendCallsId
         )
@@ -877,7 +877,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const walletSendCallsMessage = messages.find(
           (m) => m.id === walletSendCallsId
         )
@@ -970,7 +970,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const actionsMessage = messages.find((m) => m.id === actionsId)
         expect(actionsMessage).toBeDefined()
         expect(actionsMessage!.content.type).toBe(
@@ -1024,7 +1024,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const actionsMessage = messages.find((m) => m.id === actionsId)
         expect(actionsMessage).toBeDefined()
         expect(actionsMessage!.content.actions?.actions[0].style).toBe(
@@ -1062,7 +1062,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const actionsMessage = messages.find((m) => m.id === actionsId)
         expect(actionsMessage).toBeDefined()
         expect(actionsMessage!.content.actions?.expiresAtNs).toBeDefined()
@@ -1091,7 +1091,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const actionsMessage = messages.find((m) => m.id === actionsId)
         expect(actionsMessage).toBeDefined()
         expect(actionsMessage!.content.actions?.actions[0].imageUrl).toBe(
@@ -1114,7 +1114,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const intentMessage = messages.find((m) => m.id === intentId)
         expect(intentMessage).toBeDefined()
         expect(intentMessage!.content.type).toBe(
@@ -1144,7 +1144,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation2.sync()
 
-        const messages = await conversation2.findEnrichedMessages()
+        const messages = await conversation2.listEnrichedMessages()
         const intentMessage = messages.find((m) => m.id === intentId)
         expect(intentMessage).toBeDefined()
         expect(intentMessage!.content.intent?.metadata).toBeDefined()
@@ -1180,7 +1180,7 @@ describe.concurrent('EnrichedMessage', () => {
           },
         ])
 
-        const messages = await conversation.findEnrichedMessages()
+        const messages = await conversation.listEnrichedMessages()
         const groupUpdatedMessages = messages.filter(
           (m) => m.content.groupUpdated !== null
         )
@@ -1221,7 +1221,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation.removeMembers([client2.inboxId()])
 
-        const messages = await conversation.findEnrichedMessages()
+        const messages = await conversation.listEnrichedMessages()
         const groupUpdatedMessages = messages.filter(
           (m) => m.content.groupUpdated !== null
         )
@@ -1255,7 +1255,7 @@ describe.concurrent('EnrichedMessage', () => {
 
         await conversation.updateGroupName('New Group Name')
 
-        const messages = await conversation.findEnrichedMessages()
+        const messages = await conversation.listEnrichedMessages()
         const groupUpdatedMessages = messages.filter(
           (m) => m.content.groupUpdated !== null
         )

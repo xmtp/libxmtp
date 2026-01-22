@@ -17,7 +17,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub async fn find_duplicate_dms(&self) -> Result<Vec<Conversation>> {
+  pub async fn duplicate_dms(&self) -> Result<Vec<Conversation>> {
     let group = self.create_mls_group();
     let dms = group.find_duplicate_dms().map_err(ErrorWrapper::from)?;
     let conversations: Vec<Conversation> = dms.into_iter().map(Into::into).collect();

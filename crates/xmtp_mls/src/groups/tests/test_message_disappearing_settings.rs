@@ -7,12 +7,8 @@ async fn test_disappearing_message_update_message_in_group() {
     tester!(alix);
     tester!(bo);
 
-    let alix_bo_dm = alix
-        .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
-        .await?;
-    let _bo_alix_dm = bo
-        .find_or_create_dm_by_inbox_id(alix.inbox_id(), None)
-        .await?;
+    let alix_bo_dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+    let _bo_alix_dm = bo.find_or_create_dm(alix.inbox_id(), None).await?;
 
     alix_bo_dm
         .update_conversation_message_disappear_from_ns(10)

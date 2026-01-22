@@ -39,7 +39,7 @@ async fn test_stream_all_messages_changing_group_list() {
         .unwrap();
     assert_msg!(stream, "first");
     let bo_group = bo
-        .find_or_create_dm(caro_wallet.identifier(), None)
+        .find_or_create_dm_by_identity(caro_wallet.identifier(), None)
         .await
         .unwrap();
 
@@ -121,10 +121,7 @@ async fn test_dm_stream_all_messages() {
     let alix_group = alix.create_group(None, None).unwrap();
     alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
 
-    let alix_dm = alix
-        .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
-        .await
-        .unwrap();
+    let alix_dm = alix.find_or_create_dm(bo.inbox_id(), None).await.unwrap();
     {
         // start a stream with only group messages
         let stream = bo
@@ -524,7 +521,7 @@ async fn test_stream_all_messages_filters_new_group_when_dm_only() {
 
     // Create initial DM
     let dm = sender
-        .find_or_create_dm(receiver_wallet.identifier(), None)
+        .find_or_create_dm_by_identity(receiver_wallet.identifier(), None)
         .await
         .unwrap();
 
