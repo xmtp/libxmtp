@@ -29,7 +29,8 @@ uniffi = { version = "0.29.0", default-features = false, features = ["tokio"] }
 xmtp_api.workspace = true
 xmtp_api_d14n.workspace = true
 xmtp_api_grpc.workspace = true
-xmtp_common = { workspace = true, features = ["logging"] }
+xmtp_common = { workspace = true, features = ["logging", "error-code"] }
+xmtp_macro.workspace = true
 xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
 xmtp_cryptography.workspace = true
