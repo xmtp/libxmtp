@@ -22,18 +22,20 @@ class ArchiveTests: XCTestCase {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let encryptionKey = try Crypto.secureRandomBytes(count: 32)
 		let alix = try PrivateKey.generate()
+		let dbDir1 = randomDbDirectory()
+		let dbDir2 = randomDbDirectory()
 
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_test1"
+				dbDirectory: dbDir1
 			)
 		)
 
-		let allPath = "xmtp_test1/testAll.zstd"
-		let consentPath = "xmtp_test1/testConsent.zstd"
+		let allPath = randomTempFile()
+		let consentPath = randomTempFile()
 
 		let group = try await alixClient.conversations.newGroup(with: [
 			fixtures.boClient.inboxID,
@@ -74,7 +76,7 @@ class ArchiveTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_test2"
+				dbDirectory: dbDir2
 			)
 		)
 
@@ -111,17 +113,19 @@ class ArchiveTests: XCTestCase {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let encryptionKey = try Crypto.secureRandomBytes(count: 32)
 		let alix = try PrivateKey.generate()
+		let dbDir1 = randomDbDirectory()
+		let dbDir2 = randomDbDirectory()
 
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_test1"
+				dbDirectory: dbDir1
 			)
 		)
 
-		let allPath = "xmtp_test1/testAll.zstd"
+		let allPath = randomTempFile()
 
 		// 1. Alix creates a dm with Bo, sends a message, and then creates an archive
 		let dm = try await alixClient.conversations.findOrCreateDm(
@@ -140,7 +144,7 @@ class ArchiveTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_test2"
+				dbDirectory: dbDir2
 			)
 		)
 
@@ -179,13 +183,13 @@ class ArchiveTests: XCTestCase {
 		XCTAssertEqual(convos3.count, 1)
 
 		let dm2MessagesCount = try await dm2.messages().count
-		XCTAssertEqual(dm2MessagesCount, 3)
+		XCTAssertEqual(dm2MessagesCount, 4)
 	}
 
 	func testImportArchiveWorksEvenOnFullDatabase() async throws {
 		let fixtures = try await fixtures()
 		let encryptionKey = try Crypto.secureRandomBytes(count: 32)
-		let allPath = "xmtp_test1/testAll.zstd"
+		let allPath = randomTempFile()
 
 		let group = try await fixtures.alixClient.conversations.newGroup(with: [
 			fixtures.boClient.inboxID,

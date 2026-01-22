@@ -1587,7 +1587,7 @@ class GroupTests: XCTestCase {
 		// Create clients with explicit options so we can reinitialize
 		let key = Data((0 ..< 32).map { _ in UInt8.random(in: 0 ... 255) })
 		let clientOptions = ClientOptions(
-			api: ClientOptions.Api(env: XMTPEnvironment.local, isSecure: false),
+			api: ClientOptions.Api(env: XMTPEnvironment.local, isSecure: XMTPEnvironment.local.isSecure),
 			dbEncryptionKey: key
 		)
 
@@ -1633,7 +1633,7 @@ class GroupTests: XCTestCase {
 
 		// Reinitialize Alix's client from the same database
 		let reinitOptions = ClientOptions(
-			api: ClientOptions.Api(env: XMTPEnvironment.local, isSecure: false),
+			api: ClientOptions.Api(env: XMTPEnvironment.local, isSecure: XMTPEnvironment.local.isSecure),
 			dbEncryptionKey: key,
 			dbDirectory: alixDbDirectory
 		)

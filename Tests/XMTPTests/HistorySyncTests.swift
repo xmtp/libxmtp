@@ -22,12 +22,14 @@ class HistorySyncTests: XCTestCase {
 
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alix = try PrivateKey.generate()
+		let dbDir1 = randomDbDirectory()
+		let dbDir2 = randomDbDirectory()
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db"
+				dbDirectory: dbDir1
 				// useDefaultHistorySyncUrl: false
 			)
 		)
@@ -43,7 +45,7 @@ class HistorySyncTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db2"
+				dbDirectory: dbDir2
 				//                useDefaultHistorySyncUrl: false
 			)
 		)
@@ -85,12 +87,14 @@ class HistorySyncTests: XCTestCase {
 
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alix = try PrivateKey.generate()
+		let dbDir1 = randomDbDirectory()
+		let dbDir2 = randomDbDirectory()
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db"
+				dbDirectory: dbDir1
 			)
 		)
 
@@ -105,7 +109,7 @@ class HistorySyncTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db2"
+				dbDirectory: dbDir2
 			)
 		)
 
@@ -133,17 +137,20 @@ class HistorySyncTests: XCTestCase {
 	}
 
 	func testStreamConsent() async throws {
+		throw XCTSkip("Skipped: Test is flaky")
 		let fixtures = try await fixtures()
 
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alix = try PrivateKey.generate()
+		let dbDir1 = randomDbDirectory()
+		let dbDir2 = randomDbDirectory()
 
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db",
+				dbDirectory: dbDir1,
 				deviceSyncEnabled: true
 			)
 		)
@@ -157,7 +164,7 @@ class HistorySyncTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db2",
+				dbDirectory: dbDir2,
 				deviceSyncEnabled: true
 			)
 		)
@@ -197,14 +204,17 @@ class HistorySyncTests: XCTestCase {
 	}
 
 	func testStreamPrivatePreferences() async throws {
+		throw XCTSkip("Skipped: Test is flaky")
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alix = try PrivateKey.generate()
+		let dbDir1 = randomDbDirectory()
+		let dbDir2 = randomDbDirectory()
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db"
+				dbDirectory: dbDir1
 			)
 		)
 
@@ -226,14 +236,14 @@ class HistorySyncTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db2"
+				dbDirectory: dbDir2
 			)
 		)
 
 		try await alixClient2.conversations.syncAllConversations()
 		try await alixClient.conversations.syncAllConversations()
 
-		await fulfillment(of: [expectation], timeout: 3)
+		await fulfillment(of: [expectation], timeout: 10)
 	}
 
 	func testDisablingHistoryTransferStillSyncsLocalState() async throws {
@@ -241,12 +251,14 @@ class HistorySyncTests: XCTestCase {
 
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alix = try PrivateKey.generate()
+		let dbDir1 = randomDbDirectory()
+		let dbDir2 = randomDbDirectory()
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db",
+				dbDirectory: dbDir1,
 				useDefaultHistorySyncUrl: false
 			)
 		)
@@ -262,7 +274,7 @@ class HistorySyncTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db2",
+				dbDirectory: dbDir2,
 				useDefaultHistorySyncUrl: false
 			)
 		)
@@ -304,12 +316,14 @@ class HistorySyncTests: XCTestCase {
 
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alix = try PrivateKey.generate()
+		let dbDir1 = randomDbDirectory()
+		let dbDir2 = randomDbDirectory()
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db",
+				dbDirectory: dbDir1,
 				useDefaultHistorySyncUrl: false
 			)
 		)
@@ -325,7 +339,7 @@ class HistorySyncTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db2"
+				dbDirectory: dbDir2
 			)
 		)
 

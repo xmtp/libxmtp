@@ -103,5 +103,23 @@
 		) async throws -> Fixtures {
 			try await Fixtures(clientOptions: clientOptions)
 		}
+
+		func randomTempFile() -> String {
+			let tempDir = FileManager.default.temporaryDirectory
+			let tempFileURL = tempDir.appendingPathComponent(UUID().uuidString)
+
+			return tempFileURL.path
+		}
+
+		func randomDbDirectory() -> String {
+			let tempDir = FileManager.default.temporaryDirectory
+			let randomDir = tempDir.appendingPathComponent(
+				"xmtp_test_\(UUID().uuidString)"
+			)
+			try? FileManager.default.createDirectory(
+				at: randomDir, withIntermediateDirectories: true
+			)
+			return randomDir.path
+		}
 	}
 #endif

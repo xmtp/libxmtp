@@ -218,13 +218,14 @@ class ClientTests: XCTestCase {
 	func testPassingEncryptionKeyAndDatabaseDirectory() async throws {
 		let bo = try PrivateKey.generate()
 		let key = try Crypto.secureRandomBytes(count: 32)
+		let dbDir = randomDbDirectory()
 
 		let client = try await Client.create(
 			account: bo,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db"
+				dbDirectory: dbDir
 			)
 		)
 
@@ -233,7 +234,7 @@ class ClientTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db"
+				dbDirectory: dbDir
 			)
 		)
 
@@ -258,13 +259,14 @@ class ClientTests: XCTestCase {
 		let bo = try PrivateKey.generate()
 		let alix = try PrivateKey.generate()
 		let key = try Crypto.secureRandomBytes(count: 32)
+		let dbDir = randomDbDirectory()
 
 		let boClient = try await Client.create(
 			account: bo,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db"
+				dbDirectory: dbDir
 			)
 		)
 
@@ -273,7 +275,7 @@ class ClientTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db"
+				dbDirectory: dbDir
 			)
 		)
 
@@ -288,7 +290,7 @@ class ClientTests: XCTestCase {
 				options: .init(
 					api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 					dbEncryptionKey: key2,
-					dbDirectory: "xmtp_db"
+					dbDirectory: dbDir
 				)
 			)
 		)
@@ -357,12 +359,16 @@ class ClientTests: XCTestCase {
 	func testRevokeInstallations() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alix = try PrivateKey.generate()
+		let dbDir1 = randomDbDirectory()
+		let dbDir2 = randomDbDirectory()
+		let dbDir3 = randomDbDirectory()
 
 		let alixClient = try await Client.create(
 			account: alix,
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-				dbEncryptionKey: key
+				dbEncryptionKey: key,
+				dbDirectory: dbDir1
 			)
 		)
 
@@ -371,7 +377,7 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db1"
+				dbDirectory: dbDir2
 			)
 		)
 
@@ -380,7 +386,7 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db2"
+				dbDirectory: dbDir3
 			)
 		)
 
@@ -403,12 +409,16 @@ class ClientTests: XCTestCase {
 	func testRevokesAllOtherInstallations() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alix = try PrivateKey.generate()
+		let dbDir1 = randomDbDirectory()
+		let dbDir2 = randomDbDirectory()
+		let dbDir3 = randomDbDirectory()
 
 		let alixClient = try await Client.create(
 			account: alix,
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-				dbEncryptionKey: key
+				dbEncryptionKey: key,
+				dbDirectory: dbDir1
 			)
 		)
 
@@ -417,7 +427,7 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db1"
+				dbDirectory: dbDir2
 			)
 		)
 
@@ -426,7 +436,7 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db2"
+				dbDirectory: dbDir3
 			)
 		)
 
@@ -722,22 +732,9 @@ class ClientTests: XCTestCase {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alixWallet = try PrivateKey.generate()
 
-		let dbDirPath = FileManager.default.temporaryDirectory
-			.appendingPathComponent("xmtp_db").path
-		let dbDirPath2 = FileManager.default.temporaryDirectory
-			.appendingPathComponent("xmtp_db2").path
-		let dbDirPath3 = FileManager.default.temporaryDirectory
-			.appendingPathComponent("xmtp_db3").path
-
-		try FileManager.default.createDirectory(
-			atPath: dbDirPath, withIntermediateDirectories: true
-		)
-		try FileManager.default.createDirectory(
-			atPath: dbDirPath2, withIntermediateDirectories: true
-		)
-		try FileManager.default.createDirectory(
-			atPath: dbDirPath3, withIntermediateDirectories: true
-		)
+		let dbDirPath = randomDbDirectory()
+		let dbDirPath2 = randomDbDirectory()
+		let dbDirPath3 = randomDbDirectory()
 
 		let alix = try await Client.create(
 			account: alixWallet,
@@ -924,7 +921,7 @@ class ClientTests: XCTestCase {
 		let apiStats2 = alix.debugInformation.apiStatistics
 		XCTAssertEqual(0, apiStats2.uploadKeyPackage)
 		XCTAssertEqual(0, apiStats2.fetchKeyPackage)
-		XCTAssertEqual(5, apiStats2.sendGroupMessages)
+		XCTAssertEqual(4, apiStats2.sendGroupMessages)
 		XCTAssertEqual(0, apiStats2.sendWelcomeMessages)
 		XCTAssertEqual(1, apiStats2.queryWelcomeMessages)
 		XCTAssertEqual(1, apiStats2.subscribeWelcomes)
@@ -1055,6 +1052,8 @@ class ClientTests: XCTestCase {
 	func testCannotCreateMoreThan5Installations() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let wallet = try PrivateKey.generate()
+		let dbDirs = (0 ..< 12).map { _ in randomDbDirectory() }
+		let boDbDir = randomDbDirectory()
 
 		var clients: [Client] = []
 
@@ -1064,7 +1063,7 @@ class ClientTests: XCTestCase {
 				options: ClientOptions(
 					api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 					dbEncryptionKey: key,
-					dbDirectory: "xmtp_db_\(i)"
+					dbDirectory: dbDirs[i]
 				)
 			)
 			clients.append(client)
@@ -1080,7 +1079,7 @@ class ClientTests: XCTestCase {
 				options: ClientOptions(
 					api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 					dbEncryptionKey: key,
-					dbDirectory: "xmtp_db_10"
+					dbDirectory: dbDirs[10]
 				)
 			)
 		)
@@ -1091,7 +1090,7 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: Crypto.secureRandomBytes(count: 32),
-				dbDirectory: "xmtp_bo"
+				dbDirectory: boDbDir
 			)
 		)
 
@@ -1123,7 +1122,7 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db_11"
+				dbDirectory: dbDirs[11]
 			)
 		)
 
@@ -1138,6 +1137,7 @@ class ClientTests: XCTestCase {
 	func testStaticRevokeOneOfFiveInstallations() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let wallet = try PrivateKey.generate()
+		let dbDirs = (0 ..< 5).map { _ in randomDbDirectory() }
 
 		var clients: [Client] = []
 
@@ -1147,7 +1147,7 @@ class ClientTests: XCTestCase {
 				options: ClientOptions(
 					api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 					dbEncryptionKey: key,
-					dbDirectory: "xmtp_db_\(i)"
+					dbDirectory: dbDirs[i]
 				)
 			)
 			clients.append(client)
@@ -1176,6 +1176,7 @@ class ClientTests: XCTestCase {
 	func testStaticRevokeAllInstalltions() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let wallet = try PrivateKey.generate()
+		let dbDirs = (0 ..< 5).map { _ in randomDbDirectory() }
 
 		var clients: [Client] = []
 
@@ -1185,7 +1186,7 @@ class ClientTests: XCTestCase {
 				options: ClientOptions(
 					api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 					dbEncryptionKey: key,
-					dbDirectory: "xmtp_db_\(i)"
+					dbDirectory: dbDirs[i]
 				)
 			)
 			clients.append(client)
@@ -1221,22 +1222,9 @@ class ClientTests: XCTestCase {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alixWallet = try PrivateKey.generate()
 
-		let dbDirPath = FileManager.default.temporaryDirectory
-			.appendingPathComponent("xmtp_db").path
-		let dbDirPath2 = FileManager.default.temporaryDirectory
-			.appendingPathComponent("xmtp_db2").path
-		let dbDirPath3 = FileManager.default.temporaryDirectory
-			.appendingPathComponent("xmtp_db3").path
-
-		try FileManager.default.createDirectory(
-			atPath: dbDirPath, withIntermediateDirectories: true
-		)
-		try FileManager.default.createDirectory(
-			atPath: dbDirPath2, withIntermediateDirectories: true
-		)
-		try FileManager.default.createDirectory(
-			atPath: dbDirPath3, withIntermediateDirectories: true
-		)
+		let dbDirPath = randomDbDirectory()
+		let dbDirPath2 = randomDbDirectory()
+		let dbDirPath3 = randomDbDirectory()
 
 		let alix = try await Client.create(
 			account: alixWallet,

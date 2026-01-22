@@ -69,8 +69,8 @@ public struct RemoteAttachment {
 		salt: Data,
 		nonce: Data,
 		scheme: Scheme,
-		contentLength _: Int? = nil,
-		filename _: String? = nil
+		contentLength: Int? = nil,
+		filename: String? = nil
 	) throws {
 		self.url = url
 		self.contentDigest = contentDigest
@@ -79,6 +79,8 @@ public struct RemoteAttachment {
 		self.nonce = nonce
 
 		self.scheme = scheme
+		self.contentLength = contentLength
+		self.filename = filename
 		fetcher = HTTPFetcher()
 
 		try ensureSchemeMatches()

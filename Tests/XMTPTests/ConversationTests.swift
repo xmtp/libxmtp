@@ -661,7 +661,7 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual(publishedDmCount, 2)
 
 		// Test counting with time-based filters
-		let now = Int64(Date().millisecondsSinceEpoch)
+		let now = Int64(Date().millisecondsSinceEpoch + 2000) // Allow for 2s of clock skew between client and server
 		let futureGroupCount = try group.countMessages(afterNs: now * 1_000_000)
 		let futureDmCount = try dm.countMessages(afterNs: now * 1_000_000)
 
