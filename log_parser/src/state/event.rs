@@ -1,16 +1,15 @@
-use std::collections::HashMap;
-
+use crate::{LogParser, Rule, state::Value};
 use anyhow::{Context, Result, bail};
 use pest::Parser;
+use std::iter::Peekable;
 use xmtp_common::Event;
-
-use crate::{LogParser, Rule, state::Value};
 
 #[derive(Debug)]
 pub struct LogEvent {
     pub event: Event,
     pub installation: String,
-    pub context: HashMap<String, Value>,
+    pub context: Vec<(String, Value)>,
+    pub intermediate: String,
 }
 
 impl LogEvent {
@@ -23,17 +22,14 @@ impl LogEvent {
     }
 
     pub fn timestamp_str(&self) -> String {
-        self.context
-            .get("time")
-            .and_then(|v| v.as_int().ok())
-            .map(|ts| ts.to_string())
-            .unwrap_or_default()
+        self.timestamp().to_string()
     }
 
     pub fn timestamp(&self) -> i64 {
         self.context
-            .get("time")
-            .and_then(|v| v.as_int().ok())
+            .iter()
+            .find(|(k, _)| k == "time")
+            .and_then(|(_, v)| v.as_int().ok())
             .unwrap_or(0)
     }
 
@@ -46,11 +42,18 @@ impl LogEvent {
     }
 
     pub fn group_id(&self) -> Option<&str> {
-        self.context.get("group_id").and_then(|v| v.as_str().ok())
+        self.context
+            .iter()
+            .find(|(k, _)| k == "group_id")
+            .and_then(|(_, v)| v.as_str().ok())
     }
 
-    pub fn from(line_str: &str) -> Result<Self> {
+    pub fn from<'a>(lines: &mut Peekable<impl Iterator<Item = &'a str>>) -> Result<Self> {
+        let line_str = lines.peek().context("End of file")?;
         let line = LogParser::parse(Rule::line, line_str)?;
+
+        let line_str = lines.next().expect("We peeked and found a line.");
+
         // There should only ever be one event per line.
         let Some(line) = line.last() else {
             bail!("Line has no events");
@@ -68,7 +71,7 @@ impl LogEvent {
             bail!("Unable to find matching event for {event_str}");
         };
 
-        let mut context = HashMap::new();
+        let mut context = Vec::new();
         for pair in object.into_inner() {
             if !matches!(pair.as_rule(), Rule::pair) {
                 continue;
@@ -84,19 +87,31 @@ impl LogEvent {
                 continue;
             };
 
-            context.insert(key.as_str().to_string(), value);
+            context.push((key.as_str().to_string(), value));
         }
 
-        let inbox = context
-            .remove("inst")
-            .with_context(|| format!("{line_str} is missing inbox field."))?
-            .as_str()?
-            .to_string();
+        let (_, inbox) = context
+            .extract_if(.., |(k, _)| k == "inst")
+            .collect::<Vec<_>>()
+            .pop()
+            .with_context(|| format!("{line_str} is missing inst field."))?;
+        let inbox = inbox.as_str()?.to_string();
+
+        // Collect up the intermediate lines that don't parse.
+        let mut intermediate = String::new();
+        while Self::from(lines).is_err() {
+            let Some(line) = lines.next() else {
+                break;
+            };
+            intermediate.push_str(line);
+            intermediate.push('\n');
+        }
 
         Ok(Self {
             event: event_meta.event,
             installation: inbox,
             context,
+            intermediate,
         })
     }
 }

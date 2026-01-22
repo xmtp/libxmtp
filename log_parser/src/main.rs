@@ -99,15 +99,13 @@ mod tests {
 
         let log = writer.as_string();
         std::fs::write("logs.txt", &log).unwrap();
-        let lines: Vec<&str> = log.split("\n").collect();
+        let mut lines = log.split("\n").peekable();
 
         let mut count = 0;
-        for line in lines {
-            let Ok(event) = LogEvent::from(&line) else {
-                continue;
-            };
+        while let Ok(_event) = LogEvent::from(&mut lines) {
             count += 1;
         }
+
         dbg!(count);
     }
 }

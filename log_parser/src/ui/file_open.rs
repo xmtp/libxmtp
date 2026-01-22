@@ -1,7 +1,8 @@
-use crate::{AppWindow, ContextEntry, LogEntry, LogStream, state::log::LogFile};
+use crate::{AppWindow, ContextEntry, LogEntry, LogStream};
 use slint::{Color, Model, ModelRc, SharedString, VecModel, Weak};
 use std::{
     collections::HashMap,
+    fs::read_to_string,
     hash::{Hash, Hasher},
     path::Path,
 };
@@ -81,7 +82,7 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
 
 /// Intermediate struct that is Send-safe for passing stream data to the UI thread
 struct StreamData {
-    inbox: String,
+    installation: String,
     entries: Vec<EntryData>,
 }
 
@@ -96,22 +97,24 @@ pub fn file_selected(handle: Weak<AppWindow>, path: impl AsRef<Path>) {
     let path = path.as_ref();
     tracing::info!("Selected logs file {path:?}");
 
-    let log_file = match LogFile::from_path(path) {
-        Ok(log) => log,
+    // Load the entire file in memory for now. We can optimize later.
+    let log_file = match read_to_string(path) {
+        Ok(str) => str,
         Err(err) => {
             tracing::error!("Unable to open log {path:?} {err:?}");
             return;
         }
     };
-    open_log(handle, log_file);
+
+    open_log(handle, &log_file);
 }
 
-pub fn open_log(handle: Weak<AppWindow>, log_file: LogFile) {
+pub fn open_log(handle: Weak<AppWindow>, log_file: &str) {
     // Convert each inbox stream to a StreamData
     let streams: Vec<StreamData> = log_file
         .streams
         .into_iter()
-        .map(|(inbox, events)| {
+        .map(|(installation, events)| {
             // Collect timestamps for duration calculation
             let timestamps: Vec<i64> = events.iter().map(|e| e.timestamp()).collect();
 
@@ -120,8 +123,8 @@ pub fn open_log(handle: Weak<AppWindow>, log_file: LogFile) {
                 .enumerate()
                 .map(|(index, event)| {
                     let duration_to_next = if index + 1 < timestamps.len() {
-                        let duration_ns = timestamps[index + 1] - timestamps[index];
-                        format_duration_ns(duration_ns)
+                        let duration_ms = timestamps[index + 1] - timestamps[index];
+                        format_duration_ns(duration_ms)
                     } else {
                         String::new()
                     };
@@ -135,7 +138,10 @@ pub fn open_log(handle: Weak<AppWindow>, log_file: LogFile) {
                 })
                 .collect();
 
-            StreamData { inbox, entries }
+            StreamData {
+                installation,
+                entries,
+            }
         })
         .collect();
 
@@ -175,7 +181,7 @@ pub fn open_log(handle: Weak<AppWindow>, log_file: LogFile) {
 
                             LogEntry {
                                 event: SharedString::from(e.event),
-                                inbox: SharedString::from(&stream.inbox),
+                                inbox: SharedString::from(&stream.installation),
                                 duration_to_next: SharedString::from(e.duration_to_next),
                                 context: ModelRc::new(VecModel::from(context_entries)),
                                 group_color,
@@ -187,7 +193,7 @@ pub fn open_log(handle: Weak<AppWindow>, log_file: LogFile) {
                     let entries_model = ModelRc::new(VecModel::from(slint_entries));
 
                     LogStream {
-                        inbox: SharedString::from(stream.inbox),
+                        inbox: SharedString::from(stream.installation),
                         entries: entries_model,
                     }
                 })

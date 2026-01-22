@@ -53,6 +53,6 @@ mod tests {
         let short_hex = short_hex(&bytes);
 
         assert_eq!(short_hex.len(), SHORT_LEN * 2);
-        assert_eq!(hex[(hex.len() - short_hex.len())..], short_hex);
+        assert_eq!(hex[..short_hex.len()], short_hex);
     }
 }

@@ -279,6 +279,13 @@ where
         self.context.db()
     }
 
+    /// This associates an installation_id with a human-readable
+    /// name and makes the logs a little easier to read.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn set_name(&self, name: &str) {
+        log_event!(Event::AssociateName, self.context.installation_id(), name);
+    }
+
     pub fn device_sync_server_url(&self) -> Option<&String> {
         self.context.device_sync_server_url()
     }

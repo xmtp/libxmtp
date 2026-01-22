@@ -8,7 +8,6 @@ use crate::Rule;
 #[derive(Debug, PartialEq, Eq)]
 pub enum Value {
     String(String),
-    Bytes(Vec<u8>),
     Int(i64),
     Object(HashMap<String, Value>),
     Array(Vec<Self>),
@@ -26,7 +25,6 @@ impl Value {
     fn fmt_indented(&self, f: &mut std::fmt::Formatter<'_>, indent: usize) -> std::fmt::Result {
         match self {
             Value::String(s) => write!(f, "{}", s),
-            Value::Bytes(b) => write!(f, "{:?}", b),
             Value::Int(i) => write!(f, "{}", i),
             Value::Object(obj) => {
                 if obj.is_empty() {

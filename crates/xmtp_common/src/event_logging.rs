@@ -4,9 +4,12 @@ pub use utils::*;
 #[xmtp_macro::build_logging_metadata]
 pub enum Event {
     // ===================== General Client =====================
-    /// Client created
+    /// Client created.
     #[context(device_sync_enabled, disabled_workers, inbox_id, full_installation_id)]
     ClientCreated,
+    /// Associating name with installation.
+    #[context(name)]
+    AssociateName,
 
     // ===================== Group Operations =====================
     /// DM created.
