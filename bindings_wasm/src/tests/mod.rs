@@ -12,6 +12,31 @@ use xmtp_configuration::GrpcUrls;
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_id::InboxOwner;
 
+/// Test that errors are formatted with the [ErrorCode] prefix
+#[wasm_bindgen_test]
+pub fn test_error_code_format() {
+  use xmtp_cryptography::signature::IdentifierValidationError;
+
+  // Create an error that implements ErrorCode
+  let inner_error =
+    IdentifierValidationError::InvalidAddresses(vec!["invalid-address".to_string()]);
+
+  // Use our error function to format it
+  let js_error = crate::error(inner_error);
+
+  // Access the error message through JsValue
+  let js_value: JsValue = js_error.into();
+  let error_obj = js_sys::Error::from(js_value);
+  let error_string = error_obj.message().as_string().unwrap_or_default();
+
+  // Verify the error starts with [ErrorType::Variant] pattern
+  assert!(
+    error_string.starts_with("[IdentifierValidationError::InvalidAddresses]"),
+    "Error should start with error code prefix, got: {}",
+    error_string
+  );
+}
+
 #[wasm_bindgen(js_name = createTestClient)]
 pub async fn create_test_client(path: Option<String>) -> Client {
   // crate::opfs::Opfs::wipe_files().await.unwrap();

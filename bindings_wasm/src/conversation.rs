@@ -185,7 +185,7 @@ impl Conversation {
     let message_id = group
       .send_message(encoded_content.encode_to_vec().as_slice(), opts.into())
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(hex::encode(message_id.clone()))
   }
@@ -202,7 +202,7 @@ impl Conversation {
 
     let id = group
       .send_message_optimistic(encoded_content.encode_to_vec().as_slice(), opts.into())
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(hex::encode(id.clone()))
   }
@@ -214,7 +214,7 @@ impl Conversation {
     group
       .publish_messages()
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(())
   }
@@ -226,7 +226,7 @@ impl Conversation {
     group
       .sync()
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(())
   }
@@ -241,7 +241,7 @@ impl Conversation {
     let conversation_type = group
       .conversation_type()
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
     let kind = match conversation_type {
       ConversationType::Group => None,
       ConversationType::Dm => None,
@@ -255,7 +255,7 @@ impl Conversation {
     };
     let messages: Vec<Message> = group
       .find_messages(&opts)
-      .map_err(|e| JsError::new(&format!("{e}")))?
+      .map_err(crate::error)?
       .into_iter()
       .map(Into::into)
       .collect();
@@ -270,7 +270,7 @@ impl Conversation {
     let query_args = opts.into();
     let count = group
       .count_messages(&query_args)
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(count)
   }
@@ -285,7 +285,7 @@ impl Conversation {
     let conversation_type = group
       .conversation_type()
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
     let kind = match conversation_type {
       ConversationType::Group => None,
       ConversationType::Dm => None,
@@ -313,7 +313,7 @@ impl Conversation {
     let members: Vec<GroupMember> = group
       .members()
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?
+      .map_err(crate::error)?
       .into_iter()
       .map(|member| GroupMember {
         inbox_id: member.inbox_id,
@@ -345,7 +345,7 @@ impl Conversation {
     let group = self.to_mls_group();
     let admin_list = group
       .admin_list()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(admin_list)
   }
@@ -355,7 +355,7 @@ impl Conversation {
     let group = self.to_mls_group();
     let super_admin_list = group
       .super_admin_list()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(super_admin_list)
   }
@@ -379,7 +379,7 @@ impl Conversation {
     group
       .add_members(&account_identifiers.to_internal()?)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(())
   }
@@ -390,7 +390,7 @@ impl Conversation {
     group
       .update_admin_list(UpdateAdminListType::Add, inbox_id)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(())
   }
@@ -402,7 +402,7 @@ impl Conversation {
     group
       .update_admin_list(UpdateAdminListType::Remove, inbox_id)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(())
   }
@@ -414,7 +414,7 @@ impl Conversation {
     group
       .update_admin_list(UpdateAdminListType::AddSuper, inbox_id)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(())
   }
@@ -426,7 +426,7 @@ impl Conversation {
     group
       .update_admin_list(UpdateAdminListType::RemoveSuper, inbox_id)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(())
   }
@@ -437,7 +437,7 @@ impl Conversation {
 
     let permissions = group
       .permissions()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(GroupPermissions::new(permissions))
   }
@@ -449,7 +449,7 @@ impl Conversation {
     group
       .add_members_by_inbox_id(&inbox_ids)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(())
   }
@@ -461,7 +461,7 @@ impl Conversation {
     group
       .remove_members(&account_identifiers.to_internal()?)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(())
   }
@@ -474,7 +474,7 @@ impl Conversation {
     group
       .remove_members_by_inbox_id(ids.as_slice())
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(())
   }
@@ -486,7 +486,7 @@ impl Conversation {
     group
       .update_group_name(group_name)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(())
   }
@@ -497,7 +497,7 @@ impl Conversation {
 
     let group_name = group
       .group_name()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(group_name)
   }
@@ -509,7 +509,7 @@ impl Conversation {
     group
       .update_app_data(app_data)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(())
   }
@@ -520,7 +520,7 @@ impl Conversation {
 
     let app_data = group
       .app_data()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(app_data)
   }
@@ -535,7 +535,7 @@ impl Conversation {
     group
       .update_group_image_url_square(group_image_url_square)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(())
   }
@@ -546,7 +546,7 @@ impl Conversation {
 
     let group_image_url_square = group
       .group_image_url_square()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(group_image_url_square)
   }
@@ -558,7 +558,7 @@ impl Conversation {
     group
       .update_group_description(group_description)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(())
   }
@@ -569,7 +569,7 @@ impl Conversation {
 
     let group_description = group
       .group_description()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(group_description)
   }
@@ -626,7 +626,7 @@ impl Conversation {
     let metadata = group
       .metadata()
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(GroupMetadata { inner: metadata })
   }
@@ -672,7 +672,7 @@ impl Conversation {
       .to_mls_group()
       .update_conversation_message_disappearing_settings(settings.into())
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(())
   }
@@ -683,7 +683,7 @@ impl Conversation {
       .to_mls_group()
       .remove_conversation_message_disappearing_settings()
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(())
   }
@@ -695,7 +695,7 @@ impl Conversation {
     let settings = self
       .inner_group
       .disappearing_settings()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     match settings {
       Some(s) => Ok(Some(s.into())),
@@ -735,7 +735,7 @@ impl Conversation {
 
     let keys = group
       .hmac_keys(-1..=1)
-      .map_err(|e| JsError::new(&format!("{e}")))?
+      .map_err(crate::error)?
       .into_iter()
       .map(Into::into)
       .collect::<Vec<HmacKey>>();
@@ -751,7 +751,7 @@ impl Conversation {
     let debug_info = group
       .debug_info()
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(crate::to_value(&ConversationDebugInfo {
       epoch: debug_info.epoch,
@@ -786,7 +786,7 @@ impl Conversation {
     let group = self.to_mls_group();
     let messages: Vec<DecodedMessage> = group
       .find_messages_v2(&opts.into())
-      .map_err(|e| JsError::new(&format!("{e}")))?
+      .map_err(crate::error)?
       .into_iter()
       .map(|msg| msg.into())
       .collect();
@@ -799,7 +799,7 @@ impl Conversation {
     let group = self.to_mls_group();
     let times = group
       .get_last_read_times()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(crate::error)?;
 
     Ok(crate::to_value(&times)?)
   }

@@ -429,7 +429,7 @@ impl Conversations {
     let group = self
       .inner_client
       .create_group(group_permissions, Some(metadata_options))
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(crate::error)?;
 
     Ok(group.into())
   }
@@ -481,7 +481,7 @@ impl Conversations {
         options.map(|opt| opt.into_dm_metadata_options()),
       )
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(crate::error)?;
 
     Ok(convo.into())
   }
@@ -496,7 +496,7 @@ impl Conversations {
       .inner_client
       .find_or_create_dm_by_inbox_id(inbox_id, options.map(|opt| opt.into_dm_metadata_options()))
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(crate::error)?;
 
     Ok(convo.into())
   }
@@ -508,7 +508,7 @@ impl Conversations {
     let group = self
       .inner_client
       .stitched_group(&group_id)
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(crate::error)?;
 
     Ok(group.into())
   }
@@ -521,7 +521,7 @@ impl Conversations {
     let convo = self
       .inner_client
       .dm_group_from_target_inbox(target_inbox_id)
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(crate::error)?;
 
     Ok(convo.into())
   }
@@ -534,7 +534,7 @@ impl Conversations {
     let message = self
       .inner_client
       .message(message_id)
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(crate::error)?;
 
     Ok(message.into())
   }
@@ -545,7 +545,7 @@ impl Conversations {
       .inner_client
       .sync_welcomes()
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(crate::error)?;
 
     Ok(())
   }
@@ -562,7 +562,7 @@ impl Conversations {
       .inner_client
       .sync_all_welcomes_and_groups(consents)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(crate::error)?;
 
     Ok(summary.into())
   }
@@ -572,7 +572,7 @@ impl Conversations {
     let convo_list: js_sys::Array = self
       .inner_client
       .list_conversations(opts.unwrap_or_default().into())
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+      .map_err(crate::error)?
       .into_iter()
       .map(|group| {
         JsValue::from(ConversationListItem::new(
@@ -594,14 +594,14 @@ impl Conversations {
         include_duplicate_dms: true,
         ..Default::default()
       })
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(crate::error)?;
 
     let mut hmac_map: HashMap<String, Vec<HmacKey>> = HashMap::new();
     for conversation in conversations {
       let id = hex::encode(&conversation.group_id);
       let keys = conversation
         .hmac_keys(-1..=1)
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+        .map_err(crate::error)?
         .into_iter()
         .map(Into::into)
         .collect::<Vec<_>>();

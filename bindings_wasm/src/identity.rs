@@ -37,8 +37,8 @@ impl TryFrom<Identifier> for XmtpIdentifier {
   type Error = JsError;
   fn try_from(ident: Identifier) -> Result<Self, Self::Error> {
     let ident = match ident.identifier_kind {
-      IdentifierKind::Ethereum => Self::eth(ident.identifier)?,
-      IdentifierKind::Passkey => Self::passkey_str(&ident.identifier, None)?,
+      IdentifierKind::Ethereum => Self::eth(ident.identifier).map_err(crate::error)?,
+      IdentifierKind::Passkey => Self::passkey_str(&ident.identifier, None).map_err(crate::error)?,
     };
     Ok(ident)
   }

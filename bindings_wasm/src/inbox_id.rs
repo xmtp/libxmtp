@@ -16,7 +16,7 @@ pub async fn get_inbox_id_for_identifier(
     .maybe_gateway_host(gateway_host)
     .is_secure(true)
     .build()
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    .map_err(crate::error)?;
   let api_client = ApiClientWrapper::new(
     TrackedStatsClient::new(backend),
     strategies::exponential_cooldown(),
@@ -27,7 +27,7 @@ pub async fn get_inbox_id_for_identifier(
   let results = api_client
     .get_inbox_ids(vec![api_ident.clone()])
     .await
-    .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    .map_err(crate::error)?;
 
   Ok(results.get(&api_ident).cloned())
 }
@@ -41,5 +41,5 @@ pub fn generate_inbox_id(
 
   ident
     .inbox_id(nonce.unwrap_or(1))
-    .map_err(|e| JsError::new(format!("{}", e).as_str()))
+    .map_err(crate::error)
 }
