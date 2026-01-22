@@ -1135,10 +1135,10 @@ async fn test_stream_message_deletions_from_other_client() {
     assert_eq!(deleted_message.metadata.sender_inbox_id, alix.inbox_id());
 }
 
-/// Test that stream_message_deletions does NOT receive a callback when the same client
-/// deletes a message (current behavior - event only fires for remote deletions)
+/// Test that stream_message_deletions receives a callback when the same client
+/// deletes a message and publishes it (self-deletions fire local events after network confirmation)
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_stream_message_deletions_from_self_does_not_fire() {
+async fn test_stream_message_deletions_from_self() {
     use crate::utils::FullXmtpClient;
     use parking_lot::Mutex;
     use std::sync::Arc;
@@ -1190,15 +1190,21 @@ async fn test_stream_message_deletions_from_self_does_not_fire() {
     // Wait briefly - the callback should NOT be called
     let result = xmtp_common::time::timeout(Duration::from_millis(5000), notify.notified()).await;
 
-    // Verify the callback was NOT called (timeout is expected)
+    // Verify the callback was called (self-deletions fire local events after network confirmation)
     assert!(
-        result.is_err(),
-        "Expected timeout - stream_message_deletions does not fire for self-deletions"
+        result.is_ok(),
+        "stream_message_deletions should fire for self-deletions after publish"
     );
 
-    // Verify no message was received
+    // Verify the correct message was received
+    let received = deleted_message.lock();
     assert!(
-        deleted_message.lock().is_none(),
-        "No deletion event should be received for self-deletions"
+        received.is_some(),
+        "Deletion event should be received for self-deletions"
+    );
+    let received_msg = received.as_ref().unwrap();
+    assert_eq!(
+        received_msg.metadata.id, message_id,
+        "Deleted message ID should match"
     );
 }
