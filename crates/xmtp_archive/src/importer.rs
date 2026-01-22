@@ -8,15 +8,21 @@ use prost::Message;
 #[allow(deprecated)]
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::{pin::Pin, task::Poll};
+use xmtp_common::{if_native, if_wasm};
 use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
 
-#[cfg(not(target_arch = "wasm32"))]
-mod file_import;
+if_native! {
+    mod file_import;
+    type AsyncReader = Pin<Box<dyn AsyncBufRead + Send>>;
+}
+if_wasm! {
+    type AsyncReader = Pin<Box<dyn AsyncBufRead>>;
+}
 
 pub struct ArchiveImporter {
     pub metadata: BackupMetadata,
     decoded: Vec<u8>,
-    decoder: ZstdDecoder<Pin<Box<dyn AsyncBufRead + Send>>>,
+    decoder: ZstdDecoder<AsyncReader>,
 
     cipher: AesGcm<Aes256, typenum::U12, typenum::U16>,
     #[allow(deprecated)]
@@ -79,10 +85,7 @@ impl Stream for ArchiveImporter {
 }
 
 impl ArchiveImporter {
-    pub async fn load(
-        mut reader: Pin<Box<dyn AsyncBufRead + Send>>,
-        key: &[u8],
-    ) -> Result<Self, ArchiveError> {
+    pub async fn load(mut reader: AsyncReader, key: &[u8]) -> Result<Self, ArchiveError> {
         let mut version = [0; 2];
         reader.read_exact(&mut version).await?;
         let version = u16::from_le_bytes(version);

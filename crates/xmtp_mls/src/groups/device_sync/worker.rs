@@ -15,7 +15,6 @@ use crate::{
 use futures::TryFutureExt;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{OnceCell, broadcast};
-#[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
@@ -666,24 +665,15 @@ where
             Event::DeviceSyncArchiveImportStart,
             self.context.installation_id()
         );
-        #[cfg(not(target_arch = "wasm32"))]
-        let reader = {
-            use futures::StreamExt;
-            let stream = response
-                .bytes_stream()
-                .map(|result| result.map_err(std::io::Error::other));
-
-            // Convert that stream into a reader
-            let tokio_reader = tokio_util::io::StreamReader::new(stream);
-            // Convert that tokio reader into a futures reader.
-            // We use futures reader for WASM compat.
-            tokio_reader.compat()
-        };
-        #[cfg(target_arch = "wasm32")]
-        let reader = {
-            // WASM doesn't support request streaming. Consume the response instead.
-            futures::io::Cursor::new(response.bytes().await?)
-        };
+        use futures::StreamExt;
+        let stream = response
+            .bytes_stream()
+            .map(|result| result.map_err(std::io::Error::other));
+        // Convert that stream into a reader
+        let tokio_reader = tokio_util::io::StreamReader::new(stream);
+        // Convert that tokio reader into a futures reader.
+        // We use futures reader for WASM compat.
+        let reader = tokio_reader.compat();
 
         // Create an importer around that futures_reader.
         let Some(DeviceSyncKeyType {
