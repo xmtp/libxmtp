@@ -26,9 +26,9 @@ use xmtp_db::{
 };
 use xmtp_mls_common::group_metadata::extract_group_metadata;
 
-const ITERATION_COUNT: usize = 50;
-const TESTERS_PER_ITERATION: std::ops::RangeInclusive<usize> = 1..=1;
-const INSTALLATIONS_PER_TESTER: std::ops::RangeInclusive<usize> = 9..=9;
+const ITERATION_COUNT: usize = 5;
+const TESTERS_PER_ITERATION: std::ops::RangeInclusive<usize> = 1..=3;
+const INSTALLATIONS_PER_TESTER: std::ops::RangeInclusive<usize> = 0..=9;
 const PCT_FILL_LEAF_NODES: f64 = 0.0625;
 const FILL_LEAF_NODE_EVERY: usize = 8;
 
@@ -610,7 +610,9 @@ async fn test_commit_sizes_with_proposals() {
             sync_groups(testers.iter()).await;
             for (i, tester) in testers[tester_start..].iter().enumerate() {
                 fill_leaf_node_counter += 1;
-                if fill_leaf_node_counter % FILL_LEAF_NODE_EVERY == 0 {
+                if fill_leaf_node_counter % FILL_LEAF_NODE_EVERY == 0
+                    || rand::Rng::gen_bool(&mut rng, PCT_FILL_LEAF_NODES)
+                {
                     fill_leaf_nodes([tester].into_iter(), testers.iter()).await;
                 }
                 let message_bytes = format!("Hello from new tester! {}", tester_start + i);

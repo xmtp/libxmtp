@@ -382,23 +382,7 @@ where
         operation: impl AsyncFnOnce(OpenMlsGroup) -> Result<R, E>,
     ) -> Result<R, E>
     where
-<<<<<<< HEAD
-        E: From<crate::StorageError>,
-        E: From<xmtp_db::sql_key_store::SqlKeyStoreError>,
-||||||| 07a9baa0b
-        F: FnOnce(OpenMlsGroup) -> Fut,
-        Fut: Future<Output = Result<R, E>>,
-        E:
-            From<GroupMessageProcessingError>
-                + From<crate::StorageError>
-                + From<
-                    <Context::MlsStorage as openmls_traits::storage::StorageProvider<
-                        CURRENT_VERSION,
-                    >>::Error,
-                >,
-=======
         E: From<crate::StorageError> + From<xmtp_db::sql_key_store::SqlKeyStoreError>,
->>>>>>> origin/main
     {
         let mls_storage = self.context.mls_storage();
 
