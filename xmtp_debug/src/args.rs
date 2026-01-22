@@ -250,12 +250,18 @@ pub struct TestOpts {
     /// Number of iterations to run
     #[arg(long, short, default_value = "1")]
     pub iterations: usize,
+
+    /// Number of messages to sync (for group-sync test)
+    #[arg(long, short, default_value = "10")]
+    pub message_count: usize,
 }
 
 #[derive(ValueEnum, Debug, Clone)]
 pub enum TestScenario {
     /// Measure message visibility latency
     MessageVisibility,
+    /// Measure group sync latency (time to sync N messages)
+    GroupSync,
 }
 
 #[derive(ValueEnum, Debug, Clone)]

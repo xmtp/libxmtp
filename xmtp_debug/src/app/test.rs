@@ -23,6 +23,7 @@ impl Test {
     pub async fn run(self) -> Result<()> {
         match self.opts.scenario {
             TestScenario::MessageVisibility => self.message_visibility_test().await,
+            TestScenario::GroupSync => self.group_sync_test().await,
         }
     }
 
@@ -159,5 +160,128 @@ impl Test {
         client2.release_db_connection()?;
 
         Ok(latency_ms)
+    }
+
+    /// Measures group sync latency - the time for a client to sync and retrieve
+    /// N messages that were sent while the client was offline.
+    async fn group_sync_test(&self) -> Result<()> {
+        let iterations = self.opts.iterations;
+        let message_count = self.opts.message_count;
+        let mut latencies = Vec::with_capacity(iterations);
+
+        println!(
+            "Running group sync test with {} iteration(s), {} messages each",
+            iterations, message_count
+        );
+        println!("Network: {:?}", self.network.backend);
+        println!();
+
+        for i in 0..iterations {
+            println!("--- Iteration {} ---", i + 1);
+            let latency = self.run_single_group_sync_test().await?;
+            latencies.push(latency);
+            println!("Sync latency: {} ms", latency);
+            println!();
+        }
+
+        // Print summary statistics
+        if iterations > 1 {
+            let sum: u128 = latencies.iter().sum();
+            let avg = sum / iterations as u128;
+            let min = *latencies.iter().min().unwrap();
+            let max = *latencies.iter().max().unwrap();
+
+            println!("=== Summary ===");
+            println!("Iterations: {}", iterations);
+            println!("Message count: {}", message_count);
+            println!("Average sync latency: {} ms", avg);
+            println!("Min sync latency: {} ms", min);
+            println!("Max sync latency: {} ms", max);
+        }
+
+        Ok(())
+    }
+
+    async fn run_single_group_sync_test(&self) -> Result<u128> {
+        let message_count = self.opts.message_count;
+
+        // Step 1: Create 2 fresh users/identities
+        println!("Creating user1 (sender)...");
+        let wallet1 = generate_wallet();
+        let client1 = app::temp_client(&self.network, Some(&wallet1)).await?;
+        app::register_client(&client1, wallet1.clone().into_alloy()).await?;
+        let inbox_id1 = client1.inbox_id().to_string();
+        println!("  User1 inbox_id: {}", inbox_id1);
+
+        println!("Creating user2 (receiver)...");
+        let wallet2 = generate_wallet();
+        let client2 = app::temp_client(&self.network, Some(&wallet2)).await?;
+        app::register_client(&client2, wallet2.clone().into_alloy()).await?;
+        let inbox_id2 = client2.inbox_id().to_string();
+        println!("  User2 inbox_id: {}", inbox_id2);
+
+        // Step 2: user1 creates a group chat and adds user2
+        println!("User1 creating group and adding user2...");
+        let group = client1.create_group(Default::default(), Default::default())?;
+        group
+            .add_members_by_inbox_id(std::slice::from_ref(&inbox_id2))
+            .await?;
+        let group_id = hex::encode(&group.group_id);
+        println!("  Group created: {}", group_id);
+
+        // Step 3: Sync user2 to receive the group welcome (but don't sync messages yet)
+        println!("Syncing user2 welcomes...");
+        client2.sync_welcomes().await?;
+
+        // Step 4: user1 sends N messages to the group
+        println!("User1 sending {} messages...", message_count);
+        for i in 0..message_count {
+            let msg = format!(
+                "history-msg-{}-{}",
+                i,
+                chrono::Utc::now().timestamp_millis()
+            );
+            group
+                .send_message(
+                    msg.as_bytes(),
+                    SendMessageOptsBuilder::default()
+                        .should_push(false)
+                        .build()
+                        .unwrap(),
+                )
+                .await?;
+        }
+        println!("  Messages sent");
+
+        // Step 5: user2 syncs the group and retrieves messages (measure this)
+        println!("User2 syncing group...");
+        let receiver_group = client2.group(&group.group_id)?;
+
+        let sync_start = Instant::now();
+        receiver_group.sync().await?;
+        let messages = receiver_group.find_messages(&Default::default())?;
+        let sync_duration = sync_start.elapsed().as_millis();
+
+        println!(
+            "  Synced {} messages in {} ms",
+            messages.len(),
+            sync_duration
+        );
+
+        // Verify we got the expected messages (at least message_count)
+        // Note: messages includes membership changes, so count may be higher
+        if messages.len() < message_count {
+            return Err(eyre!(
+                "Expected at least {} messages, got {}",
+                message_count,
+                messages.len()
+            ));
+        }
+
+        // Clean up
+        client1.release_db_connection()?;
+        client2.release_db_connection()?;
+
+        Ok(sync_duration)
     }
 }
