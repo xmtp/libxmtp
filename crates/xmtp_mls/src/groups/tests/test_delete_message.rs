@@ -1058,3 +1058,147 @@ async fn test_out_of_order_sender_deletion_shows_correct_deleted_by() {
     };
     assert_eq!(*deleted_by, DeletedBy::Sender);
 }
+
+/// Test that stream_message_deletions receives a callback when another client deletes a message
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_stream_message_deletions_from_other_client() {
+    use crate::utils::FullXmtpClient;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::Notify;
+    use xmtp_common::StreamHandle;
+
+    tester!(alix);
+    tester!(bo);
+
+    // Create a group and add bo
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+
+    // Bo syncs to join the group
+    let bo_groups = bo.sync_welcomes().await?;
+    assert_eq!(bo_groups.len(), 1);
+    let bo_group = &bo_groups[0];
+
+    // Alix sends a message
+    let text_content = TextCodec::encode("Message to be deleted".to_string())?;
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+    let message_id = alix_group
+        .send_message(&text_bytes, SendMessageOpts::default())
+        .await?;
+
+    // Bo syncs to receive the message (needed so the original message is in Bo's DB)
+    bo_group.sync().await?;
+
+    // Set up shared state for Bo's callback
+    let deleted_message: Arc<Mutex<Option<crate::messages::decoded_message::DecodedMessage>>> =
+        Arc::new(Mutex::new(None));
+    let notify = Arc::new(Notify::new());
+
+    let deleted_message_clone = deleted_message.clone();
+    let notify_clone = notify.clone();
+
+    // Bo sets up the deletion stream with callback
+    // (Bo will receive the deletion event when syncing, since alix sent it)
+    let mut handle = FullXmtpClient::stream_message_deletions_with_callback(
+        Arc::new(bo.client.clone()),
+        move |msg| {
+            if let Ok(message) = msg {
+                *deleted_message_clone.lock() = Some(message);
+                notify_clone.notify_one();
+            }
+        },
+    );
+
+    // Wait for stream to be ready
+    handle.wait_for_ready().await;
+
+    // Alix deletes the message and publishes
+    alix_group.delete_message(message_id.clone())?;
+    alix_group.publish_messages().await?;
+
+    // Bo syncs to receive the deletion (this triggers the MessageDeleted event)
+    bo_group.sync().await?;
+
+    // Wait for callback to be called (with timeout)
+    xmtp_common::time::timeout(Duration::from_secs(5), notify.notified())
+        .await
+        .expect("Timed out waiting for deletion callback");
+
+    // Verify the stream received the correct deleted message
+    let deleted_message = deleted_message
+        .lock()
+        .take()
+        .expect("No deleted message received");
+    assert_eq!(deleted_message.metadata.id, message_id);
+    assert_eq!(deleted_message.metadata.sender_inbox_id, alix.inbox_id());
+}
+
+/// Test that stream_message_deletions does NOT receive a callback when the same client
+/// deletes a message (current behavior - event only fires for remote deletions)
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_stream_message_deletions_from_self_does_not_fire() {
+    use crate::utils::FullXmtpClient;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::Notify;
+    use xmtp_common::StreamHandle;
+
+    tester!(alix);
+
+    // Create a group
+    let alix_group = alix.create_group(None, None)?;
+
+    // Alix sends a message
+    let text_content = TextCodec::encode("Message to be deleted".to_string())?;
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+    let message_id = alix_group
+        .send_message(&text_bytes, SendMessageOpts::default())
+        .await?;
+
+    // Set up shared state for Alix's callback
+    let deleted_message: Arc<Mutex<Option<crate::messages::decoded_message::DecodedMessage>>> =
+        Arc::new(Mutex::new(None));
+    let notify = Arc::new(Notify::new());
+
+    let deleted_message_clone = deleted_message.clone();
+    let notify_clone = notify.clone();
+
+    // Alix sets up the deletion stream with callback
+    let mut handle = FullXmtpClient::stream_message_deletions_with_callback(
+        Arc::new(alix.client.clone()),
+        move |msg| {
+            if let Ok(message) = msg {
+                *deleted_message_clone.lock() = Some(message);
+                notify_clone.notify_one();
+            }
+        },
+    );
+
+    // Wait for stream to be ready
+    handle.wait_for_ready().await;
+
+    // Alix deletes the message and publishes
+    alix_group.delete_message(message_id.clone())?;
+    alix_group.publish_messages().await?;
+
+    // Alix syncs (the deletion message is skipped because it was already processed locally)
+    alix_group.sync().await?;
+
+    // Wait briefly - the callback should NOT be called
+    let result = xmtp_common::time::timeout(Duration::from_millis(5000), notify.notified()).await;
+
+    // Verify the callback was NOT called (timeout is expected)
+    assert!(
+        result.is_err(),
+        "Expected timeout - stream_message_deletions does not fire for self-deletions"
+    );
+
+    // Verify no message was received
+    assert!(
+        deleted_message.lock().is_none(),
+        "No deletion event should be received for self-deletions"
+    );
+}
