@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createRegisteredClient, createUser, TEST_API_URL } from '@test/helpers'
 import {
   generateInboxId,
-  getInboxIdForIdentifier,
+  getInboxIdByIdentity,
   IdentifierKind,
   isAddressAuthorized,
   isInstallationAuthorized,
@@ -19,33 +19,23 @@ describe('generateInboxId', () => {
   })
 })
 
-describe('getInboxIdForIdentifier', () => {
+describe('getInboxIdByIdentity', () => {
   it('should return `null` inbox ID for unregistered address', async () => {
     const user = createUser()
-    const inboxId = await getInboxIdForIdentifier(
-      TEST_API_URL,
-      undefined,
-      false,
-      {
-        identifier: user.account.address,
-        identifierKind: IdentifierKind.Ethereum,
-      }
-    )
+    const inboxId = await getInboxIdByIdentity(TEST_API_URL, undefined, false, {
+      identifier: user.account.address,
+      identifierKind: IdentifierKind.Ethereum,
+    })
     expect(inboxId).toBe(null)
   })
 
   it('should return inbox ID for registered address', async () => {
     const user = createUser()
     const client = await createRegisteredClient(user)
-    const inboxId = await getInboxIdForIdentifier(
-      TEST_API_URL,
-      undefined,
-      false,
-      {
-        identifier: user.account.address,
-        identifierKind: IdentifierKind.Ethereum,
-      }
-    )
+    const inboxId = await getInboxIdByIdentity(TEST_API_URL, undefined, false, {
+      identifier: user.account.address,
+      identifierKind: IdentifierKind.Ethereum,
+    })
     expect(inboxId).toBe(client.inboxId())
   })
 })

@@ -8,7 +8,7 @@ import {
   createClient as create,
   createLocalToxicClient,
   generateInboxId,
-  getInboxIdForIdentifier,
+  getInboxIdByIdentity,
   IdentifierKind,
   LogLevel,
   SyncWorkerMode,
@@ -38,7 +38,7 @@ export type User = ReturnType<typeof createUser>
 export const createClient = async (user: User, appVersion?: string) => {
   const dbPath = join(__dirname, `${user.uuid}.db3`)
   const inboxId =
-    (await getInboxIdForIdentifier(TEST_API_URL, undefined, false, {
+    (await getInboxIdByIdentity(TEST_API_URL, undefined, false, {
       identifier: user.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })) ||
@@ -86,7 +86,7 @@ export const createRegisteredClient = async (
 export const createToxicClient = async (user: User) => {
   const dbPath = join(__dirname, `${user.uuid}.db3`)
   const inboxId =
-    (await getInboxIdForIdentifier(TEST_API_URL, undefined, false, {
+    (await getInboxIdByIdentity(TEST_API_URL, undefined, false, {
       identifier: user.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })) ||
