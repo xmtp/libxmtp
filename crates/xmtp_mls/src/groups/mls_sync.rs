@@ -3185,23 +3185,10 @@ where
         &XmtpOpenMlsProviderRef<<S::TxQuery as TransactionalKeyStore>::Store<'a>>,
     ) -> Result<R, E>,
 {
-    let mut result = None;
-    let mut staged_commit = None;
-    let mut group_epoch = None;
-
-    let transaction_result = storage.transaction(|conn| {
-        let key_store = conn.key_store();
-        let provider = XmtpOpenMlsProviderRef::new(&key_store);
-
-        // Capture the epoch before the operation to ensure we have the correct
-        // epoch even if the database is updated after the transaction and before we save the intent locally.
-        group_epoch = Some(openmls_group.epoch().as_u64());
-
-        // Execute the operation (e.g., self_update, update_group_context_extensions, etc.)
-        result = Some(operation(openmls_group, &provider));
-
-        // Extract the staged commit data before rollback
-        staged_commit = openmls_group
+    with_rollback(storage, openmls_group, |group, provider| {
+        let group_epoch = group.epoch().as_u64();
+        let result = operation(group, provider).map_err(Into::into)?;
+        let staged_commit = group
             .pending_commit()
             .as_ref()
             .map(xmtp_db::db_serialize)
@@ -3209,6 +3196,31 @@ where
             .inspect_err(|error| tracing::error!(%error, "Error serializing staged commit"))
             .ok()
             .flatten();
+        Ok::<_, GroupError>((result, staged_commit, group_epoch))
+    })
+}
+
+pub(super) fn with_rollback<S, R, E, F>(
+    storage: &S,
+    openmls_group: &mut OpenMlsGroup,
+    operation: F,
+) -> Result<R, GroupError>
+where
+    S: XmtpMlsStorageProvider,
+    E: Into<GroupError>,
+    F: for<'a> FnOnce(
+        &mut OpenMlsGroup,
+        &XmtpOpenMlsProviderRef<<S::TxQuery as TransactionalKeyStore>::Store<'a>>,
+    ) -> Result<R, E>,
+{
+    let mut result = None;
+
+    let transaction_result = storage.transaction(|conn| {
+        let key_store = conn.key_store();
+        let provider = XmtpOpenMlsProviderRef::new(&key_store);
+
+        // Execute the operation (e.g., self_update, update_group_context_extensions, etc.)
+        result = Some(operation(openmls_group, &provider));
 
         // Rollback the transaction to avoid persisting the commit
         Err::<(), StorageError>(StorageError::IntentionalRollback)
@@ -3225,19 +3237,12 @@ where
         return Err(e.into());
     }
 
-    // Return early if group epoch is not set otherwise unwrap the group epoch
-    let group_epoch = group_epoch.expect("Group epoch should have been captured in transaction");
-
-    // This must go after error checking
-    // Reload the group to clear its internal cache after rollback
     openmls_group.reload(storage)?;
 
     // Extract and handle the operation result
-    let operation_result = result
+    result
         .expect("Operation should have been called")
-        .map_err(|e| e.into())?;
-
-    Ok((operation_result, staged_commit, group_epoch))
+        .map_err(|e| e.into())
 }
 
 pub(crate) fn decode_staged_commit(
