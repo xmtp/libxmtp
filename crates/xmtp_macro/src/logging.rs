@@ -144,18 +144,6 @@ impl Parse for LogEventInput {
             fields.push(Field { name, sigil, value });
         }
 
-        // Create a field for installation_id that hex encodes the last 4 bytes
-        let installation_id_field = Field {
-            name: syn::Ident::new("inst", proc_macro2::Span::call_site()),
-            sigil: Some('%'),
-            value: Some(syn::parse_quote! {
-                {
-                    xmtp_common::fmt::short_hex(__installation_id.as_ref())
-                }
-            }),
-        };
-        fields.push(installation_id_field);
-
         Ok(LogEventInput {
             event,
             level,

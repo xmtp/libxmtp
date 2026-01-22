@@ -271,8 +271,6 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             // Bind installation_id to a variable to extend its lifetime
             let __installation_id = #installation_id;
-            // Hex encode last 4 bytes of installation_id
-            let __installation_bytes: &[u8] = __installation_id.as_ref();
 
             // Build message with context for non-structured logging
             let __message = if ::xmtp_common::is_structured_logging() {
@@ -280,7 +278,7 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 format!("➣ {} {{time: {}}}", __meta.doc, xmtp_common::time::now_ns())
             } else {
                 // Non-structured logging: embed context in message for readability
-                let __context_parts: ::std::vec::Vec<String> = __meta.context_fields
+                let mut __context_parts: ::std::vec::Vec<String> = __meta.context_fields
                     .iter()
                     .filter_map(|&field_name| {
                         match field_name {
@@ -290,12 +288,11 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     })
                     .collect();
 
+                __context_parts.push(format!("time: {}", xmtp_common::time::now_ns()));
+                __context_parts.push(format!("inst: {}", xmtp_common::fmt::short_hex(__installation_id.as_ref())));
                 let __context_str = __context_parts.join(", ");
-                if __context_str.is_empty() {
-                    format!("➣ {} {{time: {}}}", __meta.doc, xmtp_common::time::now_ns())
-                } else {
-                    format!("➣ {} {{{__context_str}, time: {}}}", __meta.doc, xmtp_common::time::now_ns())
-                }
+
+                format!("➣ {} {{{__context_str}}}", __meta.doc)
             };
 
             #tracing_call

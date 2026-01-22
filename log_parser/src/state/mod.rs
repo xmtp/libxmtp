@@ -43,7 +43,7 @@ impl State {
                     .update();
 
                 dm.dm_target = Some(ctx("target_inbox")?.as_str()?.to_string());
-                dm.created_at = Some(ctx("timestamp")?.as_int()?);
+                dm.created_at = Some(ctx("time")?.as_int()?);
             }
             _ => {}
         }
@@ -97,9 +97,8 @@ impl GroupStateExt for Arc<RwLock<GroupState>> {
 
 #[cfg(test)]
 mod tests {
-    use xmtp_common::Event;
-
     use crate::state::{LogEvent, Value};
+    use xmtp_common::Event;
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_log_parse() {

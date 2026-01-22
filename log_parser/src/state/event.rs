@@ -32,7 +32,7 @@ impl LogEvent {
 
     pub fn timestamp(&self) -> i64 {
         self.context
-            .get("timestamp")
+            .get("time")
             .and_then(|v| v.as_int().ok())
             .unwrap_or(0)
     }
