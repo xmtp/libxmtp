@@ -244,6 +244,7 @@ where
                         options,
                         &send_sync_archive.sync_group_id,
                         send_sync_archive.request_id.as_deref(),
+                        &send_sync_archive.server_url,
                     )
                     .await
                     .inspect_err(|e| {

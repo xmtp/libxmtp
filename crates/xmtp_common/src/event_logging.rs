@@ -135,9 +135,12 @@ pub enum Event {
     #[context(request_id)]
     DeviceSyncResponseTaskScheduled,
     /// Sending sync archive
-    #[context(group_id)]
+    #[context(group_id, server_url)]
     DeviceSyncArchiveUploadStart,
     /// Failed to respond to sync request.
     #[context(group_id, request_id, err)]
     DeviceSyncArchiveUploadFailure,
+    /// Cannot respond to sync request. No server_url present.
+    #[context(request_id)]
+    DeviceSyncNoServerUrl,
 }

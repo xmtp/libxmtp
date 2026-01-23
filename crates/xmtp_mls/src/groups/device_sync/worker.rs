@@ -15,6 +15,7 @@ use crate::{
 use futures::TryFutureExt;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{OnceCell, broadcast};
+#[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
@@ -339,6 +340,15 @@ where
                     return Ok(());
                 }
 
+                let Some(server_url) = self.context.device_sync_server_url() else {
+                    log_event!(
+                        Event::DeviceSyncNoServerUrl,
+                        self.context.installation_id(),
+                        request_id = request.request_id
+                    );
+                    return Ok(());
+                };
+
                 self.context.task_channels().send(
                     NewTask::builder()
                         .originating_message_originator_id(msg.originator_id as i32)
@@ -350,6 +360,7 @@ where
                                         options: request.options,
                                         request_id: Some(request.request_id),
                                         sync_group_id: msg.group_id.clone(),
+                                        server_url: server_url.to_string(),
                                     },
                                 ),
                             ),
@@ -455,6 +466,7 @@ where
         options: &BackupOptions,
         sync_group_id: &Vec<u8>,
         request_id: Option<&str>,
+        server_url: &str,
     ) -> Result<(), DeviceSyncError>
     where
         Context::Db: 'static,
@@ -462,12 +474,13 @@ where
         log_event!(
             Event::DeviceSyncArchiveUploadStart,
             self.context.installation_id(),
-            group_id = sync_group_id.short_hex()
+            group_id = sync_group_id.short_hex(),
+            server_url
         );
-        let Some(device_sync_server_url) = &self.context.device_sync().server_url else {
-            tracing::info!("No message history payload sent - server url not present.");
-            return Ok(());
-        };
+        // let Some(device_sync_server_url) = &self.context.device_sync().server_url else {
+        // tracing::info!("No message history payload sent - server url not present.");
+        // return Ok(());
+        // };
 
         let acknowledge = async || {
             if let Some(request_id) = &request_id {
@@ -501,7 +514,7 @@ where
 
         tracing::info!("Uploading the archive.");
         // 5. Make the request
-        let url = format!("{device_sync_server_url}/upload");
+        let url = format!("{server_url}/upload");
         let response = exporter.post_to_url(&url).await?;
 
         // Build a sync reply message that the new installation will consume
@@ -510,7 +523,7 @@ where
                 key: Some(Key::Aes256Gcm(key)),
             }),
             request_id: request_id.map(str::to_string).unwrap_or_default(),
-            url: format!("{device_sync_server_url}/files/{response}",),
+            url: format!("{server_url}/files/{response}",),
             metadata: Some(metadata),
 
             // Deprecated fields
@@ -577,6 +590,27 @@ where
             self.context.installation_id(),
             group_id = sync_group.group_id.short_hex()
         );
+
+        Ok(())
+    }
+
+    pub async fn send_sync_archive(
+        &self,
+        options: &BackupOptions,
+        server_url: &str,
+    ) -> Result<(), ClientError>
+    where
+        Context::Db: 'static,
+    {
+        let sync_group = self.get_sync_group().await?;
+        sync_group
+            .sync_with_conn()
+            .await
+            .map_err(GroupError::from)?;
+
+        self.send_archive(options, &sync_group.group_id, None, server_url)
+            .await
+            .map_err(|e| GroupError::DeviceSync(Box::new(e)))?;
 
         Ok(())
     }
@@ -665,15 +699,24 @@ where
             Event::DeviceSyncArchiveImportStart,
             self.context.installation_id()
         );
-        use futures::StreamExt;
-        let stream = response
-            .bytes_stream()
-            .map(|result| result.map_err(std::io::Error::other));
-        // Convert that stream into a reader
-        let tokio_reader = tokio_util::io::StreamReader::new(stream);
-        // Convert that tokio reader into a futures reader.
-        // We use futures reader for WASM compat.
-        let reader = tokio_reader.compat();
+        #[cfg(not(target_arch = "wasm32"))]
+        let reader = {
+            use futures::StreamExt;
+            let stream = response
+                .bytes_stream()
+                .map(|result| result.map_err(std::io::Error::other));
+
+            // Convert that stream into a reader
+            let tokio_reader = tokio_util::io::StreamReader::new(stream);
+            // Convert that tokio reader into a futures reader.
+            // We use futures reader for WASM compat.
+            tokio_reader.compat()
+        };
+        #[cfg(target_arch = "wasm32")]
+        let reader = {
+            // WASM doesn't support request streaming. Consume the response instead.
+            futures::io::Cursor::new(response.bytes().await?)
+        };
 
         // Create an importer around that futures_reader.
         let Some(DeviceSyncKeyType {

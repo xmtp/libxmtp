@@ -1737,6 +1737,9 @@ impl serde::Serialize for SendSyncArchive {
         if self.request_id.is_some() {
             len += 1;
         }
+        if !self.server_url.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.SendSyncArchive", len)?;
         if let Some(v) = self.options.as_ref() {
             struct_ser.serialize_field("options", v)?;
@@ -1748,6 +1751,9 @@ impl serde::Serialize for SendSyncArchive {
         }
         if let Some(v) = self.request_id.as_ref() {
             struct_ser.serialize_field("request_id", v)?;
+        }
+        if !self.server_url.is_empty() {
+            struct_ser.serialize_field("server_url", &self.server_url)?;
         }
         struct_ser.end()
     }
@@ -1764,6 +1770,8 @@ impl<'de> serde::Deserialize<'de> for SendSyncArchive {
             "syncGroupId",
             "request_id",
             "requestId",
+            "server_url",
+            "serverUrl",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1771,6 +1779,7 @@ impl<'de> serde::Deserialize<'de> for SendSyncArchive {
             Options,
             SyncGroupId,
             RequestId,
+            ServerUrl,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1796,6 +1805,7 @@ impl<'de> serde::Deserialize<'de> for SendSyncArchive {
                             "options" => Ok(GeneratedField::Options),
                             "syncGroupId" | "sync_group_id" => Ok(GeneratedField::SyncGroupId),
                             "requestId" | "request_id" => Ok(GeneratedField::RequestId),
+                            "serverUrl" | "server_url" => Ok(GeneratedField::ServerUrl),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1818,6 +1828,7 @@ impl<'de> serde::Deserialize<'de> for SendSyncArchive {
                 let mut options__ = None;
                 let mut sync_group_id__ = None;
                 let mut request_id__ = None;
+                let mut server_url__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Options => {
@@ -1840,6 +1851,12 @@ impl<'de> serde::Deserialize<'de> for SendSyncArchive {
                             }
                             request_id__ = map_.next_value()?;
                         }
+                        GeneratedField::ServerUrl => {
+                            if server_url__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("serverUrl"));
+                            }
+                            server_url__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1849,6 +1866,7 @@ impl<'de> serde::Deserialize<'de> for SendSyncArchive {
                     options: options__,
                     sync_group_id: sync_group_id__.unwrap_or_default(),
                     request_id: request_id__,
+                    server_url: server_url__.unwrap_or_default(),
                 })
             }
         }

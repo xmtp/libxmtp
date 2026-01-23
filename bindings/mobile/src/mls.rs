@@ -871,6 +871,19 @@ impl FfiXmtpClient {
         Ok(())
     }
 
+    /// Manually send a sync archive to the sync group
+    pub async fn send_sync_archive(
+        &self,
+        options: FfiArchiveOptions,
+        upload_url: String,
+    ) -> Result<(), GenericError> {
+        self.inner_client
+            .device_sync_client()
+            .send_sync_archive(&options.into(), &upload_url)
+            .await?;
+        Ok(())
+    }
+
     /// Adds a wallet address to the existing client
     pub async fn add_identity(
         &self,
