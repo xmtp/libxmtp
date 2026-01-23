@@ -8,6 +8,7 @@ use bollard::{
 };
 use bon::Builder;
 use color_eyre::eyre::Result;
+use url::Url;
 
 use crate::{
     config::{
@@ -96,17 +97,19 @@ impl HistoryServer {
     }
 
     /// History server URL for use within the docker network.
-    pub fn url(&self) -> String {
-        format!(
+    pub fn url(&self) -> Url {
+        Url::parse(&format!(
             "http://{}:{}",
             HISTORY_SERVER_CONTAINER_NAME, HISTORY_SERVER_PORT
-        )
+        ))
+        .expect("valid URL")
     }
 
     /// History server URL for external access (through ToxiProxy).
-    pub fn external_url(&self) -> Option<String> {
-        self.proxy_port
-            .map(|port| format!("http://localhost:{}", port))
+    pub fn external_url(&self) -> Option<Url> {
+        self.proxy_port.map(|port| {
+            Url::parse(&format!("http://localhost:{}", port)).expect("valid URL")
+        })
     }
 
     /// Get the ToxiProxy port for this service.
@@ -134,11 +137,11 @@ impl Service for HistoryServer {
         HistoryServer::is_running(self)
     }
 
-    fn url(&self) -> String {
+    fn url(&self) -> Url {
         HistoryServer::url(self)
     }
 
-    fn external_url(&self) -> String {
+    fn external_url(&self) -> Url {
         self.external_url().unwrap_or_else(|| self.url())
     }
 

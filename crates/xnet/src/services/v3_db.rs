@@ -8,6 +8,7 @@ use bollard::{
 };
 use bon::Builder;
 use color_eyre::eyre::Result;
+use url::Url;
 
 use crate::{
     config::{DEFAULT_POSTGRES_PASSWORD, DEFAULT_V3_DB_IMAGE, V3_DB_CONTAINER_NAME, V3_DB_PORT},
@@ -54,9 +55,7 @@ impl V3Db {
         let container_id = match ensure_container_running(&docker, V3_DB_CONTAINER_NAME).await? {
             ContainerState::Exists(id) => id,
             ContainerState::NotFound => {
-                let options = CreateContainerOptionsBuilder::default()
-                    .name(V3_DB_CONTAINER_NAME)
-                    .platform("linux/amd64");
+                let options = CreateContainerOptionsBuilder::default().name(V3_DB_CONTAINER_NAME);
 
                 let config = ContainerCreateBody {
                     image: Some(self.image.clone()),
@@ -105,20 +104,22 @@ impl V3Db {
     }
 
     /// PostgreSQL connection URL for use within the docker network.
-    pub fn url(&self) -> String {
-        format!(
+    pub fn url(&self) -> Url {
+        Url::parse(&format!(
             "postgres://postgres:{}@{}:{}/postgres?sslmode=disable",
             self.password, V3_DB_CONTAINER_NAME, V3_DB_PORT
-        )
+        ))
+        .expect("valid URL")
     }
 
     /// PostgreSQL connection URL for external access (through ToxiProxy).
-    pub fn external_url(&self) -> Option<String> {
+    pub fn external_url(&self) -> Option<Url> {
         self.proxy_port.map(|port| {
-            format!(
+            Url::parse(&format!(
                 "postgres://postgres:{}@localhost:{}/postgres?sslmode=disable",
                 self.password, port
-            )
+            ))
+            .expect("valid URL")
         })
     }
 
@@ -147,11 +148,11 @@ impl Service for V3Db {
         V3Db::is_running(self)
     }
 
-    fn url(&self) -> String {
+    fn url(&self) -> Url {
         V3Db::url(self)
     }
 
-    fn external_url(&self) -> String {
+    fn external_url(&self) -> Url {
         self.external_url().unwrap_or_else(|| self.url())
     }
 

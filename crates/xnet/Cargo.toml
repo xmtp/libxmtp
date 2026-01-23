@@ -15,6 +15,7 @@ color-eyre.workspace = true
 futures.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 toml = "0.9.11"
+url = "2"
 toxiproxy_rust = { workspace = true }
 tracing.workspace = true
 tracing-subscriber.workspace = true

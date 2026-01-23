@@ -3,6 +3,8 @@
 //! The gateway provides the API layer for XMTP clients, connecting to xmtpd
 //! and Redis for caching.
 
+use std::default;
+
 use async_trait::async_trait;
 use bollard::{
     Docker,
@@ -11,6 +13,7 @@ use bollard::{
 };
 use bon::Builder;
 use color_eyre::eyre::Result;
+use url::Url;
 
 use crate::{
     config::{
@@ -37,8 +40,8 @@ pub struct Gateway {
     api_port: u16,
 
     /// Redis URL for caching
-    #[builder(default = default_redis_url())]
-    redis_url: String,
+    #[builder(default = default_redis_host())]
+    redis_host: String,
 
     /// Path to the contracts config file inside the container
     #[builder(default = "/cfg/anvil.json".to_string())]
@@ -65,8 +68,8 @@ pub struct Gateway {
     proxy_port: Option<u16>,
 }
 
-fn default_redis_url() -> String {
-    format!("redis://{}:{}/0", REDIS_CONTAINER_NAME, REDIS_PORT)
+fn default_redis_host() -> String {
+    format!("{}:{}", REDIS_CONTAINER_NAME, REDIS_PORT)
 }
 
 impl Gateway {
@@ -84,18 +87,29 @@ impl Gateway {
                     .name(GATEWAY_CONTAINER_NAME)
                     .platform("linux/amd64");
 
+                let Gateway {
+                    contracts_config_path,
+                    redis_host,
+                    version,
+                    api_port,
+                    log_level,
+                    reflection_enable,
+                    ..
+                } = self;
+
+                let redis_url = format!("redis://{redis_host}/0");
                 let env = vec![
                     format!(
                         "XMTPD_CONTRACTS_CONFIG_FILE_PATH={}",
                         self.contracts_config_path
                     ),
-                    format!("XMTPD_API_PORT={}", self.api_port),
-                    format!("XMTPD_REDIS_URL={}", self.redis_url),
-                    format!("XMTPD_LOG_LEVEL={}", self.log_level),
-                    format!("XMTPD_REFLECTION_ENABLE={}", self.reflection_enable),
+                    format!("XMTPD_API_PORT={api_port}"),
+                    format!("XMTPD_REDIS_URL={redis_url}"),
+                    format!("XMTPD_LOG_LEVEL={log_level}"),
+                    format!("XMTPD_REFLECTION_ENABLE={reflection_enable}"),
                 ];
 
-                let image = format!("{}:{}", DEFAULT_GATEWAY_IMAGE, self.version);
+                let image = format!("{DEFAULT_GATEWAY_IMAGE}:{version}");
                 let config = ContainerCreateBody {
                     image: Some(image),
                     env: Some(env),
@@ -132,14 +146,18 @@ impl Gateway {
     }
 
     /// Gateway URL for use within the docker network.
-    pub fn url(&self) -> String {
-        format!("http://{}:{}", GATEWAY_CONTAINER_NAME, self.api_port)
+    pub fn url(&self) -> Url {
+        Url::parse(&format!(
+            "http://{}:{}",
+            GATEWAY_CONTAINER_NAME, self.api_port
+        ))
+        .expect("valid URL")
     }
 
     /// Gateway URL for external access (through ToxiProxy).
-    pub fn external_url(&self) -> Option<String> {
+    pub fn external_url(&self) -> Option<Url> {
         self.proxy_port
-            .map(|port| format!("http://localhost:{}", port))
+            .map(|port| Url::parse(&format!("http://localhost:{}", port)).expect("valid URL"))
     }
 
     /// Get the ToxiProxy port for this service.
@@ -167,11 +185,11 @@ impl Service for Gateway {
         Gateway::is_running(self)
     }
 
-    fn url(&self) -> String {
+    fn url(&self) -> Url {
         Gateway::url(self)
     }
 
-    fn external_url(&self) -> String {
+    fn external_url(&self) -> Url {
         self.external_url().unwrap_or_else(|| self.url())
     }
 

@@ -8,6 +8,7 @@ use bollard::{
 };
 use bon::Builder;
 use color_eyre::eyre::Result;
+use url::Url;
 
 use crate::{
     config::{DEFAULT_MLS_DB_IMAGE, DEFAULT_POSTGRES_PASSWORD, MLS_DB_CONTAINER_NAME, MLS_DB_PORT},
@@ -54,9 +55,7 @@ impl MlsDb {
         let container_id = match ensure_container_running(&docker, MLS_DB_CONTAINER_NAME).await? {
             ContainerState::Exists(id) => id,
             ContainerState::NotFound => {
-                let options = CreateContainerOptionsBuilder::default()
-                    .name(MLS_DB_CONTAINER_NAME)
-                    .platform("linux/amd64");
+                let options = CreateContainerOptionsBuilder::default().name(MLS_DB_CONTAINER_NAME);
 
                 let config = ContainerCreateBody {
                     image: Some(self.image.clone()),
@@ -105,20 +104,22 @@ impl MlsDb {
     }
 
     /// PostgreSQL connection URL for use within the docker network.
-    pub fn url(&self) -> String {
-        format!(
+    pub fn url(&self) -> Url {
+        Url::parse(&format!(
             "postgres://postgres:{}@{}:{}/postgres?sslmode=disable",
             self.password, MLS_DB_CONTAINER_NAME, MLS_DB_PORT
-        )
+        ))
+        .expect("valid URL")
     }
 
     /// PostgreSQL connection URL for external access (through ToxiProxy).
-    pub fn external_url(&self) -> Option<String> {
+    pub fn external_url(&self) -> Option<Url> {
         self.proxy_port.map(|port| {
-            format!(
+            Url::parse(&format!(
                 "postgres://postgres:{}@localhost:{}/postgres?sslmode=disable",
                 self.password, port
-            )
+            ))
+            .expect("valid URL")
         })
     }
 
@@ -147,11 +148,11 @@ impl Service for MlsDb {
         MlsDb::is_running(self)
     }
 
-    fn url(&self) -> String {
+    fn url(&self) -> Url {
         MlsDb::url(self)
     }
 
-    fn external_url(&self) -> String {
+    fn external_url(&self) -> Url {
         self.external_url().unwrap_or_else(|| self.url())
     }
 

@@ -8,6 +8,7 @@ use bollard::{
 };
 use bon::Builder;
 use color_eyre::eyre::Result;
+use url::Url;
 
 use crate::{
     config::{
@@ -35,13 +36,13 @@ pub struct NodeGo {
     #[builder(default = DEFAULT_NODE_GO_NODE_KEY.to_string())]
     node_key: String,
 
-    /// Store database connection string
-    #[builder(default = default_store_db_connection_string())]
-    store_db_connection_string: String,
+    /// Store database connection string in the format container:port
+    #[builder(default = default_store_db_host())]
+    store_db_host: String,
 
-    /// MLS store database connection string
+    /// MLS store database connection string in the format container:port
     #[builder(default = default_mls_store_db_connection_string())]
-    mls_store_db_connection_string: String,
+    mls_store_db_host: String,
 
     /// MLS validation gRPC address
     #[builder(default = default_mls_validation_address())]
@@ -68,18 +69,12 @@ pub struct NodeGo {
     http_proxy_port: Option<u16>,
 }
 
-fn default_store_db_connection_string() -> String {
-    format!(
-        "postgres://postgres:{}@{}:{}/postgres?sslmode=disable",
-        DEFAULT_POSTGRES_PASSWORD, V3_DB_CONTAINER_NAME, V3_DB_PORT
-    )
+fn default_store_db_host() -> String {
+    format!("{}:{}", V3_DB_CONTAINER_NAME, V3_DB_PORT)
 }
 
 fn default_mls_store_db_connection_string() -> String {
-    format!(
-        "postgres://postgres:{}@{}:{}/postgres?sslmode=disable",
-        DEFAULT_POSTGRES_PASSWORD, MLS_DB_CONTAINER_NAME, MLS_DB_PORT
-    )
+    format!("{}:{}", MLS_DB_CONTAINER_NAME, MLS_DB_PORT)
 }
 
 fn default_mls_validation_address() -> String {
@@ -98,8 +93,8 @@ impl NodeGo {
             ContainerState::Exists(id) => id,
             ContainerState::NotFound => {
                 let NodeGo {
-                    store_db_connection_string,
-                    mls_store_db_connection_string,
+                    store_db_host,
+                    mls_store_db_host,
                     mls_validation_address,
                     wait_for_db,
                     node_key,
@@ -110,11 +105,15 @@ impl NodeGo {
                     .name(NODE_GO_CONTAINER_NAME)
                     .platform("linux/amd64");
 
+                let db_connection_str =
+                    super::db_connection_string(DEFAULT_POSTGRES_PASSWORD, store_db_host);
+                let mls_db_connection_str =
+                    super::db_connection_string(DEFAULT_POSTGRES_PASSWORD, mls_store_db_host);
                 let cmd = vec![
                     "--store.enable".to_string(),
-                    format!("--store.db-connection-string={store_db_connection_string}",),
-                    format!("--store.reader-db-connection-string={store_db_connection_string}",),
-                    format!("--mls-store.db-connection-string={mls_store_db_connection_string}",),
+                    format!("--store.db-connection-string={db_connection_str}",),
+                    format!("--store.reader-db-connection-string={db_connection_str}",),
+                    format!("--mls-store.db-connection-string={mls_db_connection_str}",),
                     format!("--mls-validation.grpc-address={mls_validation_address}",),
                     "--api.enable-mls".to_string(),
                     format!("--wait-for-db={wait_for_db}"),
@@ -164,28 +163,33 @@ impl NodeGo {
     }
 
     /// gRPC API URL for use within the docker network.
-    pub fn grpc_url(&self) -> String {
-        format!("http://{}:{}", NODE_GO_CONTAINER_NAME, NODE_GO_API_PORT)
+    pub fn grpc_url(&self) -> Url {
+        Url::parse(&format!(
+            "http://{}:{}",
+            NODE_GO_CONTAINER_NAME, NODE_GO_API_PORT
+        ))
+        .expect("valid URL")
     }
 
     /// gRPC API URL for external access (through ToxiProxy).
-    pub fn external_grpc_url(&self) -> Option<String> {
+    pub fn external_grpc_url(&self) -> Option<Url> {
         self.grpc_proxy_port
-            .map(|port| format!("http://localhost:{}", port))
+            .map(|port| Url::parse(&format!("http://localhost:{}", port)).expect("valid URL"))
     }
 
     /// HTTP API URL for use within the docker network.
-    pub fn http_url(&self) -> String {
-        format!(
+    pub fn http_url(&self) -> Url {
+        Url::parse(&format!(
             "http://{}:{}",
             NODE_GO_CONTAINER_NAME, NODE_GO_API_HTTP_PORT
-        )
+        ))
+        .expect("valid URL")
     }
 
     /// HTTP API URL for external access (through ToxiProxy).
-    pub fn external_http_url(&self) -> Option<String> {
+    pub fn external_http_url(&self) -> Option<Url> {
         self.http_proxy_port
-            .map(|port| format!("http://localhost:{}", port))
+            .map(|port| Url::parse(&format!("http://localhost:{}", port)).expect("valid URL"))
     }
 
     /// Get the ToxiProxy port for the gRPC API.
@@ -218,13 +222,12 @@ impl Service for NodeGo {
         NodeGo::is_running(self)
     }
 
-    fn url(&self) -> String {
+    fn url(&self) -> Url {
         self.grpc_url()
     }
 
-    fn external_url(&self) -> String {
-        self.external_grpc_url()
-            .unwrap_or_else(|| self.grpc_url())
+    fn external_url(&self) -> Url {
+        self.external_grpc_url().unwrap_or_else(|| self.grpc_url())
     }
 
     fn name(&self) -> &'static str {

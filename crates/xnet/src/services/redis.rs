@@ -8,6 +8,7 @@ use bollard::{
 };
 use bon::Builder;
 use color_eyre::eyre::Result;
+use url::Url;
 
 use crate::{
     config::{DEFAULT_REDIS_IMAGE, REDIS_CONTAINER_NAME, REDIS_PORT},
@@ -99,14 +100,16 @@ impl Redis {
     }
 
     /// Redis URL for use within the docker network.
-    pub fn url(&self) -> String {
-        format!("redis://{}:{}", REDIS_CONTAINER_NAME, REDIS_PORT)
+    pub fn url(&self) -> Url {
+        Url::parse(&format!("redis://{}:{}", REDIS_CONTAINER_NAME, REDIS_PORT))
+            .expect("valid URL")
     }
 
     /// Redis URL for external access (through ToxiProxy).
-    pub fn external_url(&self) -> Option<String> {
-        self.proxy_port
-            .map(|port| format!("redis://localhost:{}", port))
+    pub fn external_url(&self) -> Option<Url> {
+        self.proxy_port.map(|port| {
+            Url::parse(&format!("redis://localhost:{}", port)).expect("valid URL")
+        })
     }
 
     /// Get the ToxiProxy port for this service.
@@ -134,11 +137,11 @@ impl Service for Redis {
         Redis::is_running(self)
     }
 
-    fn url(&self) -> String {
+    fn url(&self) -> Url {
         Redis::url(self)
     }
 
-    fn external_url(&self) -> String {
+    fn external_url(&self) -> Url {
         self.external_url().unwrap_or_else(|| self.url())
     }
 

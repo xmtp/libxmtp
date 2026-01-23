@@ -13,6 +13,7 @@ use std::net::Ipv4Addr;
 use std::net::TcpListener;
 use tracing::info;
 
+use crate::services::allocate_port;
 use crate::{
     config::{ANVIL_ADMIN_KEY, DEFAULT_XMTPD_CLI_IMAGE, DEFAULT_XMTPD_VERSION, SETTLEMENT_RPC_URL},
     network::XNET_NETWORK_NAME,
@@ -36,7 +37,7 @@ impl Xmtpd {
         let owner = PrivateKeySigner::random();
         let addr = owner.address();
         let pubkey = owner.public_key();
-        let port = ask_free_tcp_port().ok_or_eyre("unable to acquire free port from OS")?;
+        let port = allocate_port()?;
         let cmd = vec![
             format!("--private-key={ANVIL_ADMIN_KEY}"),
             format!("--rpc_url={SETTLEMENT_RPC_URL}"),
@@ -97,10 +98,4 @@ impl Xmtpd {
 
         Ok(())
     }
-}
-
-/// ask OS for a free TCP Port
-fn ask_free_tcp_port() -> Option<u16> {
-    let ipv4 = SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0);
-    Some(TcpListener::bind(ipv4).ok()?.local_addr().ok()?.port())
 }

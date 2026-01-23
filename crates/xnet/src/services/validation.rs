@@ -8,6 +8,7 @@ use bollard::{
 };
 use bon::Builder;
 use color_eyre::eyre::Result;
+use url::Url;
 
 use crate::{
     config::{
@@ -21,8 +22,9 @@ use crate::{
     },
 };
 
-fn default_anvil_url() -> String {
-    format!("http://{}:{}", ANVIL_CONTAINER_NAME, ANVIL_PORT)
+fn default_anvil_url() -> Url {
+    Url::parse(&format!("http://{}:{}", ANVIL_CONTAINER_NAME, ANVIL_PORT))
+        .expect("valid URL")
 }
 
 /// Manages an MLS Validation Service Docker container.
@@ -35,7 +37,7 @@ pub struct Validation {
 
     /// Anvil URL for the validation service to connect to
     #[builder(default = default_anvil_url())]
-    anvil_url: String,
+    anvil_url: Url,
 
     /// Docker client (initialized on start)
     #[builder(skip)]
@@ -139,13 +141,15 @@ impl Service for Validation {
         Validation::is_running(self)
     }
 
-    fn url(&self) -> String {
-        self.grpc_address()
+    fn url(&self) -> Url {
+        Url::parse(&format!("http://{}", self.grpc_address())).expect("valid URL")
     }
 
-    fn external_url(&self) -> String {
-        self.external_grpc_address()
-            .unwrap_or_else(|| self.grpc_address())
+    fn external_url(&self) -> Url {
+        let address = self
+            .external_grpc_address()
+            .unwrap_or_else(|| self.grpc_address());
+        Url::parse(&format!("http://{}", address)).expect("valid URL")
     }
 
     fn name(&self) -> &'static str {

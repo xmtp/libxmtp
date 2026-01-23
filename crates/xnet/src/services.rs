@@ -1,4 +1,7 @@
 //! Manage Static Resources on XNET (Chain, Gateway, ToxiProxy)
+//! Each Service:
+//! 1.) Starts a container (either pre-existing or pulling an image and starting)
+//! 2.) registers itself with toxiproxy
 
 mod anvil;
 mod gateway;
@@ -31,9 +34,10 @@ use bollard::{
         StopContainerOptionsBuilder,
     },
 };
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, eyre};
 use futures::{StreamExt, TryStreamExt};
 use tracing::info;
+use url::Url;
 
 /// Result of checking for an existing container.
 pub enum ContainerState {
@@ -41,6 +45,14 @@ pub enum ContainerState {
     Exists(String),
     /// Container does not exist - needs to be created
     NotFound,
+}
+
+fn db_connection_string(password: &str, host: &str) -> Url {
+    Url::parse(&format!(
+        "postgres://postgres:{}@{}/postgres?sslmode=disable",
+        password, host
+    ))
+    .expect("valid postgres URL")
 }
 
 /// Check if a container exists and ensure it's running if it does.
@@ -204,10 +216,22 @@ pub trait Service: Send + Sync {
     fn is_running(&self) -> bool;
 
     /// Get the service URL for use within the docker network.
-    fn url(&self) -> String;
+    fn url(&self) -> Url;
 
     /// Get the service URL for external access (through ToxiProxy).
-    fn external_url(&self) -> String;
+    fn external_url(&self) -> Url;
+
+    fn internal_proxy_host(&self) -> Result<String> {
+        let host = self.url();
+        let host = host
+            .host_str()
+            .ok_or_else(|| eyre!("service {} does not have valid host str", self.name()))?;
+        let toxi_port = self
+            .external_url()
+            .port()
+            .ok_or_else(|| eyre!("service {} does not have toxi port assigned", self.name()))?;
+        Ok(format!("{}:{}", host, toxi_port))
+    }
 
     /// Get the service name (for logging/identification).
     fn name(&self) -> &'static str;

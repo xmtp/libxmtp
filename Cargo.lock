@@ -9246,6 +9246,7 @@ dependencies = [
  "toxiproxy_rust",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

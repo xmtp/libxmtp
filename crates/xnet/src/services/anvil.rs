@@ -10,6 +10,7 @@ use bollard::{
 };
 use bon::Builder;
 use color_eyre::eyre::Result;
+use url::Url;
 
 use crate::{
     config::{
@@ -94,14 +95,16 @@ impl Anvil {
     }
 
     /// RPC URL for use within the docker network.
-    pub fn rpc_url(&self) -> String {
-        format!("http://{}:{}", ANVIL_CONTAINER_NAME, ANVIL_PORT)
+    pub fn rpc_url(&self) -> Url {
+        Url::parse(&format!("http://{}:{}", ANVIL_CONTAINER_NAME, ANVIL_PORT))
+            .expect("valid URL")
     }
 
     /// RPC URL for external access (through ToxiProxy).
-    pub fn external_rpc_url(&self) -> Option<String> {
-        self.proxy_port
-            .map(|port| format!("http://localhost:{}", port))
+    pub fn external_rpc_url(&self) -> Option<Url> {
+        self.proxy_port.map(|port| {
+            Url::parse(&format!("http://localhost:{}", port)).expect("valid URL")
+        })
     }
 
     /// Get the ToxiProxy port for this service.
@@ -129,11 +132,11 @@ impl Service for Anvil {
         Anvil::is_running(self)
     }
 
-    fn url(&self) -> String {
+    fn url(&self) -> Url {
         self.rpc_url()
     }
 
-    fn external_url(&self) -> String {
+    fn external_url(&self) -> Url {
         self.external_rpc_url()
             .unwrap_or_else(|| self.rpc_url())
     }

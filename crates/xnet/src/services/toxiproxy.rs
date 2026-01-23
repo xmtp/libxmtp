@@ -20,6 +20,7 @@ use tokio::time::{Duration, sleep};
 use toxiproxy_rust::client::Client;
 use toxiproxy_rust::proxy::{Proxy, ProxyPack};
 use tracing::info;
+use url::Url;
 
 use crate::{
     config::{
@@ -137,7 +138,7 @@ impl ToxiProxy {
                 // Build port bindings for API and all ports in the range
                 let mut port_bindings = HashMap::new();
                 port_bindings.insert(
-                    format!("{}/tcp", TOXIPROXY_API_PORT),
+                    "8474/tcp".to_string(), // default toxiproxy port
                     Some(vec![PortBinding {
                         host_ip: Some("0.0.0.0".to_string()),
                         host_port: Some(self.api_port.to_string()),
@@ -157,7 +158,7 @@ impl ToxiProxy {
 
                 let config = ContainerCreateBody {
                     image: Some(self.image.clone()),
-                    cmd: Some(vec!["-host=0.0.0.0".to_string(), "-port=8555".to_string()]),
+                    cmd: Some(vec!["-host=0.0.0.0".to_string()]),
                     host_config: Some(HostConfig {
                         port_bindings: Some(port_bindings),
                         network_mode: Some(XNET_NETWORK_NAME.to_string()),
@@ -288,13 +289,14 @@ impl ToxiProxy {
     }
 
     /// ToxiProxy API URL for use within the docker network.
-    pub fn api_url(&self) -> String {
-        format!("http://{}:{}", TOXIPROXY_CONTAINER_NAME, TOXIPROXY_API_PORT)
+    pub fn api_url(&self) -> Url {
+        Url::parse(&format!("http://{}:{}", TOXIPROXY_CONTAINER_NAME, TOXIPROXY_API_PORT))
+            .expect("valid URL")
     }
 
     /// ToxiProxy API URL for external access (from host machine).
-    pub fn external_api_url(&self) -> String {
-        format!("http://localhost:{}", self.api_port)
+    pub fn external_api_url(&self) -> Url {
+        Url::parse(&format!("http://localhost:{}", self.api_port)).expect("valid URL")
     }
 
     /// Check if ToxiProxy is running.
@@ -319,11 +321,11 @@ impl Service for ToxiProxy {
         ToxiProxy::is_running(self)
     }
 
-    fn url(&self) -> String {
+    fn url(&self) -> Url {
         self.api_url()
     }
 
-    fn external_url(&self) -> String {
+    fn external_url(&self) -> Url {
         self.external_api_url()
     }
 

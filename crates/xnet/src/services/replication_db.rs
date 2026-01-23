@@ -8,6 +8,7 @@ use bollard::{
 };
 use bon::Builder;
 use color_eyre::eyre::Result;
+use url::Url;
 
 use crate::{
     config::{
@@ -59,9 +60,8 @@ impl ReplicationDb {
         {
             ContainerState::Exists(id) => id,
             ContainerState::NotFound => {
-                let options = CreateContainerOptionsBuilder::default()
-                    .name(REPLICATION_DB_CONTAINER_NAME)
-                    .platform("linux/amd64");
+                let options =
+                    CreateContainerOptionsBuilder::default().name(REPLICATION_DB_CONTAINER_NAME);
 
                 let config = ContainerCreateBody {
                     image: Some(self.image.clone()),
@@ -111,20 +111,22 @@ impl ReplicationDb {
     }
 
     /// PostgreSQL connection URL for use within the docker network.
-    pub fn url(&self) -> String {
-        format!(
+    pub fn url(&self) -> Url {
+        Url::parse(&format!(
             "postgres://postgres:{}@{}:{}/postgres",
             self.password, REPLICATION_DB_CONTAINER_NAME, POSTGRES_PORT
-        )
+        ))
+        .expect("valid URL")
     }
 
     /// PostgreSQL connection URL for external access (through ToxiProxy).
-    pub fn external_url(&self) -> Option<String> {
+    pub fn external_url(&self) -> Option<Url> {
         self.proxy_port.map(|port| {
-            format!(
+            Url::parse(&format!(
                 "postgres://postgres:{}@localhost:{}/postgres",
                 self.password, port
-            )
+            ))
+            .expect("valid URL")
         })
     }
 
@@ -153,11 +155,11 @@ impl Service for ReplicationDb {
         ReplicationDb::is_running(self)
     }
 
-    fn url(&self) -> String {
+    fn url(&self) -> Url {
         ReplicationDb::url(self)
     }
 
-    fn external_url(&self) -> String {
+    fn external_url(&self) -> Url {
         self.external_url().unwrap_or_else(|| self.url())
     }
 
