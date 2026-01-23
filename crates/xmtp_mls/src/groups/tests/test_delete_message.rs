@@ -1121,7 +1121,7 @@ async fn test_stream_message_deletions_from_other_client() {
     // Bo syncs to receive the deletion (this triggers the MessageDeleted event)
     bo_group.sync().await?;
 
-    // Wait for callback to be called (with timeout)
+    // Wait for callback to be called (5s timeout provides buffer for async processing)
     xmtp_common::time::timeout(Duration::from_secs(5), notify.notified())
         .await
         .expect("Timed out waiting for deletion callback");
@@ -1135,10 +1135,11 @@ async fn test_stream_message_deletions_from_other_client() {
     assert_eq!(deleted_message.metadata.sender_inbox_id, alix.inbox_id());
 }
 
-/// Test that stream_message_deletions receives a callback when the same client
-/// deletes a message and publishes it (self-deletions fire local events after network confirmation)
+/// Test that stream_message_deletions fires for self-deletions after publishing.
+/// When the same client deletes a message and publishes it, the local event
+/// should be emitted once the deletion is confirmed on the network.
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_stream_message_deletions_from_self() {
+async fn test_stream_message_deletions_fires_for_self_after_publish() {
     use crate::utils::FullXmtpClient;
     use parking_lot::Mutex;
     use std::sync::Arc;
@@ -1187,8 +1188,8 @@ async fn test_stream_message_deletions_from_self() {
     // Alix syncs (the deletion message is skipped because it was already processed locally)
     alix_group.sync().await?;
 
-    // Wait briefly - the callback should NOT be called
-    let result = xmtp_common::time::timeout(Duration::from_millis(5000), notify.notified()).await;
+    // Wait for the deletion event callback (5s timeout provides buffer for async processing)
+    let result = xmtp_common::time::timeout(Duration::from_secs(5), notify.notified()).await;
 
     // Verify the callback was called (self-deletions fire local events after network confirmation)
     assert!(
