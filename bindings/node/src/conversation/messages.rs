@@ -58,7 +58,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub async fn find_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
+  pub async fn list_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
     let opts = opts.unwrap_or_default();
     let group = self.create_mls_group();
     let opts = MsgQueryArgs { ..opts.into() };
@@ -100,7 +100,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub async fn find_enriched_messages(
+  pub async fn list_enriched_messages(
     &self,
     opts: Option<ListMessagesOptions>,
   ) -> Result<Vec<DecodedMessage>> {
@@ -117,7 +117,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub async fn get_last_read_times(&self) -> Result<HashMap<String, i64>> {
+  pub async fn last_read_times(&self) -> Result<HashMap<String, i64>> {
     let group = self.create_mls_group();
     let times = group.get_last_read_times().map_err(ErrorWrapper::from)?;
     Ok(times)

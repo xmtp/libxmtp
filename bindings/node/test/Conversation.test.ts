@@ -23,7 +23,7 @@ describe.concurrent('Conversation', () => {
     const newName = 'foo'
     await conversation.updateGroupName(newName)
     expect(conversation.groupName()).toBe(newName)
-    const messages = await conversation.findMessages()
+    const messages = await conversation.listMessages()
     expect(messages.length).toBe(2)
 
     await client2.conversations().sync()
@@ -35,7 +35,7 @@ describe.concurrent('Conversation', () => {
     await conversation2.sync()
     expect(conversation2.id()).toBe(conversation.id())
     expect(conversation2.groupName()).toBe(newName)
-    const messages2 = await conversation2.findMessages()
+    const messages2 = await conversation2.listMessages()
     expect(messages2.length).toBe(2)
   })
 
@@ -53,7 +53,7 @@ describe.concurrent('Conversation', () => {
     const imageUrl = 'https://foo/bar.jpg'
     await conversation.updateGroupImageUrlSquare(imageUrl)
     expect(conversation.groupImageUrlSquare()).toBe(imageUrl)
-    const messages = await conversation.findMessages()
+    const messages = await conversation.listMessages()
     expect(messages.length).toBe(2)
 
     await client2.conversations().sync()
@@ -65,7 +65,7 @@ describe.concurrent('Conversation', () => {
     await conversation2.sync()
     expect(conversation2.id()).toBe(conversation.id())
     expect(conversation2.groupImageUrlSquare()).toBe(imageUrl)
-    const messages2 = await conversation2.findMessages()
+    const messages2 = await conversation2.listMessages()
     expect(messages2.length).toBe(2)
   })
 
@@ -83,7 +83,7 @@ describe.concurrent('Conversation', () => {
     const newDescription = 'foo'
     await conversation.updateGroupDescription(newDescription)
     expect(conversation.groupDescription()).toBe(newDescription)
-    const messages = await conversation.findMessages()
+    const messages = await conversation.listMessages()
     expect(messages.length).toBe(2)
 
     await client2.conversations().sync()
@@ -95,7 +95,7 @@ describe.concurrent('Conversation', () => {
     await conversation2.sync()
     expect(conversation2.id()).toBe(conversation.id())
     expect(conversation2.groupDescription()).toBe(newDescription)
-    const messages2 = await conversation2.findMessages()
+    const messages2 = await conversation2.listMessages()
     expect(messages2.length).toBe(2)
   })
 
@@ -206,7 +206,7 @@ describe.concurrent('Conversation', () => {
 
     await conversation.sendText('gm')
 
-    const messages = await conversation.findMessages()
+    const messages = await conversation.listMessages()
     expect(messages.length).toBe(2)
 
     await client2.conversations().sync()
@@ -218,7 +218,7 @@ describe.concurrent('Conversation', () => {
     await conversation2.sync()
     expect(conversation2.id()).toBe(conversation.id())
 
-    const messages2 = await conversation2.findMessages()
+    const messages2 = await conversation2.listMessages()
     expect(messages2.length).toBe(2)
   })
 
@@ -236,7 +236,7 @@ describe.concurrent('Conversation', () => {
 
     await conversation.sendText('gm', true)
 
-    const messages = await conversation.findMessages()
+    const messages = await conversation.listMessages()
     expect(messages.length).toBe(2)
 
     await client2.conversations().sync()
@@ -249,13 +249,13 @@ describe.concurrent('Conversation', () => {
     await conversation2.sync()
     expect(conversation2.id()).toBe(conversation.id())
 
-    const messages2 = await conversation2.findMessages()
+    const messages2 = await conversation2.listMessages()
     expect(messages2.length).toBe(1)
 
     await conversation.publishMessages()
     await conversation2.sync()
 
-    const messages4 = await conversation2.findMessages()
+    const messages4 = await conversation2.listMessages()
     expect(messages4.length).toBe(2)
   })
 
@@ -308,20 +308,20 @@ describe.concurrent('Conversation', () => {
     ])
 
     expect(conversation.isSuperAdmin(client1.inboxId())).toBe(true)
-    expect(conversation.superAdminList().length).toBe(1)
-    expect(conversation.superAdminList()).toContain(client1.inboxId())
+    expect(conversation.listSuperAdmins().length).toBe(1)
+    expect(conversation.listSuperAdmins()).toContain(client1.inboxId())
     expect(conversation.isAdmin(client1.inboxId())).toBe(false)
     expect(conversation.isAdmin(client2.inboxId())).toBe(false)
-    expect(conversation.adminList().length).toBe(0)
+    expect(conversation.listAdmins().length).toBe(0)
 
     await conversation.addAdmin(client2.inboxId())
     expect(conversation.isAdmin(client2.inboxId())).toBe(true)
-    expect(conversation.adminList().length).toBe(1)
-    expect(conversation.adminList()).toContain(client2.inboxId())
+    expect(conversation.listAdmins().length).toBe(1)
+    expect(conversation.listAdmins()).toContain(client2.inboxId())
 
     await conversation.removeAdmin(client2.inboxId())
     expect(conversation.isAdmin(client2.inboxId())).toBe(false)
-    expect(conversation.adminList().length).toBe(0)
+    expect(conversation.listAdmins().length).toBe(0)
   })
 
   it('should add and remove super admins', async () => {
@@ -338,19 +338,19 @@ describe.concurrent('Conversation', () => {
 
     expect(conversation.isSuperAdmin(client1.inboxId())).toBe(true)
     expect(conversation.isSuperAdmin(client2.inboxId())).toBe(false)
-    expect(conversation.superAdminList().length).toBe(1)
-    expect(conversation.superAdminList()).toContain(client1.inboxId())
+    expect(conversation.listSuperAdmins().length).toBe(1)
+    expect(conversation.listSuperAdmins()).toContain(client1.inboxId())
 
     await conversation.addSuperAdmin(client2.inboxId())
     expect(conversation.isSuperAdmin(client2.inboxId())).toBe(true)
-    expect(conversation.superAdminList().length).toBe(2)
-    expect(conversation.superAdminList()).toContain(client1.inboxId())
-    expect(conversation.superAdminList()).toContain(client2.inboxId())
+    expect(conversation.listSuperAdmins().length).toBe(2)
+    expect(conversation.listSuperAdmins()).toContain(client1.inboxId())
+    expect(conversation.listSuperAdmins()).toContain(client2.inboxId())
 
     await conversation.removeSuperAdmin(client2.inboxId())
     expect(conversation.isSuperAdmin(client2.inboxId())).toBe(false)
-    expect(conversation.superAdminList().length).toBe(1)
-    expect(conversation.superAdminList()).toContain(client1.inboxId())
+    expect(conversation.listSuperAdmins().length).toBe(1)
+    expect(conversation.listSuperAdmins()).toContain(client1.inboxId())
   })
 
   it('should manage group consent state', async () => {
@@ -374,14 +374,14 @@ describe.concurrent('Conversation', () => {
     expect(dmGroup).toBeDefined()
 
     await client2.conversations().sync()
-    const group2 = client2.conversations().findGroupById(group.id())
+    const group2 = client2.conversations().getConversationById(group.id())
     expect(group2).toBeDefined()
     expect(group2!.consentState()).toBe(ConsentState.Unknown)
     await group2!.sendText('gm!')
     expect(group2!.consentState()).toBe(ConsentState.Allowed)
 
     await client3.conversations().sync()
-    const dmGroup2 = client3.conversations().findGroupById(dmGroup.id())
+    const dmGroup2 = client3.conversations().getConversationById(dmGroup.id())
     expect(dmGroup2).toBeDefined()
     expect(dmGroup2!.consentState()).toBe(ConsentState.Unknown)
     await dmGroup2!.sendText('gm!')
@@ -474,7 +474,7 @@ describe.concurrent('Conversation', () => {
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    const hmacKeys = group.getHmacKeys()
+    const hmacKeys = group.hmacKeys()
     expect(hmacKeys).toBeDefined()
     let keys = hmacKeys[group.id()]
     expect(keys.length).toBe(3)

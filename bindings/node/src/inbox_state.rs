@@ -85,7 +85,7 @@ impl From<VerifiedKeyPackageV2> for KeyPackageStatus {
 
 #[allow(dead_code)]
 #[napi]
-pub async fn inbox_state_from_inbox_ids(
+pub async fn fetch_inbox_states_by_inbox_ids(
   v3_host: String,
   gateway_host: Option<String>,
   inbox_ids: Vec<String>,

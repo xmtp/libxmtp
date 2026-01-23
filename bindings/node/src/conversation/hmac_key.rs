@@ -6,7 +6,7 @@ use std::collections::HashMap;
 #[napi]
 impl Conversation {
   #[napi]
-  pub fn get_hmac_keys(&self) -> Result<HashMap<String, Vec<HmacKey>>> {
+  pub fn hmac_keys(&self) -> Result<HashMap<String, Vec<HmacKey>>> {
     let group = self.create_mls_group();
 
     let dms = group.find_duplicate_dms().map_err(ErrorWrapper::from)?;
