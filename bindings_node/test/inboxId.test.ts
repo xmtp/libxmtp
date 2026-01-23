@@ -24,7 +24,7 @@ describe('generateInboxId', () => {
         identifier: 'invalid-address',
         identifierKind: IdentifierKind.Ethereum,
       })
-    ).toThrow(/^\[IdentifierValidationError::\w+\]/)
+    ).toThrow(/^\[IdentifierValidationError::InvalidAddresses\].*/)
   })
 })
 
