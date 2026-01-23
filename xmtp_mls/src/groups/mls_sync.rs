@@ -76,7 +76,7 @@ use xmtp_configuration::{
 };
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::group::GroupMembershipState;
-use xmtp_db::message_deletion::StoredMessageDeletion;
+use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::{
     Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
     group::{ConversationType, StoredGroup},
@@ -913,6 +913,7 @@ where
                 next_intent_state: IntentState::Error,
             })?;
         self.process_own_leave_request_message(mls_group, storage, &id);
+        self.process_own_delete_message(storage, &id);
         Ok(Some(id))
     }
 
@@ -1280,6 +1281,49 @@ where
                 Err(e) => {
                     debug!("Failed to process leave request message: {}", e);
                 }
+            }
+        }
+    }
+
+    fn process_own_delete_message(&self, storage: &impl XmtpMlsStorageProvider, message_id: &[u8]) {
+        let db = storage.db();
+
+        let Ok(Some(message)) = db.get_group_message(message_id) else {
+            return;
+        };
+
+        if message.content_type != ContentType::DeleteMessage {
+            return;
+        }
+
+        let Ok(Some(deletion)) = db.get_message_deletion(message_id) else {
+            tracing::warn!(
+                message_id = hex::encode(message_id),
+                "Deletion record not found for own delete message"
+            );
+            return;
+        };
+
+        let Ok(Some(original_msg)) = db.get_group_message(&deletion.deleted_message_id) else {
+            tracing::debug!(
+                deleted_message_id = hex::encode(&deletion.deleted_message_id),
+                "Original message not found for deletion event (may be out-of-order)"
+            );
+            return;
+        };
+
+        match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
+            Ok(decoded_message) => {
+                let _ = self.context.local_events().send(
+                    crate::subscriptions::LocalEvents::MessageDeleted(Box::new(decoded_message)),
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    message_id = hex::encode(&deletion.deleted_message_id),
+                    error = ?e,
+                    "Failed to decode deleted message for deletion event"
+                );
             }
         }
     }
