@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use xmtp_content_types::{
     actions::{Action, ActionStyle, Actions},
     attachment::Attachment,
@@ -860,7 +861,7 @@ impl TryFrom<Actions> for FfiActions {
         let actions_id = actions.id.clone();
         let expires_at_ns = match actions.expires_at {
             Some(dt) => {
-                let ns_opt = dt.and_utc().timestamp_nanos_opt();
+                let ns_opt = dt.timestamp_nanos_opt();
                 if ns_opt.is_none() {
                     return Err(GenericError::from(format!(
                         "Actions '{}' expiration timestamp is out of valid range for conversion to nanoseconds",
@@ -886,13 +887,9 @@ impl TryFrom<Actions> for FfiActions {
 
 impl From<FfiActions> for Actions {
     fn from(actions: FfiActions) -> Self {
-        let expires_at = match actions.expires_at_ns {
-            Some(ns) => {
-                let dt = chrono::DateTime::from_timestamp_nanos(ns).naive_utc();
-                Some(dt)
-            }
-            None => None,
-        };
+        let expires_at = actions
+            .expires_at_ns
+            .map(DateTime::<Utc>::from_timestamp_nanos);
 
         Actions {
             id: actions.id,
@@ -910,7 +907,7 @@ impl TryFrom<Action> for FfiAction {
         let action_id = action.id.clone();
         let expires_at_ns = match action.expires_at {
             Some(dt) => {
-                let ns_opt = dt.and_utc().timestamp_nanos_opt();
+                let ns_opt = dt.timestamp_nanos_opt();
                 if ns_opt.is_none() {
                     return Err(GenericError::from(format!(
                         "Action '{}' expiration timestamp is out of valid range for conversion to nanoseconds",
@@ -934,13 +931,9 @@ impl TryFrom<Action> for FfiAction {
 
 impl From<FfiAction> for Action {
     fn from(action: FfiAction) -> Self {
-        let expires_at = match action.expires_at_ns {
-            Some(ns) => {
-                let dt = chrono::DateTime::from_timestamp_nanos(ns).naive_utc();
-                Some(dt)
-            }
-            None => None,
-        };
+        let expires_at = action
+            .expires_at_ns
+            .map(DateTime::<Utc>::from_timestamp_nanos);
 
         Action {
             id: action.id,

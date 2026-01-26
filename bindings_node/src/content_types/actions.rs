@@ -1,4 +1,4 @@
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use napi::bindgen_prelude::{BigInt, Error, Result};
 use napi_derive::napi;
 use xmtp_content_types::{ContentCodec, actions::ActionsCodec};
@@ -26,7 +26,7 @@ impl TryFrom<xmtp_content_types::actions::Actions> for Actions {
     let actions_id = actions.id.clone();
     let expires_at_ns = match actions.expires_at {
       Some(dt) => {
-        let ns_opt = dt.and_utc().timestamp_nanos_opt();
+        let ns_opt = dt.timestamp_nanos_opt();
         if ns_opt.is_none() {
           return Err(Error::from_reason(format!(
             "Actions '{}' expiration timestamp is out of valid range for conversion to nanoseconds",
@@ -54,7 +54,7 @@ impl From<Actions> for xmtp_content_types::actions::Actions {
   fn from(actions: Actions) -> Self {
     let expires_at = actions
       .expires_at_ns
-      .map(|ns| DateTime::from_timestamp_nanos(ns.get_i64().0).naive_utc());
+      .map(|ns| DateTime::<Utc>::from_timestamp_nanos(ns.get_i64().0));
 
     xmtp_content_types::actions::Actions {
       id: actions.id,
@@ -84,7 +84,7 @@ impl TryFrom<xmtp_content_types::actions::Action> for Action {
     let action_id = action.id.clone();
     let expires_at_ns = match action.expires_at {
       Some(dt) => {
-        let ns_opt = dt.and_utc().timestamp_nanos_opt();
+        let ns_opt = dt.timestamp_nanos_opt();
         if ns_opt.is_none() {
           return Err(Error::from_reason(format!(
             "Action '{}' expiration timestamp is out of valid range for conversion to nanoseconds",
@@ -110,7 +110,7 @@ impl From<Action> for xmtp_content_types::actions::Action {
   fn from(action: Action) -> Self {
     let expires_at = action
       .expires_at_ns
-      .map(|ns| DateTime::from_timestamp_nanos(ns.get_i64().0).naive_utc());
+      .map(|ns| DateTime::<Utc>::from_timestamp_nanos(ns.get_i64().0));
 
     xmtp_content_types::actions::Action {
       id: action.id,
