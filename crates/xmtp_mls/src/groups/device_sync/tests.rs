@@ -386,13 +386,14 @@ async fn test_manual_sync_flow() {
 
     let pin = alix
         .device_sync_client()
-        .send_sync_archive(&opts, DeviceSyncUrls::LOCAL_ADDRESS)
+        .send_sync_archive(&opts, DeviceSyncUrls::LOCAL_ADDRESS, Some("123"))
         .await?;
     alix.worker()
         .register_interest(SyncMetric::PayloadSent, 1)
         .wait()
         .await?;
 
+    assert_eq!(pin, "123");
     assert!(alix2.group(&dm.group_id).is_err());
 
     alix2

@@ -475,7 +475,7 @@ where
         &self,
         options: &BackupOptions,
         sync_group_id: &Vec<u8>,
-        request_id: Option<&str>,
+        pin: Option<&str>,
         server_url: &str,
     ) -> Result<String, DeviceSyncError>
     where
@@ -489,7 +489,7 @@ where
         );
 
         let acknowledge = async || {
-            if let Some(request_id) = &request_id {
+            if let Some(request_id) = &pin {
                 self.acknowledge_sync_request(sync_group_id, request_id)
                     .await?;
             }
@@ -516,8 +516,8 @@ where
         let url = format!("{server_url}/upload");
         let response = exporter.post_to_url(&url).await?;
 
-        let request_id = request_id.map(str::to_string).unwrap_or_else(|| {
-            let pin = xmtp_common::rng().gen_range(0..9999);
+        let request_id = pin.map(str::to_string).unwrap_or_else(|| {
+            let pin = xmtp_common::rng().gen_range(0..=9999);
             format!("{pin:04}")
         });
 
@@ -601,6 +601,7 @@ where
         &self,
         options: &BackupOptions,
         server_url: &str,
+        pin: Option<&str>,
     ) -> Result<String, ClientError>
     where
         Context::Db: 'static,
@@ -612,7 +613,7 @@ where
             .map_err(GroupError::from)?;
 
         let pin = self
-            .send_archive(options, &sync_group.group_id, None, server_url)
+            .send_archive(options, &sync_group.group_id, pin, server_url)
             .await
             .map_err(|e| GroupError::DeviceSync(Box::new(e)))?;
 
