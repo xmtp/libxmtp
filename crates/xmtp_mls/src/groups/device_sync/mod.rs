@@ -108,6 +108,8 @@ pub enum DeviceSyncError {
     Recv(#[from] RecvError),
     #[error("Missing Field: {0:?} {1}")]
     MissingField(MissingField, String),
+    #[error("Could not find payload with pin {0}")]
+    MissingPayload(String),
 }
 
 #[derive(Debug)]
@@ -136,7 +138,13 @@ impl NeedsDbReconnect for DeviceSyncError {
 
 impl RetryableError for DeviceSyncError {
     fn is_retryable(&self) -> bool {
-        true
+        !matches!(
+            self,
+            Self::AlreadyAcknowledged
+                | Self::MissingSyncGroup
+                | Self::MissingSyncServerUrl
+                | Self::UnspecifiedDeviceSyncKind
+        )
     }
 }
 

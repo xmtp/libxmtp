@@ -98,9 +98,6 @@ mod static_methods;
 mod streaming;
 mod test_self_removal;
 
-// Constants
-pub(crate) const HISTORY_SYNC_URL: &str = "http://localhost:5558";
-
 // Shared test callback struct
 pub(crate) struct RustStreamCallback {
     num_messages: AtomicU32,

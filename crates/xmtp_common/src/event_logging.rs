@@ -109,9 +109,6 @@ pub enum Event {
     DeviceSyncV1Archive,
     /// Received a sync archive message, but it was not requested by this instalaltion. Skipping.
     DeviceSyncArchiveNotRequested,
-    /// Received a sync archive message. Syncing any welcomes the originating
-    /// installation might have also sent.
-    DeviceSyncArchiveAccepted,
     /// Downloading sync archive.
     DeviceSyncArchiveDownloading,
     /// Sync archive download failure.

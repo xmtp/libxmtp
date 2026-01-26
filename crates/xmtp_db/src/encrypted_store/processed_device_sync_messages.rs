@@ -31,6 +31,11 @@ impl_store_or_ignore!(
 
 pub trait QueryDeviceSyncMessages {
     fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError>;
+    fn sync_group_messages_paged(
+        &self,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<StoredGroupMessage>, StorageError>;
 }
 
 impl<T> QueryDeviceSyncMessages for &T
@@ -39,6 +44,14 @@ where
 {
     fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError> {
         (**self).unprocessed_sync_group_messages()
+    }
+
+    fn sync_group_messages_paged(
+        &self,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<StoredGroupMessage>, StorageError> {
+        (**self).sync_group_messages_paged(offset, limit)
     }
 }
 
@@ -53,6 +66,23 @@ impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
                         .filter(dsl::message_id.eq(group_messages_dsl::id)),
                 )))
                 .select(group_messages_dsl::group_messages::all_columns())
+                .load::<StoredGroupMessage>(conn)
+        })?;
+        Ok(result)
+    }
+
+    fn sync_group_messages_paged(
+        &self,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<StoredGroupMessage>, StorageError> {
+        let result = self.raw_query_read(|conn| {
+            group_messages_dsl::group_messages
+                .inner_join(groups_dsl::groups.on(group_messages_dsl::group_id.eq(groups_dsl::id)))
+                .filter(groups_dsl::conversation_type.eq(ConversationType::Sync))
+                .select(group_messages_dsl::group_messages::all_columns())
+                .limit(limit)
+                .offset(offset)
                 .load::<StoredGroupMessage>(conn)
         })?;
         Ok(result)
@@ -96,6 +126,57 @@ mod tests {
 
             let unprocessed = conn.unprocessed_sync_group_messages()?;
             assert_eq!(unprocessed.len(), 1);
+        })
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn it_returns_sync_group_messages_paged() {
+        with_connection(|conn| {
+            let mut sync_group = generate_group(None);
+            sync_group.conversation_type = ConversationType::Sync;
+            sync_group.store(conn)?;
+
+            // Create a non-sync group to verify filtering works
+            let mut dm_group = generate_group(None);
+            dm_group.conversation_type = ConversationType::Dm;
+            dm_group.store(conn)?;
+
+            // Create 5 messages in the sync group
+            let mut sync_message_ids = Vec::new();
+            for _ in 0..5 {
+                let message = generate_message(None, Some(&sync_group.id), None, None, None, None);
+                message.store(conn)?;
+                sync_message_ids.push(message.id);
+            }
+
+            // Create a message in the non-sync group (should be filtered out)
+            let dm_message = generate_message(None, Some(&dm_group.id), None, None, None, None);
+            dm_message.store(conn)?;
+
+            // Test pagination: get first 2 messages
+            let page1 = conn.sync_group_messages_paged(0, 2)?;
+            assert_eq!(page1.len(), 2);
+
+            // Test pagination: get next 2 messages
+            let page2 = conn.sync_group_messages_paged(2, 2)?;
+            assert_eq!(page2.len(), 2);
+
+            // Test pagination: get last message
+            let page3 = conn.sync_group_messages_paged(4, 2)?;
+            assert_eq!(page3.len(), 1);
+
+            // Test pagination: offset beyond available messages
+            let page4 = conn.sync_group_messages_paged(10, 2)?;
+            assert_eq!(page4.len(), 0);
+
+            // Test getting all messages at once
+            let all_messages = conn.sync_group_messages_paged(0, 100)?;
+            assert_eq!(all_messages.len(), 5);
+
+            // Verify all returned messages belong to the sync group
+            for msg in &all_messages {
+                assert_eq!(msg.group_id, sync_group.id);
+            }
         })
     }
 }

@@ -381,9 +381,18 @@ where
                     // Ignore our own messages
                     return Ok(());
                 }
-                self.process_sync_payload(msg, reply).await.inspect_err(
-                    |err| log_event!(Event::DeviceSyncArchiveImportFailure, self.context.installation_id(), err = %err),
-                )?;
+
+                // Check if this reply was asked for by this installation.
+                if self.is_reply_requested_by_installation(&reply).await? {
+                    self.process_sync_payload(msg, reply).await.inspect_err(
+                        |err| log_event!(Event::DeviceSyncArchiveImportFailure, self.context.installation_id(), err = %err),
+                    )?;
+                } else {
+                    log_event!(
+                        Event::DeviceSyncArchiveNotRequested,
+                        self.context.installation_id()
+                    );
+                }
                 handle.increment_metric(SyncMetric::PayloadProcessed);
             }
             ContentProto::PreferenceUpdates(PreferenceUpdatesProto { updates }) => {
@@ -578,6 +587,7 @@ where
         self.send_device_sync_message(ContentProto::Request(request))
             .await?;
 
+        self.metrics.increment_metric(SyncMetric::RequestSent);
         log_event!(
             Event::DeviceSyncSentSyncRequest,
             self.context.installation_id(),
@@ -636,6 +646,29 @@ where
         Ok(false)
     }
 
+    pub async fn process_sync_payload_with_pin(&self, pin: &str) -> Result<(), DeviceSyncError> {
+        let mut offset = 0;
+        let mut messages = vec![];
+        loop {
+            messages = self.context.db().sync_group_messages_paged(offset, 100)?;
+            if messages.is_empty() {
+                break;
+            }
+
+            offset += messages.len() as i64;
+            for (msg, content) in messages.iter_with_content().rev() {
+                let reply = match content {
+                    ContentProto::Reply(reply) if reply.request_id == pin => reply,
+                    _ => continue,
+                };
+
+                return self.process_sync_payload(&msg, reply).await;
+            }
+        }
+
+        Err(DeviceSyncError::MissingPayload(pin.to_string()))
+    }
+
     pub async fn process_sync_payload(
         &self,
         msg: &StoredGroupMessage,
@@ -653,24 +686,6 @@ where
             return Ok(());
         }
 
-        tracing::info!("Inspecting sync payload.");
-
-        // Check if this reply was asked for by this installation.
-        if !self.is_reply_requested_by_installation(&reply).await? {
-            // This installation didn't ask for it. Ignore the reply.
-            log_event!(
-                Event::DeviceSyncArchiveNotRequested,
-                self.context.installation_id()
-            );
-            return Ok(());
-        }
-
-        // If a payload was sent to this installation,
-        // that means they also sent this installation a bunch of welcomes.
-        log_event!(
-            Event::DeviceSyncArchiveAccepted,
-            self.context.installation_id()
-        );
         self.welcome_service.sync_welcomes().await?;
 
         // Get a download stream of the payload.
@@ -731,6 +746,7 @@ pub enum SyncMetric {
     SyncGroupCreated,
     SyncGroupWelcomesProcessed,
     RequestReceived,
+    RequestSent,
     ConsentPayloadSent,
     ConsentPayloadProcessed,
     MessagesPayloadSent,
