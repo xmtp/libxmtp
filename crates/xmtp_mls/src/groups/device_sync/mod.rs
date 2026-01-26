@@ -108,8 +108,8 @@ pub enum DeviceSyncError {
     Recv(#[from] RecvError),
     #[error("Missing Field: {0:?} {1}")]
     MissingField(MissingField, String),
-    #[error("Could not find payload with pin {0}")]
-    MissingPayload(String),
+    #[error("Could not find payload with pin {0:?}")]
+    MissingPayload(Option<String>),
 }
 
 #[derive(Debug)]

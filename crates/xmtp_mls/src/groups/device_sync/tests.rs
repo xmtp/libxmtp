@@ -404,7 +404,7 @@ async fn test_manual_sync_flow() {
         .await?;
     alix2
         .device_sync_client()
-        .process_sync_payload_with_pin(&pin)
+        .process_archive_with_pin(Some(&pin))
         .await?;
     alix2
         .worker()

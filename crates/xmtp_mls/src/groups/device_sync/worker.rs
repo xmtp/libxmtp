@@ -384,7 +384,7 @@ where
 
                 // Check if this reply was asked for by this installation.
                 if self.is_reply_requested_by_installation(&reply).await? {
-                    self.process_sync_payload(msg, reply).await.inspect_err(
+                    self.process_archive(msg, reply).await.inspect_err(
                         |err| log_event!(Event::DeviceSyncArchiveImportFailure, self.context.installation_id(), err = %err),
                     )?;
                 } else {
@@ -647,7 +647,8 @@ where
         Ok(false)
     }
 
-    pub async fn process_sync_payload_with_pin(&self, pin: &str) -> Result<(), DeviceSyncError> {
+    /// Processes sync archive with a matching pin. If no pin is provided, will process latest archive.
+    pub async fn process_archive_with_pin(&self, pin: Option<&str>) -> Result<(), DeviceSyncError> {
         let mut offset = 0;
         let mut messages = vec![];
         loop {
@@ -658,19 +659,20 @@ where
 
             offset += messages.len() as i64;
             for (msg, content) in messages.iter_with_content().rev() {
-                let reply = match content {
-                    ContentProto::Reply(reply) if reply.request_id == pin => reply,
+                let reply = match (pin, content) {
+                    (None, ContentProto::Reply(reply)) => reply,
+                    (Some(pin), ContentProto::Reply(reply)) if reply.request_id == pin => reply,
                     _ => continue,
                 };
 
-                return self.process_sync_payload(&msg, reply).await;
+                return self.process_archive(&msg, reply).await;
             }
         }
 
-        Err(DeviceSyncError::MissingPayload(pin.to_string()))
+        Err(DeviceSyncError::MissingPayload(pin.map(str::to_string)))
     }
 
-    pub async fn process_sync_payload(
+    pub async fn process_archive(
         &self,
         msg: &StoredGroupMessage,
         reply: DeviceSyncReplyProto,

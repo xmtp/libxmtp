@@ -876,10 +876,29 @@ impl FfiXmtpClient {
         &self,
         options: FfiArchiveOptions,
         upload_url: String,
+        pin: Option<String>,
+    ) -> Result<String, GenericError> {
+        let pin = self
+            .inner_client
+            .device_sync_client()
+            .send_sync_archive(
+                &options.into(),
+                &upload_url,
+                pin.as_ref().map(String::as_str),
+            )
+            .await?;
+        Ok(pin)
+    }
+
+    /// Manually process a sync archive that matches the pin given.
+    /// If no pin is given, then it will process the last archive sent.
+    pub async fn process_sync_archive(
+        &self,
+        archive_pin: Option<String>,
     ) -> Result<(), GenericError> {
         self.inner_client
             .device_sync_client()
-            .send_sync_archive(&options.into(), &upload_url)
+            .process_archive_with_pin(archive_pin.as_ref().map(String::as_str))
             .await?;
         Ok(())
     }
