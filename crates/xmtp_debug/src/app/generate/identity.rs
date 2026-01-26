@@ -1,8 +1,8 @@
 use std::{collections::HashSet, sync::Arc};
 
-use crate::app::register_client;
 use crate::app::store::{Database, IdentityStore};
 use crate::app::{self, types::Identity};
+use crate::app::{get_fdlimit, register_client};
 use crate::args;
 
 use color_eyre::eyre::{self, Result, WrapErr, bail, eyre};
@@ -76,6 +76,8 @@ impl GenerateIdentity {
                     let s = s.clone();
                     let network = network.clone();
                     let bar_pointer = bar.clone();
+                    // ensure fdlmit
+                    get_fdlimit();
                     async move {
                         let _permit = sem.acquire().await?;
                         let wallet = crate::app::generate_wallet();
@@ -154,6 +156,7 @@ impl GenerateIdentity {
         // ensure our ryow task is spawned
         let _ = rx.await;
 
+        tracing::info!("registering client");
         let identities = stream::iter(clients.into_iter().map(Ok))
             .map_ok(|(c, wallet)| {
                 tokio::spawn({

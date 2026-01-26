@@ -45,25 +45,34 @@ impl Export {
         match entity {
             Identity => {
                 let store: IdentityStore = store.into();
-                if let Some(ids) = store.load(&network)? {
-                    let ids = ids
-                        .map(|i| IdentityExport::from(i.value()))
-                        .collect::<Vec<_>>();
-                    let json = serde_json::to_string(&ids)?;
-                    writer.write_all(json.as_bytes())?;
-                    writer.flush()?;
+                let Some(ids) = store.load(&network)? else {
+                    writer.write_all("[]".as_bytes())?;
+                    return Ok(());
                 };
+                let ids = ids
+                    .map(|i| IdentityExport::from(i.value()))
+                    .collect::<Vec<_>>();
+                let json = serde_json::to_string(&ids)?;
+                writer.write_all(json.as_bytes())?;
+                writer.flush()?;
             }
             Group => {
                 let store: GroupStore = store.into();
-                if let Some(groups) = store.load(&network)? {
-                    let groups = groups
-                        .map(|g| GroupExport::from(g.value()))
-                        .collect::<Vec<_>>();
+                let Some(groups) = store.load(&network)? else {
+                    writer.write_all("[]".as_bytes())?;
+                    return Ok(());
+                };
+                let groups = groups
+                    .map(|g| GroupExport::from(g.value()))
+                    .collect::<Vec<_>>();
+                // ensure empty vec is written to prevent eof
+                if groups.len() == 0 {
+                    writer.write_all("[]".as_bytes())?;
+                } else {
                     let json = serde_json::to_string(&groups)?;
                     writer.write_all(json.as_bytes())?;
-                    writer.flush()?;
-                };
+                }
+                writer.flush()?;
             }
             Message => todo!(),
         }
