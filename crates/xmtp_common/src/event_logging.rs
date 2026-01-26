@@ -140,7 +140,7 @@ pub enum Event {
     /// Failed to respond to sync request.
     #[context(group_id, request_id, err)]
     DeviceSyncArchiveUploadFailure,
-    /// Cannot respond to sync request. No server_url present.
+    /// Cannot send sync archive. No server_url present.
     #[context(request_id)]
     DeviceSyncNoServerUrl,
 }

@@ -1,5 +1,5 @@
 use crate::{
-    groups::{device_sync::DeviceSyncError, welcome_sync::GroupSyncSummary},
+    groups::welcome_sync::GroupSyncSummary,
     identity_updates::{batch_get_association_state_with_verifier, get_creation_signature_kind},
     messages::{
         decoded_message::DecodedMessage,

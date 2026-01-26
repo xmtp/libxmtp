@@ -248,11 +248,12 @@ where
                     )
                     .await
                     .inspect_err(|e| {
-                        log_event!(Event::DeviceSyncArchiveUploadFailure,
-                        context.installation_id(),
-                        group_id = send_sync_archive.sync_group_id.short_hex(),
-                        request_id = send_sync_archive.request_id(),
-                        err = %e
+                        log_event!(
+                            Event::DeviceSyncArchiveUploadFailure,
+                            context.installation_id(),
+                            group_id = send_sync_archive.sync_group_id.short_hex(),
+                            request_id = send_sync_archive.request_id(),
+                            err = %e
                         )
                     })?;
             }

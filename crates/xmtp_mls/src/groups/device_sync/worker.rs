@@ -12,7 +12,8 @@ use crate::{
         metrics::WorkerMetrics,
     },
 };
-use futures::TryFutureExt;
+use futures::{StreamExt, TryFutureExt};
+use rand::Rng;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{OnceCell, broadcast};
 #[cfg(not(target_arch = "wasm32"))]
@@ -467,7 +468,7 @@ where
         sync_group_id: &Vec<u8>,
         request_id: Option<&str>,
         server_url: &str,
-    ) -> Result<(), DeviceSyncError>
+    ) -> Result<String, DeviceSyncError>
     where
         Context::Db: 'static,
     {
@@ -477,29 +478,18 @@ where
             group_id = sync_group_id.short_hex(),
             server_url
         );
-        // let Some(device_sync_server_url) = &self.context.device_sync().server_url else {
-        // tracing::info!("No message history payload sent - server url not present.");
-        // return Ok(());
-        // };
 
         let acknowledge = async || {
             if let Some(request_id) = &request_id {
-                match self
-                    .acknowledge_sync_request(sync_group_id, request_id)
-                    .await
-                {
-                    Err(DeviceSyncError::AlreadyAcknowledged) => return Ok(false),
-                    result => result?,
-                }
+                self.acknowledge_sync_request(sync_group_id, request_id)
+                    .await?;
             }
 
-            Ok::<_, DeviceSyncError>(true)
+            Ok::<_, DeviceSyncError>(())
         };
 
         // Acknowledge the sync request
-        if !acknowledge().await? {
-            return Ok(());
-        };
+        acknowledge().await?;
 
         // Generate a random encryption key
         let key = xmtp_common::rand_vec::<32>();
@@ -517,12 +507,17 @@ where
         let url = format!("{server_url}/upload");
         let response = exporter.post_to_url(&url).await?;
 
+        let request_id = request_id.map(str::to_string).unwrap_or_else(|| {
+            let pin = xmtp_common::rng().gen_range(0..9999);
+            format!("{pin:04}")
+        });
+
         // Build a sync reply message that the new installation will consume
         let reply = DeviceSyncReplyProto {
             encryption_key: Some(DeviceSyncKeyType {
                 key: Some(Key::Aes256Gcm(key)),
             }),
-            request_id: request_id.map(str::to_string).unwrap_or_default(),
+            request_id: request_id.clone(),
             url: format!("{server_url}/files/{response}",),
             metadata: Some(metadata),
 
@@ -532,9 +527,7 @@ where
 
         // Check acknowledgement one more time.
         // This ensures we were the first to acknowledge.
-        if !acknowledge().await? {
-            return Ok(());
-        };
+        acknowledge().await?;
 
         tracing::info!("Sending sync request reply message.");
         // Send the message out over the network
@@ -558,7 +551,7 @@ where
         }
         self.metrics.increment_metric(SyncMetric::PayloadSent);
 
-        Ok(())
+        Ok(request_id)
     }
 
     pub async fn send_sync_request(&self) -> Result<(), ClientError> {
@@ -598,7 +591,7 @@ where
         &self,
         options: &BackupOptions,
         server_url: &str,
-    ) -> Result<(), ClientError>
+    ) -> Result<String, ClientError>
     where
         Context::Db: 'static,
     {
@@ -608,11 +601,12 @@ where
             .await
             .map_err(GroupError::from)?;
 
-        self.send_archive(options, &sync_group.group_id, None, server_url)
+        let pin = self
+            .send_archive(options, &sync_group.group_id, None, server_url)
             .await
             .map_err(|e| GroupError::DeviceSync(Box::new(e)))?;
 
-        Ok(())
+        Ok(pin)
     }
 
     async fn is_reply_requested_by_installation(
@@ -699,24 +693,15 @@ where
             Event::DeviceSyncArchiveImportStart,
             self.context.installation_id()
         );
-        #[cfg(not(target_arch = "wasm32"))]
-        let reader = {
-            use futures::StreamExt;
-            let stream = response
-                .bytes_stream()
-                .map(|result| result.map_err(std::io::Error::other));
 
-            // Convert that stream into a reader
-            let tokio_reader = tokio_util::io::StreamReader::new(stream);
-            // Convert that tokio reader into a futures reader.
-            // We use futures reader for WASM compat.
-            tokio_reader.compat()
-        };
-        #[cfg(target_arch = "wasm32")]
-        let reader = {
-            // WASM doesn't support request streaming. Consume the response instead.
-            futures::io::Cursor::new(response.bytes().await?)
-        };
+        let stream = response
+            .bytes_stream()
+            .map(|result| result.map_err(std::io::Error::other));
+        // Convert that stream into a reader
+        let tokio_reader = tokio_util::io::StreamReader::new(stream);
+        // Convert that tokio reader into a futures reader.
+        // We use futures reader for WASM compat.
+        let reader = tokio_reader.compat();
 
         // Create an importer around that futures_reader.
         let Some(DeviceSyncKeyType {
