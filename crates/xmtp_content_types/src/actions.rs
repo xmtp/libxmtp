@@ -120,6 +120,7 @@ pub struct Actions {
     pub actions: Vec<Action>,
     #[serde(
         default,
+        alias = "expires_at",
         rename = "expiresAt",
         skip_serializing_if = "Option::is_none",
         with = "datetime_utc_millis_option"
@@ -131,12 +132,17 @@ pub struct Actions {
 pub struct Action {
     pub id: String,
     pub label: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        alias = "image_url",
+        rename = "imageUrl",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub image_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style: Option<ActionStyle>,
     #[serde(
         default,
+        alias = "expires_at",
         rename = "expiresAt",
         skip_serializing_if = "Option::is_none",
         with = "datetime_utc_millis_option"
