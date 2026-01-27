@@ -1,19 +1,16 @@
-use std::sync::Arc;
-
+use crate::{
+    context::XmtpSharedContext,
+    groups::device_sync::{DeviceSyncClient, DeviceSyncError},
+    worker::{NeedsDbReconnect, Worker, WorkerFactory, WorkerKind},
+};
 use prost::Message;
-use rand::Rng;
+use std::sync::Arc;
 use xmtp_common::{Event, fmt::ShortHex};
 use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask};
 use xmtp_macro::log_event;
 use xmtp_proto::{
     types::{WelcomeMessage, WelcomeMessageType},
     xmtp::mls::database::Task as TaskProto,
-};
-
-use crate::{
-    context::XmtpSharedContext,
-    groups::device_sync::{DeviceSyncClient, DeviceSyncError},
-    worker::{NeedsDbReconnect, Worker, WorkerFactory, WorkerKind},
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -242,7 +239,7 @@ where
                 let client = DeviceSyncClient::new(context.clone(), metrics);
 
                 let request_id = send_sync_archive.request_id.clone().unwrap_or_else(|| {
-                    let pin = xmtp_common::rng().gen_range(0..=9999);
+                    let pin = xmtp_common::rand_string::<20>();
                     format!("{pin:04}")
                 });
 
