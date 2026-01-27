@@ -347,7 +347,7 @@ impl IterWithContent<StoredGroupMessage, ContentProto> for Vec<StoredGroupMessag
 }
 
 pub struct AvailableArchive {
-    pub request_id: String,
+    pub pin: String,
     pub metadata: BackupMetadata,
     pub sent_by_installation: Vec<u8>,
 }

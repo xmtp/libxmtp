@@ -197,14 +197,14 @@ impl From<BackupMetadata> for FfiBackupMetadata {
 
 #[derive(uniffi::Record)]
 pub struct FfiAvailableArchive {
-    request_id: String,
+    pin: String,
     metadata: FfiBackupMetadata,
     sent_by_installation: Vec<u8>,
 }
 impl From<AvailableArchive> for FfiAvailableArchive {
     fn from(value: AvailableArchive) -> Self {
         Self {
-            request_id: value.request_id,
+            pin: value.pin,
             metadata: value.metadata.into(),
             sent_by_installation: value.sent_by_installation,
         }

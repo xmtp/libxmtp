@@ -406,7 +406,7 @@ async fn test_manual_sync_flow() {
 
     let available_archives = alix2.device_sync_client().list_available_archives(7)?;
     assert_eq!(available_archives.len(), 2);
-    assert_eq!(available_archives[0].request_id, "234");
+    assert_eq!(available_archives[0].pin, "234");
 
     alix2
         .device_sync_client()

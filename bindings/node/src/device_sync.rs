@@ -99,7 +99,7 @@ impl From<BackupMetadata> for ArchiveMetadata {
 /// An available archive in the sync group
 #[napi(object)]
 pub struct AvailableArchiveInfo {
-  pub request_id: String,
+  pub pin: String,
   pub metadata: ArchiveMetadata,
   pub sent_by_installation: Uint8Array,
 }
@@ -107,7 +107,7 @@ pub struct AvailableArchiveInfo {
 impl From<AvailableArchive> for AvailableArchiveInfo {
   fn from(value: AvailableArchive) -> Self {
     Self {
-      request_id: value.request_id,
+      pin: value.pin,
       metadata: value.metadata.into(),
       sent_by_installation: Uint8Array::from(value.sent_by_installation.as_slice()),
     }

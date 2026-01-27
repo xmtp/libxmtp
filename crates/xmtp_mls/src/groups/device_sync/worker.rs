@@ -692,7 +692,7 @@ where
 
                 let metadata = BackupMetadata::from_metadata_version_unknown(metadata);
                 result.push(AvailableArchive {
-                    request_id: reply.request_id,
+                    pin: reply.request_id,
                     metadata,
                     sent_by_installation: msg.sender_installation_id,
                 });

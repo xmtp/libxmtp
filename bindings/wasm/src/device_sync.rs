@@ -116,7 +116,7 @@ impl From<BackupMetadata> for ArchiveMetadata {
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct AvailableArchiveInfo {
-  pub request_id: String,
+  pub pin: String,
   pub metadata: ArchiveMetadata,
   #[serde(with = "serde_bytes")]
   #[tsify(type = "Uint8Array")]
@@ -126,7 +126,7 @@ pub struct AvailableArchiveInfo {
 impl From<AvailableArchive> for AvailableArchiveInfo {
   fn from(value: AvailableArchive) -> Self {
     Self {
-      request_id: value.request_id,
+      pin: value.pin,
       metadata: value.metadata.into(),
       sent_by_installation: value.sent_by_installation,
     }
