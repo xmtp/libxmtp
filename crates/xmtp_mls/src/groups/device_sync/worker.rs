@@ -16,7 +16,6 @@ use crate::{
     },
 };
 use futures::{StreamExt, TryFutureExt};
-use rand::Rng;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{OnceCell, broadcast};
 use tokio_util::compat::TokioAsyncReadCompatExt;
@@ -475,9 +474,10 @@ where
         &self,
         options: &BackupOptions,
         sync_group_id: &Vec<u8>,
-        pin: Option<&str>,
+        pin: &str,
         server_url: &str,
-    ) -> Result<String, DeviceSyncError>
+        requested: bool,
+    ) -> Result<(), DeviceSyncError>
     where
         Context::Db: 'static,
     {
@@ -489,9 +489,8 @@ where
         );
 
         let acknowledge = async || {
-            if let Some(request_id) = &pin {
-                self.acknowledge_sync_request(sync_group_id, request_id)
-                    .await?;
+            if requested {
+                self.acknowledge_sync_request(sync_group_id, pin).await?;
             }
 
             Ok::<_, DeviceSyncError>(())
@@ -516,17 +515,12 @@ where
         let url = format!("{server_url}/upload");
         let response = exporter.post_to_url(&url).await?;
 
-        let request_id = pin.map(str::to_string).unwrap_or_else(|| {
-            let pin = xmtp_common::rng().gen_range(0..=9999);
-            format!("{pin:04}")
-        });
-
         // Build a sync reply message that the new installation will consume
         let reply = DeviceSyncReplyProto {
             encryption_key: Some(DeviceSyncKeyType {
                 key: Some(Key::Aes256Gcm(key)),
             }),
-            request_id: request_id.clone(),
+            request_id: pin.to_string(),
             url: format!("{server_url}/files/{response}",),
             metadata: Some(metadata),
 
@@ -560,7 +554,7 @@ where
         }
         self.metrics.increment_metric(SyncMetric::PayloadSent);
 
-        Ok(request_id)
+        Ok(())
     }
 
     pub async fn send_sync_request(&self) -> Result<(), ClientError> {
@@ -601,8 +595,8 @@ where
         &self,
         options: &BackupOptions,
         server_url: &str,
-        pin: Option<&str>,
-    ) -> Result<String, ClientError>
+        pin: &str,
+    ) -> Result<(), ClientError>
     where
         Context::Db: 'static,
     {
@@ -612,12 +606,11 @@ where
             .await
             .map_err(GroupError::from)?;
 
-        let pin = self
-            .send_archive(options, &sync_group.group_id, pin, server_url)
+        self.send_archive(options, &sync_group.group_id, pin, server_url, false)
             .await
             .map_err(|e| GroupError::DeviceSync(Box::new(e)))?;
 
-        Ok(pin)
+        Ok(())
     }
 
     async fn is_reply_requested_by_installation(

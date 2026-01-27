@@ -162,18 +162,18 @@ impl Client {
   }
 
   /// Manually send a sync archive to the sync group.
-  /// Returns the pin code for the archive.
+  /// The pin will be later used for reference when importing.
   #[wasm_bindgen(js_name = sendSyncArchive)]
   pub async fn send_sync_archive(
     &self,
     options: ArchiveOptions,
     #[wasm_bindgen(js_name = serverUrl)] server_url: String,
-    pin: Option<String>,
+    pin: String,
   ) -> Result<String, JsError> {
     let pin = self
       .inner_client()
       .device_sync_client()
-      .send_sync_archive(&options.into(), &server_url, pin.as_deref())
+      .send_sync_archive(&options.into(), &server_url, &pin)
       .await
       .map_err(|e| JsError::new(&format!("{}", e)))?;
     Ok(pin)

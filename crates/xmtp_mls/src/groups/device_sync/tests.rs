@@ -384,19 +384,17 @@ async fn test_manual_sync_flow() {
         ..Default::default()
     };
 
-    let pin = alix
-        .device_sync_client()
-        .send_sync_archive(&opts, DeviceSyncUrls::LOCAL_ADDRESS, Some("123"))
+    alix.device_sync_client()
+        .send_sync_archive(&opts, DeviceSyncUrls::LOCAL_ADDRESS, "123")
         .await?;
     alix.device_sync_client()
-        .send_sync_archive(&opts, DeviceSyncUrls::LOCAL_ADDRESS, Some("234"))
+        .send_sync_archive(&opts, DeviceSyncUrls::LOCAL_ADDRESS, "234")
         .await?;
     alix.worker()
         .register_interest(SyncMetric::PayloadSent, 2)
         .wait()
         .await?;
 
-    assert_eq!(pin, "123");
     assert!(alix2.group(&dm.group_id).is_err());
 
     alix2
@@ -412,7 +410,7 @@ async fn test_manual_sync_flow() {
 
     alix2
         .device_sync_client()
-        .process_archive_with_pin(Some(&pin))
+        .process_archive_with_pin(Some("123"))
         .await?;
     alix2
         .worker()

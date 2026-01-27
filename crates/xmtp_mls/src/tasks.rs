@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use prost::Message;
+use rand::Rng;
 use xmtp_common::{Event, fmt::ShortHex};
 use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask};
 use xmtp_macro::log_event;
@@ -239,12 +240,19 @@ where
                 };
 
                 let client = DeviceSyncClient::new(context.clone(), metrics);
+
+                let request_id = send_sync_archive.request_id.clone().unwrap_or_else(|| {
+                    let pin = xmtp_common::rng().gen_range(0..=9999);
+                    format!("{pin:04}")
+                });
+
                 client
                     .send_archive(
                         options,
                         &send_sync_archive.sync_group_id,
-                        send_sync_archive.request_id.as_deref(),
+                        &request_id,
                         &send_sync_archive.server_url,
+                        true,
                     )
                     .await
                     .inspect_err(|e| {

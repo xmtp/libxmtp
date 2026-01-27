@@ -143,21 +143,21 @@ impl Client {
   }
 
   /// Manually send a sync archive to the sync group.
-  /// Returns the pin code for the archive.
+  /// The pin is used for reference when importing.
   #[napi]
   pub async fn send_sync_archive(
     &self,
     options: ArchiveOptions,
     server_url: String,
-    pin: Option<String>,
-  ) -> Result<String> {
-    let pin = self
+    pin: String,
+  ) -> Result<()> {
+    self
       .inner_client()
       .device_sync_client()
-      .send_sync_archive(&options.into(), &server_url, pin.as_deref())
+      .send_sync_archive(&options.into(), &server_url, &pin)
       .await
       .map_err(ErrorWrapper::from)?;
-    Ok(pin)
+    Ok(())
   }
 
   /// Manually process a sync archive that matches the pin given.
