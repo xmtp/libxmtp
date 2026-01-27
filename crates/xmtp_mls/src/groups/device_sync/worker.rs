@@ -675,7 +675,7 @@ where
         Err(DeviceSyncError::MissingPayload(pin.map(str::to_string)))
     }
 
-    pub async fn list_available_archives(
+    pub fn list_available_archives(
         &self,
         days_cutoff: i64,
     ) -> Result<Vec<AvailableArchive>, DeviceSyncError> {
