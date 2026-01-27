@@ -192,6 +192,8 @@ diesel::table! {
 diesel::table! {
     processed_device_sync_messages (message_id) {
         message_id -> Binary,
+        attempts -> Integer,
+        state -> Integer,
     }
 }
 

@@ -23,11 +23,7 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use xmtp_archive::{ArchiveImporter, BackupMetadata, exporter::ArchiveExporter};
 use xmtp_common::{Event, NS_IN_DAY, fmt::ShortHex, time::now_ns};
-use xmtp_db::{
-    StoreOrIgnore,
-    group_message::{MsgQueryArgs, StoredGroupMessage},
-    processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
-};
+use xmtp_db::group_message::{MsgQueryArgs, StoredGroupMessage};
 use xmtp_db::{prelude::*, tasks::NewTask};
 use xmtp_macro::log_event;
 use xmtp_proto::{
@@ -312,12 +308,14 @@ where
                     err = %err,
                     msg_id = msg.id.short_hex()
                 );
-            };
-        }
-
-        for msg in messages {
-            StoredProcessedDeviceSyncMessages { message_id: msg.id }
-                .store_or_ignore(&self.context.db())?;
+                self.context
+                    .db()
+                    .increment_device_sync_msg_attempt(&msg.id)?;
+            } else {
+                self.context
+                    .db()
+                    .mark_device_sync_msg_as_processed(&msg.id)?;
+            }
         }
 
         Ok(())
@@ -371,10 +369,9 @@ where
                 );
 
                 // Mark this message as processed immediately.
-                StoredProcessedDeviceSyncMessages {
-                    message_id: msg.id.clone(),
-                }
-                .store_or_ignore(&self.context.db())?;
+                self.context
+                    .db()
+                    .mark_device_sync_msg_as_processed(&msg.id)?;
 
                 handle.increment_metric(SyncMetric::PayloadTaskScheduled);
             }

@@ -574,6 +574,16 @@ mock! {
             offset: i64,
             limit: i64,
         ) -> Result<Vec<crate::group_message::StoredGroupMessage>, StorageError>;
+
+        fn mark_device_sync_msg_as_processed(
+            &self,
+            message_id: &[u8],
+        ) -> Result<(), StorageError>;
+
+        fn increment_device_sync_msg_attempt(
+            &self,
+            message_id: &[u8],
+        ) -> Result<i32, StorageError>;
     }
 
     impl QueryRefreshState for DbQuery {
