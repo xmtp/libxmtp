@@ -583,7 +583,7 @@ mock! {
         fn increment_device_sync_msg_attempt(
             &self,
             message_id: &[u8],
-            max_attempts: i32
+            max_attempts: i32,
         ) -> Result<i32, StorageError>;
     }
 

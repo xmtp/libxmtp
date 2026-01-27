@@ -101,7 +101,7 @@ pub trait QueryDeviceSyncMessages {
     /// Marks a device sync message as processed.
     fn mark_device_sync_msg_as_processed(&self, message_id: &[u8]) -> Result<(), StorageError>;
     /// Increments the attempt count for a device sync message.
-    /// If the attempt count reaches MAX_ATTEMPTS, the state is set to Failed.
+    /// If the attempt count reaches max_attempts, the state is set to Failed.
     /// Returns the new attempt count.
     fn increment_device_sync_msg_attempt(
         &self,
@@ -205,8 +205,15 @@ impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
         max_attempts: i32,
     ) -> Result<i32, StorageError> {
         let attempts = self.raw_query_write(|conn| {
-            // First increment the attempt count
-            diesel::update(dsl::processed_device_sync_messages.find(message_id))
+            // Upsert: insert with attempts=1 if no record exists, or increment attempts if it does
+            diesel::insert_into(dsl::processed_device_sync_messages)
+                .values(StoredProcessedDeviceSyncMessages {
+                    message_id: message_id.to_vec(),
+                    attempts: 1,
+                    state: DeviceSyncProcessingState::Pending,
+                })
+                .on_conflict(dsl::message_id)
+                .do_update()
                 .set(dsl::attempts.eq(dsl::attempts + 1))
                 .execute(conn)?;
 

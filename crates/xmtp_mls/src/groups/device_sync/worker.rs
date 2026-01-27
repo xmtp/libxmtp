@@ -649,7 +649,7 @@ where
             }
 
             offset += messages.len() as i64;
-            for (msg, content) in messages.iter_with_content().rev() {
+            for (msg, content) in messages.iter_with_content() {
                 let reply = match (pin, content) {
                     (None, ContentProto::Reply(reply)) => reply,
                     (Some(pin), ContentProto::Reply(reply)) if reply.request_id == pin => reply,
@@ -680,7 +680,7 @@ where
             }
             offset += messages.len() as i64;
 
-            for (msg, content) in messages.iter_with_content().rev() {
+            for (msg, content) in messages.iter_with_content() {
                 if msg.sent_at_ns < cutoff {
                     break 'outer;
                 }
