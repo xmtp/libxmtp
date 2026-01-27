@@ -1,20 +1,20 @@
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::prelude::wasm_bindgen;
+use tsify::Tsify;
 
-#[wasm_bindgen]
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct DeletedMessage {
-  #[wasm_bindgen(getter_with_clone, js_name = "deletedBy")]
   pub deleted_by: DeletedBy,
-  #[wasm_bindgen(getter_with_clone, js_name = "adminInboxId")]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub admin_inbox_id: Option<String>,
 }
 
-#[wasm_bindgen]
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[wasm_bindgen_numbered_enum]
 pub enum DeletedBy {
-  Sender,
-  Admin,
+  Sender = 0,
+  Admin = 1,
 }
 
 impl From<xmtp_mls::messages::decoded_message::DeletedBy> for DeletedMessage {
