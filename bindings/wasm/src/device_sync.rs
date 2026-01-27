@@ -14,7 +14,7 @@ use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
 /// Options for creating or sending an archive
 #[derive(Clone, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
+#[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchiveOptions {
   #[tsify(optional)]

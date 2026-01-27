@@ -1,5 +1,4 @@
 pub use importer::ArchiveImporter;
-use std::u16;
 use thiserror::Error;
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave, BackupOptions};

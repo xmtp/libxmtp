@@ -19,7 +19,6 @@ use futures::{StreamExt, TryFutureExt};
 use rand::Rng;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{OnceCell, broadcast};
-#[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use xmtp_archive::{ArchiveImporter, BackupMetadata, exporter::ArchiveExporter};
