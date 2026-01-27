@@ -1,4 +1,5 @@
 pub use importer::ArchiveImporter;
+use std::u16;
 use thiserror::Error;
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave, BackupOptions};
@@ -46,6 +47,10 @@ impl BackupMetadata {
             exported_at_ns: save.exported_at_ns,
             backup_version,
         }
+    }
+
+    pub fn from_metadata_version_unknown(save: BackupMetadataSave) -> Self {
+        Self::from_metadata_save(save, u16::MAX)
     }
 }
 

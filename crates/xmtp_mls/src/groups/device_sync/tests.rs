@@ -388,8 +388,11 @@ async fn test_manual_sync_flow() {
         .device_sync_client()
         .send_sync_archive(&opts, DeviceSyncUrls::LOCAL_ADDRESS, Some("123"))
         .await?;
+    alix.device_sync_client()
+        .send_sync_archive(&opts, DeviceSyncUrls::LOCAL_ADDRESS, Some("234"))
+        .await?;
     alix.worker()
-        .register_interest(SyncMetric::PayloadSent, 1)
+        .register_interest(SyncMetric::PayloadSent, 2)
         .wait()
         .await?;
 
@@ -402,6 +405,14 @@ async fn test_manual_sync_flow() {
         .await?
         .sync()
         .await?;
+
+    let available_archives = alix2
+        .device_sync_client()
+        .list_available_archives(7)
+        .await?;
+    assert_eq!(available_archives.len(), 2);
+    assert_eq!(available_archives[0].request_id, "234");
+
     alix2
         .device_sync_client()
         .process_archive_with_pin(Some(&pin))

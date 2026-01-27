@@ -5,7 +5,10 @@ use super::{
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
-    groups::{GroupError, device_sync::archive::insert_importer},
+    groups::{
+        GroupError,
+        device_sync::{AvailableArchive, archive::insert_importer},
+    },
     subscriptions::{LocalEvents, SyncWorkerEvent},
     worker::{
         BoxedWorker, DynMetrics, MetricsCasting, Worker, WorkerFactory, WorkerKind, WorkerResult,
@@ -19,8 +22,8 @@ use tokio::sync::{OnceCell, broadcast};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
-use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
-use xmtp_common::{Event, fmt::ShortHex};
+use xmtp_archive::{ArchiveImporter, BackupMetadata, exporter::ArchiveExporter};
+use xmtp_common::{Event, NS_IN_DAY, fmt::ShortHex, time::now_ns};
 use xmtp_db::{
     StoreOrIgnore,
     group_message::{MsgQueryArgs, StoredGroupMessage},
@@ -670,6 +673,51 @@ where
         }
 
         Err(DeviceSyncError::MissingPayload(pin.map(str::to_string)))
+    }
+
+    pub async fn list_available_archives(
+        &self,
+        days_cutoff: i64,
+    ) -> Result<Vec<AvailableArchive>, DeviceSyncError> {
+        let mut offset = 0;
+        let mut messages = vec![];
+        let mut result = vec![];
+        let cutoff = now_ns() - days_cutoff * NS_IN_DAY;
+        'outer: loop {
+            messages = self.context.db().sync_group_messages_paged(offset, 2)?;
+
+            if messages.is_empty() {
+                break;
+            }
+            offset += messages.len() as i64;
+
+            for (msg, content) in messages.iter_with_content() {
+                if msg.sent_at_ns < cutoff {
+                    break 'outer;
+                }
+
+                let ContentProto::Reply(reply) = content else {
+                    continue;
+                };
+
+                let Some(metadata) = reply.metadata else {
+                    tracing::warn!(
+                        "Came across a device sync reply message with no metadata. request_id: {}",
+                        reply.request_id
+                    );
+                    continue;
+                };
+
+                let metadata = BackupMetadata::from_metadata_version_unknown(metadata);
+                result.push(AvailableArchive {
+                    request_id: reply.request_id,
+                    metadata,
+                    sent_by_installation: msg.sender_installation_id,
+                });
+            }
+        }
+
+        Ok(result)
     }
 
     pub async fn process_archive(
