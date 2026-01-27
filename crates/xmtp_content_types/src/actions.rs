@@ -1,9 +1,38 @@
 use std::collections::HashSet;
 
 use crate::{CodecError, ContentCodec};
-use chrono::NaiveDateTime;
-use serde::{Deserialize, Serialize};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
+
+const UTC_MILLIS_FORMAT: &str = "%Y-%m-%dT%H:%M:%S%.3fZ";
+
+mod datetime_utc_millis_option {
+    use super::*;
+
+    pub fn serialize<S>(date: &Option<DateTime<Utc>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match date {
+            Some(dt) => serializer.serialize_some(&dt.format(UTC_MILLIS_FORMAT).to_string()),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<DateTime<Utc>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let opt: Option<String> = Option::deserialize(deserializer)?;
+        match opt {
+            Some(s) => DateTime::parse_from_rfc3339(&s)
+                .map(|dt| Some(dt.with_timezone(&Utc)))
+                .map_err(serde::de::Error::custom),
+            None => Ok(None),
+        }
+    }
+}
 
 pub struct ActionsCodec;
 impl ActionsCodec {
@@ -89,16 +118,36 @@ pub struct Actions {
     pub id: String,
     pub description: String,
     pub actions: Vec<Action>,
-    pub expires_at: Option<NaiveDateTime>,
+    #[serde(
+        default,
+        alias = "expires_at",
+        rename = "expiresAt",
+        skip_serializing_if = "Option::is_none",
+        with = "datetime_utc_millis_option"
+    )]
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct Action {
     pub id: String,
     pub label: String,
+    #[serde(
+        alias = "image_url",
+        rename = "imageUrl",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub image_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub style: Option<ActionStyle>,
-    pub expires_at: Option<NaiveDateTime>,
+    #[serde(
+        default,
+        alias = "expires_at",
+        rename = "expiresAt",
+        skip_serializing_if = "Option::is_none",
+        with = "datetime_utc_millis_option"
+    )]
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -113,7 +162,7 @@ pub enum ActionStyle {
 mod tests {
     use super::{Action, ActionStyle, Actions, ActionsCodec};
     use crate::{CodecError, ContentCodec};
-    use chrono::NaiveDateTime;
+    use chrono::{TimeZone, Utc};
 
     #[xmtp_common::test(unwrap_try = true)]
     fn encode_decode_actions() {
@@ -133,10 +182,10 @@ mod tests {
                     label: "Pork Loin".to_string(),
                     image_url: None,
                     style: None,
-                    expires_at: Some(NaiveDateTime::MIN),
+                    expires_at: Some(Utc.with_ymd_and_hms(2025, 1, 15, 12, 30, 45).unwrap()),
                 },
             ],
-            expires_at: Some(NaiveDateTime::MAX),
+            expires_at: Some(Utc.with_ymd_and_hms(2025, 12, 31, 23, 59, 59).unwrap()),
         };
 
         let encoded = ActionsCodec::encode(actions.clone())?;
@@ -162,5 +211,34 @@ mod tests {
             panic!("Expected an uniqueness encoding error.");
         };
         assert!(reason.contains("unique"));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn expires_at_serializes_as_utc_with_millis() {
+        let actions = Actions {
+            id: "test".to_string(),
+            description: "Test".to_string(),
+            actions: vec![Action {
+                id: "action1".to_string(),
+                label: "Action 1".to_string(),
+                image_url: None,
+                style: None,
+                expires_at: Some(Utc.with_ymd_and_hms(2025, 6, 15, 10, 30, 45).unwrap()),
+            }],
+            expires_at: Some(Utc.with_ymd_and_hms(2025, 12, 25, 23, 59, 59).unwrap()),
+        };
+
+        let encoded = ActionsCodec::encode(actions)?;
+        let json = String::from_utf8(encoded.content.clone())?;
+
+        // Verify format includes milliseconds (.000) and UTC suffix (Z)
+        assert!(
+            json.contains("2025-06-15T10:30:45.000Z"),
+            "Action expires_at should be formatted with milliseconds and UTC: {json}"
+        );
+        assert!(
+            json.contains("2025-12-25T23:59:59.000Z"),
+            "Actions expires_at should be formatted with milliseconds and UTC: {json}"
+        );
     }
 }
