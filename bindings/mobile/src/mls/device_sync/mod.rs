@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use crate::{FfiXmtpClient, GenericError};
 use xmtp_id::associations::DeserializationError;
 use xmtp_mls::groups::device_sync::{

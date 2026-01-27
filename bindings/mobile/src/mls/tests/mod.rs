@@ -89,7 +89,6 @@ use xmtp_proto::xmtp::mls::message_contents::{
 mod archive;
 mod client;
 mod content_types;
-mod device_sync;
 mod dms;
 mod group_management;
 mod identity;
