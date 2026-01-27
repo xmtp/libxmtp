@@ -689,6 +689,14 @@ class Client(
             InboxState(ffiClient.inboxState(refreshFromNetwork))
         }
 
+    /**
+     * Manually trigger a device sync request to sync records from another active device on this account.
+     */
+    suspend fun sendSyncRequest() =
+        withContext(Dispatchers.IO) {
+            ffiClient.sendSyncRequest()
+        }
+
     suspend fun createArchive(
         path: String,
         encryptionKey: ByteArray,
