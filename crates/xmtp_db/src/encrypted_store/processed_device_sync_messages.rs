@@ -72,9 +72,6 @@ pub struct StoredProcessedDeviceSyncMessages {
 }
 
 impl StoredProcessedDeviceSyncMessages {
-    /// Maximum number of attempts before giving up on processing a device sync message
-    pub const MAX_ATTEMPTS: i32 = 3;
-
     /// Create a new stored processed device sync message with default values
     pub fn new(message_id: Vec<u8>) -> Self {
         Self {
@@ -106,7 +103,11 @@ pub trait QueryDeviceSyncMessages {
     /// Increments the attempt count for a device sync message.
     /// If the attempt count reaches MAX_ATTEMPTS, the state is set to Failed.
     /// Returns the new attempt count.
-    fn increment_device_sync_msg_attempt(&self, message_id: &[u8]) -> Result<i32, StorageError>;
+    fn increment_device_sync_msg_attempt(
+        &self,
+        message_id: &[u8],
+        max_attempts: i32,
+    ) -> Result<i32, StorageError>;
 }
 
 impl<T> QueryDeviceSyncMessages for &T
@@ -129,8 +130,12 @@ where
         (**self).mark_device_sync_msg_as_processed(message_id)
     }
 
-    fn increment_device_sync_msg_attempt(&self, message_id: &[u8]) -> Result<i32, StorageError> {
-        (**self).increment_device_sync_msg_attempt(message_id)
+    fn increment_device_sync_msg_attempt(
+        &self,
+        message_id: &[u8],
+        max_attempts: i32,
+    ) -> Result<i32, StorageError> {
+        (**self).increment_device_sync_msg_attempt(message_id, max_attempts)
     }
 }
 
@@ -194,7 +199,11 @@ impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
         Ok(())
     }
 
-    fn increment_device_sync_msg_attempt(&self, message_id: &[u8]) -> Result<i32, StorageError> {
+    fn increment_device_sync_msg_attempt(
+        &self,
+        message_id: &[u8],
+        max_attempts: i32,
+    ) -> Result<i32, StorageError> {
         let attempts = self.raw_query_write(|conn| {
             // First increment the attempt count
             diesel::update(dsl::processed_device_sync_messages.find(message_id))
@@ -207,7 +216,7 @@ impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
                 .first(conn)?;
 
             // If we've reached max attempts, set state to Failed
-            if record.attempts >= StoredProcessedDeviceSyncMessages::MAX_ATTEMPTS {
+            if record.attempts >= max_attempts {
                 diesel::update(dsl::processed_device_sync_messages.find(message_id))
                     .set(dsl::state.eq(DeviceSyncProcessingState::Failed))
                     .execute(conn)?;
@@ -304,8 +313,8 @@ mod tests {
             StoredProcessedDeviceSyncMessages::new(message.id.clone()).store(conn)?;
 
             // Increment attempts a couple times
-            conn.increment_device_sync_msg_attempt(&message.id)?;
-            conn.increment_device_sync_msg_attempt(&message.id)?;
+            conn.increment_device_sync_msg_attempt(&message.id, 3)?;
+            conn.increment_device_sync_msg_attempt(&message.id, 3)?;
 
             // Now mark as processed
             conn.mark_device_sync_msg_as_processed(&message.id)?;
@@ -335,21 +344,21 @@ mod tests {
             StoredProcessedDeviceSyncMessages::new(message.id.clone()).store(conn)?;
 
             // Increment attempt 1
-            let attempts = conn.increment_device_sync_msg_attempt(&message.id)?;
+            let attempts = conn.increment_device_sync_msg_attempt(&message.id, 3)?;
             assert_eq!(attempts, 1);
             // Still pending (below max)
             let unprocessed = conn.unprocessed_sync_group_messages()?;
             assert_eq!(unprocessed.len(), 1);
 
             // Increment attempt 2
-            let attempts = conn.increment_device_sync_msg_attempt(&message.id)?;
+            let attempts = conn.increment_device_sync_msg_attempt(&message.id, 3)?;
             assert_eq!(attempts, 2);
             // Still pending (below max)
             let unprocessed = conn.unprocessed_sync_group_messages()?;
             assert_eq!(unprocessed.len(), 1);
 
             // Increment attempt 3 (reaches MAX_ATTEMPTS)
-            let attempts = conn.increment_device_sync_msg_attempt(&message.id)?;
+            let attempts = conn.increment_device_sync_msg_attempt(&message.id, 3)?;
             assert_eq!(attempts, 3);
             // Should now be Failed and no longer in unprocessed
             let unprocessed = conn.unprocessed_sync_group_messages()?;

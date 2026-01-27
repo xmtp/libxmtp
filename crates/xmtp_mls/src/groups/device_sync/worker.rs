@@ -43,6 +43,7 @@ use xmtp_proto::{
 };
 
 const ENC_KEY_SIZE: usize = xmtp_archive::ENC_KEY_SIZE;
+const MAX_ATTEMPTS: i32 = 3;
 
 pub struct SyncWorker<Context> {
     client: DeviceSyncClient<Context>,
@@ -310,7 +311,7 @@ where
                 );
                 self.context
                     .db()
-                    .increment_device_sync_msg_attempt(&msg.id)?;
+                    .increment_device_sync_msg_attempt(&msg.id, MAX_ATTEMPTS)?;
             } else {
                 self.context
                     .db()
