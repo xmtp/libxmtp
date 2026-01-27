@@ -71,18 +71,6 @@ impl Client {
   }
 
   #[napi]
-  pub async fn send_sync_request(&self) -> Result<()> {
-    self
-      .inner_client
-      .device_sync_client()
-      .send_sync_request()
-      .await
-      .map_err(ErrorWrapper::from)?;
-
-    Ok(())
-  }
-
-  #[napi]
   pub fn release_db_connection(&self) -> Result<()> {
     self
       .inner_client

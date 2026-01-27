@@ -339,18 +339,6 @@ impl Client {
     Ok(crate::to_value(&results)?)
   }
 
-  #[wasm_bindgen(js_name = sendSyncRequest)]
-  pub async fn send_sync_request(&self) -> Result<(), JsError> {
-    self
-      .inner_client
-      .device_sync_client()
-      .send_sync_request()
-      .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-
-    Ok(())
-  }
-
   #[wasm_bindgen(js_name = findInboxIdByIdentity)]
   pub async fn find_inbox_id_by_identity(
     &self,
