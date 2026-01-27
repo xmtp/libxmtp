@@ -169,14 +169,14 @@ impl Client {
     options: ArchiveOptions,
     #[wasm_bindgen(js_name = serverUrl)] server_url: String,
     pin: String,
-  ) -> Result<String, JsError> {
-    let pin = self
+  ) -> Result<(), JsError> {
+    self
       .inner_client()
       .device_sync_client()
       .send_sync_archive(&options.into(), &server_url, &pin)
       .await
       .map_err(|e| JsError::new(&format!("{}", e)))?;
-    Ok(pin)
+    Ok(())
   }
 
   /// Manually process a sync archive that matches the pin given.
@@ -253,7 +253,6 @@ impl Client {
   }
 
   /// Load the metadata for an archive to see what it contains.
-  /// Reads only the metadata without loading the entire contents.
   #[wasm_bindgen(js_name = archiveMetadata)]
   pub async fn archive_metadata(
     &self,
