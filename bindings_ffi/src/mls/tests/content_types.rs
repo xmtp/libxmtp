@@ -1352,3 +1352,45 @@ async fn test_text_codec() {
     let result = decode_text(invalid_bytes);
     assert!(result.is_err());
 }
+
+#[tokio::test]
+async fn test_delete_message_encode_decode() {
+    // Test basic delete message encoding/decoding
+    let ffi_delete_message = FfiDeleteMessage {
+        message_id: "test-message-id-123".to_string(),
+    };
+    let encoded = encode_delete_message(ffi_delete_message).unwrap();
+    let decoded = decode_delete_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, "test-message-id-123");
+
+    // Test with empty message_id
+    let ffi_delete_message_empty = FfiDeleteMessage {
+        message_id: "".to_string(),
+    };
+    let encoded = encode_delete_message(ffi_delete_message_empty).unwrap();
+    let decoded = decode_delete_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, "");
+
+    // Test with long message_id (hex string format)
+    let long_message_id = "a".repeat(64); // 64 character hex string
+    let ffi_delete_message_long = FfiDeleteMessage {
+        message_id: long_message_id.clone(),
+    };
+    let encoded = encode_delete_message(ffi_delete_message_long).unwrap();
+    let decoded = decode_delete_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, long_message_id);
+
+    // Test with unicode in message_id (edge case)
+    let unicode_id = "msg-🎉-123".to_string();
+    let ffi_delete_message_unicode = FfiDeleteMessage {
+        message_id: unicode_id.clone(),
+    };
+    let encoded = encode_delete_message(ffi_delete_message_unicode).unwrap();
+    let decoded = decode_delete_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, unicode_id);
+
+    // Test decoding invalid bytes
+    let invalid_bytes = vec![0xFF, 0xFF, 0xFF, 0xFF];
+    let result = decode_delete_message(invalid_bytes);
+    assert!(result.is_err());
+}
