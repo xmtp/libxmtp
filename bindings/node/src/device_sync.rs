@@ -148,13 +148,13 @@ impl Client {
   pub async fn send_sync_archive(
     &self,
     options: ArchiveOptions,
-    upload_url: String,
+    server_url: String,
     pin: Option<String>,
   ) -> Result<String> {
     let pin = self
       .inner_client()
       .device_sync_client()
-      .send_sync_archive(&options.into(), &upload_url, pin.as_deref())
+      .send_sync_archive(&options.into(), &server_url, pin.as_deref())
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(pin)

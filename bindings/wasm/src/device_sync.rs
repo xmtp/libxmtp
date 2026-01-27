@@ -167,13 +167,13 @@ impl Client {
   pub async fn send_sync_archive(
     &self,
     options: ArchiveOptions,
-    #[wasm_bindgen(js_name = uploadUrl)] upload_url: String,
+    #[wasm_bindgen(js_name = serverUrl)] server_url: String,
     pin: Option<String>,
   ) -> Result<String, JsError> {
     let pin = self
       .inner_client()
       .device_sync_client()
-      .send_sync_archive(&options.into(), &upload_url, pin.as_deref())
+      .send_sync_archive(&options.into(), &server_url, pin.as_deref())
       .await
       .map_err(|e| JsError::new(&format!("{}", e)))?;
     Ok(pin)

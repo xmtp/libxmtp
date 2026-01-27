@@ -21,17 +21,19 @@ impl FfiXmtpClient {
         Ok(())
     }
 
-    /// Manually send a sync archive to the sync group
+    /// Manually send a sync archive to the sync group.
+    /// You can either provide a pre-defined pin as an argument, or a random pin
+    /// will be generated and returned for you.
     pub async fn send_sync_archive(
         &self,
         options: FfiArchiveOptions,
-        upload_url: String,
+        server_url: String,
         pin: Option<String>,
     ) -> Result<String, GenericError> {
         let pin = self
             .inner_client
             .device_sync_client()
-            .send_sync_archive(&options.into(), &upload_url, pin.as_deref())
+            .send_sync_archive(&options.into(), &server_url, pin.as_deref())
             .await?;
         Ok(pin)
     }
@@ -79,7 +81,7 @@ impl FfiXmtpClient {
         Ok(())
     }
 
-    /// Import a previous archive
+    /// Import a previous archive from file.
     pub async fn import_archive(&self, path: String, key: Vec<u8>) -> Result<(), GenericError> {
         let mut importer = ArchiveImporter::from_file(path, &check_key(key)?)
             .await

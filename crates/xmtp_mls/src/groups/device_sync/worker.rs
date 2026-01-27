@@ -627,15 +627,6 @@ where
         reply: &DeviceSyncReplyProto,
     ) -> Result<bool, DeviceSyncError> {
         let sync_group = self.get_sync_group().await?;
-        let stored_group = self.context.db().find_group(&sync_group.group_id)?;
-        let Some(stored_group) = stored_group else {
-            return Err(DeviceSyncError::MissingSyncGroup);
-        };
-
-        if reply.request_id == stored_group.added_by_inbox_id {
-            return Ok(true);
-        }
-
         let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
 
         for (msg, content) in messages.iter_with_content() {
@@ -682,15 +673,16 @@ where
         let mut messages = vec![];
         let mut result = vec![];
         let cutoff = now_ns() - days_cutoff * NS_IN_DAY;
+
         'outer: loop {
-            messages = self.context.db().sync_group_messages_paged(offset, 2)?;
+            messages = self.context.db().sync_group_messages_paged(offset, 100)?;
 
             if messages.is_empty() {
                 break;
             }
             offset += messages.len() as i64;
 
-            for (msg, content) in messages.iter_with_content() {
+            for (msg, content) in messages.iter_with_content().rev() {
                 if msg.sent_at_ns < cutoff {
                     break 'outer;
                 }
