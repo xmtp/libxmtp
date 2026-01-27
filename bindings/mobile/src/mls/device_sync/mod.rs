@@ -31,11 +31,7 @@ impl FfiXmtpClient {
         let pin = self
             .inner_client
             .device_sync_client()
-            .send_sync_archive(
-                &options.into(),
-                &upload_url,
-                pin.as_ref().map(String::as_str),
-            )
+            .send_sync_archive(&options.into(), &upload_url, pin.as_deref())
             .await?;
         Ok(pin)
     }
@@ -48,7 +44,7 @@ impl FfiXmtpClient {
     ) -> Result<(), GenericError> {
         self.inner_client
             .device_sync_client()
-            .process_archive_with_pin(archive_pin.as_ref().map(String::as_str))
+            .process_archive_with_pin(archive_pin.as_deref())
             .await?;
         Ok(())
     }
