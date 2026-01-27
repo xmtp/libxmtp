@@ -74,6 +74,15 @@ pub struct StoredProcessedDeviceSyncMessages {
 impl StoredProcessedDeviceSyncMessages {
     /// Maximum number of attempts before giving up on processing a device sync message
     pub const MAX_ATTEMPTS: i32 = 3;
+
+    /// Create a new stored processed device sync message with default values
+    pub fn new(message_id: Vec<u8>) -> Self {
+        Self {
+            message_id,
+            attempts: 0,
+            state: DeviceSyncProcessingState::Pending,
+        }
+    }
 }
 
 impl_store!(
@@ -278,6 +287,37 @@ mod tests {
             // Now it's no longer in unprocessed
             let unprocessed = conn.unprocessed_sync_group_messages()?;
             assert_eq!(unprocessed.len(), 0);
+        })
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn it_preserves_attempts_when_marking_as_processed() {
+        with_connection(|conn| {
+            let mut group = generate_group(None);
+            group.conversation_type = ConversationType::Sync;
+            group.store(conn)?;
+
+            let message = generate_message(None, Some(&group.id), None, None, None, None);
+            message.store(conn)?;
+
+            // Store with Pending state
+            StoredProcessedDeviceSyncMessages::new(message.id.clone()).store(conn)?;
+
+            // Increment attempts a couple times
+            conn.increment_device_sync_msg_attempt(&message.id)?;
+            conn.increment_device_sync_msg_attempt(&message.id)?;
+
+            // Now mark as processed
+            conn.mark_device_sync_msg_as_processed(&message.id)?;
+
+            // Verify attempts are preserved (should be 2)
+            let record: StoredProcessedDeviceSyncMessages = conn.raw_query_read(|c| {
+                dsl::processed_device_sync_messages
+                    .find(&message.id)
+                    .first(c)
+            })?;
+            assert_eq!(record.attempts, 2);
+            assert_eq!(record.state, DeviceSyncProcessingState::Processed);
         })
     }
 
