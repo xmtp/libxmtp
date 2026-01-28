@@ -1379,6 +1379,10 @@ internal open class UniffiVTableCallbackInterfaceFfiPreferenceCallback(
 
 
 
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1403,6 +1407,8 @@ fun uniffi_xmtpv3_checksum_func_create_client(
 fun uniffi_xmtpv3_checksum_func_decode_actions(
 ): Short
 fun uniffi_xmtpv3_checksum_func_decode_attachment(
+): Short
+fun uniffi_xmtpv3_checksum_func_decode_delete_message(
 ): Short
 fun uniffi_xmtpv3_checksum_func_decode_group_updated(
 ): Short
@@ -1431,6 +1437,8 @@ fun uniffi_xmtpv3_checksum_func_decode_wallet_send_calls(
 fun uniffi_xmtpv3_checksum_func_encode_actions(
 ): Short
 fun uniffi_xmtpv3_checksum_func_encode_attachment(
+): Short
+fun uniffi_xmtpv3_checksum_func_encode_delete_message(
 ): Short
 fun uniffi_xmtpv3_checksum_func_encode_intent(
 ): Short
@@ -2318,6 +2326,8 @@ fun uniffi_xmtpv3_fn_func_decode_actions(`bytes`: RustBuffer.ByValue,uniffi_out_
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_decode_attachment(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_decode_delete_message(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_decode_group_updated(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_decode_intent(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -2345,6 +2355,8 @@ fun uniffi_xmtpv3_fn_func_decode_wallet_send_calls(`bytes`: RustBuffer.ByValue,u
 fun uniffi_xmtpv3_fn_func_encode_actions(`actions`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_encode_attachment(`attachment`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_encode_delete_message(`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_encode_intent(`intent`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -2537,6 +2549,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_func_decode_attachment() != 20456.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_func_decode_delete_message() != 6483.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_func_decode_group_updated() != 277.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2577,6 +2592,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_encode_attachment() != 47054.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_encode_delete_message() != 64741.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_encode_intent() != 64568.toShort()) {
@@ -12247,6 +12265,40 @@ public object FfiConverterTypeFfiDecodedMessageMetadata: FfiConverterRustBuffer<
 
 
 
+/**
+ * Represents a request to delete a message.
+ */
+data class FfiDeleteMessage (
+    /**
+     * The ID of the message to delete
+     */
+    var `messageId`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiDeleteMessage: FfiConverterRustBuffer<FfiDeleteMessage> {
+    override fun read(buf: ByteBuffer): FfiDeleteMessage {
+        return FfiDeleteMessage(
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiDeleteMessage) = (
+            FfiConverterString.allocationSize(value.`messageId`)
+    )
+
+    override fun write(value: FfiDeleteMessage, buf: ByteBuffer) {
+            FfiConverterString.write(value.`messageId`, buf)
+    }
+}
+
+
+
 data class FfiDeletedMessage (
     var `deletedBy`: FfiDeletedBy
 ) {
@@ -18438,6 +18490,16 @@ public object FfiConverterMapTypeFfiIdentifierBoolean: FfiConverterRustBuffer<Ma
     }
     
 
+    @Throws(GenericException::class) fun `decodeDeleteMessage`(`bytes`: kotlin.ByteArray): FfiDeleteMessage {
+            return FfiConverterTypeFfiDeleteMessage.lift(
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_decode_delete_message(
+        FfiConverterByteArray.lower(`bytes`),_status)
+}
+    )
+    }
+    
+
     @Throws(GenericException::class) fun `decodeGroupUpdated`(`bytes`: kotlin.ByteArray): FfiGroupUpdated {
             return FfiConverterTypeFfiGroupUpdated.lift(
     uniffiRustCallWithError(GenericException) { _status ->
@@ -18573,6 +18635,16 @@ public object FfiConverterMapTypeFfiIdentifierBoolean: FfiConverterRustBuffer<Ma
     uniffiRustCallWithError(GenericException) { _status ->
     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_encode_attachment(
         FfiConverterTypeFfiAttachment.lower(`attachment`),_status)
+}
+    )
+    }
+    
+
+    @Throws(GenericException::class) fun `encodeDeleteMessage`(`request`: FfiDeleteMessage): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_encode_delete_message(
+        FfiConverterTypeFfiDeleteMessage.lower(`request`),_status)
 }
     )
     }

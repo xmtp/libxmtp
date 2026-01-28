@@ -264,6 +264,18 @@ sealed class Conversation {
             }
         }
 
+    /**
+     * Get the raw list of messages from a conversation.
+     *
+     * This method returns all messages in chronological order without additional processing.
+     * Reactions, replies, and other associated metadata are returned as separate messages
+     * and are not linked to their parent messages.
+     *
+     * For UI rendering, consider using [enrichedMessages] instead, which provides messages
+     * with enriched metadata automatically included.
+     *
+     * @see enrichedMessages
+     */
     suspend fun messages(
         limit: Int? = null,
         beforeNs: Long? = null,
@@ -343,6 +355,22 @@ sealed class Conversation {
             }
         }
 
+    /**
+     * Get messages with enriched metadata automatically included.
+     *
+     * This method retrieves messages with reactions, replies, and other associated data
+     * "baked in" to each message, eliminating the need for separate queries to fetch
+     * this information.
+     *
+     * **Recommended for UI rendering.** This method provides better performance and
+     * simpler code compared to [messages] when displaying conversations.
+     *
+     * When handling content types, use the generic `content<T>()` method with the
+     * appropriate type for reactions and replies.
+     *
+     * @return List of [DecodedMessageV2] with enriched metadata.
+     * @see messages
+     */
     suspend fun enrichedMessages(
         limit: Int? = null,
         beforeNs: Long? = null,
