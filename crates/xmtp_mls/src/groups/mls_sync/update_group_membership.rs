@@ -6,6 +6,7 @@ use crate::groups::{
 };
 use openmls::{
     extensions::Extensions,
+    group::GroupContext,
     prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, tls_codec::Serialize},
 };
 use openmls_traits::signatures::Signer;
@@ -19,7 +20,7 @@ pub(crate) async fn apply_update_group_membership_intent(
     intent_data: UpdateGroupMembershipIntentData,
     signer: impl Signer,
 ) -> Result<Option<PublishIntentData>, GroupError> {
-    let extensions: Extensions = openmls_group.extensions().clone();
+    let extensions: Extensions<GroupContext> = openmls_group.extensions().clone();
     let old_group_membership = extract_group_membership(&extensions)?;
     let new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
     let membership_diff = old_group_membership.diff(&new_group_membership);
@@ -49,7 +50,7 @@ pub(crate) async fn apply_update_group_membership_intent(
     // Update the extensions to have the new GroupMembership
     let mut new_extensions = extensions.clone();
 
-    new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
+    new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership))?;
 
     let publish_intent_data = compute_publish_data_for_group_membership_update(
         context,
@@ -72,7 +73,7 @@ async fn compute_publish_data_for_group_membership_update(
     installations_to_add: Vec<Installation>,
     key_packages_to_add: Vec<KeyPackage>,
     leaf_nodes_to_remove: Vec<LeafNodeIndex>,
-    new_extensions: Extensions,
+    new_extensions: Extensions<GroupContext>,
     signer: impl Signer,
 ) -> Result<PublishIntentData, GroupError> {
     // Use savepoint pattern to create commit without persisting state
@@ -98,7 +99,7 @@ async fn compute_publish_data_for_group_membership_update(
     };
 
     Ok(PublishIntentData {
-        payload_to_publish: commit.tls_serialize_detached()?,
+        payloads_to_publish: vec![commit.tls_serialize_detached()?],
         post_commit_action: post_commit_action.map(|action| action.to_bytes()),
         staged_commit: Some(staged_commit),
         should_send_push_notification: false,
@@ -143,7 +144,7 @@ pub(crate) async fn apply_readd_installations_intent(
     .await?;
 
     // Update the group membership extension to reflect any failed installations
-    let extensions: Extensions = openmls_group.extensions().clone();
+    let extensions: Extensions<GroupContext> = openmls_group.extensions().clone();
     let old_group_membership = extract_group_membership(&extensions)?;
     let failed_installations: HashSet<Vec<u8>> = old_group_membership
         .failed_installations
@@ -156,7 +157,7 @@ pub(crate) async fn apply_readd_installations_intent(
         failed_installations: failed_installations.into_iter().collect(),
     };
     let mut new_extensions = extensions.clone();
-    new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
+    new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership))?;
 
     let publish_intent_data = compute_publish_data_for_group_membership_update(
         context,
