@@ -825,8 +825,6 @@ impl FfiXmtpClient {
         )?)
     }
 
-    #[deprecated(note = "Please call `sync_all_device_sync_groups` instead. \
-        This function will be removed in a future version.")]
     pub async fn sync_preferences(&self) -> Result<FfiGroupSyncSummary, GenericError> {
         self.sync_all_device_sync_groups().await
     }
