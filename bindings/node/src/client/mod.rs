@@ -1,5 +1,6 @@
 use crate::ErrorWrapper;
 use crate::conversations::Conversations;
+use crate::device_sync::DeviceSync;
 use crate::identity::{Identifier, IdentityExt};
 use napi::bindgen_prelude::{Error, Result};
 use napi_derive::napi;
@@ -68,6 +69,11 @@ impl Client {
   #[napi]
   pub fn conversations(&self) -> Conversations {
     Conversations::new(self.inner_client.clone())
+  }
+
+  #[napi]
+  pub fn device_sync(&self) -> DeviceSync {
+    DeviceSync::new(self.inner_client.clone())
   }
 
   #[napi]

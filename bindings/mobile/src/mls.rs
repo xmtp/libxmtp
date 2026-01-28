@@ -825,11 +825,10 @@ impl FfiXmtpClient {
         )?)
     }
 
+    #[deprecated(note = "Please call `sync_all_device_sync_groups` instead. \
+        This function will be removed in a future version.")]
     pub async fn sync_preferences(&self) -> Result<FfiGroupSyncSummary, GenericError> {
-        let inner = self.inner_client.as_ref();
-        let summary = inner.sync_all_welcomes_and_device_sync_groups().await?;
-
-        Ok(summary.into())
+        self.sync_all_device_sync_groups().await
     }
 
     pub fn signature_request(&self) -> Option<Arc<FfiSignatureRequest>> {

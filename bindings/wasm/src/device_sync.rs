@@ -146,7 +146,18 @@ fn check_key(key: &Uint8Array) -> Result<Vec<u8>, JsError> {
 }
 
 #[wasm_bindgen]
-impl Client {
+pub struct DeviceSync {
+  inner_client: Arc<RustXmtpClient>,
+}
+
+impl DeviceSync {
+    pub fn new(inner_client: Arc<RustXmtpClient>) -> Self {
+      Self { inner_client }
+    }
+}
+
+#[wasm_bindgen]
+impl DeviceSync {
   /// Manually trigger a device sync request to sync records from another active device on this account.
   #[wasm_bindgen(js_name = sendSyncRequest)]
   pub async fn send_sync_request(&self) -> Result<(), JsError> {

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests;
 
-use crate::{FfiXmtpClient, GenericError};
+use crate::{FfiGroupSyncSummary, FfiXmtpClient, GenericError};
 use xmtp_id::associations::DeserializationError;
 use xmtp_mls::groups::device_sync::{
     AvailableArchive, DeviceSyncError,
@@ -105,10 +105,9 @@ impl FfiXmtpClient {
     }
 
     /// Manually sync all device sync groups.
-    pub async fn sync_all_device_sync_groups(&self) -> Result<(), GenericError> {
-        self.inner_client.sync_all_device_sync_groups().await?;
-
-        Ok(())
+    pub async fn sync_all_device_sync_groups(&self) -> Result<FfiGroupSyncSummary, GenericError> {
+        let summary = self.inner_client.sync_all_device_sync_groups().await?;
+        Ok(summary.into())
     }
 }
 

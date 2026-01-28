@@ -187,6 +187,8 @@ impl Conversations {
   }
 
   #[napi]
+  #[deprecated(note = "Please use `sync_all_device_sync_groups instead. \
+      This function will be removed in a future version.")]
   pub async fn sync_preferences(&self) -> Result<GroupSyncSummary> {
     let inner = self.inner_client.as_ref();
 

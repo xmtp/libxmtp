@@ -898,7 +898,7 @@ async fn test_sync_consent() {
     let state = alix2.inbox_state(true).await.unwrap();
     assert_eq!(state.installations.len(), 2);
 
-    alix.sync_preferences().await.unwrap();
+    alix.sync_all_device_sync_groups().await.unwrap();
     alix_group.sync().await.unwrap();
     alix2.conversations().sync().await.unwrap();
 

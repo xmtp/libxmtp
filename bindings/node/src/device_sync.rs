@@ -1,8 +1,8 @@
-use crate::ErrorWrapper;
-use crate::client::Client;
 use crate::conversations::GroupSyncSummary;
+use crate::{ErrorWrapper, client::RustXmtpClient};
 use napi::bindgen_prelude::{BigInt, Result, Uint8Array};
 use napi_derive::napi;
+use std::sync::Arc;
 use xmtp_id::associations::DeserializationError;
 use xmtp_mls::groups::device_sync::{
   AvailableArchive, DeviceSyncError,
@@ -129,12 +129,21 @@ fn check_key(key: &Uint8Array) -> Result<Vec<u8>> {
 }
 
 #[napi]
-impl Client {
+pub struct DeviceSync {
+  inner_client: Arc<RustXmtpClient>,
+}
+
+#[napi]
+impl DeviceSync {
+  pub fn new(inner_client: Arc<RustXmtpClient>) -> Self {
+    Self { inner_client }
+  }
+
   /// Manually trigger a device sync request to sync records from another active device on this account.
   #[napi]
   pub async fn send_sync_request(&self) -> Result<()> {
     self
-      .inner_client()
+      .inner_client
       .device_sync_client()
       .send_sync_request()
       .await
@@ -153,7 +162,7 @@ impl Client {
     pin: String,
   ) -> Result<()> {
     self
-      .inner_client()
+      .inner_client
       .device_sync_client()
       .send_sync_archive(&options.into(), &server_url, &pin)
       .await
@@ -166,7 +175,7 @@ impl Client {
   #[napi]
   pub async fn process_sync_archive(&self, archive_pin: Option<String>) -> Result<()> {
     self
-      .inner_client()
+      .inner_client
       .device_sync_client()
       .process_archive_with_pin(archive_pin.as_deref())
       .await
@@ -180,7 +189,7 @@ impl Client {
   #[napi]
   pub fn list_available_archives(&self, days_cutoff: i64) -> Result<Vec<AvailableArchiveInfo>> {
     let available = self
-      .inner_client()
+      .inner_client
       .device_sync_client()
       .list_available_archives(days_cutoff)
       .map_err(ErrorWrapper::from)?;
@@ -197,7 +206,7 @@ impl Client {
     key: Uint8Array,
   ) -> Result<()> {
     let key = check_key(&key)?;
-    let db = self.inner_client().context.db();
+    let db = self.inner_client.context.db();
     let options: BackupOptions = opts.into();
     ArchiveExporter::export_to_file(options, db, path, &key)
       .await
@@ -215,7 +224,7 @@ impl Client {
       .map_err(DeviceSyncError::Archive)
       .map_err(ErrorWrapper::from)?;
 
-    insert_importer(&mut importer, &self.inner_client().context)
+    insert_importer(&mut importer, &self.inner_client.context)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -239,7 +248,7 @@ impl Client {
   #[napi]
   pub async fn sync_all_device_sync_groups(&self) -> Result<GroupSyncSummary> {
     let summary = self
-      .inner_client()
+      .inner_client
       .sync_all_device_sync_groups()
       .await
       .map_err(ErrorWrapper::from)?;

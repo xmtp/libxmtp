@@ -20,6 +20,7 @@ use xmtp_mls::identity::IdentityStrategy;
 use xmtp_proto::api_client::AggregateStats;
 
 use crate::conversations::Conversations;
+use crate::device_sync::DeviceSync;
 use crate::identity::{ApiStats, Identifier, IdentityStats};
 use crate::inbox_state::InboxState;
 
@@ -374,6 +375,11 @@ impl Client {
   #[wasm_bindgen]
   pub fn conversations(&self) -> Conversations {
     Conversations::new(self.inner_client.clone())
+  }
+
+  #[wasm_bindgen]
+  pub fn device_sync(&self) -> DeviceSync {
+    DeviceSync::new(self.inner_client.clone())
   }
 
   #[wasm_bindgen(js_name = syncPreferences)]
