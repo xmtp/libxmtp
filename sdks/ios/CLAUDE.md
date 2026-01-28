@@ -1,109 +1,68 @@
-# CLAUDE.md
+# XMTP iOS SDK - Claude Assistant Context
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This SDK provides Swift bindings for the XMTP messaging protocol, built on top of libxmtp.
+
+## Project Structure
+
+- `Sources/XMTPiOS/` - Main SDK source code
+- `Sources/XMTPTestHelpers/` - Test utilities
+- `Tests/XMTPTests/` - Test suite
+- `dev/` - Development scripts
+- `.build/` - Generated artifacts (gitignored)
+
+## Development Setup
+
+This SDK lives within the libxmtp monorepo. Use the Nix development environment:
+
+```bash
+# From repository root
+nix develop .#ios
+
+# Or run scripts directly (they auto-enter Nix shell)
+./sdks/ios/dev/build
+```
 
 ## Development Commands
 
-### Building
+All scripts auto-detect Nix shell and enter it if needed:
 
 ```bash
-# Build the Swift package
-swift build
-
-# Build for specific platform
-swift build --platform ios
+./sdks/ios/dev/build    # Build libxmtp xcframework + Swift package
+./sdks/ios/dev/test     # Run Swift tests
+./sdks/ios/dev/lint     # Run SwiftLint
+./sdks/ios/dev/fmt      # Format code with SwiftFormat
+./sdks/ios/dev/fmt --lint  # Check formatting without changes
 ```
 
-### Testing
+## Building the xcframework
+
+The Swift package depends on `LibXMTPSwiftFFI.xcframework` which is built from the Rust code in `bindings/mobile/`. Run `./sdks/ios/dev/build` to rebuild it when Rust code changes.
+
+The xcframework is output to `.build/LibXMTPSwiftFFI.xcframework`.
+
+## Testing
+
+Tests require a running XMTP backend. For CI, tests use ephemeral Fly.io infrastructure. For local testing:
 
 ```bash
-# Run tests with retry logic (recommended due to external dependencies)
-./script/run_tests.sh
-
-# Run tests directly
-swift test
-
-# Run tests with verbose output
-swift test -v | grep -E "Test Case|XCTAssert|failures"
-```
-
-### Linting
-
-```bash
-# Run SwiftLint (must be installed separately)
-./dev/lint
-
-# Validate CocoaPods spec
-pod lib lint --allow-warnings
-```
-
-### Local Development Environment
-
-```bash
-# Start local test server (requires Docker)
-./script/local
-
-# Alternative Docker setup
+# Start local backend (from repo root)
 ./dev/up
+
+# Run tests
+./sdks/ios/dev/test
 ```
 
-## High-Level Architecture
+Environment variables for custom backend:
+- `XMTP_NODE_ADDRESS` - Node gRPC URL
+- `XMTP_HISTORY_SERVER_ADDRESS` - History server URL
 
-### Core Components
+## Code Style
 
-**Client** (`Sources/XMTPiOS/Client.swift`)
+- **Formatting**: SwiftFormat (nicklockwood) - config in `.swiftformat`
+- **Linting**: SwiftLint - config in `.swiftlint.yml` and `Tests/.swiftlint.yml`
 
-- Entry point for XMTP SDK functionality
-- Manages API connections and authentication
-- Handles inbox creation and management
-- Supports V3 protocol (MLS-based) - V2 is deprecated as of May 1, 2025
+## Key Dependencies
 
-**Conversation System**
-
-- `Conversation.swift`: Unified interface for both Groups and DMs
-- `Group.swift`: MLS-based group messaging implementation
-- `Dm.swift`: Direct messaging implementation
-- Both support disappearing messages and various content types
-
-**Codec System** (`Sources/XMTPiOS/Codecs/`)
-
-- Extensible content type system for messages
-- Built-in codecs: Text, Attachment, RemoteAttachment, Reaction, Reply, ReadReceipt, GroupUpdated, TransactionReference
-- Protocol-based design allowing custom content types
-
-**LibXMTP Integration**
-
-- Swift bindings to Rust-based `libxmtp-swift` (v4.3.6)
-- Handles cryptographic operations and MLS protocol
-- Database operations with encryption support
-
-### Key Architectural Patterns
-
-1. **Protocol-Oriented Design**: Heavy use of Swift protocols for extensibility (ContentCodec, SigningKey)
-
-2. **Actor-Based Concurrency**: Uses Swift actors for thread-safe operations (ApiClientCache)
-
-3. **Protobuf Messaging**: All wire formats defined in `.proto` files, generated Swift code in `Proto/` directory
-
-4. **Test Helpers**: Separate `XMTPTestHelpers` module for testing utilities
-
-### Environment Configuration
-
-- **Development**: `.dev` environment for testing
-- **Production**: `.production` for live usage
-- **Local**: `.local` for Docker-based local development
-- History sync URLs configured per environment
-
-### Dependencies
-
-- `CSecp256k1`: Cryptographic operations
-- `Connect-Swift`: gRPC connectivity
-- `CryptoSwift`: Additional cryptographic utilities
-- `LibXMTP`: Core XMTP protocol implementation in Rust
-
-### Important Notes
-
-- The SDK requires iOS 14+ or macOS 11+
-- Database encryption key must be provided in ClientOptions
-- Device sync and history sync are configurable features
-- All conversations use MLS (Message Layer Security) protocol
+- `LibXMTPSwiftFFI` - FFI bindings from libxmtp (local path)
+- `Connect` - gRPC client
+- `CryptoSwift` - Cryptographic utilities
