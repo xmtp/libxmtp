@@ -151,9 +151,9 @@ pub struct DeviceSync {
 }
 
 impl DeviceSync {
-    pub fn new(inner_client: Arc<RustXmtpClient>) -> Self {
-      Self { inner_client }
-    }
+  pub fn new(inner_client: Arc<RustXmtpClient>) -> Self {
+    Self { inner_client }
+  }
 }
 
 #[wasm_bindgen]
@@ -285,6 +285,11 @@ impl DeviceSync {
   /// Manually sync all device sync groups.
   #[wasm_bindgen(js_name = syncAllDeviceSyncGroups)]
   pub async fn sync_all_device_sync_groups(&self) -> Result<GroupSyncSummary, JsError> {
+    self
+      .inner_client
+      .sync_welcomes()
+      .await
+      .map_err(|e| JsError::new(&format!("{}", e)))?;
     let summary = self
       .inner_client()
       .sync_all_device_sync_groups()

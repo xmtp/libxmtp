@@ -247,6 +247,11 @@ impl DeviceSync {
   /// Manually sync all device sync groups.
   #[napi]
   pub async fn sync_all_device_sync_groups(&self) -> Result<GroupSyncSummary> {
+    self
+      .inner_client
+      .sync_welcomes()
+      .await
+      .map_err(ErrorWrapper::from)?;
     let summary = self
       .inner_client
       .sync_all_device_sync_groups()
