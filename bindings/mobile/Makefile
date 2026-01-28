@@ -41,7 +41,7 @@ libxmtp-version:
 	echo "Version: $(GIT_COMMIT_HASH)\nBranch: $(GIT_BRANCH)\nDate: $(GIT_COMMIT_DATE)" > libxmtp-version.txt
 
 $(ARCHS_IOS): %:
-	IPHONEOS_DEPLOYMENT_TARGET=10 cargo build --target $@ --target-dir $(TARGET_DIR) --release --no-default-features
+	IPHONEOS_DEPLOYMENT_TARGET=14 cargo build --target $@ --target-dir $(TARGET_DIR) --release --no-default-features
 	mkdir -p build/$@
 	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 	mv $(TARGET_DIR)/$@/release/$(DYLIB) build/$@/$(DYLIB)
@@ -53,7 +53,7 @@ $(ARCHS_MAC): %:
 	mv $(TARGET_DIR)/$@/release/$(DYLIB) build/$@/$(DYLIB)
 
 aarch64-apple-ios:
-	IPHONEOS_DEPLOYMENT_TARGET=10 cargo build --target $@ --target-dir $(TARGET_DIR) --release
+	IPHONEOS_DEPLOYMENT_TARGET=14 cargo build --target $@ --target-dir $(TARGET_DIR) --release
 	mkdir -p build/$@
 	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 	mv $(TARGET_DIR)/$@/release/$(DYLIB) build/$@/$(DYLIB)

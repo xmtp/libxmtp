@@ -91,6 +91,7 @@ mkShell {
       echo "iOS builds require Xcode. Install from App Store or run:" >&2
       echo "  xcode-select --install" >&2
       echo "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer" >&2
+      return 1
     fi
 
     # Prepend Xcode's bin to PATH so system xcodebuild is used (Nix's xcbuild doesn't support -create-xcframework)
