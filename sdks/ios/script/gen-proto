@@ -1,3 +1,0 @@
-#!/usr/bin/env sh
-
-buf generate buf.build/xmtp/proto

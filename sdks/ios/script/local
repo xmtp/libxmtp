@@ -1,3 +1,0 @@
-#!/usr/bin/env sh
-
-docker-compose -p xmtp-ios-swiftxx -f dev/local/docker-compose.yml up
