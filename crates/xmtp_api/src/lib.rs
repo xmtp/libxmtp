@@ -11,7 +11,7 @@ pub use debug_wrapper::*;
 
 use std::sync::Arc;
 
-use xmtp_common::{ExponentialBackoff, Retry, RetryableError, retryable};
+use xmtp_common::{ErrorCode, ExponentialBackoff, Retry, RetryableError, retryable};
 pub use xmtp_proto::api_client::XmtpApi;
 
 pub use identity::*;
@@ -32,7 +32,7 @@ pub fn dyn_err(e: impl RetryableError + 'static) -> ApiError {
     ApiError::Api(Box::new(e))
 }
 
-#[derive(Debug, thiserror::Error, xmtp_common::ErrorCode)]
+#[derive(Debug, thiserror::Error, ErrorCode)]
 pub enum ApiError {
     #[error("api client error {0}")]
     Api(Box<dyn RetryableError>),

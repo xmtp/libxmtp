@@ -11,7 +11,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 use thiserror::Error;
 use web_sys::wasm_bindgen::JsCast;
-#[derive(Debug, Error, xmtp_common::ErrorCode)]
+use xmtp_common::ErrorCode;
+
+#[derive(Debug, Error, ErrorCode)]
 pub enum PlatformStorageError {
     #[error("OPFS {0}")]
     SAH(#[from] OpfsSAHError),

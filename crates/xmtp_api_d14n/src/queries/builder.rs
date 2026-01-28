@@ -4,7 +4,7 @@ use derive_builder::UninitializedFieldError;
 use std::sync::Arc;
 use thiserror::Error;
 use xmtp_api_grpc::error::{GrpcBuilderError, GrpcError};
-use xmtp_common::{MaybeSend, MaybeSync};
+use xmtp_common::{ErrorCode, MaybeSend, MaybeSync};
 use xmtp_id::scw_verifier::VerifierError;
 use xmtp_proto::api::ApiClientError;
 use xmtp_proto::types::AppVersion;
@@ -25,7 +25,7 @@ pub struct MessageBackendBuilder {
     cursor_store: Option<Arc<dyn CursorStore>>,
 }
 
-#[derive(Error, Debug, xmtp_common::ErrorCode)]
+#[derive(Error, Debug, ErrorCode)]
 pub enum MessageBackendBuilderError {
     #[error("V3 Host is required")]
     MissingV3Host,

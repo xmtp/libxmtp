@@ -15,7 +15,7 @@ use diesel::{
 use parking_lot::Mutex;
 use std::sync::Arc;
 use thiserror::Error;
-use xmtp_common::{BoxDynError, RetryableError, retryable};
+use xmtp_common::{BoxDynError, ErrorCode, RetryableError, retryable};
 use xmtp_configuration::BUSY_TIMEOUT;
 
 use pool::*;
@@ -150,7 +150,7 @@ impl StorageOption {
     }
 }
 
-#[derive(Debug, Error, xmtp_common::ErrorCode)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum PlatformStorageError {
     #[error("Pool error: {0}")]
     Pool(#[from] diesel::r2d2::PoolError),

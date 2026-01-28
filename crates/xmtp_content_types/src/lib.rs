@@ -19,6 +19,7 @@ pub mod wallet_send_calls;
 
 use prost::Message;
 use thiserror::Error;
+use xmtp_common::ErrorCode;
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 #[cfg(test)]
@@ -26,7 +27,7 @@ mod compatibility_test;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
-#[derive(Debug, Error, xmtp_common::ErrorCode)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum CodecError {
     #[error("encode error {0}")]
     Encode(String),

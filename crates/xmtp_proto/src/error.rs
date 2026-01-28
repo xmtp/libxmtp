@@ -1,7 +1,7 @@
 use std::array::TryFromSliceError;
 
 use thiserror::Error;
-use xmtp_common::RetryableError;
+use xmtp_common::{ErrorCode, RetryableError};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ApiEndpoint {
@@ -61,7 +61,7 @@ impl std::fmt::Display for ApiEndpoint {
 /// Loosely Modeled after serdes [error](https://docs.rs/serde/latest/serde/de/value/struct.Error.html) type.
 /// This general error type avoid circular hard-dependencies on crates further up the tree
 /// (xmtp_id/xmtp_mls) if they had defined the error themselves.
-#[derive(thiserror::Error, Debug, xmtp_common::ErrorCode)]
+#[derive(thiserror::Error, Debug, ErrorCode)]
 pub enum ConversionError {
     #[error("missing field {} of type {} during conversion from protobuf", .item, .r#type)]
     Missing {
@@ -135,7 +135,7 @@ impl RetryableError for ConversionError {
 }
 
 /// Error resulting from proto conversions/mutations
-#[derive(Debug, Error, xmtp_common::ErrorCode)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum ProtoError {
     #[error(transparent)]
     Hex(#[from] hex::FromHexError),

@@ -4,6 +4,7 @@ use prost::Message;
 use sha2::{Digest as _, Sha512};
 use std::array::TryFromSliceError;
 use thiserror::Error;
+use xmtp_common::ErrorCode;
 use xmtp_cryptography::{
     CredentialSign, CredentialVerify, SignerError, SigningContextProvider,
     XmtpInstallationCredential,
@@ -19,7 +20,7 @@ use super::{
 
 use alloy::signers::k256::ecdsa::Signature as K256Signature;
 
-#[derive(Debug, Error, xmtp_common::ErrorCode)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum SignatureError {
     #[error("Malformed legacy key: {0}")]
     MalformedLegacyKey(String),
@@ -139,7 +140,7 @@ impl std::fmt::Display for SignatureKind {
     }
 }
 
-#[derive(Debug, Error, xmtp_common::ErrorCode)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum AccountIdError {
     #[error("Chain ID is not a valid u64")]
     InvalidChainId,

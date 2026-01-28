@@ -2,7 +2,7 @@ use crate::messages::decoded_message::{DecodedMessage, DeletedBy, MessageBody};
 use hex::ToHexExt;
 use std::collections::HashMap;
 use thiserror::Error;
-use xmtp_common::RetryableError;
+use xmtp_common::{ErrorCode, RetryableError};
 use xmtp_db::DbQuery;
 use xmtp_db::group_message::{
     ContentType as DbContentType, Deletable, RelationCounts, RelationQuery, StoredGroupMessage,
@@ -20,7 +20,7 @@ pub fn deleted_message_content_type() -> ContentTypeId {
     }
 }
 
-#[derive(Debug, Error, xmtp_common::ErrorCode)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum EnrichMessageError {
     #[error("DB error: {0}")]
     #[error_code(inherit)]

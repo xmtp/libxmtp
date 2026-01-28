@@ -27,6 +27,7 @@ use tls_codec::SecretVLBytes;
 use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
+use xmtp_common::ErrorCode;
 use xmtp_common::time::now_ns;
 use xmtp_common::{RetryableError, retryable};
 use xmtp_configuration::{
@@ -184,7 +185,7 @@ impl IdentityStrategy {
     }
 }
 
-#[derive(Debug, Error, xmtp_common::ErrorCode)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum IdentityError {
     #[error(transparent)]
     CredentialSerialization(#[from] prost::EncodeError),

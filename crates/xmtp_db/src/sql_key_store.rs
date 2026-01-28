@@ -1,4 +1,4 @@
-use xmtp_common::{RetryableError, retryable};
+use xmtp_common::{ErrorCode, RetryableError, retryable};
 
 use self::transactions::MutableTransactionConnection;
 use crate::{ConnectionExt, TransactionalKeyStore, XmtpMlsStorageProvider};
@@ -289,7 +289,7 @@ where
 
 /// Errors thrown by the key store.
 /// General error type for Mls Storage Trait
-#[derive(thiserror::Error, Debug, xmtp_common::ErrorCode)]
+#[derive(thiserror::Error, Debug, ErrorCode)]
 pub enum SqlKeyStoreError {
     #[error("The key store does not allow storing serialized values.")]
     UnsupportedValueTypeBytes,
