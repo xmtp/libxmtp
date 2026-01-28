@@ -100,7 +100,7 @@ public struct MultiRemoteAttachmentCodec: ContentCodec {
 
 	public func encode(content: MultiRemoteAttachment) throws -> EncodedContent {
 		let ffiMultiRemoteAttachment = FfiMultiRemoteAttachment(attachments: content.remoteAttachments
-			.map { FfiRemoteAttachmentInfo(
+			.map { FfiRemoteAttachment(
 				url: $0.url,
 				contentDigest: $0.contentDigest,
 				secret: $0.secret,
