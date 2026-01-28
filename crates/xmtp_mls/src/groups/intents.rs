@@ -707,6 +707,179 @@ impl TryFrom<&[u8]> for ReaddInstallationsIntentData {
     }
 }
 
+/// Intent data for proposing to add members to a group (proposal-by-reference flow)
+#[derive(Debug, Clone)]
+pub(crate) struct ProposeAddMembersIntentData {
+    pub inbox_ids: Vec<String>,
+}
+
+impl ProposeAddMembersIntentData {
+    pub fn new(inbox_ids: Vec<String>) -> Self {
+        Self { inbox_ids }
+    }
+}
+
+impl From<ProposeAddMembersIntentData> for Vec<u8> {
+    fn from(intent: ProposeAddMembersIntentData) -> Self {
+        // Simple serialization: length-prefixed strings
+        let mut buf = Vec::new();
+        let count = intent.inbox_ids.len() as u32;
+        buf.extend_from_slice(&count.to_le_bytes());
+        for inbox_id in intent.inbox_ids {
+            let bytes = inbox_id.into_bytes();
+            let len = bytes.len() as u32;
+            buf.extend_from_slice(&len.to_le_bytes());
+            buf.extend(bytes);
+        }
+        buf
+    }
+}
+
+impl TryFrom<&[u8]> for ProposeAddMembersIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        if data.len() < 4 {
+            return Err(IntentError::MissingPayload);
+        }
+        let count = u32::from_le_bytes(data[0..4].try_into().expect("slice is 4 bytes")) as usize;
+        let mut offset = 4;
+        let mut inbox_ids = Vec::with_capacity(count);
+        for _ in 0..count {
+            if offset + 4 > data.len() {
+                return Err(IntentError::MissingPayload);
+            }
+            let len = u32::from_le_bytes(
+                data[offset..offset + 4]
+                    .try_into()
+                    .expect("slice is 4 bytes"),
+            ) as usize;
+            offset += 4;
+            if offset + len > data.len() {
+                return Err(IntentError::MissingPayload);
+            }
+            let inbox_id = String::from_utf8(data[offset..offset + len].to_vec())
+                .map_err(|_| IntentError::MissingPayload)?;
+            inbox_ids.push(inbox_id);
+            offset += len;
+        }
+        Ok(Self::new(inbox_ids))
+    }
+}
+
+/// Intent data for proposing to remove members from a group (proposal-by-reference flow)
+#[derive(Debug, Clone)]
+pub(crate) struct ProposeRemoveMembersIntentData {
+    pub inbox_ids: Vec<String>,
+}
+
+impl ProposeRemoveMembersIntentData {
+    pub fn new(inbox_ids: Vec<String>) -> Self {
+        Self { inbox_ids }
+    }
+}
+
+impl From<ProposeRemoveMembersIntentData> for Vec<u8> {
+    fn from(intent: ProposeRemoveMembersIntentData) -> Self {
+        // Simple serialization: length-prefixed strings
+        let mut buf = Vec::new();
+        let count = intent.inbox_ids.len() as u32;
+        buf.extend_from_slice(&count.to_le_bytes());
+        for inbox_id in intent.inbox_ids {
+            let bytes = inbox_id.into_bytes();
+            let len = bytes.len() as u32;
+            buf.extend_from_slice(&len.to_le_bytes());
+            buf.extend(bytes);
+        }
+        buf
+    }
+}
+
+impl TryFrom<&[u8]> for ProposeRemoveMembersIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        if data.len() < 4 {
+            return Err(IntentError::MissingPayload);
+        }
+        let count = u32::from_le_bytes(data[0..4].try_into().expect("slice is 4 bytes")) as usize;
+        let mut offset = 4;
+        let mut inbox_ids = Vec::with_capacity(count);
+        for _ in 0..count {
+            if offset + 4 > data.len() {
+                return Err(IntentError::MissingPayload);
+            }
+            let len = u32::from_le_bytes(
+                data[offset..offset + 4]
+                    .try_into()
+                    .expect("slice is 4 bytes"),
+            ) as usize;
+            offset += 4;
+            if offset + len > data.len() {
+                return Err(IntentError::MissingPayload);
+            }
+            let inbox_id = String::from_utf8(data[offset..offset + len].to_vec())
+                .map_err(|_| IntentError::MissingPayload)?;
+            inbox_ids.push(inbox_id);
+            offset += len;
+        }
+        Ok(Self::new(inbox_ids))
+    }
+}
+
+/// Intent data for proposing group context extension updates (proposal-by-reference flow)
+#[derive(Debug, Clone)]
+pub(crate) struct ProposeGroupContextExtensionsIntentData {
+    /// The serialized extensions bytes
+    pub extensions_bytes: Vec<u8>,
+}
+
+impl ProposeGroupContextExtensionsIntentData {
+    pub fn new(extensions_bytes: Vec<u8>) -> Self {
+        Self { extensions_bytes }
+    }
+}
+
+impl From<ProposeGroupContextExtensionsIntentData> for Vec<u8> {
+    fn from(intent: ProposeGroupContextExtensionsIntentData) -> Self {
+        intent.extensions_bytes
+    }
+}
+
+impl TryFrom<&[u8]> for ProposeGroupContextExtensionsIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Self::new(data.to_vec()))
+    }
+}
+
+/// Intent data for committing pending proposals (proposal-by-reference flow)
+#[derive(Debug, Clone, Default)]
+pub(crate) struct CommitPendingProposalsIntentData {
+    // Empty for now - commits all pending proposals in the proposal store
+}
+
+impl CommitPendingProposalsIntentData {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl From<CommitPendingProposalsIntentData> for Vec<u8> {
+    fn from(_intent: CommitPendingProposalsIntentData) -> Self {
+        Vec::new()
+    }
+}
+
+impl TryFrom<&[u8]> for CommitPendingProposalsIntentData {
+    type Error = IntentError;
+
+    fn try_from(_data: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Self::new())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum PostCommitAction {
     SendWelcomes(SendWelcomesAction),

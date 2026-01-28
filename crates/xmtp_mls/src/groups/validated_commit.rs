@@ -13,7 +13,7 @@ use crate::{
 use openmls::{
     credentials::{BasicCredential, Credential as OpenMlsCredential, errors::BasicCredentialError},
     extensions::{Extension, Extensions, UnknownExtension},
-    group::{MlsGroup as OpenMlsGroup, StagedCommit},
+    group::{GroupContext, MlsGroup as OpenMlsGroup, StagedCommit},
     messages::proposals::Proposal,
     prelude::{LeafNodeIndex, Sender},
     treesync::LeafNode,
@@ -671,7 +671,7 @@ impl ExpectedDiff {
         context: &impl XmtpSharedContext,
         group_id: &[u8], // used for logging
         staged_commit: &StagedCommit,
-        existing_group_extensions: &Extensions,
+        existing_group_extensions: &Extensions<GroupContext>,
         immutable_metadata: &GroupMetadata,
         mutable_metadata: &GroupMutableMetadata,
     ) -> Result<ExpectedDiff, CommitValidationError> {
@@ -855,7 +855,7 @@ fn extract_commit_participant(
 /// until a match is found
 #[tracing::instrument(level = "trace", skip_all)]
 pub fn extract_group_membership(
-    extensions: &Extensions,
+    extensions: &Extensions<GroupContext>,
 ) -> Result<GroupMembership, CommitValidationError> {
     for extension in extensions.iter() {
         if let Extension::Unknown(
@@ -879,8 +879,8 @@ fn extract_metadata_changes(
     immutable_metadata: &GroupMetadata,
     // We already have the old mutable metadata, so save parsing it a second time
     old_mutable_metadata: &GroupMutableMetadata,
-    old_group_extensions: &Extensions,
-    new_group_extensions: &Extensions,
+    old_group_extensions: &Extensions<GroupContext>,
+    new_group_extensions: &Extensions<GroupContext>,
 ) -> Result<MutableMetadataValidationInfo, CommitValidationError> {
     let old_mutable_metadata_ext = find_mutable_metadata_extension(old_group_extensions)
         .ok_or(CommitValidationError::MissingMutableMetadata)?;
@@ -942,7 +942,7 @@ fn extract_metadata_changes(
 // Returns true if the permissions have changed, false otherwise
 fn extract_permissions_changed(
     old_group_permissions: &GroupMutablePermissions,
-    new_group_extensions: &Extensions,
+    new_group_extensions: &Extensions<GroupContext>,
 ) -> Result<bool, CommitValidationError> {
     let new_group_permissions: GroupMutablePermissions = new_group_extensions.try_into()?;
     Ok(!old_group_permissions.eq(&new_group_permissions))

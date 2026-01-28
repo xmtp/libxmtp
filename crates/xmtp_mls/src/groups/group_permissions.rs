@@ -1,6 +1,6 @@
 use openmls::{
     extensions::{Extension, Extensions, UnknownExtension},
-    group::MlsGroup as OpenMlsGroup,
+    group::{GroupContext, MlsGroup as OpenMlsGroup},
 };
 use prost::Message;
 use std::collections::HashMap;
@@ -124,10 +124,10 @@ impl TryFrom<GroupMutablePermissionsProto> for GroupMutablePermissions {
 }
 
 /// Implements conversion from &Extensions to GroupMutablePermissions.
-impl TryFrom<&Extensions> for GroupMutablePermissions {
+impl TryFrom<&Extensions<GroupContext>> for GroupMutablePermissions {
     type Error = GroupMutablePermissionsError;
 
-    fn try_from(value: &Extensions) -> Result<Self, Self::Error> {
+    fn try_from(value: &Extensions<GroupContext>) -> Result<Self, Self::Error> {
         for extension in value.iter() {
             if let Extension::Unknown(GROUP_PERMISSIONS_EXTENSION_ID, UnknownExtension(metadata)) =
                 extension

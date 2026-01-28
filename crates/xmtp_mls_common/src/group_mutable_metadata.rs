@@ -1,6 +1,6 @@
 use openmls::{
     extensions::{Extension, Extensions, UnknownExtension},
-    group::MlsGroup as OpenMlsGroup,
+    group::{GroupContext, MlsGroup as OpenMlsGroup},
 };
 use prost::Message;
 use std::{collections::HashMap, fmt};
@@ -318,11 +318,11 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
     }
 }
 
-impl TryFrom<&Extensions> for GroupMutableMetadata {
+impl TryFrom<&Extensions<GroupContext>> for GroupMutableMetadata {
     type Error = GroupMutableMetadataError;
 
     /// Attempts to extract GroupMutableMetadata from MLS Extensions.
-    fn try_from(value: &Extensions) -> Result<Self, Self::Error> {
+    fn try_from(value: &Extensions<GroupContext>) -> Result<Self, Self::Error> {
         match find_mutable_metadata_extension(value) {
             Some(metadata) => GroupMutableMetadata::try_from(metadata),
             None => Err(GroupMutableMetadataError::MissingExtension),
@@ -344,7 +344,7 @@ impl TryFrom<&OpenMlsGroup> for GroupMutableMetadata {
 ///
 /// This function searches for an Unknown Extension with the
 /// [MUTABLE_METADATA_EXTENSION_ID].
-pub fn find_mutable_metadata_extension(extensions: &Extensions) -> Option<&Vec<u8>> {
+pub fn find_mutable_metadata_extension(extensions: &Extensions<GroupContext>) -> Option<&Vec<u8>> {
     extensions.iter().find_map(|extension| {
         if let Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, UnknownExtension(metadata)) =
             extension
