@@ -23,7 +23,7 @@ public enum EncodedContentCompression {
 		}
 	}
 
-	// Helper method to compress data using the Compression framework
+	/// Helper method to compress data using the Compression framework
 	private func compressData(
 		_ data: Data, using algorithm: compression_algorithm
 	) -> Data? {
@@ -46,7 +46,7 @@ public enum EncodedContentCompression {
 		return Data(bytes: destinationBuffer, count: compressedSize)
 	}
 
-	// Helper method to decompress data using the Compression framework
+	/// Helper method to decompress data using the Compression framework
 	private func decompressData(
 		_ data: Data, using algorithm: compression_algorithm
 	) -> Data? {

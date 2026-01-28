@@ -324,7 +324,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	// Returns null if conversation is not paused, otherwise the min version required to unpause this conversation
+	/// Returns null if conversation is not paused, otherwise the min version required to unpause this conversation
 	public func pausedForVersion() async throws -> String? {
 		switch self {
 		case let .group(group):
@@ -480,8 +480,8 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	// Returns a dictionary where the keys are inbox IDs and the values
-	// are the timestamp in nanoseconds of their last read receipt
+	/// Returns a dictionary where the keys are inbox IDs and the values
+	/// are the timestamp in nanoseconds of their last read receipt
 	public func getLastReadTimes() throws -> [String: Int64] {
 		switch self {
 		case let .group(group):

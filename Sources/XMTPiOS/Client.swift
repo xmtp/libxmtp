@@ -73,7 +73,7 @@ public struct ForkRecoveryOptions {
 
 /// Specify configuration options for creating a ``Client``.
 public struct ClientOptions {
-	// Specify network options
+	/// Specify network options
 	public struct Api {
 		/// Specify which XMTP network to connect to. Defaults to ``.dev``
 		public var env: XMTPEnvironment = .dev
@@ -84,7 +84,7 @@ public struct ClientOptions {
 
 		public var appVersion: String?
 
-		// Future proofing - gateway URL support.
+		/// Future proofing - gateway URL support.
 		public var gatewayHost: String?
 
 		public init(
@@ -143,10 +143,6 @@ public struct ClientOptions {
 
 struct ApiCacheKey {
 	let api: ClientOptions.Api
-
-	init(api: ClientOptions.Api) {
-		self.api = api
-	}
 
 	var stringValue: String {
 		"\(api.env.url)|\(api.isSecure)|\(api.appVersion ?? "nil")|\(api.gatewayHost ?? "nil")"

@@ -134,7 +134,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		try await ffiConversation.removeConversationMessageDisappearingSettings()
 	}
 
-	// Returns null if dm is not paused, otherwise the min version required to unpause this dm
+	/// Returns null if dm is not paused, otherwise the min version required to unpause this dm
 	public func pausedForVersion() throws -> String? {
 		try ffiConversation.pausedForVersion()
 	}
@@ -459,7 +459,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	// Count the number of messages in the conversation according to the provided filters
+	/// Count the number of messages in the conversation according to the provided filters
 	public func countMessages(
 		beforeNs: Int64? = nil, afterNs: Int64? = nil, deliveryStatus: MessageDeliveryStatus = .all,
 		excludeContentTypes: [StandardContentType]? = nil,

@@ -13,7 +13,7 @@ class NameResolver {
 		"\(identifier.prefix(6))...\(identifier.suffix(4))"
 	})
 
-	// Note: replace this with your own RPC provider URL.
+	/// Note: replace this with your own RPC provider URL.
 	private let ensResolver = EnsResolver(
 		rpcUrlString: "https://eth-mainnet.g.alchemy.com/v2/WV-bLot1hKjjCfpPq603Ro-jViFzwYX8"
 	)

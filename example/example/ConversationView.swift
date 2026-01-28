@@ -1,7 +1,7 @@
 import SwiftUI
 import XMTPiOS
 
-// Display the conversation.
+/// Display the conversation.
 struct ConversationView: View {
 	@Environment(XmtpSession.self) private var session
 	let conversationId: String

@@ -1,5 +1,4 @@
 import XCTest
-
 @testable import XMTPiOS
 
 final class CryptoTests: XCTestCase {

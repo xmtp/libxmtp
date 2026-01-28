@@ -1,5 +1,4 @@
 import XCTest
-
 @testable import XMTPiOS
 
 struct NumberCodec: ContentCodec {
@@ -145,7 +144,7 @@ class CodecTests: XCTestCase {
 		XCTAssertFalse(shouldPush, "NumberCodec should have shouldPush = false")
 	}
 
-	func testMessageVisibilityOptionsToFfi() async throws {
+	func testMessageVisibilityOptionsToFfi() async {
 		// Test that MessageVisibilityOptions correctly converts to FfiSendMessageOpts
 		let visibilityOptions = MessageVisibilityOptions(shouldPush: true)
 		let ffiOpts = visibilityOptions.toFfi()

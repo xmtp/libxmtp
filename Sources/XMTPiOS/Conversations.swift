@@ -247,7 +247,7 @@ public class Conversations {
 		}
 	}
 
-	// Delete a message from your local database. Does not impact other devices or installations
+	/// Delete a message from your local database. Does not impact other devices or installations
 	public func deleteMessageLocally(messageId: String) throws {
 		_ = try ffiClient.deleteMessage(messageId: messageId.hexToData)
 	}
@@ -567,7 +567,7 @@ public class Conversations {
 		disappearingMessageSettings: DisappearingMessageSettings? = nil,
 		appData: String?
 	) async throws -> Group {
-		let group = try await ffiConversations.createGroup(
+		try await ffiConversations.createGroup(
 			accountIdentities: identities.map(\.ffiPrivate),
 			opts: FfiCreateGroupOptions(
 				permissions: permissions,
@@ -581,7 +581,6 @@ public class Conversations {
 				appData: appData
 			)
 		).groupFromFFI(client: client)
-		return group
 	}
 
 	public func newGroup(
@@ -642,7 +641,7 @@ public class Conversations {
 		appData: String?
 	) async throws -> Group {
 		try validateInboxIds(inboxIds)
-		let group = try await ffiConversations.createGroupWithInboxIds(
+		return try await ffiConversations.createGroupWithInboxIds(
 			inboxIds: inboxIds,
 			opts: FfiCreateGroupOptions(
 				permissions: permissions,
@@ -656,7 +655,6 @@ public class Conversations {
 				appData: appData
 			)
 		).groupFromFFI(client: client)
-		return group
 	}
 
 	public func newGroupOptimistic(
@@ -744,8 +742,8 @@ public class Conversations {
 		}
 	}
 
-	// A stream of all deleted or disappeared messages
-	// that will be emitted as the messages are removed from the database
+	/// A stream of all deleted or disappeared messages
+	/// that will be emitted as the messages are removed from the database
 	public func streamMessageDeletions(
 		onClose: (() -> Void)? = nil
 	) -> AsyncThrowingStream<DecodedMessageV2, Error> {

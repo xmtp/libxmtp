@@ -101,13 +101,12 @@ enum Crypto {
 	}
 
 	static func hkdfHmacKey(secret: Data, info: Data) throws -> SymmetricKey {
-		let key = HKDF<SHA256>.deriveKey(
+		HKDF<SHA256>.deriveKey(
 			inputKeyMaterial: SymmetricKey(data: secret),
 			salt: Data(),
 			info: info,
 			outputByteCount: 32
 		)
-		return key
 	}
 
 	static func generateHmacSignature(secret: Data, info: Data, message: Data) throws -> Data {
@@ -135,11 +134,10 @@ enum Crypto {
 	}
 
 	static func verifyHmacSignature(key: SymmetricKey, signature: Data, message: Data) -> Bool {
-		let isValid = HMAC<SHA256>.isValidAuthenticationCode(
+		HMAC<SHA256>.isValidAuthenticationCode(
 			signature,
 			authenticating: message,
 			using: key
 		)
-		return isValid
 	}
 }

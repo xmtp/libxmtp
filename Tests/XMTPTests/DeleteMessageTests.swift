@@ -1,7 +1,6 @@
 import XCTest
-import XMTPTestHelpers
-
 @testable import XMTPiOS
+import XMTPTestHelpers
 
 @available(iOS 16, *)
 class DeleteMessageTests: XCTestCase {
@@ -89,7 +88,7 @@ class DeleteMessageTests: XCTestCase {
 		let alixGroup = try fixtures.alixClient.conversations.findGroup(groupId: boGroup.id)
 		XCTAssertNotNil(alixGroup)
 
-		let messageId = try await alixGroup!.send(content: "Alix's message")
+		let messageId = try try await XCTUnwrap(alixGroup?.send(content: "Alix's message"))
 		try await boGroup.sync()
 		try await alixGroup?.sync()
 

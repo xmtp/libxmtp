@@ -1,8 +1,7 @@
 import Foundation
 import XCTest
-import XMTPTestHelpers
-
 @testable import XMTPiOS
+import XMTPTestHelpers
 
 @available(iOS 15, *)
 class PerformanceTests: XCTestCase {
