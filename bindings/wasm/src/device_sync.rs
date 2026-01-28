@@ -1,5 +1,5 @@
-use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use crate::client::{Client, GroupSyncSummary};
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use js_sys::Uint8Array;
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;

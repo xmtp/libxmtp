@@ -6,7 +6,8 @@ use xmtp_id::associations::DeserializationError;
 use xmtp_mls::groups::device_sync::{
     AvailableArchive, DeviceSyncError,
     archive::{
-        ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter, insert_importer,
+        ArchiveImporter, BACKUP_VERSION, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter,
+        insert_importer,
     },
 };
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
@@ -70,13 +71,14 @@ impl FfiXmtpClient {
         path: String,
         opts: FfiArchiveOptions,
         key: Vec<u8>,
-    ) -> Result<(), GenericError> {
+    ) -> Result<BackupMetadata, GenericError> {
         let db = self.inner_client.context.db();
         let options: BackupOptions = opts.into();
-        ArchiveExporter::export_to_file(options, db, path, &check_key(key)?)
+        let metadata = ArchiveExporter::export_to_file(options, db, path, &check_key(key)?)
             .await
             .map_err(DeviceSyncError::Archive)?;
-        Ok(())
+
+        Ok(BackupMetadata::from_metadata_save(metadata, BACKUP_VERSION))
     }
 
     /// Import a previous archive from file.
