@@ -1,4 +1,5 @@
-use crate::client::{Client, GroupSyncSummary};
+use crate::client::{GroupSyncSummary, RustXmtpClient};
+use std::sync::Arc;
 use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use js_sys::Uint8Array;
 use serde::{Deserialize, Serialize};
@@ -49,8 +50,8 @@ impl From<ArchiveOptions> for BackupOptions {
 /// Selection of what elements to include in a backup
 #[wasm_bindgen_numbered_enum]
 pub enum BackupElementSelectionOption {
-  Messages,
-  Consent,
+  Messages = 0,
+  Consent = 1,
 }
 
 impl From<BackupElementSelectionOption> for BackupElementSelection {
@@ -162,7 +163,7 @@ impl DeviceSync {
   #[wasm_bindgen(js_name = sendSyncRequest)]
   pub async fn send_sync_request(&self) -> Result<(), JsError> {
     self
-      .inner_client()
+      .inner_client
       .device_sync_client()
       .send_sync_request()
       .await
@@ -181,7 +182,7 @@ impl DeviceSync {
     pin: String,
   ) -> Result<(), JsError> {
     self
-      .inner_client()
+      .inner_client
       .device_sync_client()
       .send_sync_archive(&options.into(), &server_url, &pin)
       .await
@@ -194,7 +195,7 @@ impl DeviceSync {
   #[wasm_bindgen(js_name = processSyncArchive)]
   pub async fn process_sync_archive(&self, archive_pin: Option<String>) -> Result<(), JsError> {
     self
-      .inner_client()
+      .inner_client
       .device_sync_client()
       .process_archive_with_pin(archive_pin.as_deref())
       .await
@@ -211,7 +212,7 @@ impl DeviceSync {
     #[wasm_bindgen(js_name = daysCutoff)] days_cutoff: i64,
   ) -> Result<Vec<AvailableArchiveInfo>, JsError> {
     let available = self
-      .inner_client()
+      .inner_client
       .device_sync_client()
       .list_available_archives(days_cutoff)
       .map_err(|e| JsError::new(&format!("{}", e)))?;
@@ -229,7 +230,7 @@ impl DeviceSync {
     use futures::AsyncReadExt;
 
     let key = check_key(&key)?;
-    let db = self.inner_client().context.db();
+    let db = self.inner_client.context.db();
     let options: BackupOptions = opts.into();
     let mut exporter = ArchiveExporter::new(options, db, &key);
 
@@ -255,7 +256,7 @@ impl DeviceSync {
       .await
       .map_err(|e| JsError::new(&format!("Failed to load archive: {}", e)))?;
 
-    insert_importer(&mut importer, &self.inner_client().context)
+    insert_importer(&mut importer, &self.inner_client.context)
       .await
       .map_err(|e| JsError::new(&format!("Failed to import archive: {}", e)))?;
 
@@ -291,7 +292,7 @@ impl DeviceSync {
       .await
       .map_err(|e| JsError::new(&format!("{}", e)))?;
     let summary = self
-      .inner_client()
+      .inner_client
       .sync_all_device_sync_groups()
       .await
       .map_err(|e| JsError::new(&format!("{}", e)))?;
