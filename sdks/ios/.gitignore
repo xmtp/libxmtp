@@ -2,6 +2,8 @@ XMTPiOSExample/Pods/
 XMTPiOSExample/build
 
 .DS_Store
+
+# Built xcframework
 /.build
 /Packages
 /*.xcodeproj
@@ -17,3 +19,6 @@ XMTPiOSExample/XMTPiOSExample.xcworkspace
 
 ngrok-*.pid
 ngrok-*.log
+
+# Generated Swift bindings (rebuilt from Rust)
+Sources/XMTPiOS/LibXMTP/xmtpv3.swift
