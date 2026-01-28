@@ -5,10 +5,7 @@ use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberI
 use xmtp_common::TestWriter;
 use xmtp_mls::tester;
 
-use crate::{
-    state::log::LogFile,
-    ui::file_open::{file_selected, open_file_dialog, open_log},
-};
+use crate::ui::file_open::{file_selected, open_file_dialog, open_log};
 
 mod state;
 mod ui;
@@ -64,9 +61,7 @@ fn main() -> Result<()> {
                 })
                 .unwrap();
 
-            let log = writer.as_string();
-            let log = LogFile::from_str(&log).unwrap();
-            open_log(ui_handle.clone(), log);
+            open_log(ui_handle.clone(), &writer.as_string());
         }
     });
 

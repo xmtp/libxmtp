@@ -30,12 +30,15 @@ impl LogState {
     }
 
     fn ingest(&mut self, event: LogEvent) -> Result<()> {
-        let ctx = |key: &str| {
+        let ctx = |key: &str| -> Result<&Value> {
             event
                 .context
-                .get(key)
+                .iter()
+                .find(|(k, _)| k == key)
                 .with_context(|| format!("Missing context field {key}"))
+                .map(|(_, v)| v)
         };
+
         let inbox = &event.installation;
         match event.event {
             Event::ClientCreated => {
@@ -66,7 +69,7 @@ impl LogState {
     }
 }
 
-struct ClientState {
+pub struct ClientState {
     pub name: Option<String>,
     pub events: Vec<LogEvent>,
     pub groups: HashMap<String, Arc<RwLock<GroupState>>>,
