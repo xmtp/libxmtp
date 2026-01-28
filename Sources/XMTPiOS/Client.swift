@@ -859,6 +859,11 @@ public final class Client {
 		try await ffiClient.findInboxId(identifier: identity.ffiPrivate)
 	}
 
+	/// Manually trigger a device sync request to sync records from another active device on this account.
+	public func sendSyncRequest() async throws {
+		try await ffiClient.sendSyncRequest()
+	}
+
 	public func signWithInstallationKey(message: String) throws -> Data {
 		try ffiClient.signWithInstallationKey(text: message)
 	}
