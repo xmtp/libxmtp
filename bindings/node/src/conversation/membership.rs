@@ -130,13 +130,13 @@ impl Conversation {
 
   #[napi]
   pub fn is_admin(&self, inbox_id: String) -> Result<bool> {
-    let admin_list = self.list_admins().map_err(ErrorWrapper::from)?;
+    let admin_list = self.list_admins()?;
     Ok(admin_list.contains(&inbox_id))
   }
 
   #[napi]
   pub fn is_super_admin(&self, inbox_id: String) -> Result<bool> {
-    let super_admin_list = self.list_super_admins().map_err(ErrorWrapper::from)?;
+    let super_admin_list = self.list_super_admins()?;
     Ok(super_admin_list.contains(&inbox_id))
   }
 

@@ -17,6 +17,15 @@ describe('generateInboxId', () => {
     })
     expect(inboxId).toBeDefined()
   })
+
+  it('should throw error with [ErrorType::Variant] format for invalid address', () => {
+    expect(() =>
+      generateInboxId({
+        identifier: 'invalid-address',
+        identifierKind: IdentifierKind.Ethereum,
+      })
+    ).toThrow(/^\[IdentifierValidationError::InvalidAddresses\].*/)
+  })
 })
 
 describe('getInboxIdByIdentity', () => {

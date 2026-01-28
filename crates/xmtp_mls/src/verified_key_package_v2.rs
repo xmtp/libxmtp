@@ -11,11 +11,12 @@ use openmls_rust_crypto::RustCrypto;
 use prost::Message;
 use std::panic::{self, AssertUnwindSafe};
 use thiserror::Error;
+use xmtp_common::ErrorCode;
 use xmtp_configuration::MLS_PROTOCOL_VERSION;
 use xmtp_configuration::WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID;
 use xmtp_proto::xmtp::identity::MlsCredential;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum KeyPackageVerificationError {
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
@@ -24,6 +25,7 @@ pub enum KeyPackageVerificationError {
     #[error("wrong credential type")]
     WrongCredentialType(#[from] BasicCredentialError),
     #[error(transparent)]
+    #[error_code(inherit)]
     ConversionError(#[from] xmtp_proto::ConversionError),
 }
 

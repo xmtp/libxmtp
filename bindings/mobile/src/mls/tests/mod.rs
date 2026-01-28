@@ -9,13 +9,13 @@ use crate::{
     FfiAction, FfiActionStyle, FfiActions, FfiAttachment, FfiConsent, FfiConsentEntityType,
     FfiConsentState, FfiContentType, FfiConversationCallback, FfiConversationMessageKind,
     FfiConversationType, FfiCreateDMOptions, FfiCreateGroupOptions, FfiDecodedMessage,
-    FfiDecodedMessageBody, FfiDecodedMessageContent, FfiDirection, FfiGroupMembershipState,
-    FfiGroupMessageKind, FfiGroupPermissionsOptions, FfiGroupQueryOrderBy, FfiIntent,
-    FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
+    FfiDecodedMessageBody, FfiDecodedMessageContent, FfiDirection, FfiError,
+    FfiGroupMembershipState, FfiGroupMessageKind, FfiGroupPermissionsOptions, FfiGroupQueryOrderBy,
+    FfiIntent, FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
     FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
     FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReactionAction,
     FfiReactionPayload, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply,
-    FfiSendMessageOpts, FfiSignatureKind, FfiSubscribeError, FfiTransactionReference, GenericError,
+    FfiSendMessageOpts, FfiSignatureKind, FfiSubscribeErr, FfiTransactionReference, GenericError,
     apply_signature_request, connect_to_backend, decode_actions, decode_attachment,
     decode_delete_message, decode_group_updated, decode_intent, decode_leave_request,
     decode_multi_remote_attachment, decode_reaction, decode_read_receipt, decode_remote_attachment,
@@ -173,7 +173,7 @@ impl FfiMessageCallback for RustStreamCallback {
         self.notify.notify_one();
     }
 
-    fn on_error(&self, error: FfiSubscribeError) {
+    fn on_error(&self, error: FfiSubscribeErr) {
         log::error!("{}", error)
     }
 
@@ -195,7 +195,7 @@ impl FfiConversationCallback for RustStreamCallback {
         self.notify.notify_one();
     }
 
-    fn on_error(&self, error: FfiSubscribeError) {
+    fn on_error(&self, error: FfiSubscribeErr) {
         log::error!("{}", error)
     }
 
@@ -216,7 +216,7 @@ impl FfiConsentCallback for RustStreamCallback {
         self.notify.notify_one();
     }
 
-    fn on_error(&self, error: FfiSubscribeError) {
+    fn on_error(&self, error: FfiSubscribeErr) {
         log::error!("{}", error)
     }
 
@@ -236,7 +236,7 @@ impl FfiPreferenceCallback for RustStreamCallback {
         self.notify.notify_one();
     }
 
-    fn on_error(&self, error: FfiSubscribeError) {
+    fn on_error(&self, error: FfiSubscribeErr) {
         log::error!("{}", error)
     }
 
@@ -307,7 +307,7 @@ pub(crate) async fn register_client_with_wallet(
 pub(crate) async fn register_client_with_wallet_no_panic(
     wallet: &FfiWalletInboxOwner,
     client: &FfiXmtpClient,
-) -> Result<(), GenericError> {
+) -> Result<(), FfiError> {
     let signature_request = client.signature_request().unwrap();
 
     signature_request
@@ -372,7 +372,7 @@ pub(crate) async fn new_test_client_with_wallet_and_history_sync_url(
 pub(crate) async fn new_test_client_no_panic(
     wallet: PrivateKeySigner,
     sync_server_url: Option<String>,
-) -> Result<Arc<FfiXmtpClient>, GenericError> {
+) -> Result<Arc<FfiXmtpClient>, FfiError> {
     let ffi_inbox_owner = FfiWalletInboxOwner::with_wallet(wallet);
     let ident = ffi_inbox_owner.identifier();
     let nonce = 1;

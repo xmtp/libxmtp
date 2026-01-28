@@ -2,7 +2,7 @@ use std::fmt::Display;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_id::associations::{Identifier, ident};
 
-use crate::GenericError;
+use crate::{FfiError, GenericError};
 
 #[derive(uniffi::Record, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct FfiIdentifier {
@@ -17,7 +17,7 @@ pub enum FfiIdentifierKind {
 }
 
 impl FfiIdentifier {
-    pub fn inbox_id(&self, nonce: u64) -> Result<String, GenericError> {
+    pub fn inbox_id(&self, nonce: u64) -> Result<String, FfiError> {
         let ident: Identifier = self.clone().try_into().map_err(GenericError::from_error)?;
         Ok(ident.inbox_id(nonce)?)
     }
@@ -37,7 +37,7 @@ impl Display for FfiIdentifier {
 pub fn generate_inbox_id(
     account_identifier: FfiIdentifier,
     nonce: u64,
-) -> Result<String, GenericError> {
+) -> Result<String, FfiError> {
     account_identifier.inbox_id(nonce)
 }
 

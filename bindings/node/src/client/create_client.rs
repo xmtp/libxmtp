@@ -16,32 +16,31 @@ use xmtp_mls::identity::IdentityStrategy;
 static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
 
 fn init_logging(options: LogOptions) -> Result<()> {
-  LOGGER_INIT
-    .get_or_init(|| {
-      let filter = if let Some(f) = options.level {
-        xmtp_common::filter_directive(&f.to_string())
-      } else {
-        EnvFilter::builder().parse_lossy("info")
-      };
-      if options.structured.unwrap_or_default() {
-        let fmt = tracing_subscriber::fmt::layer()
-          .json()
-          .flatten_event(true)
-          .with_level(true)
-          .with_target(true);
+  match LOGGER_INIT.get_or_init(|| {
+    let filter = if let Some(f) = options.level {
+      xmtp_common::filter_directive(&f.to_string())
+    } else {
+      EnvFilter::builder().parse_lossy("info")
+    };
+    if options.structured.unwrap_or_default() {
+      let fmt = tracing_subscriber::fmt::layer()
+        .json()
+        .flatten_event(true)
+        .with_level(true)
+        .with_target(true);
 
-        tracing_subscriber::registry().with(filter).with(fmt).init();
-      } else {
-        tracing_subscriber::registry()
-          .with(fmt::layer())
-          .with(filter)
-          .init();
-      }
-      Ok(())
-    })
-    .as_ref()
-    .map_err(ErrorWrapper::from)?;
-  Ok(())
+      tracing_subscriber::registry().with(filter).with(fmt).init();
+    } else {
+      tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(filter)
+        .init();
+    }
+    Ok(())
+  }) {
+    Ok(()) => Ok(()),
+    Err(e) => Err(Error::from_reason(e.reason.clone())),
+  }
 }
 
 /**

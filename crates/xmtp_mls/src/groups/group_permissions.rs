@@ -5,6 +5,7 @@ use openmls::{
 use prost::Message;
 use std::collections::HashMap;
 use thiserror::Error;
+use xmtp_common::ErrorCode;
 use xmtp_proto::xmtp::mls::message_contents::{
     GroupMutablePermissionsV1 as GroupMutablePermissionsProto,
     MembershipPolicy as MembershipPolicyProto, MetadataPolicy as MetadataPolicyProto,
@@ -28,7 +29,7 @@ use xmtp_configuration::{GROUP_PERMISSIONS_EXTENSION_ID, SUPER_ADMIN_METADATA_PR
 use xmtp_mls_common::group_mutable_metadata::{GroupMutableMetadata, MetadataField};
 
 /// Errors that can occur when working with GroupMutablePermissions.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum GroupMutablePermissionsError {
     #[error("serialization: {0}")]
     Serialization(#[from] prost::EncodeError),

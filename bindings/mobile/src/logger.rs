@@ -1,4 +1,4 @@
-use crate::GenericError;
+use crate::FfiError;
 use log::Subscriber;
 use log::level_filters::LevelFilter;
 use parking_lot::Mutex;
@@ -253,7 +253,7 @@ pub fn enter_debug_writer(
     rotation: FfiLogRotation,
     max_files: u32,
     process_type: FfiProcessType,
-) -> Result<(), GenericError> {
+) -> Result<(), FfiError> {
     enter_debug_writer_with_level(directory, rotation, max_files, log_level, process_type)
 }
 
@@ -268,7 +268,7 @@ pub fn enter_debug_writer_with_level(
     max_files: u32,
     log_level: FfiLogLevel,
     process_type: FfiProcessType,
-) -> Result<(), GenericError> {
+) -> Result<(), FfiError> {
     if !FILE_INITIALIZED.load(Ordering::Relaxed) {
         enable_debug_file_inner(directory, rotation, max_files, log_level, process_type)?;
         FILE_INITIALIZED.store(true, Ordering::Relaxed);
@@ -282,7 +282,7 @@ fn enable_debug_file_inner(
     max_files: u32,
     log_level: FfiLogLevel,
     process_type: FfiProcessType,
-) -> Result<(), GenericError> {
+) -> Result<(), FfiError> {
     // First, ensure any previous logger is properly shut down
     let _ = exit_debug_writer();
 
@@ -327,7 +327,7 @@ fn enable_debug_file_inner(
 /// This should be called before the program exits, to ensure all the logs in memory have been
 /// written. this ends the writer thread.
 #[uniffi::export]
-pub fn exit_debug_writer() -> Result<(), GenericError> {
+pub fn exit_debug_writer() -> Result<(), FfiError> {
     let handle = LOGGER.lock();
     handle.modify(|l| {
         *l.inner_mut().writer_mut() = EmptyOrFileWriter::Empty;

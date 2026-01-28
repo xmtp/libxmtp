@@ -1,7 +1,8 @@
 use thiserror::Error;
+use xmtp_common::ErrorCode;
 use xmtp_proto::ConversionError;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum GrpcBuilderError {
     #[error("app version required to create client")]
     MissingAppVersion,
@@ -22,7 +23,7 @@ pub enum GrpcBuilderError {
     Transport(#[from] tonic::transport::Error),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum GrpcError {
     #[error("Invalid URI during channel creation")]
     InvalidUri(#[from] http::uri::InvalidUri),
@@ -37,6 +38,7 @@ pub enum GrpcError {
     #[error("payload is missing")]
     MissingPayload,
     #[error(transparent)]
+    #[error_code(inherit)]
     Proto(#[from] xmtp_proto::ProtoError),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),

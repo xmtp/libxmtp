@@ -33,6 +33,12 @@ impl fmt::Display for Expired {
     }
 }
 
+impl crate::ErrorCode for Expired {
+    fn error_code(&self) -> &'static str {
+        "Expired"
+    }
+}
+
 fn duration_since_epoch() -> Duration {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

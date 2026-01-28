@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use super::member::{HasMemberKind, Identifier};
 use crate::scw_verifier::SmartContractSignatureVerifier;
 use thiserror::Error;
+use xmtp_common::ErrorCode;
 use xmtp_common::time::now_ns;
 
 use super::{
@@ -155,13 +156,14 @@ impl SignatureRequestBuilder {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum SignatureRequestError {
     #[error("Unknown signer")]
     UnknownSigner,
     #[error("Required signature was not provided")]
     MissingSigner,
     #[error("Signature error {0}")]
+    #[error_code(inherit)]
     Signature(#[from] SignatureError),
     #[error("Unable to get block number")]
     BlockNumber,
