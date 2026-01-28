@@ -10,6 +10,8 @@
 , llvmPackages_19
 , xcbuild
 , xmtp
+, swiftformat
+, swiftlint
 , ...
 }:
 
@@ -49,6 +51,10 @@ mkShell {
       openssl
       sqlite
       xcbuild
+
+      # Swift tooling
+      swiftformat
+      swiftlint
     ]
     ++ lib.optionals isDarwin [
       darwin.cctools
