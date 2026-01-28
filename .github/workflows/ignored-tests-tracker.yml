@@ -267,6 +267,8 @@ EOF
 
           if [[ -z "$issue_number" ]]; then
             # Create the issue if it doesn't exist
+            # Ensure label exists
+            gh label create "ignored-tests-tracker" --description "Automated ignored tests tracking" 2>/dev/null || true
             gh issue create \
               --title "Ignored Tests Status Report" \
               --body-file issue-body.md \
