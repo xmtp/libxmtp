@@ -704,7 +704,7 @@ async fn test_intent_codec() {
 
 #[tokio::test]
 async fn test_actions_codec() {
-    use chrono::NaiveDate;
+    use chrono::{TimeZone, Utc};
     use prost::Message;
     use xmtp_content_types::actions::{Action, Actions};
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
@@ -740,9 +740,19 @@ async fn test_actions_codec() {
         actions.actions[0].expires_at_ns
     );
 
-    // Test min/max timestamps
-    let min_ns = i64::MIN;
-    let max_ns = i64::MAX;
+    // Test reasonable min/max timestamps (millisecond-aligned for UTC string round-trip)
+    // Year 1970 + ~292 years = ~2262 is the max for i64 nanoseconds
+    // We use year 2100 and 1900 as reasonable bounds that round-trip correctly
+    let past_ns = Utc
+        .with_ymd_and_hms(1900, 1, 1, 0, 0, 0)
+        .unwrap()
+        .timestamp_nanos_opt()
+        .unwrap();
+    let future_ns = Utc
+        .with_ymd_and_hms(2100, 12, 31, 23, 59, 59)
+        .unwrap()
+        .timestamp_nanos_opt()
+        .unwrap();
     let actions_minmax = FfiActions {
         id: "actions2".to_string(),
         description: "MinMax".to_string(),
@@ -751,14 +761,14 @@ async fn test_actions_codec() {
             label: "A1".to_string(),
             image_url: None,
             style: None,
-            expires_at_ns: Some(min_ns),
+            expires_at_ns: Some(past_ns),
         }],
-        expires_at_ns: Some(max_ns),
+        expires_at_ns: Some(future_ns),
     };
     let encoded = encode_actions(actions_minmax).unwrap();
     let decoded = decode_actions(encoded).unwrap();
-    assert_eq!(decoded.expires_at_ns, Some(max_ns));
-    assert_eq!(decoded.actions[0].expires_at_ns, Some(min_ns));
+    assert_eq!(decoded.expires_at_ns, Some(future_ns));
+    assert_eq!(decoded.actions[0].expires_at_ns, Some(past_ns));
 
     // Test timestamp 0 (Unix epoch is valid)
     let actions_zero = FfiActions {
@@ -851,12 +861,12 @@ async fn test_actions_codec() {
             {
                 "id": "a1",
                 "label": "Action 1",
-                "image_url": null,
+                "imageUrl": null,
                 "style": null,
-                "expires_at": "not a valid datetime"
+                "expiresAt": "not a valid datetime"
             }
         ],
-        "expires_at": "also not valid"
+        "expiresAt": "also not valid"
     }"#;
 
     let encoded_content = EncodedContent {
@@ -884,12 +894,12 @@ async fn test_actions_codec() {
             {
                 "id": "a1",
                 "label": "Action 1",
-                "image_url": null,
+                "imageUrl": null,
                 "style": null,
-                "expires_at": 12345
+                "expiresAt": 12345
             }
         ],
-        "expires_at": 67890
+        "expiresAt": 67890
     }"#;
 
     let encoded_content = EncodedContent {
@@ -943,10 +953,7 @@ async fn test_actions_codec() {
     );
 
     // Year 2800 is > 584 years from now and will overflow i64 nanoseconds
-    let far_future_date = NaiveDate::from_ymd_opt(2800, 1, 1)
-        .unwrap()
-        .and_hms_opt(0, 0, 0)
-        .unwrap();
+    let far_future_date = Utc.with_ymd_and_hms(2800, 1, 1, 0, 0, 0).unwrap();
 
     let actions_far_future = Actions {
         id: "far_future_actions".to_string(),
@@ -1343,5 +1350,47 @@ async fn test_text_codec() {
     // Test decoding invalid bytes
     let invalid_bytes = vec![0xFF, 0xFF, 0xFF, 0xFF];
     let result = decode_text(invalid_bytes);
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_delete_message_encode_decode() {
+    // Test basic delete message encoding/decoding
+    let ffi_delete_message = FfiDeleteMessage {
+        message_id: "test-message-id-123".to_string(),
+    };
+    let encoded = encode_delete_message(ffi_delete_message).unwrap();
+    let decoded = decode_delete_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, "test-message-id-123");
+
+    // Test with empty message_id
+    let ffi_delete_message_empty = FfiDeleteMessage {
+        message_id: "".to_string(),
+    };
+    let encoded = encode_delete_message(ffi_delete_message_empty).unwrap();
+    let decoded = decode_delete_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, "");
+
+    // Test with long message_id (hex string format)
+    let long_message_id = "a".repeat(64); // 64 character hex string
+    let ffi_delete_message_long = FfiDeleteMessage {
+        message_id: long_message_id.clone(),
+    };
+    let encoded = encode_delete_message(ffi_delete_message_long).unwrap();
+    let decoded = decode_delete_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, long_message_id);
+
+    // Test with unicode in message_id (edge case)
+    let unicode_id = "msg-🎉-123".to_string();
+    let ffi_delete_message_unicode = FfiDeleteMessage {
+        message_id: unicode_id.clone(),
+    };
+    let encoded = encode_delete_message(ffi_delete_message_unicode).unwrap();
+    let decoded = decode_delete_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, unicode_id);
+
+    // Test decoding invalid bytes
+    let invalid_bytes = vec![0xFF, 0xFF, 0xFF, 0xFF];
+    let result = decode_delete_message(invalid_bytes);
     assert!(result.is_err());
 }

@@ -1,18 +1,16 @@
-use std::sync::Arc;
-
+use crate::{
+    context::XmtpSharedContext,
+    groups::device_sync::{DeviceSyncClient, DeviceSyncError},
+    worker::{NeedsDbReconnect, Worker, WorkerFactory, WorkerKind},
+};
 use prost::Message;
-use xmtp_common::Event;
+use std::sync::Arc;
+use xmtp_common::{Event, fmt::ShortHex};
 use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask};
 use xmtp_macro::log_event;
 use xmtp_proto::{
     types::{WelcomeMessage, WelcomeMessageType},
     xmtp::mls::database::Task as TaskProto,
-};
-
-use crate::{
-    context::XmtpSharedContext,
-    groups::device_sync::{DeviceSyncClient, DeviceSyncError},
-    worker::{NeedsDbReconnect, Worker, WorkerFactory, WorkerKind},
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -239,19 +237,28 @@ where
                 };
 
                 let client = DeviceSyncClient::new(context.clone(), metrics);
+
+                let request_id = send_sync_archive.request_id.clone().unwrap_or_else(|| {
+                    let pin = xmtp_common::rand_string::<6>();
+                    format!("{pin:04}")
+                });
+
                 client
                     .send_archive(
                         options,
                         &send_sync_archive.sync_group_id,
-                        send_sync_archive.request_id.as_deref(),
+                        &request_id,
+                        &send_sync_archive.server_url,
+                        true,
                     )
                     .await
                     .inspect_err(|e| {
-                        log_event!(Event::DeviceSyncArchiveUploadFailure,
-                        context.installation_id(),
-                        group_id = #send_sync_archive.sync_group_id,
-                        request_id = send_sync_archive.request_id(),
-                        err = %e
+                        log_event!(
+                            Event::DeviceSyncArchiveUploadFailure,
+                            context.installation_id(),
+                            group_id = #send_sync_archive.sync_group_id,
+                            request_id = send_sync_archive.request_id(),
+                            err = %e
                         )
                     })?;
             }

@@ -557,16 +557,15 @@ pub(crate) mod tests {
     #[macro_export]
     macro_rules! assert_msg {
         ($stream:expr, $expected:expr) => {
+            let next = $stream
+                .next()
+                .await
+                .unwrap()
+                .inspect_err(|e| tracing::error!("{}", e.to_string()))
+                .unwrap();
+
             assert_eq!(
-                String::from_utf8_lossy(
-                    $stream
-                        .next()
-                        .await
-                        .unwrap()
-                        .unwrap()
-                        .decrypted_message_bytes
-                        .as_slice()
-                ),
+                String::from_utf8_lossy(next.decrypted_message_bytes.as_slice()),
                 String::from_utf8_lossy($expected.as_bytes())
             );
         };
@@ -618,7 +617,7 @@ pub(crate) mod tests {
 
         // Get the welcome messages and encode the first one as V3 protobuf
         let welcomes = envelope.welcome_messages()?;
-        assert!(welcomes.len() > 0, "Should have at least one welcome");
+        assert!(!welcomes.is_empty(), "Should have at least one welcome");
 
         let welcome = &welcomes[0];
         let v1 = welcome.as_v1().expect("Should be a V1 welcome");

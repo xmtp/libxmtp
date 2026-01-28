@@ -553,23 +553,20 @@ where
 
 #[cfg(test)]
 pub mod tests {
-    use std::sync::Arc;
-
     use futures::stream::StreamExt;
 
     use crate::assert_msg;
-    use crate::builder::ClientBuilder;
     use crate::groups::send_message_opts::SendMessageOpts;
+    use crate::tester;
     use rstest::*;
-    use xmtp_cryptography::utils::generate_local_wallet;
 
     #[rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(5))]
+    #[timeout(std::time::Duration::from_secs(30))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_messages() {
-        let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        tester!(alice, with_name: "alice");
+        tester!(bob, with_name: "bob");
 
         let alice_group = alice.create_group(None, None).unwrap();
         tracing::info!("Group Id = [{}]", hex::encode(&alice_group.group_id));

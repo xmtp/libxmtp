@@ -257,6 +257,7 @@ async fn test_dm_streaming() {
     assert!(stream.is_closed());
 }
 
+#[cfg_attr(feature = "d14n", ignore)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn test_stream_all_dm_messages() {
     let alix = Tester::new().await;

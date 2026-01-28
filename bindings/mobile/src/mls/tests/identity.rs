@@ -1,3 +1,5 @@
+use xmtp_configuration::DeviceSyncUrls;
+
 use super::*;
 
 #[tokio::test]
@@ -415,7 +417,7 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
         ffi_ident,
         1,
         None,
-        Some(HISTORY_SYNC_URL.to_string()),
+        Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
         None,
         None,
         None,
@@ -456,7 +458,7 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
         ffi_ident,
         nonce,
         None,
-        Some(HISTORY_SYNC_URL.to_string()),
+        Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
         None,
         None,
         None,
@@ -541,7 +543,7 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
         ffi_ident,
         nonce,
         None,
-        Some(HISTORY_SYNC_URL.to_string()),
+        Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
         None,
         None,
         None,
@@ -577,7 +579,7 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
         ffi_ident,
         1,
         None,
-        Some(HISTORY_SYNC_URL.to_string()),
+        Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
         None,
         None,
         None,
@@ -601,7 +603,7 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
         ffi_ident,
         1,
         None,
-        Some(HISTORY_SYNC_URL.to_string()),
+        Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
         None,
         None,
         None,
@@ -622,7 +624,7 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
         ffi_ident,
         1,
         None,
-        Some(HISTORY_SYNC_URL.to_string()),
+        Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
         None,
         None,
         None,
@@ -654,7 +656,7 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
         ffi_ident,
         1,
         None,
-        Some(HISTORY_SYNC_URL.to_string()),
+        Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
         None,
         None,
         None,

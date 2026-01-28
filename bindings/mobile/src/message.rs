@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use xmtp_content_types::{
     actions::{Action, ActionStyle, Actions},
     attachment::Attachment,
@@ -21,7 +22,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     content_types::{
-        LeaveRequest, MultiRemoteAttachment, ReactionAction, ReactionSchema, ReactionV2,
+        DeleteMessage, LeaveRequest, MultiRemoteAttachment, ReactionAction, ReactionSchema,
+        ReactionV2,
     },
     group_updated::Inbox,
 };
@@ -275,6 +277,13 @@ pub struct FfiReadReceipt {}
 pub struct FfiLeaveRequest {
     /// Optional authenticated note for the leave request
     pub authenticated_note: Option<Vec<u8>>,
+}
+
+/// Represents a request to delete a message.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiDeleteMessage {
+    /// The ID of the message to delete
+    pub message_id: String,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -701,6 +710,22 @@ impl From<FfiLeaveRequest> for LeaveRequest {
     }
 }
 
+impl From<DeleteMessage> for FfiDeleteMessage {
+    fn from(value: DeleteMessage) -> Self {
+        FfiDeleteMessage {
+            message_id: value.message_id,
+        }
+    }
+}
+
+impl From<FfiDeleteMessage> for DeleteMessage {
+    fn from(value: FfiDeleteMessage) -> Self {
+        DeleteMessage {
+            message_id: value.message_id,
+        }
+    }
+}
+
 impl From<WalletSendCalls> for FfiWalletSendCalls {
     fn from(value: WalletSendCalls) -> Self {
         FfiWalletSendCalls {
@@ -806,7 +831,7 @@ impl TryFrom<Actions> for FfiActions {
         let actions_id = actions.id.clone();
         let expires_at_ns = match actions.expires_at {
             Some(dt) => {
-                let ns_opt = dt.and_utc().timestamp_nanos_opt();
+                let ns_opt = dt.timestamp_nanos_opt();
                 if ns_opt.is_none() {
                     return Err(GenericError::from(format!(
                         "Actions '{}' expiration timestamp is out of valid range for conversion to nanoseconds",
@@ -832,13 +857,9 @@ impl TryFrom<Actions> for FfiActions {
 
 impl From<FfiActions> for Actions {
     fn from(actions: FfiActions) -> Self {
-        let expires_at = match actions.expires_at_ns {
-            Some(ns) => {
-                let dt = chrono::DateTime::from_timestamp_nanos(ns).naive_utc();
-                Some(dt)
-            }
-            None => None,
-        };
+        let expires_at = actions
+            .expires_at_ns
+            .map(DateTime::<Utc>::from_timestamp_nanos);
 
         Actions {
             id: actions.id,
@@ -856,7 +877,7 @@ impl TryFrom<Action> for FfiAction {
         let action_id = action.id.clone();
         let expires_at_ns = match action.expires_at {
             Some(dt) => {
-                let ns_opt = dt.and_utc().timestamp_nanos_opt();
+                let ns_opt = dt.timestamp_nanos_opt();
                 if ns_opt.is_none() {
                     return Err(GenericError::from(format!(
                         "Action '{}' expiration timestamp is out of valid range for conversion to nanoseconds",
@@ -880,13 +901,9 @@ impl TryFrom<Action> for FfiAction {
 
 impl From<FfiAction> for Action {
     fn from(action: FfiAction) -> Self {
-        let expires_at = match action.expires_at_ns {
-            Some(ns) => {
-                let dt = chrono::DateTime::from_timestamp_nanos(ns).naive_utc();
-                Some(dt)
-            }
-            None => None,
-        };
+        let expires_at = action
+            .expires_at_ns
+            .map(DateTime::<Utc>::from_timestamp_nanos);
 
         Action {
             id: action.id,

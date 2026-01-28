@@ -69,7 +69,9 @@ impl ContentCodec<Intent> for IntentCodec {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct Intent {
     pub id: String,
+    #[serde(rename = "actionId", alias = "action_id")]
     pub action_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, Value>>,
 }
 

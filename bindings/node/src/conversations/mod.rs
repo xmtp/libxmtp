@@ -148,7 +148,7 @@ impl Conversations {
   }
 
   #[napi]
-  pub fn find_group_by_id(&self, group_id: String) -> Result<Conversation> {
+  pub fn get_conversation_by_id(&self, group_id: String) -> Result<Conversation> {
     let group_id = hex::decode(group_id).map_err(ErrorWrapper::from)?;
 
     let group = self
@@ -170,7 +170,7 @@ impl Conversations {
   }
 
   #[napi]
-  pub async fn sync_all_conversations(
+  pub async fn sync_all(
     &self,
     consent_states: Option<Vec<ConsentState>>,
   ) -> Result<GroupSyncSummary> {
@@ -191,7 +191,7 @@ impl Conversations {
     let inner = self.inner_client.as_ref();
 
     let summary = inner
-      .sync_all_welcomes_and_history_sync_groups()
+      .sync_all_welcomes_and_device_sync_groups()
       .await
       .map_err(ErrorWrapper::from)?;
 

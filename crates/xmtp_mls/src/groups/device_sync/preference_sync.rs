@@ -141,7 +141,7 @@ mod tests {
             .wait()
             .await?;
 
-        amal_a.sync_all_welcomes_and_history_sync_groups().await?;
+        amal_a.sync_all_welcomes_and_device_sync_groups().await?;
         amal_a
             .worker()
             .register_interest(SyncMetric::HmacReceived, 1)
@@ -172,7 +172,7 @@ mod tests {
             .revoke_installations(vec![amal_b.context.installation_id().to_vec()])
             .await?;
 
-        amal_a.sync_all_welcomes_and_history_sync_groups().await?;
+        amal_a.sync_all_welcomes_and_device_sync_groups().await?;
         amal_a
             .worker()
             .register_interest(SyncMetric::HmacReceived, 2)

@@ -25,8 +25,8 @@ impl CreateDMOptions {
 
 #[napi]
 impl Conversations {
-  #[napi(js_name = "createDmByIdentity")]
-  pub async fn find_or_create_dm_by_identity(
+  #[napi]
+  pub async fn create_dm_by_identity(
     &self,
     account_identity: Identifier,
     options: Option<CreateDMOptions>,
@@ -43,8 +43,8 @@ impl Conversations {
     Ok(convo.into())
   }
 
-  #[napi(js_name = "createDm")]
-  pub async fn find_or_create_dm(
+  #[napi]
+  pub async fn create_dm(
     &self,
     inbox_id: String,
     options: Option<CreateDMOptions>,
@@ -59,10 +59,10 @@ impl Conversations {
   }
 
   #[napi]
-  pub fn find_dm_by_target_inbox_id(&self, target_inbox_id: String) -> Result<Conversation> {
+  pub fn get_dm_by_inbox_id(&self, inbox_id: String) -> Result<Conversation> {
     let convo = self
       .inner_client
-      .dm_group_from_target_inbox(target_inbox_id)
+      .dm_group_from_target_inbox(inbox_id)
       .map_err(ErrorWrapper::from)?;
 
     Ok(convo.into())

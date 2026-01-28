@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use color_eyre::eyre;
 use owo_colors::OwoColorize;
-use tracing::Dispatch;
+use tracing::{Dispatch, Level};
 use tracing::{Event, Subscriber};
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::{EnvFilter, prelude::*};
@@ -51,16 +51,19 @@ impl Logger {
             ref mut guards,
         } = *self;
 
-        let verbosity = verbosity.log_level_filter() as usize;
+        let verbosity = verbosity.tracing_level().unwrap_or(Level::INFO);
 
         // prefer `RUST_LOG` variable if set
         // otherwise passed-in level filter
-        let app_filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::builder().parse_lossy(format!("xdbg={verbosity}")));
+        let app_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            EnvFilter::builder()
+                .parse(format!("xdbg={verbosity}"))
+                .expect("filter is static")
+        });
         let file_filter = || {
-            EnvFilter::builder().parse_lossy(
-                "xmtp_api_d14n=DEBUG,xmtp_api=DEBUG,xmtp_mls=DEBUG,xmtp_id=DEBUG,xmtp_cryptography=DEBUG,xmtp_api_grpc=DEBUG",
-            )
+            EnvFilter::builder().parse(
+                "xmtp_api_d14n=DEBUG,xmtp_api=DEBUG,xmtp_mls=DEBUG,xmtp_id=DEBUG,xmtp_cryptography=DEBUG,xmtp_api_grpc=DEBUG,xdbg=ERROR",
+            ).expect("filter is static")
         };
         let subscriber = tracing_subscriber::registry();
         let now = chrono::Local::now();

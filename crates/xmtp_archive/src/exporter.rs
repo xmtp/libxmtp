@@ -50,14 +50,14 @@ impl ArchiveExporter {
         db: D,
         path: impl AsRef<std::path::Path>,
         key: &[u8],
-    ) -> Result<(), crate::ArchiveError>
+    ) -> Result<BackupMetadataSave, crate::ArchiveError>
     where
         D: DbQuery + 'static,
     {
         let mut exporter = Self::new(options, db, key);
         exporter.write_to_file(path).await?;
 
-        Ok(())
+        Ok(exporter.metadata)
     }
 
     pub async fn post_to_url(self, url: &str) -> Result<String, crate::ArchiveError> {

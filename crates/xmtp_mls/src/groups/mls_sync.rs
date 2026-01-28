@@ -75,8 +75,7 @@ use xmtp_configuration::{
     SYNC_BACKOFF_WAIT_MS, SYNC_JITTER_MS, SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
-use xmtp_db::group::GroupMembershipState;
-use xmtp_db::message_deletion::StoredMessageDeletion;
+use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::{
     Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
     group::{ConversationType, StoredGroup},
@@ -89,6 +88,7 @@ use xmtp_db::{
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_db::{TransactionalKeyStore, XmtpMlsStorageProvider, refresh_state::HasEntityKind};
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
+use xmtp_db::{group::GroupMembershipState, group_message::Deletable};
 use xmtp_db::{
     group_message::MsgQueryArgs,
     pending_remove::{PendingRemove, QueryPendingRemove},
@@ -913,6 +913,7 @@ where
                 next_intent_state: IntentState::Error,
             })?;
         self.process_own_leave_request_message(mls_group, storage, &id);
+        self.process_own_delete_message(storage, &id);
         Ok(Some(id))
     }
 
@@ -1280,6 +1281,49 @@ where
                 Err(e) => {
                     debug!("Failed to process leave request message: {}", e);
                 }
+            }
+        }
+    }
+
+    fn process_own_delete_message(&self, storage: &impl XmtpMlsStorageProvider, message_id: &[u8]) {
+        let db = storage.db();
+
+        let Ok(Some(message)) = db.get_group_message(message_id) else {
+            return;
+        };
+
+        if message.content_type != ContentType::DeleteMessage {
+            return;
+        }
+
+        let Ok(Some(deletion)) = db.get_message_deletion(message_id) else {
+            tracing::warn!(
+                message_id = hex::encode(message_id),
+                "Deletion record not found for own delete message"
+            );
+            return;
+        };
+
+        let Ok(Some(original_msg)) = db.get_group_message(&deletion.deleted_message_id) else {
+            tracing::debug!(
+                deleted_message_id = hex::encode(&deletion.deleted_message_id),
+                "Original message not found for deletion event (may be out-of-order)"
+            );
+            return;
+        };
+
+        match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
+            Ok(decoded_message) => {
+                let _ = self.context.local_events().send(
+                    crate::subscriptions::LocalEvents::MessageDeleted(Box::new(decoded_message)),
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    message_id = hex::encode(&deletion.deleted_message_id),
+                    error = ?e,
+                    "Failed to decode deleted message for deletion event"
+                );
             }
         }
     }
@@ -1689,7 +1733,7 @@ where
             }
         }
 
-        self.load_mls_group_with_lock_async(|mut mls_group| async move {
+        self.load_mls_group_with_lock_async(async |mut mls_group| {
             // ensure we are processing a private message
             match &envelope.message {
                 ProtocolMessage::PrivateMessage(_) => (),
@@ -2282,7 +2326,7 @@ where
     #[tracing::instrument]
     pub(super) async fn publish_intents(&self) -> Result<(), GroupError> {
         let db = self.context.db();
-        self.load_mls_group_with_lock_async(|mut mls_group| async move {
+        self.load_mls_group_with_lock_async(async |mut mls_group| {
             let intents = db.find_group_intents(
                 self.group_id.clone(),
                 Some(vec![IntentState::ToPublish]),
@@ -2664,7 +2708,7 @@ where
         inbox_ids_to_add: &[InboxIdRef<'_>],
         inbox_ids_to_remove: &[InboxIdRef<'_>],
     ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
-        self.load_mls_group_with_lock_async(|mls_group| async move {
+        self.load_mls_group_with_lock_async(async |mls_group| {
             let existing_group_membership = extract_group_membership(mls_group.extensions())?;
             // TODO:nm prevent querying for updates on members who are being removed
             let mut inbox_ids = existing_group_membership.inbox_ids();

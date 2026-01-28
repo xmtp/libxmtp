@@ -621,13 +621,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@pkgr/core@npm:^0.2.9":
-  version: 0.2.9
-  resolution: "@pkgr/core@npm:0.2.9"
-  checksum: 10/bb2fb86977d63f836f8f5b09015d74e6af6488f7a411dcd2bfdca79d76b5a681a9112f41c45bdf88a9069f049718efc6f3900d7f1de66a2ec966068308ae517f
-  languageName: node
-  linkType: hard
-
 "@polka/url@npm:^1.0.0-next.24":
   version: 1.0.0-next.29
   resolution: "@polka/url@npm:1.0.0-next.29"
@@ -1104,12 +1097,12 @@ __metadata:
     binaryen: "npm:^125.0.0"
     playwright: "npm:^1.56.1"
     prettier: "npm:^3.7.4"
-    prettier-plugin-packagejson: "npm:^2.5.20"
+    prettier-plugin-packagejson: "npm:^3.0.0"
     tsx: "npm:^4.20.6"
     typescript: "npm:^5.9.3"
     viem: "npm:^2.31.3"
     vitest: "npm:^4.0.8"
-    wasm-pack: "npm:^0.13.1"
+    wasm-pack: "npm:^0.14.0"
   languageName: unknown
   linkType: soft
 
@@ -1188,14 +1181,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"binary-install@npm:^1.0.1":
-  version: 1.1.0
-  resolution: "binary-install@npm:1.1.0"
+"binary-install@npm:^1.1.2":
+  version: 1.1.2
+  resolution: "binary-install@npm:1.1.2"
   dependencies:
     axios: "npm:^0.26.1"
     rimraf: "npm:^3.0.2"
     tar: "npm:^6.1.11"
-  checksum: 10/78121e9c32981c101cc090f1564fbd0453d976a1b40c599a5ca623184d739b0a7c49f5ba5f91c05142eb6ff9b2816959bb9e09a3aecd12e4e3e82398bed9b8f0
+  checksum: 10/cf181e4cfea967f382a5358bc55aa1356e429106f93f1eeeb55074d78df648d149d899a2cdc57b65f378805b5cafd049d9e9d025c80aa27a5a60920beee53ba5
   languageName: node
   linkType: hard
 
@@ -1334,7 +1327,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"detect-indent@npm:^7.0.1":
+"detect-indent@npm:^7.0.2":
   version: 7.0.2
   resolution: "detect-indent@npm:7.0.2"
   checksum: 10/ef215d1b55a14f677ce03e840973b25362b6f8cd3f566bc82831fa1abb2be6a95423729bc573dc2334b1371ad7be18d9ec67e1a9611b71a04cb6d63f0d8e54cc
@@ -1708,10 +1701,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"git-hooks-list@npm:^4.0.0":
-  version: 4.1.1
-  resolution: "git-hooks-list@npm:4.1.1"
-  checksum: 10/a56c8cc3dab505bde2c6de032164a9113968ab7f249dfe2c9f2f23be872165f88c91e097994e009d31e56dd1e81c1f714d0972133314d8d3c6bd92a847ba562f
+"git-hooks-list@npm:^4.1.1":
+  version: 4.2.1
+  resolution: "git-hooks-list@npm:4.2.1"
+  checksum: 10/39449520045539c03b1d45d3a010424849152d6f723b638c6f19cb8c8b0993bb30ed5ef09653f4d1c1356f5fb51a396059096d8bdfcb6ca7ccb54f6e26efc338
   languageName: node
   linkType: hard
 
@@ -2228,27 +2221,27 @@ __metadata:
   languageName: node
   linkType: hard
 
-"playwright-core@npm:1.57.0":
-  version: 1.57.0
-  resolution: "playwright-core@npm:1.57.0"
+"playwright-core@npm:1.58.0":
+  version: 1.58.0
+  resolution: "playwright-core@npm:1.58.0"
   bin:
     playwright-core: cli.js
-  checksum: 10/ec066602f0196f036006caee14a30d0a57533a76673bb9a0c609ef56e21decf018f0e8d402ba2fb18251393be6a1c9e193c83266f1670fe50838c5340e220de0
+  checksum: 10/718549cdcd22e55f42887e7b832276c9a50e112b278d22a2242bb00c401021623fedf9554c7090f132e389b5bbe11a987ce71e3c877e767eed4dd9bfe573019c
   languageName: node
   linkType: hard
 
 "playwright@npm:^1.56.1":
-  version: 1.57.0
-  resolution: "playwright@npm:1.57.0"
+  version: 1.58.0
+  resolution: "playwright@npm:1.58.0"
   dependencies:
     fsevents: "npm:2.3.2"
-    playwright-core: "npm:1.57.0"
+    playwright-core: "npm:1.58.0"
   dependenciesMeta:
     fsevents:
       optional: true
   bin:
     playwright: cli.js
-  checksum: 10/241559210f98ef11b6bd6413f2d29da7ef67c7865b72053192f0d164fab9e0d3bd47913b3351d5de6433a8aff2d8424d4b8bd668df420bf4dda7ae9fcd37b942
+  checksum: 10/5ef5d0977906046400cee9a359f18c87eafb3e3193a33a22351cc84740c0dffb3cff7b9f2320d1e200817dbf24e63b747a0546b6c671a9fd95937e2402682ad9
   languageName: node
   linkType: hard
 
@@ -2270,18 +2263,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"prettier-plugin-packagejson@npm:^2.5.20":
-  version: 2.5.20
-  resolution: "prettier-plugin-packagejson@npm:2.5.20"
+"prettier-plugin-packagejson@npm:^3.0.0":
+  version: 3.0.0
+  resolution: "prettier-plugin-packagejson@npm:3.0.0"
   dependencies:
-    sort-package-json: "npm:3.5.0"
-    synckit: "npm:0.11.11"
+    sort-package-json: "npm:3.6.0"
   peerDependencies:
-    prettier: ">= 1.16.0"
+    prettier: ^3
   peerDependenciesMeta:
     prettier:
       optional: true
-  checksum: 10/2bdcdaa6c5fcf2fa58e6101aa0a3e4554ec469713da9874eed348cc013da87ee44e01bc63792c7d244ca95acc78c8810a3b703f14a129d63b3d044dbfb7856e7
+  checksum: 10/00378f77c50d411d9e78d8de91f9f7ced37253730f0a66371fe9d549de53927c8828f2921c068cf22a763f843224a15e924a985a482fa3d83ab60e23526e0ee6
   languageName: node
   linkType: hard
 
@@ -2473,7 +2465,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"semver@npm:^7.5.2, semver@npm:^7.7.1":
+"semver@npm:^7.5.2, semver@npm:^7.7.3":
   version: 7.7.3
   resolution: "semver@npm:7.7.3"
   bin:
@@ -2551,27 +2543,27 @@ __metadata:
   languageName: node
   linkType: hard
 
-"sort-object-keys@npm:^2.0.0":
-  version: 2.0.1
-  resolution: "sort-object-keys@npm:2.0.1"
-  checksum: 10/9ba59478af172f0081fd478057aa89e2eb5904f67b01f63002e0444d947f3a285d1a6c95c611097bfca625b675711842829f71b2101b2910db53e34bff7ce67a
+"sort-object-keys@npm:^2.0.1":
+  version: 2.1.0
+  resolution: "sort-object-keys@npm:2.1.0"
+  checksum: 10/a0a18a6f4ab601adb889204a83e2664a4810042dd9680e588cabb47fffd40473939ce3fda5a28fdb58bac0762a7b45ad442815465b978d4b243bab840df3d7cd
   languageName: node
   linkType: hard
 
-"sort-package-json@npm:3.5.0":
-  version: 3.5.0
-  resolution: "sort-package-json@npm:3.5.0"
+"sort-package-json@npm:3.6.0":
+  version: 3.6.0
+  resolution: "sort-package-json@npm:3.6.0"
   dependencies:
-    detect-indent: "npm:^7.0.1"
+    detect-indent: "npm:^7.0.2"
     detect-newline: "npm:^4.0.1"
-    git-hooks-list: "npm:^4.0.0"
+    git-hooks-list: "npm:^4.1.1"
     is-plain-obj: "npm:^4.1.0"
-    semver: "npm:^7.7.1"
-    sort-object-keys: "npm:^2.0.0"
-    tinyglobby: "npm:^0.2.12"
+    semver: "npm:^7.7.3"
+    sort-object-keys: "npm:^2.0.1"
+    tinyglobby: "npm:^0.2.15"
   bin:
     sort-package-json: cli.js
-  checksum: 10/902ac1524c85a9c512170aad6e77e471e7237c91ba3d1e6653dcd0f05a6fd786efce276a79f82283828f2f7ee8ac28b8d17c97e3d5dfd688f629b4696a712d85
+  checksum: 10/1489edd177dc325c1e5fbfa55e9583dfea8caa950363b43f797d99986f00b722644275f4dfd5491265519365d6394a5fec9fe5d360ed83b74317fdc9fc071ba1
   languageName: node
   linkType: hard
 
@@ -2652,15 +2644,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"synckit@npm:0.11.11":
-  version: 0.11.11
-  resolution: "synckit@npm:0.11.11"
-  dependencies:
-    "@pkgr/core": "npm:^0.2.9"
-  checksum: 10/6ecd88212b5be80004376b6ea74babcba284566ff59a50d8803afcaa78c165b5d268635c1dd84532ee3f690a979409e1eda225a8a35bed2d135ffdcea06ce7b0
-  languageName: node
-  linkType: hard
-
 "tar@npm:^6.1.11":
   version: 6.2.1
   resolution: "tar@npm:6.2.1"
@@ -2703,7 +2686,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tinyglobby@npm:^0.2.12, tinyglobby@npm:^0.2.15":
+"tinyglobby@npm:^0.2.15":
   version: 0.2.15
   resolution: "tinyglobby@npm:0.2.15"
   dependencies:
@@ -2939,14 +2922,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"wasm-pack@npm:^0.13.1":
-  version: 0.13.1
-  resolution: "wasm-pack@npm:0.13.1"
+"wasm-pack@npm:^0.14.0":
+  version: 0.14.0
+  resolution: "wasm-pack@npm:0.14.0"
   dependencies:
-    binary-install: "npm:^1.0.1"
+    binary-install: "npm:^1.1.2"
   bin:
     wasm-pack: run.js
-  checksum: 10/5031151cc085487707e7f5e3a4057fb27b1dbc5ac5663a1a46725488ff3d4672f49a8a11ebdff8247857c03adce1cdf7615ce0790f19c622400e926a6e24796d
+  checksum: 10/914c7750c8cdefdef61cb9a727a70e8685c5eb164c1261627e9e6dc0d693ce7a3f95456eb535270b309d3c0d587c53fc33af5f513af7666103da4f88282f6eff
   languageName: node
   linkType: hard
 

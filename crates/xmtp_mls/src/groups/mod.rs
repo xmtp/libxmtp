@@ -47,7 +47,6 @@ use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculat
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
 use intents::{SendMessageIntentData, UpdateGroupMembershipResult};
-use mls_sync::GroupMessageProcessingError;
 use openmls::{
     credentials::CredentialType,
     extensions::{
@@ -58,10 +57,8 @@ use openmls::{
     messages::proposals::ProposalType,
     prelude::{Capabilities, GroupId, MlsGroup as OpenMlsGroup, WireFormatPolicy},
 };
-use openmls_traits::storage::CURRENT_VERSION;
 use prost::Message;
 use std::collections::HashMap;
-use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_common::{Event, log_event, time::now_ns};
@@ -78,6 +75,7 @@ use xmtp_content_types::{
     reply::ReplyCodec,
 };
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
+use xmtp_db::group_message::Deletable;
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
@@ -380,21 +378,12 @@ where
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
     #[tracing::instrument(level = "trace", skip(operation))]
-    pub(crate) async fn load_mls_group_with_lock_async<F, E, R, Fut>(
+    pub(crate) async fn load_mls_group_with_lock_async<R, E>(
         &self,
-        operation: F,
+        operation: impl AsyncFnOnce(OpenMlsGroup) -> Result<R, E>,
     ) -> Result<R, E>
     where
-        F: FnOnce(OpenMlsGroup) -> Fut,
-        Fut: Future<Output = Result<R, E>>,
-        E:
-            From<GroupMessageProcessingError>
-                + From<crate::StorageError>
-                + From<
-                    <Context::MlsStorage as openmls_traits::storage::StorageProvider<
-                        CURRENT_VERSION,
-                    >>::Error,
-                >,
+        E: From<crate::StorageError> + From<xmtp_db::sql_key_store::SqlKeyStoreError>,
     {
         let mls_storage = self.context.mls_storage();
         // Get the group ID for locking
@@ -1934,10 +1923,8 @@ where
 
     /// Get the current epoch number of the group.
     pub async fn epoch(&self) -> Result<u64, GroupError> {
-        self.load_mls_group_with_lock_async(|mls_group| {
-            futures::future::ready(Ok(mls_group.epoch().as_u64()))
-        })
-        .await
+        self.load_mls_group_with_lock_async(async |mls_group| Ok(mls_group.epoch().as_u64()))
+            .await
     }
 
     /// Get the encryption state of the current epoch. Should match for all installations
@@ -1945,8 +1932,8 @@ where
     #[cfg(test)]
     #[allow(unused)]
     pub(crate) async fn epoch_authenticator(&self) -> Result<Vec<u8>, GroupError> {
-        self.load_mls_group_with_lock_async(|mls_group| {
-            futures::future::ready(Ok(mls_group.epoch_authenticator().as_slice().to_vec()))
+        self.load_mls_group_with_lock_async(async |mls_group| {
+            Ok(mls_group.epoch_authenticator().as_slice().to_vec())
         })
         .await
     }
@@ -2053,12 +2040,10 @@ where
 
     /// Get the `GroupMetadata` of the group.
     pub async fn metadata(&self) -> Result<GroupMetadata, GroupError> {
-        self.load_mls_group_with_lock_async(|mls_group| {
-            futures::future::ready(
-                extract_group_metadata(mls_group.extensions())
-                    .map_err(MetadataPermissionsError::from)
-                    .map_err(Into::into),
-            )
+        self.load_mls_group_with_lock_async(async |mls_group| {
+            extract_group_metadata(mls_group.extensions())
+                .map_err(MetadataPermissionsError::from)
+                .map_err(Into::into)
         })
         .await
     }

@@ -44,7 +44,7 @@
     "@xmtp/content-type-remote-attachment": "^2.0.3",
     "fast-glob": "^3.3.3",
     "prettier": "^3.8.0",
-    "prettier-plugin-packagejson": "^2.5.19",
+    "prettier-plugin-packagejson": "^3.0.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "uuid": "^13.0.0",

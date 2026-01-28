@@ -112,9 +112,6 @@ pub enum Event {
     DeviceSyncV1Archive,
     /// Received a sync archive message, but it was not requested by this instalaltion. Skipping.
     DeviceSyncArchiveNotRequested,
-    /// Received a sync archive message. Syncing any welcomes the originating
-    /// installation might have also sent.
-    DeviceSyncArchiveAccepted,
     /// Downloading sync archive.
     DeviceSyncArchiveDownloading,
     /// Sync archive download failure.
@@ -138,9 +135,12 @@ pub enum Event {
     #[context(request_id)]
     DeviceSyncResponseTaskScheduled,
     /// Sending sync archive
-    #[context(group_id)]
+    #[context(group_id, server_url)]
     DeviceSyncArchiveUploadStart,
     /// Failed to respond to sync request.
     #[context(group_id, request_id, err)]
     DeviceSyncArchiveUploadFailure,
+    /// Cannot send sync archive. No server_url present.
+    #[context(request_id)]
+    DeviceSyncNoServerUrl,
 }
