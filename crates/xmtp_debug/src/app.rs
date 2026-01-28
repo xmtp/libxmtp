@@ -161,9 +161,9 @@ static FDLIMIT: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
 fn get_fdlimit() -> usize {
     *FDLIMIT.get_or_init(|| {
         if let Ok(fdlimit::Outcome::LimitRaised { to, .. }) = fdlimit::raise_fd_limit() {
-            if to > 512 {
+            if to > 1024 {
                 // we can go higher but 1024 seems reasonable
-                512
+                1024
             } else {
                 to as usize
             }
