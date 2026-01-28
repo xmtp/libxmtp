@@ -1,19 +1,17 @@
 import Foundation
 
-public let ContentTypeDeleteMessage = ContentTypeID(
+public let ContentTypeDeleteMessageRequest = ContentTypeID(
 	authorityID: "xmtp.org",
 	typeID: "deleteMessage",
 	versionMajor: 1,
 	versionMinor: 0
 )
 
-/// Represents a delete message request sent when a user wants to delete a message.
+/// Represents a request to delete a message.
 /// This content type is used to request deletion of a specific message in a conversation.
-///
-/// - Note: Delete message requests are automatically sent when calling `deleteMessage()` on a conversation.
-///   You should not need to manually encode or send this content type.
+/// The message will be deleted for all participants.
 public struct DeleteMessageRequest: Codable, Equatable {
-	/// The ID of the message to delete (hex-encoded).
+	/// The ID of the message to delete
 	public var messageId: String
 
 	public init(messageId: String) {
@@ -26,20 +24,20 @@ public struct DeleteMessageCodec: ContentCodec {
 
 	public init() {}
 
-	public var contentType: ContentTypeID = ContentTypeDeleteMessage
+	public var contentType: ContentTypeID = ContentTypeDeleteMessageRequest
 
 	public func encode(content: DeleteMessageRequest) throws -> EncodedContent {
-		var proto = Xmtp_Mls_MessageContents_ContentTypes_DeleteMessage()
-		proto.messageID = content.messageId
-		var encoded = EncodedContent()
-		encoded.type = contentType
-		encoded.content = try proto.serializedData()
-		return encoded
+		let ffi = FfiDeleteMessage(
+			messageId: content.messageId
+		)
+		return try EncodedContent(serializedBytes: encodeDeleteMessage(request: ffi))
 	}
 
 	public func decode(content: EncodedContent) throws -> DeleteMessageRequest {
-		let proto = try Xmtp_Mls_MessageContents_ContentTypes_DeleteMessage(serializedBytes: content.content)
-		return DeleteMessageRequest(messageId: proto.messageID)
+		let decoded = try decodeDeleteMessage(bytes: content.serializedBytes())
+		return DeleteMessageRequest(
+			messageId: decoded.messageId
+		)
 	}
 
 	public func fallback(content _: DeleteMessageRequest) throws -> String? {
