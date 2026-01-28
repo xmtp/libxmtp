@@ -94,7 +94,8 @@ where
     let filter = || {
         EnvFilter::builder()
             .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
-            .from_env_lossy()
+            .from_env()
+            .expect("invalid environment log filter")
     };
 
     vec![
@@ -149,11 +150,22 @@ pub fn logger() {
 
     crate::wasm_or_native! {
         wasm => {
+            use tracing_wasm::{ConsoleConfig, WASMLayerConfigBuilder, WASMLayer};
             INIT.get_or_init(|| {
                 let filter = tracing_subscriber::EnvFilter::builder().parse("debug").unwrap();
 
+                // this makes error logs in CI a little easier to read
+                let config = if cfg!(feature = "test-utils") {
+                    WASMLayerConfigBuilder::new()
+                        .set_console_config(ConsoleConfig::ReportWithoutConsoleColor)
+                        .build()
+                } else {
+                    WASMLayerConfigBuilder::new()
+                        .set_console_config(ConsoleConfig::ReportWithConsoleColor)
+                        .build()
+                };
                 tracing_subscriber::registry()
-                    .with(tracing_wasm::WASMLayer::default())
+                    .with(WASMLayer::new(config))
                     .with(filter)
                     .init();
 

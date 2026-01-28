@@ -127,8 +127,15 @@ where
             let needed_envelopes = self.required_dependencies(&missing)?;
             let Resolved { mut resolved, .. } = self.resolver.resolve(needed_envelopes).await?;
             if resolved.is_empty() {
-                tracing::debug!("icing {} orphans", missing.len());
-                let orphans = missing.into_iter().map(|e| e.orphan()).try_collect()?;
+                let orphans = missing
+                    .into_iter()
+                    .map(|e| e.orphan())
+                    .inspect(|orphan| {
+                        if let Ok(o) = orphan {
+                            tracing::debug!("icing {}", o)
+                        }
+                    })
+                    .try_collect()?;
                 self.store.ice(orphans)?;
                 break;
             }
@@ -144,7 +151,15 @@ where
         self.timestamp_sort()?;
         if let Some(missing) = self.causal_sort()? {
             tracing::debug!("icing {} orphans", missing.len());
-            let orphans = missing.into_iter().map(|e| e.orphan()).try_collect()?;
+            let orphans = missing
+                .into_iter()
+                .map(|e| e.orphan())
+                .inspect(|orphan| {
+                    if let Ok(o) = orphan {
+                        tracing::debug!("icing {}", o)
+                    }
+                })
+                .try_collect()?;
             self.store.ice(orphans)?;
         }
         Ok(())
@@ -529,8 +544,8 @@ mod test {
                          \n newly_available: {} \
                          \nicebox:\n{} \
                          \nlen: {} \
-                         \nrecovered_children:\n{}
-                         \n topic cursor {:?}",
+                          \nrecovered_children:\n{}
+                          \n topic cursor {:?}",
                         second_ordering_pass.len(),
                         newly_available,
                         icebox_str,

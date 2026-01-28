@@ -75,6 +75,7 @@ use xmtp_content_types::{
     reply::ReplyCodec,
 };
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
+use xmtp_db::group_message::Deletable;
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;

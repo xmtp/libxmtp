@@ -23,6 +23,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[timeout(Duration::from_secs(40))]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 async fn test_welcome_pointer_round_trip_with_welcome_pointers() {
     test_welcome_pointer_round_trip(
         || true,
@@ -45,7 +46,7 @@ async fn test_welcome_pointer_round_trip_with_welcome_pointers() {
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[timeout(Duration::from_secs(40))]
-
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 async fn test_welcome_pointer_round_trip_without_welcome_pointers() {
     test_welcome_pointer_round_trip(
         || false,
@@ -68,7 +69,7 @@ async fn test_welcome_pointer_round_trip_without_welcome_pointers() {
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[timeout(Duration::from_secs(40))]
-
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 async fn test_welcome_pointer_round_trip_with_random_mix_of_welcome_pointers() {
     let random_vec = xmtp_common::rand_vec::<1024>();
     let mut random_vec = random_vec

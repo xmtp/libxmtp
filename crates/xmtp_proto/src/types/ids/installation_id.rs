@@ -135,7 +135,7 @@ mod test {
     #[case([255u8; 32])]
     #[case([0u8; 32])]
     #[xmtp_common::test]
-    fn test_installation_id_from_array(#[case] input: [u8; 32]) {
+    async fn test_installation_id_from_array(#[case] input: [u8; 32]) {
         assert_eq!(*InstallationId::from(input), input);
         assert_eq!(&InstallationId::from(input), &input);
         assert_eq!(InstallationId::from(input).to_vec(), input.to_vec());
@@ -147,7 +147,10 @@ mod test {
     #[case(vec![1u8; 33], false)]
     #[case(Vec::new(), false)]
     #[xmtp_common::test]
-    fn test_installation_id_try_from_vec(#[case] input: Vec<u8>, #[case] should_succeed: bool) {
+    async fn test_installation_id_try_from_vec(
+        #[case] input: Vec<u8>,
+        #[case] should_succeed: bool,
+    ) {
         assert_eq!(InstallationId::try_from(input).is_ok(), should_succeed);
     }
 
@@ -157,7 +160,10 @@ mod test {
     #[case(&[1u8; 33], false)]
     #[case(&[], false)]
     #[xmtp_common::test]
-    fn test_installation_id_try_from_slice(#[case] input: &[u8], #[case] should_succeed: bool) {
+    async fn test_installation_id_try_from_slice(
+        #[case] input: &[u8],
+        #[case] should_succeed: bool,
+    ) {
         assert_eq!(InstallationId::try_from(input).is_ok(), should_succeed);
     }
 
@@ -166,7 +172,7 @@ mod test {
     #[case(InstallationId::from([1u8; 32]), vec![2u8; 32], false)]
     #[case(InstallationId::from([1u8; 32]), vec![1u8; 31], false)] // different length
     #[xmtp_common::test]
-    fn test_installation_id_equality_with_vec(
+    async fn test_installation_id_equality_with_vec(
         #[case] id: InstallationId,
         #[case] vec: Vec<u8>,
         #[case] should_equal: bool,
@@ -178,7 +184,7 @@ mod test {
     #[case(InstallationId::from([1u8; 32]), [1u8; 32], true)]
     #[case(InstallationId::from([1u8; 32]), [2u8; 32], false)]
     #[xmtp_common::test]
-    fn test_installation_id_equality_with_array(
+    async fn test_installation_id_equality_with_array(
         #[case] id: InstallationId,
         #[case] array: [u8; 32],
         #[case] should_equal: bool,
@@ -188,7 +194,7 @@ mod test {
     }
 
     #[xmtp_common::test]
-    fn test_installation_id_equality_with_slice() {
+    async fn test_installation_id_equality_with_slice() {
         let id = InstallationId::from([1u8; 32]);
         let slice: &[u8] = &[1u8; 32];
         let different_slice: &[u8] = &[2u8; 32];

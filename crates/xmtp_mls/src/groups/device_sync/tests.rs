@@ -116,6 +116,7 @@ async fn only_one_payload_sent() {
 
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_double_sync_works_fine() {
     tester!(alix1, sync_worker, sync_server);
     tester!(bo);

@@ -189,6 +189,12 @@ pub struct Group {
     pub members: Vec<InboxId>,
 }
 
+impl std::fmt::Display for Group {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", hex::encode(self.id))
+    }
+}
+
 impl redb::Value for Group {
     type SelfType<'a>
         = Group

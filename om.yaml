@@ -1,0 +1,36 @@
+# CI Configurations for `omnix` these run in github ci or locally
+# `om ci run .#wasm -- --accept-flake-config` to run
+ci:
+  wasm:
+    omnix:
+      dir: .
+      steps:
+        build:
+          enable: false
+        custom:
+          wasm-test-v3:
+            type: devshell
+            name: wasm
+            command:
+              - ./dev/test/wasm-nextest
+              - "kind(lib)"
+          wasm-test-d14n:
+            type: devshell
+            name: wasm
+            command:
+              - ./dev/test/wasm-nextest
+              - "kind(lib)"
+              - ci-d14n
+              - d14n
+develop:
+  default:
+    readme: |
+      🍾 Welcome to **libxmtp** devshell
+
+      refer to ./dev/ for development scripts
+
+      🌐 ./dev/docker/up to get a network environment setup
+
+      🦀 ./dev/lint-rust to lint rust
+
+      🕸️ om ci run .#wasm -- --accept-flake-config for webassembly ci tests
