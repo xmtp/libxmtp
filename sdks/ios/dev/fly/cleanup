@@ -20,7 +20,7 @@ if [ -z "$FLY_API_TOKEN" ]; then
     exit 1
 fi
 
-APP_PREFIX="xmtp-ios-test"
+APP_PREFIX="libxmtp-ios-test"
 MAX_AGE_HOURS=2
 DRY_RUN=false
 FLY_ORG=xmtp-labs
