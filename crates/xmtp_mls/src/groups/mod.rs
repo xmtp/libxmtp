@@ -53,7 +53,7 @@ use openmls::{
         Extension, ExtensionType, Extensions, Metadata, RequiredCapabilitiesExtension,
         UnknownExtension,
     },
-    group::MlsGroupCreateConfig,
+    group::{GroupContext, MlsGroupCreateConfig},
     messages::proposals::ProposalType,
     prelude::{Capabilities, GroupId, MlsGroup as OpenMlsGroup, WireFormatPolicy},
 };
@@ -64,7 +64,7 @@ use tokio::sync::Mutex;
 use xmtp_common::{Event, log_event, time::now_ns};
 use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
-    MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, Originators,
+    MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, Originators, PROPOSAL_SUPPORT_EXTENSION_ID,
     SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
 use xmtp_content_types::delete_message::DeleteMessageCodec;
@@ -400,6 +400,35 @@ where
 
         // Perform the operation with the MLS group
         operation(mls_group).await
+    }
+
+    /// Check if all members in the group support the proposal-by-reference flow.
+    ///
+    /// This checks if all members have the `PROPOSAL_SUPPORT_EXTENSION_ID` in their
+    /// leaf node capabilities using OpenMLS's `check_extension_support` method.
+    ///
+    /// Returns `true` if all members support proposals, `false` otherwise.
+    pub fn all_members_support_proposals(&self, mls_group: &OpenMlsGroup) -> bool {
+        let extension_type = ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID);
+        mls_group.check_extension_support(&[extension_type]).is_ok()
+    }
+
+    /// Force-check proposal support, assuming all members support proposals.
+    ///
+    /// This method returns `true` unconditionally, bypassing the backward
+    /// compatibility check. Use this only when:
+    /// - All clients in the group are known to support proposals
+    /// - Testing proposal-by-reference functionality
+    /// - Operating in a controlled environment
+    ///
+    /// # Warning
+    ///
+    /// Using this when some members don't support proposals will cause those
+    /// members to fail to process standalone proposal messages.
+    #[cfg(any(test, feature = "test-utils"))]
+    #[allow(unused_variables)]
+    pub fn all_members_support_proposals_unchecked(&self, mls_group: &OpenMlsGroup) -> bool {
+        true
     }
 
     // Create a new group and save it to the DB
@@ -2274,7 +2303,7 @@ pub fn build_extensions_for_metadata_update(
     group: &OpenMlsGroup,
     field_name: String,
     field_value: String,
-) -> Result<Extensions, MetadataPermissionsError> {
+) -> Result<Extensions<GroupContext>, MetadataPermissionsError> {
     let existing_metadata: GroupMutableMetadata = group.try_into()?;
     let mut attributes = existing_metadata.attributes.clone();
     attributes.insert(field_name, field_value);
@@ -2287,7 +2316,7 @@ pub fn build_extensions_for_metadata_update(
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
     let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
     let mut extensions = group.extensions().clone();
-    extensions.add_or_replace(extension);
+    extensions.add_or_replace(extension)?;
     Ok(extensions)
 }
 
@@ -2295,7 +2324,7 @@ pub fn build_extensions_for_metadata_update(
 pub fn build_extensions_for_permissions_update(
     group: &OpenMlsGroup,
     update_permissions_intent: UpdatePermissionIntentData,
-) -> Result<Extensions, MetadataPermissionsError> {
+) -> Result<Extensions<GroupContext>, MetadataPermissionsError> {
     let existing_permissions: GroupMutablePermissions = group.try_into()?;
     let existing_policy_set = existing_permissions.policies.clone();
     let new_policy_set = match update_permissions_intent.update_type {
@@ -2353,7 +2382,7 @@ pub fn build_extensions_for_permissions_update(
     let unknown_gc_extension = UnknownExtension(new_group_permissions);
     let extension = Extension::Unknown(GROUP_PERMISSIONS_EXTENSION_ID, unknown_gc_extension);
     let mut extensions = group.extensions().clone();
-    extensions.add_or_replace(extension);
+    extensions.add_or_replace(extension)?;
     Ok(extensions)
 }
 
@@ -2361,7 +2390,7 @@ pub fn build_extensions_for_permissions_update(
 pub fn build_extensions_for_admin_lists_update(
     group: &OpenMlsGroup,
     admin_lists_update: UpdateAdminListIntentData,
-) -> Result<Extensions, MetadataPermissionsError> {
+) -> Result<Extensions<GroupContext>, MetadataPermissionsError> {
     let existing_metadata: GroupMutableMetadata = group.try_into()?;
     let attributes = existing_metadata.attributes.clone();
     let mut admin_list = existing_metadata.admin_list;
@@ -2387,7 +2416,7 @@ pub fn build_extensions_for_admin_lists_update(
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
     let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
     let mut extensions = group.extensions().clone();
-    extensions.add_or_replace(extension);
+    extensions.add_or_replace(extension)?;
     Ok(extensions)
 }
 
@@ -2445,7 +2474,7 @@ pub(crate) fn build_group_config(
     ])?;
 
     Ok(MlsGroupCreateConfig::builder()
-        .with_group_context_extensions(extensions)?
+        .with_group_context_extensions(extensions)
         .capabilities(capabilities)
         .ciphersuite(CIPHERSUITE)
         .wire_format_policy(WireFormatPolicy::default())

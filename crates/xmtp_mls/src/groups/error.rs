@@ -12,7 +12,10 @@ use crate::{
 };
 use openmls::{
     error::LibraryError,
-    group::CreateGroupContextExtProposalError,
+    group::{
+        CommitToPendingProposalsError, CreateGroupContextExtProposalError, ProposalError,
+        ProposeAddMemberError, ProposeRemoveMemberError,
+    },
     prelude::{BasicCredentialError, Error as TlsCodecError},
 };
 use std::collections::HashSet;
@@ -134,6 +137,16 @@ pub enum GroupError {
     CreateGroupContextExtProposalError(
         #[from] CreateGroupContextExtProposalError<sql_key_store::SqlKeyStoreError>,
     ),
+    #[error("propose add member error: {0}")]
+    ProposeAddMember(#[from] ProposeAddMemberError<sql_key_store::SqlKeyStoreError>),
+    #[error("propose remove member error: {0}")]
+    ProposeRemoveMember(#[from] ProposeRemoveMemberError<sql_key_store::SqlKeyStoreError>),
+    #[error("proposal error: {0}")]
+    Proposal(#[from] ProposalError<sql_key_store::SqlKeyStoreError>),
+    #[error("commit to pending proposals error: {0}")]
+    CommitToPendingProposals(
+        #[from] CommitToPendingProposalsError<sql_key_store::SqlKeyStoreError>,
+    ),
     #[error("Credential error")]
     CredentialError(#[from] BasicCredentialError),
     #[error("LeafNode error")]
@@ -240,6 +253,8 @@ pub enum MetadataPermissionsError {
     DmGroupMetadataForbidden,
     #[error(transparent)]
     DmValidation(#[from] DmValidationError),
+    #[error("Invalid extension: {0}")]
+    InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
 }
 
 impl RetryableError for MetadataPermissionsError {
@@ -314,6 +329,11 @@ impl RetryableError for GroupError {
             Self::SqlKeyStore(sql) => sql.is_retryable(),
             Self::InstallationDiff(diff) => diff.is_retryable(),
             Self::CreateGroupContextExtProposalError(create) => create.is_retryable(),
+            // Proposal errors are generally not retryable
+            Self::ProposeAddMember(_)
+            | Self::ProposeRemoveMember(_)
+            | Self::Proposal(_)
+            | Self::CommitToPendingProposals(_) => false,
             Self::CommitValidation(err) => err.is_retryable(),
             Self::WrappedApi(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),

@@ -2,7 +2,9 @@ use super::{
     GroupError, HmacKey, MlsGroup, build_extensions_for_admin_lists_update,
     build_extensions_for_metadata_update, build_extensions_for_permissions_update,
     intents::{
-        Installation, IntentError, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
+        CommitPendingProposalsIntentData, Installation, IntentError, PostCommitAction,
+        ProposeAddMembersIntentData, ProposeGroupContextExtensionsIntentData,
+        ProposeRemoveMembersIntentData, SendMessageIntentData, SendWelcomesAction,
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
     summary::{MessageIdentifier, MessageIdentifierBuilder, ProcessSummary, SyncSummary},
@@ -44,7 +46,7 @@ use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
     framing::ProtocolMessage,
-    group::{GroupEpoch, StagedCommit},
+    group::{GroupContext, GroupEpoch, StagedCommit},
     key_packages::KeyPackage,
     prelude::{
         LeafNodeIndex, MlsGroup as OpenMlsGroup, ProcessedMessage, ProcessedMessageContent, Sender,
@@ -271,7 +273,9 @@ impl RetryableError for IntentResolutionError {
 pub(crate) struct PublishIntentData {
     staged_commit: Option<Vec<u8>>,
     post_commit_action: Option<Vec<u8>>,
-    payload_to_publish: Vec<u8>,
+    /// One or more payloads to publish. Most intents have a single payload (commit or message),
+    /// but proposal intents may have multiple payloads (one per proposal).
+    payloads_to_publish: Vec<Vec<u8>>,
     should_send_push_notification: bool,
     group_epoch: u64,
 }
@@ -641,7 +645,8 @@ where
             | IntentKind::UpdateAdminList
             | IntentKind::MetadataUpdate
             | IntentKind::UpdatePermission
-            | IntentKind::ReaddInstallations => {
+            | IntentKind::ReaddInstallations
+            | IntentKind::CommitPendingProposals => {
                 if let Some(published_in_epoch) = intent.published_in_epoch {
                     let group_epoch = group_epoch.as_u64() as i64;
                     let message_epoch = message_epoch.as_u64() as i64;
@@ -745,7 +750,11 @@ where
                 }
             }
 
-            IntentKind::SendMessage => {
+            IntentKind::SendMessage
+            | IntentKind::ProposeAddMembers
+            | IntentKind::ProposeRemoveMembers
+            | IntentKind::ProposeGroupContextExtensions => {
+                // Proposals and messages don't produce commits, just validate epoch
                 Self::validate_message_epoch(
                     self.context.inbox_id(),
                     intent.id,
@@ -1195,9 +1204,17 @@ where
                     }
                 }
             }
-            ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
+            ProcessedMessageContent::ProposalMessage(proposal_ptr) => {
+                // OpenMLS automatically stores received proposals in its internal proposal store
+                // during process_message(). The CommitPendingProposals intent will consume these.
+                tracing::debug!(
+                    inbox_id = self.context.inbox_id(),
+                    installation_id = %self.context.installation_id(),
+                    group_id = hex::encode(&self.group_id),
+                    proposal_type = ?proposal_ptr.proposal().proposal_type(),
+                    "Received and stored proposal in proposal store"
+                );
                 Ok(())
-                // intentionally left blank.
             }
             ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
                 Ok(())
@@ -2369,15 +2386,17 @@ where
                         return Err(err);
                     }
                     Ok(Some(PublishIntentData {
-                                payload_to_publish,
+                                payloads_to_publish,
                                 post_commit_action,
                                 staged_commit,
                                 should_send_push_notification,
                                 group_epoch
                             })) => {
-                        let payload_slice = payload_to_publish.as_slice();
+                        // For multiple payloads (proposals), hash them all concatenated
+                        // For single payloads (commits/messages), this is the same as before
+                        let all_bytes: Vec<u8> = payloads_to_publish.iter().flatten().copied().collect();
                         let has_staged_commit = staged_commit.is_some();
-                        let intent_hash = sha256(payload_slice);
+                        let intent_hash = sha256(&all_bytes);
                         // removing this transaction causes missed messages
                         self.context.mls_storage().transaction(|conn| {
                             let storage = conn.key_store();
@@ -2402,7 +2421,12 @@ where
                             hex::encode(&intent_hash)
                         );
 
-                        let messages = self.prepare_group_messages(vec![(payload_slice, should_send_push_notification)])?;
+                        // Prepare messages for all payloads
+                        let payload_pairs: Vec<_> = payloads_to_publish
+                            .iter()
+                            .map(|p| (p.as_slice(), should_send_push_notification))
+                            .collect();
+                        let messages = self.prepare_group_messages(payload_pairs)?;
                         let result = self.context
                             .api()
                             .send_group_messages(messages)
@@ -2435,7 +2459,7 @@ where
                                     group_id = intent.group_id,
                                     intent_id = intent.id,
                                     intent_kind = ?kind,
-                                    commit_hash = hex::encode(sha256(payload_slice))
+                                    commit_hash = hex::encode(sha256(&all_bytes))
                                 )
                             }
                         }
@@ -2495,7 +2519,7 @@ where
                 )?;
 
                 Ok(Some(PublishIntentData {
-                    payload_to_publish: msg.tls_serialize_detached()?,
+                    payloads_to_publish: vec![msg.tls_serialize_detached()?],
                     post_commit_action: None,
                     staged_commit: None,
                     should_send_push_notification: intent.should_push,
@@ -2509,7 +2533,7 @@ where
                         group.self_update(provider, &keys, LeafNodeParameters::default())
                     })?;
                 Ok(Some(PublishIntentData {
-                    payload_to_publish: bundle.commit().tls_serialize_detached()?,
+                    payloads_to_publish: vec![bundle.commit().tls_serialize_detached()?],
                     staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
@@ -2537,7 +2561,7 @@ where
                 let commit_bytes = commit.tls_serialize_detached()?;
 
                 Ok(Some(PublishIntentData {
-                    payload_to_publish: commit_bytes,
+                    payloads_to_publish: vec![commit_bytes],
                     staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
@@ -2565,7 +2589,7 @@ where
                 let commit_bytes = commit.tls_serialize_detached()?;
 
                 Ok(Some(PublishIntentData {
-                    payload_to_publish: commit_bytes,
+                    payloads_to_publish: vec![commit_bytes],
                     staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
@@ -2592,7 +2616,7 @@ where
 
                 let commit_bytes = commit.tls_serialize_detached()?;
                 Ok(Some(PublishIntentData {
-                    payload_to_publish: commit_bytes,
+                    payloads_to_publish: vec![commit_bytes],
                     staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
@@ -2604,6 +2628,183 @@ where
                 let signer = &self.context.identity().installation_keys;
                 apply_readd_installations_intent(&self.context, openmls_group, intent_data, signer)
                     .await
+            }
+            IntentKind::ProposeAddMembers => {
+                let intent_data = ProposeAddMembersIntentData::try_from(intent.data.as_slice())?;
+                let group_epoch = openmls_group.epoch().as_u64();
+
+                // Get current group membership
+                let extensions: Extensions<GroupContext> = openmls_group.extensions().clone();
+                let old_group_membership = extract_group_membership(&extensions)?;
+
+                // Get latest sequence IDs for the inbox_ids to add
+                let inbox_ids_to_add: Vec<&str> =
+                    intent_data.inbox_ids.iter().map(|s| s.as_str()).collect();
+
+                load_identity_updates(self.context.api(), &self.context.db(), &inbox_ids_to_add)
+                    .await?;
+
+                let latest_sequence_ids = self
+                    .context
+                    .db()
+                    .get_latest_sequence_id(&inbox_ids_to_add)?;
+
+                // Build the new membership with the added inbox_ids
+                let mut new_membership = old_group_membership.clone();
+                for inbox_id in &intent_data.inbox_ids {
+                    let sequence_id = latest_sequence_ids
+                        .get(inbox_id.as_str())
+                        .copied()
+                        .ok_or(GroupError::MissingSequenceId)?;
+                    new_membership.add(inbox_id.clone(), sequence_id as u64);
+                }
+
+                // Get key packages for the installations to add
+                let changes_with_kps = calculate_membership_changes_with_keypackages(
+                    &self.context,
+                    &self.group_id,
+                    &new_membership,
+                    &old_group_membership,
+                )
+                .await?;
+
+                // If we failed to fetch key packages for all installations, error
+                if !changes_with_kps.failed_installations.is_empty()
+                    && changes_with_kps.new_key_packages.is_empty()
+                {
+                    return Err(GroupError::FailedToVerifyInstallations);
+                }
+
+                if changes_with_kps.new_key_packages.is_empty() {
+                    return Ok(None);
+                }
+
+                // Generate add proposals for each key package
+                let mut proposal_payloads = Vec::new();
+                let signer = &self.context.identity().installation_keys;
+                for key_package in &changes_with_kps.new_key_packages {
+                    let (proposal_msg, _proposal_ref) = openmls_group
+                        .propose_add_member(&self.context.mls_provider(), signer, key_package)
+                        .map_err(GroupError::ProposeAddMember)?;
+                    proposal_payloads.push(proposal_msg.tls_serialize_detached()?);
+                }
+
+                Ok(Some(PublishIntentData {
+                    payloads_to_publish: proposal_payloads,
+                    staged_commit: None,
+                    post_commit_action: None,
+                    should_send_push_notification: intent.should_push,
+                    group_epoch,
+                }))
+            }
+            IntentKind::ProposeRemoveMembers => {
+                let intent_data = ProposeRemoveMembersIntentData::try_from(intent.data.as_slice())?;
+                let group_epoch = openmls_group.epoch().as_u64();
+
+                // Collect members to remove first to avoid borrow issues
+                let inbox_ids_to_remove: HashSet<_> =
+                    intent_data.inbox_ids.iter().cloned().collect();
+                let mut members_to_remove = Vec::new();
+                for member in openmls_group.members() {
+                    let credential = BasicCredential::try_from(member.credential.clone())?;
+                    let member_inbox_id = parse_credential(credential.identity())?;
+                    if inbox_ids_to_remove.contains(&member_inbox_id) {
+                        members_to_remove.push(member.index);
+                    }
+                }
+
+                // Generate remove proposals for collected members
+                let mut proposal_payloads = Vec::new();
+                for member_index in members_to_remove {
+                    let signer = &self.context.identity().installation_keys;
+                    let (proposal_msg, _proposal_ref) = openmls_group
+                        .propose_remove_member(&self.context.mls_provider(), signer, member_index)
+                        .map_err(GroupError::ProposeRemoveMember)?;
+                    proposal_payloads.push(proposal_msg.tls_serialize_detached()?);
+                }
+
+                if proposal_payloads.is_empty() {
+                    return Ok(None);
+                }
+
+                Ok(Some(PublishIntentData {
+                    payloads_to_publish: proposal_payloads,
+                    staged_commit: None,
+                    post_commit_action: None,
+                    should_send_push_notification: intent.should_push,
+                    group_epoch,
+                }))
+            }
+            IntentKind::ProposeGroupContextExtensions => {
+                let intent_data =
+                    ProposeGroupContextExtensionsIntentData::try_from(intent.data.as_slice())?;
+                let group_epoch = openmls_group.epoch().as_u64();
+
+                // Deserialize the extensions using tls_codec
+                use openmls::prelude::tls_codec::Deserialize;
+                let extensions =
+                    Extensions::tls_deserialize(&mut intent_data.extensions_bytes.as_slice())?;
+
+                let signer = &self.context.identity().installation_keys;
+                let (proposal_msg, _proposal_ref) = openmls_group
+                    .propose_group_context_extensions(
+                        &self.context.mls_provider(),
+                        extensions,
+                        signer,
+                    )
+                    .map_err(GroupError::Proposal)?;
+
+                Ok(Some(PublishIntentData {
+                    payloads_to_publish: vec![proposal_msg.tls_serialize_detached()?],
+                    staged_commit: None,
+                    post_commit_action: None,
+                    should_send_push_notification: intent.should_push,
+                    group_epoch,
+                }))
+            }
+            IntentKind::CommitPendingProposals => {
+                let _intent_data =
+                    CommitPendingProposalsIntentData::try_from(intent.data.as_slice())?;
+
+                // Check if there are any pending proposals to commit
+                if openmls_group.pending_proposals().next().is_none() {
+                    tracing::debug!("No pending proposals to commit");
+                    return Ok(None);
+                }
+
+                let signer = &self.context.identity().installation_keys;
+
+                // Use generate_commit_with_rollback to create the commit
+                let ((commit, maybe_welcome, _), staged_commit, group_epoch) =
+                    generate_commit_with_rollback(storage, openmls_group, |group, provider| {
+                        group.commit_to_pending_proposals(provider, signer)
+                    })?;
+
+                let staged_commit =
+                    staged_commit.ok_or_else(|| GroupError::MissingPendingCommit)?;
+
+                // Build post commit action if there's a welcome message
+                let post_commit_action = match maybe_welcome {
+                    Some(welcome_message) => {
+                        // Note: We don't have access to installation metadata here since proposals
+                        // were received from the network. The welcome will be sent but without
+                        // the installation metadata for push notifications.
+                        let installations_to_welcome = Vec::new();
+                        Some(PostCommitAction::from_welcome(
+                            welcome_message,
+                            installations_to_welcome,
+                        )?)
+                    }
+                    None => None,
+                };
+
+                Ok(Some(PublishIntentData {
+                    payloads_to_publish: vec![commit.tls_serialize_detached()?],
+                    staged_commit: Some(staged_commit),
+                    post_commit_action: post_commit_action.map(|action| action.to_bytes()),
+                    should_send_push_notification: intent.should_push,
+                    group_epoch,
+                }))
             }
         }
     }
@@ -2758,7 +2959,7 @@ where
 
                         Ok(updates)
                     })?;
-            let extensions: Extensions = mls_group.extensions().clone();
+            let extensions: Extensions<GroupContext> = mls_group.extensions().clone();
             let old_group_membership = extract_group_membership(&extensions)?;
             let mut new_membership = old_group_membership.clone();
             for (inbox_id, sequence_id) in changed_inbox_ids.iter() {
