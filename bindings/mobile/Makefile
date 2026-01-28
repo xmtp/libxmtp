@@ -3,8 +3,8 @@ WORKSPACE_MANIFEST=$(shell cargo locate-project --workspace --message-format=pla
 WORKSPACE_PATH=$(shell dirname $(WORKSPACE_MANIFEST))
 TARGET_DIR=$(shell cargo metadata --format-version 1 --no-deps | jq -r '.target_directory')
 
-# Simulator config
-ARCHS_IOS = x86_64-apple-ios aarch64-apple-ios-sim
+# Simulator config (Apple Silicon only - Intel simulator dropped for Nix compatibility)
+ARCHS_IOS = aarch64-apple-ios-sim
 ARCHS_MAC = x86_64-apple-darwin aarch64-apple-darwin
 LIB=libxmtpv3.a
 DYLIB=libxmtpv3.dylib
