@@ -1,6 +1,11 @@
-#!/usr/bin/env bash
+#!/bin/bash
+set -eou pipefail
+ROOT="$(git rev-parse --show-toplevel)"
 
-set -euo
+if [[ -z "${IN_NIX_SHELL:-}" ]]; then
+    exec nix develop "${ROOT}#ios" --command "$0" "$@"
+fi
 
-swift package plugin --allow-writing-to-package-directory swiftlint . "$@"
-swift package plugin --allow-writing-to-package-directory swiftlint --config Tests/.swiftlint.yml ./Tests "$@"
+cd "${ROOT}/sdks/ios"
+swiftlint lint .
+swiftlint lint --config Tests/.swiftlint.yml ./Tests

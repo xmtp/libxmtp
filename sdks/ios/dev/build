@@ -6,5 +6,10 @@ if [[ -z "${IN_NIX_SHELL:-}" ]]; then
     exec nix develop "${ROOT}#ios" --command "$0" "$@"
 fi
 
+# Build libxmtp xcframework
+cd "${ROOT}/bindings/mobile"
+make local
+
+# Build Swift package
 cd "${ROOT}/sdks/ios"
-swiftformat . "$@"
+swift build

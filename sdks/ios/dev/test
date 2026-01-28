@@ -7,4 +7,4 @@ if [[ -z "${IN_NIX_SHELL:-}" ]]; then
 fi
 
 cd "${ROOT}/sdks/ios"
-swiftformat . "$@"
+swift test -q --parallel --num-workers=2
