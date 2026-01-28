@@ -1,8 +1,8 @@
 use crate::client::{GroupSyncSummary, RustXmtpClient};
-use std::sync::Arc;
 use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use js_sys::Uint8Array;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tsify::Tsify;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_id::associations::DeserializationError;
