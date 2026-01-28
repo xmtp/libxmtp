@@ -184,7 +184,7 @@ impl IdentityStrategy {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, xmtp_common::ErrorCode)]
 pub enum IdentityError {
     #[error(transparent)]
     CredentialSerialization(#[from] prost::EncodeError),
@@ -193,8 +193,10 @@ pub enum IdentityError {
     #[error("installation not found: {0}")]
     InstallationIdNotFound(String),
     #[error(transparent)]
+    #[error_code(inherit)]
     SignatureRequestBuilder(#[from] SignatureRequestError),
     #[error(transparent)]
+    #[error_code(inherit)]
     Signature(#[from] xmtp_id::associations::SignatureError),
     #[error(transparent)]
     BasicCredential(#[from] BasicCredentialError),
@@ -215,12 +217,15 @@ pub enum IdentityError {
     #[error(transparent)]
     OpenMls(#[from] openmls::prelude::Error),
     #[error(transparent)]
+    #[error_code(inherit)]
     StorageError(#[from] xmtp_db::StorageError),
     #[error(transparent)]
+    #[error_code(inherit)]
     OpenMlsStorageError(#[from] SqlKeyStoreError),
     #[error(transparent)]
     KeyPackageGenerationError(#[from] openmls::key_packages::errors::KeyPackageNewError),
     #[error(transparent)]
+    #[error_code(inherit)]
     KeyPackageVerificationError(#[from] KeyPackageVerificationError),
     #[error("The InboxID {id}, associated does not match the stored InboxId {stored}.")]
     InboxIdMismatch { id: InboxId, stored: InboxId },
@@ -231,14 +236,18 @@ pub enum IdentityError {
     #[error("error creating new identity: {0}")]
     NewIdentity(String),
     #[error(transparent)]
+    #[error_code(inherit)]
     Association(#[from] AssociationError),
     #[error(transparent)]
     Signer(#[from] xmtp_cryptography::SignerError),
     #[error(transparent)]
+    #[error_code(inherit)]
     ApiClient(#[from] xmtp_api::ApiError),
     #[error(transparent)]
+    #[error_code(inherit)]
     AddressValidation(#[from] IdentifierValidationError),
     #[error(transparent)]
+    #[error_code(inherit)]
     Db(#[from] xmtp_db::ConnectionError),
     #[error(
         "Cannot register a new installation because the InboxID {inbox_id} has already registered {count}/{max} installations. Please revoke existing installations first."
@@ -249,6 +258,7 @@ pub enum IdentityError {
         max: usize,
     },
     #[error(transparent)]
+    #[error_code(inherit)]
     GeneratePostQuantumKey(#[from] GeneratePostQuantumKeyError),
     #[error(transparent)]
     InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
@@ -864,6 +874,15 @@ pub enum GeneratePostQuantumKeyError {
     Crypto(#[from] openmls_traits::types::CryptoError),
     #[error(transparent)]
     Rand(#[from] openmls_libcrux_crypto::RandError),
+}
+
+impl xmtp_common::ErrorCode for GeneratePostQuantumKeyError {
+    fn error_code(&self) -> &'static str {
+        match self {
+            Self::Crypto(_) => "GeneratePostQuantumKeyError::Crypto",
+            Self::Rand(_) => "GeneratePostQuantumKeyError::Rand",
+        }
+    }
 }
 
 /// Generate a new key pair using our post quantum ciphersuite

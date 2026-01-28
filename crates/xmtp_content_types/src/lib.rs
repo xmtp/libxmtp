@@ -26,7 +26,7 @@ mod compatibility_test;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, xmtp_common::ErrorCode)]
 pub enum CodecError {
     #[error("encode error {0}")]
     Encode(String),

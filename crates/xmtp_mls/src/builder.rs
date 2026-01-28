@@ -32,9 +32,10 @@ use xmtp_macro::log_event;
 
 type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, xmtp_common::ErrorCode)]
 pub enum ClientBuilderError {
     #[error(transparent)]
+    #[error_code(inherit)]
     AddressValidation(#[from] IdentifierValidationError),
     #[error("Missing parameter: {parameter}")]
     MissingParameter { parameter: &'static str },

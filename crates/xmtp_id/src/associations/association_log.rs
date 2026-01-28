@@ -5,7 +5,7 @@ use super::state::AssociationState;
 use super::verified_signature::VerifiedSignature;
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, xmtp_common::ErrorCode)]
 pub enum AssociationError {
     #[error("Error creating association {0}")]
     Generic(String),
@@ -14,6 +14,7 @@ pub enum AssociationError {
     #[error("XID not yet created")]
     NotCreated,
     #[error("Signature validation failed {0}")]
+    #[error_code(inherit)]
     Signature(#[from] SignatureError),
     #[error("Member of kind {0} not allowed to add {1}")]
     MemberNotAllowed(MemberKind, MemberKind),
@@ -30,6 +31,7 @@ pub enum AssociationError {
     #[error("Replay detected")]
     Replay,
     #[error("Deserialization error {0}")]
+    #[error_code(inherit)]
     Deserialization(#[from] DeserializationError),
     #[error("Missing identity update")]
     MissingIdentityUpdate,
@@ -40,6 +42,7 @@ pub enum AssociationError {
     #[error("{0} are not a public identifier")]
     NotIdentifier(String),
     #[error(transparent)]
+    #[error_code(inherit)]
     Convert(#[from] xmtp_proto::ConversionError),
 }
 

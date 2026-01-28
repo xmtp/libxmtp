@@ -150,7 +150,7 @@ impl StorageOption {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, xmtp_common::ErrorCode)]
 pub enum PlatformStorageError {
     #[error("Pool error: {0}")]
     Pool(#[from] diesel::r2d2::PoolError),

@@ -51,9 +51,10 @@ use xmtp_proto::xmtp::{
     },
 };
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, xmtp_common::ErrorCode)]
 pub enum DeserializationError {
     #[error(transparent)]
+    #[error_code(inherit)]
     SignatureError(#[from] crate::associations::SignatureError),
     #[error("Missing action")]
     MissingAction,
@@ -82,6 +83,7 @@ pub enum DeserializationError {
     #[error("Unable to deserialize")]
     Bincode,
     #[error(transparent)]
+    #[error_code(inherit)]
     AddressValidation(#[from] IdentifierValidationError),
 }
 

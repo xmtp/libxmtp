@@ -289,7 +289,7 @@ where
 
 /// Errors thrown by the key store.
 /// General error type for Mls Storage Trait
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, xmtp_common::ErrorCode)]
 pub enum SqlKeyStoreError {
     #[error("The key store does not allow storing serialized values.")]
     UnsupportedValueTypeBytes,

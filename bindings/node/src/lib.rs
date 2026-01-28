@@ -20,15 +20,31 @@ xmtp_common::if_test! {
 }
 
 use napi::bindgen_prelude::Error;
+use xmtp_common::ErrorCode;
 
-/// Wrapper over any error
-/// to make most error handling in napi cleaner
+/// Wrapper for errors that implement ErrorCode trait.
+/// Prefixes the error message with the error code.
+///
+/// Format: `[ErrorType::Variant] error message`
+///
+/// JavaScript usage:
+/// ```js
+/// import { parseXmtpError } from '@xmtp/node-bindings/error';
+///
+/// try {
+///   await client.doSomething();
+/// } catch (e) {
+///   const err = parseXmtpError(e);
+///   console.log(err.code);    // "ErrorType::Variant"
+///   console.log(err.message); // "[ErrorType::Variant] error message"
+/// }
+/// ```
 #[derive(Debug)]
-pub struct ErrorWrapper<E>(E)
+pub struct ErrorWrapper<E>(pub E)
 where
-  E: std::error::Error;
+  E: std::error::Error + ErrorCode;
 
-impl<T: std::error::Error> std::fmt::Display for ErrorWrapper<T> {
+impl<T: std::error::Error + ErrorCode> std::fmt::Display for ErrorWrapper<T> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
     write!(f, "{}", self.0)
   }
@@ -36,15 +52,17 @@ impl<T: std::error::Error> std::fmt::Display for ErrorWrapper<T> {
 
 impl<T> From<T> for ErrorWrapper<T>
 where
-  T: std::error::Error,
+  T: std::error::Error + ErrorCode,
 {
   fn from(err: T) -> ErrorWrapper<T> {
     ErrorWrapper(err)
   }
 }
 
-impl<T: std::error::Error> From<ErrorWrapper<T>> for napi::bindgen_prelude::Error {
+impl<T: std::error::Error + ErrorCode> From<ErrorWrapper<T>> for napi::bindgen_prelude::Error {
   fn from(e: ErrorWrapper<T>) -> napi::bindgen_prelude::Error {
-    Error::from_reason(e.to_string())
+    let code = e.0.error_code();
+    let message = e.0.to_string();
+    Error::from_reason(format!("[{}] {}", code, message))
   }
 }

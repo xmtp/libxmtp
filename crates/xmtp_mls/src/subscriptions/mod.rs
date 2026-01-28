@@ -172,7 +172,7 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, xmtp_common::ErrorCode)]
 pub enum SubscribeError {
     #[error(transparent)]
     Group(#[from] Box<GroupError>),

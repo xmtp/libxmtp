@@ -155,13 +155,14 @@ impl SignatureRequestBuilder {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, xmtp_common::ErrorCode)]
 pub enum SignatureRequestError {
     #[error("Unknown signer")]
     UnknownSigner,
     #[error("Required signature was not provided")]
     MissingSigner,
     #[error("Signature error {0}")]
+    #[error_code(inherit)]
     Signature(#[from] SignatureError),
     #[error("Unable to get block number")]
     BlockNumber,

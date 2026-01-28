@@ -32,7 +32,7 @@ pub fn dyn_err(e: impl RetryableError + 'static) -> ApiError {
     ApiError::Api(Box::new(e))
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, xmtp_common::ErrorCode)]
 pub enum ApiError {
     #[error("api client error {0}")]
     Api(Box<dyn RetryableError>),

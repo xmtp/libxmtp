@@ -25,7 +25,7 @@ pub struct MessageBackendBuilder {
     cursor_store: Option<Arc<dyn CursorStore>>,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, xmtp_common::ErrorCode)]
 pub enum MessageBackendBuilderError {
     #[error("V3 Host is required")]
     MissingV3Host,

@@ -71,9 +71,10 @@ pub enum Network {
     Prod,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, xmtp_common::ErrorCode)]
 pub enum ClientError {
     #[error(transparent)]
+    #[error_code(inherit)]
     AddressValidation(#[from] IdentifierValidationError),
     #[error("could not publish: {0}")]
     PublishError(String),

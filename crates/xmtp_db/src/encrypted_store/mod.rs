@@ -89,11 +89,12 @@ impl std::fmt::Display for StorageOption {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, xmtp_common::ErrorCode)]
 pub enum ConnectionError {
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
     #[error(transparent)]
+    #[error_code(inherit)]
     Platform(#[from] PlatformStorageError),
     #[error(transparent)]
     DecodeError(#[from] DecodeError),
