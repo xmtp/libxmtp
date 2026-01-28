@@ -40,7 +40,7 @@ jobs:
       - name: Cache Ruby gems
         uses: actions/cache@v4
         with:
-          path: vendor/bundle
+          path: sdks/ios/vendor/bundle
           key: ${{ runner.os }}-gems-${{ hashFiles('**/Gemfile.lock') }}
       - name: Install Jazzy
         working-directory: sdks/ios
