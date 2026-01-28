@@ -1002,10 +1002,14 @@ where
             .await
     }
 
-    pub async fn sync_all_welcomes_and_history_sync_groups(
+    pub async fn sync_all_welcomes_and_device_sync_groups(
         &self,
     ) -> Result<GroupSyncSummary, ClientError> {
         self.sync_welcomes().await?;
+        self.sync_all_device_sync_groups().await
+    }
+
+    pub async fn sync_all_device_sync_groups(&self) -> Result<GroupSyncSummary, ClientError> {
         let groups = self
             .context
             .db()

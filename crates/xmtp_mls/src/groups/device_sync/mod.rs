@@ -22,7 +22,7 @@ use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::instrument;
 use worker::SyncMetric;
-use xmtp_archive::ArchiveError;
+use xmtp_archive::{ArchiveError, BackupMetadata};
 use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
 use xmtp_content_types::encoded_content_to_bytes;
 use xmtp_db::{
@@ -108,6 +108,8 @@ pub enum DeviceSyncError {
     Recv(#[from] RecvError),
     #[error("Missing Field: {0:?} {1}")]
     MissingField(MissingField, String),
+    #[error("Could not find payload with pin {0:?}")]
+    MissingPayload(Option<String>),
 }
 
 #[derive(Debug)]
@@ -136,7 +138,13 @@ impl NeedsDbReconnect for DeviceSyncError {
 
 impl RetryableError for DeviceSyncError {
     fn is_retryable(&self) -> bool {
-        true
+        !matches!(
+            self,
+            Self::AlreadyAcknowledged
+                | Self::MissingSyncGroup
+                | Self::MissingSyncServerUrl
+                | Self::UnspecifiedDeviceSyncKind
+        )
     }
 }
 
@@ -336,4 +344,10 @@ impl IterWithContent<StoredGroupMessage, ContentProto> for Vec<StoredGroupMessag
             result.into_iter()
         })
     }
+}
+
+pub struct AvailableArchive {
+    pub pin: String,
+    pub metadata: BackupMetadata,
+    pub sent_by_installation: Vec<u8>,
 }

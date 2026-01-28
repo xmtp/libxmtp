@@ -1,5 +1,6 @@
 use crate::ErrorWrapper;
 use crate::conversations::Conversations;
+use crate::device_sync::DeviceSync;
 use crate::identity::{Identifier, IdentityExt};
 use napi::bindgen_prelude::{Error, Result};
 use napi_derive::napi;
@@ -71,15 +72,8 @@ impl Client {
   }
 
   #[napi]
-  pub async fn send_sync_request(&self) -> Result<()> {
-    self
-      .inner_client
-      .device_sync_client()
-      .send_sync_request()
-      .await
-      .map_err(ErrorWrapper::from)?;
-
-    Ok(())
+  pub fn device_sync(&self) -> DeviceSync {
+    DeviceSync::new(self.inner_client.clone())
   }
 
   #[napi]

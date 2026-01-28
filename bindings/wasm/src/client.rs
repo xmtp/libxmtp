@@ -20,6 +20,7 @@ use xmtp_mls::identity::IdentityStrategy;
 use xmtp_proto::api_client::AggregateStats;
 
 use crate::conversations::Conversations;
+use crate::device_sync::DeviceSync;
 use crate::identity::{ApiStats, Identifier, IdentityStats};
 use crate::inbox_state::InboxState;
 
@@ -339,18 +340,6 @@ impl Client {
     Ok(crate::to_value(&results)?)
   }
 
-  #[wasm_bindgen(js_name = sendSyncRequest)]
-  pub async fn send_sync_request(&self) -> Result<(), JsError> {
-    self
-      .inner_client
-      .device_sync_client()
-      .send_sync_request()
-      .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-
-    Ok(())
-  }
-
   #[wasm_bindgen(js_name = findInboxIdByIdentity)]
   pub async fn find_inbox_id_by_identity(
     &self,
@@ -388,12 +377,17 @@ impl Client {
     Conversations::new(self.inner_client.clone())
   }
 
+  #[wasm_bindgen]
+  pub fn device_sync(&self) -> DeviceSync {
+    DeviceSync::new(self.inner_client.clone())
+  }
+
   #[wasm_bindgen(js_name = syncPreferences)]
   pub async fn sync_preferences(&self) -> Result<GroupSyncSummary, JsError> {
     let inner = self.inner_client.as_ref();
 
     let summary = inner
-      .sync_all_welcomes_and_history_sync_groups()
+      .sync_all_welcomes_and_device_sync_groups()
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 

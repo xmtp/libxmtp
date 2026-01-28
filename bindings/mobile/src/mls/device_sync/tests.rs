@@ -1,6 +1,15 @@
 //! Tests for multi-device operations, installations, syncing, and fork recovery
 
-use super::*;
+use crate::{
+    FfiConsent, FfiConsentEntityType, FfiConsentState, FfiCreateGroupOptions,
+    FfiListConversationsOptions, FfiListMessagesOptions, FfiSendMessageOpts,
+    test_utils::{LocalBuilder, LocalTester},
+    tests::{RustStreamCallback, SignWithWallet, new_test_client, new_test_client_with_wallet},
+};
+use alloy::signers::local::PrivateKeySigner;
+use std::sync::Arc;
+use xmtp_content_types::{ContentCodec, encoded_content_to_bytes, text::TextCodec};
+use xmtp_mls::{groups::device_sync::worker::SyncMetric, utils::Tester};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn test_create_new_installation_without_breaking_group() {
@@ -891,7 +900,7 @@ async fn test_sync_consent() {
     let state = alix2.inbox_state(true).await.unwrap();
     assert_eq!(state.installations.len(), 2);
 
-    alix.sync_preferences().await.unwrap();
+    alix.sync_all_device_sync_groups().await.unwrap();
     alix_group.sync().await.unwrap();
     alix2.conversations().sync().await.unwrap();
 

@@ -12,6 +12,7 @@ use xmtp_db::{
     identity_update::QueryIdentityUpdates,
     key_package_history::QueryKeyPackageHistory,
     local_commit_log::{LocalCommitLogOrder, QueryLocalCommitLog},
+    processed_device_sync_messages::QueryDeviceSyncMessages,
     proto::types::{Cursor, GlobalCursor},
     refresh_state::{EntityKind, QueryRefreshState},
     remote_commit_log::{QueryRemoteCommitLog, RemoteCommitLogOrder},
@@ -180,7 +181,7 @@ where
             self,
             get_group_messages_with_reactions(&group.id, &MsgQueryArgs::default())
         )?;
-        bench!(self, get_sync_group_messages(&group.id, 0))?;
+        bench!(self, sync_group_messages_paged(0, 100))?;
 
         // Try to get a message to use for further benchmarks
         let messages = self

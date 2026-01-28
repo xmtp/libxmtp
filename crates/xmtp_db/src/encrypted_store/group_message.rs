@@ -588,12 +588,6 @@ pub trait QueryGroupMessage {
         sequence_id: Cursor,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
 
-    fn get_sync_group_messages(
-        &self,
-        group_id: &[u8],
-        offset: i64,
-    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
-
     fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
         &self,
         msg_id: &MessageId,
@@ -737,14 +731,6 @@ where
         cursor: Cursor,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
         (**self).get_group_message_by_cursor(group_id, cursor)
-    }
-
-    fn get_sync_group_messages(
-        &self,
-        group_id: &[u8],
-        offset: i64,
-    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
-        (**self).get_sync_group_messages(group_id, offset)
     }
 
     fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
@@ -1227,20 +1213,6 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
                 .first::<StoredGroupMessage>(conn)
                 .optional()
         })
-    }
-
-    fn get_sync_group_messages(
-        &self,
-        group_id: &[u8],
-        offset: i64,
-    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
-        let query = dsl::group_messages
-            .filter(dsl::group_id.eq(group_id))
-            .order(dsl::sent_at_ns.asc())
-            .offset(offset);
-
-        // Using write connection here to avoid potential race-conditions
-        self.raw_query_write(|conn| query.load::<StoredGroupMessage>(conn))
     }
 
     fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
