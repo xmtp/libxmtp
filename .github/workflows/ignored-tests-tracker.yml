@@ -203,7 +203,7 @@ jobs:
           This issue tracks the status of tests marked with `#[ignore]` in the codebase.
           These tests are typically skipped during normal CI runs but are monitored here.
 
-          ISSUE_HEADER
+ISSUE_HEADER
 
           cat >> issue-body.md << EOF
           **Last Updated:** ${timestamp}
@@ -260,7 +260,7 @@ jobs:
 
           ---
           *This issue is automatically updated by the [Ignored Tests Tracker](.github/workflows/ignored-tests-tracker.yml) workflow.*
-          EOF
+EOF
 
           # Find or create the tracking issue
           issue_number=$(gh issue list --label "ignored-tests-tracker" --state open --json number --jq '.[0].number // empty')
