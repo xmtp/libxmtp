@@ -21,7 +21,7 @@ use tokio::sync::{OnceCell, broadcast};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use xmtp_archive::{ArchiveImporter, BackupMetadata, exporter::ArchiveExporter};
-use xmtp_common::{Event, NS_IN_DAY, fmt::ShortHex, time::now_ns};
+use xmtp_common::{Event, NS_IN_DAY, time::now_ns};
 use xmtp_db::group_message::{MsgQueryArgs, StoredGroupMessage};
 use xmtp_db::{prelude::*, tasks::NewTask};
 use xmtp_macro::log_event;
@@ -484,12 +484,8 @@ where
         log_event!(
             Event::DeviceSyncArchiveUploadStart,
             self.context.installation_id(),
-<<<<<<< HEAD
-            group_id = #sync_group_id
-=======
-            group_id = sync_group_id.short_hex(),
+            group_id = #sync_group_id,
             server_url
->>>>>>> origin/main
         );
 
         let acknowledge = async || {

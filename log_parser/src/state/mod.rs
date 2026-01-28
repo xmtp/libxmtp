@@ -13,18 +13,20 @@ use xmtp_common::Event;
 
 type InstallationId = String;
 
-struct State {
-    clients: HashMap<InstallationId, ClientState>,
+pub struct LogState {
+    pub clients: HashMap<InstallationId, ClientState>,
 }
 
-impl State {
-    fn build<'a>(mut lines: Peekable<impl Iterator<Item = &'a str>>) -> Self {
+impl LogState {
+    pub fn build<'a>(mut lines: Peekable<impl Iterator<Item = &'a str>>) -> Self {
         let mut state = Self {
             clients: HashMap::new(),
         };
         while let Ok(event) = LogEvent::from(&mut lines) {
             state.ingest(event);
         }
+
+        state
     }
 
     fn ingest(&mut self, event: LogEvent) -> Result<()> {
@@ -65,29 +67,22 @@ impl State {
 }
 
 struct ClientState {
-    name: Option<String>,
-    stream: Vec<StreamEntry>,
-    groups: HashMap<String, Arc<RwLock<GroupState>>>,
-}
-
-struct StreamEntry {
-    event: String,
-    context: Vec<(String, String)>,
-    group_id: Option<String>,
-    intermediate_logs: String,
+    pub name: Option<String>,
+    pub events: Vec<LogEvent>,
+    pub groups: HashMap<String, Arc<RwLock<GroupState>>>,
 }
 
 impl ClientState {
     fn new(name: Option<String>) -> Self {
         Self {
             name,
-            stream: Vec::new(),
+            events: Vec::new(),
             groups: HashMap::default(),
         }
     }
 
     fn ingest(&mut self, event: LogEvent) {
-        self.stream.push(event);
+        self.events.push(event);
     }
 }
 

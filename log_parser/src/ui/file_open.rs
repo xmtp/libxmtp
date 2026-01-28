@@ -1,4 +1,4 @@
-use crate::{AppWindow, ContextEntry, LogEntry, LogStream};
+use crate::{AppWindow, ContextEntry, LogEntry, LogStream, state::LogState};
 use slint::{Color, Model, ModelRc, SharedString, VecModel, Weak};
 use std::{
     collections::HashMap,
@@ -110,15 +110,19 @@ pub fn file_selected(handle: Weak<AppWindow>, path: impl AsRef<Path>) {
 }
 
 pub fn open_log(handle: Weak<AppWindow>, log_file: &str) {
-    // Convert each inbox stream to a StreamData
-    let streams: Vec<StreamData> = log_file
-        .streams
-        .into_iter()
-        .map(|(installation, events)| {
-            // Collect timestamps for duration calculation
-            let timestamps: Vec<i64> = events.iter().map(|e| e.timestamp()).collect();
+    let lines = log_file.split('\n').peekable();
+    let state = LogState::build(lines);
 
-            let entries: Vec<EntryData> = events
+    // Convert each inbox stream to a StreamData
+    let streams: Vec<StreamData> = state
+        .clients
+        .into_iter()
+        .map(|(installation, client_state)| {
+            // Collect timestamps for duration calculation
+            let timestamps: Vec<i64> = client_state.events.iter().map(|e| e.timestamp()).collect();
+
+            let entries: Vec<EntryData> = client_state
+                .events
                 .iter()
                 .enumerate()
                 .map(|(index, event)| {

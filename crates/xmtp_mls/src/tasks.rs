@@ -5,7 +5,7 @@ use crate::{
 };
 use prost::Message;
 use std::sync::Arc;
-use xmtp_common::{Event, fmt::ShortHex};
+use xmtp_common::Event;
 use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask};
 use xmtp_macro::log_event;
 use xmtp_proto::{
