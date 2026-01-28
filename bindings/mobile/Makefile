@@ -3,8 +3,8 @@ WORKSPACE_MANIFEST=$(shell cargo locate-project --workspace --message-format=pla
 WORKSPACE_PATH=$(shell dirname $(WORKSPACE_MANIFEST))
 TARGET_DIR=$(shell cargo metadata --format-version 1 --no-deps | jq -r '.target_directory')
 
-# Simulator config
-ARCHS_IOS = x86_64-apple-ios aarch64-apple-ios-sim
+# Simulator config (Apple Silicon only - Intel simulator dropped for Nix compatibility)
+ARCHS_IOS = aarch64-apple-ios-sim
 ARCHS_MAC = x86_64-apple-darwin aarch64-apple-darwin
 LIB=libxmtpv3.a
 DYLIB=libxmtpv3.dylib
@@ -14,6 +14,9 @@ SQLCIPHER_LIB=$(SQLCIPHER_DIR)/.libs/libsqlcipher.a
 GIT_BRANCH=$(shell git rev-parse --abbrev-ref HEAD)
 GIT_COMMIT_HASH=$(shell git log -1 --pretty=format:"%h")
 GIT_COMMIT_DATE=$(shell TZ=UTC git log -1 --date=iso-local --pretty=format:"%ad")
+
+IOS_SDK_BUILD_DIR ?= $(WORKSPACE_PATH)/sdks/ios/.build
+IOS_SDK_SWIFT_DIR ?= $(WORKSPACE_PATH)/sdks/ios/Sources/XMTPiOS/LibXMTP
 
 install-jar:
 	mkdir -p $(JAR_DIR) && \
@@ -38,7 +41,7 @@ libxmtp-version:
 	echo "Version: $(GIT_COMMIT_HASH)\nBranch: $(GIT_BRANCH)\nDate: $(GIT_COMMIT_DATE)" > libxmtp-version.txt
 
 $(ARCHS_IOS): %:
-	IPHONEOS_DEPLOYMENT_TARGET=10 cargo build --target $@ --target-dir $(TARGET_DIR) --release --no-default-features
+	IPHONEOS_DEPLOYMENT_TARGET=14 cargo build --target $@ --target-dir $(TARGET_DIR) --release --no-default-features
 	mkdir -p build/$@
 	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 	mv $(TARGET_DIR)/$@/release/$(DYLIB) build/$@/$(DYLIB)
@@ -50,7 +53,7 @@ $(ARCHS_MAC): %:
 	mv $(TARGET_DIR)/$@/release/$(DYLIB) build/$@/$(DYLIB)
 
 aarch64-apple-ios:
-	IPHONEOS_DEPLOYMENT_TARGET=10 cargo build --target $@ --target-dir $(TARGET_DIR) --release
+	IPHONEOS_DEPLOYMENT_TARGET=14 cargo build --target $@ --target-dir $(TARGET_DIR) --release
 	mkdir -p build/$@
 	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 	mv $(TARGET_DIR)/$@/release/$(DYLIB) build/$@/$(DYLIB)
@@ -72,7 +75,9 @@ lipodyn:
 
 # xcframework combines libs for different platforms (iOS, iOS-simulator, macOS, ...) into one framework that can be used in Xcode
 framework: lipo
-	rm -rf LibXMTPSwiftFFI.xcframework
+	mkdir -p $(IOS_SDK_BUILD_DIR)
+	mkdir -p $(IOS_SDK_SWIFT_DIR)
+	rm -rf $(IOS_SDK_BUILD_DIR)/LibXMTPSwiftFFI.xcframework
 	xcodebuild -create-xcframework \
 		-library build/aarch64-apple-ios/$(LIB) \
 		-headers build/swift/static/include/libxmtp/ \
@@ -80,7 +85,8 @@ framework: lipo
 		-headers build/swift/static/include/libxmtp/ \
 		-library build/lipo_macos/$(LIB) \
 		-headers build/swift/static/include/libxmtp/ \
-		-output LibXMTPSwiftFFI.xcframework
+		-output $(IOS_SDK_BUILD_DIR)/LibXMTPSwiftFFI.xcframework
+	cp build/swift/static/xmtpv3.swift $(IOS_SDK_SWIFT_DIR)/xmtpv3.swift
 
 frameworkdyn: lipodyn
 	rm -rf LibXMTPSwiftFFIDynamic.xcframework
@@ -128,4 +134,7 @@ swiftlocal: libxmtpv3.a bindgenstatic swift framework
 
 swiftdynamic: libxmtpv3.dylib bindgendynamic swiftdyn frameworkdyn
 
-.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift bindgendynamic bindgenstatic frameworkdyn lipo lipodyn download-sqlcipher build-sqlcipher
+# Build everything needed for local iOS SDK development
+local: $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios bindgenstatic swift lipo framework
+
+.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift bindgendynamic bindgenstatic frameworkdyn lipo lipodyn download-sqlcipher build-sqlcipher local

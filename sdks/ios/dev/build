@@ -1,0 +1,11 @@
+#!/bin/bash
+source "$(dirname "$0")/.setup"
+ensure_nix_shell "$@"
+
+# Build libxmtp xcframework
+cd "${ROOT}/bindings/mobile"
+make local
+
+# Build Swift package
+cd "${IOS_SDK_DIR}"
+swift build
