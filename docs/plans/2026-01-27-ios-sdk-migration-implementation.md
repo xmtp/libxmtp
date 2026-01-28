@@ -168,19 +168,21 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 grep -A 10 "^framework:" bindings/mobile/Makefile
 ```
 
-**Step 2: Add IOS_SDK_BUILD_DIR variable and update framework target**
+**Step 2: Add IOS_SDK variables and update framework target**
 
 Add near top of Makefile after existing variables:
 
 ```makefile
 IOS_SDK_BUILD_DIR ?= $(WORKSPACE_PATH)/sdks/ios/.build
+IOS_SDK_SWIFT_DIR ?= $(WORKSPACE_PATH)/sdks/ios/Sources/XMTPiOS/LibXMTP
 ```
 
-Update framework target to output to new location:
+Update framework target to output xcframework AND copy Swift bindings:
 
 ```makefile
 framework: lipo
 	mkdir -p $(IOS_SDK_BUILD_DIR)
+	mkdir -p $(IOS_SDK_SWIFT_DIR)
 	rm -rf $(IOS_SDK_BUILD_DIR)/LibXMTPSwiftFFI.xcframework
 	xcodebuild -create-xcframework \
 		-library build/aarch64-apple-ios/$(LIB) \
@@ -190,6 +192,7 @@ framework: lipo
 		-library build/lipo_macos/$(LIB) \
 		-headers build/swift/static/include/libxmtp/ \
 		-output $(IOS_SDK_BUILD_DIR)/LibXMTPSwiftFFI.xcframework
+	cp build/swift/static/xmtpv3.swift $(IOS_SDK_SWIFT_DIR)/xmtpv3.swift
 ```
 
 **Step 3: Add local convenience target**
@@ -212,7 +215,9 @@ git add bindings/mobile/Makefile
 git commit -m "Update Makefile for iOS SDK integration
 
 - Add IOS_SDK_BUILD_DIR variable for xcframework output
+- Add IOS_SDK_SWIFT_DIR variable for Swift bindings output
 - Update framework target to output to sdks/ios/.build/
+- Copy xmtpv3.swift to Sources/XMTPiOS/LibXMTP/
 - Add 'local' convenience target for full iOS build
 
 Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
@@ -267,22 +272,27 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 cat sdks/ios/.gitignore
 ```
 
-**Step 2: Add .build/ directory**
+**Step 2: Add .build/ directory and generated Swift bindings**
 
 Add to sdks/ios/.gitignore:
 
 ```
 # Built xcframework
 .build/
+
+# Generated Swift bindings (rebuilt from Rust)
+Sources/XMTPiOS/LibXMTP/xmtpv3.swift
 ```
 
 **Step 3: Commit**
 
 ```bash
 git add sdks/ios/.gitignore
-git commit -m "Add .build/ to iOS SDK gitignore
+git commit -m "Add generated files to iOS SDK gitignore
 
-Ignore generated xcframework directory.
+Ignore:
+- .build/ (xcframework)
+- Sources/XMTPiOS/LibXMTP/xmtpv3.swift (generated Swift bindings)
 
 Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 ```
@@ -830,6 +840,7 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 
 ```bash
 rm -rf sdks/ios/.build/
+rm -rf sdks/ios/Sources/XMTPiOS/LibXMTP/xmtpv3.swift
 rm -rf bindings/mobile/build/
 ```
 
@@ -842,6 +853,7 @@ rm -rf bindings/mobile/build/
 Expected:
 - Rust compilation succeeds for all iOS targets
 - xcframework created at `sdks/ios/.build/LibXMTPSwiftFFI.xcframework`
+- Swift bindings copied to `sdks/ios/Sources/XMTPiOS/LibXMTP/xmtpv3.swift`
 - Swift package builds successfully
 
 **Step 3: Verify xcframework exists**
@@ -852,7 +864,16 @@ ls -la sdks/ios/.build/LibXMTPSwiftFFI.xcframework/
 
 Expected: Directory with ios-arm64, ios-arm64_x86_64-simulator, macos-arm64_x86_64 subdirectories
 
-**Step 4: Verify Swift build artifacts**
+**Step 4: Verify Swift bindings file exists**
+
+```bash
+ls -la sdks/ios/Sources/XMTPiOS/LibXMTP/xmtpv3.swift
+head -20 sdks/ios/Sources/XMTPiOS/LibXMTP/xmtpv3.swift
+```
+
+Expected: File exists, contains generated UniFFI Swift code
+
+**Step 5: Verify Swift build artifacts**
 
 ```bash
 ls sdks/ios/.build/debug/ 2>/dev/null || ls sdks/ios/.swiftpm/
@@ -1094,8 +1115,14 @@ Include VALIDATION.md contents in PR description.
 | Component | Local Test | CI Config |
 |-----------|------------|-----------|
 | Build | `./sdks/ios/dev/build` succeeds | test-ios.yaml build step |
+| xcframework | `.build/LibXMTPSwiftFFI.xcframework` created | Part of build |
+| Swift bindings | `Sources/XMTPiOS/LibXMTP/xmtpv3.swift` generated | Part of build |
 | Format | `./sdks/ios/dev/fmt --lint` passes | lint-ios.yaml swiftformat job |
 | Lint | `./sdks/ios/dev/lint` runs | lint-ios.yaml swiftlint job |
 | Test | `./sdks/ios/dev/test` with docker | test-ios.yaml with Fly.io |
+
+**Build produces both:**
+1. `sdks/ios/.build/LibXMTPSwiftFFI.xcframework` - compiled native library
+2. `sdks/ios/Sources/XMTPiOS/LibXMTP/xmtpv3.swift` - generated Swift bindings
 
 All local validations must pass before considering the migration complete.
