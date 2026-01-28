@@ -381,7 +381,7 @@ impl Client {
     let inner = self.inner_client.as_ref();
 
     let summary = inner
-      .sync_all_welcomes_and_history_sync_groups()
+      .sync_all_welcomes_and_device_sync_groups()
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 

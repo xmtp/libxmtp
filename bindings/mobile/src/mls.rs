@@ -827,7 +827,7 @@ impl FfiXmtpClient {
 
     pub async fn sync_preferences(&self) -> Result<FfiGroupSyncSummary, GenericError> {
         let inner = self.inner_client.as_ref();
-        let summary = inner.sync_all_welcomes_and_history_sync_groups().await?;
+        let summary = inner.sync_all_welcomes_and_device_sync_groups().await?;
 
         Ok(summary.into())
     }

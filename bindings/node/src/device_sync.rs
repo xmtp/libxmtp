@@ -1,5 +1,6 @@
 use crate::ErrorWrapper;
 use crate::client::Client;
+use crate::conversations::GroupSyncSummary;
 use napi::bindgen_prelude::{BigInt, Result, Uint8Array};
 use napi_derive::napi;
 use xmtp_id::associations::DeserializationError;
@@ -232,5 +233,17 @@ impl Client {
       .map_err(ErrorWrapper::from)?;
 
     Ok(importer.metadata.into())
+  }
+
+  /// Manually sync all device sync groups.
+  #[napi]
+  pub async fn sync_all_device_sync_groups(&self) -> Result<GroupSyncSummary> {
+    let summary = self
+      .inner_client()
+      .sync_all_device_sync_groups()
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(summary.into())
   }
 }

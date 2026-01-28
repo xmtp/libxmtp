@@ -101,6 +101,13 @@ impl FfiXmtpClient {
             .map_err(DeviceSyncError::Archive)?;
         Ok(importer.metadata.into())
     }
+
+    /// Manually sync all device sync groups.
+    pub async fn sync_all_device_sync_groups(&self) -> Result<(), GenericError> {
+        self.inner_client.sync_all_device_sync_groups().await?;
+
+        Ok(())
+    }
 }
 
 #[derive(uniffi::Record)]

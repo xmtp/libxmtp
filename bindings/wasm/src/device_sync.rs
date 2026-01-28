@@ -1,4 +1,5 @@
-use crate::client::Client;
+use bindings_wasm_macros::wasm_bindgen_numbered_enum;
+use crate::client::{Client, GroupSyncSummary};
 use js_sys::Uint8Array;
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -46,9 +47,7 @@ impl From<ArchiveOptions> for BackupOptions {
 }
 
 /// Selection of what elements to include in a backup
-#[derive(Clone, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
+#[wasm_bindgen_numbered_enum]
 pub enum BackupElementSelectionOption {
   Messages,
   Consent,
@@ -270,5 +269,17 @@ impl Client {
       .map_err(|e| JsError::new(&format!("Failed to load archive: {}", e)))?;
 
     Ok(importer.metadata.into())
+  }
+
+  /// Manually sync all device sync groups.
+  #[wasm_bindgen(js_name = syncAllDeviceSyncGroups)]
+  pub async fn sync_all_device_sync_groups(&self) -> Result<GroupSyncSummary, JsError> {
+    let summary = self
+      .inner_client()
+      .sync_all_device_sync_groups()
+      .await
+      .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    Ok(summary.into())
   }
 }
