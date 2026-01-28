@@ -61,9 +61,10 @@ use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_common::{Event, log_event, time::now_ns};
 use xmtp_configuration::{
-    CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
-    MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, Originators,
-    SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
+    BROADCAST_PROPOSAL_SUPPORT, CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID,
+    GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE, MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
+    Originators, PROPOSAL_SUPPORT_EXTENSION_ID, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
+    WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
 use xmtp_content_types::delete_message::DeleteMessageCodec;
 use xmtp_content_types::leave_request::LeaveRequestCodec;
@@ -400,6 +401,183 @@ where
         operation(mls_group).await
     }
 
+    /// Check if all members in the group support the proposal-by-reference flow.
+    ///
+    /// This checks both:
+    /// 1. Leaf node capabilities in the MLS group (via `check_extension_support`)
+    /// 2. The latest published key packages for all member installations fetched
+    ///    from the network, since leaf nodes may be stale (they aren't updated after
+    ///    the first message is sent).
+    ///
+    /// Returns `true` if all members support proposals, `false` otherwise.
+    pub async fn all_members_support_proposals(
+        &self,
+        mls_group: &OpenMlsGroup,
+    ) -> Result<bool, GroupError> {
+        let extension_type = ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID);
+
+        // Check leaf nodes in the group first (fast path).
+        // If all leaf nodes advertise support, we're done — no network call needed.
+        if mls_group.check_extension_support(&[extension_type]).is_ok() {
+            return Ok(true);
+        }
+
+        // Leaf nodes can be stale (they aren't updated after the first message),
+        // so fall back to checking the latest published key packages from the network.
+        let installation_ids: Vec<Vec<u8>> = mls_group
+            .members()
+            .map(|member| member.signature_key)
+            .filter(|id| id.as_slice() != self.context.installation_id().as_slice())
+            .collect();
+
+        if installation_ids.is_empty() {
+            return Ok(true);
+        }
+
+        let store = crate::mls_store::MlsStore::new(self.context.clone());
+        let key_packages = store
+            .get_key_packages_for_installation_ids(installation_ids)
+            .await?;
+
+        for result in key_packages.values() {
+            match result {
+                Ok(verified_kp) => {
+                    let capabilities = verified_kp.inner.leaf_node().capabilities();
+                    if !capabilities.extensions().contains(&extension_type) {
+                        return Ok(false);
+                    }
+                }
+                Err(_) => {
+                    return Ok(false);
+                }
+            }
+        }
+
+        Ok(true)
+    }
+
+    /// Check if the group has proposals enabled (proposal-by-reference flow).
+    ///
+    /// This checks if the group context contains the `PROPOSAL_SUPPORT_EXTENSION_ID`
+    /// extension with a `ProposalSupport` proto.
+    ///
+    /// When proposals are enabled on a group:
+    /// - Add/remove member operations MUST use proposals
+    /// - All members being added MUST support the proposal extension
+    /// - Direct commits for membership changes are not allowed
+    pub fn proposals_enabled(&self, mls_group: &OpenMlsGroup) -> bool {
+        check_proposals_enabled(mls_group.extensions())
+    }
+
+    /// Enable proposals on this group (proposal-by-reference flow).
+    ///
+    /// This sets the `PROPOSAL_SUPPORT_EXTENSION_ID` extension on the group context.
+    /// Once enabled:
+    /// - All add/remove member operations will use proposals
+    /// - All members being added must support proposals
+    /// - This cannot be disabled once set
+    ///
+    /// # Prerequisites
+    ///
+    /// Before calling this method, ensure all existing members support proposals
+    /// by calling `all_members_support_proposals()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Not all existing members support proposals
+    /// - The group context extension update fails
+    pub async fn enable_proposals(&self) -> Result<(), GroupError> {
+        // Check support AND build extensions in a single lock acquisition to avoid
+        // a race where membership changes between the check and the build.
+        let new_extensions = self
+            .load_mls_group_with_lock_async(async |mls_group| {
+                if !self.all_members_support_proposals(&mls_group).await? {
+                    return Err(GroupError::ProposalsNotSupported(
+                        "Cannot enable proposals: not all members support the proposal extension"
+                            .to_string(),
+                    ));
+                }
+                let mut extensions: Extensions<GroupContext> = mls_group.extensions().clone();
+                extensions.add_or_replace(build_proposals_enabled_extension())?;
+                update_required_capabilities_for_proposals(&mut extensions, true)?;
+                Ok(extensions)
+            })
+            .await?;
+
+        // Queue and publish the GCE proposal
+        use openmls::prelude::tls_codec::Serialize;
+        let extensions_bytes = new_extensions.tls_serialize_detached()?;
+
+        let intent_data = intents::ProposeGroupContextExtensionsIntentData::new(extensions_bytes);
+        let proposal_intent = intents::QueueIntent::propose_group_context_extensions()
+            .data(intent_data)
+            .queue(self)?;
+
+        self.sync_until_intent_resolved(proposal_intent.id).await?;
+
+        // Re-verify after sync: incoming messages processed during sync may have
+        // changed group membership (e.g. a member was added who doesn't support
+        // proposals). Abort before committing if support no longer holds.
+        let still_supported = self
+            .load_mls_group_with_lock_async(async |mls_group| {
+                self.all_members_support_proposals(&mls_group).await
+            })
+            .await?;
+
+        if !still_supported {
+            return Err(GroupError::ProposalsNotSupported(
+                "Cannot enable proposals: group membership changed and not all members support the proposal extension"
+                    .to_string(),
+            ));
+        }
+
+        // Commit the pending proposals to apply the extension
+        let commit_intent = intents::QueueIntent::commit_pending_proposals()
+            .data(intents::CommitPendingProposalsIntentData::new())
+            .queue(self)?;
+
+        self.sync_until_intent_resolved(commit_intent.id).await?;
+
+        let enabled = self
+            .load_mls_group_with_lock_async(async |mls_group| {
+                Ok::<bool, GroupError>(self.proposals_enabled(&mls_group))
+            })
+            .await?;
+
+        if !enabled {
+            return Err(GroupError::ProposalsNotSupported(
+                "Failed to enable proposals: extension not applied".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Validate that key packages support the proposal extension.
+    ///
+    /// This checks if all provided key packages have the `PROPOSAL_SUPPORT_EXTENSION_ID`
+    /// in their capabilities, meaning the installations can receive standalone proposals.
+    pub fn validate_key_packages_support_proposals(
+        &self,
+        key_packages: &[openmls::key_packages::KeyPackage],
+    ) -> Result<(), GroupError> {
+        let extension_type = ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID);
+
+        for kp in key_packages {
+            let leaf_node = kp.leaf_node();
+            let capabilities = leaf_node.capabilities();
+
+            if !capabilities.extensions().contains(&extension_type) {
+                return Err(GroupError::ProposalsNotSupported(
+                    "Member does not support proposals: installation cannot receive standalone proposal messages".to_string(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
     // Create a new group and save it to the DB
     pub(crate) fn create_and_insert(
         context: Context,
@@ -605,6 +783,10 @@ where
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(update_interval_ns).await?;
 
+        // Check for pending proposals and commit them first
+        // OpenMLS blocks message creation when there are pending proposals
+        self.commit_pending_proposals_if_any().await?;
+
         let message_id =
             self.prepare_message(message, opts, |now| Self::into_envelope(message, now))?;
 
@@ -614,6 +796,31 @@ where
         self.update_consent_state(ConsentState::Allowed)?;
 
         Ok(message_id)
+    }
+
+    /// Checks for pending MLS proposals and commits them if any exist.
+    /// OpenMLS blocks message creation when there are pending proposals,
+    /// so we need to commit them first.
+    async fn commit_pending_proposals_if_any(&self) -> Result<(), GroupError> {
+        let has_pending = self
+            .load_mls_group_with_lock_async(async |openmls_group| {
+                Ok::<bool, GroupError>(openmls_group.pending_proposals().next().is_some())
+            })
+            .await?;
+
+        if has_pending {
+            tracing::debug!(
+                inbox_id = self.context.inbox_id(),
+                group_id = hex::encode(&self.group_id),
+                "Found pending proposals, committing before sending message"
+            );
+
+            // Queue a CommitPendingProposals intent and wait for it to resolve
+            let intent = intents::QueueIntent::commit_pending_proposals().queue(self)?;
+            self.sync_until_intent_resolved(intent.id).await?;
+        }
+
+        Ok(())
     }
 
     /// Publish all unpublished messages. This happens by calling `sync_until_last_intent_resolved`
@@ -2399,12 +2606,90 @@ pub fn build_group_membership_extension(group_membership: &GroupMembership) -> E
     Extension::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID, unknown_gc_extension)
 }
 
+/// Check if the given extensions contain a valid proposal support extension.
+///
+/// Returns `true` if the extensions contain a `PROPOSAL_SUPPORT_EXTENSION_ID` extension
+/// with a `ProposalSupport` proto where `version > 0`.
+pub fn check_proposals_enabled(extensions: &Extensions<GroupContext>) -> bool {
+    use prost::Message;
+    use xmtp_proto::xmtp::mls::message_contents::ProposalSupport;
+    for extension in extensions.iter() {
+        if let Extension::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID, UnknownExtension(data)) = extension
+        {
+            if let Ok(ps) = ProposalSupport::decode(data.as_slice()) {
+                return ps.version > 0;
+            } else {
+                return false;
+            }
+        }
+    }
+    false
+}
+
+/// Build an extension that enables proposals on the group context.
+///
+/// This extension uses `PROPOSAL_SUPPORT_EXTENSION_ID` with a `ProposalSupport` proto
+/// to indicate that the group uses proposal-by-reference flow exclusively.
+pub fn build_proposals_enabled_extension() -> Extension {
+    use prost::Message;
+    use xmtp_proto::xmtp::mls::message_contents::ProposalSupport;
+    let data = ProposalSupport { version: 1 }.encode_to_vec();
+    Extension::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID, UnknownExtension(data))
+}
+
+/// Update the `RequiredCapabilities` extension to add or remove the `PROPOSAL_SUPPORT_EXTENSION_ID`.
+/// Per MLS RFC 9420 Section 7.2, unknown extensions in the group context MUST be listed
+/// in the required capabilities, so this must be called whenever the proposal support
+/// extension is added to or removed from the group context.
+pub fn update_required_capabilities_for_proposals(
+    extensions: &mut Extensions<GroupContext>,
+    add: bool,
+) -> Result<(), GroupError> {
+    let proposal_ext_type = ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID);
+
+    if let Some(required_caps) = extensions.required_capabilities() {
+        let mut ext_types: Vec<ExtensionType> = required_caps.extension_types().to_vec();
+        let has_it = ext_types.contains(&proposal_ext_type);
+
+        if add && !has_it {
+            ext_types.push(proposal_ext_type);
+        } else if !add && has_it {
+            ext_types.retain(|t| *t != proposal_ext_type);
+        } else {
+            return Ok(()); // already in desired state
+        }
+
+        let new_required = Extension::RequiredCapabilities(RequiredCapabilitiesExtension::new(
+            &ext_types,
+            required_caps.proposal_types(),
+            required_caps.credential_types(),
+        ));
+        extensions.add_or_replace(new_required)?;
+    }
+
+    Ok(())
+}
+
+/// Build extensions with updated group membership for a GroupContextExtensions proposal.
+/// This is used when proposing to add or remove members to include the membership update
+/// alongside the Add/Remove proposals.
+#[tracing::instrument(level = "trace", skip_all)]
+pub fn build_extensions_for_membership_update(
+    group: &OpenMlsGroup,
+    new_membership: &GroupMembership,
+) -> Result<Extensions<GroupContext>, GroupError> {
+    let mut extensions: Extensions<GroupContext> = group.extensions().clone();
+    extensions.add_or_replace(build_group_membership_extension(new_membership))?;
+    Ok(extensions)
+}
+
 pub(crate) fn build_group_config(
     protected_metadata_extension: Extension,
     mutable_metadata_extension: Extension,
     group_membership_extension: Extension,
     mutable_permission_extension: Extension,
 ) -> Result<MlsGroupCreateConfig, GroupError> {
+    // Extensions that all group members MUST support (enforced by RequiredCapabilities)
     let required_extension_types = &[
         ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
         ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
@@ -2414,12 +2699,26 @@ pub(crate) fn build_group_config(
         ExtensionType::ApplicationId,
     ];
 
+    // Extensions the creator's leaf node advertises support for (superset of required).
+    // Optional extensions like PROPOSAL_SUPPORT are listed here so the group can use
+    // them, but are NOT in required_extension_types so members without support can join.
+    let mut creator_capability_extensions = required_extension_types.to_vec();
+    creator_capability_extensions.push(ExtensionType::Unknown(
+        WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+    ));
+    creator_capability_extensions.push(ExtensionType::Unknown(
+        WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+    ));
+    if BROADCAST_PROPOSAL_SUPPORT {
+        creator_capability_extensions.push(ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID));
+    }
+
     let required_proposal_types = &[ProposalType::GroupContextExtensions];
 
     let capabilities = Capabilities::new(
         None,
         None,
-        Some(required_extension_types),
+        Some(&creator_capability_extensions),
         Some(required_proposal_types),
         None,
     );
