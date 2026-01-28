@@ -1,0 +1,9 @@
+#!/bin/bash
+set -eou pipefail
+
+if [[ "${OSTYPE}" == "darwin"* ]]; then
+    if ! which shellcheck &>/dev/null; then brew install shellcheck; fi
+    if ! which markdownlint &>/dev/null; then brew install markdownlint-cli; fi
+fi
+
+dev/local/up

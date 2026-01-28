@@ -1,0 +1,39 @@
+name: Cleanup Stale Test Apps
+
+on:
+  schedule:
+    # Run every hour
+    - cron: "0 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (show what would be deleted without deleting)"
+        required: false
+        default: false
+        type: boolean
+      max_age:
+        description: "Maximum age in hours"
+        required: false
+        default: "2"
+        type: string
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Clean up stale test apps
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          # inputs.max_age is empty for scheduled runs, so use default
+          MAX_AGE="${{ inputs.max_age }}"
+          ARGS="$ARGS --max-age ${MAX_AGE:-2}"
+          ./dev/fly/cleanup $ARGS

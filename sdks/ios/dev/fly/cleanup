@@ -1,0 +1,116 @@
+#!/bin/bash
+#
+# Clean up stale XMTP test apps on Fly.io
+#
+# Usage:
+#   ./dev/fly/cleanup [--dry-run] [--max-age HOURS]
+#
+# Options:
+#   --dry-run    Show what would be deleted without actually deleting
+#   --max-age    Maximum age in hours before an app is considered stale (default: 2)
+#
+# Environment:
+#   FLY_API_TOKEN - Required for Fly.io authentication
+
+set -e
+
+# Validate required environment variables
+if [ -z "$FLY_API_TOKEN" ]; then
+    echo "Error: FLY_API_TOKEN is not set" >&2
+    exit 1
+fi
+
+APP_PREFIX="xmtp-ios-test"
+MAX_AGE_HOURS=2
+DRY_RUN=false
+FLY_ORG=xmtp-labs
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        --max-age)
+            MAX_AGE_HOURS="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
+MAX_AGE_SECONDS=$((MAX_AGE_HOURS * 3600))
+NOW=$(date -u +%s)
+
+echo "Looking for apps with prefix '$APP_PREFIX' older than $MAX_AGE_HOURS hours..."
+
+# Get all apps as JSON and filter by prefix
+APPS=$(flyctl apps list --org "$FLY_ORG" --json 2>/dev/null) || {
+    echo "Error: Failed to list apps in org $FLY_ORG" >&2
+    exit 1
+}
+APPS=$(echo "$APPS" | jq -r ".[] | select(.Name | startswith(\"$APP_PREFIX\")) | .Name")
+
+if [ -z "$APPS" ]; then
+    echo "No matching apps found."
+    exit 0
+fi
+
+DELETED_COUNT=0
+
+for APP_NAME in $APPS; do
+    # Get machine info to find creation time (apps don't have creation time, but machines do)
+    MACHINE_INFO=$(flyctl machines list --app "$APP_NAME" --json 2>/dev/null) || continue
+
+    # Extract creation timestamp from the first machine (ISO 8601 format)
+    CREATED_AT=$(echo "$MACHINE_INFO" | jq -r '.[0].created_at // empty')
+
+    if [ -z "$CREATED_AT" ] || [ "$CREATED_AT" = "null" ]; then
+        echo "Warning: Could not determine creation time for $APP_NAME, skipping"
+        continue
+    fi
+
+    # Convert ISO 8601 to epoch seconds (timestamps are in UTC)
+    # Handle both Linux and macOS date commands
+    if date --version >/dev/null 2>&1; then
+        # GNU date (Linux)
+        CREATED_EPOCH=$(date -u -d "$CREATED_AT" +%s 2>/dev/null) || {
+            echo "Warning: Failed to parse date for $APP_NAME: $CREATED_AT" >&2
+            continue
+        }
+    else
+        # BSD date (macOS) - use TZ=UTC to interpret the timestamp correctly
+        CREATED_EPOCH=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$CREATED_AT" +%s 2>/dev/null) || \
+            CREATED_EPOCH=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%S" "${CREATED_AT%%Z}" +%s 2>/dev/null) || {
+            echo "Warning: Failed to parse date for $APP_NAME: $CREATED_AT" >&2
+            continue
+        }
+    fi
+
+    AGE_SECONDS=$((NOW - CREATED_EPOCH))
+    AGE_HOURS=$((AGE_SECONDS / 3600))
+
+    if [ "$AGE_SECONDS" -gt "$MAX_AGE_SECONDS" ]; then
+        if [ "$DRY_RUN" = true ]; then
+            echo "[DRY RUN] Would delete: $APP_NAME (age: ${AGE_HOURS}h)"
+        else
+            echo "Deleting: $APP_NAME (age: ${AGE_HOURS}h)"
+            if ! flyctl apps destroy "$APP_NAME" --yes 2>&1; then
+                echo "  Warning: Failed to delete $APP_NAME, may require manual cleanup" >&2
+            fi
+            DELETED_COUNT=$((DELETED_COUNT + 1))
+        fi
+    else
+        echo "Keeping: $APP_NAME (age: ${AGE_HOURS}h, under threshold)"
+    fi
+done
+
+if [ "$DRY_RUN" = true ]; then
+    echo "Dry run complete. No apps were deleted."
+else
+    echo "Cleanup complete. Deleted $DELETED_COUNT app(s)."
+fi

@@ -1,0 +1,27 @@
+# SwiftFormat configuration for XMTP iOS SDK
+# Keep it simple and stick to defaults where possible
+
+# File exclusions
+--exclude Sources/XMTPiOS/Proto,Sources/XMTPiOS/Libxmtp/xmtpv3.swift,Sources/XMTPiOSDynamic/Libxmtp/xmtpv3.swift,.build
+
+# Use tabs for indentation (matching existing .swiftformat)
+--indent tabs
+
+# Line length to match SwiftLint config
+--maxwidth 120
+
+# Import organization
+--importgrouping alpha
+
+# Remove redundant code
+--redundanttype inferred
+
+# Acronyms commonly used in this project
+--acronyms XMTP,SDK,iOS,API,URL,MLS
+
+# Preserve await in autoclosure contexts
+--asynccapturing assertThrowsAsyncError
+
+# Disable rules that incorrectly remove await keywords
+# The redundantAsync rule is too aggressive and removes await in autoclosure contexts
+--disable redundantAsync
