@@ -3,6 +3,7 @@ members = [
   # Applications
   "apps/cli",
   "apps/mls_validation_service",
+  "log_parser",
   # Bindings
   "bindings/mobile",
   "bindings/node",

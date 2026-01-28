@@ -271,19 +271,16 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             // Bind installation_id to a variable to extend its lifetime
             let __installation_id = #installation_id;
-            // Hex encode last 4 bytes of installation_id
-            let __installation_bytes: &[u8] = __installation_id.as_ref();
-            let __installation_len = __installation_bytes.len();
-            let __installation_last_4 = if __installation_len >= 4 { &__installation_bytes[__installation_len - 4..] } else { __installation_bytes };
-            let __installation_truncated = hex::encode(__installation_last_4);
+            let __inst = xmtp_common::fmt::short_hex(__installation_id.as_ref());
+            let __now_ms = xmtp_common::time::now_ms();
 
             // Build message with context for non-structured logging
             let __message = if ::xmtp_common::is_structured_logging() {
                 // Structured logging: include installation_id and timestamp in message
-                format!("➣ {} {{installation_id: {}, timestamp: {}}}", __meta.doc, __installation_truncated, xmtp_common::time::now_ns())
+                format!("➣ {} {{time_ms: {__now_ms}, inst: {__inst}}}", __meta.doc)
             } else {
                 // Non-structured logging: embed context in message for readability
-                let __context_parts: ::std::vec::Vec<String> = __meta.context_fields
+                let mut __context_parts: ::std::vec::Vec<String> = __meta.context_fields
                     .iter()
                     .filter_map(|&field_name| {
                         match field_name {
@@ -293,12 +290,11 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     })
                     .collect();
 
+                __context_parts.push(format!("time_ms: {__now_ms}"));
+                __context_parts.push(format!("inst: {__inst}"));
                 let __context_str = __context_parts.join(", ");
-                if __context_str.is_empty() {
-                    format!("➣ {} {{installation_id: {}, timestamp: {}}}", __meta.doc, __installation_truncated, xmtp_common::time::now_ns())
-                } else {
-                    format!("➣ {} {{{__context_str}, installation_id: {}, timestamp: {}}}", __meta.doc, __installation_truncated, xmtp_common::time::now_ns())
-                }
+
+                format!("➣ {} {{{__context_str}}}", __meta.doc)
             };
 
             #tracing_call
