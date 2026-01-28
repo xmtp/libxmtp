@@ -936,7 +936,7 @@ Note: Some warnings may be present - this is expected. The goal is that the scri
 **Step 1: Start local backend (from repo root)**
 
 ```bash
-./dev/docker/up
+./dev/up
 ```
 
 Expected: Docker services start (node, validation, db, etc.)
