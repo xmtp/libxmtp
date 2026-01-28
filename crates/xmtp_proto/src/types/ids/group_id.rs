@@ -91,7 +91,7 @@ mod test {
     #[case(vec![1, 2, 3, 4, 5])]
     #[case(Vec::new())]
     #[xmtp_common::test]
-    fn test_group_id_from_vec(#[case] input: Vec<u8>) {
+    async fn test_group_id_from_vec(#[case] input: Vec<u8>) {
         assert_eq!(GroupId::from(input.clone()).as_slice(), input.as_slice());
         assert_eq!(GroupId::from(input.clone()).as_ref(), input.as_slice());
     }
@@ -101,7 +101,7 @@ mod test {
     #[case(b"")]
     #[case(b"longer_test_data")]
     #[xmtp_common::test]
-    fn test_group_id_from_slice(#[case] input: &[u8]) {
+    async fn test_group_id_from_slice(#[case] input: &[u8]) {
         assert_eq!(GroupId::from(input).as_slice(), input);
     }
 

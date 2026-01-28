@@ -1,6 +1,6 @@
 use crate::DbgClient;
 use crate::app::store::Database;
-use crate::app::types::InboxId;
+use crate::app::types::{Group, InboxId};
 use crate::app::{App, load_all_identities};
 use crate::args::BackendOpts;
 use crate::{
@@ -165,7 +165,8 @@ impl GenerateMessages {
         ))?;
         owner_group
             .add_members(&[hex::encode(not_in_group)])
-            .await?;
+            .await
+            .inspect_err(|e| error!(%group, "{}", e))?;
         // make sure to update the group metadata
         let mut new_group = group.clone();
         new_group.members.push(*not_in_group);
@@ -198,13 +199,16 @@ impl GenerateMessages {
                 .ok_or(eyre!("client does not exist"))?;
             let client = client.lock().await;
             client.sync_welcomes().await?;
-            let group = client.group(&group.id.into())?;
-            group.sync_with_conn().await?;
-            group.maybe_update_installations(None).await?;
+            let mls_group = client.group(&group.id.into())?;
+            mls_group.sync_with_conn().await?;
+            mls_group.maybe_update_installations(None).await?;
             let words = rng.gen_range(0..10);
             let words = lipsum::lipsum_words_with_rng(&mut *rng, words as usize);
             info!(time = ?std::time::Instant::now(), new_description=words, "updating group description");
-            group.update_group_description(words).await?;
+            mls_group
+                .update_group_description(words)
+                .await
+                .inspect_err(|e| error!(%group, "{}", e))?;
             Ok(())
         } else {
             Err(MessageSendError::NoGroup.into())
@@ -230,11 +234,20 @@ impl GenerateMessages {
             let (_, group) = stores.clone();
             let semaphore = semaphore.clone();
             let cs = clients.clone();
-            set.spawn(async move {
-                let _permit = semaphore.acquire().await?;
-                Self::send_message(&group, cs, n, opts).await?;
-                bar_pointer.inc(1);
-                Ok(())
+            set.spawn({
+                async move {
+                    let _permit = semaphore.acquire().await?;
+                    let rng = &mut SmallRng::from_entropy();
+                    let group = group
+                        .random(&n, rng)?
+                        .ok_or(eyre!("no group in local store"))?;
+
+                    Self::send_message(&group, cs, opts)
+                        .await
+                        .inspect_err(|e| error!(%group, "{}", e))?;
+                    bar_pointer.inc(1);
+                    Ok(())
+                }
             });
         }
 
@@ -261,9 +274,8 @@ impl GenerateMessages {
     }
 
     async fn send_message(
-        group_store: &GroupStore<'static>,
+        group: &Group,
         clients: Arc<HashMap<InboxId, Mutex<DbgClient>>>,
-        network: args::BackendOpts,
         opts: args::MessageGenerateOpts,
     ) -> Result<(), MessageSendError> {
         let args::MessageGenerateOpts {
@@ -271,11 +283,8 @@ impl GenerateMessages {
             ..
         } = opts;
 
-        let rng = &mut SmallRng::from_entropy();
-        let group = group_store
-            .random(&network, rng)?
-            .ok_or(eyre!("no group in local store"))?;
         info!(time = ?std::time::Instant::now(), group = hex::encode(group.id), "sending message");
+        let rng = &mut SmallRng::from_entropy();
         if let Some(inbox_id) = group.members.choose(rng) {
             let client = clients
                 .get(inbox_id.as_slice())

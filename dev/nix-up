@@ -39,3 +39,22 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 else
   echo "direnv not installed"
 fi
+
+# Create .envrc file for omnix integration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+ENVRC_PATH="$REPO_ROOT/.envrc"
+
+if [[ -f "$ENVRC_PATH" ]]; then
+  echo ".envrc already exists at $ENVRC_PATH"
+else
+  echo "Creating .envrc file..."
+  cat > "$ENVRC_PATH" << 'EOF'
+source_url \
+  https://omnix.page/om/develop/omnixrc/v1 \
+  'sha256-FBAVRYkaexKeFKQGUxaPHqhBnqA7km7++O77dKiyD0I='
+watch_file om.yaml
+use omnix
+EOF
+  echo ".envrc created at $ENVRC_PATH"
+fi

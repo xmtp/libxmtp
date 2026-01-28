@@ -235,7 +235,7 @@ mod test {
     #[case(Cursor::new(0, 0u32), 0, 0u32)]
     #[case(Cursor::new(u64::MAX, u32::MAX), u64::MAX, u32::MAX)]
     #[xmtp_common::test]
-    fn test_accessor_methods(
+    async fn test_accessor_methods(
         #[case] cursor: Cursor,
         #[case] expected_seq: u64,
         #[case] expected_orig: u32,
@@ -249,7 +249,7 @@ mod test {
     }
 
     #[xmtp_common::test]
-    fn test_timestamp() {
+    async fn test_timestamp() {
         let test_time = chrono::Utc::now();
         let mut welcome_message = WelcomeMessage::generate();
         welcome_message.created_ns = test_time;

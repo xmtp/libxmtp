@@ -58,7 +58,7 @@ mkShell {
   STACK_OVERFLOW_CHECK = 0;
   CC_wasm32_unknown_unknown = "${llvmPackages.clang-unwrapped}/bin/clang";
   AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
-  CFLAGS_wasm32_unknown_unknown = "-I ${llvmPackages.clang-unwrapped.lib}/lib/clang/19/include";
+  CFLAGS_wasm32_unknown_unknown = "-I ${llvmPackages.clang-unwrapped.lib}/lib/clang/21/include";
   LD_LIBRARY_PATH = lib.makeLibraryPath [ openssl zlib ];
   nativeBuildInputs = [ pkg-config zstd openssl zlib ];
   XMTP_NIX_ENV = "yes";
