@@ -15,6 +15,9 @@ GIT_BRANCH=$(shell git rev-parse --abbrev-ref HEAD)
 GIT_COMMIT_HASH=$(shell git log -1 --pretty=format:"%h")
 GIT_COMMIT_DATE=$(shell TZ=UTC git log -1 --date=iso-local --pretty=format:"%ad")
 
+IOS_SDK_BUILD_DIR ?= $(WORKSPACE_PATH)/sdks/ios/.build
+IOS_SDK_SWIFT_DIR ?= $(WORKSPACE_PATH)/sdks/ios/Sources/XMTPiOS/LibXMTP
+
 install-jar:
 	mkdir -p $(JAR_DIR) && \
 	curl https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar -o $(JAR_DIR)/jna.jar && \
@@ -72,7 +75,9 @@ lipodyn:
 
 # xcframework combines libs for different platforms (iOS, iOS-simulator, macOS, ...) into one framework that can be used in Xcode
 framework: lipo
-	rm -rf LibXMTPSwiftFFI.xcframework
+	mkdir -p $(IOS_SDK_BUILD_DIR)
+	mkdir -p $(IOS_SDK_SWIFT_DIR)
+	rm -rf $(IOS_SDK_BUILD_DIR)/LibXMTPSwiftFFI.xcframework
 	xcodebuild -create-xcframework \
 		-library build/aarch64-apple-ios/$(LIB) \
 		-headers build/swift/static/include/libxmtp/ \
@@ -80,7 +85,8 @@ framework: lipo
 		-headers build/swift/static/include/libxmtp/ \
 		-library build/lipo_macos/$(LIB) \
 		-headers build/swift/static/include/libxmtp/ \
-		-output LibXMTPSwiftFFI.xcframework
+		-output $(IOS_SDK_BUILD_DIR)/LibXMTPSwiftFFI.xcframework
+	cp build/swift/static/xmtpv3.swift $(IOS_SDK_SWIFT_DIR)/xmtpv3.swift
 
 frameworkdyn: lipodyn
 	rm -rf LibXMTPSwiftFFIDynamic.xcframework
@@ -128,4 +134,7 @@ swiftlocal: libxmtpv3.a bindgenstatic swift framework
 
 swiftdynamic: libxmtpv3.dylib bindgendynamic swiftdyn frameworkdyn
 
-.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift bindgendynamic bindgenstatic frameworkdyn lipo lipodyn download-sqlcipher build-sqlcipher
+# Build everything needed for local iOS SDK development
+local: $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios bindgenstatic swift lipo framework
+
+.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift bindgendynamic bindgenstatic frameworkdyn lipo lipodyn download-sqlcipher build-sqlcipher local
