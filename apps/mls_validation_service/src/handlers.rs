@@ -359,8 +359,7 @@ mod tests {
         let kp = if let Some(address) = account_address {
             let application_id =
                 Extension::ApplicationId(ApplicationIdExtension::new(address.as_bytes()));
-            kp.leaf_node_extensions(Extensions::single(application_id))
-                .expect("application id extension is always valid in leaf nodes")
+            kp.leaf_node_extensions(Extensions::single(application_id).unwrap())
         } else {
             kp
         };

@@ -381,7 +381,8 @@ fn test_create_from_welcome_validation() {
                 let mut group_membership = GroupMembership::new();
                 group_membership.add("deadbeef".to_string(), 1);
                 existing_extensions
-                    .add_or_replace(build_group_membership_extension(&group_membership));
+                    .add_or_replace(build_group_membership_extension(&group_membership))
+                    .unwrap();
 
                 mls_group
                     .update_group_context_extensions(
