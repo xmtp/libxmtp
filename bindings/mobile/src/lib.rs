@@ -16,7 +16,6 @@ pub use mls::*;
 use std::error::Error;
 use xmtp_api_d14n::MessageBackendBuilderError;
 use xmtp_common::ErrorCode;
-use xmtp_common::time::Expired;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_mls::{
     messages::enrichment::EnrichMessageError, mls_common::group_metadata::GroupMetadataError,
@@ -26,8 +25,8 @@ extern crate tracing as log;
 
 uniffi::setup_scaffolding!("xmtpv3");
 
-#[derive(uniffi::Error, thiserror::Error, Debug, ErrorCode)]
-#[uniffi(flat_error)]
+/// Internal error enum with all variants - implements ErrorCode
+#[derive(thiserror::Error, Debug, ErrorCode)]
 pub enum GenericError {
     #[error("Client error: {0}")]
     #[error_code(inherit)]
@@ -96,9 +95,8 @@ pub enum GenericError {
     ReloadLog(#[from] tracing_subscriber::reload::Error),
     #[error("Error initializing debug log file")]
     Log(String),
-    #[error(transparent)]
-    #[error_code(inherit)]
-    Expired(#[from] Expired),
+    #[error("Timer duration expired")]
+    Expired,
     #[error(transparent)]
     #[error_code(inherit)]
     BackendBuilder(#[from] MessageBackendBuilderError),
@@ -117,8 +115,8 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for GenericError {
     }
 }
 
-#[derive(uniffi::Error, thiserror::Error, Debug, ErrorCode)]
-#[uniffi(flat_error)]
+/// Internal error enum for subscribe errors
+#[derive(thiserror::Error, Debug, ErrorCode)]
 pub enum FfiSubscribeError {
     #[error("Subscribe Error {0}")]
     #[error_code(inherit)]
@@ -126,6 +124,133 @@ pub enum FfiSubscribeError {
     #[error("Storage error: {0}")]
     #[error_code(inherit)]
     Storage(#[from] xmtp_db::StorageError),
+}
+
+/// Wrapper that formats errors as `[error_code] message` for mobile SDKs.
+/// UniFFI uses Display to convert errors to strings, so this wrapper
+/// ensures mobile clients receive machine-readable error codes.
+#[derive(Debug, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum FfiError {
+    Error(GenericError),
+}
+
+impl std::fmt::Display for FfiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FfiError::Error(e) => write!(f, "[{}] {}", e.error_code(), e),
+        }
+    }
+}
+
+impl std::error::Error for FfiError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            FfiError::Error(e) => e.source(),
+        }
+    }
+}
+
+impl From<GenericError> for FfiError {
+    fn from(err: GenericError) -> Self {
+        FfiError::Error(err)
+    }
+}
+
+impl FfiError {
+    /// Create a generic error with a message
+    pub fn generic(err: impl Into<String>) -> Self {
+        FfiError::Error(GenericError::Generic { err: err.into() })
+    }
+}
+
+// Implement From for all error types that GenericError supports
+macro_rules! impl_ffi_error_from {
+    ($($error_ty:ty),* $(,)?) => {
+        $(
+            impl From<$error_ty> for FfiError {
+                fn from(err: $error_ty) -> Self {
+                    FfiError::Error(GenericError::from(err))
+                }
+            }
+        )*
+    };
+}
+
+impl_ffi_error_from! {
+    xmtp_mls::client::ClientError,
+    xmtp_mls::builder::ClientBuilderError,
+    xmtp_db::StorageError,
+    xmtp_mls::groups::GroupError,
+    xmtp_cryptography::signature::SignatureError,
+    GroupMetadataError,
+    xmtp_mls::groups::group_permissions::GroupMutablePermissionsError,
+    xmtp_id::associations::builder::SignatureRequestError,
+    xmtp_id::associations::signature::SignatureError,
+    xmtp_id::scw_verifier::VerifierError,
+    xmtp_id::associations::AssociationError,
+    xmtp_mls::groups::device_sync::DeviceSyncError,
+    xmtp_mls::identity::IdentityError,
+    tokio::task::JoinError,
+    tokio::io::Error,
+    xmtp_mls::subscriptions::SubscribeError,
+    xmtp_api_grpc::error::GrpcBuilderError,
+    Box<xmtp_api_grpc::error::GrpcError>,
+    IdentifierValidationError,
+    tracing_appender::rolling::InitError,
+    tracing_subscriber::reload::Error,
+    MessageBackendBuilderError,
+    xmtp_api::ApiError,
+    EnrichMessageError,
+    uniffi::UnexpectedUniFFICallbackError,
+    String,
+}
+
+impl From<xmtp_common::time::Expired> for FfiError {
+    fn from(_: xmtp_common::time::Expired) -> Self {
+        FfiError::Error(GenericError::Expired)
+    }
+}
+
+/// Wrapper for subscribe errors with `[error_code] message` format
+#[derive(Debug, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum FfiSubscribeErr {
+    Error(FfiSubscribeError),
+}
+
+impl std::fmt::Display for FfiSubscribeErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FfiSubscribeErr::Error(e) => write!(f, "[{}] {}", e.error_code(), e),
+        }
+    }
+}
+
+impl std::error::Error for FfiSubscribeErr {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            FfiSubscribeErr::Error(e) => e.source(),
+        }
+    }
+}
+
+impl From<FfiSubscribeError> for FfiSubscribeErr {
+    fn from(err: FfiSubscribeError) -> Self {
+        FfiSubscribeErr::Error(err)
+    }
+}
+
+impl From<xmtp_mls::subscriptions::SubscribeError> for FfiSubscribeErr {
+    fn from(err: xmtp_mls::subscriptions::SubscribeError) -> Self {
+        FfiSubscribeErr::Error(FfiSubscribeError::Subscribe(err))
+    }
+}
+
+impl From<xmtp_db::StorageError> for FfiSubscribeErr {
+    fn from(err: xmtp_db::StorageError) -> Self {
+        FfiSubscribeErr::Error(FfiSubscribeError::Storage(err))
+    }
 }
 
 impl From<String> for GenericError {
@@ -195,9 +320,9 @@ mod lib_tests {
     }
 
     #[test]
-    fn test_generic_error_code_inherited_expired() {
-        let err = GenericError::Expired(xmtp_common::time::Expired.into());
-        assert_eq!(err.error_code(), "Expired");
+    fn test_generic_error_code_expired() {
+        let err = GenericError::Expired;
+        assert_eq!(err.error_code(), "GenericError::Expired");
     }
 
     #[test]
@@ -207,6 +332,56 @@ mod lib_tests {
             xmtp_db::StorageError::NotFound(xmtp_db::NotFound::GroupById(vec![1, 2, 3]));
         let err = FfiSubscribeError::Storage(storage_err);
         assert_eq!(err.error_code(), "StorageError::NotFound");
+    }
+
+    #[test]
+    fn test_ffi_error_display_format() {
+        use crate::FfiError;
+
+        // Test that FfiError Display includes the error code prefix
+        let err = FfiError::generic("something went wrong");
+        let display = err.to_string();
+        assert!(
+            display.starts_with("[GenericError::Generic]"),
+            "Expected error to start with [GenericError::Generic], got: {}",
+            display
+        );
+        assert!(
+            display.contains("something went wrong"),
+            "Expected error message in display"
+        );
+    }
+
+    #[test]
+    fn test_ffi_error_display_inherited_code() {
+        use crate::FfiError;
+
+        // Test that FfiError Display shows inherited error codes
+        let storage_err =
+            xmtp_db::StorageError::NotFound(xmtp_db::NotFound::MessageById(vec![1, 2, 3]));
+        let err: FfiError = storage_err.into();
+        let display = err.to_string();
+        assert!(
+            display.starts_with("[StorageError::NotFound]"),
+            "Expected error to start with [StorageError::NotFound], got: {}",
+            display
+        );
+    }
+
+    #[test]
+    fn test_ffi_subscribe_err_display_format() {
+        use crate::FfiSubscribeErr;
+
+        // Test that FfiSubscribeErr Display includes the error code prefix
+        let storage_err =
+            xmtp_db::StorageError::NotFound(xmtp_db::NotFound::GroupById(vec![1, 2, 3]));
+        let err: FfiSubscribeErr = storage_err.into();
+        let display = err.to_string();
+        assert!(
+            display.starts_with("[StorageError::NotFound]"),
+            "Expected error to start with [StorageError::NotFound], got: {}",
+            display
+        );
     }
 
     // Execute once before any tests are run
