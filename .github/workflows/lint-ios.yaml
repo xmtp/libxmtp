@@ -22,6 +22,11 @@ jobs:
           extra_nix_config: |
             access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
       - uses: DeterminateSystems/magic-nix-cache-action@v13
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.0"
+      - name: Build bindings
+        run: nix develop .#ios --command ./sdks/ios/dev/bindings
       - name: Run SwiftLint
         run: nix develop .#ios --command ./sdks/ios/dev/lint
       - name: Check SwiftFormat
