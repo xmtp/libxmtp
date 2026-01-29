@@ -8,8 +8,12 @@ use parking_lot::{RwLock, RwLockWriteGuard};
 use std::{
     collections::{HashMap, HashSet},
     iter::Peekable,
+    marker::PhantomData,
+    slice::Iter,
     sync::{Arc, Weak},
 };
+use tracing::Instrument;
+use tracing_subscriber::filter::targets::IntoIter;
 
 pub use value::Value;
 use xmtp_common::Event;
@@ -19,7 +23,7 @@ type InstallationId = String;
 #[derive(Default)]
 pub struct LogState {
     pub groups: HashSet<String>,
-    pub clients: HashMap<InstallationId, ClientState>,
+    pub clients: HashMap<InstallationId, Arc<RwLock<ClientState>>>,
 }
 
 impl LogState {
@@ -49,12 +53,13 @@ impl LogState {
             Event::ClientCreated => self
                 .clients
                 .entry(installation.to_string())
-                .or_insert_with(|| ClientState::new(None)),
+                .or_insert_with(|| Arc::new(RwLock::new(ClientState::new(&installation, None)))),
             _ => self
                 .clients
                 .get_mut(installation)
                 .context("Missing client")?,
         };
+        let mut client = client.write();
 
         if let Ok(group_id) = ctx("group_id").and_then(|id| id.as_str()) {
             if !self.groups.contains(group_id) {
@@ -94,51 +99,95 @@ pub struct ClientState {
     pub name: Option<String>,
     pub events: Vec<LogEvent>,
     pub groups: HashMap<String, Arc<RwLock<GroupState>>>,
+    pub inst: String,
 }
 
 impl ClientState {
-    fn new(name: Option<String>) -> Self {
+    fn new(inst: &str, name: Option<String>) -> Self {
         Self {
             name,
             events: Vec::new(),
             groups: HashMap::default(),
+            inst: inst.to_string(),
         }
     }
 
     fn update_group(&mut self, group_id: &str) -> RwLockWriteGuard<'_, GroupState> {
         self.groups
             .entry(group_id.to_string())
-            .or_insert_with(GroupState::new)
+            .or_insert_with(|| GroupState::new(&self.inst))
             .update()
     }
 }
 
 #[derive(Clone, Default)]
 pub struct GroupState {
-    prev: Option<Arc<RwLock<Self>>>,
-    next: Option<Weak<RwLock<Self>>>,
-    event: Option<Event>,
-    dm_target: Option<InstallationId>,
-    created_at: Option<i64>,
-    previous_epoch: Option<i64>,
-    epoch: Option<i64>,
-    cursor: Option<i64>,
-    members: HashSet<InstallationId>,
-    problems: Vec<GroupStateProblem>,
+    pub prev: Option<Arc<RwLock<Self>>>,
+    pub next: Option<Weak<RwLock<Self>>>,
+    pub installation_id: String,
+    pub event: Option<Event>,
+    pub dm_target: Option<InstallationId>,
+    pub created_at: Option<i64>,
+    pub previous_epoch: Option<i64>,
+    pub epoch: Option<i64>,
+    // Group states from other clients in the same epoch
+    pub correlations: Vec<Arc<RwLock<Self>>>,
+    pub cursor: Option<i64>,
+    pub members: HashMap<InstallationId, Weak<RwLock<ClientState>>>,
+    pub problems: Vec<GroupStateProblem>,
 }
 
 #[derive(Clone, Default)]
 struct GroupStateProblem {}
 
+impl IntoIterator for &GroupState {
+    type IntoIter = GroupStateIterator;
+    type Item = Arc<RwLock<GroupState>>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.clone().into_iter()
+    }
+}
+impl IntoIterator for GroupState {
+    type IntoIter = GroupStateIterator;
+    type Item = Arc<RwLock<GroupState>>;
+    fn into_iter(self) -> Self::IntoIter {
+        GroupStateIterator {
+            current: None,
+            staged: Some(Arc::new(RwLock::new(self))),
+        }
+    }
+}
+
+struct GroupStateIterator {
+    current: Option<Arc<RwLock<GroupState>>>,
+    staged: Option<Arc<RwLock<GroupState>>>,
+}
+
+impl Iterator for GroupStateIterator {
+    type Item = Arc<RwLock<GroupState>>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let current = self.staged.take()?;
+        let staged = current.read().next.as_ref().and_then(Weak::upgrade);
+
+        self.staged = staged;
+        self.current = Some(current);
+        self.current.clone()
+    }
+}
+
 impl GroupState {
-    fn new() -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(Self::default()))
+    fn new(inst: &str) -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self {
+            installation_id: inst.to_string(),
+            ..Default::default()
+        }))
     }
 }
 
 trait GroupStateExt {
     fn update(&mut self) -> RwLockWriteGuard<'_, GroupState>;
     fn beginning(&self) -> Result<Arc<RwLock<GroupState>>>;
+    fn traverse(&self) -> GroupStateIterator;
 }
 impl GroupStateExt for Arc<RwLock<GroupState>> {
     fn update(&mut self) -> RwLockWriteGuard<'_, GroupState> {
@@ -164,6 +213,9 @@ impl GroupStateExt for Arc<RwLock<GroupState>> {
         }
 
         Ok(r.clone())
+    }
+    fn traverse(&self) -> GroupStateIterator {
+        self.read().clone().into_iter()
     }
 }
 
