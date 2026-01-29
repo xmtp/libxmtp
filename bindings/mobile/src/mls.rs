@@ -7,9 +7,7 @@ use crate::message::{
 };
 use crate::worker::FfiSyncWorker;
 use crate::worker::FfiSyncWorkerMode;
-use crate::{
-    FfiError, FfiGroupUpdated, FfiReply, FfiSubscribeErr, FfiWalletSendCalls, GenericError,
-};
+use crate::{FfiError, FfiGroupUpdated, FfiReply, FfiWalletSendCalls, GenericError};
 use futures::future::try_join_all;
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
@@ -2378,7 +2376,7 @@ impl FfiConversation {
     pub async fn process_streamed_conversation_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<Vec<FfiMessage>, FfiSubscribeErr> {
+    ) -> Result<Vec<FfiMessage>, FfiError> {
         let message = self
             .inner
             .process_streamed_group_message(envelope_bytes)
@@ -3349,28 +3347,28 @@ impl FfiStreamCloser {
 #[uniffi::export(with_foreign)]
 pub trait FfiMessageCallback: Send + Sync {
     fn on_message(&self, message: FfiMessage);
-    fn on_error(&self, error: FfiSubscribeErr);
+    fn on_error(&self, error: FfiError);
     fn on_close(&self);
 }
 
 #[uniffi::export(with_foreign)]
 pub trait FfiConversationCallback: Send + Sync {
     fn on_conversation(&self, conversation: Arc<FfiConversation>);
-    fn on_error(&self, error: FfiSubscribeErr);
+    fn on_error(&self, error: FfiError);
     fn on_close(&self);
 }
 
 #[uniffi::export(with_foreign)]
 pub trait FfiConsentCallback: Send + Sync {
     fn on_consent_update(&self, consent: Vec<FfiConsent>);
-    fn on_error(&self, error: FfiSubscribeErr);
+    fn on_error(&self, error: FfiError);
     fn on_close(&self);
 }
 
 #[uniffi::export(with_foreign)]
 pub trait FfiPreferenceCallback: Send + Sync {
     fn on_preference_update(&self, preference: Vec<FfiPreferenceUpdate>);
-    fn on_error(&self, error: FfiSubscribeErr);
+    fn on_error(&self, error: FfiError);
     fn on_close(&self);
 }
 
