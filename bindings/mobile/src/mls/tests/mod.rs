@@ -89,7 +89,6 @@ use xmtp_proto::xmtp::mls::message_contents::{
 mod archive;
 mod client;
 mod content_types;
-mod device_sync;
 mod dms;
 mod group_management;
 mod identity;
@@ -97,9 +96,6 @@ mod networking;
 mod static_methods;
 mod streaming;
 mod test_self_removal;
-
-// Constants
-pub(crate) const HISTORY_SYNC_URL: &str = "http://localhost:5558";
 
 // Shared test callback struct
 pub(crate) struct RustStreamCallback {

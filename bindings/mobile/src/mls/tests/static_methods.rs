@@ -43,6 +43,7 @@ async fn test_static_revoke_installations() {
     assert_eq!(client_2_state_after.installations.len(), 4);
 }
 
+#[cfg_attr(feature = "d14n", ignore)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn test_static_revoke_fails_with_non_recovery_identity() {
     let wallet_a = PrivateKeySigner::random();

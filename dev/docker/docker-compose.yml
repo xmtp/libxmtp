@@ -41,6 +41,7 @@ services:
   validation:
     image: ghcr.io/xmtp/mls-validation-service:main
     platform: linux/amd64
+    pull_policy: never
     build:
       context: ../..
       dockerfile: ./dev/validation_service/local.Dockerfile

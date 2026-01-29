@@ -20,6 +20,16 @@ pub struct OrphanedEnvelope {
     pub group_id: GroupId,
 }
 
+impl std::fmt::Display for OrphanedEnvelope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "orphan {} depends on {} of group {}",
+            self.cursor, self.depends_on, self.group_id
+        )
+    }
+}
+
 // prost grpc encoding is _not_ deterministic.
 // https://github.com/tokio-rs/prost/issues/965
 // so we ned to write a custom Hash implementation to

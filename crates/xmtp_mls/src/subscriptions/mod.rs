@@ -557,16 +557,15 @@ pub(crate) mod tests {
     #[macro_export]
     macro_rules! assert_msg {
         ($stream:expr, $expected:expr) => {
+            let next = $stream
+                .next()
+                .await
+                .unwrap()
+                .inspect_err(|e| tracing::error!("{}", e.to_string()))
+                .unwrap();
+
             assert_eq!(
-                String::from_utf8_lossy(
-                    $stream
-                        .next()
-                        .await
-                        .unwrap()
-                        .unwrap()
-                        .decrypted_message_bytes
-                        .as_slice()
-                ),
+                String::from_utf8_lossy(next.decrypted_message_bytes.as_slice()),
                 String::from_utf8_lossy($expected.as_bytes())
             );
         };

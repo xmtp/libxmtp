@@ -3,6 +3,7 @@ name = "bindings_wasm_macros"
 license.workspace = true
 version.workspace = true
 edition = "2024"
+description = "utility macros for webassembly bindings"
 
 [lib]
 proc-macro = true

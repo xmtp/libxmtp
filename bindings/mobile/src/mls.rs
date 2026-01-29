@@ -51,9 +51,7 @@ use xmtp_db::{
     group::GroupQueryArgs,
     group_message::{GroupMessageKind, StoredGroupMessage},
 };
-use xmtp_id::associations::{
-    DeserializationError, Identifier, ident, verify_signed_with_public_context,
-};
+use xmtp_id::associations::{Identifier, ident, verify_signed_with_public_context};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     InboxId,
@@ -67,11 +65,6 @@ use xmtp_mls::client::inbox_addresses_with_verifier;
 use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::ConversationDebugInfo;
-use xmtp_mls::groups::device_sync::DeviceSyncError;
-use xmtp_mls::groups::device_sync::archive::BackupMetadata;
-use xmtp_mls::groups::device_sync::archive::exporter::ArchiveExporter;
-use xmtp_mls::groups::device_sync::archive::insert_importer;
-use xmtp_mls::groups::device_sync::archive::{ArchiveImporter, ENC_KEY_SIZE};
 use xmtp_mls::identity_updates::revoke_installations_with_verifier;
 use xmtp_mls::identity_updates::{
     apply_signature_request_with_verifier, get_creation_signature_kind,
@@ -104,7 +97,6 @@ use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::types::{ApiIdentifier, GroupMessageMetadata};
-use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
@@ -116,6 +108,7 @@ pub use crate::message::{
     FfiRemoteAttachment, FfiTransactionReference,
 };
 
+pub mod device_sync;
 pub mod gateway_auth;
 #[cfg(any(test, feature = "bench"))]
 pub mod inbox_owner;
@@ -829,10 +822,7 @@ impl FfiXmtpClient {
     }
 
     pub async fn sync_preferences(&self) -> Result<FfiGroupSyncSummary, FfiError> {
-        let inner = self.inner_client.as_ref();
-        let summary = inner.sync_all_welcomes_and_history_sync_groups().await?;
-
-        Ok(summary.into())
+        self.sync_all_device_sync_groups().await
     }
 
     pub fn signature_request(&self) -> Option<Arc<FfiSignatureRequest>> {
@@ -1053,85 +1043,6 @@ impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for FfiGroupSyncSumm
             num_eligible: summary.num_eligible as u64,
             num_synced: summary.num_synced as u64,
         }
-    }
-}
-
-#[derive(uniffi::Record)]
-pub struct FfiBackupMetadata {
-    backup_version: u16,
-    elements: Vec<FfiBackupElementSelection>,
-    exported_at_ns: i64,
-    start_ns: Option<i64>,
-    end_ns: Option<i64>,
-}
-impl From<BackupMetadata> for FfiBackupMetadata {
-    fn from(value: BackupMetadata) -> Self {
-        Self {
-            backup_version: value.backup_version,
-            elements: value
-                .elements
-                .into_iter()
-                .filter_map(|selection| selection.try_into().ok())
-                .collect(),
-            start_ns: value.start_ns,
-            end_ns: value.end_ns,
-            exported_at_ns: value.exported_at_ns,
-        }
-    }
-}
-
-#[derive(uniffi::Record)]
-pub struct FfiArchiveOptions {
-    start_ns: Option<i64>,
-    end_ns: Option<i64>,
-    elements: Vec<FfiBackupElementSelection>,
-    exclude_disappearing_messages: bool,
-}
-impl From<FfiArchiveOptions> for BackupOptions {
-    fn from(value: FfiArchiveOptions) -> Self {
-        Self {
-            start_ns: value.start_ns,
-            end_ns: value.end_ns,
-            elements: value
-                .elements
-                .into_iter()
-                .map(|el| {
-                    let element: BackupElementSelection = el.into();
-                    element.into()
-                })
-                .collect(),
-            exclude_disappearing_messages: value.exclude_disappearing_messages,
-        }
-    }
-}
-
-#[derive(uniffi::Enum)]
-pub enum FfiBackupElementSelection {
-    Messages,
-    Consent,
-}
-impl From<FfiBackupElementSelection> for BackupElementSelection {
-    fn from(value: FfiBackupElementSelection) -> Self {
-        match value {
-            FfiBackupElementSelection::Consent => Self::Consent,
-            FfiBackupElementSelection::Messages => Self::Messages,
-        }
-    }
-}
-
-impl TryFrom<BackupElementSelection> for FfiBackupElementSelection {
-    type Error = DeserializationError;
-    fn try_from(value: BackupElementSelection) -> Result<Self, Self::Error> {
-        let v = match value {
-            BackupElementSelection::Consent => Self::Consent,
-            BackupElementSelection::Messages => Self::Messages,
-            _ => {
-                return Err(DeserializationError::Unspecified(
-                    "Backup Element Selection",
-                ));
-            }
-        };
-        Ok(v)
     }
 }
 

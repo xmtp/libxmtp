@@ -2,8 +2,9 @@
 
 use xmtp_common::NS_IN_MIN;
 
+use crate::device_sync::{FfiArchiveOptions, FfiBackupElementSelection};
+
 use super::*;
-use crate::{FfiArchiveOptions, FfiBackupElementSelection};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn test_archive_excludes_disappearing_messages() {

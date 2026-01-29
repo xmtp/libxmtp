@@ -6,6 +6,7 @@ mod consent_state;
 pub mod content_types;
 pub mod conversation;
 pub mod conversations;
+pub mod device_sync;
 pub mod hmac_key;
 mod identity;
 pub mod inbox_id;

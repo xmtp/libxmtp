@@ -2614,10 +2614,12 @@ fn test_inserted_at_populated_in_all_queries() {
             .unwrap();
         assert!(by_timestamp.inserted_at_ns > 0);
 
-        // Test get_sync_group_messages
-        let sync_messages = conn.get_sync_group_messages(&group.id, 0).unwrap();
-        assert_eq!(sync_messages.len(), 1);
-        assert!(sync_messages[0].inserted_at_ns > 0);
+        // Test group_messages_paged
+        let paged_messages = conn
+            .group_messages_paged(&MsgQueryArgs::default(), 0)
+            .unwrap();
+        assert_eq!(paged_messages.len(), 1);
+        assert!(paged_messages[0].inserted_at_ns > 0);
     })
 }
 

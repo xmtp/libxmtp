@@ -3,6 +3,7 @@ edition = "2024"
 name = "xmtpv3"
 version.workspace = true
 license.workspace = true
+description = "iOS/Android bindings to the XMTP mls libraries"
 
 [lib]
 crate-type = ["lib", "cdylib", "staticlib"]
