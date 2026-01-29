@@ -1074,7 +1074,7 @@ async fn test_stream_message_deletions_from_other_client() {
 
     // Create a group and add bo
     let alix_group = alix.create_group(None, None)?;
-    alix_group.add_members(&[bo.inbox_id()]).await?;
+    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
 
     // Bo syncs to join the group
     let bo_groups = bo.sync_welcomes().await?;
