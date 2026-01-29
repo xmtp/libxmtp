@@ -351,6 +351,73 @@ mod lib_tests {
         assert_eq!(parsed.message, "Some error");
     }
 
+    #[test]
+    fn test_parse_xmtp_error_empty_brackets() {
+        let parsed = crate::parse_xmtp_error("[] Empty brackets".to_string());
+        assert_eq!(parsed.code, "");
+        assert_eq!(parsed.message, "[] Empty brackets");
+    }
+
+    #[test]
+    fn test_parse_xmtp_error_nested_brackets() {
+        let parsed =
+            crate::parse_xmtp_error("[Outer::Error] Message with [nested] brackets".to_string());
+        assert_eq!(parsed.code, "Outer::Error");
+    }
+
+    #[test]
+    fn test_ffi_error_source() {
+        use crate::FfiError;
+        use std::error::Error;
+
+        let err = FfiError::generic("test error");
+        // Generic errors don't have a source
+        assert!(err.source().is_none());
+    }
+
+    #[test]
+    fn test_generic_error_from_string() {
+        let err: GenericError = "string error".to_string().into();
+        assert!(matches!(err, GenericError::Generic { .. }));
+        assert_eq!(err.error_code(), "GenericError::Generic");
+    }
+
+    #[test]
+    fn test_generic_error_from_error() {
+        use std::io;
+
+        let io_err = io::Error::new(io::ErrorKind::NotFound, "file not found");
+        let err = GenericError::from_error(io_err);
+        assert!(matches!(err, GenericError::Generic { .. }));
+        let display = format!("{}", err);
+        assert!(display.contains("file not found"));
+    }
+
+    #[test]
+    fn test_ffi_error_from_expired() {
+        use crate::FfiError;
+        use xmtp_common::time::Expired;
+
+        let expired = Expired;
+        let ffi_err: FfiError = expired.into();
+        let display = ffi_err.to_string();
+        assert!(display.contains("[GenericError::Expired]"));
+    }
+
+    #[test]
+    fn test_ffi_error_from_various_error_types() {
+        use crate::FfiError;
+
+        // Test From<String>
+        let err: FfiError = "string error".to_string().into();
+        assert!(err.to_string().contains("[GenericError::Generic]"));
+
+        // Test FfiError::generic helper
+        let err = FfiError::generic("helper error");
+        assert!(err.to_string().contains("[GenericError::Generic]"));
+        assert!(err.to_string().contains("helper error"));
+    }
+
     // Execute once before any tests are run
     #[ctor::ctor]
     fn _setup() {

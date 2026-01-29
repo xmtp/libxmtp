@@ -190,4 +190,70 @@ mod tests {
         let err = RenamedError::AnotherVariant;
         assert_eq!(err.error_code(), "RenamedError::AnotherVariant");
     }
+
+    // Tests for manual implementations of external types
+
+    #[test]
+    fn test_signature_error_codes() {
+        use xmtp_cryptography::signature::SignatureError;
+
+        // BadAddressFormat wraps hex::FromHexError
+        let err = SignatureError::BadAddressFormat(hex::FromHexError::OddLength);
+        assert_eq!(err.error_code(), "SignatureError::BadAddressFormat");
+
+        // BadSignature has an addr field
+        let err = SignatureError::BadSignature {
+            addr: "0x123".to_string(),
+        };
+        assert_eq!(err.error_code(), "SignatureError::BadSignature");
+
+        let err = SignatureError::Unknown;
+        assert_eq!(err.error_code(), "SignatureError::Unknown");
+    }
+
+    #[test]
+    fn test_identifier_validation_error_codes() {
+        use xmtp_cryptography::signature::IdentifierValidationError;
+
+        let err = IdentifierValidationError::InvalidAddresses(vec!["bad".to_string()]);
+        assert_eq!(
+            err.error_code(),
+            "IdentifierValidationError::InvalidAddresses"
+        );
+
+        let err = IdentifierValidationError::HexDecode(hex::FromHexError::OddLength);
+        assert_eq!(err.error_code(), "IdentifierValidationError::HexDecode");
+
+        let err = IdentifierValidationError::Generic("generic error".to_string());
+        assert_eq!(err.error_code(), "IdentifierValidationError::Generic");
+    }
+
+    #[test]
+    fn test_ethereum_crypto_error_codes() {
+        use xmtp_cryptography::ethereum::EthereumCryptoError;
+
+        let err = EthereumCryptoError::InvalidLength;
+        assert_eq!(err.error_code(), "EthereumCryptoError::InvalidLength");
+
+        let err = EthereumCryptoError::InvalidKey;
+        assert_eq!(err.error_code(), "EthereumCryptoError::InvalidKey");
+
+        let err = EthereumCryptoError::SignFailure;
+        assert_eq!(err.error_code(), "EthereumCryptoError::SignFailure");
+
+        let err = EthereumCryptoError::DecompressFailure;
+        assert_eq!(err.error_code(), "EthereumCryptoError::DecompressFailure");
+    }
+
+    #[test]
+    fn test_hex_from_hex_error_code() {
+        let err = hex::FromHexError::OddLength;
+        assert_eq!(err.error_code(), "hex::FromHexError");
+
+        let err = hex::FromHexError::InvalidHexCharacter { c: 'Z', index: 0 };
+        assert_eq!(err.error_code(), "hex::FromHexError");
+
+        let err = hex::FromHexError::InvalidStringLength;
+        assert_eq!(err.error_code(), "hex::FromHexError");
+    }
 }
