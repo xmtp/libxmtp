@@ -13,11 +13,15 @@ pub struct LogEvent {
 }
 
 impl LogEvent {
+    pub fn context(&self, key: &str) -> Option<&Value> {
+        self.context.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+    }
+
     pub fn event_name(&self) -> &str {
         self.event.metadata().doc
     }
 
-    pub fn inbox(&self) -> &str {
+    pub fn installation(&self) -> &str {
         &self.installation
     }
 

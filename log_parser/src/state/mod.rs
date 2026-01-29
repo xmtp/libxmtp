@@ -23,7 +23,9 @@ impl LogState {
             clients: HashMap::new(),
         };
         while let Ok(event) = LogEvent::from(&mut lines) {
-            state.ingest(event);
+            if let Err(err) = state.ingest(event) {
+                tracing::warn!("{err:?}");
+            };
         }
 
         state
@@ -39,19 +41,23 @@ impl LogState {
                 .map(|(_, v)| v)
         };
 
-        let inbox = &event.installation;
+        let installation = &event.installation;
+        let client = match event.event {
+            Event::ClientCreated => self
+                .clients
+                .entry(installation.to_string())
+                .or_insert_with(|| ClientState::new(None)),
+            _ => self
+                .clients
+                .get_mut(installation)
+                .context("Missing client")?,
+        };
+
         match event.event {
-            Event::ClientCreated => {
-                self.clients
-                    .entry(inbox.to_string())
-                    .or_insert_with(|| ClientState::new(None));
-            }
             Event::AssociateName => {
-                let client = self.clients.get_mut(inbox).context("Missing client")?;
                 client.name = Some(ctx("name")?.as_str()?.to_string());
             }
             Event::CreatedDM => {
-                let client = self.clients.get_mut(inbox).context("Missing client")?;
                 let group_id = ctx("group_id")?.as_str()?;
                 let mut dm = client
                     .groups
@@ -64,6 +70,8 @@ impl LogState {
             }
             _ => {}
         }
+
+        client.events.push(event);
 
         Ok(())
     }
@@ -83,14 +91,10 @@ impl ClientState {
             groups: HashMap::default(),
         }
     }
-
-    fn ingest(&mut self, event: LogEvent) {
-        self.events.push(event);
-    }
 }
 
 #[derive(Clone, Default)]
-struct GroupState {
+pub struct GroupState {
     prev: Option<Arc<RwLock<Self>>>,
     dm_target: Option<InstallationId>,
     created_at: Option<i64>,
@@ -131,11 +135,11 @@ mod tests {
         let event = LogEvent::from(&mut line)?;
         assert_eq!(event.event, Event::MembershipInstallationDiff);
 
-        let group_id = event.context.get("group_id");
+        let group_id = event.context("group_id");
         assert!(group_id.is_some());
         assert_eq!(group_id?.as_str()?, "c7ffe79e510aa970877222b3b4409d1c");
 
-        let new_membership = event.context.get("new_membership")?.as_obj()?;
+        let new_membership = event.context("new_membership")?.as_obj()?;
         let members = new_membership.get("members")?.as_obj()?;
         assert_eq!(
             *members.get("0505be93287e66b32191a47e4107d0379fb34ed7b769f1b8437e733e178ed05b")?,
@@ -146,10 +150,7 @@ mod tests {
             Value::Int(379)
         );
 
-        assert_eq!(
-            event.context.get("timestamp")?.as_int()?,
-            1767908059951353776
-        );
+        assert_eq!(event.context("timestamp")?.as_int()?, 1767908059951353776);
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -159,21 +160,18 @@ mod tests {
         let event = LogEvent::from(&mut line.split('\n').peekable())?;
         assert_eq!(event.event, Event::CreatedDM);
 
-        let group_id = event.context.get("group_id");
+        let group_id = event.context("group_id");
         assert!(group_id.is_some());
         // Unquoted hex string should be parsed as a string
         assert_eq!(group_id?.as_str()?, "6dbafe8fc16699dfe3b59d60944150b3");
 
-        let target_inbox = event.context.get("target_inbox");
+        let target_inbox = event.context("target_inbox");
         assert!(target_inbox.is_some());
         assert_eq!(
             target_inbox?.as_str()?,
             "ab23790529e1fa52ed453e69d0d342f02bc8db8e2317f6229672dd0ca4f6d527"
         );
 
-        assert_eq!(
-            event.context.get("timestamp")?.as_int()?,
-            1768320092795839419
-        );
+        assert_eq!(event.context("timestamp")?.as_int()?, 1768320092795839419);
     }
 }
