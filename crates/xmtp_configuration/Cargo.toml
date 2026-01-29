@@ -3,6 +3,7 @@ name = "xmtp_configuration"
 edition = "2024"
 license.workspace = true
 version.workspace = true
+description = "global configuration for xmtp crates"
 
 [dependencies]
 openmls.workspace = true

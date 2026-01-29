@@ -3,6 +3,7 @@ name = "xmtp_api_d14n"
 edition = "2024"
 license.workspace = true
 version.workspace = true
+description = "XMTP Decentralization client implementation according to XIP-49"
 
 [lints]
 workspace = true

@@ -1,3 +1,4 @@
+name: Cache all Nix Outputs
 on:
   workflow_dispatch:
   push:
@@ -9,36 +10,33 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
-  flakehub-publish:
+  build:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest] # Define the operating systems for the matrix
-    runs-on: ${{ matrix.os }} # Use the 'os' variable from the matrix for the runner
+        os: [warp-ubuntu-latest-x64-16x, warp-macos-15-arm64-6x]
+    runs-on: ${{ matrix.os }}
     permissions:
       id-token: write
       contents: read
     steps:
       - uses: actions/checkout@v6
-      - uses: wimpysworld/nothing-but-nix@main
-        if: runner.os == 'Linux'
+      - uses: nixbuild/nix-quick-install-action@v34
+      - run: nix build --version
+      - uses: nix-community/cache-nix-action@v6
         with:
-          hatchet-protocol: "cleave"
-      - uses: DeterminateSystems/determinate-nix-action@v3
+          primary-key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          paths: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
       - name: Install omnix
         run: nix profile install nixpkgs#omnix
       - name: build all flake outputs
-        run: om ci run --include-all-dependencies --results=om.json
+        run: om ci run --include-all-dependencies --results=om.json -- --accept-flake-config
       - name: push to cachix
-        if: env.BRANCH_NAME == 'main'
         run: nix run github:juspay/cachix-push -- --cache xmtp --subflake ROOT --prefix "$BRANCH_NAME" < om.json
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
-      - uses: DeterminateSystems/flakehub-cache-action@main
-      - run: om ci run --include-all-dependencies
-      - uses: DeterminateSystems/flakehub-push@main
-        with:
-          visibility: "public"
-          rolling: true
-          name: "xmtp/libxmtp"
-          include-output-paths: true

@@ -3,6 +3,7 @@ edition = "2024"
 license.workspace = true
 name = "xmtp_proto"
 version.workspace = true
+description = "xmtp protobuf definitions for rust"
 
 [lints]
 workspace = true
@@ -21,6 +22,7 @@ pbjson-types.workspace = true
 pin-project-lite.workspace = true
 prost = { workspace = true, features = ["derive"] }
 prost-types = "0.14"
+rustc-hash.workspace = true
 serde = { workspace = true }
 smallvec.workspace = true
 thiserror.workspace = true
@@ -29,7 +31,6 @@ tonic-prost = "0.14"
 tracing.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
-rustc-hash.workspace = true
 
 mockall = { workspace = true, optional = true }
 tokio = { workspace = true, default-features = false, features = [
