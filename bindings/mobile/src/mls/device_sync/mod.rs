@@ -39,10 +39,7 @@ impl FfiXmtpClient {
 
     /// Manually process a sync archive that matches the pin given.
     /// If no pin is given, then it will process the last archive sent.
-    pub async fn process_sync_archive(
-        &self,
-        archive_pin: Option<String>,
-    ) -> Result<(), FfiError> {
+    pub async fn process_sync_archive(&self, archive_pin: Option<String>) -> Result<(), FfiError> {
         self.inner_client
             .device_sync_client()
             .process_archive_with_pin(archive_pin.as_deref())
