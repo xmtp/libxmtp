@@ -721,7 +721,17 @@ impl FfiXmtpClient {
             .identity_updates()
             .get_latest_association_state(&self.inner_client.context.db(), &inbox_id)
             .await?;
-        Ok(state.into())
+
+        // Get the creation signature kind (read from local DB, no network refresh)
+        let creation_signature_kind = self
+            .inner_client
+            .inbox_creation_signature_kind(state.inbox_id(), false)
+            .await?
+            .map(Into::into);
+
+        let mut ffi_state: FfiInboxState = state.into();
+        ffi_state.creation_signature_kind = creation_signature_kind;
+        Ok(ffi_state)
     }
 
     pub async fn fetch_inbox_updates_count(
