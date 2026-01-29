@@ -152,7 +152,9 @@ impl FfiError {
     }
 }
 
-// Implement From for all error types that GenericError supports
+// Implement From for all error types that GenericError supports.
+// NOTE: When adding a new error type with #[from] to GenericError,
+// also add it here to enable the ? operator with FfiError return types.
 macro_rules! impl_ffi_error_from {
     ($($error_ty:ty),* $(,)?) => {
         $(
