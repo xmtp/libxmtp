@@ -19,31 +19,31 @@
  */
 export class XmtpError extends Error {
   /** The structured error code, e.g. "GroupError::NotFound" */
-  readonly code: string
+  readonly code: string;
 
   constructor(message: string, code: string, originalStack?: string) {
-    super(message)
-    this.name = 'XmtpError'
-    this.code = code
+    super(message);
+    this.name = "XmtpError";
+    this.code = code;
     if (originalStack) {
-      this.stack = originalStack
+      this.stack = originalStack;
     }
     // Ensure proper prototype chain for instanceof checks
-    Object.setPrototypeOf(this, XmtpError.prototype)
+    Object.setPrototypeOf(this, XmtpError.prototype);
   }
 }
 
 export function parseXmtpError(error: unknown): XmtpError {
   if (!(error instanceof Error)) {
-    const msg = String(error)
-    return new XmtpError(msg, 'Unknown')
+    const msg = String(error);
+    return new XmtpError(msg, "Unknown");
   }
 
-  const match = error.message.match(/^\[([^\]]+)\]/)
+  const match = error.message.match(/^\[([^\]]+)\]/);
   if (match) {
-    const [, code] = match
-    return new XmtpError(error.message, code, error.stack)
+    const [, code] = match;
+    return new XmtpError(error.message, code, error.stack);
   }
 
-  return new XmtpError(error.message, 'Unknown', error.stack)
+  return new XmtpError(error.message, "Unknown", error.stack);
 }
