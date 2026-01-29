@@ -12,10 +12,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    },
-    "./error": {
-      "types": "./dist/xmtp_error.d.ts",
-      "default": "./dist/xmtp_error.js"
     }
   },
   "main": "dist/index.js",

@@ -30,14 +30,10 @@ use xmtp_common::ErrorCode;
 ///
 /// JavaScript usage:
 /// ```js
-/// import { parseXmtpError } from '@xmtp/node-bindings/error';
-///
 /// try {
 ///   await client.doSomething();
 /// } catch (e) {
-///   const err = parseXmtpError(e);
-///   console.log(err.code);    // "ErrorType::Variant"
-///   console.log(err.message); // "[ErrorType::Variant] error message"
+///   console.log(e.message); // "[ErrorType::Variant] error message"
 /// }
 /// ```
 #[derive(Debug)]

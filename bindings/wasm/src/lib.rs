@@ -34,14 +34,10 @@ fn error(e: impl std::error::Error) -> JsError {
 ///
 /// JavaScript usage:
 /// ```js
-/// import { parseXmtpError } from '@aspect-build/xmtp-js-sdk/error';
-///
 /// try {
 ///   await client.doSomething();
 /// } catch (e) {
-///   const err = parseXmtpError(e);
-///   console.log(err.code);    // "ErrorType::Variant"
-///   console.log(err.message); // "[ErrorType::Variant] error message"
+///   console.log(e.message); // "[ErrorType::Variant] error message"
 /// }
 /// ```
 #[derive(Debug)]
@@ -68,7 +64,14 @@ impl<T: std::error::Error + ErrorCode> From<ErrorWrapper<T>> for JsError {
   fn from(e: ErrorWrapper<T>) -> JsError {
     let code = e.0.error_code();
     let message = e.0.to_string();
-    JsError::new(&format!("[{}] {}", code, message))
+    let js_error = JsError::new(&format!("[{}] {}", code, message));
+    let js_value: JsValue = js_error.clone().into();
+    let _ = js_sys::Reflect::set(
+      &js_value,
+      &JsValue::from_str("code"),
+      &JsValue::from_str(code),
+    );
+    js_error
   }
 }
 
