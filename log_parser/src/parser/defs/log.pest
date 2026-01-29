@@ -44,7 +44,7 @@ char          =  {
 value = _{ object | array | quoted_string | number | boolean | null | unquoted_string }
 
 // Unquoted string value (alphanumeric, underscores, hyphens - for hex strings, identifiers, etc.)
-unquoted_string = @{ (ASCII_ALPHANUMERIC | "_" | "-")+ }
+unquoted_string = @{ (ASCII_ALPHANUMERIC | "_" | "-" | ".")+ }
 
 // Array
 array = {

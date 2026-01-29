@@ -53,8 +53,12 @@ impl LogEvent {
     }
 
     pub fn from<'a>(lines: &mut Peekable<impl Iterator<Item = &'a str>>) -> Result<Self> {
-        let line_str = lines.peek().context("End of file")?;
-        let line = LogParser::parse(Rule::line, line_str)?;
+        let line = loop {
+            let line_str = lines.next().context("End of file")?;
+            if let Ok(line) = LogParser::parse(Rule::line, line_str) {
+                break line;
+            }
+        };
 
         let line_str = lines.next().expect("We peeked and found a line.");
 
@@ -103,12 +107,11 @@ impl LogEvent {
 
         // Collect up the intermediate lines that don't parse.
         let mut intermediate = String::new();
-        while Self::from(lines).is_err() {
-            let Some(line) = lines.next() else {
-                break;
-            };
-            intermediate.push_str(line);
-            intermediate.push('\n');
+        while lines.peek().is_some_and(|l| !l.contains("➣")) {
+            if let Some(line) = lines.next() {
+                intermediate.push_str(line);
+                intermediate.push('\n');
+            }
         }
 
         Ok(Self {

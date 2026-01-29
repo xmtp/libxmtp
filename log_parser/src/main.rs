@@ -93,10 +93,10 @@ mod tests {
         bo.test_talk_in_dm_with(&alix).await?;
 
         let log = writer.as_string();
-        std::fs::write("logs.txt", &log).unwrap();
         let mut lines = log.split("\n").peekable();
 
         let mut count = 0;
+
         while let Ok(_event) = LogEvent::from(&mut lines) {
             count += 1;
         }
