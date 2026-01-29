@@ -159,14 +159,14 @@ impl FfiError {
 }
 
 fn parse_error_message(message: &str) -> FfiErrorInfo {
-    if let Some(rest) = message.strip_prefix('[') {
-        if let Some(end) = rest.find(']') {
-            let code = rest[..end].to_string();
-            return FfiErrorInfo {
-                code,
-                message: message.to_string(),
-            };
-        }
+    if let Some(rest) = message.strip_prefix('[')
+        && let Some(end) = rest.find(']')
+    {
+        let code = rest[..end].to_string();
+        return FfiErrorInfo {
+            code,
+            message: message.to_string(),
+        };
     }
 
     FfiErrorInfo {
