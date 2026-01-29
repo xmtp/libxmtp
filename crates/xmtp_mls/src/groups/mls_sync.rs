@@ -1088,7 +1088,7 @@ where
         let GroupMessage { cursor, .. } = &message_envelope;
         let envelope_timestamp_ns = message_envelope.timestamp();
         let msg_epoch = processed_message.epoch().as_u64();
-        let msg_group_id = hex::encode(processed_message.group_id().as_slice());
+        let msg_group_id = short_hex(processed_message.group_id().as_slice());
         let msg_group_id_short_hex = short_hex(processed_message.group_id().as_slice());
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns as u64)?;
@@ -2146,7 +2146,7 @@ where
             log_event!(
                 Event::GroupCursorUpdate,
                 self.context.installation_id(),
-                group_id = message.group_id.as_slice(),
+                group_id = #message.group_id.as_slice(),
                 cursor = ?message.cursor
             );
         } else {

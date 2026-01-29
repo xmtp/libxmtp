@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use pest_derive::Parser;
 use tokio::runtime::Runtime;
@@ -60,6 +62,8 @@ fn main() -> Result<()> {
                     anyhow::Ok(())
                 })
                 .unwrap();
+
+            std::thread::sleep(Duration::from_millis(500));
 
             open_log(ui_handle.clone(), &writer.as_string());
         }

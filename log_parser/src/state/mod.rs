@@ -1,27 +1,30 @@
+pub mod assertions;
 pub mod event;
 pub mod value;
 
 use anyhow::{Context, Result};
 pub use event::LogEvent;
+use parking_lot::{RwLock, RwLockWriteGuard};
 use std::{
     collections::{HashMap, HashSet},
     iter::Peekable,
-    sync::{Arc, RwLock, RwLockWriteGuard},
+    sync::{Arc, Weak},
 };
+
 pub use value::Value;
 use xmtp_common::Event;
 
 type InstallationId = String;
 
+#[derive(Default)]
 pub struct LogState {
+    pub groups: HashSet<String>,
     pub clients: HashMap<InstallationId, ClientState>,
 }
 
 impl LogState {
     pub fn build<'a>(mut lines: Peekable<impl Iterator<Item = &'a str>>) -> Self {
-        let mut state = Self {
-            clients: HashMap::new(),
-        };
+        let mut state = Self::default();
         while let Ok(event) = LogEvent::from(&mut lines) {
             if let Err(err) = state.ingest(event) {
                 tracing::warn!("{err:?}");
@@ -53,20 +56,30 @@ impl LogState {
                 .context("Missing client")?,
         };
 
+        if let Ok(group_id) = ctx("group_id").and_then(|id| id.as_str()) {
+            if !self.groups.contains(group_id) {
+                self.groups.insert(group_id.to_string());
+            }
+        }
+
         match event.event {
             Event::AssociateName => {
                 client.name = Some(ctx("name")?.as_str()?.to_string());
             }
             Event::CreatedDM => {
                 let group_id = ctx("group_id")?.as_str()?;
-                let mut dm = client
-                    .groups
-                    .entry(group_id.to_string())
-                    .or_insert_with(|| GroupState::new())
-                    .update();
+                let mut dm = client.update_group(group_id);
 
                 dm.dm_target = Some(ctx("target_inbox")?.as_str()?.to_string());
                 dm.created_at = Some(ctx("time")?.as_int()?);
+            }
+            Event::MLSGroupEpochUpdated => {
+                let group_id = ctx("group_id")?.as_str()?;
+                let mut dm = client.update_group(group_id);
+
+                dm.epoch = Some(ctx("epoch")?.as_int()?);
+                dm.previous_epoch = Some(ctx("previous_epoch")?.as_int()?);
+                dm.cursor = Some(ctx("cursor")?.as_int()?);
             }
             _ => {}
         }
@@ -91,16 +104,31 @@ impl ClientState {
             groups: HashMap::default(),
         }
     }
+
+    fn update_group(&mut self, group_id: &str) -> RwLockWriteGuard<'_, GroupState> {
+        self.groups
+            .entry(group_id.to_string())
+            .or_insert_with(GroupState::new)
+            .update()
+    }
 }
 
 #[derive(Clone, Default)]
 pub struct GroupState {
     prev: Option<Arc<RwLock<Self>>>,
+    next: Option<Weak<RwLock<Self>>>,
+    event: Option<Event>,
     dm_target: Option<InstallationId>,
     created_at: Option<i64>,
+    previous_epoch: Option<i64>,
     epoch: Option<i64>,
+    cursor: Option<i64>,
     members: HashSet<InstallationId>,
+    problems: Vec<GroupStateProblem>,
 }
+
+#[derive(Clone, Default)]
+struct GroupStateProblem {}
 
 impl GroupState {
     fn new() -> Arc<RwLock<Self>> {
@@ -110,15 +138,32 @@ impl GroupState {
 
 trait GroupStateExt {
     fn update(&mut self) -> RwLockWriteGuard<'_, GroupState>;
+    fn beginning(&self) -> Result<Arc<RwLock<GroupState>>>;
 }
 impl GroupStateExt for Arc<RwLock<GroupState>> {
     fn update(&mut self) -> RwLockWriteGuard<'_, GroupState> {
+        let prev = self.clone();
         let new_group = GroupState {
-            prev: Some(self.clone()),
-            ..self.read().unwrap().clone()
+            prev: Some(prev.clone()),
+            problems: vec![],
+            ..self.read().clone()
         };
         *self = Arc::new(RwLock::new(new_group));
-        self.write().unwrap()
+        // Double-link the chain with a weak.
+        prev.write().next = Some(Arc::downgrade(self));
+
+        self.write()
+    }
+    fn beginning(&self) -> Result<Self> {
+        let mut r = self.clone();
+        loop {
+            let Some(prev) = r.read().prev.clone() else {
+                break;
+            };
+            r = prev;
+        }
+
+        Ok(r.clone())
     }
 }
 

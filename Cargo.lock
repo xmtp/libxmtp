@@ -6150,6 +6150,7 @@ dependencies = [
  "anyhow",
  "futures",
  "native-dialog",
+ "parking_lot 0.12.5",
  "pest",
  "pest_derive",
  "slint",
