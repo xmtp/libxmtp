@@ -3,6 +3,7 @@ name = "xmtp_mls_common"
 edition = "2024"
 license.workspace = true
 version.workspace = true
+description = "common MLS utilties"
 
 [lints]
 workspace = true

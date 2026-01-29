@@ -3,6 +3,7 @@ edition = "2024"
 name = "xmtp_content_types"
 version.workspace = true
 license.workspace = true
+description = "xmtp content types"
 
 [features]
 test-utils = []

@@ -2,6 +2,7 @@
 edition = "2024"
 name = "bindings_wasm"
 version.workspace = true
+description = "WebAssembly bindings to the XMTP mls libraries"
 
 [lints]
 workspace = true

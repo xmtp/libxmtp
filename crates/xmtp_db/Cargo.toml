@@ -3,6 +3,7 @@ name = "xmtp_db"
 edition = "2024"
 license.workspace = true
 version.workspace = true
+description = "SQLite interface for XMTP"
 
 [lints]
 workspace = true

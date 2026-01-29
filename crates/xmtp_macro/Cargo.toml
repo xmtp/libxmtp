@@ -3,6 +3,7 @@ name = "xmtp_macro"
 edition = "2024"
 license.workspace = true
 version.workspace = true
+description = "XMTP Utility Macros"
 
 [lints]
 workspace = true

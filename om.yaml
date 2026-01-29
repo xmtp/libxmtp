@@ -1,6 +1,9 @@
 # CI Configurations for `omnix` these run in github ci or locally
 # `om ci run .#wasm -- --accept-flake-config` to run
 ci:
+  default:
+    omnix:
+      dir: .
   wasm:
     omnix:
       dir: .

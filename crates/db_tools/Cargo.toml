@@ -3,6 +3,7 @@ name = "xmtp-db-tools"
 edition = "2024"
 license.workspace = true
 version.workspace = true
+description = "migration/SQLite tools for xmtp databases"
 
 [dependencies]
 anyhow.workspace = true

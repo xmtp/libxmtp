@@ -26,13 +26,19 @@ let
   ];
   rust = craneLib.overrideToolchain (p: rust-toolchain);
 
-  workspaceFileset = lib.fileset.toSource {
+  libraryFileset = lib.fileset.toSource {
     root = ./../..;
-    fileset = (xmtp.filesets { inherit lib craneLib; }).workspace;
+    fileset = (xmtp.filesets { inherit lib craneLib; }).libraries;
+  };
+
+  bindingsFileset = lib.fileset.toSource {
+    root = ./../..;
+    fileset = (xmtp.filesets { inherit lib craneLib; }).forCrate ./../../bindings/wasm;
   };
 
   commonArgs = {
-    src = workspaceFileset;
+    meta.description = "WebAssembly Bindings";
+    src = libraryFileset;
     strictDeps = true;
     # EM_CACHE = "$TMPDIR/.emscripten_cache";
     # we need to set tmpdir for emscripten cache
@@ -67,10 +73,11 @@ let
   bin = rust.buildPackage
     ((commonEnv // commonArgs) // {
       inherit cargoArtifacts;
-      src = workspaceFileset;
+      src = bindingsFileset;
       inherit (rust.crateNameFromCargoToml {
         cargoToml = ./../../bindings/wasm/Cargo.toml;
-      }) pname;
+      })
+        pname;
       inherit (rust.crateNameFromCargoToml {
         cargoToml = ./../../Cargo.toml;
       }) version;
