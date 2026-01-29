@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests;
 
-use crate::{FfiGroupSyncSummary, FfiXmtpClient, GenericError};
+use crate::{FfiError, FfiGroupSyncSummary, FfiXmtpClient};
 use xmtp_id::associations::DeserializationError;
 use xmtp_mls::groups::device_sync::{
     AvailableArchive, DeviceSyncError,
@@ -14,7 +14,7 @@ use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
 impl FfiXmtpClient {
     /// Manually trigger a device sync request to sync records from another active device on this account.
-    pub async fn send_sync_request(&self) -> Result<(), GenericError> {
+    pub async fn send_sync_request(&self) -> Result<(), FfiError> {
         self.inner_client
             .device_sync_client()
             .send_sync_request()
@@ -29,7 +29,7 @@ impl FfiXmtpClient {
         options: FfiArchiveOptions,
         server_url: String,
         pin: String,
-    ) -> Result<(), GenericError> {
+    ) -> Result<(), FfiError> {
         self.inner_client
             .device_sync_client()
             .send_sync_archive(&options.into(), &server_url, &pin)
@@ -42,7 +42,7 @@ impl FfiXmtpClient {
     pub async fn process_sync_archive(
         &self,
         archive_pin: Option<String>,
-    ) -> Result<(), GenericError> {
+    ) -> Result<(), FfiError> {
         self.inner_client
             .device_sync_client()
             .process_archive_with_pin(archive_pin.as_deref())
@@ -56,7 +56,7 @@ impl FfiXmtpClient {
     pub fn list_available_archives(
         &self,
         days_cutoff: i64,
-    ) -> Result<Vec<FfiAvailableArchive>, GenericError> {
+    ) -> Result<Vec<FfiAvailableArchive>, FfiError> {
         let available = self
             .inner_client
             .device_sync_client()
@@ -71,7 +71,7 @@ impl FfiXmtpClient {
         path: String,
         opts: FfiArchiveOptions,
         key: Vec<u8>,
-    ) -> Result<BackupMetadata, GenericError> {
+    ) -> Result<BackupMetadata, FfiError> {
         let db = self.inner_client.context.db();
         let options: BackupOptions = opts.into();
         let metadata = ArchiveExporter::export_to_file(options, db, path, &check_key(key)?)
@@ -82,7 +82,7 @@ impl FfiXmtpClient {
     }
 
     /// Import a previous archive from file.
-    pub async fn import_archive(&self, path: String, key: Vec<u8>) -> Result<(), GenericError> {
+    pub async fn import_archive(&self, path: String, key: Vec<u8>) -> Result<(), FfiError> {
         let mut importer = ArchiveImporter::from_file(path, &check_key(key)?)
             .await
             .map_err(DeviceSyncError::Archive)?;
@@ -97,7 +97,7 @@ impl FfiXmtpClient {
         &self,
         path: String,
         key: Vec<u8>,
-    ) -> Result<FfiBackupMetadata, GenericError> {
+    ) -> Result<FfiBackupMetadata, FfiError> {
         let importer = ArchiveImporter::from_file(path, &check_key(key)?)
             .await
             .map_err(DeviceSyncError::Archive)?;
@@ -105,7 +105,7 @@ impl FfiXmtpClient {
     }
 
     /// Manually sync all device sync groups.
-    pub async fn sync_all_device_sync_groups(&self) -> Result<FfiGroupSyncSummary, GenericError> {
+    pub async fn sync_all_device_sync_groups(&self) -> Result<FfiGroupSyncSummary, FfiError> {
         self.inner_client.sync_welcomes().await?;
         let summary = self.inner_client.sync_all_device_sync_groups().await?;
         Ok(summary.into())
@@ -167,14 +167,12 @@ impl TryFrom<BackupElementSelection> for FfiBackupElementSelection {
     }
 }
 
-fn check_key(mut key: Vec<u8>) -> Result<Vec<u8>, GenericError> {
+fn check_key(mut key: Vec<u8>) -> Result<Vec<u8>, FfiError> {
     if key.len() < 32 {
-        return Err(GenericError::Generic {
-            err: format!(
-                "The encryption key must be at least {} bytes long.",
-                ENC_KEY_SIZE
-            ),
-        });
+        return Err(FfiError::generic(format!(
+            "The encryption key must be at least {} bytes long.",
+            ENC_KEY_SIZE
+        )));
     }
     key.truncate(ENC_KEY_SIZE);
     Ok(key)

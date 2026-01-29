@@ -850,15 +850,6 @@ impl FfiXmtpClient {
         Ok(())
     }
 
-    /// Manually trigger a device sync request to sync records from another active device on this account.
-    pub async fn send_sync_request(&self) -> Result<(), FfiError> {
-        self.inner_client
-            .device_sync_client()
-            .send_sync_request()
-            .await?;
-        Ok(())
-    }
-
     /// Adds a wallet address to the existing client
     pub async fn add_identity(
         &self,
@@ -980,55 +971,6 @@ impl FfiXmtpClient {
             scw_verifier: self.inner_client.scw_verifier().clone(),
         }))
     }
-
-    /// Archive application elements to file for later restoration.
-    pub async fn create_archive(
-        &self,
-        path: String,
-        opts: FfiArchiveOptions,
-        key: Vec<u8>,
-    ) -> Result<(), FfiError> {
-        let db = self.inner_client.context.db();
-        let options: BackupOptions = opts.into();
-        ArchiveExporter::export_to_file(options, db, path, &check_key(key)?)
-            .await
-            .map_err(DeviceSyncError::Archive)?;
-        Ok(())
-    }
-
-    /// Import a previous archive
-    pub async fn import_archive(&self, path: String, key: Vec<u8>) -> Result<(), FfiError> {
-        let mut importer = ArchiveImporter::from_file(path, &check_key(key)?)
-            .await
-            .map_err(DeviceSyncError::Archive)?;
-        insert_importer(&mut importer, &self.inner_client.context).await?;
-
-        Ok(())
-    }
-
-    /// Load the metadata for an archive to see what it contains.
-    /// Reads only the metadata without loading the entire file, so this function is quick.
-    pub async fn archive_metadata(
-        &self,
-        path: String,
-        key: Vec<u8>,
-    ) -> Result<FfiBackupMetadata, FfiError> {
-        let importer = ArchiveImporter::from_file(path, &check_key(key)?)
-            .await
-            .map_err(DeviceSyncError::Archive)?;
-        Ok(importer.metadata.into())
-    }
-}
-
-fn check_key(mut key: Vec<u8>) -> Result<Vec<u8>, FfiError> {
-    if key.len() < 32 {
-        return Err(FfiError::generic(format!(
-            "The encryption key must be at least {} bytes long.",
-            ENC_KEY_SIZE
-        )));
-    }
-    key.truncate(ENC_KEY_SIZE);
-    Ok(key)
 }
 
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
