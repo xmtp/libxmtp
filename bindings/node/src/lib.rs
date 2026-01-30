@@ -39,9 +39,9 @@ use xmtp_common::ErrorCode;
 #[derive(Debug)]
 pub struct ErrorWrapper<E>(pub E)
 where
-  E: std::error::Error + ErrorCode;
+  E: ErrorCode;
 
-impl<T: std::error::Error + ErrorCode> std::fmt::Display for ErrorWrapper<T> {
+impl<T: ErrorCode> std::fmt::Display for ErrorWrapper<T> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
     write!(f, "{}", self.0)
   }
@@ -49,14 +49,14 @@ impl<T: std::error::Error + ErrorCode> std::fmt::Display for ErrorWrapper<T> {
 
 impl<T> From<T> for ErrorWrapper<T>
 where
-  T: std::error::Error + ErrorCode,
+  T: ErrorCode,
 {
   fn from(err: T) -> ErrorWrapper<T> {
     ErrorWrapper(err)
   }
 }
 
-impl<T: std::error::Error + ErrorCode> From<ErrorWrapper<T>> for napi::bindgen_prelude::Error {
+impl<T: ErrorCode> From<ErrorWrapper<T>> for napi::bindgen_prelude::Error {
   fn from(e: ErrorWrapper<T>) -> napi::bindgen_prelude::Error {
     let code = e.0.error_code();
     let message = e.0.to_string();
