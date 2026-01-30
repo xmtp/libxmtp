@@ -45,44 +45,35 @@ impl<E: ErrorCode> ErrorCode for &E {
     }
 }
 
-// Manual implementations for xmtp_cryptography errors.
-// These cannot use the derive macro due to circular dependency issues.
-
-impl ErrorCode for xmtp_cryptography::signature::SignatureError {
-    fn error_code(&self) -> &'static str {
-        use xmtp_cryptography::signature::SignatureError;
-        match self {
-            SignatureError::BadAddressFormat(_) => "SignatureError::BadAddressFormat",
-            SignatureError::BadSignatureFormat(_) => "SignatureError::BadSignatureFormat",
-            SignatureError::BadSignature { .. } => "SignatureError::BadSignature",
-            SignatureError::Signer(_) => "SignatureError::Signer",
-            SignatureError::Unknown => "SignatureError::Unknown",
-        }
+// Derived implementations for xmtp_cryptography errors using remote targets.
+// These mirror the remote types solely to drive the ErrorCode derive.
+#[allow(dead_code)]
+mod cryptography_error_codes {
+    #[derive(xmtp_common::ErrorCode)]
+    #[error_code(remote = "xmtp_cryptography::signature::SignatureError")]
+    enum SignatureError {
+        BadAddressFormat(()),
+        BadSignatureFormat(()),
+        BadSignature { addr: String },
+        Signer(()),
+        Unknown,
     }
-}
 
-impl ErrorCode for xmtp_cryptography::signature::IdentifierValidationError {
-    fn error_code(&self) -> &'static str {
-        use xmtp_cryptography::signature::IdentifierValidationError;
-        match self {
-            IdentifierValidationError::InvalidAddresses(_) => {
-                "IdentifierValidationError::InvalidAddresses"
-            }
-            IdentifierValidationError::HexDecode(_) => "IdentifierValidationError::HexDecode",
-            IdentifierValidationError::Generic(_) => "IdentifierValidationError::Generic",
-        }
+    #[derive(xmtp_common::ErrorCode)]
+    #[error_code(remote = "xmtp_cryptography::signature::IdentifierValidationError")]
+    enum IdentifierValidationError {
+        InvalidAddresses(Vec<String>),
+        HexDecode(()),
+        Generic(String),
     }
-}
 
-impl ErrorCode for xmtp_cryptography::ethereum::EthereumCryptoError {
-    fn error_code(&self) -> &'static str {
-        use xmtp_cryptography::ethereum::EthereumCryptoError;
-        match self {
-            EthereumCryptoError::InvalidLength => "EthereumCryptoError::InvalidLength",
-            EthereumCryptoError::InvalidKey => "EthereumCryptoError::InvalidKey",
-            EthereumCryptoError::SignFailure => "EthereumCryptoError::SignFailure",
-            EthereumCryptoError::DecompressFailure => "EthereumCryptoError::DecompressFailure",
-        }
+    #[derive(xmtp_common::ErrorCode)]
+    #[error_code(remote = "xmtp_cryptography::ethereum::EthereumCryptoError")]
+    enum EthereumCryptoError {
+        InvalidLength,
+        InvalidKey,
+        SignFailure,
+        DecompressFailure,
     }
 }
 

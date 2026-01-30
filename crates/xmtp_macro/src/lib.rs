@@ -4,7 +4,7 @@ mod logging;
 
 use proc_macro2::*;
 use quote::{quote, quote_spanned};
-use syn::{Data, DeriveInput, Fields, parse_macro_input};
+use syn::{Data, DeriveInput, Fields, parse_macro_input, Path};
 
 use crate::logging::{LogEventInput, get_context_fields, get_doc_comment};
 
@@ -446,6 +446,10 @@ impl Attributes {
 /// - `#[error_code(inherit)]` - Delegate to the inner error's `error_code()` method.
 ///   Use this for single-field variants that wrap another error implementing `ErrorCode`.
 ///
+/// - `#[error_code(remote = "path::Type")]` - Implement `ErrorCode` for a remote type.
+///   The derived item should mirror the remote type's shape. Default codes use the derived
+///   item's type name, so keep it aligned with the remote type's name unless overridden.
+///
 /// - `#[error_code("CustomCode")]` - Override the generated code with a custom value.
 ///   Use this to maintain backwards compatibility when renaming variants.
 ///
@@ -466,6 +470,8 @@ struct ErrorCodeAttr {
     code: Option<String>,
     /// Inherit from inner error: #[error_code(inherit)]
     inherit: bool,
+    /// Implement for a remote type path: #[error_code(remote = "path::Type")]
+    remote: Option<Path>,
 }
 
 impl ErrorCodeAttr {
@@ -483,13 +489,23 @@ impl ErrorCodeAttr {
                 continue;
             }
 
-            // Try parsing #[error_code(inherit)]
+            // Try parsing #[error_code(inherit)] or #[error_code(remote = "path::Type")]
             let _ = attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("inherit") {
                     result.inherit = true;
                     Ok(())
+                } else if meta.path.is_ident("remote") {
+                    let value = meta.value()?;
+                    let lit: syn::LitStr = value.parse()?;
+                    let path = lit
+                        .parse::<Path>()
+                        .map_err(|err| meta.error(err.to_string()))?;
+                    result.remote = Some(path);
+                    Ok(())
                 } else {
-                    Err(meta.error("expected `inherit` or a string literal"))
+                    Err(meta.error(
+                        "expected `inherit`, `remote = \"path::Type\"`, or a string literal",
+                    ))
                 }
             });
         }
@@ -502,7 +518,16 @@ impl ErrorCodeAttr {
 pub fn derive_error_code(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = &input.ident;
-    let name_str = name.to_string();
+    let container_attr = ErrorCodeAttr::parse(&input.attrs);
+    let name_str = container_attr
+        .remote
+        .as_ref()
+        .and_then(|path| path.segments.last().map(|segment| segment.ident.to_string()))
+        .unwrap_or_else(|| name.to_string());
+    let target = container_attr
+        .remote
+        .clone()
+        .unwrap_or_else(|| syn::parse_quote!(#name));
 
     let expanded = match &input.data {
         Data::Enum(data_enum) => {
@@ -558,7 +583,7 @@ pub fn derive_error_code(input: proc_macro::TokenStream) -> proc_macro::TokenStr
             });
 
             quote! {
-                impl xmtp_common::ErrorCode for #name {
+                impl xmtp_common::ErrorCode for #target {
                     fn error_code(&self) -> &'static str {
                         match self {
                             #(#code_arms)*
@@ -569,11 +594,10 @@ pub fn derive_error_code(input: proc_macro::TokenStream) -> proc_macro::TokenStr
         }
         Data::Struct(_) => {
             // Check for custom code on struct
-            let attr = ErrorCodeAttr::parse(&input.attrs);
-            let code = attr.code.unwrap_or_else(|| name_str.clone());
+            let code = container_attr.code.unwrap_or_else(|| name_str.clone());
 
             quote! {
-                impl xmtp_common::ErrorCode for #name {
+                impl xmtp_common::ErrorCode for #target {
                     fn error_code(&self) -> &'static str {
                         #code
                     }
