@@ -47,7 +47,7 @@ where
 
 impl<T: ErrorCode> std::fmt::Display for ErrorWrapper<T> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    self.0.fmt(f)
+    std::fmt::Display::fmt(&self.0, f)
   }
 }
 
@@ -63,8 +63,7 @@ where
 impl<T: ErrorCode> From<ErrorWrapper<T>> for JsError {
   fn from(e: ErrorWrapper<T>) -> JsError {
     let code = e.0.error_code();
-    let message = e.0.to_string();
-    let js_error = JsError::new(&format!("[{}] {}", code, message));
+    let js_error = JsError::new(&format!("[{}] {}", code, e.0));
     let js_value: JsValue = js_error.clone().into();
     let _ = js_sys::Reflect::set(
       &js_value,

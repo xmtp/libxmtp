@@ -43,7 +43,7 @@ where
 
 impl<T: ErrorCode> std::fmt::Display for ErrorWrapper<T> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    self.0.fmt(f)
+    std::fmt::Display::fmt(&self.0, f)
   }
 }
 
@@ -59,7 +59,6 @@ where
 impl<T: ErrorCode> From<ErrorWrapper<T>> for napi::bindgen_prelude::Error {
   fn from(e: ErrorWrapper<T>) -> napi::bindgen_prelude::Error {
     let code = e.0.error_code();
-    let message = e.0.to_string();
-    Error::from_reason(format!("[{}] {}", code, message))
+    Error::from_reason(format!("[{}] {}", code, e.0))
   }
 }
