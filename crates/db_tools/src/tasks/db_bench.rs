@@ -28,7 +28,6 @@ macro_rules! bench {
 }
 
 pub struct DbBencher<Db> {
-    rand_dm: Option<StoredGroup>,
     rand_group: Option<StoredGroup>,
     rand_inbox_id: Option<String>,
     measurements: HashMap<String, f32>,
@@ -50,11 +49,14 @@ where
             ..Default::default()
         })?;
 
+        tracing::info!("Found {} Groups", groups.len());
+        tracing::info!("Found {} DMs", dms.len());
+
         // Try to get a random inbox_id from identity updates or association state
         let rand_inbox_id = groups.first().map(|g| g.added_by_inbox_id.clone());
 
         Ok(Self {
-            rand_dm: dms.pop(),
+            rand_group: dms.pop(),
             rand_group: groups.pop(),
             rand_inbox_id,
             store,
@@ -132,29 +134,62 @@ where
         // Send divide-by-zeroes to the bottom
         sorted_measurements.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(Ordering::Less));
 
-        println!("\n{}", "=".repeat(80));
-        println!("{:^80}", "Database Benchmark Results");
-        println!("{}", "=".repeat(80));
-        println!("{:<50} {:>12} {:>10}", "Query", "Time (ms)", "Relative");
-        println!("{}", "-".repeat(80));
+        // Normalize query names by collapsing whitespace/newlines into single spaces
+        let normalized_measurements: Vec<_> = sorted_measurements
+            .into_iter()
+            .map(|(q, t)| {
+                let normalized: String = q.split_whitespace().collect::<Vec<_>>().join(" ");
+                (normalized, *t)
+            })
+            .collect();
 
-        let max_time = sorted_measurements.first().map(|(_, t)| **t).unwrap_or(1.0);
+        // Calculate the width needed for the query column based on longest query name
+        let query_width = normalized_measurements
+            .iter()
+            .map(|(q, _)| q.len())
+            .max()
+            .unwrap_or(5)
+            .max(5); // At least "Query" width
 
-        for (query, time_ms) in sorted_measurements.into_iter() {
+        let total_width = query_width + 12 + 10 + 25 + 6; // query + time + relative + bar + spacing
+
+        println!("\n{}", "=".repeat(total_width));
+        println!(
+            "{:^width$}",
+            "Database Benchmark Results",
+            width = total_width
+        );
+        println!("{}", "=".repeat(total_width));
+        println!(
+            "{:<query_width$} {:>12} {:>10}",
+            "Query",
+            "Time (ms)",
+            "Relative",
+            query_width = query_width
+        );
+        println!("{}", "-".repeat(total_width));
+
+        let max_time = normalized_measurements
+            .first()
+            .map(|(_, t)| *t)
+            .unwrap_or(1.0);
+
+        for (query, time_ms) in normalized_measurements.iter() {
             let relative = time_ms / max_time;
             let bar_length = (relative * 20.0) as usize;
             let bar = "█".repeat(bar_length);
 
             println!(
-                "{:<50} {:>12.3} {:>9.1}% {}",
+                "{:<query_width$} {:>12.3} {:>9.1}% {}",
                 query,
                 time_ms,
                 relative * 100.0,
-                bar
+                bar,
+                query_width = query_width
             );
         }
 
-        println!("{}", "=".repeat(80));
+        println!("{}", "=".repeat(total_width));
         println!(
             "Total queries benchmarked: {} | Average time: {:.3} ms\n",
             self.measurements.len(),
@@ -292,7 +327,7 @@ where
             self,
             maybe_insert_consent_record_return_existing(&new_consent.clone())
         )?;
-        if let Some(dm) = &self.rand_dm {
+        if let Some(dm) = &self.rand_group {
             let Some(dm_id) = dm.dm_id.clone() else {
                 bail!("Unexpected: DM does not have a dm_id");
             };
