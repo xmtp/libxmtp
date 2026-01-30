@@ -4,7 +4,7 @@ mod logging;
 
 use proc_macro2::*;
 use quote::{quote, quote_spanned};
-use syn::{Data, DeriveInput, Fields, parse_macro_input, Path};
+use syn::{Data, DeriveInput, Fields, Path, parse_macro_input};
 
 use crate::logging::{LogEventInput, get_context_fields, get_doc_comment};
 
@@ -522,7 +522,11 @@ pub fn derive_error_code(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     let name_str = container_attr
         .remote
         .as_ref()
-        .and_then(|path| path.segments.last().map(|segment| segment.ident.to_string()))
+        .and_then(|path| {
+            path.segments
+                .last()
+                .map(|segment| segment.ident.to_string())
+        })
         .unwrap_or_else(|| name.to_string());
     let target = container_attr
         .remote

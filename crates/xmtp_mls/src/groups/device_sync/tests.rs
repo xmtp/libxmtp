@@ -63,54 +63,52 @@ async fn only_one_payload_sent() {
     alix1.test_has_same_sync_group_as(&alix3).await?;
     alix2.test_has_same_sync_group_as(&alix3).await?;
 
-    // Register interest for next PayloadSent events
-    let wait1 = alix1.worker().register_interest(SyncMetric::PayloadSent, 1);
-    let wait2 = alix2.worker().register_interest(SyncMetric::PayloadSent, 1);
+    let baseline_alix1 = alix1.worker().get(SyncMetric::PayloadSent);
+    let baseline_alix2 = alix2.worker().get(SyncMetric::PayloadSent);
 
-    // Wait for exactly one PayloadSent event using a race
-    let result = tokio::select! {
-        _r1 = wait1.wait() => "alix1",
-        _r2 = wait2.wait() => "alix2",
-        _ = sleep(Duration::from_secs(10)) => "timeout",
-    };
+    // Explicitly trigger a sync request so this test is not dependent on init timing.
+    alix3.device_sync_client().send_sync_request().await?;
 
-    // Register interest for next PayloadSent events
-    let wait1 = alix1.worker().register_interest(SyncMetric::PayloadSent, 1);
-    let wait2 = alix2.worker().register_interest(SyncMetric::PayloadSent, 1);
+    xmtp_common::wait_for_ge(
+        || async {
+            let alix1_delta = alix1
+                .worker()
+                .get(SyncMetric::PayloadSent)
+                .saturating_sub(baseline_alix1);
+            let alix2_delta = alix2
+                .worker()
+                .get(SyncMetric::PayloadSent)
+                .saturating_sub(baseline_alix2);
+            alix1_delta + alix2_delta
+        },
+        1,
+    )
+    .await?;
 
-    // ensure no other send activity happens
-    let result2 = tokio::select! {
-        _r1 = wait1.wait() => "alix1",
-        _r2 = wait2.wait() => "alix2",
-        _ = sleep(Duration::from_secs(3)) => "timeout",
-    };
-
-    assert_ne!(
-        result, "timeout",
-        "Expected one payload to be sent within timeout"
-    );
-
-    assert_eq!(result2, "timeout", "expected second send to timeout");
+    // ensure no other send activity happens shortly after the first
+    sleep(Duration::from_secs(3)).await;
 
     // Check final counts - should be exactly 1 more total
     let alix1_count = alix1.worker().get(SyncMetric::PayloadSent);
     let alix2_count = alix2.worker().get(SyncMetric::PayloadSent);
-    let total_new_payloads = alix1_count + alix2_count;
+    let alix1_delta = alix1_count.saturating_sub(baseline_alix1);
+    let alix2_delta = alix2_count.saturating_sub(baseline_alix2);
+    let total_new_payloads = alix1_delta + alix2_delta;
 
     // The core assertion: exactly 1 payload sent in response to our request
     assert_eq!(
         total_new_payloads, 1,
-        "Expected exactly 1 payload to be sent in response to sync request, got {} (alix1: {}, alix2: {})",
-        total_new_payloads, alix1_count, alix2_count
+        "Expected exactly 1 payload to be sent in response to sync request, got {} (alix1: {}, alix2: {}, baselines: {} / {})",
+        total_new_payloads, alix1_delta, alix2_delta, baseline_alix1, baseline_alix2
     );
 
     // Verify mutual exclusion: exactly one client should have sent
-    let alix1_sent = alix1_count > 0;
-    let alix2_sent = alix2_count > 0;
+    let alix1_sent = alix1_delta > 0;
+    let alix2_sent = alix2_delta > 0;
     assert_ne!(
         alix1_sent, alix2_sent,
-        "Expected exactly one client to send payload, but alix1_sent={}, alix2_sent={} (winner was: {})",
-        alix1_sent, alix2_sent, result
+        "Expected exactly one client to send payload, but alix1_sent={}, alix2_sent={}",
+        alix1_sent, alix2_sent
     );
 }
 
