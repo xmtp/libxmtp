@@ -23,24 +23,24 @@ fn init_logging(options: LogOptions) -> Result<()> {
       } else {
         EnvFilter::builder().parse_lossy("info")
       };
-    if options.structured.unwrap_or_default() {
-      let fmt = tracing_subscriber::fmt::layer()
-        .json()
-        .flatten_event(true)
-        .with_level(true)
-        .with_target(true);
+      if options.structured.unwrap_or_default() {
+        let fmt = tracing_subscriber::fmt::layer()
+          .json()
+          .flatten_event(true)
+          .with_level(true)
+          .with_target(true);
 
-      tracing_subscriber::registry().with(filter).with(fmt).init();
-    } else {
-      tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(filter)
-        .init();
-    }
-    Ok(())
-  })
-  .as_ref()
-  .map_err(|e| Error::from_reason(e.reason.clone()))?;
+        tracing_subscriber::registry().with(filter).with(fmt).init();
+      } else {
+        tracing_subscriber::registry()
+          .with(fmt::layer())
+          .with(filter)
+          .init();
+      }
+      Ok(())
+    })
+    .as_ref()
+    .map_err(|e| Error::from_reason(e.reason.clone()))?;
   Ok(())
 }
 
