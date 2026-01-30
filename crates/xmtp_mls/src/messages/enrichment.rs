@@ -1,14 +1,18 @@
-use crate::messages::decoded_message::{DecodedMessage, DeletedBy, MessageBody};
+use crate::messages::decoded_message::{DecodedMessage, DeletedBy, EditedContent, MessageBody};
 use hex::ToHexExt;
+use prost::Message;
 use std::collections::HashMap;
 use thiserror::Error;
 use xmtp_common::RetryableError;
 use xmtp_db::DbQuery;
 use xmtp_db::group_message::{
-    ContentType as DbContentType, Deletable, RelationCounts, RelationQuery, StoredGroupMessage,
+    ContentType as DbContentType, Deletable, Editable, RelationCounts, RelationQuery,
+    StoredGroupMessage,
 };
 use xmtp_db::message_deletion::StoredMessageDeletion;
+use xmtp_db::message_edit::StoredMessageEdit;
 use xmtp_proto::xmtp::mls::message_contents::ContentTypeId;
+use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 /// Content type ID for deleted message placeholders shown in enriched message lists
 pub fn deleted_message_content_type() -> ContentTypeId {
@@ -46,6 +50,8 @@ type ReactionMap = HashMap<Vec<u8>, Vec<DecodedMessage>>;
 type ReferencedMessageMap = HashMap<Vec<u8>, (StoredGroupMessage, DecodedMessage)>;
 // Mapping of deletions, keyed by the ID of the deleted message
 type DeletionMap = HashMap<Vec<u8>, StoredMessageDeletion>;
+// Mapping of edits, keyed by the ID of the edited message (stores the latest edit)
+type EditMap = HashMap<Vec<u8>, StoredMessageEdit>;
 
 /// Validates if a deletion should be applied. Checks group membership and authorization.
 pub(crate) fn is_deletion_valid(
@@ -67,6 +73,53 @@ pub(crate) fn is_deletion_valid(
 
     let is_sender = deletion.deleted_by_inbox_id == message.sender_inbox_id;
     is_sender || deletion.is_super_admin_deletion
+}
+
+/// Validates if an edit should be applied. Only the original sender can edit their messages.
+pub(crate) fn is_edit_valid(
+    edit: &StoredMessageEdit,
+    message: &StoredGroupMessage,
+    group_id: &[u8],
+) -> bool {
+    if edit.original_message_id != message.id {
+        return false;
+    }
+
+    if edit.group_id != group_id || message.group_id != group_id {
+        return false;
+    }
+
+    // Only editable content types can be edited
+    if !message.kind.is_editable() || !message.content_type.is_editable() {
+        return false;
+    }
+
+    // Only the original sender can edit their own messages
+    if edit.edited_by_inbox_id != message.sender_inbox_id {
+        return false;
+    }
+
+    // Validate content type matches - edits cannot change the content type
+    // This is especially important for out-of-order edits that arrive before the original
+    if let Ok(edited_content) = EncodedContent::decode(edit.edited_content.as_slice()) {
+        let edited_type_id = edited_content
+            .r#type
+            .as_ref()
+            .map(|t| t.type_id.as_str())
+            .unwrap_or("unknown");
+        let original_type_str = message.content_type.to_string();
+
+        if edited_type_id != original_type_str {
+            tracing::warn!(
+                "Edit content type mismatch: original={}, edited={}",
+                original_type_str,
+                edited_type_id
+            );
+            return false;
+        }
+    }
+
+    true
 }
 
 pub fn enrich_messages(
@@ -107,6 +160,7 @@ pub fn enrich_messages(
                 decoded.metadata.content_type = deleted_message_content_type();
                 decoded.reactions = Vec::new();
                 decoded.num_replies = 0;
+                decoded.edited = None; // Deleted messages don't show edit info
             } else {
                 decoded.reactions = relations
                     .reactions
@@ -118,6 +172,16 @@ pub fn enrich_messages(
                     .get(&decoded.metadata.id)
                     .cloned()
                     .unwrap_or(0);
+
+                // Apply edit if valid
+                if let Some(edit) = relations.edits.get(&decoded.metadata.id)
+                    && is_edit_valid(edit, &stored_message, group_id)
+                {
+                    decoded.edited = Some(EditedContent {
+                        content: edit.edited_content.clone(),
+                        edited_at_ns: edit.edited_at_ns,
+                    });
+                }
 
                 // Handle Reply messages - populate in_reply_to field
                 if let MessageBody::Reply(mut reply_body) = decoded.content {
@@ -147,6 +211,19 @@ pub fn enrich_messages(
                                 };
                                 msg.reactions = Vec::new();
                                 msg.num_replies = 0;
+                                msg.edited = None;
+                            } else if let Some(msg) = in_reply_to.as_mut() {
+                                // Apply edit to referenced message if valid
+                                if let Some(edit) = relations.edits.get(id)
+                                    && let Some((stored_msg, _)) =
+                                        relations.referenced_messages.get(id)
+                                    && is_edit_valid(edit, stored_msg, group_id)
+                                {
+                                    msg.edited = Some(EditedContent {
+                                        content: edit.edited_content.clone(),
+                                        edited_at_ns: edit.edited_at_ns,
+                                    });
+                                }
                             }
                             reply_body.in_reply_to = in_reply_to.map(Box::new);
                         });
@@ -173,6 +250,7 @@ fn get_relations(
             referenced_messages: HashMap::new(),
             reply_counts: HashMap::new(),
             deletions: HashMap::new(),
+            edits: HashMap::new(),
         });
     }
 
@@ -191,18 +269,20 @@ fn get_relations(
     let reply_counts =
         conn.get_inbound_relation_counts(group_id, message_ids, replies_count_query)?;
 
-    // Get deletions for all messages AND referenced messages in a single batch query.
-    // This ensures that if a reply references a deleted message, we can properly show
-    // the deletion state in the reply chain.
+    // Get deletions and edits for all messages AND referenced messages in a single batch query.
+    // This ensures that if a reply references a deleted/edited message, we can properly show
+    // the state in the reply chain.
     let mut all_ids: Vec<Vec<u8>> = message_ids.iter().map(|id| id.to_vec()).collect();
     all_ids.extend(reference_ids.iter().map(|id| id.to_vec()));
-    let deletions = conn.get_deletions_for_messages(all_ids)?;
+    let deletions = conn.get_deletions_for_messages(all_ids.clone())?;
+    let edits = conn.get_edits_for_messages(all_ids)?;
 
     Ok(GetRelationsResults {
         reactions: get_reactions(reactions),
         referenced_messages: get_referenced_messages(referenced_messages),
         reply_counts,
         deletions: get_deletions(deletions),
+        edits: get_latest_edits(edits),
     })
 }
 
@@ -211,6 +291,7 @@ struct GetRelationsResults {
     referenced_messages: ReferencedMessageMap,
     reply_counts: RelationCounts,
     deletions: DeletionMap,
+    edits: EditMap,
 }
 
 fn get_referenced_messages(messages: HashMap<Vec<u8>, StoredGroupMessage>) -> ReferencedMessageMap {
@@ -259,4 +340,23 @@ fn get_deletions(deletions: Vec<StoredMessageDeletion>) -> DeletionMap {
         .into_iter()
         .map(|deletion| (deletion.deleted_message_id.clone(), deletion))
         .collect()
+}
+
+/// Gets the latest edit for each original message. If multiple edits exist for the same
+/// message, only the most recent one (by edited_at_ns) is kept.
+fn get_latest_edits(edits: Vec<StoredMessageEdit>) -> EditMap {
+    let mut edit_map: EditMap = HashMap::new();
+    for edit in edits {
+        let original_id = edit.original_message_id.clone();
+        edit_map
+            .entry(original_id)
+            .and_modify(|existing| {
+                // Keep the edit with the latest timestamp
+                if edit.edited_at_ns > existing.edited_at_ns {
+                    *existing = edit.clone();
+                }
+            })
+            .or_insert(edit);
+    }
+    edit_map
 }

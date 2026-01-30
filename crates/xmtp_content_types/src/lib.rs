@@ -1,6 +1,7 @@
 pub mod actions;
 pub mod attachment;
 pub mod delete_message;
+pub mod edit_message;
 pub mod encryption;
 pub mod group_updated;
 pub mod intent;
@@ -56,6 +57,7 @@ pub enum ContentType {
     DeviceSyncMessage,
     LeaveRequest,
     DeleteMessage,
+    EditMessage,
 }
 
 impl TryFrom<&str> for ContentType {
@@ -85,6 +87,7 @@ impl TryFrom<&str> for ContentType {
             actions::ActionsCodec::TYPE_ID => Ok(Self::Actions),
             intent::IntentCodec::TYPE_ID => Ok(Self::Intent),
             delete_message::DeleteMessageCodec::TYPE_ID => Ok(Self::DeleteMessage),
+            edit_message::EditMessageCodec::TYPE_ID => Ok(Self::EditMessage),
             _ => Err(format!("Unknown content type ID: {type_id}")),
         }
     }

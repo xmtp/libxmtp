@@ -31,6 +31,9 @@ pub struct DecodedMessage {
   pub delivery_status: DeliveryStatus,
   pub num_replies: i64,
   pub expires_at_ns: Option<i64>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[tsify(optional)]
+  pub edited_at_ns: Option<i64>,
 }
 
 impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
@@ -39,6 +42,7 @@ impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
   fn try_from(msg: XmtpDecodedMessage) -> Result<Self, Self::Error> {
     let content = msg.content.try_into()?;
     let reactions: Result<Vec<_>, _> = msg.reactions.into_iter().map(|r| r.try_into()).collect();
+    let edited_at_ns = msg.edited.as_ref().map(|e| e.edited_at_ns);
 
     Ok(Self {
       id: hex::encode(msg.metadata.id),
@@ -54,6 +58,7 @@ impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
       delivery_status: msg.metadata.delivery_status.into(),
       num_replies: msg.num_replies as i64,
       expires_at_ns: msg.metadata.expires_at_ns,
+      edited_at_ns,
     })
   }
 }

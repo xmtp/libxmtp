@@ -2304,6 +2304,16 @@ impl FfiConversation {
         Ok(deletion_id)
     }
 
+    /// Edit a message by its ID. Returns the ID of the edit message.
+    pub fn edit_message(
+        &self,
+        message_id: Vec<u8>,
+        new_content: Vec<u8>,
+    ) -> Result<Vec<u8>, GenericError> {
+        let edit_id = self.inner.edit_message(message_id, new_content)?;
+        Ok(edit_id)
+    }
+
     /// Publish all unpublished messages
     pub async fn publish_messages(&self) -> Result<(), GenericError> {
         self.inner.publish_messages().await?;
