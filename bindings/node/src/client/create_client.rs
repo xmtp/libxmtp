@@ -16,12 +16,13 @@ use xmtp_mls::identity::IdentityStrategy;
 static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
 
 fn init_logging(options: LogOptions) -> Result<()> {
-  match LOGGER_INIT.get_or_init(|| {
-    let filter = if let Some(f) = options.level {
-      xmtp_common::filter_directive(&f.to_string())
-    } else {
-      EnvFilter::builder().parse_lossy("info")
-    };
+  LOGGER_INIT
+    .get_or_init(|| {
+      let filter = if let Some(f) = options.level {
+        xmtp_common::filter_directive(&f.to_string())
+      } else {
+        EnvFilter::builder().parse_lossy("info")
+      };
     if options.structured.unwrap_or_default() {
       let fmt = tracing_subscriber::fmt::layer()
         .json()
@@ -37,10 +38,10 @@ fn init_logging(options: LogOptions) -> Result<()> {
         .init();
     }
     Ok(())
-  }) {
-    Ok(()) => Ok(()),
-    Err(e) => Err(Error::from_reason(e.reason.clone())),
-  }
+  })
+  .as_ref()
+  .map_err(|e| Error::from_reason(e.reason.clone()))?;
+  Ok(())
 }
 
 /**
