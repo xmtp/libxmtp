@@ -145,9 +145,9 @@ impl std::error::Error for FfiError {
     }
 }
 
-impl From<GenericError> for FfiError {
-    fn from(err: GenericError) -> Self {
-        FfiError::Error(err)
+impl<T: Into<GenericError>> From<T> for FfiError {
+    fn from(err: T) -> Self {
+        Self::Error(err.into())
     }
 }
 
@@ -179,50 +179,6 @@ fn parse_error_message(message: &str) -> FfiErrorInfo {
 #[uniffi::export]
 pub fn parse_xmtp_error(message: String) -> FfiErrorInfo {
     parse_error_message(&message)
-}
-
-// Implement From for all error types that GenericError supports.
-// NOTE: When adding a new error type with #[from] to GenericError,
-// also add it here to enable the ? operator with FfiError return types.
-macro_rules! impl_ffi_error_from {
-    ($($error_ty:ty),* $(,)?) => {
-        $(
-            impl From<$error_ty> for FfiError {
-                fn from(err: $error_ty) -> Self {
-                    FfiError::Error(GenericError::from(err))
-                }
-            }
-        )*
-    };
-}
-
-impl_ffi_error_from! {
-    xmtp_mls::client::ClientError,
-    xmtp_mls::builder::ClientBuilderError,
-    xmtp_db::StorageError,
-    xmtp_mls::groups::GroupError,
-    xmtp_cryptography::signature::SignatureError,
-    GroupMetadataError,
-    xmtp_mls::groups::group_permissions::GroupMutablePermissionsError,
-    xmtp_id::associations::builder::SignatureRequestError,
-    xmtp_id::associations::signature::SignatureError,
-    xmtp_id::scw_verifier::VerifierError,
-    xmtp_id::associations::AssociationError,
-    xmtp_mls::groups::device_sync::DeviceSyncError,
-    xmtp_mls::identity::IdentityError,
-    tokio::task::JoinError,
-    tokio::io::Error,
-    xmtp_mls::subscriptions::SubscribeError,
-    xmtp_api_grpc::error::GrpcBuilderError,
-    Box<xmtp_api_grpc::error::GrpcError>,
-    IdentifierValidationError,
-    tracing_appender::rolling::InitError,
-    tracing_subscriber::reload::Error,
-    MessageBackendBuilderError,
-    xmtp_api::ApiError,
-    EnrichMessageError,
-    uniffi::UnexpectedUniFFICallbackError,
-    String,
 }
 
 impl From<xmtp_common::time::Expired> for FfiError {
