@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: nixbuild/nix-quick-install-action@v34
       - run: nix build --version
-      - uses: nix-community/cache-nix-action@v6
+      - uses: nix-community/cache-nix-action@v7
         with:
           primary-key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           paths: |
