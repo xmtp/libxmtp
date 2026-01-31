@@ -17,6 +17,7 @@ bindings_wasm_macros.workspace = true
 chrono.workspace = true
 console_error_panic_hook.workspace = true
 futures.workspace = true
+getrandom = { workspace = true, features = ["wasm_js"] }
 hex.workspace = true
 js-sys.workspace = true
 pin-project.workspace = true

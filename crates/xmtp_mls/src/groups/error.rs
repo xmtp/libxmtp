@@ -147,6 +147,12 @@ pub enum GroupError {
     CommitToPendingProposals(
         #[from] CommitToPendingProposalsError<sql_key_store::SqlKeyStoreError>,
     ),
+    #[error("merge pending commit error: {0}")]
+    MergePendingCommit(
+        #[from] openmls::group::MergePendingCommitError<sql_key_store::SqlKeyStoreError>,
+    ),
+    #[error("Proposals not supported: {0}")]
+    ProposalsNotSupported(String),
     #[error("Credential error")]
     CredentialError(#[from] BasicCredentialError),
     #[error("LeafNode error")]
@@ -333,7 +339,8 @@ impl RetryableError for GroupError {
             Self::ProposeAddMember(_)
             | Self::ProposeRemoveMember(_)
             | Self::Proposal(_)
-            | Self::CommitToPendingProposals(_) => false,
+            | Self::CommitToPendingProposals(_)
+            | Self::ProposalsNotSupported(_) => false,
             Self::CommitValidation(err) => err.is_retryable(),
             Self::WrappedApi(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),
@@ -376,7 +383,8 @@ impl RetryableError for GroupError {
             | Self::NoWelcomesToSend
             | Self::WelcomeDataNotFound(_)
             | Self::UninitializedField(_)
-            | Self::UninitializedResult => false,
+            | Self::UninitializedResult
+            | Self::MergePendingCommit(_) => false,
         }
     }
 }
