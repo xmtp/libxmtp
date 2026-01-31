@@ -20,4 +20,7 @@ pub const GROUP_MEMBERSHIP_EXTENSION_ID: u16 = 0xff01;
 pub const GROUP_PERMISSIONS_EXTENSION_ID: u16 = 0xff02;
 pub const WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID: u16 = 0xff03;
 pub const WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID: u16 = 0xff04;
+/// Extension ID for proposal support.
+/// - On leaf nodes: indicates the installation supports proposal-by-reference flow
+/// - On group context: indicates the group uses proposal-by-reference flow exclusively
 pub const PROPOSAL_SUPPORT_EXTENSION_ID: u16 = 0xff05;

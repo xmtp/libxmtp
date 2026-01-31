@@ -1,14 +1,19 @@
 use super::{
     GroupError, HmacKey, MlsGroup, build_extensions_for_admin_lists_update,
     build_extensions_for_metadata_update, build_extensions_for_permissions_update,
+    build_group_membership_extension,
+    group_permissions::extract_group_permissions,
     intents::{
         CommitPendingProposalsIntentData, Installation, IntentError, PostCommitAction,
-        ProposeAddMembersIntentData, ProposeGroupContextExtensionsIntentData,
-        ProposeRemoveMembersIntentData, SendMessageIntentData, SendWelcomesAction,
-        UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
+        ProposeGroupContextExtensionsIntentData, ProposeMemberUpdateIntentData,
+        SendMessageIntentData, SendWelcomesAction, UpdateAdminListIntentData,
+        UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
     summary::{MessageIdentifier, MessageIdentifierBuilder, ProcessSummary, SyncSummary},
-    validated_commit::{CommitValidationError, LibXMTPVersion, extract_group_membership},
+    update_required_capabilities_for_proposals,
+    validated_commit::{
+        CommitValidationError, LibXMTPVersion, extract_group_membership, validate_proposal,
+    },
 };
 use crate::{
     client::ClientError,
@@ -40,7 +45,7 @@ use crate::{
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
-use openmls::group::{ProcessMessageError, ValidationError};
+use openmls::group::{CommitToPendingProposalsError, ProcessMessageError, ValidationError};
 use openmls::prelude::BasicCredentialError;
 use openmls::{
     credentials::BasicCredential,
@@ -48,8 +53,10 @@ use openmls::{
     framing::ProtocolMessage,
     group::{GroupContext, GroupEpoch, StagedCommit},
     key_packages::KeyPackage,
+    messages::proposals::Proposal,
     prelude::{
-        LeafNodeIndex, MlsGroup as OpenMlsGroup, ProcessedMessage, ProcessedMessageContent, Sender,
+        ExtensionType, LeafNodeIndex, MlsGroup as OpenMlsGroup, ProcessedMessage,
+        ProcessedMessageContent, ProposalType, Sender,
         tls_codec::{Error as TlsCodecError, Serialize},
     },
     treesync::LeafNodeParameters,
@@ -73,8 +80,9 @@ use xmtp_common::{
 };
 use xmtp_configuration::{
     GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_GROUP_SYNC_RETRIES,
-    MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS, SYNC_BACKOFF_TOTAL_WAIT_MAX_SECS,
-    SYNC_BACKOFF_WAIT_MS, SYNC_JITTER_MS, SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
+    MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS, PROPOSAL_SUPPORT_EXTENSION_ID,
+    SYNC_BACKOFF_TOTAL_WAIT_MAX_SECS, SYNC_BACKOFF_WAIT_MS, SYNC_JITTER_MS,
+    SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
@@ -96,6 +104,7 @@ use xmtp_db::{
     pending_remove::{PendingRemove, QueryPendingRemove},
 };
 use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_mls_common::group_metadata::extract_group_metadata;
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::{
@@ -193,6 +202,8 @@ pub enum GroupMessageProcessingError {
     Diesel(#[from] xmtp_db::diesel::result::Error),
     #[error(transparent)]
     EnrichMessage(#[from] EnrichMessageError),
+    #[error("pre-commit proposal phase complete, re-queuing intent")]
+    PreCommitProposalPhaseComplete,
 }
 
 impl RetryableError for GroupMessageProcessingError {
@@ -228,7 +239,8 @@ impl RetryableError for GroupMessageProcessingError {
             | Self::UnsupportedMessageType(_)
             | Self::GroupPaused
             | Self::FutureEpoch(_, _)
-            | Self::OldEpoch(_, _) => false,
+            | Self::OldEpoch(_, _)
+            | Self::PreCommitProposalPhaseComplete => false,
             Self::Builder(_) => false,
         }
     }
@@ -640,6 +652,22 @@ where
         let message_epoch = message.epoch();
 
         match intent.kind {
+            // GCE proposal phase of CommitPendingProposals: no staged_commit means the
+            // message coming back is our GCE proposal, not a commit. Validate epoch only.
+            IntentKind::CommitPendingProposals if intent.staged_commit.is_none() => {
+                Self::validate_message_epoch(
+                    self.context.inbox_id(),
+                    intent.id,
+                    group_epoch,
+                    message_epoch,
+                    MAX_PAST_EPOCHS,
+                )
+                .map_err(|err| IntentResolutionError {
+                    processing_error: err,
+                    next_intent_state: IntentState::ToPublish,
+                })?;
+            }
+
             IntentKind::KeyUpdate
             | IntentKind::UpdateGroupMembership
             | IntentKind::UpdateAdminList
@@ -751,8 +779,7 @@ where
             }
 
             IntentKind::SendMessage
-            | IntentKind::ProposeAddMembers
-            | IntentKind::ProposeRemoveMembers
+            | IntentKind::ProposeMemberUpdate
             | IntentKind::ProposeGroupContextExtensions => {
                 // Proposals and messages don't produce commits, just validate epoch
                 Self::validate_message_epoch(
@@ -799,6 +826,18 @@ where
             return Err(IntentResolutionError {
                 processing_error: GroupMessageProcessingError::IntentAlreadyProcessed,
                 next_intent_state: intent.state,
+            });
+        }
+
+        // GCE proposal phase of CommitPendingProposals: the GCE proposal was received back
+        // from the network. Re-queue the intent to create the actual commit in the next sync.
+        if intent.kind == IntentKind::CommitPendingProposals && commit.is_none() {
+            tracing::info!(
+                "CommitPendingProposals: GCE proposal received back, re-queuing to create commit"
+            );
+            return Err(IntentResolutionError {
+                processing_error: GroupMessageProcessingError::PreCommitProposalPhaseComplete,
+                next_intent_state: IntentState::ToPublish,
             });
         }
 
@@ -1022,6 +1061,73 @@ where
                 identifier.group_context(staged_commit.group_context().clone());
                 Some(validated_commit)
             }
+            ProcessedMessageContent::ProposalMessage(queued_proposal) => {
+                // Reject Add/Remove proposals if proposals are not enabled on this group.
+                // GCE proposals are exempt because enable_proposals() uses them to bootstrap
+                // proposal support — they must be allowed through to flip the flag on.
+                let proposal_type = queued_proposal.proposal().proposal_type();
+                if !self.proposals_enabled(mls_group)
+                    && proposal_type != ProposalType::GroupContextExtensions
+                {
+                    tracing::warn!(
+                        inbox_id = self.context.inbox_id(),
+                        group_id = hex::encode(&self.group_id),
+                        ?proposal_type,
+                        "Received proposal but proposals are not enabled on this group"
+                    );
+                    self.maybe_update_cursor(&self.context.db(), envelope)?;
+                    return Err(CommitValidationError::ProposalsNotEnabled.into());
+                }
+
+                // Validate the proposal before processing it
+                // This ensures that when we later commit pending proposals, they will succeed
+                let extensions = mls_group.extensions();
+                let policy_set = match extract_group_permissions(mls_group) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        self.maybe_update_cursor(&self.context.db(), envelope)?;
+                        return Err(CommitValidationError::from(e).into());
+                    }
+                };
+                let immutable_metadata = match extract_group_metadata(extensions) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        self.maybe_update_cursor(&self.context.db(), envelope)?;
+                        return Err(CommitValidationError::from(e).into());
+                    }
+                };
+                let mutable_metadata = match extract_group_mutable_metadata(mls_group) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        self.maybe_update_cursor(&self.context.db(), envelope)?;
+                        return Err(CommitValidationError::from(e).into());
+                    }
+                };
+
+                let validation_result = validate_proposal(
+                    queued_proposal,
+                    mls_group,
+                    &policy_set.policies,
+                    &immutable_metadata,
+                    &mutable_metadata,
+                );
+
+                if let Err(e) = validation_result {
+                    tracing::warn!(
+                        inbox_id = self.context.inbox_id(),
+                        installation_id = %self.context.installation_id(),
+                        group_id = hex::encode(&self.group_id),
+                        proposal_type = ?queued_proposal.proposal().proposal_type(),
+                        error = %e,
+                        "Received invalid proposal, rejecting"
+                    );
+                    // Update cursor so we don't reprocess this invalid proposal
+                    self.maybe_update_cursor(&self.context.db(), envelope)?;
+                    return Err(e.into());
+                }
+
+                None
+            }
             _ => None,
         };
 
@@ -1194,15 +1300,17 @@ where
                 }
             }
             ProcessedMessageContent::ProposalMessage(proposal_ptr) => {
-                // OpenMLS automatically stores received proposals in its internal proposal store
-                // during process_message(). The CommitPendingProposals intent will consume these.
                 tracing::debug!(
                     inbox_id = self.context.inbox_id(),
                     installation_id = %self.context.installation_id(),
                     group_id = hex::encode(&self.group_id),
                     proposal_type = ?proposal_ptr.proposal().proposal_type(),
-                    "Received and stored proposal in proposal store"
+                    "Received and storing proposal in proposal store"
                 );
+                // Explicitly persist the proposal to the key store so it survives group reloads.
+                // process_message() only stores proposals in-memory; without this call,
+                // they are lost when the group is reloaded from storage.
+                mls_group.store_pending_proposal(storage, *proposal_ptr)?;
                 Ok(())
             }
             ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
@@ -2384,11 +2492,12 @@ where
                                 should_send_push_notification,
                                 group_epoch
                             })) => {
-                        // For multiple payloads (proposals), hash them all concatenated
-                        // For single payloads (commits/messages), this is the same as before
-                        let all_bytes: Vec<u8> = payloads_to_publish.iter().flatten().copied().collect();
+                        // Hash the last payload for intent matching. For single-payload intents
+                        // this is the only payload. For multi-payload intents (ProposeMemberUpdate),
+                        // hashing the last payload ensures all preceding payloads have been received
+                        // before the intent resolves. Because the proposals go through the blockchain.
                         let has_staged_commit = staged_commit.is_some();
-                        let intent_hash = sha256(&all_bytes);
+                        let intent_hash = sha256(payloads_to_publish.last().expect("payloads_to_publish is not empty"));
                         // removing this transaction causes missed messages
                         self.context.mls_storage().transaction(|conn| {
                             let storage = conn.key_store();
@@ -2451,7 +2560,7 @@ where
                                     group_id = intent.group_id,
                                     intent_id = intent.id,
                                     intent_kind = ?kind,
-                                    commit_hash = hex::encode(sha256(&all_bytes))
+                                    commit_hash = hex::encode(&intent_hash)
                                 )
                             }
                         }
@@ -2502,7 +2611,8 @@ where
             IntentKind::SendMessage => {
                 // We can safely assume all SendMessage intents have data
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
-                // TODO: Handle pending_proposal errors and UseAfterEviction errors
+                // Pending proposals are handled at the API level (in send_message)
+                // by committing them before creating the SendMessage intent
                 let group_epoch = openmls_group.epoch().as_u64();
                 let msg = openmls_group.create_message(
                     &self.context.mls_provider(),
@@ -2621,103 +2731,111 @@ where
                 apply_readd_installations_intent(&self.context, openmls_group, intent_data, signer)
                     .await
             }
-            IntentKind::ProposeAddMembers => {
-                let intent_data = ProposeAddMembersIntentData::try_from(intent.data.as_slice())?;
+            IntentKind::ProposeMemberUpdate => {
+                if !self.proposals_enabled(openmls_group) {
+                    return Err(GroupError::from(
+                        CommitValidationError::ProposalsNotEnabled,
+                    ));
+                }
+
+                let intent_data = ProposeMemberUpdateIntentData::try_from(intent.data.as_slice())?;
                 let group_epoch = openmls_group.epoch().as_u64();
+                let signer = &self.context.identity().installation_keys;
+                let mut proposal_payloads = Vec::new();
 
-                // Get current group membership
-                let extensions: Extensions<GroupContext> = openmls_group.extensions().clone();
-                let old_group_membership = extract_group_membership(&extensions)?;
+                // Handle adds
+                if !intent_data.add_inbox_ids.is_empty() {
+                    // Get current group membership
+                    let extensions: Extensions<GroupContext> = openmls_group.extensions().clone();
+                    let old_group_membership = extract_group_membership(&extensions)?;
 
-                // Get latest sequence IDs for the inbox_ids to add
-                let inbox_ids_to_add: Vec<&str> =
-                    intent_data.inbox_ids.iter().map(|s| s.as_str()).collect();
+                    // Get latest sequence IDs for the inbox_ids to add
+                    let inbox_ids_to_add: Vec<&str> = intent_data
+                        .add_inbox_ids
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect();
 
-                load_identity_updates(self.context.api(), &self.context.db(), &inbox_ids_to_add)
+                    load_identity_updates(
+                        self.context.api(),
+                        &self.context.db(),
+                        &inbox_ids_to_add,
+                    )
                     .await?;
 
-                let latest_sequence_ids = self
-                    .context
-                    .db()
-                    .get_latest_sequence_id(&inbox_ids_to_add)?;
+                    let latest_sequence_ids = self
+                        .context
+                        .db()
+                        .get_latest_sequence_id(&inbox_ids_to_add)?;
 
-                // Build the new membership with the added inbox_ids
-                let mut new_membership = old_group_membership.clone();
-                for inbox_id in &intent_data.inbox_ids {
-                    let sequence_id = latest_sequence_ids
-                        .get(inbox_id.as_str())
-                        .copied()
-                        .ok_or(GroupError::MissingSequenceId)?;
-                    new_membership.add(inbox_id.clone(), sequence_id as u64);
-                }
+                    // Build the new membership with the added inbox_ids
+                    let mut new_membership = old_group_membership.clone();
+                    for inbox_id in &intent_data.add_inbox_ids {
+                        let sequence_id = latest_sequence_ids
+                            .get(inbox_id.as_str())
+                            .copied()
+                            .ok_or(GroupError::MissingSequenceId)?;
+                        new_membership.add(inbox_id.clone(), sequence_id as u64);
+                    }
 
-                // Get key packages for the installations to add
-                let changes_with_kps = calculate_membership_changes_with_keypackages(
-                    &self.context,
-                    &self.group_id,
-                    &new_membership,
-                    &old_group_membership,
-                )
-                .await?;
+                    // Get key packages for the installations to add
+                    let changes_with_kps = calculate_membership_changes_with_keypackages(
+                        &self.context,
+                        &self.group_id,
+                        &new_membership,
+                        &old_group_membership,
+                    )
+                    .await?;
 
-                // If we failed to fetch key packages for all installations, error
-                if !changes_with_kps.failed_installations.is_empty()
-                    && changes_with_kps.new_key_packages.is_empty()
-                {
-                    return Err(GroupError::FailedToVerifyInstallations);
-                }
+                    // If we failed to fetch key packages for all installations, error
+                    if !changes_with_kps.failed_installations.is_empty()
+                        && changes_with_kps.new_key_packages.is_empty()
+                    {
+                        return Err(GroupError::FailedToVerifyInstallations);
+                    }
 
-                if changes_with_kps.new_key_packages.is_empty() {
-                    return Ok(None);
-                }
-
-                // Generate add proposals for each key package
-                let mut proposal_payloads = Vec::new();
-                let signer = &self.context.identity().installation_keys;
-                for key_package in &changes_with_kps.new_key_packages {
-                    let (proposal_msg, _proposal_ref) = openmls_group
-                        .propose_add_member(&self.context.mls_provider(), signer, key_package)
-                        .map_err(GroupError::ProposeAddMember)?;
-                    proposal_payloads.push(proposal_msg.tls_serialize_detached()?);
-                }
-
-                Ok(Some(PublishIntentData {
-                    payloads_to_publish: proposal_payloads,
-                    staged_commit: None,
-                    post_commit_action: None,
-                    should_send_push_notification: intent.should_push,
-                    group_epoch,
-                }))
-            }
-            IntentKind::ProposeRemoveMembers => {
-                let intent_data = ProposeRemoveMembersIntentData::try_from(intent.data.as_slice())?;
-                let group_epoch = openmls_group.epoch().as_u64();
-
-                // Collect members to remove first to avoid borrow issues
-                let inbox_ids_to_remove: HashSet<_> =
-                    intent_data.inbox_ids.iter().cloned().collect();
-                let mut members_to_remove = Vec::new();
-                for member in openmls_group.members() {
-                    let credential = BasicCredential::try_from(member.credential.clone())?;
-                    let member_inbox_id = parse_credential(credential.identity())?;
-                    if inbox_ids_to_remove.contains(&member_inbox_id) {
-                        members_to_remove.push(member.index);
+                    // Generate add proposals for each key package
+                    for key_package in &changes_with_kps.new_key_packages {
+                        let (proposal_msg, _proposal_ref) = openmls_group
+                            .propose_add_member(&self.context.mls_provider(), signer, key_package)
+                            .map_err(GroupError::ProposeAddMember)?;
+                        proposal_payloads.push(proposal_msg.tls_serialize_detached()?);
                     }
                 }
 
-                // Generate remove proposals for collected members
-                let mut proposal_payloads = Vec::new();
-                for member_index in members_to_remove {
-                    let signer = &self.context.identity().installation_keys;
-                    let (proposal_msg, _proposal_ref) = openmls_group
-                        .propose_remove_member(&self.context.mls_provider(), signer, member_index)
-                        .map_err(GroupError::ProposeRemoveMember)?;
-                    proposal_payloads.push(proposal_msg.tls_serialize_detached()?);
+                // Handle removes
+                if !intent_data.remove_inbox_ids.is_empty() {
+                    let inbox_ids_to_remove: HashSet<_> =
+                        intent_data.remove_inbox_ids.iter().cloned().collect();
+                    let mut members_to_remove = Vec::new();
+                    for member in openmls_group.members() {
+                        let credential = BasicCredential::try_from(member.credential.clone())?;
+                        let member_inbox_id = parse_credential(credential.identity())?;
+                        if inbox_ids_to_remove.contains(&member_inbox_id) {
+                            members_to_remove.push(member.index);
+                        }
+                    }
+
+                    // Generate remove proposals for collected members
+                    for member_index in members_to_remove {
+                        let (proposal_msg, _proposal_ref) = openmls_group
+                            .propose_remove_member(
+                                &self.context.mls_provider(),
+                                signer,
+                                member_index,
+                            )
+                            .map_err(GroupError::ProposeRemoveMember)?;
+                        proposal_payloads.push(proposal_msg.tls_serialize_detached()?);
+                    }
                 }
 
                 if proposal_payloads.is_empty() {
                     return Ok(None);
                 }
+
+                // Note: The GroupContextExtensions proposal to update membership is created
+                // by CommitPendingProposals, not here. This avoids issues with tracking
+                // multiple message hashes per intent.
 
                 Ok(Some(PublishIntentData {
                     payloads_to_publish: proposal_payloads,
@@ -2728,6 +2846,8 @@ where
                 }))
             }
             IntentKind::ProposeGroupContextExtensions => {
+                // No proposals_enabled guard here — ProposeGroupContextExtensions is used
+                // by enable_proposals() to bootstrap proposal support on the group.
                 let intent_data =
                     ProposeGroupContextExtensionsIntentData::try_from(intent.data.as_slice())?;
                 let group_epoch = openmls_group.epoch().as_u64();
@@ -2755,6 +2875,8 @@ where
                 }))
             }
             IntentKind::CommitPendingProposals => {
+                use crate::verified_key_package_v2::VerifiedKeyPackageV2;
+
                 let _intent_data =
                     CommitPendingProposalsIntentData::try_from(intent.data.as_slice())?;
 
@@ -2766,37 +2888,257 @@ where
 
                 let signer = &self.context.identity().installation_keys;
 
-                // Use generate_commit_with_rollback to create the commit
-                let ((commit, maybe_welcome, _), staged_commit, group_epoch) =
-                    generate_commit_with_rollback(storage, openmls_group, |group, provider| {
-                        group.commit_to_pending_proposals(provider, signer)
-                    })?;
+                // Get current group membership
+                let current_extensions: Extensions<GroupContext> =
+                    openmls_group.extensions().clone();
+                let current_membership = extract_group_membership(&current_extensions)?;
 
-                let staged_commit =
-                    staged_commit.ok_or_else(|| GroupError::MissingPendingCommit)?;
+                // Analyze pending proposals to determine membership changes and collect installations
+                let mut inbox_ids_to_add: Vec<String> = Vec::new();
+                let mut inbox_ids_to_remove: Vec<String> = Vec::new();
+                let mut installations_to_welcome: Vec<Installation> = Vec::new();
+                let mut key_packages_to_add: Vec<openmls::key_packages::KeyPackage> = Vec::new();
 
-                // Build post commit action if there's a welcome message
-                let post_commit_action = match maybe_welcome {
-                    Some(welcome_message) => {
-                        // Note: We don't have access to installation metadata here since proposals
-                        // were received from the network. The welcome will be sent but without
-                        // the installation metadata for push notifications.
-                        let installations_to_welcome = Vec::new();
-                        Some(PostCommitAction::from_welcome(
-                            welcome_message,
-                            installations_to_welcome,
-                        )?)
+                for proposal_ref in openmls_group.pending_proposals() {
+                    match proposal_ref.proposal() {
+                        Proposal::Add(add_proposal) => {
+                            let key_package = add_proposal.key_package();
+                            let credential = BasicCredential::try_from(
+                                key_package.leaf_node().credential().clone(),
+                            )?;
+                            let inbox_id = parse_credential(credential.identity())?;
+                            if !inbox_ids_to_add.contains(&inbox_id)
+                                && current_membership.get(&inbox_id).is_none()
+                            {
+                                inbox_ids_to_add.push(inbox_id);
+
+                                // Collect the key package for proposal support check
+                                key_packages_to_add.push(key_package.clone());
+
+                                // Extract installation info from the key package for welcome sending
+                                if let Ok(verified_kp) =
+                                    VerifiedKeyPackageV2::try_from(key_package.clone())
+                                    && let Ok(installation) =
+                                        Installation::from_verified_key_package(&verified_kp)
+                                {
+                                    installations_to_welcome.push(installation);
+                                }
+                            }
+                        }
+                        Proposal::Remove(remove_proposal) => {
+                            if let Some(member) = openmls_group.member_at(remove_proposal.removed())
+                            {
+                                let credential = BasicCredential::try_from(member.credential)?;
+                                let inbox_id = parse_credential(credential.identity())?;
+                                if !inbox_ids_to_remove.contains(&inbox_id) {
+                                    inbox_ids_to_remove.push(inbox_id);
+                                }
+                            }
+                        }
+                        _ => {}
                     }
-                    None => None,
-                };
+                }
 
-                Ok(Some(PublishIntentData {
-                    payloads_to_publish: vec![commit.tls_serialize_detached()?],
-                    staged_commit: Some(staged_commit),
-                    post_commit_action: post_commit_action.map(|action| action.to_bytes()),
-                    should_send_push_notification: intent.should_push,
-                    group_epoch,
-                }))
+                // Build the updated membership
+                let mut new_membership = current_membership.clone();
+
+                // Add new members with their latest sequence IDs
+                if !inbox_ids_to_add.is_empty() {
+                    let inbox_ids_refs: Vec<&str> =
+                        inbox_ids_to_add.iter().map(|s| s.as_str()).collect();
+                    load_identity_updates(self.context.api(), &self.context.db(), &inbox_ids_refs)
+                        .await?;
+                    let latest_sequence_ids =
+                        self.context.db().get_latest_sequence_id(&inbox_ids_refs)?;
+
+                    for inbox_id in &inbox_ids_to_add {
+                        let sequence_id = latest_sequence_ids
+                            .get(inbox_id.as_str())
+                            .copied()
+                            .ok_or(GroupError::MissingSequenceId)?;
+                        new_membership.add(inbox_id.clone(), sequence_id as u64);
+                    }
+                }
+
+                // Remove members
+                for inbox_id in &inbox_ids_to_remove {
+                    new_membership.remove(inbox_id);
+                }
+
+                // Compute failed installations for added members so they are
+                // tracked in the GCE and can be retried in future updates.
+                if !inbox_ids_to_add.is_empty() {
+                    let changes_with_kps = calculate_membership_changes_with_keypackages(
+                        &self.context,
+                        &self.group_id,
+                        &new_membership,
+                        &current_membership,
+                    )
+                    .await?;
+
+                    if !changes_with_kps.failed_installations.is_empty() {
+                        new_membership.failed_installations = changes_with_kps.failed_installations;
+                    }
+                }
+
+                // Determine if membership changes require a GCE proposal
+                let membership_changed =
+                    !inbox_ids_to_add.is_empty() || !inbox_ids_to_remove.is_empty();
+
+                // Check if a pending GCE already has the correct membership.
+                // Compare only the `members` field, not `failed_installations`,
+                // since failed_installations can change between Phase 1 and Phase 2
+                // due to transient network conditions.
+                let has_pending_gce_with_membership = membership_changed
+                    && openmls_group.pending_proposals().any(|p| {
+                        if let Proposal::GroupContextExtensions(gce) = p.proposal() {
+                            extract_group_membership(gce.extensions())
+                                .map(|m| m.members == new_membership.members)
+                                .unwrap_or(false)
+                        } else {
+                            false
+                        }
+                    });
+
+                if membership_changed && !has_pending_gce_with_membership {
+                    // === Phase 1: Create and publish GCE proposal ===
+                    // The GCE must be published to the network and received back by all
+                    // members before the commit can reference it.
+
+                    // Check for any existing pending GCE (might have non-membership changes).
+                    // If one exists, use its extensions as base to preserve those changes.
+                    let base_extensions = openmls_group
+                        .pending_proposals()
+                        .find_map(|p| {
+                            if let Proposal::GroupContextExtensions(gce) = p.proposal() {
+                                Some(gce.extensions().clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or_else(|| openmls_group.extensions().clone());
+
+                    // Build extensions with membership update on top of the base
+                    let mut new_extensions = base_extensions;
+                    new_extensions
+                        .add_or_replace(build_group_membership_extension(&new_membership))?;
+
+                    // Check if proposals need to be disabled due to new members not supporting them
+                    let proposals_currently_enabled = self.proposals_enabled(openmls_group);
+                    if proposals_currently_enabled && !key_packages_to_add.is_empty() {
+                        let new_members_support_proposals = self
+                            .validate_key_packages_support_proposals(&key_packages_to_add)
+                            .is_ok();
+
+                        if !new_members_support_proposals {
+                            tracing::info!(
+                                "Disabling proposals: new members don't support proposal extension"
+                            );
+                            new_extensions
+                                .remove(ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID));
+                            update_required_capabilities_for_proposals(&mut new_extensions, false)?;
+                        }
+                    }
+
+                    let (gce_proposal_msg, _gce_proposal_ref) = openmls_group
+                        .propose_group_context_extensions(
+                            &self.context.mls_provider(),
+                            new_extensions,
+                            signer,
+                        )
+                        .map_err(GroupError::Proposal)?;
+                    let group_epoch = openmls_group.epoch().as_u64();
+
+                    tracing::debug!(
+                        inbox_ids_to_add = ?inbox_ids_to_add,
+                        inbox_ids_to_remove = ?inbox_ids_to_remove,
+                        "Phase 1: Publishing GCE proposal with updated membership"
+                    );
+
+                    // Return just the GCE proposal (no commit yet).
+                    // When it comes back, the intent will be re-queued for Phase 2.
+                    Ok(Some(PublishIntentData {
+                        payloads_to_publish: vec![gce_proposal_msg.tls_serialize_detached()?],
+                        staged_commit: None,
+                        post_commit_action: None,
+                        should_send_push_notification: false,
+                        group_epoch,
+                    }))
+                } else {
+                    // === Phase 2: Create and publish the commit ===
+                    // Either no membership changes needed, or GCE with correct membership
+                    // is already in the proposal store.
+
+                    // Use commit builder with filter to exclude old GCE proposals
+                    // that don't have the correct membership.
+                    let new_membership_for_filter = new_membership.clone();
+                    let (bundle, staged_commit, group_epoch) = generate_commit_with_rollback(
+                        storage,
+                        openmls_group,
+                        |group,
+                         provider|
+                         -> Result<
+                            _,
+                            CommitToPendingProposalsError<sql_key_store::SqlKeyStoreError>,
+                        > {
+                            Ok(group
+                                .commit_builder()
+                                .consume_proposal_store(true)
+                                .load_psks(provider.storage())?
+                                .build(provider.rand(), provider.crypto(), signer, |qp| {
+                                    match qp.proposal() {
+                                        Proposal::GroupContextExtensions(gce) => {
+                                            if !membership_changed {
+                                                // No membership changes: include all GCEs
+                                                return true;
+                                            }
+                                            // Only include GCE with correct membership
+                                            // (compare members only, not failed_installations)
+                                            extract_group_membership(gce.extensions())
+                                                .map(|m| {
+                                                    m.members == new_membership_for_filter.members
+                                                })
+                                                .unwrap_or(false)
+                                        }
+                                        _ => true,
+                                    }
+                                })?
+                                .stage_commit(provider)?)
+                        },
+                    )?;
+                    let (commit, maybe_welcome, _group_info) = bundle.into_messages();
+
+                    let staged_commit =
+                        staged_commit.ok_or_else(|| GroupError::MissingPendingCommit)?;
+
+                    // Build post commit action if there's a welcome message
+                    let post_commit_action = match maybe_welcome {
+                        Some(welcome_message) => {
+                            tracing::debug!(
+                                num_installations = installations_to_welcome.len(),
+                                "Creating post commit action with installations to welcome"
+                            );
+                            Some(PostCommitAction::from_welcome(
+                                welcome_message,
+                                installations_to_welcome,
+                            )?)
+                        }
+                        None => None,
+                    };
+
+                    tracing::debug!(
+                        membership_changed,
+                        "Phase 2: Publishing commit with pending proposals"
+                    );
+
+                    Ok(Some(PublishIntentData {
+                        payloads_to_publish: vec![commit.tls_serialize_detached()?],
+                        staged_commit: Some(staged_commit),
+                        post_commit_action: post_commit_action.map(|action| action.to_bytes()),
+                        should_send_push_notification: intent.should_push,
+                        group_epoch,
+                    }))
+                }
             }
         }
     }

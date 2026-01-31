@@ -43,10 +43,9 @@ pub enum IntentKind {
     UpdateAdminList = 5,
     UpdatePermission = 6,
     ReaddInstallations = 7,
-    ProposeAddMembers = 8,
-    ProposeRemoveMembers = 9,
-    ProposeGroupContextExtensions = 10,
-    CommitPendingProposals = 11,
+    ProposeMemberUpdate = 8,
+    ProposeGroupContextExtensions = 9,
+    CommitPendingProposals = 10,
 }
 
 impl std::fmt::Display for IntentKind {
@@ -59,8 +58,7 @@ impl std::fmt::Display for IntentKind {
             IntentKind::UpdateAdminList => "UpdateAdminList",
             IntentKind::UpdatePermission => "UpdatePermission",
             IntentKind::ReaddInstallations => "ReaddInstallations",
-            IntentKind::ProposeAddMembers => "ProposeAddMembers",
-            IntentKind::ProposeRemoveMembers => "ProposeRemoveMembers",
+            IntentKind::ProposeMemberUpdate => "ProposeMemberUpdate",
             IntentKind::ProposeGroupContextExtensions => "ProposeGroupContextExtensions",
             IntentKind::CommitPendingProposals => "CommitPendingProposals",
         };
@@ -630,10 +628,9 @@ where
             5 => Ok(IntentKind::UpdateAdminList),
             6 => Ok(IntentKind::UpdatePermission),
             7 => Ok(IntentKind::ReaddInstallations),
-            8 => Ok(IntentKind::ProposeAddMembers),
-            9 => Ok(IntentKind::ProposeRemoveMembers),
-            10 => Ok(IntentKind::ProposeGroupContextExtensions),
-            11 => Ok(IntentKind::CommitPendingProposals),
+            8 => Ok(IntentKind::ProposeMemberUpdate),
+            9 => Ok(IntentKind::ProposeGroupContextExtensions),
+            10 => Ok(IntentKind::CommitPendingProposals),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

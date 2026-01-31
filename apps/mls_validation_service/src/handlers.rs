@@ -293,7 +293,10 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
 
     Ok(ValidateGroupMessageResult {
         group_id: serialize_group_id(protocol_message.group_id().as_slice()),
-        is_commit: protocol_message.content_type() == ContentType::Commit,
+        is_commit: matches!(
+            protocol_message.content_type(),
+            ContentType::Commit | ContentType::Proposal
+        ),
     })
 }
 
@@ -359,7 +362,10 @@ mod tests {
         let kp = if let Some(address) = account_address {
             let application_id =
                 Extension::ApplicationId(ApplicationIdExtension::new(address.as_bytes()));
-            kp.leaf_node_extensions(Extensions::single(application_id).unwrap())
+            kp.leaf_node_extensions(
+                Extensions::single(application_id)
+                    .expect("application id extension is always valid in leaf nodes"),
+            )
         } else {
             kp
         };

@@ -2,6 +2,7 @@ use super::*;
 use crate::groups::{
     GroupError, build_group_membership_extension,
     intents::{PostCommitAction, UpdateGroupMembershipIntentData},
+    update_required_capabilities_for_proposals,
     validated_commit::extract_group_membership,
 };
 use openmls::{
@@ -51,6 +52,27 @@ pub(crate) async fn apply_update_group_membership_intent(
     let mut new_extensions = extensions.clone();
 
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership))?;
+
+    // Check if proposals need to be disabled due to new members not supporting them
+    let proposal_ext_type =
+        openmls::prelude::ExtensionType::Unknown(xmtp_configuration::PROPOSAL_SUPPORT_EXTENSION_ID);
+    let proposals_currently_enabled = openmls_group
+        .extensions()
+        .iter()
+        .any(|ext| ext.extension_type() == proposal_ext_type);
+    if proposals_currently_enabled && !changes_with_kps.new_key_packages.is_empty() {
+        let new_members_support_proposals = changes_with_kps.new_key_packages.iter().all(|kp| {
+            kp.leaf_node()
+                .capabilities()
+                .extensions()
+                .contains(&proposal_ext_type)
+        });
+        if !new_members_support_proposals {
+            tracing::info!("Disabling proposals: new members don't support proposal extension");
+            new_extensions.remove(proposal_ext_type);
+            update_required_capabilities_for_proposals(&mut new_extensions, false)?;
+        }
+    }
 
     let publish_intent_data = compute_publish_data_for_group_membership_update(
         context,
