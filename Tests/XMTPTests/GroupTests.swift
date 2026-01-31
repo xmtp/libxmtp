@@ -1648,7 +1648,8 @@ class GroupTests: XCTestCase {
 
 		// Get messages using enrichedMessages() which goes through DecodedMessageV2
 		// This tests the FFI-to-proto mapping in mapGroupUpdated() after reinitialization
-		let messagesAfterReinit = try try await XCTUnwrap(reinitializedGroup?.enrichedMessages())
+		let messagesAfterReinitResult = try await reinitializedGroup?.enrichedMessages()
+		let messagesAfterReinit = try XCTUnwrap(messagesAfterReinitResult)
 
 		// Find the GroupUpdated message with leftInboxes
 		let leaveMessageAfterReinit = messagesAfterReinit.first { message in

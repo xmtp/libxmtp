@@ -88,7 +88,8 @@ class DeleteMessageTests: XCTestCase {
 		let alixGroup = try fixtures.alixClient.conversations.findGroup(groupId: boGroup.id)
 		XCTAssertNotNil(alixGroup)
 
-		let messageId = try try await XCTUnwrap(alixGroup?.send(content: "Alix's message"))
+		let sentMessageId = try await alixGroup?.send(content: "Alix's message")
+		let messageId = try XCTUnwrap(sentMessageId)
 		try await boGroup.sync()
 		try await alixGroup?.sync()
 

@@ -782,11 +782,13 @@ class ClientTests: XCTestCase {
 		XCTAssertEqual(inboxState.installations.count, 2)
 
 		let sigRequest2 = try await alix.ffiRevokeAllOtherInstallations()
+		let signatureTextForSign = try await sigRequest2?.signatureText()
 		let signedMessage2 = try await alixWallet.sign(
-			XCTUnwrap(sigRequest2?.signatureText())
+			XCTUnwrap(signatureTextForSign)
 		).rawData
 
-		try try await XCTUnwrap(sigRequest2?.addEcdsaSignature(signatureBytes: signedMessage2))
+		let addResult2 = try await sigRequest2?.addEcdsaSignature(signatureBytes: signedMessage2)
+		try XCTUnwrap(addResult2)
 		try await alix.ffiApplySignatureRequest(signatureRequest: XCTUnwrap(sigRequest2))
 
 		inboxState = try await alix.inboxState(refreshFromNetwork: true)
