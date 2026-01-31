@@ -293,7 +293,10 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
 
     Ok(ValidateGroupMessageResult {
         group_id: serialize_group_id(protocol_message.group_id().as_slice()),
-        is_commit: protocol_message.content_type() == ContentType::Commit,
+        is_commit: matches!(
+            protocol_message.content_type(),
+            ContentType::Commit | ContentType::Proposal
+        ),
     })
 }
 
