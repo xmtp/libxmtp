@@ -1,11 +1,13 @@
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::tester;
+use xmtp_configuration::DeviceSyncUrls;
 use xmtp_db::{
     consent_record::ConsentState,
     group::{ConversationType, StoredGroup},
     group_message::MsgQueryArgs,
 };
+use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
@@ -362,4 +364,59 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
             .load(conn)
     })?;
     assert_eq!(alix2_sync_groups.len(), 1);
+}
+
+#[rstest::rstest]
+#[xmtp_common::test(unwrap_try = true)]
+#[timeout(std::time::Duration::from_secs(60))]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn test_manual_sync_flow() {
+    tester!(alix, sync_worker);
+    tester!(bo);
+
+    let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
+
+    tester!(alix2, from: alix);
+    alix2.test_has_same_sync_group_as(&alix).await?;
+
+    let opts = BackupOptions {
+        elements: vec![BackupElementSelection::Consent.into()],
+        ..Default::default()
+    };
+
+    alix.device_sync_client()
+        .send_sync_archive(&opts, DeviceSyncUrls::LOCAL_ADDRESS, "123")
+        .await?;
+    alix.device_sync_client()
+        .send_sync_archive(&opts, DeviceSyncUrls::LOCAL_ADDRESS, "234")
+        .await?;
+    alix.worker()
+        .register_interest(SyncMetric::PayloadSent, 2)
+        .wait()
+        .await?;
+
+    assert!(alix2.group(&dm.group_id).is_err());
+
+    alix2
+        .device_sync_client()
+        .get_sync_group()
+        .await?
+        .sync()
+        .await?;
+
+    let available_archives = alix2.device_sync_client().list_available_archives(7)?;
+    assert_eq!(available_archives.len(), 2);
+    assert_eq!(available_archives[0].pin, "234");
+
+    alix2
+        .device_sync_client()
+        .process_archive_with_pin(Some("123"))
+        .await?;
+    alix2
+        .worker()
+        .register_interest(SyncMetric::PayloadProcessed, 1)
+        .wait()
+        .await?;
+
+    assert!(alix2.group(&dm.group_id).is_ok());
 }
