@@ -1,0 +1,241 @@
+# .github/workflows/release-ios.yml
+name: Release iOS SDK
+
+on:
+  workflow_call:
+    inputs:
+      release-type:
+        required: true
+        type: string
+        description: "dev, rc, or final"
+      rc-number:
+        required: false
+        type: number
+        description: "RC number (required for rc releases)"
+      ref:
+        required: true
+        type: string
+        description: "Git ref to build from"
+    outputs:
+      version:
+        description: "The published version string"
+        value: ${{ jobs.publish.outputs.version }}
+
+jobs:
+  compute-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      base-version: ${{ steps.version.outputs.base-version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install release tools
+        working-directory: dev/release-tools
+        run: yarn install --frozen-lockfile
+      - name: Compute version
+        id: version
+        working-directory: dev/release-tools
+        run: |
+          BASE=$(yarn cli compute-version --sdk ios --release-type final)
+          if [ "${{ inputs.release-type }}" = "rc" ]; then
+            VERSION=$(yarn cli compute-version --sdk ios --release-type rc --rc-number ${{ inputs.rc-number }})
+          elif [ "${{ inputs.release-type }}" = "dev" ]; then
+            VERSION=$(yarn cli compute-version --sdk ios --release-type dev)
+          else
+            VERSION=$BASE
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "base-version=$BASE" >> "$GITHUB_OUTPUT"
+          echo "Computed version: $VERSION"
+
+  build:
+    needs: [compute-version]
+    runs-on: warp-macos-15-arm64-12x
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-apple-ios
+          - aarch64-apple-ios-sim
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+      - uses: DeterminateSystems/magic-nix-cache-action@v13
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: Build target
+        run: |
+          nix develop --command \
+            cargo build --release --target ${{ matrix.target }} --manifest-path bindings/mobile/Cargo.toml
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/libxmtpv3.a
+          retention-days: 1
+
+  generate-swift-bindings:
+    runs-on: warp-macos-15-arm64-12x
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+      - uses: DeterminateSystems/magic-nix-cache-action@v13
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: Generate Swift bindings
+        working-directory: bindings/mobile
+        run: nix develop ../.. --command make swift
+      - uses: actions/upload-artifact@v6
+        with:
+          name: swift
+          path: bindings/mobile/build/swift/
+          retention-days: 1
+
+  package:
+    needs: [compute-version, build, generate-swift-bindings]
+    runs-on: warp-macos-15-arm64-12x
+    permissions:
+      contents: write
+    outputs:
+      artifact-url: ${{ steps.release.outputs.artifact-url }}
+      checksum: ${{ steps.checksum.outputs.checksum }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/download-artifact@v7
+        with:
+          path: bindings/mobile/build
+      - name: Build xcframework
+        working-directory: bindings/mobile
+        run: |
+          mkdir -p Sources/LibXMTP
+          mv build/swift/xmtpv3.swift Sources/LibXMTP/
+          make framework
+          cp ../../LICENSE ./LICENSE
+          zip -r LibXMTPSwiftFFI.zip Sources LibXMTPSwiftFFI.xcframework LICENSE
+      - name: Compute checksum
+        id: checksum
+        working-directory: bindings/mobile
+        run: |
+          echo "checksum=$(shasum -a 256 LibXMTPSwiftFFI.zip | awk '{ print $1 }')" >> "$GITHUB_OUTPUT"
+      - name: Create or update GitHub Release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.compute-version.outputs.version }}
+        working-directory: bindings/mobile
+        run: |
+          TAG="ios-${VERSION}-libxmtp"
+          # Delete existing release if re-running
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          git tag -d "$TAG" 2>/dev/null || true
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true
+
+          gh release create "$TAG" \
+            --title "iOS $VERSION - libxmtp binaries" \
+            --notes "Intermediate artifact release for iOS SDK $VERSION" \
+            --prerelease \
+            LibXMTPSwiftFFI.zip
+
+          ARTIFACT_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/LibXMTPSwiftFFI.zip"
+          echo "artifact-url=$ARTIFACT_URL" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: [compute-version, package]
+    runs-on: warp-macos-15-arm64-12x
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ needs.compute-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install release tools
+        working-directory: dev/release-tools
+        run: yarn install --frozen-lockfile
+      - name: Update Package.swift and podspec
+        env:
+          VERSION: ${{ needs.compute-version.outputs.version }}
+          ARTIFACT_URL: ${{ needs.package.outputs.artifact-url }}
+          CHECKSUM: ${{ needs.package.outputs.checksum }}
+        run: |
+          cd dev/release-tools
+          yarn cli update-spm-checksum --sdk ios --url "$ARTIFACT_URL" --checksum "$CHECKSUM"
+
+          # For dev/rc releases, update podspec with suffixed version
+          if [ "${{ inputs.release-type }}" != "final" ]; then
+            # Write the full version (with suffix) directly to podspec
+            sed -i '' "s/spec.version.*=.*/spec.version      = \"$VERSION\"/" sdks/ios/XMTP.podspec
+          fi
+      - name: Commit and tag
+        env:
+          VERSION: ${{ needs.compute-version.outputs.version }}
+        run: |
+          TAG="ios-${VERSION}"
+          # Clean up existing tag if re-running
+          git tag -d "$TAG" 2>/dev/null || true
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add sdks/ios/Package.swift sdks/ios/XMTP.podspec
+          git commit -m "release: iOS SDK $VERSION [skip ci]" || echo "No changes to commit"
+          git tag "$TAG"
+          git push origin HEAD "$TAG"
+      - name: Copy release notes (final only)
+        if: inputs.release-type == 'final'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.compute-version.outputs.version }}
+        run: |
+          TAG="ios-${VERSION}"
+          NOTES_FILE="docs/release-notes/ios-${VERSION}.md"
+          if [ -f "$NOTES_FILE" ]; then
+            gh release create "$TAG" \
+              --title "iOS SDK $VERSION" \
+              --notes-file "$NOTES_FILE" \
+              --latest
+          else
+            gh release create "$TAG" \
+              --title "iOS SDK $VERSION" \
+              --notes "iOS SDK version $VERSION" \
+              --latest
+          fi
+      - name: Publish to CocoaPods
+        env:
+          COCOAPODS_TRUNK_TOKEN: ${{ secrets.COCOAPODS_TRUNK_TOKEN }}
+        run: |
+          # Check if version is already published
+          PUBLISHED=$(pod trunk info XMTP 2>/dev/null | grep -c "$VERSION" || true)
+          if [ "$PUBLISHED" -gt 0 ]; then
+            echo "Version $VERSION already published to CocoaPods, skipping"
+          else
+            pod trunk push sdks/ios/XMTP.podspec --allow-warnings --skip-tests
+          fi
