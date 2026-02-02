@@ -95,3 +95,47 @@ pub fn interval_stream(
         native => {tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(period)).map(|t| t.into_std())},
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ErrorCode;
+
+    #[test]
+    fn test_expired_error_code() {
+        let expired = Expired;
+        assert_eq!(expired.error_code(), "Expired");
+    }
+
+    #[test]
+    fn test_expired_display() {
+        let expired = Expired;
+        assert_eq!(format!("{}", expired), "timer duration expired");
+    }
+
+    #[test]
+    fn test_expired_description() {
+        use std::error::Error;
+        #[allow(deprecated)]
+        let desc = Expired.description();
+        assert_eq!(desc, "Timer duration expired");
+    }
+
+    #[test]
+    fn test_now_ns_returns_positive() {
+        let ns = now_ns();
+        assert!(ns > 0, "now_ns should return a positive value");
+    }
+
+    #[test]
+    fn test_now_ms_returns_positive() {
+        let ms = now_ms();
+        assert!(ms > 0, "now_ms should return a positive value");
+    }
+
+    #[test]
+    fn test_now_secs_returns_positive() {
+        let secs = now_secs();
+        assert!(secs > 0, "now_secs should return a positive value");
+    }
+}

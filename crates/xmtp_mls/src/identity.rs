@@ -1089,6 +1089,86 @@ mod tests {
         assert!(key_package_from_db.is_none());
     }
 
+    #[test]
+    fn test_generate_post_quantum_key_error_codes() {
+        use super::GeneratePostQuantumKeyError;
+        use openmls_traits::types::CryptoError;
+        use xmtp_common::ErrorCode;
+
+        // Test Crypto variant
+        let crypto_err = GeneratePostQuantumKeyError::Crypto(CryptoError::CryptoLibraryError);
+        assert_eq!(
+            crypto_err.error_code(),
+            "GeneratePostQuantumKeyError::Crypto"
+        );
+    }
+
+    #[test]
+    fn test_identity_error_codes() {
+        use super::IdentityError;
+        use xmtp_common::ErrorCode;
+
+        // Test simple variants
+        let err = IdentityError::LegacyKeyReuse;
+        assert_eq!(err.error_code(), "IdentityError::LegacyKeyReuse");
+
+        let err = IdentityError::UninitializedIdentity;
+        assert_eq!(err.error_code(), "IdentityError::UninitializedIdentity");
+
+        let err = IdentityError::LegacyKeyMismatch;
+        assert_eq!(err.error_code(), "IdentityError::LegacyKeyMismatch");
+
+        let err = IdentityError::RequiredIdentityNotFound;
+        assert_eq!(err.error_code(), "IdentityError::RequiredIdentityNotFound");
+
+        let err = IdentityError::Bincode;
+        assert_eq!(err.error_code(), "IdentityError::Bincode");
+
+        let err = IdentityError::MissingPostQuantumPublicKey;
+        assert_eq!(
+            err.error_code(),
+            "IdentityError::MissingPostQuantumPublicKey"
+        );
+
+        // Test variants with data
+        let err = IdentityError::InstallationIdNotFound("test".to_string());
+        assert_eq!(err.error_code(), "IdentityError::InstallationIdNotFound");
+
+        let err = IdentityError::InstallationKey("test".to_string());
+        assert_eq!(err.error_code(), "IdentityError::InstallationKey");
+
+        let err = IdentityError::NewIdentity("test".to_string());
+        assert_eq!(err.error_code(), "IdentityError::NewIdentity");
+
+        let err = IdentityError::TooManyInstallations {
+            inbox_id: "test".to_string(),
+            count: 10,
+            max: 5,
+        };
+        assert_eq!(err.error_code(), "IdentityError::TooManyInstallations");
+
+        let err = IdentityError::InboxIdMismatch {
+            id: "id1".to_string(),
+            stored: "id2".to_string(),
+        };
+        assert_eq!(err.error_code(), "IdentityError::InboxIdMismatch");
+
+        let err = IdentityError::NoAssociatedInboxId("addr".to_string());
+        assert_eq!(err.error_code(), "IdentityError::NoAssociatedInboxId");
+    }
+
+    #[test]
+    fn test_identity_error_inherited_codes() {
+        use super::IdentityError;
+        use xmtp_common::ErrorCode;
+        use xmtp_db::{NotFound, StorageError};
+
+        // Test inherited error codes
+        let storage_err = StorageError::NotFound(NotFound::MessageById(vec![1, 2, 3]));
+        let err = IdentityError::StorageError(storage_err);
+        assert_eq!(err.error_code(), "StorageError::NotFound");
+    }
+
     #[xmtp_common::test]
     async fn post_quantum_interop() {
         for [amal_has_pq, bola_has_pq] in
