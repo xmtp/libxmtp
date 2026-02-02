@@ -5,8 +5,7 @@ import { computeVersion as computeVersionFn } from "../lib/version.js";
 import { getShortSha } from "../lib/git.js";
 
 export const command = "compute-version";
-export const describe =
-  "Compute the full version string for a release type";
+export const describe = "Compute the full version string for a release type";
 
 export function builder(yargs: Argv) {
   return yargs
@@ -32,7 +31,7 @@ export function handler(
     sdk: string;
     releaseType: ReleaseType;
     rcNumber?: number;
-  }>
+  }>,
 ) {
   const config = getSdkConfig(argv.sdk);
   const baseVersion = config.manifest.readVersion(process.cwd());

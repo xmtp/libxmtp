@@ -45,7 +45,7 @@ export function handler(
     base: string;
     sdk: string;
     bump: BumpType;
-  }>
+  }>,
 ) {
   const cwd = process.cwd();
   const branchName = `release/${argv.version}`;
@@ -59,9 +59,7 @@ export function handler(
 
   const config = getSdkConfig(argv.sdk);
   const lastVersion = findLastVersion(argv.sdk, cwd);
-  const sinceTag = lastVersion
-    ? `${config.tagPrefix}${lastVersion}`
-    : null;
+  const sinceTag = lastVersion ? `${config.tagPrefix}${lastVersion}` : null;
   console.log(`Scaffolding release notes...`);
   const notesPath = scaffoldNotes(argv.sdk, cwd, sinceTag);
   console.log(`Release notes: ${notesPath}`);
@@ -69,7 +67,7 @@ export function handler(
   exec("git add -A", cwd);
   exec(
     `git commit -m "chore: create release ${argv.version} with ${argv.sdk} ${newVersion}"`,
-    cwd
+    cwd,
   );
 
   console.log(`Branch ${branchName} created and committed.`);

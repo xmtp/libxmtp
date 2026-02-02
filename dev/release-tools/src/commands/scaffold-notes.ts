@@ -8,7 +8,7 @@ import { findLastVersion } from "./find-last-version.js";
 export function scaffoldNotes(
   sdk: string,
   repoRoot: string,
-  sinceTag: string | null
+  sinceTag: string | null,
 ): string {
   const config = getSdkConfig(sdk);
   const version = config.manifest.readVersion(repoRoot);
@@ -21,9 +21,10 @@ export function scaffoldNotes(
   let commitSection: string;
   if (sinceTag) {
     const commits = getCommitsBetween(repoRoot, sinceTag, "HEAD");
-    commitSection = commits.length > 0
-      ? commits.map((c) => `- ${c}`).join("\n")
-      : "- No changes since last release";
+    commitSection =
+      commits.length > 0
+        ? commits.map((c) => `- ${c}`).join("\n")
+        : "- No changes since last release";
   } else {
     commitSection =
       "This is the first release from the monorepo. No previous release tag was found to compare against.";
@@ -72,13 +73,12 @@ export function builder(yargs: Argv) {
     })
     .option("since", {
       type: "string",
-      describe:
-        "Tag to diff from (defaults to last stable release tag)",
+      describe: "Tag to diff from (defaults to last stable release tag)",
     });
 }
 
 export function handler(
-  argv: ArgumentsCamelCase<{ sdk: string; since?: string }>
+  argv: ArgumentsCamelCase<{ sdk: string; since?: string }>,
 ) {
   const sinceTag =
     argv.since ??

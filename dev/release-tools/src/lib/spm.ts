@@ -15,13 +15,13 @@ const SPM_CHECKSUM_REGEX = /(checksum:\s*)"([^"]+)"/s;
 export function updateSpmChecksum(
   packageSwiftPath: string,
   url: string,
-  checksum: string
+  checksum: string,
 ): void {
   let content = fs.readFileSync(packageSwiftPath, "utf-8");
 
   if (!SPM_URL_REGEX.test(content)) {
     throw new Error(
-      `Could not find remote binaryTarget url in ${packageSwiftPath}`
+      `Could not find remote binaryTarget url in ${packageSwiftPath}`,
     );
   }
 

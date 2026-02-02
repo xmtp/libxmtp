@@ -31,7 +31,7 @@ export function handler(
     sdk: string;
     url: string;
     checksum: string;
-  }>
+  }>,
 ) {
   const config = getSdkConfig(argv.sdk);
   if (!config.spmManifestPath) {

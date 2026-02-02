@@ -13,9 +13,7 @@ describe("scaffoldNotes", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "release-tools-notes-")
-    );
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "release-tools-notes-"));
     execSync("git init", { cwd: tmpDir });
     execSync("git config user.email test@test.com", { cwd: tmpDir });
     execSync("git config user.name Test", { cwd: tmpDir });
@@ -27,7 +25,7 @@ describe("scaffoldNotes", () => {
     });
     fs.writeFileSync(
       path.join(tmpDir, "sdks/ios/XMTP.podspec"),
-      `Pod::Spec.new do |spec|\n  spec.version      = "4.10.0"\nend\n`
+      `Pod::Spec.new do |spec|\n  spec.version      = "4.10.0"\nend\n`,
     );
     fs.writeFileSync(path.join(tmpDir, "file.txt"), "initial");
     execSync("git add . && git commit -m 'initial commit'", {

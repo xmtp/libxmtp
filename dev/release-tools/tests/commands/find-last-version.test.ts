@@ -13,9 +13,7 @@ describe("findLastVersion", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "release-tools-flv-")
-    );
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "release-tools-flv-"));
     execSync("git init", { cwd: tmpDir });
     execSync("git config user.email test@test.com", { cwd: tmpDir });
     execSync("git config user.name Test", { cwd: tmpDir });

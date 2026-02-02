@@ -1,8 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  computeVersion,
-  filterAndSortTags,
-} from "../src/lib/version.js";
+import { computeVersion, filterAndSortTags } from "../src/lib/version.js";
 
 describe("filterAndSortTags", () => {
   it("filters tags by prefix and sorts descending", () => {
@@ -18,21 +15,13 @@ describe("filterAndSortTags", () => {
   });
 
   it("includes prerelease tags when flag is set", () => {
-    const tags = [
-      "ios-4.9.0",
-      "ios-4.10.0-rc1",
-      "ios-4.10.0-dev.abc1234",
-    ];
+    const tags = ["ios-4.9.0", "ios-4.10.0-rc1", "ios-4.10.0-dev.abc1234"];
     const result = filterAndSortTags(tags, "ios-", "-libxmtp", true);
     expect(result).toEqual(["4.10.0-rc1", "4.10.0-dev.abc1234", "4.9.0"]);
   });
 
   it("excludes prerelease tags by default", () => {
-    const tags = [
-      "ios-4.9.0",
-      "ios-4.10.0-rc1",
-      "ios-4.10.0-dev.abc1234",
-    ];
+    const tags = ["ios-4.9.0", "ios-4.10.0-rc1", "ios-4.10.0-dev.abc1234"];
     const result = filterAndSortTags(tags, "ios-", "-libxmtp");
     expect(result).toEqual(["4.9.0"]);
   });
@@ -44,11 +33,7 @@ describe("filterAndSortTags", () => {
   });
 
   it("excludes artifact tags ending in suffix", () => {
-    const tags = [
-      "ios-4.9.0",
-      "ios-4.9.0-libxmtp",
-      "ios-4.10.0-libxmtp",
-    ];
+    const tags = ["ios-4.9.0", "ios-4.9.0-libxmtp", "ios-4.10.0-libxmtp"];
     const result = filterAndSortTags(tags, "ios-", "-libxmtp", true);
     expect(result).toEqual(["4.9.0"]);
   });
@@ -60,15 +45,13 @@ describe("computeVersion", () => {
   });
 
   it("appends rc suffix for rc release", () => {
-    expect(computeVersion("4.10.0", "rc", { rcNumber: 1 })).toBe(
-      "4.10.0-rc1"
-    );
+    expect(computeVersion("4.10.0", "rc", { rcNumber: 1 })).toBe("4.10.0-rc1");
   });
 
   it("appends dev suffix with short sha", () => {
-    expect(
-      computeVersion("4.10.0", "dev", { shortSha: "abc1234" })
-    ).toBe("4.10.0-dev.abc1234");
+    expect(computeVersion("4.10.0", "dev", { shortSha: "abc1234" })).toBe(
+      "4.10.0-dev.abc1234",
+    );
   });
 
   it("throws if rc release has no rcNumber", () => {

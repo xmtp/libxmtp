@@ -6,15 +6,13 @@ import { getSdkConfig } from "../lib/sdk-config.js";
 export function bumpVersion(
   sdk: string,
   bumpType: BumpType,
-  repoRoot: string
+  repoRoot: string,
 ): string {
   const config = getSdkConfig(sdk);
   const currentVersion = config.manifest.readVersion(repoRoot);
   const newVersion = semver.inc(currentVersion, bumpType);
   if (!newVersion) {
-    throw new Error(
-      `Failed to bump ${bumpType} on version ${currentVersion}`
-    );
+    throw new Error(`Failed to bump ${bumpType} on version ${currentVersion}`);
   }
   config.manifest.writeVersion(repoRoot, newVersion);
   return newVersion;
@@ -39,7 +37,7 @@ export function builder(yargs: Argv) {
 }
 
 export function handler(
-  argv: ArgumentsCamelCase<{ sdk: string; type: BumpType }>
+  argv: ArgumentsCamelCase<{ sdk: string; type: BumpType }>,
 ) {
   const version = bumpVersion(argv.sdk, argv.type, process.cwd());
   console.log(version);

@@ -9,7 +9,7 @@ export function filterAndSortTags(
   tags: string[],
   prefix: string,
   artifactSuffix: string,
-  includePrerelease = false
+  includePrerelease = false,
 ): string[] {
   const versions: semver.SemVer[] = [];
 
@@ -29,9 +29,7 @@ export function filterAndSortTags(
     versions.push(parsed);
   }
 
-  return versions
-    .sort((a, b) => semver.rcompare(a, b))
-    .map((v) => v.version);
+  return versions.sort((a, b) => semver.rcompare(a, b)).map((v) => v.version);
 }
 
 export interface ComputeVersionOptions {
@@ -45,7 +43,7 @@ export interface ComputeVersionOptions {
 export function computeVersion(
   baseVersion: string,
   releaseType: ReleaseType,
-  options: ComputeVersionOptions = {}
+  options: ComputeVersionOptions = {},
 ): string {
   switch (releaseType) {
     case "final":

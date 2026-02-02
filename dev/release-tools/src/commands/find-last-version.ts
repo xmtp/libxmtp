@@ -6,7 +6,7 @@ import { listTags } from "../lib/git.js";
 export function findLastVersion(
   sdk: string,
   cwd: string,
-  preRelease = false
+  preRelease = false,
 ): string | null {
   const config = getSdkConfig(sdk);
   const tags = listTags(cwd);
@@ -14,7 +14,7 @@ export function findLastVersion(
     tags,
     config.tagPrefix,
     config.artifactTagSuffix,
-    preRelease
+    preRelease,
   );
   return versions.length > 0 ? versions[0] : null;
 }
@@ -37,13 +37,9 @@ export function builder(yargs: Argv) {
 }
 
 export function handler(
-  argv: ArgumentsCamelCase<{ sdk: string; preRelease: boolean }>
+  argv: ArgumentsCamelCase<{ sdk: string; preRelease: boolean }>,
 ) {
-  const version = findLastVersion(
-    argv.sdk,
-    process.cwd(),
-    argv.preRelease
-  );
+  const version = findLastVersion(argv.sdk, process.cwd(), argv.preRelease);
   if (version) {
     console.log(version);
   } else {

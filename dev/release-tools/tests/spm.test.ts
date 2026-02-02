@@ -49,7 +49,7 @@ describe("updateSpmChecksum", () => {
     updateSpmChecksum(
       packagePath,
       "https://github.com/xmtp/libxmtp/releases/download/ios-4.10.0-libxmtp/LibXMTPSwiftFFI.xcframework.zip",
-      "newchecksum456"
+      "newchecksum456",
     );
     const content = fs.readFileSync(packagePath, "utf-8");
     expect(content).toContain("ios-4.10.0-libxmtp");
@@ -59,23 +59,13 @@ describe("updateSpmChecksum", () => {
   });
 
   it("preserves the local binary target path", () => {
-    updateSpmChecksum(
-      packagePath,
-      "https://example.com/new.zip",
-      "abc"
-    );
+    updateSpmChecksum(packagePath, "https://example.com/new.zip", "abc");
     const content = fs.readFileSync(packagePath, "utf-8");
-    expect(content).toContain(
-      'path: ".build/LibXMTPSwiftFFI.xcframework"'
-    );
+    expect(content).toContain('path: ".build/LibXMTPSwiftFFI.xcframework"');
   });
 
   it("preserves the conditional logic", () => {
-    updateSpmChecksum(
-      packagePath,
-      "https://example.com/new.zip",
-      "abc"
-    );
+    updateSpmChecksum(packagePath, "https://example.com/new.zip", "abc");
     const content = fs.readFileSync(packagePath, "utf-8");
     expect(content).toContain("useLocalBinary");
     expect(content).toContain("FileManager.default.fileExists");
@@ -103,7 +93,7 @@ let package = Package(
     updateSpmChecksum(
       packagePath,
       "https://example.com/new.zip",
-      "newchecksum"
+      "newchecksum",
     );
     const content = fs.readFileSync(packagePath, "utf-8");
     expect(content).toContain('"https://example.com/new.zip"');
@@ -115,7 +105,7 @@ let package = Package(
   it("throws if url pattern is not found", () => {
     fs.writeFileSync(packagePath, "no url here\n");
     expect(() =>
-      updateSpmChecksum(packagePath, "https://example.com/new.zip", "abc")
+      updateSpmChecksum(packagePath, "https://example.com/new.zip", "abc"),
     ).toThrow();
   });
 });

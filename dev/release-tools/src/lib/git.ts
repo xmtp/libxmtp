@@ -17,13 +17,10 @@ export function getShortSha(cwd: string, ref = "HEAD"): string {
 export function getCommitsBetween(
   cwd: string,
   sinceRef: string | null,
-  untilRef: string
+  untilRef: string,
 ): string[] {
   const range = sinceRef ? `${sinceRef}..${untilRef}` : untilRef;
-  const output = exec(
-    `git log ${range} --oneline --no-decorate`,
-    cwd
-  );
+  const output = exec(`git log ${range} --oneline --no-decorate`, cwd);
   if (!output) return [];
   return output.split("\n").filter(Boolean);
 }

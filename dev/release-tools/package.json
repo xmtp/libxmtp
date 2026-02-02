@@ -6,6 +6,8 @@
   "bin": "./src/cli.ts",
   "scripts": {
     "cli": "tsx src/cli.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -16,6 +18,7 @@
   "devDependencies": {
     "@types/node": "^25.0.0",
     "@types/semver": "^7.5.0",
+    "prettier": "^3.8.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.0",
     "vitest": "^4.0.0"
