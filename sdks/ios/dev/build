@@ -6,6 +6,6 @@ ensure_nix_shell "$@"
 cd "${ROOT}/bindings/mobile"
 make local
 
-# Build Swift package
-cd "${IOS_SDK_DIR}"
+# Build Swift package (Package.swift is at repo root)
+cd "${ROOT}"
 swift build
