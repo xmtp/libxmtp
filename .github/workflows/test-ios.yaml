@@ -3,9 +3,9 @@ name: iOS Tests
 on:
   push:
     branches: ["main"]
-    paths: ["sdks/ios/**", "bindings/mobile/**", "crates/**"]
+    paths: ["Package.swift", "sdks/ios/**", "bindings/mobile/**", "crates/**"]
   pull_request:
-    paths: ["sdks/ios/**", "bindings/mobile/**", "crates/**"]
+    paths: ["Package.swift", "sdks/ios/**", "bindings/mobile/**", "crates/**"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
