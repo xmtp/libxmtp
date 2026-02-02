@@ -1,0 +1,92 @@
+# .github/workflows/publish-release.yml
+name: Publish Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release-branch:
+        description: "Release or hotfix branch to publish from"
+        required: true
+        type: string
+      release-type:
+        description: "Release type"
+        required: true
+        type: choice
+        options:
+          - "rc"
+          - "final"
+      rc-number:
+        description: "RC number (required for RC releases)"
+        required: false
+        type: number
+      ios:
+        description: "Release iOS SDK"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  release-ios:
+    if: inputs.ios
+    uses: ./.github/workflows/release-ios.yml
+    with:
+      release-type: ${{ inputs.release-type }}
+      rc-number: ${{ inputs.rc-number }}
+      ref: ${{ inputs.release-branch }}
+    secrets: inherit
+
+  merge-to-main:
+    if: inputs.release-type == 'final' && !failure() && !cancelled()
+    needs: [release-ios]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Merge release branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin ${{ inputs.release-branch }}
+          git merge origin/${{ inputs.release-branch }} --no-ff -m "chore: merge release branch ${{ inputs.release-branch }}"
+          git push origin main
+
+  notify:
+    needs: [release-ios, merge-to-main]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          IOS_RESULT: ${{ needs.release-ios.result }}
+          IOS_VERSION: ${{ needs.release-ios.outputs.version }}
+          RELEASE_TYPE: ${{ inputs.release-type }}
+        run: |
+          STATUS="success"
+          if [ "$IOS_RESULT" = "failure" ]; then
+            STATUS="failure"
+          fi
+
+          if [ "$RELEASE_TYPE" = "final" ]; then
+            CHANNEL="#notify-sdk-releases"
+          else
+            CHANNEL="#notify-dev-releases"
+          fi
+
+          if [ "$STATUS" = "failure" ]; then
+            CHANNEL="#notify-dev-release-failures"
+          fi
+
+          MESSAGE="${RELEASE_TYPE^} Release: iOS ${IOS_VERSION:-skipped} - ${IOS_RESULT:-skipped}"
+
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -X POST "$SLACK_WEBHOOK_URL" \
+              -H 'Content-type: application/json' \
+              --data "{\"channel\":\"$CHANNEL\",\"text\":\"$MESSAGE\"}"
+          else
+            echo "$MESSAGE"
+          fi
