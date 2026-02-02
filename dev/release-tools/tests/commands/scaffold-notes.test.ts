@@ -51,7 +51,7 @@ describe("scaffoldNotes", () => {
     });
 
     const outputPath = scaffoldNotes("ios", tmpDir, "ios-4.9.0");
-    expect(outputPath).toContain("docs/release-notes/ios-4.10.0.md");
+    expect(outputPath).toContain("docs/release-notes/ios/4.10.0.md");
 
     const content = fs.readFileSync(outputPath, "utf-8");
     expect(content).toContain("# iOS SDK 4.10.0");

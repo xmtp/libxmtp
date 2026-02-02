@@ -60,6 +60,29 @@ jobs:
           git add -A
           git commit -m "chore: create release ${{ inputs.version }}" || echo "No changes"
           git push -u origin "$BRANCH"
+      - name: Create pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="release/${{ inputs.version }}"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "Release ${{ inputs.version }}" \
+            --body "$(cat <<'PREOF'
+          ## Release ${{ inputs.version }}
+
+          This PR was created by the Create Release Branch workflow.
+
+          ### Checklist
+          - [ ] Release notes reviewed and finalized
+          - [ ] All SDK versions bumped
+          - [ ] RC published and validated
+          - [ ] Final release published via Publish Release workflow
+
+          > **Note:** This PR will be merged automatically by the Publish Release workflow upon final release.
+          PREOF
+          )"
 
   draft-release-notes:
     needs: [create-branch]

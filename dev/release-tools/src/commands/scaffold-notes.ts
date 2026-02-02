@@ -13,12 +13,10 @@ export function scaffoldNotes(
   const config = getSdkConfig(sdk);
   const version = config.manifest.readVersion(repoRoot);
 
-  const notesDir = path.join(repoRoot, "docs/release-notes");
+  const sdkName = config.tagPrefix.replace(/-$/, "");
+  const notesDir = path.join(repoRoot, "docs/release-notes", sdkName);
   fs.mkdirSync(notesDir, { recursive: true });
-  const outputPath = path.join(
-    notesDir,
-    `${config.tagPrefix.replace(/-$/, "")}-${version}.md`
-  );
+  const outputPath = path.join(notesDir, `${version}.md`);
 
   let commitSection: string;
   if (sinceTag) {

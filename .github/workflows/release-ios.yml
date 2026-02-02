@@ -216,7 +216,7 @@ jobs:
           VERSION: ${{ needs.compute-version.outputs.version }}
         run: |
           TAG="ios-${VERSION}"
-          NOTES_FILE="docs/release-notes/ios-${VERSION}.md"
+          NOTES_FILE="docs/release-notes/ios/${VERSION}.md"
           if [ -f "$NOTES_FILE" ]; then
             gh release create "$TAG" \
               --title "iOS SDK $VERSION" \
