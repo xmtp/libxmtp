@@ -69,16 +69,15 @@ impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
                 edited_reply.in_reply_to = original_reply.in_reply_to.clone();
               }
               // If original is a Reply but edited content is Text, wrap text in Reply
-              else if let MessageBody::Reply(original_reply) = &msg.content {
-                if let MessageBody::Text(text) = edited_body {
-                  edited_body = MessageBody::Reply(ProcessedReply {
-                    in_reply_to: original_reply.in_reply_to.clone(),
-                    content: Box::new(MessageBody::Text(text)),
-                    reference_id: original_reply.reference_id.clone(),
-                  });
-                  // Keep the original content type since we're preserving the reply structure
-                  final_content_type = original_content_type.clone();
-                }
+              else if let MessageBody::Reply(original_reply) = &msg.content
+                && let MessageBody::Text(text) = edited_body
+              {
+                edited_body = MessageBody::Reply(ProcessedReply {
+                  in_reply_to: original_reply.in_reply_to.clone(),
+                  content: Box::new(MessageBody::Text(text)),
+                  reference_id: original_reply.reference_id.clone(),
+                });
+                final_content_type = original_content_type.clone();
               }
               match edited_body.try_into() {
                 Ok(c) => (c, final_content_type),

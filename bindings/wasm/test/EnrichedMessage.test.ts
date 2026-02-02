@@ -1320,7 +1320,8 @@ describe("EnrichedMessage", () => {
 
   describe("Edit Message", () => {
     it("should edit a text message and show edited_at_ns", async () => {
-      const { client1, conversation, conversation2 } = await setupConversation();
+      const { client1, conversation, conversation2 } =
+        await setupConversation();
 
       // Send original message
       const originalMessageId = await conversation.sendText("Original message");
@@ -1342,7 +1343,7 @@ describe("EnrichedMessage", () => {
       );
       expect(editId).toBeDefined();
 
-      await conversation.sync();
+      await conversation.publishMessages();
       await conversation2.sync();
 
       // Verify the message is now edited
@@ -1365,11 +1366,11 @@ describe("EnrichedMessage", () => {
 
       // First edit
       conversation.editMessage(originalMessageId, encodeText("Version 2"));
-      await conversation.sync();
+      await conversation.publishMessages();
 
       // Second edit
       conversation.editMessage(originalMessageId, encodeText("Version 3"));
-      await conversation.sync();
+      await conversation.publishMessages();
       await conversation2.sync();
 
       // Verify final content
@@ -1381,10 +1382,12 @@ describe("EnrichedMessage", () => {
     });
 
     it("should fail when non-sender tries to edit", async () => {
-      const { client1, conversation, conversation2 } = await setupConversation();
+      const { client1, conversation, conversation2 } =
+        await setupConversation();
 
       // Client1 sends a message
-      const originalMessageId = await conversation.sendText("Client1's message");
+      const originalMessageId =
+        await conversation.sendText("Client1's message");
 
       await conversation2.sync();
 
@@ -1402,7 +1405,8 @@ describe("EnrichedMessage", () => {
     });
 
     it("should fail to edit a reply with text content type (content type mismatch)", async () => {
-      const { client1, conversation, conversation2 } = await setupConversation();
+      const { client1, conversation, conversation2 } =
+        await setupConversation();
 
       // Send original message
       const originalMessageId = await conversation.sendText("Original message");
@@ -1433,11 +1437,12 @@ describe("EnrichedMessage", () => {
         error = e;
       }
       expect(error).toBeDefined();
-      expect((error as Error).message).toContain("ContentTypeMismatch");
+      expect((error as Error).message).toContain("Content type mismatch");
     });
 
     it("should show edit info in replies to edited messages", async () => {
-      const { client1, conversation, conversation2 } = await setupConversation();
+      const { client1, conversation, conversation2 } =
+        await setupConversation();
 
       // Send original message
       const originalMessageId = await conversation.sendText("Original message");
@@ -1456,7 +1461,7 @@ describe("EnrichedMessage", () => {
 
       // Now edit the original message
       conversation.editMessage(originalMessageId, encodeText("Edited message"));
-      await conversation.sync();
+      await conversation.publishMessages();
       await conversation2.sync();
 
       // Verify the reply's inReplyTo shows the edit info
@@ -1473,7 +1478,8 @@ describe("EnrichedMessage", () => {
     });
 
     it("should edit then delete a message (delete takes precedence)", async () => {
-      const { client1, conversation, conversation2 } = await setupConversation();
+      const { client1, conversation, conversation2 } =
+        await setupConversation();
 
       // Send original message
       const originalMessageId = await conversation.sendText("Original message");
@@ -1482,7 +1488,7 @@ describe("EnrichedMessage", () => {
 
       // Edit the message
       conversation.editMessage(originalMessageId, encodeText("Edited message"));
-      await conversation.sync();
+      await conversation.publishMessages();
       await conversation2.sync();
 
       // Verify message is edited
@@ -1493,7 +1499,7 @@ describe("EnrichedMessage", () => {
 
       // Now delete the message via client1.conversations()
       client1.conversations().deleteMessageById(originalMessageId);
-      await conversation.sync();
+      await conversation.publishMessages();
       await conversation2.sync();
 
       // Verify message shows as deleted (deletion takes precedence over edit)
@@ -1504,7 +1510,8 @@ describe("EnrichedMessage", () => {
     });
 
     it("should fail to edit a deleted message", async () => {
-      const { client1, conversation, conversation2 } = await setupConversation();
+      const { client1, conversation, conversation2 } =
+        await setupConversation();
 
       // Send original message
       const originalMessageId = await conversation.sendText("Original message");
@@ -1513,7 +1520,7 @@ describe("EnrichedMessage", () => {
 
       // Delete the message first via client1.conversations()
       client1.conversations().deleteMessageById(originalMessageId);
-      await conversation.sync();
+      await conversation.publishMessages();
 
       // Verify message is deleted
       let messages = await conversation.findEnrichedMessages();
@@ -1523,12 +1530,15 @@ describe("EnrichedMessage", () => {
       // Try to edit the deleted message - should fail
       let error;
       try {
-        conversation.editMessage(originalMessageId, encodeText("Edit after delete"));
+        conversation.editMessage(
+          originalMessageId,
+          encodeText("Edit after delete"),
+        );
       } catch (e) {
         error = e;
       }
       expect(error).toBeDefined();
-      expect((error as Error).message).toContain("MessageAlreadyDeleted");
+      expect((error as Error).message).toContain("Message already deleted");
     });
 
     it("should handle edit -> delete -> edit chain (second edit fails)", async () => {
@@ -1539,7 +1549,7 @@ describe("EnrichedMessage", () => {
 
       // First edit
       conversation.editMessage(originalMessageId, encodeText("First edit"));
-      await conversation.sync();
+      await conversation.publishMessages();
 
       // Verify edit was applied
       let messages = await conversation.findEnrichedMessages();
@@ -1549,7 +1559,7 @@ describe("EnrichedMessage", () => {
 
       // Delete the message via client1.conversations()
       client1.conversations().deleteMessageById(originalMessageId);
-      await conversation.sync();
+      await conversation.publishMessages();
 
       // Verify message is deleted
       messages = await conversation.findEnrichedMessages();
@@ -1567,11 +1577,12 @@ describe("EnrichedMessage", () => {
         error = e;
       }
       expect(error).toBeDefined();
-      expect((error as Error).message).toContain("MessageAlreadyDeleted");
+      expect((error as Error).message).toContain("Message already deleted");
     });
 
     it("should handle complex reply chain with edits and deletes", async () => {
-      const { client1, conversation, conversation2 } = await setupConversation();
+      const { client1, conversation, conversation2 } =
+        await setupConversation();
 
       // Step 1: Send original message
       const originalMessageId = await conversation.sendText(
@@ -1593,7 +1604,7 @@ describe("EnrichedMessage", () => {
         originalMessageId,
         encodeText("Edited original message"),
       );
-      await conversation.sync();
+      await conversation.publishMessages();
       await conversation2.sync();
 
       // Verify edit was applied
@@ -1604,7 +1615,7 @@ describe("EnrichedMessage", () => {
 
       // Step 4: Client1 deletes the original message via client1.conversations()
       client1.conversations().deleteMessageById(originalMessageId);
-      await conversation.sync();
+      await conversation.publishMessages();
       await conversation2.sync();
 
       // Verify final state
@@ -1626,7 +1637,8 @@ describe("EnrichedMessage", () => {
     });
 
     it("should not allow editing non-editable content types (reaction)", async () => {
-      const { client1, conversation, conversation2 } = await setupConversation();
+      const { client1, conversation, conversation2 } =
+        await setupConversation();
 
       // Send a message to react to
       const textMessageId = await conversation.sendText("Hello!");
@@ -1650,7 +1662,9 @@ describe("EnrichedMessage", () => {
         error = e;
       }
       expect(error).toBeDefined();
-      expect((error as Error).message).toContain("NonEditableMessage");
+      expect((error as Error).message).toContain(
+        "Cannot edit this message type",
+      );
     });
 
     it("should not allow editing an edit message", async () => {
@@ -1676,7 +1690,9 @@ describe("EnrichedMessage", () => {
         error = e;
       }
       expect(error).toBeDefined();
-      expect((error as Error).message).toContain("NonEditableMessage");
+      expect((error as Error).message).toContain(
+        "Cannot edit this message type",
+      );
     });
 
     it("should filter edit messages from enriched message list", async () => {
@@ -1689,7 +1705,7 @@ describe("EnrichedMessage", () => {
 
       // Edit the message
       conversation.editMessage(originalMessageId, encodeText("Edited message"));
-      await conversation.sync();
+      await conversation.publishMessages();
       await conversation2.sync();
 
       // Get enriched messages
@@ -1701,7 +1717,9 @@ describe("EnrichedMessage", () => {
       expect(textMessages.length).toBe(1);
 
       // The original message should show edited content
-      const editedMessage = textMessages.find((m) => m.id === originalMessageId);
+      const editedMessage = textMessages.find(
+        (m) => m.id === originalMessageId,
+      );
       expect(editedMessage).toBeDefined();
       expect(editedMessage?.content.content).toBe("Edited message");
       expect(editedMessage?.editedAtNs).toBeDefined();
