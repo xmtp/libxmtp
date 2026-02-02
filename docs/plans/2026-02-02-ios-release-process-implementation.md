@@ -252,7 +252,7 @@ export const SDK_CONFIGS: Record<string, SdkConfig> = {
   ios: {
     name: "iOS",
     manifestPath: "sdks/ios/XMTP.podspec",
-    spmManifestPath: "sdks/ios/Package.swift",
+    spmManifestPath: "Package.swift",
     tagPrefix: "ios-",
     artifactTagSuffix: "-libxmtp",
   },
@@ -1552,92 +1552,9 @@ git commit -m "feat: add create-release-branch command"
 
 ---
 
-### Task 12: Update Package.swift with conditional binary target
+### Task 12: ~~Update Package.swift with conditional binary target~~ DONE
 
-**Files:**
-- Modify: `sdks/ios/Package.swift`
-
-This changes the Package.swift to support both local development builds and remote SPM consumption.
-
-**Step 1: Update Package.swift**
-
-Replace the current contents of `sdks/ios/Package.swift` with:
-
-```swift
-// swift-tools-version: 5.6
-// The swift-tools-version declares the minimum version of Swift required to build this package.
-
-import Foundation
-import PackageDescription
-
-let thisPackagePath = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
-let useLocalBinary = FileManager.default.fileExists(
-	atPath: "\(thisPackagePath)/.build/LibXMTPSwiftFFI.xcframework"
-)
-
-let package = Package(
-	name: "XMTPiOS",
-	platforms: [.iOS(.v14), .macOS(.v11)],
-	products: [
-		.library(
-			name: "XMTPiOS",
-			targets: ["XMTPiOS"]
-		),
-		.library(
-			name: "XMTPTestHelpers",
-			targets: ["XMTPTestHelpers"]
-		),
-	],
-	dependencies: [
-		.package(url: "https://github.com/bufbuild/connect-swift", exact: "1.2.0"),
-		.package(url: "https://github.com/apple/swift-docc-plugin.git", from: "1.4.3"),
-		.package(url: "https://github.com/krzyzanowskim/CryptoSwift.git", "1.8.4" ..< "2.0.0"),
-		.package(url: "https://github.com/SimplyDanny/SwiftLintPlugins", from: "0.62.1"),
-	],
-	targets: [
-		useLocalBinary
-			? .binaryTarget(
-				name: "LibXMTPSwiftFFI",
-				path: ".build/LibXMTPSwiftFFI.xcframework"
-			)
-			: .binaryTarget(
-				name: "LibXMTPSwiftFFI",
-				url: "https://github.com/xmtp/libxmtp/releases/download/ios-0.0.0-libxmtp/LibXMTPSwiftFFI.xcframework.zip",
-				checksum: "PLACEHOLDER"
-			),
-		.target(
-			name: "XMTPiOS",
-			dependencies: [
-				.product(name: "Connect", package: "connect-swift"),
-				"LibXMTPSwiftFFI",
-				.product(name: "CryptoSwift", package: "CryptoSwift"),
-			]
-		),
-		.target(
-			name: "XMTPTestHelpers",
-			dependencies: ["XMTPiOS"]
-		),
-		.testTarget(
-			name: "XMTPTests",
-			dependencies: ["XMTPiOS", "XMTPTestHelpers"]
-		),
-	]
-)
-```
-
-Note: The placeholder URL and checksum (`ios-0.0.0-libxmtp`, `PLACEHOLDER`) will be overwritten by the first release. They are needed so `update-spm-checksum` has a pattern to match.
-
-**Step 2: Verify local build still works**
-
-Run: `cd sdks/ios && swift package describe`
-Expected: Package description outputs successfully (if `.build/` exists from a previous build, it uses the local path; if not, it'll try the placeholder URL which won't resolve, but the package description should still parse)
-
-**Step 3: Commit**
-
-```bash
-git add sdks/ios/Package.swift
-git commit -m "feat: add conditional binary target to Package.swift for local/remote resolution"
-```
+> **Note:** Package.swift has been moved to the repo root (see `docs/plans/2026-02-02-move-package-swift-to-root.md`). It now lives at `Package.swift` with all target paths prefixed with `sdks/ios/` and the local binary target pointing to `sdks/ios/.build/LibXMTPSwiftFFI.xcframework`. The conditional logic and placeholder URL/checksum are already in place.
 
 ---
 
@@ -1856,7 +1773,7 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add sdks/ios/Package.swift sdks/ios/XMTP.podspec
+          git add Package.swift sdks/ios/XMTP.podspec
           git commit -m "release: iOS SDK $VERSION [skip ci]" || echo "No changes to commit"
           git tag "$TAG"
           git push origin HEAD "$TAG"

@@ -51,7 +51,7 @@ The SDK config registry maps each SDK to its release metadata. This is the exten
 
 For iOS:
 - **manifest**: `sdks/ios/XMTP.podspec`
-- **spmManifest**: `sdks/ios/Package.swift`
+- **spmManifest**: `Package.swift` (repo root, required by SPM)
 - **tagPrefix**: `ios-`
 - **artifactTagSuffix**: `-libxmtp` (for the intermediate binary release)
 - **versionField**: `spec.version` in the podspec
@@ -228,14 +228,14 @@ import Foundation
 
 let thisPackagePath = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let useLocalBinary = FileManager.default.fileExists(
-    atPath: "\(thisPackagePath)/.build/LibXMTPSwiftFFI.xcframework"
+    atPath: "\(thisPackagePath)/sdks/ios/.build/LibXMTPSwiftFFI.xcframework"
 )
 
-// In targets array:
+// In targets array (Package.swift is at repo root):
 if useLocalBinary {
     .binaryTarget(
         name: "LibXMTPSwiftFFI",
-        path: ".build/LibXMTPSwiftFFI.xcframework"
+        path: "sdks/ios/.build/LibXMTPSwiftFFI.xcframework"
     )
 } else {
     .binaryTarget(
@@ -246,8 +246,8 @@ if useLocalBinary {
 }
 ```
 
-- Local development in the monorepo: `.build/` exists after `make local`, uses local binary
-- External apps via SPM: `.build/` doesn't exist, uses remote URL
+- Local development in the monorepo: `sdks/ios/.build/` exists after `make local`, uses local binary
+- External apps via SPM: `sdks/ios/.build/` doesn't exist, uses remote URL
 - Release flow only updates the URL and checksum values in the else branch
 
 ## Two-Commit SPM Flow
