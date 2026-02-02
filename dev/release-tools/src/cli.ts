@@ -6,6 +6,7 @@ import * as bumpVersion from "./commands/bump-version.js";
 import * as computeVersion from "./commands/compute-version.js";
 import * as updateSpmChecksum from "./commands/update-spm-checksum.js";
 import * as scaffoldNotes from "./commands/scaffold-notes.js";
+import * as createReleaseBranch from "./commands/create-release-branch.js";
 
 yargs(hideBin(process.argv))
   .scriptName("release-tools")
@@ -14,6 +15,7 @@ yargs(hideBin(process.argv))
   .command(computeVersion)
   .command(updateSpmChecksum)
   .command(scaffoldNotes)
+  .command(createReleaseBranch)
   .demandCommand(1, "You must specify a command")
   .strict()
   .help()
