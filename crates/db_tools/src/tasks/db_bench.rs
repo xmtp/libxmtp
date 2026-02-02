@@ -371,10 +371,10 @@ where
             self,
             maybe_insert_consent_record_return_existing(&new_consent.clone())
         )?;
-        if let Some(dm) = &self.rand_dm {
-            if let Some(dm_id) = dm.dm_id.clone() {
-                bench!(self, find_consent_by_dm_id(&dm_id))?;
-            }
+        if let Some(dm) = &self.rand_dm
+            && let Some(dm_id) = dm.dm_id.clone()
+        {
+            bench!(self, find_consent_by_dm_id(&dm_id))?;
         }
 
         Ok(())
