@@ -1,12 +1,16 @@
 // swift-tools-version: 5.6
 // The swift-tools-version declares the minimum version of Swift required to build this package.
+//
+// NOTE: This file MUST remain at the repository root for Swift Package Manager
+// to resolve this package. SPM requires Package.swift at the root of a git
+// repository. Do not move it into sdks/ios/ or any subdirectory.
 
 import Foundation
 import PackageDescription
 
 let thisPackagePath = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let useLocalBinary = FileManager.default.fileExists(
-	atPath: "\(thisPackagePath)/.build/LibXMTPSwiftFFI.xcframework"
+	atPath: "\(thisPackagePath)/sdks/ios/.build/LibXMTPSwiftFFI.xcframework"
 )
 
 let package = Package(
@@ -32,7 +36,7 @@ let package = Package(
 		useLocalBinary
 			? .binaryTarget(
 				name: "LibXMTPSwiftFFI",
-				path: ".build/LibXMTPSwiftFFI.xcframework"
+				path: "sdks/ios/.build/LibXMTPSwiftFFI.xcframework"
 			)
 			: .binaryTarget(
 				name: "LibXMTPSwiftFFI",
@@ -45,15 +49,18 @@ let package = Package(
 				.product(name: "Connect", package: "connect-swift"),
 				"LibXMTPSwiftFFI",
 				.product(name: "CryptoSwift", package: "CryptoSwift"),
-			]
+			],
+			path: "sdks/ios/Sources/XMTPiOS"
 		),
 		.target(
 			name: "XMTPTestHelpers",
-			dependencies: ["XMTPiOS"]
+			dependencies: ["XMTPiOS"],
+			path: "sdks/ios/Sources/XMTPTestHelpers"
 		),
 		.testTarget(
 			name: "XMTPTests",
-			dependencies: ["XMTPiOS", "XMTPTestHelpers"]
+			dependencies: ["XMTPiOS", "XMTPTestHelpers"],
+			path: "sdks/ios/Tests/XMTPTests"
 		),
 	]
 )
