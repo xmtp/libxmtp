@@ -1,0 +1,76 @@
+# .github/workflows/create-release-branch.yml
+name: Create Release Branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      base-ref:
+        description: "Base ref (commit/branch) to create the release from"
+        required: true
+        type: string
+        default: "main"
+      version:
+        description: "Release version number (e.g. 1.8.0)"
+        required: true
+        type: string
+      ios-bump:
+        description: "iOS SDK version bump"
+        required: false
+        type: choice
+        options:
+          - "none"
+          - "patch"
+          - "minor"
+          - "major"
+        default: "none"
+
+jobs:
+  create-branch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.base-ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install release tools
+        working-directory: dev/release-tools
+        run: yarn install --frozen-lockfile
+      - name: Create release branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          BRANCH="release/${{ inputs.version }}"
+          git checkout -b "$BRANCH"
+
+          if [ "${{ inputs.ios-bump }}" != "none" ]; then
+            cd dev/release-tools
+            NEW_VERSION=$(yarn cli bump-version --sdk ios --type ${{ inputs.ios-bump }})
+            echo "iOS version bumped to: $NEW_VERSION"
+            yarn cli scaffold-notes --sdk ios
+            cd ../..
+          fi
+
+          git add -A
+          git commit -m "chore: create release ${{ inputs.version }}" || echo "No changes"
+          git push -u origin "$BRANCH"
+
+  draft-release-notes:
+    needs: [create-branch]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Trigger Claude Code for release notes
+        uses: anthropics/claude-code-action@v1
+        with:
+          prompt: |
+            Review the draft release notes in docs/release-notes/ on the release/${{ inputs.version }} branch.
+            Improve them based on the actual code changes. Open a PR targeting the release branch with your improvements.
