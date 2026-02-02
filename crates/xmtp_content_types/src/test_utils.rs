@@ -2,6 +2,7 @@ use crate::{
     ContentCodec,
     attachment::{Attachment, AttachmentCodec},
     delete_message::DeleteMessageCodec,
+    edit_message::EditMessageCodec,
     group_updated::GroupUpdatedCodec,
     membership_change::GroupMembershipChangeCodec,
     multi_remote_attachment::MultiRemoteAttachmentCodec,
@@ -15,7 +16,8 @@ use crate::{
 use xmtp_proto::xmtp::mls::message_contents::{
     ContentTypeId, EncodedContent, GroupMembershipChanges, GroupUpdated,
     content_types::{
-        DeleteMessage, MultiRemoteAttachment, ReactionAction, ReactionSchema, ReactionV2,
+        DeleteMessage, EditMessage, MultiRemoteAttachment, ReactionAction, ReactionSchema,
+        ReactionV2,
     },
 };
 
@@ -116,6 +118,14 @@ impl TestContentGenerator {
             message_id: message_id.to_string(),
         };
         DeleteMessageCodec::encode(delete_message).expect("Failed to encode delete message")
+    }
+
+    pub fn edit_message_content(message_id: &str, new_content: EncodedContent) -> EncodedContent {
+        let edit_message = EditMessage {
+            message_id: message_id.to_string(),
+            edited_content: Some(new_content),
+        };
+        EditMessageCodec::encode(edit_message).expect("Failed to encode edit message")
     }
 
     pub fn transaction_reference_content(

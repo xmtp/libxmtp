@@ -222,6 +222,8 @@ pub enum EditMessageError {
         "Content type mismatch: original message has type {original}, but edit has type {edited}"
     )]
     ContentTypeMismatch { original: String, edited: String },
+    #[error("Cannot edit with empty content")]
+    EmptyContent,
 }
 
 impl RetryableError for EditMessageError {

@@ -99,8 +99,7 @@ pub(crate) fn is_edit_valid(
         return false;
     }
 
-    // Validate content type matches - edits cannot change the content type
-    // This is especially important for out-of-order edits that arrive before the original
+    // Content type must match
     if let Ok(edited_content) = EncodedContent::decode(edit.edited_content.as_slice()) {
         let edited_type_id = edited_content
             .r#type

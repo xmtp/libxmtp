@@ -1558,3 +1558,783 @@ async fn test_reply_chain_with_edits_and_deletes() {
     // Bo's reply should have edit info
     assert!(in_reply_to_reply1.edited.is_some());
 }
+
+/// Test multiple edits with interleaved replies - all replies should show the latest edit
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_multiple_edits_with_interleaved_replies() {
+    use crate::messages::decoded_message::MessageBody;
+
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group
+        .add_members(&[bo.inbox_id(), caro.inbox_id()])
+        .await?;
+
+    // Bo and Caro sync to join the group
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = &bo_groups[0];
+    bo_group.sync().await?;
+
+    let caro_groups = caro.sync_welcomes().await?;
+    let caro_group = &caro_groups[0];
+    caro_group.sync().await?;
+
+    // Step 1: Alix sends original message
+    let original_content = TextCodec::encode("Original message v1".to_string())?;
+    let original_bytes = xmtp_content_types::encoded_content_to_bytes(original_content);
+    let original_id = alix_group
+        .send_message(&original_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.publish_messages().await?;
+
+    // Everyone syncs
+    bo_group.sync().await?;
+    caro_group.sync().await?;
+
+    // Step 2: Bo replies to original (v1)
+    let reply1_text = TextCodec::encode("Bo's reply (while message was v1)".to_string())?;
+    let reply1_content = ReplyCodec::encode(Reply {
+        reference: hex::encode(&original_id),
+        reference_inbox_id: Some(alix.inbox_id().to_string()),
+        content: reply1_text,
+    })?;
+    let reply1_bytes = xmtp_content_types::encoded_content_to_bytes(reply1_content);
+    let reply1_id = bo_group
+        .send_message(&reply1_bytes, SendMessageOpts::default())
+        .await?;
+    bo_group.publish_messages().await?;
+
+    // Step 3: Alix edits to v2
+    let edit2_content = TextCodec::encode("Edited message v2".to_string())?;
+    let edit2_bytes = xmtp_content_types::encoded_content_to_bytes(edit2_content);
+    alix_group.edit_message(original_id.clone(), edit2_bytes)?;
+    alix_group.publish_messages().await?;
+
+    // Sync
+    bo_group.sync().await?;
+    caro_group.sync().await?;
+    alix_group.sync().await?;
+
+    // Step 4: Caro replies to original (now v2)
+    let reply2_text = TextCodec::encode("Caro's reply (while message was v2)".to_string())?;
+    let reply2_content = ReplyCodec::encode(Reply {
+        reference: hex::encode(&original_id),
+        reference_inbox_id: Some(alix.inbox_id().to_string()),
+        content: reply2_text,
+    })?;
+    let reply2_bytes = xmtp_content_types::encoded_content_to_bytes(reply2_content);
+    let reply2_id = caro_group
+        .send_message(&reply2_bytes, SendMessageOpts::default())
+        .await?;
+    caro_group.publish_messages().await?;
+
+    // Step 5: Alix edits to v3
+    let edit3_content = TextCodec::encode("Final message v3".to_string())?;
+    let edit3_bytes = xmtp_content_types::encoded_content_to_bytes(edit3_content);
+    alix_group.edit_message(original_id.clone(), edit3_bytes)?;
+    alix_group.publish_messages().await?;
+
+    // Sync
+    bo_group.sync().await?;
+    caro_group.sync().await?;
+    alix_group.sync().await?;
+
+    // Step 6: Bo replies again to original (now v3)
+    let reply3_text = TextCodec::encode("Bo's second reply (while message was v3)".to_string())?;
+    let reply3_content = ReplyCodec::encode(Reply {
+        reference: hex::encode(&original_id),
+        reference_inbox_id: Some(alix.inbox_id().to_string()),
+        content: reply3_text,
+    })?;
+    let reply3_bytes = xmtp_content_types::encoded_content_to_bytes(reply3_content);
+    let reply3_id = bo_group
+        .send_message(&reply3_bytes, SendMessageOpts::default())
+        .await?;
+    bo_group.publish_messages().await?;
+
+    // Final sync for everyone
+    bo_group.sync().await?;
+    caro_group.sync().await?;
+    alix_group.sync().await?;
+
+    // Verify all edits exist
+    let all_edits = alix
+        .context
+        .db()
+        .get_edits_by_original_message_id(&original_id)?;
+    assert_eq!(all_edits.len(), 2, "Should have 2 edit records (v2 and v3)");
+
+    // Get enriched messages from Alix's perspective
+    let messages =
+        alix_group.find_enriched_messages(&xmtp_db::group_message::MsgQueryArgs::default())?;
+
+    // Helper to check that a reply's in_reply_to shows the latest edit
+    let check_reply_shows_latest_edit = |reply_id: &[u8], reply_name: &str| {
+        let reply_msg = messages
+            .iter()
+            .find(|m| m.metadata.id == reply_id)
+            .unwrap_or_else(|| panic!("{} should exist", reply_name));
+
+        let MessageBody::Reply(reply_body) = &reply_msg.content else {
+            panic!("{} should be a Reply", reply_name);
+        };
+
+        let in_reply_to = reply_body
+            .in_reply_to
+            .as_ref()
+            .unwrap_or_else(|| panic!("{} should have in_reply_to", reply_name));
+
+        // The in_reply_to should have edit info (showing it was edited)
+        assert!(
+            in_reply_to.edited.is_some(),
+            "{}'s in_reply_to should show edit info",
+            reply_name
+        );
+
+        // Verify the edit timestamp is for the latest edit (v3)
+        let edit_info = in_reply_to.edited.as_ref().unwrap();
+
+        // Decode the edited content to verify it's v3
+        let edited_content =
+            EncodedContent::decode(&mut edit_info.content.as_slice()).expect("Should decode");
+        let edited_text = TextCodec::decode(edited_content).expect("Should decode text");
+        assert_eq!(
+            edited_text, "Final message v3",
+            "{}'s in_reply_to should show the LATEST edit (v3), not an older version",
+            reply_name
+        );
+    };
+
+    // All three replies should show the latest edit (v3)
+    check_reply_shows_latest_edit(&reply1_id, "Reply 1 (made while v1)");
+    check_reply_shows_latest_edit(&reply2_id, "Reply 2 (made while v2)");
+    check_reply_shows_latest_edit(&reply3_id, "Reply 3 (made while v3)");
+
+    // Also verify the original message itself shows the latest edit
+    let original_msg = messages
+        .iter()
+        .find(|m| m.metadata.id == original_id)
+        .expect("Original message should exist");
+    assert!(
+        original_msg.edited.is_some(),
+        "Original message should have edit info"
+    );
+    let original_edit_info = original_msg.edited.as_ref().unwrap();
+    let original_edited_content =
+        EncodedContent::decode(&mut original_edit_info.content.as_slice())?;
+    let original_edited_text = TextCodec::decode(original_edited_content)?;
+    assert_eq!(
+        original_edited_text, "Final message v3",
+        "Original message edit info should show v3"
+    );
+}
+
+/// Test that editing with empty content fails
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_edit_with_empty_content_fails() {
+    use crate::groups::GroupError;
+    use crate::groups::error::EditMessageError;
+
+    tester!(alix);
+
+    let alix_group = alix.create_group(None, None)?;
+
+    // Send a message
+    let text_content = TextCodec::encode("Original message".to_string())?;
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+    let message_id = alix_group
+        .send_message(&text_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.publish_messages().await?;
+
+    // Try to edit with empty content
+    let empty_content = EncodedContent {
+        r#type: Some(xmtp_proto::xmtp::mls::message_contents::ContentTypeId {
+            authority_id: "xmtp.org".to_string(),
+            type_id: "text".to_string(),
+            version_major: 1,
+            version_minor: 0,
+        }),
+        parameters: std::collections::HashMap::new(),
+        fallback: None,
+        compression: None,
+        content: vec![], // Empty content
+    };
+    let mut empty_bytes = Vec::new();
+    empty_content.encode(&mut empty_bytes)?;
+
+    let result = alix_group.edit_message(message_id, empty_bytes);
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        GroupError::EditMessage(EditMessageError::EmptyContent) => {}
+        other => panic!("Expected EmptyContent error, got: {:?}", other),
+    }
+}
+
+/// Test that editing with the same content succeeds (idempotent)
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_edit_with_same_content_succeeds() {
+    tester!(alix);
+
+    let alix_group = alix.create_group(None, None)?;
+
+    // Send a message
+    let original_text = "Hello, world!";
+    let text_content = TextCodec::encode(original_text.to_string())?;
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content.clone());
+    let message_id = alix_group
+        .send_message(&text_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.publish_messages().await?;
+
+    // Edit with the same content
+    let same_content_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+    let result = alix_group.edit_message(message_id.clone(), same_content_bytes);
+    assert!(result.is_ok(), "Editing with same content should succeed");
+
+    // Verify edit was stored
+    let edit = alix
+        .context
+        .db()
+        .get_latest_edit_by_original_message_id(&message_id)?;
+    assert!(edit.is_some());
+}
+
+/// Test editing a markdown message
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_edit_markdown_message() {
+    use xmtp_content_types::markdown::MarkdownCodec;
+
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+
+    // Send a markdown message
+    let markdown_content = MarkdownCodec::encode("# Hello\n\nThis is **bold**".to_string())?;
+    let markdown_bytes = xmtp_content_types::encoded_content_to_bytes(markdown_content);
+    let message_id = alix_group
+        .send_message(&markdown_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.publish_messages().await?;
+
+    // Edit the markdown message
+    let edited_markdown = MarkdownCodec::encode("# Hello Updated\n\nThis is *italic*".to_string())?;
+    let edited_bytes = xmtp_content_types::encoded_content_to_bytes(edited_markdown);
+    let result = alix_group.edit_message(message_id.clone(), edited_bytes);
+    assert!(result.is_ok(), "Should be able to edit markdown message");
+
+    // Verify the edit
+    let edit = alix
+        .context
+        .db()
+        .get_latest_edit_by_original_message_id(&message_id)?;
+    assert!(edit.is_some());
+
+    // Verify content type is still markdown
+    let original_msg = alix.context.db().get_group_message(&message_id)?.unwrap();
+    assert_eq!(original_msg.content_type, ContentType::Markdown);
+}
+
+/// Test that reactions are preserved after editing a message
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_reactions_preserved_after_edit() {
+    use crate::messages::decoded_message::MessageBody;
+
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+
+    // Sync Bo
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = &bo_groups[0];
+    bo_group.sync().await?;
+
+    // Alix sends a message
+    let text_content = TextCodec::encode("React to this!".to_string())?;
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+    let message_id = alix_group
+        .send_message(&text_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.publish_messages().await?;
+    bo_group.sync().await?;
+
+    // Bo reacts to the message
+    let message_id_hex = hex::encode(&message_id);
+    let reaction = ReactionCodec::encode(ReactionV2 {
+        reference: message_id_hex.clone(),
+        reference_inbox_id: alix.inbox_id().to_string(),
+        action: ReactionAction::Added as i32,
+        content: "👍".to_string(),
+        schema: ReactionSchema::Unicode as i32,
+    })?;
+    let reaction_bytes = xmtp_content_types::encoded_content_to_bytes(reaction);
+    bo_group
+        .send_message(&reaction_bytes, SendMessageOpts::default())
+        .await?;
+    bo_group.publish_messages().await?;
+
+    // Sync everyone
+    alix_group.sync().await?;
+    bo_group.sync().await?;
+
+    // Verify the reaction exists before edit
+    let messages_before =
+        alix_group.find_enriched_messages(&xmtp_db::group_message::MsgQueryArgs::default())?;
+    let msg_before = messages_before
+        .iter()
+        .find(|m| m.metadata.id == message_id)
+        .expect("Message should exist");
+    assert_eq!(
+        msg_before.reactions.len(),
+        1,
+        "Should have one reaction before edit"
+    );
+
+    // Alix edits the message
+    let new_content = TextCodec::encode("React to this! (edited)".to_string())?;
+    let new_content_bytes = xmtp_content_types::encoded_content_to_bytes(new_content);
+    alix_group.edit_message(message_id.clone(), new_content_bytes)?;
+    alix_group.publish_messages().await?;
+    bo_group.sync().await?;
+    alix_group.sync().await?;
+
+    // Verify the reaction is still there after edit
+    let messages_after =
+        alix_group.find_enriched_messages(&xmtp_db::group_message::MsgQueryArgs::default())?;
+    let msg_after = messages_after
+        .iter()
+        .find(|m| m.metadata.id == message_id)
+        .expect("Message should exist");
+
+    // Verify edit happened
+    assert!(msg_after.edited.is_some(), "Message should be edited");
+
+    // Verify reaction is preserved
+    assert_eq!(
+        msg_after.reactions.len(),
+        1,
+        "Reaction should be preserved after edit"
+    );
+    let MessageBody::Reaction(reaction_body) = &msg_after.reactions[0].content else {
+        panic!("Expected Reaction message body");
+    };
+    assert_eq!(reaction_body.content, "👍");
+}
+
+/// Test that message ordering uses original timestamp after edit
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_message_ordering_uses_original_timestamp() {
+    tester!(alix);
+
+    let alix_group = alix.create_group(None, None)?;
+
+    // Send message 1
+    let text1 = TextCodec::encode("Message 1".to_string())?;
+    let text1_bytes = xmtp_content_types::encoded_content_to_bytes(text1);
+    let msg1_id = alix_group
+        .send_message(&text1_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.publish_messages().await?;
+
+    // Small delay to ensure different timestamps
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+    // Send message 2
+    let text2 = TextCodec::encode("Message 2".to_string())?;
+    let text2_bytes = xmtp_content_types::encoded_content_to_bytes(text2);
+    let msg2_id = alix_group
+        .send_message(&text2_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.publish_messages().await?;
+
+    // Small delay
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+    // Send message 3
+    let text3 = TextCodec::encode("Message 3".to_string())?;
+    let text3_bytes = xmtp_content_types::encoded_content_to_bytes(text3);
+    let msg3_id = alix_group
+        .send_message(&text3_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.publish_messages().await?;
+
+    // Now edit message 1 (which should have the latest edit timestamp)
+    let edit1 = TextCodec::encode("Message 1 (edited)".to_string())?;
+    let edit1_bytes = xmtp_content_types::encoded_content_to_bytes(edit1);
+    alix_group.edit_message(msg1_id.clone(), edit1_bytes)?;
+    alix_group.publish_messages().await?;
+    alix_group.sync().await?;
+
+    // Get messages ordered by sent_at_ns
+    let messages =
+        alix_group.find_enriched_messages(&xmtp_db::group_message::MsgQueryArgs::default())?;
+
+    // Filter to just text messages
+    let text_messages: Vec<_> = messages
+        .iter()
+        .filter(|m| {
+            m.metadata.content_type
+                == xmtp_proto::xmtp::mls::message_contents::ContentTypeId {
+                    authority_id: "xmtp.org".to_string(),
+                    type_id: "text".to_string(),
+                    version_major: 1,
+                    version_minor: 0,
+                }
+        })
+        .collect();
+
+    // Verify ordering: msg1 should still come before msg2 and msg3
+    // even though msg1 was edited later
+    let msg1_idx = text_messages.iter().position(|m| m.metadata.id == msg1_id);
+    let msg2_idx = text_messages.iter().position(|m| m.metadata.id == msg2_id);
+    let msg3_idx = text_messages.iter().position(|m| m.metadata.id == msg3_id);
+
+    assert!(msg1_idx.is_some() && msg2_idx.is_some() && msg3_idx.is_some());
+
+    // Message 1 was sent first, so it should appear first
+    // (sent_at_ns is the original timestamp, not the edit timestamp)
+    let msg1 = text_messages
+        .iter()
+        .find(|m| m.metadata.id == msg1_id)
+        .unwrap();
+    let msg2 = text_messages
+        .iter()
+        .find(|m| m.metadata.id == msg2_id)
+        .unwrap();
+    let msg3 = text_messages
+        .iter()
+        .find(|m| m.metadata.id == msg3_id)
+        .unwrap();
+
+    assert!(
+        msg1.metadata.sent_at_ns < msg2.metadata.sent_at_ns,
+        "Message 1 should have earlier timestamp than message 2"
+    );
+    assert!(
+        msg2.metadata.sent_at_ns < msg3.metadata.sent_at_ns,
+        "Message 2 should have earlier timestamp than message 3"
+    );
+
+    // Verify msg1 was edited
+    assert!(msg1.edited.is_some(), "Message 1 should show as edited");
+}
+
+/// Test edit propagation to multiple users
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_edit_propagates_to_multiple_users() {
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group
+        .add_members(&[bo.inbox_id(), caro.inbox_id()])
+        .await?;
+
+    // Sync everyone
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = &bo_groups[0];
+    bo_group.sync().await?;
+
+    let caro_groups = caro.sync_welcomes().await?;
+    let caro_group = &caro_groups[0];
+    caro_group.sync().await?;
+
+    // Alix sends a message
+    let text_content = TextCodec::encode("Original from Alix".to_string())?;
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+    let message_id = alix_group
+        .send_message(&text_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.publish_messages().await?;
+
+    // Sync Bo and Caro
+    bo_group.sync().await?;
+    caro_group.sync().await?;
+
+    // Verify both see the original
+    let bo_messages =
+        bo_group.find_enriched_messages(&xmtp_db::group_message::MsgQueryArgs::default())?;
+    let bo_msg = bo_messages.iter().find(|m| m.metadata.id == message_id);
+    assert!(bo_msg.is_some());
+    assert!(bo_msg.unwrap().edited.is_none());
+
+    let caro_messages =
+        caro_group.find_enriched_messages(&xmtp_db::group_message::MsgQueryArgs::default())?;
+    let caro_msg = caro_messages.iter().find(|m| m.metadata.id == message_id);
+    assert!(caro_msg.is_some());
+    assert!(caro_msg.unwrap().edited.is_none());
+
+    // Alix edits the message
+    let new_content = TextCodec::encode("Edited by Alix".to_string())?;
+    let new_content_bytes = xmtp_content_types::encoded_content_to_bytes(new_content);
+    alix_group.edit_message(message_id.clone(), new_content_bytes)?;
+    alix_group.publish_messages().await?;
+
+    // Sync Bo and Caro
+    bo_group.sync().await?;
+    caro_group.sync().await?;
+
+    // Verify Bo sees the edit
+    let bo_messages =
+        bo_group.find_enriched_messages(&xmtp_db::group_message::MsgQueryArgs::default())?;
+    let bo_msg = bo_messages
+        .iter()
+        .find(|m| m.metadata.id == message_id)
+        .expect("Bo should see the message");
+    assert!(bo_msg.edited.is_some(), "Bo should see the edit");
+    let edit_info = bo_msg.edited.as_ref().unwrap();
+    let edited_content = EncodedContent::decode(&mut edit_info.content.as_slice())?;
+    let edited_text = TextCodec::decode(edited_content)?;
+    assert_eq!(edited_text, "Edited by Alix");
+
+    // Verify Caro sees the edit
+    let caro_messages =
+        caro_group.find_enriched_messages(&xmtp_db::group_message::MsgQueryArgs::default())?;
+    let caro_msg = caro_messages
+        .iter()
+        .find(|m| m.metadata.id == message_id)
+        .expect("Caro should see the message");
+    assert!(caro_msg.edited.is_some(), "Caro should see the edit");
+    let edit_info = caro_msg.edited.as_ref().unwrap();
+    let edited_content = EncodedContent::decode(&mut edit_info.content.as_slice())?;
+    let edited_text = TextCodec::decode(edited_content)?;
+    assert_eq!(edited_text, "Edited by Alix");
+}
+
+/// Test concurrent edits - latest timestamp wins
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_concurrent_edits_latest_timestamp_wins() {
+    tester!(alix);
+
+    let alix_group = alix.create_group(None, None)?;
+
+    // Send a message
+    let text_content = TextCodec::encode("Original".to_string())?;
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+    let message_id = alix_group
+        .send_message(&text_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.publish_messages().await?;
+
+    // Simulate concurrent edits by creating multiple edits rapidly
+    let edit1 = TextCodec::encode("Edit 1".to_string())?;
+    let edit1_bytes = xmtp_content_types::encoded_content_to_bytes(edit1);
+    alix_group.edit_message(message_id.clone(), edit1_bytes)?;
+
+    // Small delay to ensure different timestamp
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+
+    let edit2 = TextCodec::encode("Edit 2".to_string())?;
+    let edit2_bytes = xmtp_content_types::encoded_content_to_bytes(edit2);
+    alix_group.edit_message(message_id.clone(), edit2_bytes)?;
+
+    // Small delay
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+
+    let edit3 = TextCodec::encode("Edit 3 - Final".to_string())?;
+    let edit3_bytes = xmtp_content_types::encoded_content_to_bytes(edit3);
+    alix_group.edit_message(message_id.clone(), edit3_bytes)?;
+
+    alix_group.publish_messages().await?;
+    alix_group.sync().await?;
+
+    // Verify all edits are stored
+    let all_edits = alix
+        .context
+        .db()
+        .get_edits_by_original_message_id(&message_id)?;
+    assert_eq!(all_edits.len(), 3, "Should have 3 edit records");
+
+    // Verify the latest edit wins
+    let latest_edit = alix
+        .context
+        .db()
+        .get_latest_edit_by_original_message_id(&message_id)?
+        .expect("Should have a latest edit");
+
+    let edited_content = EncodedContent::decode(&mut latest_edit.edited_content.as_slice())?;
+    let edited_text = TextCodec::decode(edited_content)?;
+    assert_eq!(
+        edited_text, "Edit 3 - Final",
+        "Latest timestamp edit should win"
+    );
+
+    // Verify enriched message shows the latest
+    let messages =
+        alix_group.find_enriched_messages(&xmtp_db::group_message::MsgQueryArgs::default())?;
+    let msg = messages
+        .iter()
+        .find(|m| m.metadata.id == message_id)
+        .expect("Message should exist");
+    let edit_info = msg.edited.as_ref().expect("Should have edit info");
+    let display_content = EncodedContent::decode(&mut edit_info.content.as_slice())?;
+    let display_text = TextCodec::decode(display_content)?;
+    assert_eq!(display_text, "Edit 3 - Final");
+}
+
+/// Test that stream_message_edits receives a callback when another client edits a message
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_stream_message_edits_from_other_client() {
+    use crate::utils::FullXmtpClient;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::Notify;
+    use xmtp_common::StreamHandle;
+
+    tester!(alix);
+    tester!(bo);
+
+    // Create a group and add bo
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+
+    // Bo syncs to join the group
+    let bo_groups = bo.sync_welcomes().await?;
+    assert_eq!(bo_groups.len(), 1);
+    let bo_group = &bo_groups[0];
+
+    // Alix sends a message
+    let text_content = TextCodec::encode("Original message".to_string())?;
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+    let message_id = alix_group
+        .send_message(&text_bytes, SendMessageOpts::default())
+        .await?;
+
+    // Bo syncs to receive the message
+    bo_group.sync().await?;
+
+    // Set up shared state for Bo's callback
+    let edited_message: Arc<Mutex<Option<crate::messages::decoded_message::DecodedMessage>>> =
+        Arc::new(Mutex::new(None));
+    let notify = Arc::new(Notify::new());
+
+    let edited_message_clone = edited_message.clone();
+    let notify_clone = notify.clone();
+
+    // Bo sets up the edit stream with callback
+    let mut handle = FullXmtpClient::stream_message_edits_with_callback(
+        Arc::new(bo.client.clone()),
+        move |msg| {
+            if let Ok(message) = msg {
+                *edited_message_clone.lock() = Some(message);
+                notify_clone.notify_one();
+            }
+        },
+    );
+
+    // Wait for stream to be ready
+    handle.wait_for_ready().await;
+
+    // Alix edits the message and publishes
+    let edited_text = TextCodec::encode("Edited by Alix".to_string())?;
+    let edited_bytes = xmtp_content_types::encoded_content_to_bytes(edited_text);
+    alix_group.edit_message(message_id.clone(), edited_bytes)?;
+    alix_group.publish_messages().await?;
+
+    // Bo syncs to receive the edit (this triggers the MessageEdited event)
+    bo_group.sync().await?;
+
+    // Wait for callback to be called (5s timeout provides buffer for async processing)
+    xmtp_common::time::timeout(Duration::from_secs(5), notify.notified())
+        .await
+        .expect("Timed out waiting for edit callback");
+
+    // Verify the stream received the correct edited message
+    let edited_message = edited_message
+        .lock()
+        .take()
+        .expect("No edited message received");
+    assert_eq!(edited_message.metadata.id, message_id);
+    assert!(
+        edited_message.edited.is_some(),
+        "Message should have edit info"
+    );
+    let edit_info = edited_message.edited.as_ref().unwrap();
+    let edited_content = EncodedContent::decode(&mut edit_info.content.as_slice())?;
+    let edited_text = TextCodec::decode(edited_content)?;
+    assert_eq!(edited_text, "Edited by Alix");
+}
+
+/// Test that stream_message_edits fires for self-edits after publishing.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_stream_message_edits_fires_for_self_after_publish() {
+    use crate::utils::FullXmtpClient;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::Notify;
+    use xmtp_common::StreamHandle;
+
+    tester!(alix);
+
+    // Create a group
+    let alix_group = alix.create_group(None, None)?;
+
+    // Alix sends a message
+    let text_content = TextCodec::encode("Original message".to_string())?;
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+    let message_id = alix_group
+        .send_message(&text_bytes, SendMessageOpts::default())
+        .await?;
+
+    // Set up shared state for Alix's callback
+    let edited_message: Arc<Mutex<Option<crate::messages::decoded_message::DecodedMessage>>> =
+        Arc::new(Mutex::new(None));
+    let notify = Arc::new(Notify::new());
+
+    let edited_message_clone = edited_message.clone();
+    let notify_clone = notify.clone();
+
+    // Alix sets up the edit stream with callback
+    let mut handle = FullXmtpClient::stream_message_edits_with_callback(
+        Arc::new(alix.client.clone()),
+        move |msg| {
+            if let Ok(message) = msg {
+                *edited_message_clone.lock() = Some(message);
+                notify_clone.notify_one();
+            }
+        },
+    );
+
+    // Wait for stream to be ready
+    handle.wait_for_ready().await;
+
+    // Alix edits the message
+    let edited_text = TextCodec::encode("Self-edited message".to_string())?;
+    let edited_bytes = xmtp_content_types::encoded_content_to_bytes(edited_text);
+    alix_group.edit_message(message_id.clone(), edited_bytes)?;
+
+    // Wait for the edit event callback (5s timeout provides buffer for async processing)
+    let result = xmtp_common::time::timeout(Duration::from_secs(5), notify.notified()).await;
+
+    // Verify the callback was called (self-edits fire local events immediately)
+    assert!(
+        result.is_ok(),
+        "stream_message_edits should fire for self-edits"
+    );
+
+    // Verify the correct message was received
+    let received = edited_message.lock();
+    assert!(
+        received.is_some(),
+        "Edit event should be received for self-edits"
+    );
+    let received_msg = received.as_ref().unwrap();
+    assert_eq!(
+        received_msg.metadata.id, message_id,
+        "Edited message ID should match"
+    );
+    assert!(
+        received_msg.edited.is_some(),
+        "Message should have edit info"
+    );
+}

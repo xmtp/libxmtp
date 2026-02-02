@@ -706,4 +706,19 @@ impl Conversations {
     );
     Ok(StreamCloser::new(stream_closer))
   }
+
+  #[wasm_bindgen(js_name = "streamMessageEdits")]
+  pub fn stream_message_edits(&self, callback: StreamCallback) -> Result<StreamCloser, JsError> {
+    let stream_closer = RustXmtpClient::stream_message_edits_with_callback(
+      self.inner_client.clone(),
+      move |message| match message {
+        Ok(decoded_message) => match DecodedMessage::try_from(decoded_message) {
+          Ok(msg) => callback.on_message_edited(msg),
+          Err(e) => callback.on_error(e),
+        },
+        Err(e) => callback.on_error(JsError::from(e)),
+      },
+    );
+    Ok(StreamCloser::new(stream_closer))
+  }
 }

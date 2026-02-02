@@ -832,23 +832,7 @@ where
         Ok(deletion_message_id)
     }
 
-    /// Edit a message in this group. Creates an EditMessage that references the original.
-    ///
-    /// Only the original sender can edit their message.
-    ///
-    /// # Wire Protocol
-    /// The `EditMessage` protobuf encodes `message_id` as a hex-encoded string for wire
-    /// transmission, while the database stores message IDs as raw bytes. This function handles
-    /// the conversion: it accepts raw bytes, hex-encodes them for the wire protocol, and when
-    /// processing incoming edits (in `process_edit_message`), the hex string is decoded
-    /// back to bytes for database lookups.
-    ///
-    /// # Arguments
-    /// * `message_id` - The message ID as bytes
-    /// * `new_content` - The new content for the message (as EncodedContent bytes)
-    ///
-    /// # Returns
-    /// The ID of the edit message
+    /// Edit a message in this group. Only the original sender can edit their message.
     pub fn edit_message(
         &self,
         message_id: Vec<u8>,
@@ -887,6 +871,11 @@ where
         // Parse the new content as EncodedContent
         let edited_content = EncodedContent::decode(new_content.as_slice())?;
 
+        // Validate that the content is not empty
+        if edited_content.content.is_empty() {
+            return Err(EditMessageError::EmptyContent.into());
+        }
+
         // Validate content type matches - you cannot change the content type when editing
         // Get the type_id from the edited content
         let edited_type_id = edited_content
@@ -919,16 +908,37 @@ where
         let mut edited_content_bytes = Vec::new();
         edited_content.encode(&mut edited_content_bytes)?;
 
+        let edited_at_ns = now_ns();
         let edit = StoredMessageEdit {
             id: edit_message_id.clone(),
             group_id: self.group_id.clone(),
-            original_message_id: message_id,
+            original_message_id: message_id.clone(),
             edited_by_inbox_id: sender_inbox_id.to_string(),
-            edited_content: edited_content_bytes,
-            edited_at_ns: now_ns(),
+            edited_content: edited_content_bytes.clone(),
+            edited_at_ns,
         };
 
         edit.store(&conn)?;
+
+        // Emit MessageEdited event for local edit
+        match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
+            Ok(mut decoded_message) => {
+                decoded_message.edited = Some(crate::messages::decoded_message::EditedContent {
+                    content: edited_content_bytes,
+                    edited_at_ns,
+                });
+                let _ = self.context.local_events().send(
+                    crate::subscriptions::LocalEvents::MessageEdited(Box::new(decoded_message)),
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    message_id = hex::encode(&message_id),
+                    error = ?e,
+                    "Failed to decode edited message for edit event"
+                );
+            }
+        }
 
         Ok(edit_message_id)
     }

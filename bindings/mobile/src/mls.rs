@@ -1788,6 +1788,25 @@ impl FfiConversations {
         FfiStreamCloser::new(handle)
     }
 
+    /// Get notified when a message is edited.
+    /// The callback receives the decoded message with the edit info populated.
+    pub async fn stream_message_edits(
+        &self,
+        callback: Arc<dyn FfiMessageEditCallback>,
+    ) -> FfiStreamCloser {
+        let handle = RustXmtpClient::stream_message_edits_with_callback(
+            self.inner_client.clone(),
+            move |msg| {
+                if let Ok(message) = msg {
+                    let ffi_message: FfiDecodedMessage = message.into();
+                    callback.on_message_edited(Arc::new(ffi_message))
+                }
+            },
+        );
+
+        FfiStreamCloser::new(handle)
+    }
+
     pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let conversations = inner.find_groups(GroupQueryArgs {
@@ -3406,6 +3425,11 @@ pub trait FfiPreferenceCallback: Send + Sync {
 #[uniffi::export(with_foreign)]
 pub trait FfiMessageDeletionCallback: Send + Sync {
     fn on_message_deleted(&self, message: Arc<FfiDecodedMessage>);
+}
+
+#[uniffi::export(with_foreign)]
+pub trait FfiMessageEditCallback: Send + Sync {
+    fn on_message_edited(&self, message: Arc<FfiDecodedMessage>);
 }
 
 #[derive(uniffi::Enum, Debug)]

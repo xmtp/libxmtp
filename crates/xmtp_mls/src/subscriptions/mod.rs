@@ -68,6 +68,8 @@ pub enum LocalEvents {
     PreferencesChanged(Vec<PreferenceUpdate>),
     // a message was deleted (contains the decoded message that was deleted)
     MessageDeleted(Box<DecodedMessage>),
+    // a message was edited (contains the decoded message with edit info)
+    MessageEdited(Box<DecodedMessage>),
 }
 
 #[derive(Clone)]
@@ -135,12 +137,20 @@ impl LocalEvents {
             _ => None,
         }
     }
+
+    fn message_edit_filter(self) -> Option<Box<DecodedMessage>> {
+        match self {
+            Self::MessageEdited(message) => Some(message),
+            _ => None,
+        }
+    }
 }
 
 pub(crate) trait StreamMessages {
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>>;
     fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>>;
     fn stream_message_deletions(self) -> impl Stream<Item = Result<Box<DecodedMessage>>>;
+    fn stream_message_edits(self) -> impl Stream<Item = Result<Box<DecodedMessage>>>;
 }
 
 impl StreamMessages for broadcast::Receiver<LocalEvents> {
@@ -167,6 +177,15 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
         BroadcastStream::new(self).filter_map(|event| async {
             xmtp_common::optify!(event, "Missed message due to event queue lag")
                 .and_then(LocalEvents::message_deletion_filter)
+                .map(Result::Ok)
+        })
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    fn stream_message_edits(self) -> impl Stream<Item = Result<Box<DecodedMessage>>> {
+        BroadcastStream::new(self).filter_map(|event| async {
+            xmtp_common::optify!(event, "Missed message due to event queue lag")
+                .and_then(LocalEvents::message_edit_filter)
                 .map(Result::Ok)
         })
     }
@@ -534,6 +553,26 @@ where
                 callback(message.map(|boxed| *boxed))
             }
             tracing::debug!("`stream_message_deletions` stream ended, dropping stream");
+            Ok::<_, SubscribeError>(())
+        })
+    }
+
+    pub fn stream_message_edits_with_callback(
+        client: Arc<Client<Context>>,
+        mut callback: impl FnMut(Result<DecodedMessage>) + MaybeSend + 'static,
+    ) -> impl StreamHandle<StreamOutput = Result<()>> {
+        let (tx, rx) = oneshot::channel();
+
+        xmtp_common::spawn(Some(rx), async move {
+            let receiver = client.local_events.subscribe();
+            let stream = receiver.stream_message_edits();
+
+            futures::pin_mut!(stream);
+            let _ = tx.send(());
+            while let Some(message) = stream.next().await {
+                callback(message.map(|boxed| *boxed))
+            }
+            tracing::debug!("`stream_message_edits` stream ended, dropping stream");
             Ok::<_, SubscribeError>(())
         })
     }

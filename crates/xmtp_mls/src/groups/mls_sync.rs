@@ -1599,6 +1599,29 @@ where
 
         let out_of_order = original_msg_opt.is_none();
 
+        // Emit MessageEdited event if we have the original message
+        if let Some(original_msg) = original_msg_opt {
+            match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
+                Ok(mut decoded_message) => {
+                    decoded_message.edited =
+                        Some(crate::messages::decoded_message::EditedContent {
+                            content: edit.edited_content.clone(),
+                            edited_at_ns: edit.edited_at_ns,
+                        });
+                    let _ = self.context.local_events().send(
+                        crate::subscriptions::LocalEvents::MessageEdited(Box::new(decoded_message)),
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        message_id = hex::encode(&target_message_id),
+                        error = ?e,
+                        "Failed to decode edited message for edit event"
+                    );
+                }
+            }
+        }
+
         tracing::info!(
             "Message {} edited by {} (out_of_order: {})",
             edit_msg.message_id,
@@ -3687,9 +3710,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// Test that process_edit_message handles completely malformed bytes gracefully
-    ///
-    /// This verifies sync resilience when receiving corrupted EditMessage protos.
+    /// Test that process_edit_message handles malformed bytes gracefully
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_process_edit_message_malformed_encoded_content() {
         use crate::tester;
