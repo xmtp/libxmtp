@@ -1943,8 +1943,8 @@ async fn test_message_ordering_uses_original_timestamp() {
         .await?;
     alix_group.publish_messages().await?;
 
-    // Small delay to ensure different timestamps
-    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    // Delay to ensure different timestamps (50ms is more reliable under CI load)
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     // Send message 2
     let text2 = TextCodec::encode("Message 2".to_string())?;
@@ -1954,8 +1954,8 @@ async fn test_message_ordering_uses_original_timestamp() {
         .await?;
     alix_group.publish_messages().await?;
 
-    // Small delay
-    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    // Delay to ensure different timestamps
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     // Send message 3
     let text3 = TextCodec::encode("Message 3".to_string())?;
@@ -2124,20 +2124,20 @@ async fn test_concurrent_edits_latest_timestamp_wins() {
         .await?;
     alix_group.publish_messages().await?;
 
-    // Simulate concurrent edits by creating multiple edits rapidly
+    // Simulate concurrent edits by creating multiple edits with distinct timestamps
     let edit1 = TextCodec::encode("Edit 1".to_string())?;
     let edit1_bytes = xmtp_content_types::encoded_content_to_bytes(edit1);
     alix_group.edit_message(message_id.clone(), edit1_bytes)?;
 
-    // Small delay to ensure different timestamp
-    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    // Delay to ensure different timestamp (50ms is more reliable under CI load)
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let edit2 = TextCodec::encode("Edit 2".to_string())?;
     let edit2_bytes = xmtp_content_types::encoded_content_to_bytes(edit2);
     alix_group.edit_message(message_id.clone(), edit2_bytes)?;
 
-    // Small delay
-    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    // Delay to ensure different timestamp
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let edit3 = TextCodec::encode("Edit 3 - Final".to_string())?;
     let edit3_bytes = xmtp_content_types::encoded_content_to_bytes(edit3);
