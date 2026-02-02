@@ -5,7 +5,7 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
   [Sdk.Ios]: {
     name: "iOS",
     manifestPath: "sdks/ios/XMTP.podspec",
-    spmManifestPath: "sdks/ios/Package.swift",
+    spmManifestPath: "Package.swift",
     tagPrefix: "ios-",
     artifactTagSuffix: "-libxmtp",
     manifest: createPodspecManifestProvider("sdks/ios/XMTP.podspec"),
