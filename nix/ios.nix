@@ -48,7 +48,7 @@ mkShell {
       sqlite
       xcbuild
 
-      # Swift tooling
+      # Swift tooling (pre-built binaries, avoids building Swift compiler from source)
       swiftformat
       swiftlint
     ]
