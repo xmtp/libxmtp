@@ -2,10 +2,12 @@
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import * as findLastVersion from "./commands/find-last-version.js";
+import * as bumpVersion from "./commands/bump-version.js";
 
 yargs(hideBin(process.argv))
   .scriptName("release-tools")
   .command(findLastVersion)
+  .command(bumpVersion)
   .demandCommand(1, "You must specify a command")
   .strict()
   .help()
