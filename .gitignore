@@ -183,3 +183,7 @@ om.json
 
 # Git worktrees
 .worktrees/
+
+# Swift Package Manager (Package.swift is at root for SPM resolution)
+/.build
+/.swiftpm
