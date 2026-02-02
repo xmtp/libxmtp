@@ -1,0 +1,30 @@
+name: Release SDKs
+on:
+  workflow_dispatch:
+    inputs:
+      release-type:
+        description: "Release Type"
+        type: choice
+        options:
+          - RC
+          - Final
+      android:
+        description: "Android release"
+        type: boolean
+      react-native:
+        description: "React Native release"
+        type: boolean
+      node:
+        description: "Node release"
+        type: boolean
+      browser:
+        description: "Browser release"
+        type: boolean
+      mls-validation-service:
+        description: "MLS Validation Service release"
+        type: boolean
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Release code goes here"
