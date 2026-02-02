@@ -3,6 +3,7 @@ edition = "2024"
 license.workspace = true
 name = "xmtp_api_grpc"
 version.workspace = true
+description = "gRPC primitives and traits for native and WebAssembly"
 
 [dependencies]
 async-trait.workspace = true

@@ -456,12 +456,6 @@ mock! {
             sequence_id: Cursor,
         ) -> Result<Option<crate::group_message::StoredGroupMessage>, crate::ConnectionError>;
 
-        fn get_sync_group_messages(
-            &self,
-            group_id: &[u8],
-            offset: i64,
-        ) -> Result<Vec<crate::group_message::StoredGroupMessage>, crate::ConnectionError>;
-
         #[mockall::concretize]
         fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
             &self,
@@ -574,6 +568,23 @@ mock! {
         fn unprocessed_sync_group_messages(
             &self,
         ) -> Result<Vec<crate::group_message::StoredGroupMessage>, StorageError>;
+
+        fn sync_group_messages_paged(
+            &self,
+            offset: i64,
+            limit: i64,
+        ) -> Result<Vec<crate::group_message::StoredGroupMessage>, StorageError>;
+
+        fn mark_device_sync_msg_as_processed(
+            &self,
+            message_id: &[u8],
+        ) -> Result<(), StorageError>;
+
+        fn increment_device_sync_msg_attempt(
+            &self,
+            message_id: &[u8],
+            max_attempts: i32,
+        ) -> Result<i32, StorageError>;
     }
 
     impl QueryRefreshState for DbQuery {

@@ -3,6 +3,7 @@ edition = "2024"
 license.workspace = true
 name = "xmtp_mls"
 version.workspace = true
+description = "XMTP core MLS Implementation on top of openmls"
 
 [lints]
 workspace = true

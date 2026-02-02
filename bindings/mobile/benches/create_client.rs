@@ -10,13 +10,12 @@ use xmtp_common::{
     bench::{BENCH_ROOT_SPAN, bench_async_setup},
     tmp_path,
 };
+use xmtp_configuration::DeviceSyncUrls;
 use xmtp_id::associations::test_utils::WalletTestExt;
 use xmtpv3::identity::FfiIdentifier;
 
 #[macro_use]
 extern crate tracing;
-
-const HISTORY_SYNC_URL: &str = xmtp_configuration::DeviceSyncUrls::LOCAL_ADDRESS;
 
 fn setup() -> Runtime {
     Builder::new_multi_thread()
@@ -70,7 +69,7 @@ fn create_ffi_client(c: &mut Criterion) {
                     ffi_ident,
                     nonce,
                     None,
-                    Some(HISTORY_SYNC_URL.to_string()),
+                    Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
                     None,
                     None,
                     None,
@@ -111,7 +110,7 @@ fn cached_create_ffi_client(c: &mut Criterion) {
             ffi_ident,
             nonce,
             None,
-            Some(HISTORY_SYNC_URL.to_string()),
+            Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
             None,
             None,
             None,
@@ -132,7 +131,7 @@ fn cached_create_ffi_client(c: &mut Criterion) {
                     address.clone(),
                     nonce,
                     path.clone(),
-                    HISTORY_SYNC_URL.to_string(),
+                    DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
                     span.clone(),
                 )
             },

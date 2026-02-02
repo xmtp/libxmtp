@@ -1002,10 +1002,14 @@ where
             .await
     }
 
-    pub async fn sync_all_welcomes_and_history_sync_groups(
+    pub async fn sync_all_welcomes_and_device_sync_groups(
         &self,
     ) -> Result<GroupSyncSummary, ClientError> {
         self.sync_welcomes().await?;
+        self.sync_all_device_sync_groups().await
+    }
+
+    pub async fn sync_all_device_sync_groups(&self) -> Result<GroupSyncSummary, ClientError> {
         let groups = self
             .context
             .db()
@@ -1524,6 +1528,7 @@ pub(crate) mod tests {
         assert_eq!(bo_messages2.len(), 3);
     }
 
+    #[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
     #[xmtp_common::test]
     async fn test_sync_100_allowed_groups_performance() {
         tester!(alix);

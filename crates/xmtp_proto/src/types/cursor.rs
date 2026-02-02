@@ -143,7 +143,8 @@ mod test {
     #[case(Cursor::installations(400), 400, Originators::INSTALLATIONS)]
     #[case(Cursor::mls_commits(500), 500, Originators::MLS_COMMITS)]
     #[case(Cursor::inbox_log(600), 600, Originators::INBOX_LOG)]
-    fn test_originator_constructors(
+    #[xmtp_common::test]
+    async fn test_originator_constructors(
         #[case] cursor: Cursor,
         #[case] expected_seq: u64,
         #[case] expected_orig: u32,
@@ -157,7 +158,12 @@ mod test {
     #[case(Cursor::new(2, 1u32), Cursor::new(1, 1u32), false)]
     #[case(Cursor::new(1, 1u32), Cursor::new(1, 1u32), false)] // equal
     #[case(Cursor::new(1, 1u32), Cursor::new(1, 2u32), true)] // different originators
-    fn test_ordering(#[case] cursor1: Cursor, #[case] cursor2: Cursor, #[case] cursor1_less: bool) {
+    #[xmtp_common::test]
+    async fn test_ordering(
+        #[case] cursor1: Cursor,
+        #[case] cursor2: Cursor,
+        #[case] cursor1_less: bool,
+    ) {
         assert_eq!(cursor1 < cursor2, cursor1_less);
         assert_eq!(cursor1 == cursor2, !cursor1_less && cursor2 >= cursor1);
     }

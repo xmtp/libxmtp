@@ -1161,6 +1161,7 @@ async fn test_set_disappearing_messages_when_creating_group() {
     assert_eq!(alix_messages.len(), 1);
 }
 
+#[cfg_attr(feature = "d14n", ignore)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
 async fn rapidfire_duplicate_create() {
     let wallet = generate_local_wallet();

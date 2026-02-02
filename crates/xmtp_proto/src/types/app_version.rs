@@ -80,7 +80,7 @@ mod tests {
     #[case("")]
     #[case("v1.0.0")]
     #[xmtp_common::test]
-    fn test_from_conversions(#[case] version: &str) {
+    async fn test_from_conversions(#[case] version: &str) {
         assert_eq!(AppVersion::from(version).to_string(), version);
         assert_eq!(AppVersion::from(version.to_string()).to_string(), version);
     }
@@ -90,7 +90,7 @@ mod tests {
     #[case("", true)]
     #[case("1.0.0\u{1F600}", true)] // emoji - apparently allowed
     #[xmtp_common::test]
-    fn test_metadata_value_conversion(#[case] version: &str, #[case] should_succeed: bool) {
+    async fn test_metadata_value_conversion(#[case] version: &str, #[case] should_succeed: bool) {
         assert_eq!(
             TryInto::<MetadataValue<Ascii>>::try_into(AppVersion::from(version).clone()).is_ok(),
             should_succeed
@@ -114,7 +114,7 @@ mod tests {
     #[case("v1.2.3")]
     #[case("1.0.0+build.1")]
     #[xmtp_common::test]
-    fn test_complex_versions(#[case] version: &str) {
+    async fn test_complex_versions(#[case] version: &str) {
         assert_eq!(AppVersion::from(version).to_string(), version);
         assert!(
             TryInto::<MetadataValue<Ascii>>::try_into(&AppVersion::from(version)).is_ok(),

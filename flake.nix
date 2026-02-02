@@ -1,7 +1,7 @@
 # Flake Shell for building release artifacts for swift and kotlin
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     fenix = {
       url = "github:nix-community/fenix";
       inputs = { nixpkgs.follows = "nixpkgs"; };
@@ -11,6 +11,7 @@
     crane = {
       url = "github:ipetkov/crane";
     };
+    rust-flake.url = "github:juspay/rust-flake";
     rust-manifest = {
       url = "https://static.rust-lang.org/dist/channel-rust-1.92.0.toml";
       flake = false;
@@ -18,18 +19,18 @@
   };
 
   nixConfig = {
-    extra-trusted-public-keys = "xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0=";
-    extra-substituters = "https://xmtp.cachix.org";
+    extra-trusted-public-keys = [
+      "xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0="
+      "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+    ];
+    extra-substituters = [
+      "https://xmtp.cachix.org"
+      "https://nix-community.cachix.org"
+    ];
   };
 
   outputs =
-    inputs @ { self
-    , flake-parts
-    , fenix
-    , crane
-    , foundry
-    , ...
-    }:
+    inputs @ { flake-parts, self, crane, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = [
         "aarch64-darwin"
@@ -38,38 +39,39 @@
       imports = [
         ./nix/lib
         flake-parts.flakeModules.easyOverlay
+        inputs.rust-flake.flakeModules.default
+        inputs.rust-flake.flakeModules.nixpkgs
+        ./nix/rust-defaults.nix
+        ./nix/rust.nix
       ];
       perSystem =
-        { pkgs
-        , system
-        , ...
-        }:
-        let
-          pkgConfig = {
-            inherit system;
-            # Rust Overlay
-            overlays = [ fenix.overlays.default foundry.overlay self.overlays.default ];
-            config = {
-              android_sdk.accept_license = true;
-              allowUnfree = true;
-            };
-          };
-        in
-        {
-          _module.args.pkgs = import inputs.nixpkgs pkgConfig;
+        { pkgs, lib, self', ... }: {
+          nixpkgs = self.lib.pkgConfig;
           devShells = {
             # shell for general xmtp rust dev
             default = pkgs.callPackage ./nix/libxmtp.nix { };
             # Shell for android builds
             android = pkgs.callPackage ./nix/android.nix { };
-            # Shell for iOS builds
-            ios = pkgs.callPackage ./nix/ios.nix { };
             js = pkgs.callPackage ./nix/js.nix { };
             # the environment bindings_wasm is built in
             wasm = (pkgs.callPackage ./nix/package/wasm.nix { craneLib = crane.mkLib pkgs; }).devShell;
+          } // lib.optionalAttrs pkgs.stdenv.isDarwin {
+            # Shell for iOS builds
+            ios = pkgs.callPackage ./nix/ios.nix { };
           };
           packages.wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { craneLib = crane.mkLib pkgs; }).bin;
           packages.wasm-bindgen-cli = pkgs.callPackage ./nix/lib/packages/wasm-bindgen-cli.nix { };
+          packages.docker-mls_validation_service = pkgs.dockerTools.buildLayeredImage {
+            name = "ghcr.io/xmtp/mls-validation-service"; # override ghcr images
+            tag = "main";
+            created = "now";
+            config = {
+              Env = [
+                "ANVIL_URL=http://anvil:8545"
+              ];
+              entrypoint = [ "${self'.packages.musl-mls_validation_service}/bin/mls-validation-service" ];
+            };
+          };
         };
     };
 }

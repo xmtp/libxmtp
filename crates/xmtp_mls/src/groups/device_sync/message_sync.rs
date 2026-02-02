@@ -1,6 +1,7 @@
 use super::*;
 use crate::Client;
 use crate::XmtpApi;
+use xmtp_configuration::DeviceSyncUrls;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group::StoredGroup;
 use xmtp_db::group_message::MsgQueryArgs;
@@ -47,9 +48,7 @@ pub(crate) mod tests {
     use super::*;
 
     use crate::{
-        builder::ClientBuilder,
-        groups::GroupMetadataOptions,
-        utils::test::{HISTORY_SYNC_URL, wait_for_min_intents},
+        builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::wait_for_min_intents,
     };
     use xmtp_common::{assert_ok, wait_for_some};
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -59,7 +58,9 @@ pub(crate) mod tests {
     #[cfg_attr(target_family = "wasm", ignore)]
     async fn test_message_history_sync() {
         let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
+        let amal_a =
+            ClientBuilder::new_test_client_with_history(&wallet, DeviceSyncUrls::LOCAL_ADDRESS)
+                .await;
 
         // Create an alix client.
         let alix_wallet = generate_local_wallet();
@@ -79,7 +80,9 @@ pub(crate) mod tests {
         assert_eq!(syncable_messages.len(), 2); // welcome message, and message that was just sent
 
         // Create a second installation for amal.
-        let amal_b = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
+        let amal_b =
+            ClientBuilder::new_test_client_with_history(&wallet, DeviceSyncUrls::LOCAL_ADDRESS)
+                .await;
         let amal_b_conn = amal_b.context.db();
 
         let groups_b = amal_b.syncable_groups().unwrap();
@@ -136,7 +139,9 @@ pub(crate) mod tests {
     #[xmtp_common::test]
     async fn test_sync_continues_during_db_disconnect() {
         let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
+        let amal_a =
+            ClientBuilder::new_test_client_with_history(&wallet, DeviceSyncUrls::LOCAL_ADDRESS)
+                .await;
 
         let amal_a_provider = amal_a.mls_provider();
         let amal_a_conn = amal_a_provider.db();
@@ -155,7 +160,9 @@ pub(crate) mod tests {
         amal_a.release_db_connection().unwrap();
 
         // Create a second installation for amal.
-        let amal_b = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
+        let amal_b =
+            ClientBuilder::new_test_client_with_history(&wallet, DeviceSyncUrls::LOCAL_ADDRESS)
+                .await;
         let amal_b_conn = amal_b.context.db();
 
         let groups_b = amal_b.syncable_groups().unwrap();
@@ -209,12 +216,15 @@ pub(crate) mod tests {
     #[xmtp_common::test]
     async fn test_externals_cant_join_sync_group() {
         let wallet = generate_local_wallet();
-        let amal = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
+        let amal =
+            ClientBuilder::new_test_client_with_history(&wallet, DeviceSyncUrls::LOCAL_ADDRESS)
+                .await;
         amal.sync_welcomes().await.expect("sync welcomes");
 
         let bo_wallet = generate_local_wallet();
         let bo_client =
-            ClientBuilder::new_test_client_with_history(&bo_wallet, HISTORY_SYNC_URL).await;
+            ClientBuilder::new_test_client_with_history(&bo_wallet, DeviceSyncUrls::LOCAL_ADDRESS)
+                .await;
 
         bo_client.sync_welcomes().await.expect("sync welcomes");
 

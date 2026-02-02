@@ -5,6 +5,7 @@ pub mod consent_state;
 pub mod content_types;
 pub mod conversation;
 pub mod conversations;
+pub mod device_sync;
 pub mod encoded_content;
 pub mod enriched_message;
 pub mod identity;

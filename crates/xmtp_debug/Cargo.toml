@@ -15,7 +15,7 @@ vergen-git2 = { workspace = true, features = ["build"] }
 alloy.workspace = true
 chrono.workspace = true
 clap.workspace = true
-clap-verbosity-flag = "3.0"
+clap-verbosity-flag = { version = "3.0", features = ["tracing"] }
 color-eyre.workspace = true
 const_format.workspace = true
 csv = "1.4"

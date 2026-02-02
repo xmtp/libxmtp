@@ -24,52 +24,37 @@ env:
 jobs:
   test:
     name: Test
-    runs-on: warp-ubuntu-latest-x64-8x
+    runs-on: warp-ubuntu-latest-x64-16x
     permissions:
       id-token: write
       contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - name: Install wasm-bindgen
-        uses: taiki-e/install-action@v2
-        with:
-          tool: wasm-bindgen@0.2.105
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            .
-      - name: Start Docker containers
-        run: |
-          dev/build_validation_service_local
-          dev/docker/up
-      - uses: DeterminateSystems/nix-installer-action@main
-        with:
-          determinate: true
-      - uses: DeterminateSystems/flakehub-cache-action@main
+      - uses: nixbuild/nix-quick-install-action@v34
+      - run: nix build --version
       - uses: cachix/cachix-action@v16
         with:
           name: xmtp
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
-      - name: test libraries
+      #     - uses: nix-community/cache-nix-action@v6
+      #       with:
+      #         primary-key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      #         paths: |
+      #           ~/.cargo/bin/
+      #           ~/.cargo/registry/index/
+      #           ~/.cargo/registry/cache/
+      #           ~/.cargo/git/db/
+      #           target/
+      - name: Install omnix
+        run: nix profile install nixpkgs#omnix
+
+      - name: Start Docker containers
         run: |
-          nix develop .#wasm --command \
-            cargo test --locked --release -p xmtp_id -p xmtp_cryptography -p xmtp_api -p bindings_wasm -p xmtp_db -p xmtp_api_grpc
-      - name: test d14n
-        run: |
-          nix develop .#wasm --command cargo test --locked --release -p xmtp_api_d14n
-        working-directory: ./
-      - name: test xmtp_mls client
-        run: |
-          nix develop .#wasm --command \
-            cargo test --locked --release -p xmtp_mls -- --skip subscriptions:: --skip test_debug_pkg --skip test_double_sync_works_fine
-        working-directory: ./
-      - name: test xmtp_mls subscriptions
-        run: |
-          nix develop .#wasm --command \
-            cargo test --locked --release -p xmtp_mls -- subscriptions::
-        working-directory: ./
+          nix build .#docker-mls_validation_service --accept-flake-config
+          dev/docker/up
+      - name: run tests
+        run: om ci run .#wasm -- --accept-flake-config
       - name: webassembly integration tests
         working-directory: bindings/wasm
         run: |

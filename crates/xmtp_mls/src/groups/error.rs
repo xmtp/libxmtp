@@ -3,6 +3,7 @@ use super::mls_ext::{UnwrapWelcomeError, WrapWelcomeError};
 use super::mls_sync::GroupMessageProcessingError;
 use super::summary::SyncSummary;
 use super::{intents::IntentError, validated_commit::CommitValidationError};
+use crate::groups::device_sync::DeviceSyncError;
 use crate::identity::IdentityError;
 use crate::mls_store::MlsStoreError;
 use crate::{
@@ -183,6 +184,8 @@ pub enum GroupError {
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
     #[error(transparent)]
     DeleteMessage(#[from] DeleteMessageError),
+    #[error(transparent)]
+    DeviceSync(#[from] Box<DeviceSyncError>),
 }
 
 #[derive(Error, Debug)]
@@ -325,6 +328,7 @@ impl RetryableError for GroupError {
             Self::Diesel(e) => e.is_retryable(),
             Self::LeaveCantProcessed(e) => e.is_retryable(),
             Self::DeleteMessage(e) => e.is_retryable(),
+            Self::DeviceSync(e) => e.is_retryable(),
             Self::NotFound(_)
             | Self::UserLimitExceeded
             | Self::InvalidGroupMembership

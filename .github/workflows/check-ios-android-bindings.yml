@@ -28,13 +28,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: nixbuild/nix-quick-install-action@v34
+      - run: nix build --version
+      - uses: nix-community/cache-nix-action@v6
         with:
-          determinate: true
-      - uses: DeterminateSystems/flakehub-cache-action@main
+          primary-key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          paths: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
       - name: Build target
         run: |
-          nix develop .#ios --command \
+          nix develop .#ios --accept-flake-config --command \
             cargo check --target ${{ matrix.target }} --manifest-path bindings/mobile/Cargo.toml
   check-android:
     runs-on: warp-ubuntu-latest-x64-16x
@@ -53,15 +60,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - uses: DeterminateSystems/nix-installer-action@main
-        with:
-          determinate: true
-      - uses: DeterminateSystems/flakehub-cache-action@main
+      - uses: nixbuild/nix-quick-install-action@v34
+      - run: nix build --version
       - uses: cachix/cachix-action@v16
         with:
           name: xmtp
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+      - uses: nix-community/cache-nix-action@v6
+        with:
+          primary-key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          paths: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
       - name: check target
         run: |
-          nix develop .#android --command \
+          nix develop .#android --accept-flake-config --command \
             cargo check --target ${{ matrix.target }} --manifest-path bindings/mobile/Cargo.toml

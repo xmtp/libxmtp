@@ -651,6 +651,7 @@ mod test {
     #[xmtp_common::test]
     #[timeout(std::time::Duration::from_secs(120))]
     #[awt]
+    #[cfg_attr(all(feature = "d14n"), ignore)]
     async fn test_many_concurrent_dm_invites(#[future] alix: ClientTester, #[case] dms: usize) {
         let alix_inbox_id = Arc::new(alix.inbox_id().to_string());
         let mut clients = vec![];

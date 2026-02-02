@@ -7,7 +7,7 @@ pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
 pub const NONCE_SIZE: usize = 12; // 96-bit nonce
 
 // Increment on breaking changes
-const BACKUP_VERSION: u16 = 0;
+pub const BACKUP_VERSION: u16 = 0;
 
 mod export_stream;
 pub mod exporter;
@@ -38,7 +38,7 @@ pub struct BackupMetadata {
 }
 
 impl BackupMetadata {
-    fn from_metadata_save(save: BackupMetadataSave, backup_version: u16) -> Self {
+    pub fn from_metadata_save(save: BackupMetadataSave, backup_version: u16) -> Self {
         Self {
             elements: save.elements().collect(),
             end_ns: save.end_ns,
@@ -46,6 +46,10 @@ impl BackupMetadata {
             exported_at_ns: save.exported_at_ns,
             backup_version,
         }
+    }
+
+    pub fn from_metadata_version_unknown(save: BackupMetadataSave) -> Self {
+        Self::from_metadata_save(save, u16::MAX)
     }
 }
 

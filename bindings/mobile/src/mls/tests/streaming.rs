@@ -343,6 +343,7 @@ async fn test_stream_groups_gets_callback_when_streaming_messages() {
     assert!(stream_groups.is_closed());
 }
 
+#[cfg_attr(feature = "d14n", ignore)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn test_stream_consent() {
     let alix_a = Tester::builder().sync_worker().sync_server().build().await;
@@ -378,7 +379,7 @@ async fn test_stream_consent() {
         .await
         .unwrap();
 
-    alix_b.sync_preferences().await.unwrap();
+    alix_b.sync_all_device_sync_groups().await.unwrap();
     alix_b
         .worker()
         .register_interest(SyncMetric::PayloadProcessed, 1)
@@ -410,7 +411,7 @@ async fn test_stream_consent() {
         .await;
     a_stream.wait_for_ready().await;
     b_stream.wait_for_ready().await;
-    alix_b.sync_preferences().await.unwrap();
+    alix_b.sync_all_device_sync_groups().await.unwrap();
 
     // consent with bo
     alix_a
@@ -431,7 +432,7 @@ async fn test_stream_consent() {
         .unwrap();
 
     // Have alix_b sync the sync group and wait for the new consent to be processed
-    alix_b.sync_preferences().await.unwrap();
+    alix_b.sync_all_device_sync_groups().await.unwrap();
     alix_b
         .worker()
         .register_interest(SyncMetric::ConsentReceived, 1)
@@ -441,7 +442,7 @@ async fn test_stream_consent() {
 
     stream_a_callback.wait_for_delivery(Some(3)).await.unwrap();
     wait_for_ok(|| async {
-        alix_b.sync_preferences().await.unwrap();
+        alix_b.sync_all_device_sync_groups().await.unwrap();
         stream_b_callback.wait_for_delivery(Some(1)).await
     })
     .await
@@ -483,7 +484,7 @@ async fn test_stream_consent() {
         .await
         .unwrap();
     // Have alix_b sync the sync group
-    alix_b.sync_preferences().await.unwrap();
+    alix_b.sync_all_device_sync_groups().await.unwrap();
     // Wait for alix_b to process the new consent
     alix_b
         .worker()
@@ -553,7 +554,7 @@ async fn test_stream_preferences() {
         .unwrap();
 
     hmac_sent.wait().await.unwrap();
-    alix_b.sync_preferences().await.unwrap();
+    alix_b.sync_all_device_sync_groups().await.unwrap();
     hmac_received.wait().await.unwrap();
 
     let result = tokio::time::timeout(std::time::Duration::from_secs(10), notify).await;

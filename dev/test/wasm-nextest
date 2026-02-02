@@ -1,21 +1,42 @@
 #!/usr/bin/env bash
+# Usage: dev/test/wasm-nextest [FILTER] [PROFILE] [FEATURES]
+# Automatically uses nix env if detected.
+
 set -eou pipefail
 
 # Setup required tools
-if [[ "$(uname -s)" == "Darwin" ]]; then
-  CHROMEDRIVER="$(which chromedriver 2>/dev/null || true)"
+if [[ "$(uname -s)" == "Darwin" ]] && [[ -z "${XMTP_NIX_ENV:-}" ]]; then
+  GECKODRIVER="$(which geckodriver 2>/dev/null || true)"
   if [[ -z "${CHROMEDRIVER}" ]]; then
     echo "Installing chromedriver"
     brew install chromedriver
   fi
 fi
 
-export WASM_BINDGEN_TEST_ONLY_WEB=1
-export WASM_BINDGEN_TEST_TIMEOUT=180
-export CHROMEDRIVER="chromedriver"
+if [[ -n "${XMTP_NIX_ENV:-}" ]]; then
+  echo "Nix environment detected"
+else
+  export WASM_BINDGEN_TEST_ONLY_WEB=1
+  export WASM_BINDGEN_TEST_TIMEOUT=180
+  export GECKODRIVER="geckodriver"
+  export CARGO_BUILD_TARGET="wasm32-unknown-unknown"
+fi
+
+FILTERS="${1:-}"
+if [[ -n "${FILTERS}" ]]; then
+  FILTERS="-E ${FILTERS}"
+fi
+
+PROFILE="${2:-ci}"
+
+FEATURES="${3:-}"
+if [[ -n "${FEATURES}" ]]; then
+  FEATURES="--features ${FEATURES}"
+fi
 
 cargo nextest run \
-  --profile ci \
-  --workspace -E 'platform(target)' \
-  --target wasm32-unknown-unknown --release \
-  --exclude xdbg --exclude xmtpv3 --exclude bindings_node --exclude mls_validation_service --exclude xmtp_cli --exclude xmtp_api_grpc
+  --profile $PROFILE \
+  $FILTERS \
+  --workspace --release \
+  $FEATURES \
+  --exclude xdbg --exclude xmtpv3 --exclude bindings_node --exclude mls_validation_service --exclude xmtp_cli --exclude xmtp_api_grpc --exclude xmtp-db-tools
