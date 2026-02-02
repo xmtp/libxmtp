@@ -1,8 +1,6 @@
-import path from "node:path";
 import type { ArgumentsCamelCase, Argv } from "yargs";
 import type { ReleaseType } from "../types.js";
 import { getSdkConfig } from "../lib/sdk-config.js";
-import { readPodspecVersion } from "../lib/manifest.js";
 import { computeVersion as computeVersionFn } from "../lib/version.js";
 import { getShortSha } from "../lib/git.js";
 
@@ -37,8 +35,7 @@ export function handler(
   }>
 ) {
   const config = getSdkConfig(argv.sdk);
-  const manifestPath = path.join(process.cwd(), config.manifestPath);
-  const baseVersion = readPodspecVersion(manifestPath);
+  const baseVersion = config.manifest.readVersion(process.cwd());
   const shortSha =
     argv.releaseType === "dev" ? getShortSha(process.cwd()) : undefined;
   const version = computeVersionFn(baseVersion, argv.releaseType, {

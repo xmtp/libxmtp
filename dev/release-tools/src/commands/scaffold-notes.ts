@@ -2,7 +2,6 @@ import path from "node:path";
 import fs from "node:fs";
 import type { ArgumentsCamelCase, Argv } from "yargs";
 import { getSdkConfig } from "../lib/sdk-config.js";
-import { readPodspecVersion } from "../lib/manifest.js";
 import { getCommitsBetween } from "../lib/git.js";
 import { findLastVersion } from "./find-last-version.js";
 
@@ -12,8 +11,7 @@ export function scaffoldNotes(
   sinceTag: string | null
 ): string {
   const config = getSdkConfig(sdk);
-  const manifestPath = path.join(repoRoot, config.manifestPath);
-  const version = readPodspecVersion(manifestPath);
+  const version = config.manifest.readVersion(repoRoot);
 
   const notesDir = path.join(repoRoot, "docs/release-notes");
   fs.mkdirSync(notesDir, { recursive: true });

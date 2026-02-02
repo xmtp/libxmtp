@@ -1,3 +1,12 @@
+export enum Sdk {
+  Ios = "ios",
+}
+
+export interface ManifestProvider {
+  readVersion(repoRoot: string): string;
+  writeVersion(repoRoot: string, version: string): void;
+}
+
 export interface SdkConfig {
   /** Human-readable SDK name */
   name: string;
@@ -9,6 +18,8 @@ export interface SdkConfig {
   tagPrefix: string;
   /** Suffix for intermediate artifact tags */
   artifactTagSuffix: string;
+  /** Provider for reading/writing the version manifest */
+  manifest: ManifestProvider;
 }
 
 export type ReleaseType = "dev" | "rc" | "final";

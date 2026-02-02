@@ -1,9 +1,7 @@
-import path from "node:path";
 import semver from "semver";
 import type { ArgumentsCamelCase, Argv } from "yargs";
 import type { BumpType } from "../types.js";
 import { getSdkConfig } from "../lib/sdk-config.js";
-import { readPodspecVersion, writePodspecVersion } from "../lib/manifest.js";
 
 export function bumpVersion(
   sdk: string,
@@ -11,15 +9,14 @@ export function bumpVersion(
   repoRoot: string
 ): string {
   const config = getSdkConfig(sdk);
-  const manifestPath = path.join(repoRoot, config.manifestPath);
-  const currentVersion = readPodspecVersion(manifestPath);
+  const currentVersion = config.manifest.readVersion(repoRoot);
   const newVersion = semver.inc(currentVersion, bumpType);
   if (!newVersion) {
     throw new Error(
       `Failed to bump ${bumpType} on version ${currentVersion}`
     );
   }
-  writePodspecVersion(manifestPath, newVersion);
+  config.manifest.writeVersion(repoRoot, newVersion);
   return newVersion;
 }
 

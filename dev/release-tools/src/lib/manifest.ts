@@ -1,4 +1,6 @@
 import fs from "node:fs";
+import path from "node:path";
+import type { ManifestProvider } from "../types.js";
 
 const PODSPEC_VERSION_REGEX = /(spec\.version\s*=\s*)"([^"]+)"/;
 
@@ -28,4 +30,11 @@ export function writePodspecVersion(
     `$1"${version}"`
   );
   fs.writeFileSync(podspecPath, updated);
+}
+
+export function createPodspecManifestProvider(relativePath: string): ManifestProvider {
+  return {
+    readVersion: (repoRoot) => readPodspecVersion(path.join(repoRoot, relativePath)),
+    writeVersion: (repoRoot, version) => writePodspecVersion(path.join(repoRoot, relativePath), version),
+  };
 }
