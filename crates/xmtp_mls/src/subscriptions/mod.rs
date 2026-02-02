@@ -560,6 +560,7 @@ where
     pub fn stream_message_edits_with_callback(
         client: Arc<Client<Context>>,
         mut callback: impl FnMut(Result<DecodedMessage>) + MaybeSend + 'static,
+        on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -573,6 +574,7 @@ where
                 callback(message.map(|boxed| *boxed))
             }
             tracing::debug!("`stream_message_edits` stream ended, dropping stream");
+            on_close();
             Ok::<_, SubscribeError>(())
         })
     }

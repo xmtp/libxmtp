@@ -1794,14 +1794,17 @@ impl FfiConversations {
         &self,
         callback: Arc<dyn FfiMessageEditCallback>,
     ) -> FfiStreamCloser {
+        let error_callback = callback.clone();
         let handle = RustXmtpClient::stream_message_edits_with_callback(
             self.inner_client.clone(),
-            move |msg| {
-                if let Ok(message) = msg {
+            move |msg| match msg {
+                Ok(message) => {
                     let ffi_message: FfiDecodedMessage = message.into();
                     callback.on_message_edited(Arc::new(ffi_message))
                 }
+                Err(e) => error_callback.on_error(e.into()),
             },
+            || {},
         );
 
         FfiStreamCloser::new(handle)
@@ -3430,6 +3433,7 @@ pub trait FfiMessageDeletionCallback: Send + Sync {
 #[uniffi::export(with_foreign)]
 pub trait FfiMessageEditCallback: Send + Sync {
     fn on_message_edited(&self, message: Arc<FfiDecodedMessage>);
+    fn on_error(&self, error: FfiSubscribeError);
 }
 
 #[derive(uniffi::Enum, Debug)]

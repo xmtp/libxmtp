@@ -1317,16 +1317,13 @@ impl From<DecodedMessage> for FfiDecodedMessage {
                             {
                                 edited_reply.in_reply_to = original_reply.in_reply_to.clone();
                             }
-                            // If original is a Reply but edited content is Text, wrap text in Reply
-                            else if let MessageBody::Reply(original_reply) = &item.content
-                                && let MessageBody::Text(text) = edited_body
-                            {
+                            // If original is a Reply but edited content is not, wrap in Reply
+                            else if let MessageBody::Reply(original_reply) = &item.content {
                                 edited_body = MessageBody::Reply(ProcessedReply {
                                     in_reply_to: original_reply.in_reply_to.clone(),
-                                    content: Box::new(MessageBody::Text(text)),
+                                    content: Box::new(edited_body),
                                     reference_id: original_reply.reference_id.clone(),
                                 });
-                                // Keep the original content type since we're preserving the reply structure
                                 final_content_type = metadata.content_type.clone();
                             }
                             (edited_body.into(), final_content_type)

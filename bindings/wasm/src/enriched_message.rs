@@ -68,13 +68,11 @@ impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
               {
                 edited_reply.in_reply_to = original_reply.in_reply_to.clone();
               }
-              // If original is a Reply but edited content is Text, wrap text in Reply
-              else if let MessageBody::Reply(original_reply) = &msg.content
-                && let MessageBody::Text(text) = edited_body
-              {
+              // If original is a Reply but edited content is not, wrap in Reply
+              else if let MessageBody::Reply(original_reply) = &msg.content {
                 edited_body = MessageBody::Reply(ProcessedReply {
                   in_reply_to: original_reply.in_reply_to.clone(),
-                  content: Box::new(MessageBody::Text(text)),
+                  content: Box::new(edited_body),
                   reference_id: original_reply.reference_id.clone(),
                 });
                 final_content_type = original_content_type.clone();

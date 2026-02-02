@@ -321,6 +321,10 @@ impl FfiMessageEditCallback for RustMessageEditCallback {
         self.edited_messages.lock().push(message);
         self.notify.notify_one();
     }
+
+    fn on_error(&self, error: FfiSubscribeError) {
+        log::error!("ON MESSAGE EDIT ERROR: {:?}", error);
+    }
 }
 
 // Helper functions

@@ -718,6 +718,7 @@ impl Conversations {
         },
         Err(e) => callback.on_error(JsError::from(e)),
       },
+      || {},
     );
     Ok(StreamCloser::new(stream_closer))
   }
