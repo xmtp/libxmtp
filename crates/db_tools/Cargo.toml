@@ -8,6 +8,7 @@ description = "migration/SQLite tools for xmtp databases"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+diesel = { workspace = true, features = ["sqlite"] }
 diesel_migrations = { workspace = true, features = ["sqlite"] }
 dotenvy = "0.15.7"
 hex.workspace = true
