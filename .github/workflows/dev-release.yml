@@ -1,0 +1,55 @@
+# .github/workflows/dev-release.yml
+name: Dev Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to release from"
+        required: true
+        type: string
+      ios:
+        description: "Release iOS SDK"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  release-ios:
+    if: inputs.ios
+    uses: ./.github/workflows/release-ios.yml
+    with:
+      release-type: dev
+      ref: ${{ inputs.branch }}
+    secrets: inherit
+
+  notify:
+    needs: [release-ios]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          IOS_RESULT: ${{ needs.release-ios.result }}
+          IOS_VERSION: ${{ needs.release-ios.outputs.version }}
+        run: |
+          STATUS="success"
+          if [ "$IOS_RESULT" = "failure" ]; then
+            STATUS="failure"
+          fi
+
+          CHANNEL="#notify-dev-releases"
+          if [ "$STATUS" = "failure" ]; then
+            CHANNEL="#notify-dev-release-failures"
+          fi
+
+          MESSAGE="Dev Release: iOS ${IOS_VERSION:-skipped} - ${IOS_RESULT:-skipped}"
+
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -X POST "$SLACK_WEBHOOK_URL" \
+              -H 'Content-type: application/json' \
+              --data "{\"channel\":\"$CHANNEL\",\"text\":\"$MESSAGE\"}"
+          else
+            echo "$MESSAGE"
+          fi
