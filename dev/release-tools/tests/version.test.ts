@@ -20,17 +20,17 @@ describe("filterAndSortTags", () => {
   it("includes prerelease tags when flag is set", () => {
     const tags = [
       "ios-4.9.0",
-      "ios-4.10.0-rc.1",
+      "ios-4.10.0-rc1",
       "ios-4.10.0-dev.abc1234",
     ];
     const result = filterAndSortTags(tags, "ios-", "-libxmtp", true);
-    expect(result).toEqual(["4.10.0-rc.1", "4.10.0-dev.abc1234", "4.9.0"]);
+    expect(result).toEqual(["4.10.0-rc1", "4.10.0-dev.abc1234", "4.9.0"]);
   });
 
   it("excludes prerelease tags by default", () => {
     const tags = [
       "ios-4.9.0",
-      "ios-4.10.0-rc.1",
+      "ios-4.10.0-rc1",
       "ios-4.10.0-dev.abc1234",
     ];
     const result = filterAndSortTags(tags, "ios-", "-libxmtp");
@@ -61,7 +61,7 @@ describe("computeVersion", () => {
 
   it("appends rc suffix for rc release", () => {
     expect(computeVersion("4.10.0", "rc", { rcNumber: 1 })).toBe(
-      "4.10.0-rc.1"
+      "4.10.0-rc1"
     );
   });
 

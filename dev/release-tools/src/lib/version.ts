@@ -54,7 +54,7 @@ export function computeVersion(
       if (options.rcNumber == null) {
         throw new Error("rcNumber is required for rc releases");
       }
-      return `${baseVersion}-rc.${options.rcNumber}`;
+      return `${baseVersion}-rc${options.rcNumber}`;
     }
     case "dev": {
       if (!options.shortSha) {

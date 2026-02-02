@@ -41,13 +41,13 @@ describe("findLastVersion", () => {
 
   it("skips prerelease by default", () => {
     gitTag("ios-4.9.0", tmpDir);
-    gitTag("ios-4.10.0-rc.1", tmpDir);
+    gitTag("ios-4.10.0-rc1", tmpDir);
     expect(findLastVersion("ios", tmpDir)).toBe("4.9.0");
   });
 
   it("includes prerelease when requested", () => {
     gitTag("ios-4.9.0", tmpDir);
-    gitTag("ios-4.10.0-rc.1", tmpDir);
-    expect(findLastVersion("ios", tmpDir, true)).toBe("4.10.0-rc.1");
+    gitTag("ios-4.10.0-rc1", tmpDir);
+    expect(findLastVersion("ios", tmpDir, true)).toBe("4.10.0-rc1");
   });
 });
