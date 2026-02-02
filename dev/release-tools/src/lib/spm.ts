@@ -1,13 +1,16 @@
 import fs from "node:fs";
 
-// Matches the url line in a .binaryTarget declaration:
-//   url: "https://...",
+// Matches the remote .binaryTarget declaration spanning multiple lines:
+//   .binaryTarget(
+//       name: "LibXMTPSwiftFFI",
+//       url: "https://...",
+//       checksum: "..."
+//   )
+// Uses the 's' (dotAll) flag so '.' matches newlines too.
 const SPM_URL_REGEX =
-  /(\.binaryTarget\(\s*name:\s*"LibXMTPSwiftFFI",\s*url:\s*)"([^"]+)"/;
+  /(\.binaryTarget\(\s*name:\s*"LibXMTPSwiftFFI",\s*url:\s*)"([^"]+)"/s;
 
-// Matches the checksum line:
-//   checksum: "..."
-const SPM_CHECKSUM_REGEX = /(checksum:\s*)"([^"]+)"/;
+const SPM_CHECKSUM_REGEX = /(checksum:\s*)"([^"]+)"/s;
 
 export function updateSpmChecksum(
   packageSwiftPath: string,

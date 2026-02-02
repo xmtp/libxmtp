@@ -81,6 +81,37 @@ describe("updateSpmChecksum", () => {
     expect(content).toContain("FileManager.default.fileExists");
   });
 
+  it("handles widely spaced multiline formatting", () => {
+    const widelySpaced = `// swift-tools-version: 5.6
+import PackageDescription
+
+let package = Package(
+    targets: [
+        .binaryTarget(
+            name: "LibXMTPSwiftFFI",
+
+            url:
+                "https://github.com/xmtp/libxmtp/releases/download/ios-4.9.0-libxmtp/LibXMTPSwiftFFI.xcframework.zip",
+
+            checksum:
+                "oldchecksum123"
+        ),
+    ]
+)
+`;
+    fs.writeFileSync(packagePath, widelySpaced);
+    updateSpmChecksum(
+      packagePath,
+      "https://example.com/new.zip",
+      "newchecksum"
+    );
+    const content = fs.readFileSync(packagePath, "utf-8");
+    expect(content).toContain('"https://example.com/new.zip"');
+    expect(content).toContain('"newchecksum"');
+    expect(content).not.toContain("oldchecksum123");
+    expect(content).not.toContain("ios-4.9.0-libxmtp");
+  });
+
   it("throws if url pattern is not found", () => {
     fs.writeFileSync(packagePath, "no url here\n");
     expect(() =>
