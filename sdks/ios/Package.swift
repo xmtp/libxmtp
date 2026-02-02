@@ -1,7 +1,13 @@
 // swift-tools-version: 5.6
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
+import Foundation
 import PackageDescription
+
+let thisPackagePath = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
+let useLocalBinary = FileManager.default.fileExists(
+	atPath: "\(thisPackagePath)/.build/LibXMTPSwiftFFI.xcframework"
+)
 
 let package = Package(
 	name: "XMTPiOS",
@@ -23,10 +29,16 @@ let package = Package(
 		.package(url: "https://github.com/SimplyDanny/SwiftLintPlugins", from: "0.62.1"),
 	],
 	targets: [
-		.binaryTarget(
-			name: "LibXMTPSwiftFFI",
-			path: ".build/LibXMTPSwiftFFI.xcframework"
-		),
+		useLocalBinary
+			? .binaryTarget(
+				name: "LibXMTPSwiftFFI",
+				path: ".build/LibXMTPSwiftFFI.xcframework"
+			)
+			: .binaryTarget(
+				name: "LibXMTPSwiftFFI",
+				url: "https://github.com/xmtp/libxmtp/releases/download/ios-0.0.0-libxmtp/LibXMTPSwiftFFI.xcframework.zip",
+				checksum: "PLACEHOLDER"
+			),
 		.target(
 			name: "XMTPiOS",
 			dependencies: [
