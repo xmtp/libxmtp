@@ -27,13 +27,13 @@ pub enum Event {
 
     // ===================== MLS Operations =====================
     /// Received staged commit. Merging and clearing any pending commits.
-    #[context(group_id, sender_inbox, msg_epoch, current_epoch)]
+    #[context(group_id, sender_inbox, msg_epoch, epoch)]
     MLSReceivedStagedCommit,
     /// Processed staged commit.
-    #[context(group_id, current_epoch)]
+    #[context(group_id, epoch)]
     MLSProcessedStagedCommit,
     /// Received application message.
-    #[context(group_id, current_epoch, msg_epoch, sender_inbox)]
+    #[context(group_id, epoch, msg_epoch, sender_inbox)]
     MLSReceivedApplicationMessage,
     /// Processed application message.
     #[context(group_id)]

@@ -1,4 +1,4 @@
-mod epoch_continuity;
+pub mod epoch_continuity;
 
 use crate::state::LogState;
 use anyhow::Result;

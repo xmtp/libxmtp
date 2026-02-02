@@ -1103,7 +1103,7 @@ where
                     sender_inbox = sender_inbox_id,
                     sender_installation_id = hex::encode(&sender_installation_id),
                     installation_id = %self.context.installation_id(),group_id = hex::encode(&self.group_id),
-                    current_epoch = mls_group.epoch().as_u64(),
+                    epoch = mls_group.epoch().as_u64(),
                     msg_epoch,
                     group_id = msg_group_id_short_hex,
                     cursor = %cursor,
@@ -1209,7 +1209,7 @@ where
                     installation_id = %self.context.installation_id(),
                     sender_installation_id = hex::encode(&sender_installation_id),
                     group_id = #self.group_id,
-                    current_epoch = mls_group.epoch().as_u64(),
+                    epoch = mls_group.epoch().as_u64(),
                     msg_epoch,
                     msg_group_id,
                     cursor = %cursor,
@@ -1256,7 +1256,7 @@ where
                     Event::MLSProcessedStagedCommit,
                     self.context.installation_id(),
                     group_id = #self.group_id,
-                    current_epoch = mls_group.epoch().as_u64(),
+                    epoch = mls_group.epoch().as_u64(),
                 );
 
                 Ok(())

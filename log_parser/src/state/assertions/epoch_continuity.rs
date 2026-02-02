@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, collections::HashMap, sync::Weak};
+use std::{cmp::Ordering, collections::HashMap};
 
 use crate::state::{
     GroupStateExt, LogState,
@@ -6,7 +6,7 @@ use crate::state::{
 };
 use anyhow::Result;
 
-struct EpochContinuityAssertion;
+pub struct EpochContinuityAssertion;
 
 impl LogAssertion for EpochContinuityAssertion {
     fn assert(state: &LogState) -> Result<Option<AssertionFailure>> {
@@ -32,28 +32,32 @@ impl LogAssertion for EpochContinuityAssertion {
             });
 
             // Check for continuity
-            let groups = groups
+            let group_state_iters = groups
                 .into_iter()
                 .map(|g| {
                     g.traverse().filter_map(|g| {
-                        let g = g.read();
-                        g.epoch?;
+                        {
+                            let g_read = g.read();
+                            g_read.epoch?;
+                        }
                         Some(g)
                     })
                 })
                 .collect::<Vec<_>>();
 
-            for group in groups {
-                for iteration in group.traverse().filter_map(|g| {
-                    let g = g.read();
-                    g.epoch?;
-                    Some(g)
-                }) {}
-                for g in group.read().clone().into_iter() {}
-                while group.read().epoch.is_none() {
-                    if let Some(g) = group.read().next.as_ref().and_then(Weak::upgrade) {
-                        group = g;
-                    }
+            let mut all_group_epochs = state.grouped_epochs.write();
+            let group_epochs = all_group_epochs.entry(group_id.clone()).or_default();
+
+            for state_iterator in group_state_iters {
+                for state in state_iterator {
+                    let state_write = state.read();
+                    let epoch = state_write.epoch.expect("This is filtered out above.");
+                    let group_epoch = group_epochs.entry(epoch).or_default();
+                    let installation_group_epoch = group_epoch
+                        .states
+                        .entry(state_write.installation_id.clone())
+                        .or_default();
+                    installation_group_epoch.push(state.clone());
                 }
             }
         }

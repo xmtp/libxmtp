@@ -12,6 +12,8 @@ pub struct LogEvent {
     pub intermediate: String,
 }
 
+pub(crate) const TIME_KEY: &str = "time_ms";
+
 impl LogEvent {
     pub fn context(&self, key: &str) -> Option<&Value> {
         self.context.iter().find(|(k, _)| k == key).map(|(_, v)| v)
@@ -32,7 +34,7 @@ impl LogEvent {
     pub fn timestamp(&self) -> i64 {
         self.context
             .iter()
-            .find(|(k, _)| k == "time")
+            .find(|(k, _)| k == TIME_KEY)
             .and_then(|(_, v)| v.as_int().ok())
             .unwrap_or(0)
     }
@@ -40,7 +42,7 @@ impl LogEvent {
     pub fn context_entries(&self) -> Vec<(String, String)> {
         self.context
             .iter()
-            .filter(|(k, _)| *k != "time") // timestamp is handled separately
+            .filter(|(k, _)| *k != TIME_KEY) // timestamp is handled separately
             .map(|(k, v)| (k.clone(), v.to_string()))
             .collect()
     }

@@ -6,34 +6,49 @@ use anyhow::{Context, Result};
 pub use event::LogEvent;
 use parking_lot::{RwLock, RwLockWriteGuard};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     iter::Peekable,
-    marker::PhantomData,
-    slice::Iter,
     sync::{Arc, Weak},
 };
-use tracing::Instrument;
-use tracing_subscriber::filter::targets::IntoIter;
 
 pub use value::Value;
 use xmtp_common::Event;
 
+use crate::state::{
+    assertions::{LogAssertion, epoch_continuity::EpochContinuityAssertion},
+    event::TIME_KEY,
+};
+
 type InstallationId = String;
+type GroupId = String;
+type EpochNumber = i64;
 
 #[derive(Default)]
 pub struct LogState {
-    pub groups: HashSet<String>,
+    pub grouped_epochs: RwLock<HashMap<GroupId, HashMap<EpochNumber, Epoch>>>,
     pub clients: HashMap<InstallationId, Arc<RwLock<ClientState>>>,
+}
+
+#[derive(Default)]
+struct Epoch {
+    pub states: HashMap<InstallationId, Vec<Arc<RwLock<GroupState>>>>,
 }
 
 impl LogState {
     pub fn build<'a>(mut lines: Peekable<impl Iterator<Item = &'a str>>) -> Self {
         let mut state = Self::default();
-        while let Ok(event) = LogEvent::from(&mut lines) {
+
+        while let Ok(event) =
+            LogEvent::from(&mut lines).inspect_err(|e| tracing::error!("Parsing err: {e:?}"))
+        {
             if let Err(err) = state.ingest(event) {
                 tracing::warn!("{err:?}");
             };
         }
+
+        if let Err(err) = EpochContinuityAssertion::assert(&state) {
+            tracing::error!("Continuity error: {err}");
+        };
 
         state
     }
@@ -60,31 +75,37 @@ impl LogState {
                 .context("Missing client")?,
         };
         let mut client = client.write();
+        let group_id = ctx("group_id").and_then(|id| id.as_str()).ok();
 
-        if let Ok(group_id) = ctx("group_id").and_then(|id| id.as_str()) {
-            if !self.groups.contains(group_id) {
-                self.groups.insert(group_id.to_string());
-            }
-        }
-
-        match event.event {
-            Event::AssociateName => {
+        match (group_id, event.event) {
+            (_, Event::AssociateName) => {
                 client.name = Some(ctx("name")?.as_str()?.to_string());
             }
-            Event::CreatedDM => {
-                let group_id = ctx("group_id")?.as_str()?;
-                let mut dm = client.update_group(group_id);
+            (Some(group_id), event) => {
+                {
+                    let mut epochs = self.grouped_epochs.write();
+                    if !epochs.contains_key(group_id) {
+                        epochs.insert(group_id.to_string(), HashMap::new());
+                    }
+                }
 
-                dm.dm_target = Some(ctx("target_inbox")?.as_str()?.to_string());
-                dm.created_at = Some(ctx("time")?.as_int()?);
-            }
-            Event::MLSGroupEpochUpdated => {
-                let group_id = ctx("group_id")?.as_str()?;
-                let mut dm = client.update_group(group_id);
+                let mut group = client.update_group(group_id);
 
-                dm.epoch = Some(ctx("epoch")?.as_int()?);
-                dm.previous_epoch = Some(ctx("previous_epoch")?.as_int()?);
-                dm.cursor = Some(ctx("cursor")?.as_int()?);
+                if let Ok(epoch) = ctx("epoch").and_then(|e| e.as_int()) {
+                    group.epoch = Some(epoch);
+                }
+
+                match event {
+                    Event::CreatedDM => {
+                        group.dm_target = Some(ctx("target_inbox")?.as_str()?.to_string());
+                        group.created_at = Some(ctx(TIME_KEY)?.as_int()?);
+                    }
+                    Event::MLSGroupEpochUpdated => {
+                        group.previous_epoch = Some(ctx("previous_epoch")?.as_int()?);
+                        group.cursor = Some(ctx("cursor")?.as_int()?);
+                    }
+                    _ => {}
+                }
             }
             _ => {}
         }
@@ -158,7 +179,7 @@ impl IntoIterator for GroupState {
     }
 }
 
-struct GroupStateIterator {
+pub struct GroupStateIterator {
     current: Option<Arc<RwLock<GroupState>>>,
     staged: Option<Arc<RwLock<GroupState>>>,
 }
@@ -221,8 +242,52 @@ impl GroupStateExt for Arc<RwLock<GroupState>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::state::{LogEvent, Value};
-    use xmtp_common::Event;
+    use std::time::Duration;
+
+    use crate::state::{LogEvent, LogState, Value};
+    use tracing_subscriber::fmt;
+    use xmtp_common::{Event, TestWriter};
+    use xmtp_mls::tester;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_logging() {
+        let writer = TestWriter::new();
+
+        let subscriber = fmt::Subscriber::builder()
+            .with_writer(writer.clone())
+            .with_level(true)
+            .with_ansi(false)
+            .finish();
+
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        tester!(bo);
+        tester!(alix);
+        let (group, _) = bo.test_talk_in_new_group_with(&alix).await?;
+        tester!(caro);
+        group.add_members(&[caro.inbox_id()]).await?;
+        group.update_group_name("Rocking".to_string()).await?;
+
+        for client in &[&alix, &bo, &caro] {
+            client.sync_all_welcomes_and_groups(None).await?;
+        }
+
+        xmtp_common::time::sleep(Duration::from_millis(200)).await;
+
+        let log = writer.as_string();
+        let lines = log.split("\n").peekable();
+
+        let state = LogState::build(lines);
+
+        let grouped_epochs = state.grouped_epochs.read();
+        tracing::warn!("Groups: {}", grouped_epochs.len());
+        for (key, epochs) in &*grouped_epochs {
+            tracing::warn!("Group id: {key} Epochs: {}", epochs.len());
+            for (i, epoch) in epochs {
+                tracing::warn!("Epoch {i} has {} group states", epoch.states.len());
+            }
+        }
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_log_parse() {

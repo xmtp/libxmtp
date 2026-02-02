@@ -118,6 +118,7 @@ pub fn open_log(handle: Weak<AppWindow>, log_file: &str) {
         .clients
         .into_iter()
         .map(|(installation, client_state)| {
+            let client_state = client_state.read();
             // Collect timestamps for duration calculation
             let timestamps: Vec<i64> = client_state.events.iter().map(|e| e.timestamp()).collect();
 
