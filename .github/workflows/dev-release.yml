@@ -5,8 +5,8 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: "Branch to release from"
-        required: true
+        description: "Branch to release from (defaults to the branch the workflow is run from)"
+        required: false
         type: string
       ios:
         description: "Release iOS SDK"
@@ -20,7 +20,7 @@ jobs:
     uses: ./.github/workflows/release-ios.yml
     with:
       release-type: dev
-      ref: ${{ inputs.branch }}
+      ref: ${{ inputs.branch || github.ref }}
     secrets: inherit
 
   notify:
