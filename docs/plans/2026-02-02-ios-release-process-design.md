@@ -134,18 +134,55 @@ Triggered via `workflow_call`. Inputs:
 - `rc-number`: optional, required for rc
 - `ref`: git ref to build from
 
-Steps:
+Jobs:
 
-1. **Compute version**: `release-tools compute-version --sdk ios --release-type $TYPE`
-2. **Build xcframework**: Run `make local` in `bindings/mobile/` under Nix. Produces `sdks/ios/.build/LibXMTPSwiftFFI.xcframework`
-3. **Package**: Zip the xcframework, compute SHA-256 checksum
-4. **Create GitHub Release**: Tag `ios-{version}-libxmtp` at current commit, upload zip. If release already exists (re-run), overwrite the asset.
-5. **Update Package.swift**: Run `release-tools update-spm-checksum` with the artifact URL and checksum
-6. **Update podspec version**: Write the computed version to the podspec (for dev/rc suffixed versions)
-7. **Commit and tag**: Commit the Package.swift and podspec changes, tag as `ios-{version}`, push
-8. **Publish to CocoaPods**: `pod trunk push` (prerelease for dev/rc, stable for final). Check if version already exists on trunk before attempting.
-9. **Copy release notes** (final only): Read `docs/release-notes/ios-{version}.md` and set as the GitHub Release body for the `ios-{version}` tag
-10. **Output**: Published version string and status
+#### 1. `compute-version`
+
+Runs `release-tools compute-version --sdk ios --release-type $TYPE`. Outputs the version string for downstream jobs.
+
+#### 2. `build` (parallel matrix)
+
+Based on the proven pattern from `release-swift-bindings-nix.yml`. Uses a matrix strategy to build each architecture in parallel on `warp-macos-15-arm64-12x` runners:
+
+```yaml
+strategy:
+  fail-fast: false
+  matrix:
+    target:
+      - aarch64-apple-ios
+      - x86_64-apple-ios
+      - aarch64-apple-ios-sim
+      - x86_64-apple-darwin
+      - aarch64-apple-darwin
+```
+
+Each job:
+- Sets up Nix (`cachix/install-nix-action` + `DeterminateSystems/magic-nix-cache-action` + `Swatinem/rust-cache`)
+- Runs `cargo build --release --target $TARGET --manifest-path bindings/mobile/Cargo.toml` under `nix develop`
+- Uploads `target/$TARGET/release/libxmtpv3.a` as a workflow artifact
+
+#### 3. `generate-swift-bindings` (parallel with build)
+
+Runs in parallel with the build matrix (no dependency on build artifacts). Sets up Nix and runs `make swift` in `bindings/mobile/` to generate the uniffi Swift bindings (`xmtpv3.swift`, headers, modulemap). Uploads `bindings/mobile/build/swift/` as a workflow artifact.
+
+#### 4. `package` (needs: build, generate-swift-bindings)
+
+Downloads all artifacts from the build and swift jobs. Assembles the release archive:
+1. Arranges `Sources/LibXMTP/xmtpv3.swift` from the swift bindings
+2. Runs `make framework` to combine the per-architecture `.a` files into `LibXMTPSwiftFFI.xcframework` via lipo + xcodebuild
+3. Copies `LICENSE`
+4. Creates `LibXMTPSwiftFFI.zip` containing `Sources/`, `LibXMTPSwiftFFI.xcframework/`, and `LICENSE`
+5. Computes SHA-256 checksum
+6. Creates GitHub Release tagged `ios-{version}-libxmtp`, uploads the zip. If release already exists (re-run), overwrites the asset.
+
+#### 5. `publish` (needs: package)
+
+1. Runs `release-tools update-spm-checksum` with the artifact URL and checksum
+2. Updates podspec version (for dev/rc suffixed versions)
+3. Commits the Package.swift and podspec changes, tags as `ios-{version}`, pushes
+4. Publishes to CocoaPods: `pod trunk push` (prerelease for dev/rc, stable for final). Checks if version already exists on trunk before attempting.
+5. For final releases: reads `docs/release-notes/ios-{version}.md` and sets it as the GitHub Release body for the `ios-{version}` tag
+6. Outputs the published version string and status
 
 ### `.github/workflows/create-release-branch.yml` (orchestrator)
 
@@ -246,6 +283,26 @@ Git tags are atomic. If two workflows race to create the same GitHub Release, th
 ### Podspec version conflicts
 
 Before `pod trunk push`, the workflow queries CocoaPods to check if the version already exists. If published, it skips with a warning rather than failing the entire workflow.
+
+## CI Infrastructure
+
+### Runners
+
+All iOS build and packaging jobs require macOS runners with Xcode. Use `warp-macos-15-arm64-12x` (12-core ARM64 macOS 15), consistent with the existing `release-swift-bindings-nix.yml` workflow.
+
+### Nix Setup
+
+Every job that compiles Rust or generates bindings uses this pattern:
+1. `cachix/install-nix-action@v31` with `access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}`
+2. `DeterminateSystems/magic-nix-cache-action@v13`
+3. `Swatinem/rust-cache@v2`
+
+### Required Secrets
+
+- `GITHUB_TOKEN`: GitHub Release creation, artifact upload, tag management
+- `COCOAPODS_TRUNK_TOKEN`: CocoaPods publish
+- `SLACK_WEBHOOK_URL`: Slack notifications
+- Bot token or GitHub App credentials for pushing to protected release branches
 
 ## Hotfix Support
 
