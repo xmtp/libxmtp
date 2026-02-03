@@ -13,7 +13,7 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
 };
 
 export function getSdkConfig(sdk: string): SdkConfig {
-  const config = SDK_CONFIGS[sdk];
+  const config = SDK_CONFIGS[sdk as Sdk];
   if (!config) {
     throw new Error(
       `Unknown SDK: ${sdk}. Available: ${Object.keys(SDK_CONFIGS).join(", ")}`,

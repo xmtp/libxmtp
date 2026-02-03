@@ -14,13 +14,13 @@ export function builder(yargs: Argv) {
       demandOption: true,
       describe: "SDK name (e.g. ios)",
     })
-    .option("release-type", {
+    .option("releaseType", {
       type: "string",
       demandOption: true,
       choices: ["dev", "rc", "final"] as const,
       describe: "Release type",
     })
-    .option("rc-number", {
+    .option("rcNumber", {
       type: "number",
       describe: "RC number (required for rc releases)",
     });
@@ -33,6 +33,10 @@ export function handler(
     rcNumber?: number;
   }>,
 ) {
+  if (argv.releaseType === "rc" && argv.rcNumber == null) {
+    throw new Error("--rc-number is required when --release-type is 'rc'");
+  }
+
   const config = getSdkConfig(argv.sdk);
   const baseVersion = config.manifest.readVersion(process.cwd());
   const shortSha =

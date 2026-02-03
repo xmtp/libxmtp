@@ -43,6 +43,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Validate MAX_AGE_HOURS is a positive integer
+if ! [[ "$MAX_AGE_HOURS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: --max-age must be a positive integer, got: $MAX_AGE_HOURS" >&2
+    exit 1
+fi
+
 MAX_AGE_SECONDS=$((MAX_AGE_HOURS * 3600))
 NOW=$(date -u +%s)
 

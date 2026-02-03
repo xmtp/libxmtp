@@ -50,14 +50,15 @@ export function handler(
   const cwd = process.cwd();
   const branchName = `release/${argv.version}`;
 
+  // Validate SDK before creating branch to fail fast on invalid SDK names
+  const config = getSdkConfig(argv.sdk);
+
   console.log(`Creating branch ${branchName} from ${argv.base}...`);
   exec(`git checkout -b ${branchName} ${argv.base}`, cwd);
 
   console.log(`Bumping ${argv.sdk} version (${argv.bump})...`);
   const newVersion = bumpVersion(argv.sdk, argv.bump, cwd);
   console.log(`New ${argv.sdk} version: ${newVersion}`);
-
-  const config = getSdkConfig(argv.sdk);
   const lastVersion = findLastVersion(argv.sdk, cwd);
   const sinceTag = lastVersion ? `${config.tagPrefix}${lastVersion}` : null;
   console.log(`Scaffolding release notes...`);

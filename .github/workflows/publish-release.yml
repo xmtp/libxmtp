@@ -54,10 +54,11 @@ jobs:
       - name: Merge release PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_BRANCH: ${{ inputs.release-branch }}
         run: |
-          PR_NUMBER=$(gh pr list --head "${{ inputs.release-branch }}" --base main --json number --jq '.[0].number')
+          PR_NUMBER=$(gh pr list --head "$RELEASE_BRANCH" --base main --json number --jq '.[0].number')
           if [ -z "$PR_NUMBER" ]; then
-            echo "No PR found for branch ${{ inputs.release-branch }} targeting main"
+            echo "No PR found for branch $RELEASE_BRANCH targeting main"
             exit 1
           fi
           gh pr merge "$PR_NUMBER" --merge --delete-branch

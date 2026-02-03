@@ -29,7 +29,7 @@ export function builder(yargs: Argv) {
       demandOption: true,
       describe: "SDK name (e.g. ios)",
     })
-    .option("pre-release", {
+    .option("preRelease", {
       type: "boolean",
       default: false,
       describe: "Include prerelease versions",

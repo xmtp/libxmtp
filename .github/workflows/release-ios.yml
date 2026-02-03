@@ -231,6 +231,7 @@ jobs:
       - name: Publish to CocoaPods
         env:
           COCOAPODS_TRUNK_TOKEN: ${{ secrets.COCOAPODS_TRUNK_TOKEN }}
+          VERSION: ${{ needs.compute-version.outputs.version }}
         run: |
           # Check if version is already published
           PUBLISHED=$(pod trunk info XMTP 2>/dev/null | grep -c "$VERSION" || true)

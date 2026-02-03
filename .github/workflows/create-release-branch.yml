@@ -42,35 +42,39 @@ jobs:
         working-directory: dev/release-tools
         run: yarn install --frozen-lockfile
       - name: Create release branch
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          IOS_BUMP: ${{ inputs.ios-bump }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          BRANCH="release/${{ inputs.version }}"
+          BRANCH="release/${RELEASE_VERSION}"
           git checkout -b "$BRANCH"
 
-          if [ "${{ inputs.ios-bump }}" != "none" ]; then
+          if [ "$IOS_BUMP" != "none" ]; then
             cd dev/release-tools
-            NEW_VERSION=$(yarn cli bump-version --sdk ios --type ${{ inputs.ios-bump }})
+            NEW_VERSION=$(yarn cli bump-version --sdk ios --type "$IOS_BUMP")
             echo "iOS version bumped to: $NEW_VERSION"
             yarn cli scaffold-notes --sdk ios
             cd ../..
           fi
 
           git add -A
-          git commit -m "chore: create release ${{ inputs.version }}" || echo "No changes"
+          git commit -m "chore: create release ${RELEASE_VERSION}" || echo "No changes"
           git push -u origin "$BRANCH"
       - name: Create pull request
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          BRANCH="release/${{ inputs.version }}"
+          BRANCH="release/${RELEASE_VERSION}"
           gh pr create \
             --base main \
             --head "$BRANCH" \
-            --title "Release ${{ inputs.version }}" \
-            --body "$(cat <<'PREOF'
-          ## Release ${{ inputs.version }}
+            --title "Release ${RELEASE_VERSION}" \
+            --body "$(cat <<EOF
+          ## Release ${RELEASE_VERSION}
 
           This PR was created by the Create Release Branch workflow.
 
@@ -81,7 +85,7 @@ jobs:
           - [ ] Final release published via Publish Release workflow
 
           > **Note:** This PR will be merged automatically by the Publish Release workflow upon final release.
-          PREOF
+          EOF
           )"
 
   draft-release-notes:

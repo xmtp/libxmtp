@@ -37,7 +37,7 @@ FLY_REGION="${FLY_REGION:-sjc}"
 if [ -n "$1" ]; then
     APP_NAME="$1"
 else
-    APP_NAME="xmtp-ios-test-$(date +%s)"
+    APP_NAME="libxmtp-ios-test-$(date +%s)"
 fi
 
 echo "Creating app: $APP_NAME" >&2
