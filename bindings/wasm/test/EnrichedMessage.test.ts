@@ -1478,8 +1478,7 @@ describe("EnrichedMessage", () => {
     });
 
     it("should edit then delete a message (delete takes precedence)", async () => {
-      const { client1, conversation, conversation2 } =
-        await setupConversation();
+      const { conversation, conversation2 } = await setupConversation();
 
       // Send original message
       const originalMessageId = await conversation.sendText("Original message");
@@ -1497,8 +1496,8 @@ describe("EnrichedMessage", () => {
       expect(editedMessage?.content.content).toBe("Edited message");
       expect(editedMessage?.editedAtNs).toBeDefined();
 
-      // Now delete the message via client1.conversations()
-      client1.conversations().deleteMessageById(originalMessageId);
+      // Now delete the message via conversation.deleteMessage() (network delete)
+      conversation.deleteMessage(originalMessageId);
       await conversation.publishMessages();
       await conversation2.sync();
 
@@ -1510,16 +1509,15 @@ describe("EnrichedMessage", () => {
     });
 
     it("should fail to edit a deleted message", async () => {
-      const { client1, conversation, conversation2 } =
-        await setupConversation();
+      const { conversation, conversation2 } = await setupConversation();
 
       // Send original message
       const originalMessageId = await conversation.sendText("Original message");
 
       await conversation2.sync();
 
-      // Delete the message first via client1.conversations()
-      client1.conversations().deleteMessageById(originalMessageId);
+      // Delete the message first via conversation.deleteMessage() (network delete)
+      conversation.deleteMessage(originalMessageId);
       await conversation.publishMessages();
 
       // Verify message is deleted
@@ -1542,7 +1540,7 @@ describe("EnrichedMessage", () => {
     });
 
     it("should handle edit -> delete -> edit chain (second edit fails)", async () => {
-      const { client1, conversation } = await setupConversation();
+      const { conversation } = await setupConversation();
 
       // Send original message
       const originalMessageId = await conversation.sendText("Original message");
@@ -1557,8 +1555,8 @@ describe("EnrichedMessage", () => {
       expect(editedMessage?.content.content).toBe("First edit");
       expect(editedMessage?.editedAtNs).toBeDefined();
 
-      // Delete the message via client1.conversations()
-      client1.conversations().deleteMessageById(originalMessageId);
+      // Delete the message via conversation.deleteMessage() (network delete)
+      conversation.deleteMessage(originalMessageId);
       await conversation.publishMessages();
 
       // Verify message is deleted
@@ -1613,8 +1611,8 @@ describe("EnrichedMessage", () => {
       expect(originalMsg?.content.content).toBe("Edited original message");
       expect(originalMsg?.editedAtNs).toBeDefined();
 
-      // Step 4: Client1 deletes the original message via client1.conversations()
-      client1.conversations().deleteMessageById(originalMessageId);
+      // Step 4: Client1 deletes the original message via conversation.deleteMessage() (network delete)
+      conversation.deleteMessage(originalMessageId);
       await conversation.publishMessages();
       await conversation2.sync();
 
