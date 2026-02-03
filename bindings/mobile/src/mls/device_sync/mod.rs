@@ -69,7 +69,7 @@ impl FfiXmtpClient {
         path: String,
         opts: FfiArchiveOptions,
         key: Vec<u8>,
-    ) -> Result<FfiBackupMetadata, GenericError> {
+    ) -> Result<FfiBackupMetadata, FfiError> {
         let db = self.inner_client.context.db();
         let options: BackupOptions = opts.into();
         let metadata = ArchiveExporter::export_to_file(options, db, path, &check_key(key)?)
