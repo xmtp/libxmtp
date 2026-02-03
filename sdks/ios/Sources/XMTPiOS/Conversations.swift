@@ -567,7 +567,7 @@ public class Conversations {
 		disappearingMessageSettings: DisappearingMessageSettings? = nil,
 		appData: String?
 	) async throws -> Group {
-		let group = try await ffiConversations.createGroupByIdentity(
+		try await ffiConversations.createGroupByIdentity(
 			accountIdentities: identities.map(\.ffiPrivate),
 			opts: FfiCreateGroupOptions(
 				permissions: permissions,
@@ -641,7 +641,7 @@ public class Conversations {
 		appData: String?
 	) async throws -> Group {
 		try validateInboxIds(inboxIds)
-		let group = try await ffiConversations.createGroup(
+		return try await ffiConversations.createGroup(
 			inboxIds: inboxIds,
 			opts: FfiCreateGroupOptions(
 				permissions: permissions,

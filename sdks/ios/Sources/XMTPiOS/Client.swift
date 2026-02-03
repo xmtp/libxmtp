@@ -396,8 +396,7 @@ public final class Client {
 		let ffiClient = try await createClient(
 			api: connectToApiBackend(api: options.api),
 			syncApi: connectToSyncApiBackend(api: options.api),
-			db: dbURL,
-			encryptionKey: options.dbEncryptionKey,
+			db: DbOptions(db: dbURL, encryptionKey: options.dbEncryptionKey, maxDbPoolSize: nil, minDbPoolSize: nil),
 			inboxId: inboxId,
 			accountIdentifier: accountIdentifier.ffiPrivate,
 			nonce: 0,
@@ -619,8 +618,7 @@ public final class Client {
 		return try await createClient(
 			api: connectToApiBackend(api: api),
 			syncApi: connectToApiBackend(api: api),
-			db: nil,
-			encryptionKey: nil,
+			db: DbOptions(db: nil, encryptionKey: nil, maxDbPoolSize: nil, minDbPoolSize: nil),
 			inboxId: inboxId,
 			accountIdentifier: identity.ffiPrivate,
 			nonce: 0,
