@@ -53,6 +53,8 @@ mkShell {
     ];
 
   shellHook = ''
+    export XMTP_DEV_SHELL="ios"
+
     # Unset SDKROOT so xcrun can discover the right SDK per target at build time.
     # (The package derivation sets SDKROOT per-target; the shell leaves it to xcrun.)
     unset SDKROOT

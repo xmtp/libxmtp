@@ -36,7 +36,7 @@ All scripts auto-detect Nix shell and enter it if needed:
 
 ## Building the xcframework
 
-The Swift package depends on `LibXMTPSwiftFFI.xcframework` which is built from the Rust code in `bindings/mobile/`. Run `./sdks/ios/dev/build` to rebuild it when Rust code changes.
+The Swift package depends on `LibXMTPSwiftFFI.xcframework` which is built from the Rust code in `bindings/mobile/`. Run `./sdks/ios/dev/bindings` to rebuild it when Rust code changes.
 
 The xcframework is output to `.build/LibXMTPSwiftFFI.xcframework`.
 

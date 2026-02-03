@@ -1571,7 +1571,7 @@ class GroupTests: XCTestCase {
 
 		XCTAssertNotNil(leaveMessage, "Should find a GroupUpdated message with leftInboxes")
 
-		let content: GroupUpdated = try XCTUnwrap(try leaveMessage?.content())
+		let content: GroupUpdated = try XCTUnwrap(leaveMessage?.content())
 		XCTAssertEqual(
 			content.leftInboxes.map(\.inboxID),
 			[fixtures.boClient.inboxID],
@@ -1664,7 +1664,7 @@ class GroupTests: XCTestCase {
 			"Should find a GroupUpdated message with leftInboxes after client reinitialization"
 		)
 
-		let contentAfterReinit: GroupUpdated = try XCTUnwrap(try leaveMessageAfterReinit?.content())
+		let contentAfterReinit: GroupUpdated = try XCTUnwrap(leaveMessageAfterReinit?.content())
 		XCTAssertEqual(
 			contentAfterReinit.leftInboxes.map(\.inboxID),
 			[boClient.inboxID],

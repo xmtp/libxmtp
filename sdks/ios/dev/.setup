@@ -7,9 +7,9 @@ set -eou pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 IOS_SDK_DIR="${ROOT}/sdks/ios"
 
-# Re-exec in Nix shell if not already there
+# Re-exec in the ios Nix shell if not already there
 ensure_nix_shell() {
-    if [[ -z "${IN_NIX_SHELL:-}" ]]; then
+    if [[ "${XMTP_DEV_SHELL:-}" != "ios" ]]; then
         exec nix develop "${ROOT}#ios" --command "$0" "$@"
     fi
 }
