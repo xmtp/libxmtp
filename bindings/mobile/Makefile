@@ -18,6 +18,9 @@ GIT_COMMIT_DATE=$(shell TZ=UTC git log -1 --date=iso-local --pretty=format:"%ad"
 IOS_SDK_BUILD_DIR ?= $(WORKSPACE_PATH)/sdks/ios/.build
 IOS_SDK_SWIFT_DIR ?= $(WORKSPACE_PATH)/sdks/ios/Sources/XMTPiOS/LibXMTP
 
+NIX_OUT ?= build/nix
+SWIFT_OUT ?= $(NIX_OUT)/swift
+
 install-jar:
 	mkdir -p $(JAR_DIR) && \
 	curl https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar -o $(JAR_DIR)/jna.jar && \
@@ -64,8 +67,8 @@ $(DYLIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
 # lipo combines libs for different architectures (aarch64, x86_64, ...) into one fat lib
 lipo:
 	mkdir -p build/lipo_macos build/lipo_ios_sim
-	lipo -create -output build/lipo_ios_sim/$(LIB) $(foreach arch,$(ARCHS_IOS),$(wildcard build/$(arch)/$(LIB)))
-	lipo -create -output build/lipo_macos/$(LIB) $(foreach arch,$(ARCHS_MAC),$(wildcard build/$(arch)/$(LIB)))
+	lipo -create -output build/lipo_ios_sim/$(LIB) $(foreach arch,$(ARCHS_IOS),$(wildcard $(NIX_OUT)/$(arch)/$(LIB)))
+	lipo -create -output build/lipo_macos/$(LIB) $(foreach arch,$(ARCHS_MAC),$(wildcard $(NIX_OUT)/$(arch)/$(LIB)))
 
 # lipo combines libs for different architectures (aarch64, x86_64, ...) into one fat lib
 lipodyn:
@@ -75,18 +78,18 @@ lipodyn:
 
 # xcframework combines libs for different platforms (iOS, iOS-simulator, macOS, ...) into one framework that can be used in Xcode
 framework: lipo
-	mkdir -p $(IOS_SDK_BUILD_DIR)
+	mkdir -p build/swift
 	mkdir -p $(IOS_SDK_SWIFT_DIR)
-	rm -rf $(IOS_SDK_BUILD_DIR)/LibXMTPSwiftFFI.xcframework
+	rm -rf build/swift/LibXMTPSwiftFFI.xcframework
 	xcodebuild -create-xcframework \
-		-library build/aarch64-apple-ios/$(LIB) \
-		-headers build/swift/static/include/libxmtp/ \
+		-library $(NIX_OUT)/aarch64-apple-ios/$(LIB) \
+		-headers $(SWIFT_OUT)/include/libxmtp/ \
 		-library build/lipo_ios_sim/$(LIB) \
-		-headers build/swift/static/include/libxmtp/ \
+		-headers $(SWIFT_OUT)/include/libxmtp/ \
 		-library build/lipo_macos/$(LIB) \
-		-headers build/swift/static/include/libxmtp/ \
-		-output $(IOS_SDK_BUILD_DIR)/LibXMTPSwiftFFI.xcframework
-	cp build/swift/static/xmtpv3.swift $(IOS_SDK_SWIFT_DIR)/xmtpv3.swift
+		-headers $(SWIFT_OUT)/include/libxmtp/ \
+		-output build/swift/LibXMTPSwiftFFI.xcframework
+	cp $(SWIFT_OUT)/xmtpv3.swift $(IOS_SDK_SWIFT_DIR)/xmtpv3.swift
 
 frameworkdyn: lipodyn
 	rm -rf LibXMTPSwiftFFIDynamic.xcframework
@@ -135,6 +138,8 @@ swiftlocal: libxmtpv3.a bindgenstatic swift framework
 swiftdynamic: libxmtpv3.dylib bindgendynamic swiftdyn frameworkdyn
 
 # Build everything needed for local iOS SDK development
+local: NIX_OUT = build
+local: SWIFT_OUT = build/swift/static
 local: $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios bindgenstatic swift lipo framework
 
 .PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift bindgendynamic bindgenstatic frameworkdyn lipo lipodyn download-sqlcipher build-sqlcipher local
