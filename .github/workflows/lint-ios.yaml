@@ -20,9 +20,7 @@ jobs:
       - uses: cachix/install-nix-action@v31
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build bindings
-        run: nix develop .#ios --command ./sdks/ios/dev/bindings
       - name: Run SwiftLint
-        run: nix develop .#ios --command ./sdks/ios/dev/lint
+        run: ./sdks/ios/dev/lint
       - name: Check SwiftFormat
-        run: nix develop .#ios --command ./sdks/ios/dev/fmt --lint
+        run: ./sdks/ios/dev/fmt --lint
