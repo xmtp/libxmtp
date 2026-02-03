@@ -41,10 +41,11 @@ xmtp_db.workspace = true
 xmtp_id.workspace = true
 xmtp_mls.workspace = true
 xmtp_proto.workspace = true
+xmtp_configuration.workspace = true
 
 # For some reason these don't work when added as dev-dependencies
 xmtp_api_grpc = { workspace = true, optional = true }
-xmtp_configuration = { workspace = true, optional = true }
+
 
 [build-dependencies]
 napi-build = "2.0.1"
@@ -61,7 +62,6 @@ volumes = ["__LIB12_DEP=../"]
 [features]
 test-utils = [
   "dep:xmtp_api_grpc",
-  "dep:xmtp_configuration",
   "xmtp_api_grpc/test-utils",
   "xmtp_mls/test-utils",
   "xmtp_proto/test-utils",
