@@ -54,66 +54,8 @@ jobs:
           echo "base-version=$BASE" >> "$GITHUB_OUTPUT"
           echo "Computed version: $VERSION"
 
-  build:
+  build-and-package:
     needs: [compute-version]
-    runs-on: warp-macos-15-arm64-12x
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - aarch64-apple-ios
-          - aarch64-apple-ios-sim
-          - x86_64-apple-darwin
-          - aarch64-apple-darwin
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.ref }}
-      - uses: cachix/install-nix-action@v31
-        with:
-          extra_nix_config: |
-            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-      - uses: DeterminateSystems/magic-nix-cache-action@v13
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            .
-      - name: Build target
-        run: |
-          nix develop --command \
-            cargo build --release --target ${{ matrix.target }} --manifest-path bindings/mobile/Cargo.toml
-      - uses: actions/upload-artifact@v6
-        with:
-          name: ${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/libxmtpv3.a
-          retention-days: 1
-
-  generate-swift-bindings:
-    runs-on: warp-macos-15-arm64-12x
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.ref }}
-      - uses: cachix/install-nix-action@v31
-        with:
-          extra_nix_config: |
-            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-      - uses: DeterminateSystems/magic-nix-cache-action@v13
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            .
-      - name: Generate Swift bindings
-        working-directory: bindings/mobile
-        run: nix develop ../.. --command make swift
-      - uses: actions/upload-artifact@v6
-        with:
-          name: swift
-          path: bindings/mobile/build/swift/
-          retention-days: 1
-
-  package:
-    needs: [compute-version, build, generate-swift-bindings]
     runs-on: warp-macos-15-arm64-12x
     permissions:
       contents: write
@@ -124,18 +66,30 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
-      - uses: actions/download-artifact@v7
+      - uses: cachix/install-nix-action@v31
         with:
-          path: bindings/mobile/build
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+      - uses: DeterminateSystems/magic-nix-cache-action@v13
+      - uses: cachix/cachix-action@v16
+        with:
+          name: xmtp
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+      - name: Build iOS libs
+        run: nix build .#ios-libs --out-link bindings/mobile/build/nix
       - name: Build xcframework
+        run: |
+          nix develop .#ios --command make -C bindings/mobile lipo framework
+      - name: Package zip
         working-directory: bindings/mobile
         run: |
           mkdir -p Sources/LibXMTP
-          mv build/swift/xmtpv3.swift Sources/LibXMTP/
-          make framework
-          cp -r ../../sdks/ios/.build/LibXMTPSwiftFFI.xcframework ./
+          cp build/nix/swift/xmtpv3.swift Sources/LibXMTP/
           cp ../../LICENSE ./LICENSE
-          zip -r LibXMTPSwiftFFI.zip Sources LibXMTPSwiftFFI.xcframework LICENSE
+          zip -r LibXMTPSwiftFFI.zip \
+            Sources \
+            build/swift/LibXMTPSwiftFFI.xcframework \
+            LICENSE
       - name: Compute checksum
         id: checksum
         working-directory: bindings/mobile
@@ -165,7 +119,7 @@ jobs:
           echo "artifact-url=$ARTIFACT_URL" >> "$GITHUB_OUTPUT"
 
   publish:
-    needs: [compute-version, package]
+    needs: [compute-version, build-and-package]
     runs-on: warp-macos-15-arm64-12x
     permissions:
       contents: write
@@ -185,8 +139,8 @@ jobs:
       - name: Update Package.swift and podspec
         env:
           VERSION: ${{ needs.compute-version.outputs.version }}
-          ARTIFACT_URL: ${{ needs.package.outputs.artifact-url }}
-          CHECKSUM: ${{ needs.package.outputs.checksum }}
+          ARTIFACT_URL: ${{ needs.build-and-package.outputs.artifact-url }}
+          CHECKSUM: ${{ needs.build-and-package.outputs.checksum }}
         run: |
           cd dev/release-tools
           yarn cli update-spm-checksum --sdk ios --url "$ARTIFACT_URL" --checksum "$CHECKSUM"
