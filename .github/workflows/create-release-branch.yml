@@ -87,17 +87,3 @@ jobs:
           > **Note:** This PR will be merged automatically by the Publish Release workflow upon final release.
           EOF
           )"
-
-  draft-release-notes:
-    needs: [create-branch]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - name: Trigger Claude Code for release notes
-        uses: anthropics/claude-code-action@v1
-        with:
-          prompt: |
-            Review the draft release notes in docs/release-notes/ on the release/${{ inputs.version }} branch.
-            Improve them based on the actual code changes. Open a PR targeting the release branch with your improvements.
