@@ -7,7 +7,7 @@ use crate::message::{
 };
 use crate::worker::FfiSyncWorker;
 use crate::worker::FfiSyncWorkerMode;
-use crate::{FfiGroupUpdated, FfiReply, FfiSubscribeError, FfiWalletSendCalls, GenericError};
+use crate::{FfiError, FfiGroupUpdated, FfiReply, FfiWalletSendCalls, GenericError};
 use futures::future::try_join_all;
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
@@ -134,7 +134,7 @@ pub async fn connect_to_backend(
     app_version: Option<String>,
     auth_callback: Option<Arc<dyn gateway_auth::FfiAuthCallback>>,
     auth_handle: Option<Arc<gateway_auth::FfiAuthHandle>>,
-) -> Result<Arc<XmtpApiClient>, GenericError> {
+) -> Result<Arc<XmtpApiClient>, FfiError> {
     init_logger();
 
     let client_mode = client_mode.unwrap_or_default();
@@ -175,7 +175,7 @@ pub async fn is_connected(api: Arc<XmtpApiClient>) -> bool {
 pub async fn inbox_state_from_inbox_ids(
     api: Arc<XmtpApiClient>,
     inbox_ids: Vec<String>,
-) -> Result<Vec<FfiInboxState>, GenericError> {
+) -> Result<Vec<FfiInboxState>, FfiError> {
     let backend = MessageBackendBuilder::default().from_bundle(api.0.clone())?;
     let api: ApiClientWrapper<xmtp_mls::XmtpApiClient> =
         ApiClientWrapper::new(backend, strategies::exponential_cooldown());
@@ -202,7 +202,7 @@ pub async fn inbox_state_from_inbox_ids(
         let mut ffi_state: FfiInboxState = state.into();
         ffi_state.creation_signature_kind = signature_kind.map(Into::into);
 
-        Ok::<FfiInboxState, GenericError>(ffi_state)
+        Ok::<FfiInboxState, FfiError>(ffi_state)
     });
 
     try_join_all(mapped_futures).await
@@ -234,7 +234,7 @@ impl TryFrom<GroupMessageMetadata> for FfiMessageMetadata {
 pub async fn get_newest_message_metadata(
     api: Arc<XmtpApiClient>,
     group_ids: Vec<Vec<u8>>,
-) -> Result<HashMap<Vec<u8>, FfiMessageMetadata>, GenericError> {
+) -> Result<HashMap<Vec<u8>, FfiMessageMetadata>, FfiError> {
     let backend = MessageBackendBuilder::default().from_bundle(api.0.clone())?;
     let api: ApiClientWrapper<xmtp_mls::XmtpApiClient> =
         ApiClientWrapper::new(backend, strategies::exponential_cooldown());
@@ -258,7 +258,7 @@ pub fn revoke_installations(
     recovery_identifier: FfiIdentifier,
     inbox_id: &InboxId,
     installation_ids: Vec<Vec<u8>>,
-) -> Result<Arc<FfiSignatureRequest>, GenericError> {
+) -> Result<Arc<FfiSignatureRequest>, FfiError> {
     let backend = MessageBackendBuilder::default().from_bundle(api.0.clone())?;
     let api: ApiClientWrapper<xmtp_mls::XmtpApiClient> =
         ApiClientWrapper::new(backend, strategies::exponential_cooldown());
@@ -280,7 +280,7 @@ pub fn revoke_installations(
 pub async fn apply_signature_request(
     api: Arc<XmtpApiClient>,
     signature_request: Arc<FfiSignatureRequest>,
-) -> Result<(), GenericError> {
+) -> Result<(), FfiError> {
     let backend = MessageBackendBuilder::default().from_bundle(api.0.clone())?;
     let api = ApiClientWrapper::new(backend, strategies::exponential_cooldown());
     let signature_request = signature_request.inner.lock().await;
@@ -349,7 +349,7 @@ pub async fn create_client(
     device_sync_mode: Option<FfiSyncWorkerMode>,
     allow_offline: Option<bool>,
     fork_recovery_opts: Option<FfiForkRecoveryOpts>,
-) -> Result<Arc<FfiXmtpClient>, GenericError> {
+) -> Result<Arc<FfiXmtpClient>, FfiError> {
     let ident = account_identifier.clone();
     init_logger();
 
@@ -452,7 +452,7 @@ pub async fn create_client(
 pub async fn get_inbox_id_for_identifier(
     api: Arc<XmtpApiClient>,
     account_identifier: FfiIdentifier,
-) -> Result<Option<String>, GenericError> {
+) -> Result<Option<String>, FfiError> {
     init_logger();
     let backend = MessageBackendBuilder::default().from_bundle(api.0.clone())?;
     let mut api = ApiClientWrapper::new(backend, strategies::exponential_cooldown());
@@ -484,7 +484,7 @@ pub struct FfiPasskeySignature {
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiSignatureRequest {
     // Signature that's signed by EOA wallet
-    pub async fn add_ecdsa_signature(&self, signature_bytes: Vec<u8>) -> Result<(), GenericError> {
+    pub async fn add_ecdsa_signature(&self, signature_bytes: Vec<u8>) -> Result<(), FfiError> {
         let mut inner = self.inner.lock().await;
         inner
             .add_signature(
@@ -499,7 +499,7 @@ impl FfiSignatureRequest {
     pub async fn add_passkey_signature(
         &self,
         signature: FfiPasskeySignature,
-    ) -> Result<(), GenericError> {
+    ) -> Result<(), FfiError> {
         let mut inner = self.inner.lock().await;
 
         let new_signature = UnverifiedSignature::new_passkey(
@@ -523,7 +523,7 @@ impl FfiSignatureRequest {
         address: String,
         chain_id: u64,
         block_number: Option<u64>,
-    ) -> Result<(), GenericError> {
+    ) -> Result<(), FfiError> {
         let mut inner = self.inner.lock().await;
         let account_id = AccountId::new_evm(chain_id, address);
 
@@ -544,12 +544,12 @@ impl FfiSignatureRequest {
         self.inner.lock().await.is_ready()
     }
 
-    pub async fn signature_text(&self) -> Result<String, GenericError> {
+    pub async fn signature_text(&self) -> Result<String, FfiError> {
         Ok(self.inner.lock().await.signature_text())
     }
 
     /// missing signatures that are from `MemberKind::Address`
-    pub async fn missing_address_signatures(&self) -> Result<Vec<String>, GenericError> {
+    pub async fn missing_address_signatures(&self) -> Result<Vec<String>, FfiError> {
         let inner = self.inner.lock().await;
         Ok(inner
             .missing_address_signatures()
@@ -606,34 +606,31 @@ impl FfiXmtpClient {
         })
     }
 
-    pub fn conversation(&self, conversation_id: Vec<u8>) -> Result<FfiConversation, GenericError> {
+    pub fn conversation(&self, conversation_id: Vec<u8>) -> Result<FfiConversation, FfiError> {
         self.inner_client
             .stitched_group(&conversation_id)
             .map(Into::into)
             .map_err(Into::into)
     }
 
-    pub fn dm_conversation(
-        &self,
-        target_inbox_id: String,
-    ) -> Result<FfiConversation, GenericError> {
+    pub fn dm_conversation(&self, target_inbox_id: String) -> Result<FfiConversation, FfiError> {
         let convo = self
             .inner_client
             .dm_group_from_target_inbox(target_inbox_id)?;
         Ok(convo.into())
     }
 
-    pub fn message(&self, message_id: Vec<u8>) -> Result<FfiMessage, GenericError> {
+    pub fn message(&self, message_id: Vec<u8>) -> Result<FfiMessage, FfiError> {
         let message = self.inner_client.message(message_id)?;
         Ok(message.into())
     }
 
-    pub fn enriched_message(&self, message_id: Vec<u8>) -> Result<FfiDecodedMessage, GenericError> {
+    pub fn enriched_message(&self, message_id: Vec<u8>) -> Result<FfiDecodedMessage, FfiError> {
         let message = self.inner_client.message_v2(message_id)?;
         Ok(message.into())
     }
 
-    pub fn delete_message(&self, message_id: Vec<u8>) -> Result<u32, GenericError> {
+    pub fn delete_message(&self, message_id: Vec<u8>) -> Result<u32, FfiError> {
         let deleted_count = self.inner_client.delete_message(message_id)?;
         Ok(deleted_count as u32)
     }
@@ -641,7 +638,7 @@ impl FfiXmtpClient {
     pub async fn can_message(
         &self,
         account_identifiers: Vec<FfiIdentifier>,
-    ) -> Result<HashMap<FfiIdentifier, bool>, GenericError> {
+    ) -> Result<HashMap<FfiIdentifier, bool>, FfiError> {
         let inner = self.inner_client.as_ref();
 
         let account_identifiers: Result<Vec<Identifier>, _> = account_identifiers
@@ -664,18 +661,18 @@ impl FfiXmtpClient {
         self.inner_client.installation_public_key().to_vec()
     }
 
-    pub fn release_db_connection(&self) -> Result<(), GenericError> {
+    pub fn release_db_connection(&self) -> Result<(), FfiError> {
         Ok(self.inner_client.release_db_connection()?)
     }
 
-    pub async fn db_reconnect(&self) -> Result<(), GenericError> {
+    pub async fn db_reconnect(&self) -> Result<(), FfiError> {
         Ok(self.inner_client.reconnect_db()?)
     }
 
     pub async fn find_inbox_id(
         &self,
         identifier: FfiIdentifier,
-    ) -> Result<Option<String>, GenericError> {
+    ) -> Result<Option<String>, FfiError> {
         let inner = self.inner_client.as_ref();
         let conn = self.inner_client.context.db();
         let result = inner
@@ -690,10 +687,7 @@ impl FfiXmtpClient {
      * If `refresh_from_network` is true, the client will go to the network first to refresh the state.
      * Otherwise, the state will be read from the local database.
      */
-    pub async fn inbox_state(
-        &self,
-        refresh_from_network: bool,
-    ) -> Result<FfiInboxState, GenericError> {
+    pub async fn inbox_state(&self, refresh_from_network: bool) -> Result<FfiInboxState, FfiError> {
         let state = self.inner_client.inbox_state(refresh_from_network).await?;
         let inbox_id = state.inbox_id();
 
@@ -713,7 +707,7 @@ impl FfiXmtpClient {
     pub async fn get_key_package_statuses_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<HashMap<Vec<u8>, FfiKeyPackageStatus>, GenericError> {
+    ) -> Result<HashMap<Vec<u8>, FfiKeyPackageStatus>, FfiError> {
         let key_packages = self
             .inner_client
             .get_key_packages_for_installation_ids(installation_ids)
@@ -748,7 +742,7 @@ impl FfiXmtpClient {
         &self,
         refresh_from_network: bool,
         inbox_ids: Vec<String>,
-    ) -> Result<Vec<FfiInboxState>, GenericError> {
+    ) -> Result<Vec<FfiInboxState>, FfiError> {
         let state = self
             .inner_client
             .inbox_addresses(
@@ -762,20 +756,30 @@ impl FfiXmtpClient {
     pub async fn get_latest_inbox_state(
         &self,
         inbox_id: String,
-    ) -> Result<FfiInboxState, GenericError> {
+    ) -> Result<FfiInboxState, FfiError> {
         let state = self
             .inner_client
             .identity_updates()
             .get_latest_association_state(&self.inner_client.context.db(), &inbox_id)
             .await?;
-        Ok(state.into())
+
+        // Get the creation signature kind (read from local DB, no network refresh)
+        let creation_signature_kind = self
+            .inner_client
+            .inbox_creation_signature_kind(state.inbox_id(), false)
+            .await?
+            .map(Into::into);
+
+        let mut ffi_state: FfiInboxState = state.into();
+        ffi_state.creation_signature_kind = creation_signature_kind;
+        Ok(ffi_state)
     }
 
     pub async fn fetch_inbox_updates_count(
         &self,
         refresh_from_network: bool,
         inbox_ids: Vec<String>,
-    ) -> Result<HashMap<InboxId, u32>, GenericError> {
+    ) -> Result<HashMap<InboxId, u32>, FfiError> {
         let ids = inbox_ids.iter().map(AsRef::as_ref).collect();
         self.inner_client
             .fetch_inbox_updates_count(refresh_from_network, ids)
@@ -786,14 +790,14 @@ impl FfiXmtpClient {
     pub async fn fetch_own_inbox_updates_count(
         &self,
         refresh_from_network: bool,
-    ) -> Result<u32, GenericError> {
+    ) -> Result<u32, FfiError> {
         self.inner_client
             .fetch_own_inbox_updates_count(refresh_from_network)
             .await
             .map_err(Into::into)
     }
 
-    pub async fn set_consent_states(&self, records: Vec<FfiConsent>) -> Result<(), GenericError> {
+    pub async fn set_consent_states(&self, records: Vec<FfiConsent>) -> Result<(), FfiError> {
         let inner = self.inner_client.as_ref();
         let stored_records: Vec<StoredConsentRecord> =
             records.into_iter().map(StoredConsentRecord::from).collect();
@@ -806,7 +810,7 @@ impl FfiXmtpClient {
         &self,
         entity_type: FfiConsentEntityType,
         entity: String,
-    ) -> Result<FfiConsentState, GenericError> {
+    ) -> Result<FfiConsentState, FfiError> {
         let inner = self.inner_client.as_ref();
         let result = inner.get_consent_state(entity_type.into(), entity).await?;
 
@@ -814,7 +818,7 @@ impl FfiXmtpClient {
     }
 
     /// A utility function to sign a piece of text with this installation's private key.
-    pub fn sign_with_installation_key(&self, text: &str) -> Result<Vec<u8>, GenericError> {
+    pub fn sign_with_installation_key(&self, text: &str) -> Result<Vec<u8>, FfiError> {
         let inner = self.inner_client.as_ref();
         Ok(inner.context.sign_with_public_context(text)?)
     }
@@ -824,7 +828,7 @@ impl FfiXmtpClient {
         &self,
         signature_text: &str,
         signature_bytes: Vec<u8>,
-    ) -> Result<(), GenericError> {
+    ) -> Result<(), FfiError> {
         let inner = self.inner_client.as_ref();
         let public_key = inner.installation_public_key().to_vec();
 
@@ -838,7 +842,7 @@ impl FfiXmtpClient {
         signature_text: &str,
         signature_bytes: Vec<u8>,
         public_key: Vec<u8>,
-    ) -> Result<(), GenericError> {
+    ) -> Result<(), FfiError> {
         let signature_bytes: [u8; 64] =
             signature_bytes
                 .try_into()
@@ -866,7 +870,7 @@ impl FfiXmtpClient {
         )?)
     }
 
-    pub async fn sync_preferences(&self) -> Result<FfiGroupSyncSummary, GenericError> {
+    pub async fn sync_preferences(&self) -> Result<FfiGroupSyncSummary, FfiError> {
         self.sync_all_device_sync_groups().await
     }
 
@@ -886,7 +890,7 @@ impl FfiXmtpClient {
     pub async fn register_identity(
         &self,
         signature_request: Arc<FfiSignatureRequest>,
-    ) -> Result<(), GenericError> {
+    ) -> Result<(), FfiError> {
         let signature_request = signature_request.inner.lock().await;
         self.inner_client
             .register_identity(signature_request.clone())
@@ -899,7 +903,7 @@ impl FfiXmtpClient {
     pub async fn add_identity(
         &self,
         new_identity: FfiIdentifier,
-    ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
+    ) -> Result<Arc<FfiSignatureRequest>, FfiError> {
         let signature_request = self
             .inner_client
             .identity_updates()
@@ -917,7 +921,7 @@ impl FfiXmtpClient {
     pub async fn apply_signature_request(
         &self,
         signature_request: Arc<FfiSignatureRequest>,
-    ) -> Result<(), GenericError> {
+    ) -> Result<(), FfiError> {
         let signature_request = signature_request.inner.lock().await;
         self.inner_client
             .identity_updates()
@@ -931,7 +935,7 @@ impl FfiXmtpClient {
     pub async fn revoke_identity(
         &self,
         identifier: FfiIdentifier,
-    ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
+    ) -> Result<Arc<FfiSignatureRequest>, FfiError> {
         let Self { inner_client, .. } = self;
 
         let signature_request = inner_client
@@ -954,7 +958,7 @@ impl FfiXmtpClient {
      */
     pub async fn revoke_all_other_installations_signature_request(
         &self,
-    ) -> Result<Option<Arc<FfiSignatureRequest>>, GenericError> {
+    ) -> Result<Option<Arc<FfiSignatureRequest>>, FfiError> {
         let installation_id = self.inner_client.installation_public_key();
         let inbox_state = self.inner_client.inbox_state(true).await?;
         let other_installation_ids: Vec<Vec<u8>> = inbox_state
@@ -985,7 +989,7 @@ impl FfiXmtpClient {
     pub async fn revoke_installations(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
+    ) -> Result<Arc<FfiSignatureRequest>, FfiError> {
         let signature_request = self
             .inner_client
             .identity_updates()
@@ -1004,7 +1008,7 @@ impl FfiXmtpClient {
     pub async fn change_recovery_identifier(
         &self,
         new_recovery_identifier: FfiIdentifier,
-    ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
+    ) -> Result<Arc<FfiSignatureRequest>, FfiError> {
         let signature_request = self
             .inner_client
             .identity_updates()
@@ -1445,19 +1449,17 @@ impl FfiConversations {
     pub fn create_group_optimistic(
         &self,
         opts: FfiCreateGroupOptions,
-    ) -> Result<Arc<FfiConversation>, GenericError> {
+    ) -> Result<Arc<FfiConversation>, FfiError> {
         log::info!("creating optimistic group");
 
         if let Some(FfiGroupPermissionsOptions::CustomPolicy) = opts.permissions {
             if opts.custom_permission_policy_set.is_none() {
-                return Err(GenericError::Generic {
-                    err: "CustomPolicy must include policy set".to_string(),
-                });
+                return Err(FfiError::generic("CustomPolicy must include policy set"));
             }
         } else if opts.custom_permission_policy_set.is_some() {
-            return Err(GenericError::Generic {
-                err: "Only CustomPolicy may specify a policy set".to_string(),
-            });
+            return Err(FfiError::generic(
+                "Only CustomPolicy may specify a policy set",
+            ));
         }
 
         let metadata_options = opts.clone().into_group_metadata_options();
@@ -1490,7 +1492,7 @@ impl FfiConversations {
         &self,
         account_identities: Vec<FfiIdentifier>,
         opts: FfiCreateGroupOptions,
-    ) -> Result<Arc<FfiConversation>, GenericError> {
+    ) -> Result<Arc<FfiConversation>, FfiError> {
         log::info!(
             "creating group with account addresses: {}",
             account_identities
@@ -1515,7 +1517,7 @@ impl FfiConversations {
         &self,
         inbox_ids: Vec<String>,
         opts: FfiCreateGroupOptions,
-    ) -> Result<Arc<FfiConversation>, GenericError> {
+    ) -> Result<Arc<FfiConversation>, FfiError> {
         log::info!(
             "creating group with account inbox ids: {}",
             inbox_ids.join(", ")
@@ -1536,7 +1538,7 @@ impl FfiConversations {
         &self,
         target_identity: FfiIdentifier,
         opts: FfiCreateDMOptions,
-    ) -> Result<Arc<FfiConversation>, GenericError> {
+    ) -> Result<Arc<FfiConversation>, FfiError> {
         let target_identity = target_identity.try_into()?;
         log::info!("creating dm with target address: {target_identity:?}",);
         self.inner_client
@@ -1550,7 +1552,7 @@ impl FfiConversations {
         &self,
         inbox_id: String,
         opts: FfiCreateDMOptions,
-    ) -> Result<Arc<FfiConversation>, GenericError> {
+    ) -> Result<Arc<FfiConversation>, FfiError> {
         log::info!("creating dm with target inbox_id: {}", inbox_id);
         self.inner_client
             .find_or_create_dm(inbox_id, Some(opts.into_dm_metadata_options()))
@@ -1562,7 +1564,7 @@ impl FfiConversations {
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
+    ) -> Result<Vec<Arc<FfiConversation>>, FfiError> {
         self.inner_client
             .process_streamed_welcome_message(envelope_bytes)
             .await
@@ -1570,7 +1572,7 @@ impl FfiConversations {
             .map_err(Into::into)
     }
 
-    pub async fn sync(&self) -> Result<(), GenericError> {
+    pub async fn sync(&self) -> Result<(), FfiError> {
         let inner = self.inner_client.as_ref();
         inner.sync_welcomes().await?;
         Ok(())
@@ -1580,7 +1582,7 @@ impl FfiConversations {
     pub async fn sync_all_conversations(
         &self,
         consent_states: Option<Vec<FfiConsentState>>,
-    ) -> Result<FfiGroupSyncSummary, GenericError> {
+    ) -> Result<FfiGroupSyncSummary, FfiError> {
         let inner = self.inner_client.as_ref();
         let consents: Option<Vec<ConsentState>> =
             consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
@@ -1592,7 +1594,7 @@ impl FfiConversations {
     pub fn list(
         &self,
         opts: FfiListConversationsOptions,
-    ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
+    ) -> Result<Vec<Arc<FfiConversationListItem>>, FfiError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversationListItem>> = inner
             .list_conversations(opts.into())?
@@ -1614,7 +1616,7 @@ impl FfiConversations {
     pub fn list_groups(
         &self,
         opts: FfiListConversationsOptions,
-    ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
+    ) -> Result<Vec<Arc<FfiConversationListItem>>, FfiError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversationListItem>> = inner
             .list_conversations(GroupQueryArgs {
@@ -1639,7 +1641,7 @@ impl FfiConversations {
     pub fn list_dms(
         &self,
         opts: FfiListConversationsOptions,
-    ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
+    ) -> Result<Vec<Arc<FfiConversationListItem>>, FfiError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversationListItem>> = inner
             .list_conversations(GroupQueryArgs {
@@ -1829,7 +1831,7 @@ impl FfiConversations {
         FfiStreamCloser::new(handle)
     }
 
-    pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, GenericError> {
+    pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, FfiError> {
         let inner = self.inner_client.as_ref();
         let conversations = inner.find_groups(GroupQueryArgs {
             include_duplicate_dms: true,
@@ -1854,7 +1856,7 @@ impl FfiConversations {
 
 #[cfg(test)]
 impl FfiConversations {
-    pub async fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
+    pub async fn get_sync_group(&self) -> Result<FfiConversation, FfiError> {
         let inner = self.inner_client.as_ref();
         let sync_group = inner.device_sync_client().get_sync_group().await?;
         Ok(sync_group.into())
@@ -2308,7 +2310,7 @@ impl FfiConversation {
         &self,
         content_bytes: Vec<u8>,
         opts: FfiSendMessageOpts,
-    ) -> Result<Vec<u8>, GenericError> {
+    ) -> Result<Vec<u8>, FfiError> {
         let message_id = self
             .inner
             .send_message(content_bytes.as_slice(), opts.into())
@@ -2316,9 +2318,9 @@ impl FfiConversation {
         Ok(message_id)
     }
 
-    pub(crate) async fn send_text(&self, text: &str) -> Result<Vec<u8>, GenericError> {
-        let content = TextCodec::encode(text.to_string())
-            .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    pub(crate) async fn send_text(&self, text: &str) -> Result<Vec<u8>, FfiError> {
+        let content =
+            TextCodec::encode(text.to_string()).map_err(|e| FfiError::generic(e.to_string()))?;
         self.send(
             encoded_content_to_bytes(content),
             FfiSendMessageOpts { should_push: true },
@@ -2331,7 +2333,7 @@ impl FfiConversation {
         &self,
         content_bytes: Vec<u8>,
         opts: FfiSendMessageOpts,
-    ) -> Result<Vec<u8>, GenericError> {
+    ) -> Result<Vec<u8>, FfiError> {
         let id = self
             .inner
             .send_message_optimistic(content_bytes.as_slice(), opts.into())?;
@@ -2340,13 +2342,13 @@ impl FfiConversation {
     }
 
     /// Delete a message by its ID. Returns the ID of the deletion message.
-    pub fn delete_message(&self, message_id: Vec<u8>) -> Result<Vec<u8>, GenericError> {
+    pub fn delete_message(&self, message_id: Vec<u8>) -> Result<Vec<u8>, FfiError> {
         let deletion_id = self.inner.delete_message(message_id)?;
         Ok(deletion_id)
     }
 
     /// Publish all unpublished messages
-    pub async fn publish_messages(&self) -> Result<(), GenericError> {
+    pub async fn publish_messages(&self) -> Result<(), FfiError> {
         self.inner.publish_messages().await?;
         Ok(())
     }
@@ -2357,7 +2359,7 @@ impl FfiConversation {
         &self,
         content_bytes: Vec<u8>,
         should_push: bool,
-    ) -> Result<Vec<u8>, GenericError> {
+    ) -> Result<Vec<u8>, FfiError> {
         let id = self
             .inner
             .prepare_message_for_later_publish(content_bytes.as_slice(), should_push)?;
@@ -2365,12 +2367,12 @@ impl FfiConversation {
     }
 
     /// Publish a previously prepared message by ID.
-    pub async fn publish_stored_message(&self, message_id: Vec<u8>) -> Result<(), GenericError> {
+    pub async fn publish_stored_message(&self, message_id: Vec<u8>) -> Result<(), FfiError> {
         self.inner.publish_stored_message(&message_id).await?;
         Ok(())
     }
 
-    pub async fn sync(&self) -> Result<(), GenericError> {
+    pub async fn sync(&self) -> Result<(), FfiError> {
         self.inner.sync().await?;
 
         Ok(())
@@ -2379,7 +2381,7 @@ impl FfiConversation {
     pub async fn find_messages(
         &self,
         opts: FfiListMessagesOptions,
-    ) -> Result<Vec<FfiMessage>, GenericError> {
+    ) -> Result<Vec<FfiMessage>, FfiError> {
         let messages: Vec<FfiMessage> = self
             .inner
             .find_messages(&opts.into())?
@@ -2390,7 +2392,7 @@ impl FfiConversation {
         Ok(messages)
     }
 
-    pub fn count_messages(&self, opts: FfiListMessagesOptions) -> Result<i64, GenericError> {
+    pub fn count_messages(&self, opts: FfiListMessagesOptions) -> Result<i64, FfiError> {
         let count = self.inner.count_messages(&opts.into())?;
 
         Ok(count)
@@ -2399,7 +2401,7 @@ impl FfiConversation {
     pub fn find_messages_with_reactions(
         &self,
         opts: FfiListMessagesOptions,
-    ) -> Result<Vec<FfiMessageWithReactions>, GenericError> {
+    ) -> Result<Vec<FfiMessageWithReactions>, FfiError> {
         let messages: Vec<FfiMessageWithReactions> = self
             .inner
             .find_messages_with_reactions(&opts.into())?
@@ -2412,7 +2414,7 @@ impl FfiConversation {
     pub fn find_enriched_messages(
         &self,
         opts: FfiListMessagesOptions,
-    ) -> Result<Vec<Arc<FfiDecodedMessage>>, GenericError> {
+    ) -> Result<Vec<Arc<FfiDecodedMessage>>, FfiError> {
         let messages: Vec<Arc<FfiDecodedMessage>> = self
             .inner
             .find_messages_v2(&opts.into())?
@@ -2425,7 +2427,7 @@ impl FfiConversation {
     pub async fn process_streamed_conversation_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<Vec<FfiMessage>, FfiSubscribeError> {
+    ) -> Result<Vec<FfiMessage>, FfiError> {
         let message = self
             .inner
             .process_streamed_group_message(envelope_bytes)
@@ -2433,7 +2435,7 @@ impl FfiConversation {
         Ok(message.into_iter().map(Into::into).collect())
     }
 
-    pub async fn list_members(&self) -> Result<Vec<FfiConversationMember>, GenericError> {
+    pub async fn list_members(&self) -> Result<Vec<FfiConversationMember>, FfiError> {
         let members: Vec<FfiConversationMember> = self
             .inner
             .members()
@@ -2455,7 +2457,7 @@ impl FfiConversation {
         Ok(members)
     }
 
-    pub fn membership_state(&self) -> Result<FfiGroupMembershipState, GenericError> {
+    pub fn membership_state(&self) -> Result<FfiGroupMembershipState, FfiError> {
         let state = self.inner.membership_state()?;
         Ok(state.into())
     }
@@ -2463,7 +2465,7 @@ impl FfiConversation {
     pub async fn add_members_by_identity(
         &self,
         account_identifiers: Vec<FfiIdentifier>,
-    ) -> Result<FfiUpdateGroupMembershipResult, GenericError> {
+    ) -> Result<FfiUpdateGroupMembershipResult, FfiError> {
         let account_identifiers = account_identifiers.to_internal()?;
         log::info!(
             "adding members: {}",
@@ -2484,7 +2486,7 @@ impl FfiConversation {
     pub async fn add_members(
         &self,
         inbox_ids: Vec<String>,
-    ) -> Result<FfiUpdateGroupMembershipResult, GenericError> {
+    ) -> Result<FfiUpdateGroupMembershipResult, FfiError> {
         log::info!("Adding members by inbox ID: {}", inbox_ids.join(", "));
 
         self.inner
@@ -2497,40 +2499,40 @@ impl FfiConversation {
     pub async fn remove_members_by_identity(
         &self,
         account_identifiers: Vec<FfiIdentifier>,
-    ) -> Result<(), GenericError> {
+    ) -> Result<(), FfiError> {
         self.inner
             .remove_members_by_identity(&account_identifiers.to_internal()?)
             .await
             .map_err(Into::into)
     }
 
-    pub async fn remove_members(&self, inbox_ids: Vec<String>) -> Result<(), GenericError> {
+    pub async fn remove_members(&self, inbox_ids: Vec<String>) -> Result<(), FfiError> {
         let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
         self.inner.remove_members(ids.as_slice()).await?;
         Ok(())
     }
 
-    pub async fn leave_group(&self) -> Result<(), GenericError> {
+    pub async fn leave_group(&self) -> Result<(), FfiError> {
         self.inner.leave_group().await?;
         Ok(())
     }
 
-    pub async fn update_group_name(&self, group_name: String) -> Result<(), GenericError> {
+    pub async fn update_group_name(&self, group_name: String) -> Result<(), FfiError> {
         self.inner.update_group_name(group_name).await?;
         Ok(())
     }
 
-    pub fn group_name(&self) -> Result<String, GenericError> {
+    pub fn group_name(&self) -> Result<String, FfiError> {
         let group_name = self.inner.group_name()?;
         Ok(group_name)
     }
 
-    pub async fn update_app_data(&self, app_data: String) -> Result<(), GenericError> {
+    pub async fn update_app_data(&self, app_data: String) -> Result<(), FfiError> {
         self.inner.update_app_data(app_data).await?;
         Ok(())
     }
 
-    pub fn app_data(&self) -> Result<String, GenericError> {
+    pub fn app_data(&self) -> Result<String, FfiError> {
         let app_data = self.inner.app_data()?;
         Ok(app_data)
     }
@@ -2538,7 +2540,7 @@ impl FfiConversation {
     pub async fn update_group_image_url_square(
         &self,
         group_image_url_square: String,
-    ) -> Result<(), GenericError> {
+    ) -> Result<(), FfiError> {
         self.inner
             .update_group_image_url_square(group_image_url_square)
             .await?;
@@ -2546,14 +2548,14 @@ impl FfiConversation {
         Ok(())
     }
 
-    pub fn group_image_url_square(&self) -> Result<String, GenericError> {
+    pub fn group_image_url_square(&self) -> Result<String, FfiError> {
         Ok(self.inner.group_image_url_square()?)
     }
 
     pub async fn update_group_description(
         &self,
         group_description: String,
-    ) -> Result<(), GenericError> {
+    ) -> Result<(), FfiError> {
         self.inner
             .update_group_description(group_description)
             .await?;
@@ -2561,14 +2563,14 @@ impl FfiConversation {
         Ok(())
     }
 
-    pub fn group_description(&self) -> Result<String, GenericError> {
+    pub fn group_description(&self) -> Result<String, FfiError> {
         Ok(self.inner.group_description()?)
     }
 
     pub async fn update_conversation_message_disappearing_settings(
         &self,
         settings: FfiMessageDisappearingSettings,
-    ) -> Result<(), GenericError> {
+    ) -> Result<(), FfiError> {
         self.inner
             .update_conversation_message_disappearing_settings(MessageDisappearingSettings::from(
                 settings,
@@ -2578,9 +2580,7 @@ impl FfiConversation {
         Ok(())
     }
 
-    pub async fn remove_conversation_message_disappearing_settings(
-        &self,
-    ) -> Result<(), GenericError> {
+    pub async fn remove_conversation_message_disappearing_settings(&self) -> Result<(), FfiError> {
         self.inner
             .remove_conversation_message_disappearing_settings()
             .await?;
@@ -2590,7 +2590,7 @@ impl FfiConversation {
 
     pub fn conversation_message_disappearing_settings(
         &self,
-    ) -> Result<Option<FfiMessageDisappearingSettings>, GenericError> {
+    ) -> Result<Option<FfiMessageDisappearingSettings>, FfiError> {
         let settings = self.inner.disappearing_settings()?;
 
         match settings {
@@ -2599,7 +2599,7 @@ impl FfiConversation {
         }
     }
 
-    pub fn is_conversation_message_disappearing_enabled(&self) -> Result<bool, GenericError> {
+    pub fn is_conversation_message_disappearing_enabled(&self) -> Result<bool, FfiError> {
         self.conversation_message_disappearing_settings()
             .map(|settings| {
                 settings
@@ -2608,53 +2608,53 @@ impl FfiConversation {
             })
     }
 
-    pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
+    pub fn admin_list(&self) -> Result<Vec<String>, FfiError> {
         self.inner.admin_list().map_err(Into::into)
     }
 
-    pub fn super_admin_list(&self) -> Result<Vec<String>, GenericError> {
+    pub fn super_admin_list(&self) -> Result<Vec<String>, FfiError> {
         self.inner.super_admin_list().map_err(Into::into)
     }
 
-    pub fn is_admin(&self, inbox_id: &String) -> Result<bool, GenericError> {
+    pub fn is_admin(&self, inbox_id: &String) -> Result<bool, FfiError> {
         let admin_list = self.admin_list()?;
         Ok(admin_list.contains(inbox_id))
     }
 
-    pub fn is_super_admin(&self, inbox_id: &String) -> Result<bool, GenericError> {
+    pub fn is_super_admin(&self, inbox_id: &String) -> Result<bool, FfiError> {
         let super_admin_list = self.super_admin_list()?;
         Ok(super_admin_list.contains(inbox_id))
     }
 
-    pub async fn add_admin(&self, inbox_id: String) -> Result<(), GenericError> {
+    pub async fn add_admin(&self, inbox_id: String) -> Result<(), FfiError> {
         self.inner
             .update_admin_list(UpdateAdminListType::Add, inbox_id)
             .await
             .map_err(Into::into)
     }
 
-    pub async fn remove_admin(&self, inbox_id: String) -> Result<(), GenericError> {
+    pub async fn remove_admin(&self, inbox_id: String) -> Result<(), FfiError> {
         self.inner
             .update_admin_list(UpdateAdminListType::Remove, inbox_id)
             .await
             .map_err(Into::into)
     }
 
-    pub async fn add_super_admin(&self, inbox_id: String) -> Result<(), GenericError> {
+    pub async fn add_super_admin(&self, inbox_id: String) -> Result<(), FfiError> {
         self.inner
             .update_admin_list(UpdateAdminListType::AddSuper, inbox_id)
             .await
             .map_err(Into::into)
     }
 
-    pub async fn remove_super_admin(&self, inbox_id: String) -> Result<(), GenericError> {
+    pub async fn remove_super_admin(&self, inbox_id: String) -> Result<(), FfiError> {
         self.inner
             .update_admin_list(UpdateAdminListType::RemoveSuper, inbox_id)
             .await
             .map_err(Into::into)
     }
 
-    pub fn group_permissions(&self) -> Result<Arc<FfiGroupPermissions>, GenericError> {
+    pub fn group_permissions(&self) -> Result<Arc<FfiGroupPermissions>, FfiError> {
         let permissions = self.inner.permissions()?;
         Ok(Arc::new(FfiGroupPermissions {
             inner: Arc::new(permissions),
@@ -2666,7 +2666,7 @@ impl FfiConversation {
         permission_update_type: FfiPermissionUpdateType,
         permission_policy_option: FfiPermissionPolicy,
         metadata_field: Option<FfiMetadataField>,
-    ) -> Result<(), GenericError> {
+    ) -> Result<(), FfiError> {
         self.inner
             .update_permission_policy(
                 PermissionUpdateType::from(&permission_update_type),
@@ -2696,32 +2696,32 @@ impl FfiConversation {
         self.inner.created_at_ns
     }
 
-    pub fn is_active(&self) -> Result<bool, GenericError> {
+    pub fn is_active(&self) -> Result<bool, FfiError> {
         self.inner.is_active().map_err(Into::into)
     }
 
-    pub fn paused_for_version(&self) -> Result<Option<String>, GenericError> {
+    pub fn paused_for_version(&self) -> Result<Option<String>, FfiError> {
         self.inner.paused_for_version().map_err(Into::into)
     }
 
-    pub fn consent_state(&self) -> Result<FfiConsentState, GenericError> {
+    pub fn consent_state(&self) -> Result<FfiConsentState, FfiError> {
         self.inner
             .consent_state()
             .map(Into::into)
             .map_err(Into::into)
     }
 
-    pub fn update_consent_state(&self, state: FfiConsentState) -> Result<(), GenericError> {
+    pub fn update_consent_state(&self, state: FfiConsentState) -> Result<(), FfiError> {
         self.inner
             .update_consent_state(state.into())
             .map_err(Into::into)
     }
 
-    pub fn added_by_inbox_id(&self) -> Result<String, GenericError> {
+    pub fn added_by_inbox_id(&self) -> Result<String, FfiError> {
         self.inner.added_by_inbox_id().map_err(Into::into)
     }
 
-    pub async fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
+    pub async fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, FfiError> {
         let metadata = self.inner.metadata().await?;
         Ok(Arc::new(FfiConversationMetadata {
             inner: Arc::new(metadata),
@@ -2735,7 +2735,7 @@ impl FfiConversation {
             .map(|dm_id| dm_id.other_inbox_id(self.inner.context.inbox_id()))
     }
 
-    pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, GenericError> {
+    pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, FfiError> {
         let duplicate_dms = self.inner.find_duplicate_dms()?;
 
         let mut hmac_map = HashMap::new();
@@ -2762,12 +2762,12 @@ impl FfiConversation {
         Ok(hmac_map)
     }
 
-    pub async fn conversation_debug_info(&self) -> Result<FfiConversationDebugInfo, GenericError> {
+    pub async fn conversation_debug_info(&self) -> Result<FfiConversationDebugInfo, FfiError> {
         let debug_info = self.inner.debug_info().await?;
         Ok(debug_info.into())
     }
 
-    pub async fn find_duplicate_dms(&self) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
+    pub async fn find_duplicate_dms(&self) -> Result<Vec<Arc<FfiConversation>>, FfiError> {
         let dms = self.inner.find_duplicate_dms()?;
 
         let ffi_conversations: Vec<Arc<FfiConversation>> =
@@ -2776,7 +2776,7 @@ impl FfiConversation {
         Ok(ffi_conversations)
     }
 
-    pub fn get_last_read_times(&self) -> Result<HashMap<String, i64>, GenericError> {
+    pub fn get_last_read_times(&self) -> Result<HashMap<String, i64>, FfiError> {
         let latest_read_times = self.inner.get_last_read_times()?;
         Ok(latest_read_times)
     }
@@ -2847,33 +2847,32 @@ impl From<StoredGroupMessageWithReactions> for FfiMessageWithReactions {
 }
 
 #[uniffi::export]
-pub fn encode_reaction(reaction: FfiReactionPayload) -> Result<Vec<u8>, GenericError> {
+pub fn encode_reaction(reaction: FfiReactionPayload) -> Result<Vec<u8>, FfiError> {
     // Convert FfiReaction to Reaction
     let reaction: ReactionV2 = reaction.into();
 
     // Use ReactionCodec to encode the reaction
-    let encoded = ReactionCodec::encode(reaction)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    let encoded = ReactionCodec::encode(reaction).map_err(|e| FfiError::generic(e.to_string()))?;
 
     // Encode the EncodedContent to bytes
     let mut buf = Vec::new();
     encoded
         .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     Ok(buf)
 }
 
 #[uniffi::export]
-pub fn decode_reaction(bytes: Vec<u8>) -> Result<FfiReactionPayload, GenericError> {
+pub fn decode_reaction(bytes: Vec<u8>) -> Result<FfiReactionPayload, FfiError> {
     // Decode bytes into EncodedContent
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    let encoded_content =
+        EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
 
     // Use ReactionCodec to decode into Reaction and convert to FfiReaction
     ReactionCodec::decode(encoded_content)
         .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
+        .map_err(|e| FfiError::generic(e.to_string()))
 }
 
 // RemoteAttachmentInfo and MultiRemoteAttachment FFI structures - using types from message module
@@ -2881,19 +2880,19 @@ pub fn decode_reaction(bytes: Vec<u8>) -> Result<FfiReactionPayload, GenericErro
 #[uniffi::export]
 pub fn encode_multi_remote_attachment(
     ffi_multi_remote_attachment: FfiMultiRemoteAttachment,
-) -> Result<Vec<u8>, GenericError> {
+) -> Result<Vec<u8>, FfiError> {
     // Convert FfiMultiRemoteAttachment to MultiRemoteAttachment
     let multi_remote_attachment: MultiRemoteAttachment = ffi_multi_remote_attachment.into();
 
     // Use MultiRemoteAttachmentCodec to encode the reaction
     let encoded = MultiRemoteAttachmentCodec::encode(multi_remote_attachment)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     // Encode the EncodedContent to bytes
     let mut buf = Vec::new();
     encoded
         .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     Ok(buf)
 }
@@ -2901,15 +2900,15 @@ pub fn encode_multi_remote_attachment(
 #[uniffi::export]
 pub fn decode_multi_remote_attachment(
     bytes: Vec<u8>,
-) -> Result<FfiMultiRemoteAttachment, GenericError> {
+) -> Result<FfiMultiRemoteAttachment, FfiError> {
     // Decode bytes into EncodedContent
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    let encoded_content =
+        EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
 
     // Use MultiRemoteAttachmentCodec to decode into MultiRemoteAttachment and convert to FfiMultiRemoteAttachment
     MultiRemoteAttachmentCodec::decode(encoded_content)
         .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
+        .map_err(|e| FfiError::generic(e.to_string()))
 }
 
 // TransactionReference FFI structures - using types from message module
@@ -2917,109 +2916,106 @@ pub fn decode_multi_remote_attachment(
 #[uniffi::export]
 pub fn encode_transaction_reference(
     reference: FfiTransactionReference,
-) -> Result<Vec<u8>, GenericError> {
+) -> Result<Vec<u8>, FfiError> {
     let reference: TransactionReference = reference.into();
 
     let encoded = TransactionReferenceCodec::encode(reference)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     let mut buf = Vec::new();
     encoded
         .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     Ok(buf)
 }
 
 #[uniffi::export]
-pub fn decode_transaction_reference(
-    bytes: Vec<u8>,
-) -> Result<FfiTransactionReference, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+pub fn decode_transaction_reference(bytes: Vec<u8>) -> Result<FfiTransactionReference, FfiError> {
+    let encoded_content =
+        EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
 
     TransactionReferenceCodec::decode(encoded_content)
         .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
+        .map_err(|e| FfiError::generic(e.to_string()))
 }
 
 // Attachment FFI structures - using FfiAttachment from message module
 
 #[uniffi::export]
-pub fn encode_attachment(attachment: FfiAttachment) -> Result<Vec<u8>, GenericError> {
+pub fn encode_attachment(attachment: FfiAttachment) -> Result<Vec<u8>, FfiError> {
     let attachment: Attachment = attachment.into();
 
-    let encoded = AttachmentCodec::encode(attachment)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    let encoded =
+        AttachmentCodec::encode(attachment).map_err(|e| FfiError::generic(e.to_string()))?;
 
     let mut buf = Vec::new();
     encoded
         .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     Ok(buf)
 }
 
 #[uniffi::export]
-pub fn decode_attachment(bytes: Vec<u8>) -> Result<FfiAttachment, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+pub fn decode_attachment(bytes: Vec<u8>) -> Result<FfiAttachment, FfiError> {
+    let encoded_content =
+        EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
 
     AttachmentCodec::decode(encoded_content)
         .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
+        .map_err(|e| FfiError::generic(e.to_string()))
 }
 
 #[uniffi::export]
-pub fn encode_reply(reply: FfiReply) -> Result<Vec<u8>, GenericError> {
+pub fn encode_reply(reply: FfiReply) -> Result<Vec<u8>, FfiError> {
     let reply: Reply = reply.into();
 
-    let encoded =
-        ReplyCodec::encode(reply).map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    let encoded = ReplyCodec::encode(reply).map_err(|e| FfiError::generic(e.to_string()))?;
 
     let mut buf = Vec::new();
     encoded
         .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     Ok(buf)
 }
 
 #[uniffi::export]
-pub fn decode_reply(bytes: Vec<u8>) -> Result<FfiReply, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+pub fn decode_reply(bytes: Vec<u8>) -> Result<FfiReply, FfiError> {
+    let encoded_content =
+        EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
 
     ReplyCodec::decode(encoded_content)
         .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
+        .map_err(|e| FfiError::generic(e.to_string()))
 }
 
 // ReadReceipt FFI structures - using FfiReadReceipt from message module
 
 #[uniffi::export]
-pub fn encode_read_receipt(read_receipt: FfiReadReceipt) -> Result<Vec<u8>, GenericError> {
+pub fn encode_read_receipt(read_receipt: FfiReadReceipt) -> Result<Vec<u8>, FfiError> {
     let read_receipt: ReadReceipt = read_receipt.into();
 
-    let encoded = ReadReceiptCodec::encode(read_receipt)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    let encoded =
+        ReadReceiptCodec::encode(read_receipt).map_err(|e| FfiError::generic(e.to_string()))?;
 
     let mut buf = Vec::new();
     encoded
         .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     Ok(buf)
 }
 
 #[uniffi::export]
-pub fn decode_read_receipt(bytes: Vec<u8>) -> Result<FfiReadReceipt, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+pub fn decode_read_receipt(bytes: Vec<u8>) -> Result<FfiReadReceipt, FfiError> {
+    let encoded_content =
+        EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
 
     ReadReceiptCodec::decode(encoded_content)
         .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
+        .map_err(|e| FfiError::generic(e.to_string()))
 }
 
 // RemoteAttachment FFI structures - using FfiRemoteAttachment from message module
@@ -3027,215 +3023,211 @@ pub fn decode_read_receipt(bytes: Vec<u8>) -> Result<FfiReadReceipt, GenericErro
 #[uniffi::export]
 pub fn encode_remote_attachment(
     remote_attachment: FfiRemoteAttachment,
-) -> Result<Vec<u8>, GenericError> {
+) -> Result<Vec<u8>, FfiError> {
     let remote_attachment: RemoteAttachment = remote_attachment.into();
 
     let encoded = RemoteAttachmentCodec::encode(remote_attachment)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     let mut buf = Vec::new();
     encoded
         .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     Ok(buf)
 }
 
 #[uniffi::export]
-pub fn decode_remote_attachment(bytes: Vec<u8>) -> Result<FfiRemoteAttachment, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+pub fn decode_remote_attachment(bytes: Vec<u8>) -> Result<FfiRemoteAttachment, FfiError> {
+    let encoded_content =
+        EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
 
     RemoteAttachmentCodec::decode(encoded_content)
         .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
+        .map_err(|e| FfiError::generic(e.to_string()))
 }
 
 // Intent FFI encode/decode functions
 
 #[uniffi::export]
-pub fn encode_intent(intent: FfiIntent) -> Result<Vec<u8>, GenericError> {
+pub fn encode_intent(intent: FfiIntent) -> Result<Vec<u8>, FfiError> {
     let intent: Intent = intent.try_into()?;
 
-    let encoded =
-        IntentCodec::encode(intent).map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    let encoded = IntentCodec::encode(intent).map_err(|e| FfiError::generic(e.to_string()))?;
 
     let mut buf = Vec::new();
     encoded
         .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     Ok(buf)
 }
 
 #[uniffi::export]
-pub fn decode_intent(bytes: Vec<u8>) -> Result<FfiIntent, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+pub fn decode_intent(bytes: Vec<u8>) -> Result<FfiIntent, FfiError> {
+    let encoded_content =
+        EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
 
-    let intent = IntentCodec::decode(encoded_content)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    let intent =
+        IntentCodec::decode(encoded_content).map_err(|e| FfiError::generic(e.to_string()))?;
 
-    intent.try_into()
+    intent.try_into().map_err(Into::into)
 }
 
 // Actions FFI encode/decode functions
 
 #[uniffi::export]
-pub fn encode_actions(actions: FfiActions) -> Result<Vec<u8>, GenericError> {
+pub fn encode_actions(actions: FfiActions) -> Result<Vec<u8>, FfiError> {
     let actions: Actions = actions.into();
 
-    let encoded =
-        ActionsCodec::encode(actions).map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    let encoded = ActionsCodec::encode(actions).map_err(|e| FfiError::generic(e.to_string()))?;
 
     let mut buf = Vec::new();
     encoded
         .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     Ok(buf)
 }
 
 #[uniffi::export]
-pub fn decode_actions(bytes: Vec<u8>) -> Result<FfiActions, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+pub fn decode_actions(bytes: Vec<u8>) -> Result<FfiActions, FfiError> {
+    let encoded_content =
+        EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
 
-    let actions = ActionsCodec::decode(encoded_content)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    let actions =
+        ActionsCodec::decode(encoded_content).map_err(|e| FfiError::generic(e.to_string()))?;
 
-    actions.try_into()
+    actions.try_into().map_err(Into::into)
 }
 
 // LeaveRequest FFI encode function
 #[uniffi::export]
-pub fn encode_leave_request(request: FfiLeaveRequest) -> Result<Vec<u8>, GenericError> {
+pub fn encode_leave_request(request: FfiLeaveRequest) -> Result<Vec<u8>, FfiError> {
     let leave_request: LeaveRequest = request.into();
 
-    let encoded = LeaveRequestCodec::encode(leave_request)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    let encoded =
+        LeaveRequestCodec::encode(leave_request).map_err(|e| FfiError::generic(e.to_string()))?;
 
     let mut buf = Vec::new();
     encoded
         .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     Ok(buf)
 }
 
 // LeaveRequest FFI decode function
 #[uniffi::export]
-pub fn decode_leave_request(bytes: Vec<u8>) -> Result<FfiLeaveRequest, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+pub fn decode_leave_request(bytes: Vec<u8>) -> Result<FfiLeaveRequest, FfiError> {
+    let encoded_content =
+        EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
 
     LeaveRequestCodec::decode(encoded_content)
         .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
+        .map_err(|e| FfiError::generic(e.to_string()))
 }
 
 // DeleteMessage FFI encode function
 #[uniffi::export]
-pub fn encode_delete_message(request: FfiDeleteMessage) -> Result<Vec<u8>, GenericError> {
+pub fn encode_delete_message(request: FfiDeleteMessage) -> Result<Vec<u8>, FfiError> {
     let delete_message: DeleteMessage = request.into();
 
-    let encoded = DeleteMessageCodec::encode(delete_message)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    let encoded =
+        DeleteMessageCodec::encode(delete_message).map_err(|e| FfiError::generic(e.to_string()))?;
 
     let mut buf = Vec::new();
     encoded
         .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     Ok(buf)
 }
 
 // DeleteMessage FFI decode function
 #[uniffi::export]
-pub fn decode_delete_message(bytes: Vec<u8>) -> Result<FfiDeleteMessage, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+pub fn decode_delete_message(bytes: Vec<u8>) -> Result<FfiDeleteMessage, FfiError> {
+    let encoded_content =
+        EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
 
     DeleteMessageCodec::decode(encoded_content)
         .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
+        .map_err(|e| FfiError::generic(e.to_string()))
 }
 
 #[uniffi::export]
-pub fn decode_group_updated(bytes: Vec<u8>) -> Result<FfiGroupUpdated, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+pub fn decode_group_updated(bytes: Vec<u8>) -> Result<FfiGroupUpdated, FfiError> {
+    let encoded_content =
+        EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
 
     GroupUpdatedCodec::decode(encoded_content)
         .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
+        .map_err(|e| FfiError::generic(e.to_string()))
 }
 
 #[uniffi::export]
-pub fn encode_text(text: String) -> Result<Vec<u8>, GenericError> {
-    let encoded =
-        TextCodec::encode(text).map_err(|e| GenericError::Generic { err: e.to_string() })?;
+pub fn encode_text(text: String) -> Result<Vec<u8>, FfiError> {
+    let encoded = TextCodec::encode(text).map_err(|e| FfiError::generic(e.to_string()))?;
 
     let mut buf = Vec::new();
     encoded
         .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     Ok(buf)
 }
 
 #[uniffi::export]
-pub fn decode_text(bytes: Vec<u8>) -> Result<String, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+pub fn decode_text(bytes: Vec<u8>) -> Result<String, FfiError> {
+    let encoded_content =
+        EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
 
-    TextCodec::decode(encoded_content).map_err(|e| GenericError::Generic { err: e.to_string() })
+    TextCodec::decode(encoded_content).map_err(|e| FfiError::generic(e.to_string()))
 }
 
 #[uniffi::export]
-pub fn encode_markdown(text: String) -> Result<Vec<u8>, GenericError> {
-    let encoded =
-        MarkdownCodec::encode(text).map_err(|e| GenericError::Generic { err: e.to_string() })?;
+pub fn encode_markdown(text: String) -> Result<Vec<u8>, FfiError> {
+    let encoded = MarkdownCodec::encode(text).map_err(|e| FfiError::generic(e.to_string()))?;
 
     let mut buf = Vec::new();
     encoded
         .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     Ok(buf)
 }
 
 #[uniffi::export]
-pub fn decode_markdown(bytes: Vec<u8>) -> Result<String, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+pub fn decode_markdown(bytes: Vec<u8>) -> Result<String, FfiError> {
+    let encoded_content =
+        EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
 
-    MarkdownCodec::decode(encoded_content).map_err(|e| GenericError::Generic { err: e.to_string() })
+    MarkdownCodec::decode(encoded_content).map_err(|e| FfiError::generic(e.to_string()))
 }
 
 #[uniffi::export]
 pub fn encode_wallet_send_calls(
     wallet_send_calls: FfiWalletSendCalls,
-) -> Result<Vec<u8>, GenericError> {
+) -> Result<Vec<u8>, FfiError> {
     let encoded = WalletSendCallsCodec::encode(wallet_send_calls.into())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     let mut buf = Vec::new();
     encoded
         .encode(&mut buf)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     Ok(buf)
 }
 
 #[uniffi::export]
-pub fn decode_wallet_send_calls(bytes: Vec<u8>) -> Result<FfiWalletSendCalls, GenericError> {
-    let encoded_content = EncodedContent::decode(bytes.as_slice())
-        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+pub fn decode_wallet_send_calls(bytes: Vec<u8>) -> Result<FfiWalletSendCalls, FfiError> {
+    let encoded_content =
+        EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
 
     WalletSendCallsCodec::decode(encoded_content)
         .map(Into::into)
-        .map_err(|e| GenericError::Generic { err: e.to_string() })
+        .map_err(|e| FfiError::generic(e.to_string()))
 }
 
 #[derive(uniffi::Record, Clone)]
@@ -3369,8 +3361,7 @@ impl FfiStreamCloser {
     }
 
     /// End the stream and asynchronously wait for it to shutdown
-    pub async fn end_and_wait(&self) -> Result<(), GenericError> {
-        use GenericError::Generic;
+    pub async fn end_and_wait(&self) -> Result<(), FfiError> {
         use xmtp_common::StreamHandleError::*;
 
         if self.abort_handle.is_finished() {
@@ -3382,11 +3373,9 @@ impl FfiStreamCloser {
         if let Some(mut h) = stream_handle {
             match h.end_and_wait().await {
                 Err(Cancelled) => Ok(()),
-                Err(Panicked(msg)) => Err(Generic { err: msg }),
-                Err(e) => Err(Generic {
-                    err: format!("error joining task {}", e),
-                }),
-                Ok(t) => t.map_err(|e| Generic { err: e.to_string() }),
+                Err(Panicked(msg)) => Err(FfiError::generic(msg)),
+                Err(e) => Err(FfiError::generic(format!("error joining task {}", e))),
+                Ok(t) => t.map_err(|e| FfiError::generic(e.to_string())),
             }
         } else {
             log::warn!("subscription already closed");
@@ -3409,28 +3398,28 @@ impl FfiStreamCloser {
 #[uniffi::export(with_foreign)]
 pub trait FfiMessageCallback: Send + Sync {
     fn on_message(&self, message: FfiMessage);
-    fn on_error(&self, error: FfiSubscribeError);
+    fn on_error(&self, error: FfiError);
     fn on_close(&self);
 }
 
 #[uniffi::export(with_foreign)]
 pub trait FfiConversationCallback: Send + Sync {
     fn on_conversation(&self, conversation: Arc<FfiConversation>);
-    fn on_error(&self, error: FfiSubscribeError);
+    fn on_error(&self, error: FfiError);
     fn on_close(&self);
 }
 
 #[uniffi::export(with_foreign)]
 pub trait FfiConsentCallback: Send + Sync {
     fn on_consent_update(&self, consent: Vec<FfiConsent>);
-    fn on_error(&self, error: FfiSubscribeError);
+    fn on_error(&self, error: FfiError);
     fn on_close(&self);
 }
 
 #[uniffi::export(with_foreign)]
 pub trait FfiPreferenceCallback: Send + Sync {
     fn on_preference_update(&self, preference: Vec<FfiPreferenceUpdate>);
-    fn on_error(&self, error: FfiSubscribeError);
+    fn on_error(&self, error: FfiError);
     fn on_close(&self);
 }
 
@@ -3472,7 +3461,7 @@ pub struct FfiGroupPermissions {
 
 #[uniffi::export]
 impl FfiGroupPermissions {
-    pub fn policy_type(&self) -> Result<FfiGroupPermissionsOptions, GenericError> {
+    pub fn policy_type(&self) -> Result<FfiGroupPermissionsOptions, FfiError> {
         if let Ok(preconfigured_policy) = self.inner.preconfigured_policy() {
             Ok(preconfigured_policy.into())
         } else {
@@ -3480,7 +3469,7 @@ impl FfiGroupPermissions {
         }
     }
 
-    pub fn policy_set(&self) -> Result<FfiPermissionPolicySet, GenericError> {
+    pub fn policy_set(&self) -> Result<FfiPermissionPolicySet, FfiError> {
         let policy_set = &self.inner.policies;
         let metadata_policy_map = &policy_set.update_metadata_policy;
         let get_policy = |field: &str| {

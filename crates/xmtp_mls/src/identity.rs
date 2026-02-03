@@ -27,6 +27,7 @@ use tls_codec::SecretVLBytes;
 use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
+use xmtp_common::ErrorCode;
 use xmtp_common::time::now_ns;
 use xmtp_common::{RetryableError, retryable};
 use xmtp_configuration::{
@@ -184,7 +185,7 @@ impl IdentityStrategy {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum IdentityError {
     #[error(transparent)]
     CredentialSerialization(#[from] prost::EncodeError),
@@ -193,8 +194,10 @@ pub enum IdentityError {
     #[error("installation not found: {0}")]
     InstallationIdNotFound(String),
     #[error(transparent)]
+    #[error_code(inherit)]
     SignatureRequestBuilder(#[from] SignatureRequestError),
     #[error(transparent)]
+    #[error_code(inherit)]
     Signature(#[from] xmtp_id::associations::SignatureError),
     #[error(transparent)]
     BasicCredential(#[from] BasicCredentialError),
@@ -215,12 +218,15 @@ pub enum IdentityError {
     #[error(transparent)]
     OpenMls(#[from] openmls::prelude::Error),
     #[error(transparent)]
+    #[error_code(inherit)]
     StorageError(#[from] xmtp_db::StorageError),
     #[error(transparent)]
+    #[error_code(inherit)]
     OpenMlsStorageError(#[from] SqlKeyStoreError),
     #[error(transparent)]
     KeyPackageGenerationError(#[from] openmls::key_packages::errors::KeyPackageNewError),
     #[error(transparent)]
+    #[error_code(inherit)]
     KeyPackageVerificationError(#[from] KeyPackageVerificationError),
     #[error("The InboxID {id}, associated does not match the stored InboxId {stored}.")]
     InboxIdMismatch { id: InboxId, stored: InboxId },
@@ -231,14 +237,18 @@ pub enum IdentityError {
     #[error("error creating new identity: {0}")]
     NewIdentity(String),
     #[error(transparent)]
+    #[error_code(inherit)]
     Association(#[from] AssociationError),
     #[error(transparent)]
     Signer(#[from] xmtp_cryptography::SignerError),
     #[error(transparent)]
+    #[error_code(inherit)]
     ApiClient(#[from] xmtp_api::ApiError),
     #[error(transparent)]
+    #[error_code(inherit)]
     AddressValidation(#[from] IdentifierValidationError),
     #[error(transparent)]
+    #[error_code(inherit)]
     Db(#[from] xmtp_db::ConnectionError),
     #[error(
         "Cannot register a new installation because the InboxID {inbox_id} has already registered {count}/{max} installations. Please revoke existing installations first."
@@ -249,6 +259,7 @@ pub enum IdentityError {
         max: usize,
     },
     #[error(transparent)]
+    #[error_code(inherit)]
     GeneratePostQuantumKey(#[from] GeneratePostQuantumKeyError),
     #[error(transparent)]
     InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
@@ -866,6 +877,15 @@ pub enum GeneratePostQuantumKeyError {
     Rand(#[from] openmls_libcrux_crypto::RandError),
 }
 
+impl xmtp_common::ErrorCode for GeneratePostQuantumKeyError {
+    fn error_code(&self) -> &'static str {
+        match self {
+            Self::Crypto(_) => "GeneratePostQuantumKeyError::Crypto",
+            Self::Rand(_) => "GeneratePostQuantumKeyError::Rand",
+        }
+    }
+}
+
 /// Generate a new key pair using our post quantum ciphersuite
 pub(crate) fn generate_post_quantum_key() -> Result<HpkeKeyPair, GeneratePostQuantumKeyError> {
     let provider = LibcruxProvider::default();
@@ -1067,6 +1087,86 @@ mod tests {
         let key_package_from_db: Option<KeyPackageBundle> =
             provider.storage().key_package(&pq_hash_ref_inner).unwrap();
         assert!(key_package_from_db.is_none());
+    }
+
+    #[test]
+    fn test_generate_post_quantum_key_error_codes() {
+        use super::GeneratePostQuantumKeyError;
+        use openmls_traits::types::CryptoError;
+        use xmtp_common::ErrorCode;
+
+        // Test Crypto variant
+        let crypto_err = GeneratePostQuantumKeyError::Crypto(CryptoError::CryptoLibraryError);
+        assert_eq!(
+            crypto_err.error_code(),
+            "GeneratePostQuantumKeyError::Crypto"
+        );
+    }
+
+    #[test]
+    fn test_identity_error_codes() {
+        use super::IdentityError;
+        use xmtp_common::ErrorCode;
+
+        // Test simple variants
+        let err = IdentityError::LegacyKeyReuse;
+        assert_eq!(err.error_code(), "IdentityError::LegacyKeyReuse");
+
+        let err = IdentityError::UninitializedIdentity;
+        assert_eq!(err.error_code(), "IdentityError::UninitializedIdentity");
+
+        let err = IdentityError::LegacyKeyMismatch;
+        assert_eq!(err.error_code(), "IdentityError::LegacyKeyMismatch");
+
+        let err = IdentityError::RequiredIdentityNotFound;
+        assert_eq!(err.error_code(), "IdentityError::RequiredIdentityNotFound");
+
+        let err = IdentityError::Bincode;
+        assert_eq!(err.error_code(), "IdentityError::Bincode");
+
+        let err = IdentityError::MissingPostQuantumPublicKey;
+        assert_eq!(
+            err.error_code(),
+            "IdentityError::MissingPostQuantumPublicKey"
+        );
+
+        // Test variants with data
+        let err = IdentityError::InstallationIdNotFound("test".to_string());
+        assert_eq!(err.error_code(), "IdentityError::InstallationIdNotFound");
+
+        let err = IdentityError::InstallationKey("test".to_string());
+        assert_eq!(err.error_code(), "IdentityError::InstallationKey");
+
+        let err = IdentityError::NewIdentity("test".to_string());
+        assert_eq!(err.error_code(), "IdentityError::NewIdentity");
+
+        let err = IdentityError::TooManyInstallations {
+            inbox_id: "test".to_string(),
+            count: 10,
+            max: 5,
+        };
+        assert_eq!(err.error_code(), "IdentityError::TooManyInstallations");
+
+        let err = IdentityError::InboxIdMismatch {
+            id: "id1".to_string(),
+            stored: "id2".to_string(),
+        };
+        assert_eq!(err.error_code(), "IdentityError::InboxIdMismatch");
+
+        let err = IdentityError::NoAssociatedInboxId("addr".to_string());
+        assert_eq!(err.error_code(), "IdentityError::NoAssociatedInboxId");
+    }
+
+    #[test]
+    fn test_identity_error_inherited_codes() {
+        use super::IdentityError;
+        use xmtp_common::ErrorCode;
+        use xmtp_db::{NotFound, StorageError};
+
+        // Test inherited error codes
+        let storage_err = StorageError::NotFound(NotFound::MessageById(vec![1, 2, 3]));
+        let err = IdentityError::StorageError(storage_err);
+        assert_eq!(err.error_code(), "StorageError::NotFound");
     }
 
     #[xmtp_common::test]

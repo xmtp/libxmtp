@@ -50,7 +50,7 @@ pub use diesel::{
 };
 use openmls::storage::OpenMlsProvider;
 use prost::DecodeError;
-use xmtp_common::{MaybeSend, MaybeSync, RetryableError};
+use xmtp_common::{ErrorCode, MaybeSend, MaybeSync, RetryableError};
 use xmtp_proto::ConversionError;
 use zeroize::ZeroizeOnDrop;
 
@@ -135,11 +135,12 @@ impl std::fmt::Display for StorageOption {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, ErrorCode)]
 pub enum ConnectionError {
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
     #[error(transparent)]
+    #[error_code(inherit)]
     Platform(#[from] PlatformStorageError),
     #[error(transparent)]
     DecodeError(#[from] DecodeError),

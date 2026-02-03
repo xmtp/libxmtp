@@ -575,7 +575,7 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
             println!("Error returned: {:?}", err);
             assert_eq!(
                 err.to_string(),
-                "Client builder error: error creating new identity: Inbox ID mismatch".to_string()
+                "[ClientBuilderError::Identity] Client builder error: error creating new identity: Inbox ID mismatch".to_string()
             );
         }
         Ok(_) => panic!("Expected an error, but got Ok"),
@@ -704,7 +704,7 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
             println!("Error returned: {:?}", err);
             assert_eq!(
                 err.to_string(),
-                "Client builder error: error creating new identity: Inbox ID mismatch".to_string()
+                "[ClientBuilderError::Identity] Client builder error: error creating new identity: Inbox ID mismatch".to_string()
             );
         }
         Ok(_) => panic!("Expected an error, but got Ok"),
