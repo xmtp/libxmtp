@@ -74,9 +74,11 @@
               };
             };
           } // lib.optionalAttrs pkgs.stdenv.isDarwin {
-            # Use stdenvNoCC to avoid Nix's apple-sdk and cc-wrapper, which inject
-            # -mmacos-version-min into iOS cross-compilation builds causing conflicts.
-            # The builds are impure (__noChroot) and use the system Xcode SDK directly.
+            # stdenvNoCC is passed to both callPackage (for the aggregate derivation)
+            # and crane.mkLib (for the Rust build derivations). This avoids Nix's
+            # apple-sdk and cc-wrapper, which inject -mmacos-version-min flags that
+            # conflict with iOS cross-compilation. The builds are impure (__noChroot)
+            # and use the system Xcode SDK directly via ios-env.nix paths.
             ios-libs = (pkgs.callPackage ./nix/package/ios.nix {
               craneLib = crane.mkLib (pkgs // { stdenv = pkgs.stdenvNoCC; });
               stdenv = pkgs.stdenvNoCC;

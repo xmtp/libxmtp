@@ -4,6 +4,8 @@ WORKSPACE_PATH=$(shell dirname $(WORKSPACE_MANIFEST))
 TARGET_DIR=$(shell cargo metadata --format-version 1 --no-deps | jq -r '.target_directory')
 
 # Simulator config (Apple Silicon only - Intel simulator dropped for Nix compatibility)
+# IMPROVEMENT: x86_64-apple-ios-sim could be restored if needed for Rosetta-based
+# simulator testing. Would require adding it to iosTargets in ios-env.nix too.
 ARCHS_IOS = aarch64-apple-ios-sim
 ARCHS_MAC = x86_64-apple-darwin aarch64-apple-darwin
 LIB=libxmtpv3.a
@@ -138,7 +140,12 @@ swiftlocal: libxmtpv3.a bindgenstatic swift framework
 
 swiftdynamic: libxmtpv3.dylib bindgendynamic swiftdyn frameworkdyn
 
-# Build everything needed for local iOS SDK development
+# Build everything needed for local iOS SDK development.
+# Uses cargo directly (no nix build) — for devs who want a self-contained build
+# without Nix. The nix build path (`nix build .#ios-libs` + `make framework`)
+# is preferred for CI and when Cachix caching is available.
+# IMPROVEMENT: Document when to use `make local` vs `nix build .#ios-libs && make framework`
+# in a CONTRIBUTING or README section for iOS developers.
 local: NIX_OUT = build
 local: SWIFT_OUT = build/swift/static
 local: $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios bindgenstatic swift lipo framework

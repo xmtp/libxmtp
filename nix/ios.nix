@@ -1,5 +1,11 @@
 # iOS cross-compilation dev shell.
+# Provides the environment for `cargo build --target <ios-target>` from the CLI.
 # Uses shared config from nix/lib/ios-env.nix.
+#
+# Relationship to nix/package/ios.nix:
+#   - This file: interactive dev shell (`nix develop .#ios`)
+#   - package/ios.nix: CI/release build derivation (`nix build .#ios-libs`)
+# Both use ios-env.nix for shared cross-compilation config.
 { stdenv
 , darwin
 , lib
@@ -17,9 +23,16 @@
 let
   inherit (stdenv) isDarwin;
   iosEnv = import ./lib/ios-env.nix { inherit lib; };
+
+  # Rust toolchain with all iOS/macOS cross-compilation targets.
+  # Includes clippy and rustfmt for dev use (the package derivation omits these
+  # since it only needs to compile, not lint).
   rust-ios-toolchain = xmtp.mkToolchain iosEnv.iosTargets [ "clippy-preview" "rustfmt-preview" ];
 in
 mkShell {
+  # zerocallusedregs is a hardening flag that Nix enables by default.
+  # It uses a calling convention that Xcode's clang doesn't support,
+  # causing "unknown flag" errors during iOS cross-compilation.
   hardeningDisable = [ "zerocallusedregs" ];
 
   nativeBuildInputs = [ pkg-config ];
@@ -29,35 +42,27 @@ mkShell {
       zstd
       openssl
       sqlite
+      # Swift code formatting/linting tools for the iOS SDK development
       swiftformat
       swiftlint
     ]
     ++ lib.optionals isDarwin [
+      # cctools provides lipo for combining multi-arch static libraries
+      # into universal (fat) binaries in the Makefile's `lipo` target.
       darwin.cctools
     ];
 
   shellHook = ''
-    # Override Nix's apple-sdk DEVELOPER_DIR with real Xcode path.
-    # Must be in shellHook because Nix's setup hooks set DEVELOPER_DIR after env attrs.
-    export DEVELOPER_DIR="${iosEnv.developerDir}"
-
     # Unset SDKROOT so xcrun can discover the right SDK per target at build time.
     # (The package derivation sets SDKROOT per-target; the shell leaves it to xcrun.)
     unset SDKROOT
 
-    # Use Xcode toolchain clang for iOS cross-compilation.
-    # NOT /usr/bin/clang, which is an xcode-select shim that reads DEVELOPER_DIR.
-    export CC_aarch64_apple_ios="${iosEnv.xcodeClang}"
-    export CXX_aarch64_apple_ios="${iosEnv.xcodeClangxx}"
-    export CC_aarch64_apple_ios_sim="${iosEnv.xcodeClang}"
-    export CXX_aarch64_apple_ios_sim="${iosEnv.xcodeClangxx}"
+    # Export all cross-compilation env vars from ios-env.nix.
+    # Generated programmatically to avoid manual duplication.
+    # This includes DEVELOPER_DIR, CC/CXX overrides, linker settings, and bindgen args.
+    ${lib.concatStringsSep "\n    " (lib.mapAttrsToList (k: v: ''export ${k}="${v}"'') iosEnv.envVars)}
 
-    export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER="${iosEnv.xcodeClang}"
-    export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER="${iosEnv.xcodeClang}"
-
-    export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios="--target=arm64-apple-ios --sysroot=${iosEnv.iosSdk}"
-    export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios_sim="--target=arm64-apple-ios-simulator --sysroot=${iosEnv.iosSimSdk}"
-
+    # --- Xcode detection ---
     if [[ ! -d "${iosEnv.developerDir}" ]]; then
       echo "ERROR: Xcode not found at ${iosEnv.developerDir}" >&2
       echo "iOS builds require Xcode. Install from App Store or run:" >&2
@@ -66,7 +71,18 @@ mkShell {
       return 1
     fi
 
+    # IMPROVEMENT: Version validation — check that Xcode is recent enough for
+    # the iOS 14 deployment target. Currently just warns; could be made stricter.
+    XCODE_VERSION=$(xcodebuild -version 2>/dev/null | head -1 | awk '{print $2}')
+    if [[ -n "$XCODE_VERSION" ]]; then
+      MAJOR=$(echo "$XCODE_VERSION" | cut -d. -f1)
+      if [[ "$MAJOR" -lt 14 ]]; then
+        echo "WARNING: Xcode $XCODE_VERSION detected. Xcode 14+ recommended for iOS 14 deployment target." >&2
+      fi
+    fi
+
     # Prepend Xcode's bin to PATH so system xcodebuild/xcrun are used
+    # instead of Nix's xcbuild wrappers (which don't support iOS SDKs).
     export PATH="${iosEnv.developerDir}/usr/bin:$PATH"
   '';
 }

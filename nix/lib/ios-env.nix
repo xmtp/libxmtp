@@ -7,6 +7,11 @@
 # iOS builds). We bypass this entirely by using the full Xcode toolchain clang path.
 { lib }:
 let
+  # Cross-compilation targets for the iOS release:
+  #   x86_64-apple-darwin    — macOS Intel (for universal macOS binary)
+  #   aarch64-apple-darwin   — macOS Apple Silicon (for universal macOS binary)
+  #   aarch64-apple-ios      — iOS device (arm64)
+  #   aarch64-apple-ios-sim  — iOS simulator on Apple Silicon
   iosTargets = [
     "x86_64-apple-darwin"
     "aarch64-apple-darwin"
@@ -35,10 +40,21 @@ let
     "aarch64-apple-darwin" = macSdk;
   }.${target};
 
+  # iOS targets need explicit CC/CXX overrides to bypass Nix's cc-wrapper,
+  # which injects macOS-specific flags (e.g., -mmacos-version-min) that break
+  # iOS compilation. macOS targets don't need this — Nix's cc-wrapper is
+  # compatible with macOS builds.
   isIosTarget = target: builtins.elem target [ "aarch64-apple-ios" "aarch64-apple-ios-sim" ];
 
   # Cargo/cc-rs environment variables for iOS cross-compilation.
-  # Can be used as derivation attrs or exported in shell hooks.
+  #
+  # Two-level approach: these are Nix attribute sets that can be used in two ways:
+  #   1. As derivation attrs (merged into derivation with //) — for package builds
+  #   2. As shell exports (via lib.mapAttrsToList in shellHook) — for dev shells
+  #
+  # Note: SDKROOT is intentionally absent here. In the dev shell, it's unset so
+  # xcrun can discover the right SDK per invocation. In package builds, it's set
+  # per-target in envSetup (below) because each target needs a different SDK.
   envVars = {
     DEVELOPER_DIR = developerDir;
     IPHONEOS_DEPLOYMENT_TARGET = "14";
@@ -62,6 +78,8 @@ let
   envSetup = target: ''
     export DEVELOPER_DIR="${developerDir}"
     export SDKROOT="${sdkrootForTarget target}"
+    # Prepend Xcode's usr/bin to PATH so the real xcrun/xcodebuild are found
+    # instead of Nix's xcbuild wrappers (which don't support iOS SDKs).
     export PATH="${developerDir}/usr/bin:$PATH"
   '' + lib.optionalString (isIosTarget target) ''
     export CC="${xcodeClang}"
