@@ -201,7 +201,7 @@ jobs:
           VERSION: ${{ needs.compute-version.outputs.version }}
         run: |
           # Check if version is already published
-          PUBLISHED=$(pod trunk info XMTP 2>/dev/null | grep -c "$VERSION" || true)
+          PUBLISHED=$(pod trunk info XMTP 2>/dev/null | grep -wc "$VERSION" || true)
           if [ "$PUBLISHED" -gt 0 ]; then
             echo "Version $VERSION already published to CocoaPods, skipping"
           else
