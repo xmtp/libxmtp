@@ -101,8 +101,7 @@ where
         };
         let store = xmtp_db::store::EncryptedMessageStore::<ChaosDb<Db>>::builder()
             .db(chaos_db)
-            .build()
-            .unwrap();
+            .build();
         (conn, store)
     }
 }

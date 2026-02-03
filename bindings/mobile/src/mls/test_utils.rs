@@ -186,8 +186,12 @@ where
     let client = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(tmp_path()),
-        Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+        DbOptions::new(
+            Some(tmp_path()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            None,
+            None,
+        ),
         &inbox_id,
         ident.into(),
         1,
