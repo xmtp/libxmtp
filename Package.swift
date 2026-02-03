@@ -10,7 +10,7 @@ import PackageDescription
 
 let thisPackagePath = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let useLocalBinary = FileManager.default.fileExists(
-	atPath: "\(thisPackagePath)/sdks/ios/.build/LibXMTPSwiftFFI.xcframework"
+	atPath: "\(thisPackagePath)/bindings/mobile/build/swift/LibXMTPSwiftFFI.xcframework"
 )
 
 let package = Package(
@@ -36,7 +36,7 @@ let package = Package(
 		useLocalBinary
 			? .binaryTarget(
 				name: "LibXMTPSwiftFFI",
-				path: "sdks/ios/.build/LibXMTPSwiftFFI.xcframework"
+				path: "bindings/mobile/build/swift/LibXMTPSwiftFFI.xcframework"
 			)
 			: .binaryTarget(
 				name: "LibXMTPSwiftFFI",
