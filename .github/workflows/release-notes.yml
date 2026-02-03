@@ -1,0 +1,257 @@
+name: Release Notes
+
+on:
+  push:
+    branches: ["release/**"]
+
+concurrency:
+  group: release-notes-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update-release-notes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from branch name
+        id: version
+        run: |
+          VERSION="${GITHUB_REF#refs/heads/release/}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Detected release version: $VERSION"
+
+      - name: Find and classify release notes
+        id: classify
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          EMPTY_FILES=""
+          CONTENT_FILES=""
+          EMPTY_META=""
+          CONTENT_META=""
+
+          shopt -s nullglob
+          for file in docs/release-notes/*/"${VERSION}.md"; do
+            # Parse frontmatter
+            sdk=$(awk '/^---$/{if(c++)exit}c' "$file" | grep '^sdk:' | awk '{print $2}')
+            prev_tag=$(awk '/^---$/{if(c++)exit}c' "$file" | grep '^previous_release_tag:' | awk '{print $2}')
+
+            # Skip files with no previous release tag
+            if [ "$prev_tag" = "null" ] || [ -z "$prev_tag" ]; then
+              echo "Skipping $file — no previous release tag"
+              continue
+            fi
+
+            # Detect empty scaffold: strip frontmatter, HTML comments, headers, whitespace
+            body=$(awk '/^---$/{c++;next}c>=2' "$file")
+            stripped=$(echo "$body" | sed 's/<!--[^>]*-->//g' | sed '/^[[:space:]]*$/d' | sed '/^#/d' | tr -d '[:space:]')
+
+            if [ -z "$stripped" ]; then
+              echo "Empty scaffold: $file (sdk=$sdk, prev_tag=$prev_tag)"
+              EMPTY_FILES="${EMPTY_FILES}${file}\n"
+              EMPTY_META="${EMPTY_META}${sdk}|${file}|${prev_tag}\n"
+            else
+              echo "Has content: $file (sdk=$sdk, prev_tag=$prev_tag)"
+              CONTENT_FILES="${CONTENT_FILES}${file}\n"
+              CONTENT_META="${CONTENT_META}${sdk}|${file}|${prev_tag}\n"
+            fi
+          done
+
+          echo "empty_meta<<EOF" >> "$GITHUB_OUTPUT"
+          echo -e "$EMPTY_META" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          echo "content_meta<<EOF" >> "$GITHUB_OUTPUT"
+          echo -e "$CONTENT_META" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          # Set boolean flags
+          if [ -n "$EMPTY_META" ]; then
+            echo "has_empty=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_empty=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "$CONTENT_META" ]; then
+            echo "has_content=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_content=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # --- Empty scaffold path: Claude writes first draft, commits to release branch ---
+
+      - name: Draft release notes (empty scaffolds)
+        if: steps.classify.outputs.has_empty == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--max-turns 15"
+          prompt: |
+            You are drafting release notes for a software SDK. The audience is end users
+            of this SDK, not contributors to this repo.
+
+            Include changes to:
+            - Shared Rust crates (xmtp_mls, xmtp_db, xmtp_id, xmtp_cryptography,
+              xmtp_proto, xmtp_api, xmtp_api_d14n) that affect SDK behavior
+            - The SDK's own bindings directory (e.g., bindings/mobile and sdks/ios for iOS)
+
+            Exclude changes to:
+            - Other SDK bindings (e.g., bindings/wasm, bindings/node for an iOS release)
+            - CI/CD workflows, dev tooling, documentation, and repo infrastructure
+            - Test-only changes with no user-facing impact
+
+            The following release note files are empty scaffolds that need a complete first draft.
+            For each file listed below:
+
+            1. Run `git diff <previous_tag>..HEAD -- . ':!docs/release-notes'` to see code changes.
+            2. Run `git log --oneline <previous_tag>..HEAD` for commit history.
+            3. Write a complete draft filling in all sections (Highlights, What's Changed,
+               Breaking Changes, New Features, Bug Fixes).
+            4. Remove HTML comment placeholders and replace with actual content.
+            5. If a section has no relevant changes, write "None." for that section.
+            6. Do not modify the YAML frontmatter.
+
+            Files to draft:
+            ${{ steps.classify.outputs.empty_meta }}
+            Format: sdk|file_path|previous_release_tag (one per line)
+
+            After editing all files, commit with message:
+            docs: draft release notes for ${{ steps.version.outputs.version }} [skip ci]
+
+      - name: Push draft release notes
+        if: steps.classify.outputs.has_empty == 'true'
+        run: |
+          if git diff --quiet HEAD origin/${{ github.ref_name }}; then
+            echo "No new commits to push"
+          else
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+
+      # --- Has content path: Claude suggests edits on a separate branch via PR ---
+
+      - name: Set up suggestion branch
+        if: steps.classify.outputs.has_content == 'true'
+        id: suggestion-branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          BRANCH="ai-release-notes/${VERSION}"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+          if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
+            echo "Branch $BRANCH exists, resetting to current HEAD"
+            git checkout -B "$BRANCH"
+          else
+            echo "Creating branch $BRANCH"
+            git checkout -b "$BRANCH"
+          fi
+
+          # Check if PR already exists
+          PR_URL=$(gh pr list --head "$BRANCH" --base "${{ github.ref_name }}" --json url --jq '.[0].url // empty')
+          if [ -n "$PR_URL" ]; then
+            echo "pr_exists=true" >> "$GITHUB_OUTPUT"
+            echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          else
+            echo "pr_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Suggest release notes edits
+        if: steps.classify.outputs.has_content == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--max-turns 15"
+          prompt: |
+            You are reviewing release notes for a software SDK. The audience is end users
+            of this SDK, not contributors to this repo.
+
+            Include changes to:
+            - Shared Rust crates (xmtp_mls, xmtp_db, xmtp_id, xmtp_cryptography,
+              xmtp_proto, xmtp_api, xmtp_api_d14n) that affect SDK behavior
+            - The SDK's own bindings directory (e.g., bindings/mobile and sdks/ios for iOS)
+
+            Exclude changes to:
+            - Other SDK bindings (e.g., bindings/wasm, bindings/node for an iOS release)
+            - CI/CD workflows, dev tooling, documentation, and repo infrastructure
+            - Test-only changes with no user-facing impact
+
+            The following release note files have been partially or fully written by a human.
+            For each file listed below:
+
+            1. Run `git diff <previous_tag>..HEAD -- . ':!docs/release-notes'` to see code changes.
+            2. Run `git log --oneline <previous_tag>..HEAD` for commit history.
+            3. Compare the existing notes against actual changes.
+            4. Fix any inaccuracies (wrong descriptions, missing context).
+            5. Add missing changes that should be documented.
+            6. Remove entries that don't match actual code changes.
+            7. Preserve the author's voice and structure where correct.
+            8. Do not modify the YAML frontmatter.
+
+            If the notes already accurately cover all relevant changes, make NO changes
+            and do NOT commit.
+
+            Files to review:
+            ${{ steps.classify.outputs.content_meta }}
+            Format: sdk|file_path|previous_release_tag (one per line)
+
+            If you make changes, commit with message:
+            docs: suggest release notes updates for ${{ steps.version.outputs.version }}
+
+      - name: Push suggestions and manage PR
+        if: steps.classify.outputs.has_content == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          BRANCH="${{ steps.suggestion-branch.outputs.branch }}"
+          RELEASE_BRANCH="${{ github.ref_name }}"
+
+          # Check if Claude made any changes
+          if git diff --quiet HEAD "origin/${RELEASE_BRANCH}" -- docs/release-notes/; then
+            echo "No changes suggested — release notes are up to date"
+            exit 0
+          fi
+
+          # Force-push the suggestion branch
+          git push --force origin "HEAD:${BRANCH}"
+
+          # Create or update PR
+          if [ "${{ steps.suggestion-branch.outputs.pr_exists }}" = "true" ]; then
+            echo "Updating existing PR"
+            gh pr edit "${{ steps.suggestion-branch.outputs.pr_url }}" \
+              --body "$(cat <<EOF
+          ## AI-Suggested Release Notes Updates
+
+          Claude reviewed the release notes for **${VERSION}** against the actual code
+          changes and suggested improvements.
+
+          > This PR is automatically updated on each push to \`${RELEASE_BRANCH}\`.
+          > Review the diff to see what Claude suggests changing.
+
+          🤖 Generated with [Claude Code](https://claude.ai/code)
+          EOF
+          )"
+          else
+            echo "Creating new PR"
+            gh pr create \
+              --base "${RELEASE_BRANCH}" \
+              --head "${BRANCH}" \
+              --title "docs: AI-suggested release notes for ${VERSION}" \
+              --body "$(cat <<EOF
+          ## AI-Suggested Release Notes Updates
+
+          Claude reviewed the release notes for **${VERSION}** against the actual code
+          changes and suggested improvements.
+
+          > This PR is automatically updated on each push to \`${RELEASE_BRANCH}\`.
+          > Review the diff to see what Claude suggests changing.
+
+          🤖 Generated with [Claude Code](https://claude.ai/code)
+          EOF
+          )"
+          fi
