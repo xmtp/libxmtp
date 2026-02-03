@@ -16,7 +16,7 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use thiserror::Error;
 use xmtp_common::{BoxDynError, RetryableError, retryable};
-use xmtp_configuration::BUSY_TIMEOUT;
+use xmtp_configuration::{BUSY_TIMEOUT, MAX_DB_POOL_SIZE, MIN_DB_POOL_SIZE};
 
 use pool::*;
 
@@ -197,27 +197,82 @@ impl RetryableError for PlatformStorageError {
     }
 }
 
-#[derive(Clone, Debug)]
 /// Database used in `native` (everywhere but web)
+#[derive(Clone, Debug)]
 pub struct NativeDb {
     customizer: Box<dyn XmtpConnection>,
     conn: Arc<PersistentOrMem<NativeDbConnection, EphemeralDbConnection>>,
     opts: StorageOption,
 }
 
+use native_db_builder::{Empty, IsComplete, IsSet, IsUnset, SetKey, SetOpts};
+
 impl NativeDb {
-    pub fn new(opts: &StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
-        Self::new_inner(opts, Some(enc_key)).map_err(Into::into)
+    pub fn builder() -> NativeDbBuilder<Empty> {
+        native_db()
+    }
+}
+
+#[bon::builder]
+pub fn native_db(
+    #[builder(setters(vis = "", name = opts_internal))] opts: StorageOption,
+    #[builder(required, setters(vis = "", name = key_internal))] key: Option<EncryptionKey>,
+    #[builder(default = MAX_DB_POOL_SIZE)] max_pool_size: u32,
+    /// minimum amount of connections maintained at any time
+    #[builder(default = MIN_DB_POOL_SIZE)]
+    min_pool_size: u32,
+) -> Result<NativeDb, StorageError> {
+    NativeDb::new_inner(&opts, key, max_pool_size, min_pool_size).map_err(Into::into)
+}
+
+impl<S: native_db_builder::State> NativeDbBuilder<S> {
+    pub fn ephemeral(self) -> NativeDbBuilder<SetOpts<S>>
+    where
+        S::Opts: IsUnset,
+    {
+        self.opts_internal(StorageOption::Ephemeral)
     }
 
-    pub fn new_unencrypted(opts: &StorageOption) -> Result<Self, StorageError> {
-        Self::new_inner(opts, None).map_err(Into::into)
+    pub fn persistent(self, path: impl Into<String>) -> NativeDbBuilder<SetOpts<S>>
+    where
+        S::Opts: IsUnset,
+    {
+        self.opts_internal(StorageOption::Persistent(path.into()))
     }
 
+    pub fn key(self, key: impl Into<EncryptionKey>) -> NativeDbBuilder<SetKey<S>>
+    where
+        S::Key: IsUnset,
+    {
+        self.key_internal(Some(key.into()))
+    }
+
+    /// Explicitly build the db without encryption
+    pub fn build_unencrypted(self) -> Result<NativeDb, StorageError>
+    where
+        S::Key: IsUnset,
+        S::Opts: IsSet,
+    {
+        let this = self.key_internal(Option::<EncryptionKey>::None);
+        this.call()
+    }
+
+    /// Build the native db with encryption
+    pub fn build(self) -> Result<NativeDb, StorageError>
+    where
+        S: IsComplete,
+    {
+        self.call()
+    }
+}
+
+impl NativeDb {
     /// This function is private so that an unencrypted database cannot be created by accident
     fn new_inner(
         opts: &StorageOption,
         enc_key: Option<EncryptionKey>,
+        max_pool_size: u32,
+        min_pool_size: u32,
     ) -> Result<Self, PlatformStorageError> {
         let customizer = if let Some(key) = enc_key {
             let enc_connection = EncryptedConnection::new(key, opts)?;
@@ -232,7 +287,11 @@ impl NativeDb {
             Box::new(NopConnection::default()) as Box<dyn XmtpConnection>
         };
         let conn = if customizer.is_persistent() {
-            PersistentOrMem::Persistent(NativeDbConnection::new(customizer.clone())?)
+            PersistentOrMem::Persistent(NativeDbConnection::new(
+                customizer.clone(),
+                max_pool_size,
+                min_pool_size,
+            )?)
         } else {
             PersistentOrMem::Mem(EphemeralDbConnection::new()?)
         };
@@ -344,6 +403,8 @@ impl ConnectionExt for EphemeralDbConnection {
 pub struct NativeDbConnection {
     pub(super) pool: ArcSwapOption<DbPool>,
     customizer: Box<dyn XmtpConnection>,
+    max_pool_size: u32,
+    min_pool_size: u32,
 }
 
 impl std::fmt::Debug for NativeDbConnection {
@@ -358,10 +419,22 @@ impl std::fmt::Debug for NativeDbConnection {
 }
 
 impl NativeDbConnection {
-    fn new(customizer: Box<dyn XmtpConnection>) -> Result<Self, PlatformStorageError> {
+    fn new(
+        customizer: Box<dyn XmtpConnection>,
+        max_pool_size: u32,
+        min_pool_size: u32,
+    ) -> Result<Self, PlatformStorageError> {
+        let pool = DbPool::builder()
+            .customizer(customizer.clone())
+            .max_size(max_pool_size)
+            .min_size(min_pool_size)
+            .build()?;
+
         Ok(Self {
-            pool: ArcSwapOption::new(Some(Arc::new(DbPool::new(customizer.clone())?))),
+            pool: ArcSwapOption::new(Some(Arc::new(pool))),
             customizer,
+            max_pool_size,
+            min_pool_size,
         })
     }
 
@@ -373,8 +446,12 @@ impl NativeDbConnection {
 
     fn db_reconnect(&self) -> Result<(), PlatformStorageError> {
         tracing::info!("reconnecting sqlite database connection");
-        self.pool
-            .store(Some(Arc::new(DbPool::new(self.customizer.clone())?)));
+        let pool = DbPool::builder()
+            .max_size(self.max_pool_size)
+            .min_size(self.min_pool_size)
+            .customizer(self.customizer.clone())
+            .build()?;
+        self.pool.store(Some(Arc::new(pool)));
         Ok(())
     }
 }
@@ -476,9 +553,12 @@ mod tests {
         let mut enc_key = [1u8; 32];
 
         let db_path = tmp_path();
-        let opts = StorageOption::Persistent(db_path.clone());
         {
-            let db = NativeDb::new(&opts, enc_key).unwrap();
+            let db = NativeDb::builder()
+                .persistent(db_path.clone())
+                .key(enc_key)
+                .build()
+                .unwrap();
             db.init().unwrap();
 
             StoredIdentity::new(
@@ -490,7 +570,11 @@ mod tests {
             .unwrap();
         } // Drop it
         enc_key[3] = 145; // Alter the enc_key
-        let err = NativeDb::new(&opts, enc_key).unwrap_err();
+        let err = NativeDb::builder()
+            .persistent(db_path.clone())
+            .key(enc_key)
+            .build()
+            .unwrap_err();
         // Ensure it fails
         assert!(
             matches!(

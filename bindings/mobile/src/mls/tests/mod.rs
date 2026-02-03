@@ -6,12 +6,12 @@ use super::{
     FfiXmtpClient, create_client,
 };
 use crate::{
-    FfiAction, FfiActionStyle, FfiActions, FfiAttachment, FfiConsent, FfiConsentEntityType,
-    FfiConsentState, FfiContentType, FfiConversationCallback, FfiConversationMessageKind,
-    FfiConversationType, FfiCreateDMOptions, FfiCreateGroupOptions, FfiDecodedMessage,
-    FfiDecodedMessageBody, FfiDecodedMessageContent, FfiDirection, FfiGroupMembershipState,
-    FfiGroupMessageKind, FfiGroupPermissionsOptions, FfiGroupQueryOrderBy, FfiIntent,
-    FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
+    DbOptions, FfiAction, FfiActionStyle, FfiActions, FfiAttachment, FfiConsent,
+    FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversationCallback,
+    FfiConversationMessageKind, FfiConversationType, FfiCreateDMOptions, FfiCreateGroupOptions,
+    FfiDecodedMessage, FfiDecodedMessageBody, FfiDecodedMessageContent, FfiDirection,
+    FfiGroupMembershipState, FfiGroupMessageKind, FfiGroupPermissionsOptions, FfiGroupQueryOrderBy,
+    FfiIntent, FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
     FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
     FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReactionAction,
     FfiReactionPayload, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply,
@@ -68,7 +68,6 @@ use xmtp_content_types::{
     transaction_reference::TransactionReferenceCodec,
 };
 use xmtp_cryptography::utils::generate_local_wallet;
-use xmtp_db::EncryptionKey;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::prelude::*;
@@ -287,7 +286,7 @@ impl FfiMessageDeletionCallback for RustMessageDeletionCallback {
 }
 
 // Helper functions
-pub(crate) fn static_enc_key() -> EncryptionKey {
+pub(crate) fn static_enc_key() -> [u8; 32] {
     [2u8; 32]
 }
 
@@ -343,8 +342,12 @@ pub(crate) async fn new_test_client_with_wallet_and_history_sync_url(
     let client = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(tmp_path()),
-        Some([0u8; 32].to_vec()),
+        DbOptions::new(
+            Some(tmp_path()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            None,
+            None,
+        ),
         &inbox_id,
         ident,
         nonce,
@@ -377,8 +380,12 @@ pub(crate) async fn new_test_client_no_panic(
     let client = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(tmp_path()),
-        Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+        DbOptions::new(
+            Some(tmp_path()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            None,
+            None,
+        ),
         &inbox_id,
         ident,
         nonce,

@@ -2,7 +2,7 @@
 use crate::{
   client::{
     Client,
-    create_client::create_client,
+    create_client::{DbOptions, create_client},
     options::{LogOptions, SyncWorkerMode},
   },
   identity::Identifier,
@@ -39,10 +39,9 @@ pub async fn create_local_toxic_client(
     api_addr,
     None,
     false,
-    db_path,
+    DbOptions::new(db_path, encryption_key, None, None),
     inbox_id,
     account_identifier,
-    encryption_key,
     device_sync_server_url,
     device_sync_worker_mode,
     log_options,
