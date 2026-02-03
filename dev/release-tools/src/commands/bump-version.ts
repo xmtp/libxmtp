@@ -33,12 +33,17 @@ export function builder(yargs: Argv) {
       demandOption: true,
       choices: ["major", "minor", "patch"] as const,
       describe: "Version bump type",
+    })
+    .option("repoRoot", {
+      type: "string",
+      default: process.cwd(),
+      describe: "Repository root directory",
     });
 }
 
 export function handler(
-  argv: ArgumentsCamelCase<{ sdk: string; type: BumpType }>,
+  argv: ArgumentsCamelCase<{ sdk: string; type: BumpType; repoRoot: string }>,
 ) {
-  const version = bumpVersion(argv.sdk, argv.type, process.cwd());
+  const version = bumpVersion(argv.sdk, argv.type, argv.repoRoot);
   console.log(version);
 }
