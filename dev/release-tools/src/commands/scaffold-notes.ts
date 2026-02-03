@@ -64,21 +64,26 @@ export function builder(yargs: Argv) {
     .option("since", {
       type: "string",
       describe: "Tag to diff from (defaults to last stable release tag)",
+    })
+    .option("repoRoot", {
+      type: "string",
+      default: process.cwd(),
+      describe: "Repository root directory",
     });
 }
 
 export function handler(
-  argv: ArgumentsCamelCase<{ sdk: string; since?: string }>,
+  argv: ArgumentsCamelCase<{ sdk: string; since?: string; repoRoot: string }>,
 ) {
   const sinceTag =
     argv.since ??
     (() => {
-      const lastVersion = findLastVersion(argv.sdk, process.cwd());
+      const lastVersion = findLastVersion(argv.sdk, argv.repoRoot);
       if (!lastVersion) return null;
       const config = getSdkConfig(argv.sdk);
       return `${config.tagPrefix}${lastVersion}`;
     })();
 
-  const outputPath = scaffoldNotes(argv.sdk, process.cwd(), sinceTag);
+  const outputPath = scaffoldNotes(argv.sdk, argv.repoRoot, sinceTag);
   console.log(outputPath);
 }

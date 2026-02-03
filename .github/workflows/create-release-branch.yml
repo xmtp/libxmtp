@@ -56,7 +56,7 @@ jobs:
             cd dev/release-tools
             NEW_VERSION=$(yarn cli bump-version --sdk ios --type "$IOS_BUMP" --repo-root ../..)
             echo "iOS version bumped to: $NEW_VERSION"
-            yarn cli scaffold-notes --sdk ios
+            yarn cli scaffold-notes --sdk ios --repo-root ../..
             cd ../..
           fi
 
