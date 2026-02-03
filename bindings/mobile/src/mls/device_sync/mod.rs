@@ -12,6 +12,7 @@ use xmtp_mls::groups::device_sync::{
 };
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
+#[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
     /// Manually trigger a device sync request to sync records from another active device on this account.
     pub async fn send_sync_request(&self) -> Result<(), GenericError> {
@@ -71,14 +72,14 @@ impl FfiXmtpClient {
         path: String,
         opts: FfiArchiveOptions,
         key: Vec<u8>,
-    ) -> Result<BackupMetadata, GenericError> {
+    ) -> Result<FfiBackupMetadata, GenericError> {
         let db = self.inner_client.context.db();
         let options: BackupOptions = opts.into();
         let metadata = ArchiveExporter::export_to_file(options, db, path, &check_key(key)?)
             .await
             .map_err(DeviceSyncError::Archive)?;
 
-        Ok(BackupMetadata::from_metadata_save(metadata, BACKUP_VERSION))
+        Ok(BackupMetadata::from_metadata_save(metadata, BACKUP_VERSION).into())
     }
 
     /// Import a previous archive from file.

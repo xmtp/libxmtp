@@ -913,9 +913,7 @@ public final class Client {
 		encryptionKey: Data,
 		opts: ArchiveOptions = ArchiveOptions()
 	) async throws {
-		try await ffiClient.createArchive(
-			path: path, opts: opts.toFfi(), key: encryptionKey
-		)
+		try await ffiClient.createArchive(path: path, opts: opts.toFfi(), key: encryptionKey)
 	}
 
 	public func importArchive(path: String, encryptionKey: Data) async throws {
