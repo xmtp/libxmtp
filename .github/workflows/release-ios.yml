@@ -194,7 +194,7 @@ jobs:
           # For dev/rc releases, update podspec with suffixed version
           if [ "${{ inputs.release-type }}" != "final" ]; then
             # Write the full version (with suffix) directly to podspec
-            sed -i '' "s/spec.version.*=.*/spec.version      = \"$VERSION\"/" sdks/ios/XMTP.podspec
+            yarn cli set-manifest-version --sdk ios --version "$VERSION"
           fi
       - name: Commit and tag
         env:

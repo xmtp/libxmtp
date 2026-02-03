@@ -8,6 +8,7 @@
     "cli": "tsx src/cli.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -21,10 +21,10 @@ yarn cli <command> [flags]
 
 Find the latest published version for an SDK from git tags.
 
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--sdk` | string | yes | SDK name (e.g., `ios`) |
-| `--pre-release` | boolean | no | Include prerelease versions (default: false) |
+| Flag            | Type    | Required | Description                                  |
+| --------------- | ------- | -------- | -------------------------------------------- |
+| `--sdk`         | string  | yes      | SDK name (e.g., `ios`)                       |
+| `--pre-release` | boolean | no       | Include prerelease versions (default: false) |
 
 ```bash
 yarn cli find-last-version --sdk ios
@@ -35,10 +35,10 @@ yarn cli find-last-version --sdk ios --pre-release
 
 Bump the version in an SDK manifest (e.g., podspec).
 
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--sdk` | string | yes | SDK name |
-| `--type` | `major` \| `minor` \| `patch` | yes | Version bump type |
+| Flag     | Type                          | Required | Description       |
+| -------- | ----------------------------- | -------- | ----------------- |
+| `--sdk`  | string                        | yes      | SDK name          |
+| `--type` | `major` \| `minor` \| `patch` | yes      | Version bump type |
 
 ```bash
 yarn cli bump-version --sdk ios --type minor
@@ -48,11 +48,11 @@ yarn cli bump-version --sdk ios --type minor
 
 Compute a full version string for dev, RC, or final releases. Dev builds append the short git SHA; RC builds append the RC number.
 
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--sdk` | string | yes | SDK name |
-| `--release-type` | `dev` \| `rc` \| `final` | yes | Release type |
-| `--rc-number` | number | for `rc` | RC number |
+| Flag             | Type                     | Required | Description  |
+| ---------------- | ------------------------ | -------- | ------------ |
+| `--sdk`          | string                   | yes      | SDK name     |
+| `--release-type` | `dev` \| `rc` \| `final` | yes      | Release type |
+| `--rc-number`    | number                   | for `rc` | RC number    |
 
 ```bash
 yarn cli compute-version --sdk ios --release-type dev
@@ -64,11 +64,11 @@ yarn cli compute-version --sdk ios --release-type final
 
 Update the binary target URL and checksum in `Package.swift`.
 
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--sdk` | string | yes | SDK name |
-| `--url` | string | yes | Artifact download URL |
-| `--checksum` | string | yes | SHA-256 checksum of the artifact |
+| Flag         | Type   | Required | Description                      |
+| ------------ | ------ | -------- | -------------------------------- |
+| `--sdk`      | string | yes      | SDK name                         |
+| `--url`      | string | yes      | Artifact download URL            |
+| `--checksum` | string | yes      | SHA-256 checksum of the artifact |
 
 ```bash
 yarn cli update-spm-checksum --sdk ios \
@@ -80,10 +80,10 @@ yarn cli update-spm-checksum --sdk ios \
 
 Generate a release notes template from git history.
 
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--sdk` | string | yes | SDK name |
-| `--since` | string | no | Git tag to diff from (defaults to last stable release tag) |
+| Flag      | Type   | Required | Description                                                |
+| --------- | ------ | -------- | ---------------------------------------------------------- |
+| `--sdk`   | string | yes      | SDK name                                                   |
+| `--since` | string | no       | Git tag to diff from (defaults to last stable release tag) |
 
 ```bash
 yarn cli scaffold-notes --sdk ios
@@ -94,12 +94,12 @@ yarn cli scaffold-notes --sdk ios --since "ios-1.0.0"
 
 Orchestrate a full release branch — bumps the version, scaffolds release notes, and commits everything.
 
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--sdk` | string | yes | SDK to bump |
-| `--version` | string | yes | Release version (used in branch name) |
-| `--bump` | `major` \| `minor` \| `patch` | yes | Version bump type |
-| `--base` | string | no | Base ref to branch from (default: `HEAD`) |
+| Flag        | Type                          | Required | Description                               |
+| ----------- | ----------------------------- | -------- | ----------------------------------------- |
+| `--sdk`     | string                        | yes      | SDK to bump                               |
+| `--version` | string                        | yes      | Release version (used in branch name)     |
+| `--bump`    | `major` \| `minor` \| `patch` | yes      | Version bump type                         |
+| `--base`    | string                        | no       | Base ref to branch from (default: `HEAD`) |
 
 ```bash
 yarn cli create-release-branch \

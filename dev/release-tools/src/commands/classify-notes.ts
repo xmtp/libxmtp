@@ -9,12 +9,12 @@ export const describe =
 
 export function builder(yargs: Argv) {
   return yargs
-    .option("release-version", {
+    .option("releaseVersion", {
       type: "string",
       demandOption: true,
       describe: "Release version to look up (e.g. 1.0.0)",
     })
-    .option("repo-root", {
+    .option("repoRoot", {
       type: "string",
       default: process.cwd(),
       describe: "Repository root directory",
