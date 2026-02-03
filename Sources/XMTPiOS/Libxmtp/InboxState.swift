@@ -12,10 +12,6 @@ public typealias SignatureKind = FfiSignatureKind
 public struct InboxState {
 	var ffiInboxState: FfiInboxState
 
-	init(ffiInboxState: FfiInboxState) {
-		self.ffiInboxState = ffiInboxState
-	}
-
 	public var inboxId: InboxId {
 		ffiInboxState.inboxId
 	}

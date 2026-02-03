@@ -32,7 +32,7 @@
 		}
 	}
 
-	// Helper for tests gathering transcripts in a background task.
+	/// Helper for tests gathering transcripts in a background task.
 	public actor TestTranscript {
 		public var messages: [String] = []
 		public init() {}

@@ -3,9 +3,9 @@ import SwiftData
 import SwiftUI
 import XMTPiOS
 
-// Initially, the App handles getting the user logged-in.
-//
-// But after login, the `Router` in the `HomeView` takes over navigation.
+/// Initially, the App handles getting the user logged-in.
+///
+/// But after login, the `Router` in the `HomeView` takes over navigation.
 @main
 struct exampleApp: App {
 	let session = XmtpSession()
@@ -32,7 +32,7 @@ struct exampleApp: App {
 	}
 }
 
-// Present the login options for the user.
+/// Present the login options for the user.
 private struct LoginView: View {
 	@Environment(XmtpSession.self) var session
 	@State var isLoggingIn = false

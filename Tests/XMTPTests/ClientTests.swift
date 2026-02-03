@@ -1,8 +1,7 @@
 import Foundation
 import XCTest
-import XMTPTestHelpers
-
 @testable import XMTPiOS
+import XMTPTestHelpers
 
 @available(iOS 15, *)
 class ClientTests: XCTestCase {
@@ -780,12 +779,14 @@ class ClientTests: XCTestCase {
 		XCTAssertEqual(inboxState.installations.count, 2)
 
 		let sigRequest2 = try await alix.ffiRevokeAllOtherInstallations()
+		let signatureTextForSign = try await sigRequest2?.signatureText()
 		let signedMessage2 = try await alixWallet.sign(
-			sigRequest2!.signatureText()
+			XCTUnwrap(signatureTextForSign)
 		).rawData
 
-		try await sigRequest2!.addEcdsaSignature(signatureBytes: signedMessage2)
-		try await alix.ffiApplySignatureRequest(signatureRequest: sigRequest2!)
+		let addResult2 = try await sigRequest2?.addEcdsaSignature(signatureBytes: signedMessage2)
+		try XCTUnwrap(addResult2)
+		try await alix.ffiApplySignatureRequest(signatureRequest: XCTUnwrap(sigRequest2))
 
 		inboxState = try await alix.inboxState(refreshFromNetwork: true)
 		XCTAssertEqual(inboxState.installations.count, 1)
@@ -1310,7 +1311,7 @@ class ClientTests: XCTestCase {
 		try fixtures.cleanUpDatabases()
 	}
 
-	func testApiClientCacheKeysDifferentConfigurations() async throws {
+	func testApiClientCacheKeysDifferentConfigurations() async {
 		// Test that the API client cache correctly differentiates between different configurations
 		// Cache key format: "\(env.url)|\(isSecure)|\(appVersion ?? "nil")|\(gatewayHost ?? "nil")"
 

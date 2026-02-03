@@ -288,6 +288,17 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Get the raw list of messages from a conversation.
+	///
+	/// This method returns all messages in chronological order without additional processing.
+	/// Reactions, replies, and other associated metadata are returned as separate messages
+	/// and are not linked to their parent messages.
+	///
+	/// For UI rendering, consider using ``enrichedMessages(limit:beforeNs:afterNs:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
+	/// instead,
+	/// which provides messages with enriched metadata automatically included.
+	///
+	/// - SeeAlso: ``enrichedMessages(limit:beforeNs:afterNs:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
 	public func messages(
 		limit: Int? = nil,
 		beforeNs: Int64? = nil,
@@ -324,7 +335,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	// Returns null if conversation is not paused, otherwise the min version required to unpause this conversation
+	/// Returns null if conversation is not paused, otherwise the min version required to unpause this conversation
 	public func pausedForVersion() async throws -> String? {
 		switch self {
 		case let .group(group):
@@ -379,6 +390,21 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Get messages with enriched metadata automatically included.
+	///
+	/// This method retrieves messages with reactions, replies, and other associated data
+	/// "baked in" to each message, eliminating the need for separate queries to fetch
+	/// this information.
+	///
+	/// **Recommended for UI rendering.** This method provides better performance and
+	/// simpler code compared to ``messages(limit:beforeNs:afterNs:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
+	/// when displaying conversations.
+	///
+	/// When handling content types, use the generic `content<T>()` method with the
+	/// appropriate type for reactions and replies.
+	///
+	/// - Returns: Array of `DecodedMessageV2` with enriched metadata.
+	/// - SeeAlso: ``messages(limit:beforeNs:afterNs:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
 	public func enrichedMessages(
 		limit: Int? = nil,
 		beforeNs: Int64? = nil,
@@ -480,8 +506,8 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	// Returns a dictionary where the keys are inbox IDs and the values
-	// are the timestamp in nanoseconds of their last read receipt
+	/// Returns a dictionary where the keys are inbox IDs and the values
+	/// are the timestamp in nanoseconds of their last read receipt
 	public func getLastReadTimes() throws -> [String: Int64] {
 		switch self {
 		case let .group(group):

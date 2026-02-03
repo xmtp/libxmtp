@@ -7196,6 +7196,77 @@ public func FfiConverterTypeFfiDecodedMessageMetadata_lower(_ value: FfiDecodedM
 }
 
 
+/**
+ * Represents a request to delete a message.
+ */
+public struct FfiDeleteMessage {
+    /**
+     * The ID of the message to delete
+     */
+    public var messageId: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The ID of the message to delete
+         */messageId: String) {
+        self.messageId = messageId
+    }
+}
+
+#if compiler(>=6)
+extension FfiDeleteMessage: Sendable {}
+#endif
+
+
+extension FfiDeleteMessage: Equatable, Hashable {
+    public static func ==(lhs: FfiDeleteMessage, rhs: FfiDeleteMessage) -> Bool {
+        if lhs.messageId != rhs.messageId {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(messageId)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiDeleteMessage: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiDeleteMessage {
+        return
+            try FfiDeleteMessage(
+                messageId: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiDeleteMessage, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.messageId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDeleteMessage_lift(_ buf: RustBuffer) throws -> FfiDeleteMessage {
+    return try FfiConverterTypeFfiDeleteMessage.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDeleteMessage_lower(_ value: FfiDeleteMessage) -> RustBuffer {
+    return FfiConverterTypeFfiDeleteMessage.lower(value)
+}
+
+
 public struct FfiDeletedMessage {
     public var deletedBy: FfiDeletedBy
 
@@ -16073,6 +16144,13 @@ public func decodeAttachment(bytes: Data)throws  -> FfiAttachment  {
     )
 })
 }
+public func decodeDeleteMessage(bytes: Data)throws  -> FfiDeleteMessage  {
+    return try  FfiConverterTypeFfiDeleteMessage_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    uniffi_xmtpv3_fn_func_decode_delete_message(
+        FfiConverterData.lower(bytes),$0
+    )
+})
+}
 public func decodeGroupUpdated(bytes: Data)throws  -> FfiGroupUpdated  {
     return try  FfiConverterTypeFfiGroupUpdated_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
     uniffi_xmtpv3_fn_func_decode_group_updated(
@@ -16168,6 +16246,13 @@ public func encodeAttachment(attachment: FfiAttachment)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
     uniffi_xmtpv3_fn_func_encode_attachment(
         FfiConverterTypeFfiAttachment_lower(attachment),$0
+    )
+})
+}
+public func encodeDeleteMessage(request: FfiDeleteMessage)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    uniffi_xmtpv3_fn_func_encode_delete_message(
+        FfiConverterTypeFfiDeleteMessage_lower(request),$0
     )
 })
 }
@@ -16458,6 +16543,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_func_decode_attachment() != 20456) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtpv3_checksum_func_decode_delete_message() != 6483) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtpv3_checksum_func_decode_group_updated() != 277) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -16498,6 +16586,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_encode_attachment() != 47054) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_func_encode_delete_message() != 64741) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_encode_intent() != 64568) {

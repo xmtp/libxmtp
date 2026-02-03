@@ -1,6 +1,5 @@
 import Foundation
 import XCTest
-
 @testable import XMTPiOS
 
 @available(iOS 15, *)

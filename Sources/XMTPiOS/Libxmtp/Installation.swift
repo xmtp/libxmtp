@@ -10,10 +10,6 @@ import Foundation
 public struct Installation {
 	var ffiInstallation: FfiInstallation
 
-	init(ffiInstallation: FfiInstallation) {
-		self.ffiInstallation = ffiInstallation
-	}
-
 	public var id: String {
 		ffiInstallation.id.toHex
 	}

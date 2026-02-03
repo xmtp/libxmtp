@@ -6,7 +6,6 @@
 //
 
 import Connect
-
 import UserNotifications
 
 public typealias NotificationSubscription = Notifications_V1_Subscription

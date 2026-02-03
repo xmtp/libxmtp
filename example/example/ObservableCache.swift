@@ -26,7 +26,7 @@ class ObservableCache<T> {
 		self.defaultValue = defaultValue
 	}
 
-	// This lets callers get the same @Observable item so that any updates are broadcast.
+	/// This lets callers get the same @Observable item so that any updates are broadcast.
 	subscript(identifier: String) -> ObservableItem<T> {
 		let result = getOrCreate(identifier: identifier)
 		if !result.fromCache {
@@ -35,27 +35,27 @@ class ObservableCache<T> {
 		return result.item
 	}
 
-	// Empty the cache
+	/// Empty the cache
 	func clear() {
 		lock.lock()
 		itemCache.removeAllObjects()
 		lock.unlock()
 	}
 
-	// Permit outside insertion of values (e.g. prefill or update the cache)
-	// Note: listeners will be broadcast with the update.
+	/// Permit outside insertion of values (e.g. prefill or update the cache)
+	/// Note: listeners will be broadcast with the update.
 	func insert(identifier: String, value: T) {
 		let result = getOrCreate(identifier: identifier)
 		result.item.value = value
 	}
 
-	// Permit outside initiation of a reload of the value for an item.
+	/// Permit outside initiation of a reload of the value for an item.
 	func reload(_ identifier: String) -> Task<T?, Error> {
 		let result = getOrCreate(identifier: identifier)
 		return doLoad(identifier: identifier, item: result.item)
 	}
 
-	// This locks to avoid duplicate entries for the specified identifier.
+	/// This locks to avoid duplicate entries for the specified identifier.
 	private func getOrCreate(identifier: String) -> (item: ObservableItem<T>, fromCache: Bool) {
 		lock.lock()
 		let key = identifier as NSString

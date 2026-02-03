@@ -2,10 +2,10 @@ import OSLog
 import SwiftUI
 import XMTPiOS
 
-// The user's authenticated session with XMTP.
-//
-// This is how the Views can observe messaging data
-// and interact with the XmtpClient.
+/// The user's authenticated session with XMTP.
+///
+/// This is how the Views can observe messaging data
+/// and interact with the XmtpClient.
 @Observable
 class XmtpSession {
 	private static let logger = Logger.forClass(XmtpSession.self)
