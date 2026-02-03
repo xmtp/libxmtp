@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Usage: dev/test/wasm-ci [--d14n | --v3]
+# Runs WASM tests via cargo test in a Nix environment.
+# Defaults to --v3 if no flag is provided.
+
+set -eou pipefail
+
+if [[ -z "${XMTP_NIX_ENV:-}" ]]; then
+  echo "Error: XMTP_NIX_ENV is not set. This script must be run in a Nix environment." >&2
+  exit 1
+fi
+
+MODE="${1:---v3}"
+
+case "$MODE" in
+  --d14n)
+    FEATURES="--features d14n"
+    PACKAGES="-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_d14n --no-fail-fast"
+    ;;
+  --v3)
+    FEATURES=""
+    PACKAGES="-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_d14n"
+    ;;
+  *)
+    echo "Usage: dev/test/wasm-ci [--d14n | --v3]" >&2
+    exit 1
+    ;;
+esac
+
+export RUST_LOG=off
+cargo test --locked --release --target wasm32-unknown-unknown \
+  $PACKAGES \
+  $FEATURES
