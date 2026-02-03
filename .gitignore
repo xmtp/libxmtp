@@ -187,4 +187,4 @@ om.json
 # Swift Package Manager (Package.swift is at root for SPM resolution)
 /.build
 /.swiftpm
-.direnv/**
+**/.direnv/**

@@ -80,6 +80,7 @@ lipodyn:
 framework: lipo
 	mkdir -p build/swift
 	mkdir -p $(IOS_SDK_SWIFT_DIR)
+	chmod -R u+w build/swift/LibXMTPSwiftFFI.xcframework 2>/dev/null || true
 	rm -rf build/swift/LibXMTPSwiftFFI.xcframework
 	xcodebuild -create-xcframework \
 		-library $(NIX_OUT)/aarch64-apple-ios/$(LIB) \
