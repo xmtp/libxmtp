@@ -75,7 +75,7 @@ final class ConversationStreamCallback: FfiConversationCallback {
 		onCloseCallback()
 	}
 
-	func onError(error: FfiSubscribeError) {
+	func onError(error: FfiError) {
 		print("Error ConversationStreamCallback \(error)")
 	}
 
@@ -100,7 +100,7 @@ final class MessageDeletionCallback: FfiMessageDeletionCallback {
 		onCloseCallback()
 	}
 
-	func onError(error: FfiSubscribeError) {
+	func onError(error: FfiError) {
 		print("Error MessageDeletionCallback \(error)")
 	}
 

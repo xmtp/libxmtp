@@ -5,7 +5,7 @@ final class MessageCallback: FfiMessageCallback {
 		onCloseCallback()
 	}
 
-	func onError(error: FfiSubscribeError) {
+	func onError(error: FfiError) {
 		print("Error MessageCallback \(error)")
 	}
 

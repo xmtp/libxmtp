@@ -186,7 +186,7 @@ final class ConsentCallback: FfiConsentCallback {
 		callback(consent)
 	}
 
-	func onError(error: FfiSubscribeError) {
+	func onError(error: FfiError) {
 		print("Error ConsentCallback \(error)")
 	}
 
@@ -213,7 +213,7 @@ final class PreferenceCallback: FfiPreferenceCallback {
 		callback(preference)
 	}
 
-	func onError(error: FfiSubscribeError) {
+	func onError(error: FfiError) {
 		print("Error ConsentCallback \(error)")
 	}
 

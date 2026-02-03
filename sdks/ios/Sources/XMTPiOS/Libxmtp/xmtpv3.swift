@@ -655,7 +655,7 @@ open func onAuthRequired()async throws  -> FfiCredential  {
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeFfiCredential_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -709,7 +709,7 @@ fileprivate struct UniffiCallbackInterfaceFfiAuthCallback {
                 makeCall: makeCall,
                 handleSuccess: uniffiHandleSuccess,
                 handleError: uniffiHandleError,
-                lowerError: FfiConverterTypeGenericError_lower
+                lowerError: FfiConverterTypeFfiError_lower
             )
             uniffiOutReturn.pointee = uniffiForeignFuture
         },
@@ -871,7 +871,7 @@ open func set(credential: FfiCredential)async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -937,7 +937,7 @@ public protocol FfiConsentCallback: AnyObject, Sendable {
     
     func onConsentUpdate(consent: [FfiConsent]) 
     
-    func onError(error: FfiSubscribeError) 
+    func onError(error: FfiError) 
     
     func onClose() 
     
@@ -1001,9 +1001,9 @@ open func onConsentUpdate(consent: [FfiConsent])  {try! rustCall() {
 }
 }
     
-open func onError(error: FfiSubscribeError)  {try! rustCall() {
+open func onError(error: FfiError)  {try! rustCall() {
     uniffi_xmtpv3_fn_method_fficonsentcallback_on_error(self.uniffiClonePointer(),
-        FfiConverterTypeFfiSubscribeError_lower(error),$0
+        FfiConverterTypeFfiError_lower(error),$0
     )
 }
 }
@@ -1063,7 +1063,7 @@ fileprivate struct UniffiCallbackInterfaceFfiConsentCallback {
                     throw UniffiInternalError.unexpectedStaleHandle
                 }
                 return uniffiObj.onError(
-                     error: try FfiConverterTypeFfiSubscribeError_lift(error)
+                     error: try FfiConverterTypeFfiError_lift(error)
                 )
             }
 
@@ -1367,7 +1367,7 @@ open func addAdmin(inboxId: String)async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -1384,7 +1384,7 @@ open func addMembers(inboxIds: [String])async throws  -> FfiUpdateGroupMembershi
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeFfiUpdateGroupMembershipResult_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -1401,7 +1401,7 @@ open func addMembersByIdentity(accountIdentifiers: [FfiIdentifier])async throws 
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeFfiUpdateGroupMembershipResult_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -1418,33 +1418,33 @@ open func addSuperAdmin(inboxId: String)async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
 open func addedByInboxId()throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_added_by_inbox_id(self.uniffiClonePointer(),$0
     )
 })
 }
     
 open func adminList()throws  -> [String]  {
-    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_admin_list(self.uniffiClonePointer(),$0
     )
 })
 }
     
 open func appData()throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_app_data(self.uniffiClonePointer(),$0
     )
 })
 }
     
 open func consentState()throws  -> FfiConsentState  {
-    return try  FfiConverterTypeFfiConsentState_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiConsentState_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_consent_state(self.uniffiClonePointer(),$0
     )
 })
@@ -1463,12 +1463,12 @@ open func conversationDebugInfo()async throws  -> FfiConversationDebugInfo  {
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeFfiConversationDebugInfo_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
 open func conversationMessageDisappearingSettings()throws  -> FfiMessageDisappearingSettings?  {
-    return try  FfiConverterOptionTypeFfiMessageDisappearingSettings.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterOptionTypeFfiMessageDisappearingSettings.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_conversation_message_disappearing_settings(self.uniffiClonePointer(),$0
     )
 })
@@ -1482,7 +1482,7 @@ open func conversationType() -> FfiConversationType  {
 }
     
 open func countMessages(opts: FfiListMessagesOptions)throws  -> Int64  {
-    return try  FfiConverterInt64.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterInt64.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_count_messages(self.uniffiClonePointer(),
         FfiConverterTypeFfiListMessagesOptions_lower(opts),$0
     )
@@ -1500,7 +1500,7 @@ open func createdAtNs() -> Int64  {
      * Delete a message by its ID. Returns the ID of the deletion message.
      */
 open func deleteMessage(messageId: Data)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_delete_message(self.uniffiClonePointer(),
         FfiConverterData.lower(messageId),$0
     )
@@ -1527,12 +1527,12 @@ open func findDuplicateDms()async throws  -> [FfiConversation]  {
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceTypeFfiConversation.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
 open func findEnrichedMessages(opts: FfiListMessagesOptions)throws  -> [FfiDecodedMessage]  {
-    return try  FfiConverterSequenceTypeFfiDecodedMessage.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterSequenceTypeFfiDecodedMessage.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_find_enriched_messages(self.uniffiClonePointer(),
         FfiConverterTypeFfiListMessagesOptions_lower(opts),$0
     )
@@ -1552,12 +1552,12 @@ open func findMessages(opts: FfiListMessagesOptions)async throws  -> [FfiMessage
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceTypeFfiMessage.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
 open func findMessagesWithReactions(opts: FfiListMessagesOptions)throws  -> [FfiMessageWithReactions]  {
-    return try  FfiConverterSequenceTypeFfiMessageWithReactions.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterSequenceTypeFfiMessageWithReactions.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_find_messages_with_reactions(self.uniffiClonePointer(),
         FfiConverterTypeFfiListMessagesOptions_lower(opts),$0
     )
@@ -1565,28 +1565,28 @@ open func findMessagesWithReactions(opts: FfiListMessagesOptions)throws  -> [Ffi
 }
     
 open func getHmacKeys()throws  -> [Data: [FfiHmacKey]]  {
-    return try  FfiConverterDictionaryDataSequenceTypeFfiHmacKey.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterDictionaryDataSequenceTypeFfiHmacKey.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_get_hmac_keys(self.uniffiClonePointer(),$0
     )
 })
 }
     
 open func getLastReadTimes()throws  -> [String: Int64]  {
-    return try  FfiConverterDictionaryStringInt64.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterDictionaryStringInt64.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_get_last_read_times(self.uniffiClonePointer(),$0
     )
 })
 }
     
 open func groupDescription()throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_group_description(self.uniffiClonePointer(),$0
     )
 })
 }
     
 open func groupImageUrlSquare()throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_group_image_url_square(self.uniffiClonePointer(),$0
     )
 })
@@ -1605,19 +1605,19 @@ open func groupMetadata()async throws  -> FfiConversationMetadata  {
             completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
             freeFunc: ffi_xmtpv3_rust_future_free_pointer,
             liftFunc: FfiConverterTypeFfiConversationMetadata_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
 open func groupName()throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_group_name(self.uniffiClonePointer(),$0
     )
 })
 }
     
 open func groupPermissions()throws  -> FfiGroupPermissions  {
-    return try  FfiConverterTypeFfiGroupPermissions_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiGroupPermissions_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_group_permissions(self.uniffiClonePointer(),$0
     )
 })
@@ -1631,14 +1631,14 @@ open func id() -> Data  {
 }
     
 open func isActive()throws  -> Bool  {
-    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_is_active(self.uniffiClonePointer(),$0
     )
 })
 }
     
 open func isAdmin(inboxId: String)throws  -> Bool  {
-    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_is_admin(self.uniffiClonePointer(),
         FfiConverterString.lower(inboxId),$0
     )
@@ -1646,14 +1646,14 @@ open func isAdmin(inboxId: String)throws  -> Bool  {
 }
     
 open func isConversationMessageDisappearingEnabled()throws  -> Bool  {
-    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_is_conversation_message_disappearing_enabled(self.uniffiClonePointer(),$0
     )
 })
 }
     
 open func isSuperAdmin(inboxId: String)throws  -> Bool  {
-    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_is_super_admin(self.uniffiClonePointer(),
         FfiConverterString.lower(inboxId),$0
     )
@@ -1673,7 +1673,7 @@ open func leaveGroup()async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -1690,19 +1690,19 @@ open func listMembers()async throws  -> [FfiConversationMember]  {
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceTypeFfiConversationMember.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
 open func membershipState()throws  -> FfiGroupMembershipState  {
-    return try  FfiConverterTypeFfiGroupMembershipState_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiGroupMembershipState_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_membership_state(self.uniffiClonePointer(),$0
     )
 })
 }
     
 open func pausedForVersion()throws  -> String?  {
-    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_paused_for_version(self.uniffiClonePointer(),$0
     )
 })
@@ -1713,7 +1713,7 @@ open func pausedForVersion()throws  -> String?  {
      * Stores the message locally without publishing. Returns the message ID.
      */
 open func prepareMessage(contentBytes: Data, shouldPush: Bool)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_prepare_message(self.uniffiClonePointer(),
         FfiConverterData.lower(contentBytes),
         FfiConverterBool.lower(shouldPush),$0
@@ -1734,7 +1734,7 @@ open func processStreamedConversationMessage(envelopeBytes: Data)async throws  -
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceTypeFfiMessage.lift,
-            errorHandler: FfiConverterTypeFfiSubscribeError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -1754,7 +1754,7 @@ open func publishMessages()async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -1774,7 +1774,7 @@ open func publishStoredMessage(messageId: Data)async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -1791,7 +1791,7 @@ open func removeAdmin(inboxId: String)async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -1808,7 +1808,7 @@ open func removeConversationMessageDisappearingSettings()async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -1825,7 +1825,7 @@ open func removeMembers(inboxIds: [String])async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -1842,7 +1842,7 @@ open func removeMembersByIdentity(accountIdentifiers: [FfiIdentifier])async thro
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -1859,7 +1859,7 @@ open func removeSuperAdmin(inboxId: String)async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -1876,7 +1876,7 @@ open func send(contentBytes: Data, opts: FfiSendMessageOpts)async throws  -> Dat
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterData.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -1884,7 +1884,7 @@ open func send(contentBytes: Data, opts: FfiSendMessageOpts)async throws  -> Dat
      * send a message without immediately publishing to the delivery service.
      */
 open func sendOptimistic(contentBytes: Data, opts: FfiSendMessageOpts)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_send_optimistic(self.uniffiClonePointer(),
         FfiConverterData.lower(contentBytes),
         FfiConverterTypeFfiSendMessageOpts_lower(opts),$0
@@ -1905,7 +1905,7 @@ open func sendText(text: String)async throws  -> Data  {
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterData.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -1928,7 +1928,7 @@ open func stream(messageCallback: FfiMessageCallback)async  -> FfiStreamCloser  
 }
     
 open func superAdminList()throws  -> [String]  {
-    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_super_admin_list(self.uniffiClonePointer(),$0
     )
 })
@@ -1947,7 +1947,7 @@ open func sync()async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -1964,11 +1964,11 @@ open func updateAppData(appData: String)async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
-open func updateConsentState(state: FfiConsentState)throws   {try rustCallWithError(FfiConverterTypeGenericError_lift) {
+open func updateConsentState(state: FfiConsentState)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversation_update_consent_state(self.uniffiClonePointer(),
         FfiConverterTypeFfiConsentState_lower(state),$0
     )
@@ -1988,7 +1988,7 @@ open func updateConversationMessageDisappearingSettings(settings: FfiMessageDisa
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -2005,7 +2005,7 @@ open func updateGroupDescription(groupDescription: String)async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -2022,7 +2022,7 @@ open func updateGroupImageUrlSquare(groupImageUrlSquare: String)async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -2039,7 +2039,7 @@ open func updateGroupName(groupName: String)async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -2056,7 +2056,7 @@ open func updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType, 
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -2122,7 +2122,7 @@ public protocol FfiConversationCallback: AnyObject, Sendable {
     
     func onConversation(conversation: FfiConversation) 
     
-    func onError(error: FfiSubscribeError) 
+    func onError(error: FfiError) 
     
     func onClose() 
     
@@ -2186,9 +2186,9 @@ open func onConversation(conversation: FfiConversation)  {try! rustCall() {
 }
 }
     
-open func onError(error: FfiSubscribeError)  {try! rustCall() {
+open func onError(error: FfiError)  {try! rustCall() {
     uniffi_xmtpv3_fn_method_fficonversationcallback_on_error(self.uniffiClonePointer(),
-        FfiConverterTypeFfiSubscribeError_lower(error),$0
+        FfiConverterTypeFfiError_lower(error),$0
     )
 }
 }
@@ -2248,7 +2248,7 @@ fileprivate struct UniffiCallbackInterfaceFfiConversationCallback {
                     throw UniffiInternalError.unexpectedStaleHandle
                 }
                 return uniffiObj.onError(
-                     error: try FfiConverterTypeFfiSubscribeError_lift(error)
+                     error: try FfiConverterTypeFfiError_lift(error)
                 )
             }
 
@@ -2749,7 +2749,7 @@ open func createGroup(inboxIds: [String], opts: FfiCreateGroupOptions)async thro
             completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
             freeFunc: ffi_xmtpv3_rust_future_free_pointer,
             liftFunc: FfiConverterTypeFfiConversation_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -2766,12 +2766,12 @@ open func createGroupByIdentity(accountIdentities: [FfiIdentifier], opts: FfiCre
             completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
             freeFunc: ffi_xmtpv3_rust_future_free_pointer,
             liftFunc: FfiConverterTypeFfiConversation_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
 open func createGroupOptimistic(opts: FfiCreateGroupOptions)throws  -> FfiConversation  {
-    return try  FfiConverterTypeFfiConversation_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiConversation_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversations_create_group_optimistic(self.uniffiClonePointer(),
         FfiConverterTypeFfiCreateGroupOptions_lower(opts),$0
     )
@@ -2791,7 +2791,7 @@ open func findOrCreateDm(inboxId: String, opts: FfiCreateDmOptions)async throws 
             completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
             freeFunc: ffi_xmtpv3_rust_future_free_pointer,
             liftFunc: FfiConverterTypeFfiConversation_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -2808,19 +2808,19 @@ open func findOrCreateDmByIdentity(targetIdentity: FfiIdentifier, opts: FfiCreat
             completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
             freeFunc: ffi_xmtpv3_rust_future_free_pointer,
             liftFunc: FfiConverterTypeFfiConversation_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
 open func getHmacKeys()throws  -> [Data: [FfiHmacKey]]  {
-    return try  FfiConverterDictionaryDataSequenceTypeFfiHmacKey.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterDictionaryDataSequenceTypeFfiHmacKey.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversations_get_hmac_keys(self.uniffiClonePointer(),$0
     )
 })
 }
     
 open func list(opts: FfiListConversationsOptions)throws  -> [FfiConversationListItem]  {
-    return try  FfiConverterSequenceTypeFfiConversationListItem.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterSequenceTypeFfiConversationListItem.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversations_list(self.uniffiClonePointer(),
         FfiConverterTypeFfiListConversationsOptions_lower(opts),$0
     )
@@ -2828,7 +2828,7 @@ open func list(opts: FfiListConversationsOptions)throws  -> [FfiConversationList
 }
     
 open func listDms(opts: FfiListConversationsOptions)throws  -> [FfiConversationListItem]  {
-    return try  FfiConverterSequenceTypeFfiConversationListItem.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterSequenceTypeFfiConversationListItem.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversations_list_dms(self.uniffiClonePointer(),
         FfiConverterTypeFfiListConversationsOptions_lower(opts),$0
     )
@@ -2836,7 +2836,7 @@ open func listDms(opts: FfiListConversationsOptions)throws  -> [FfiConversationL
 }
     
 open func listGroups(opts: FfiListConversationsOptions)throws  -> [FfiConversationListItem]  {
-    return try  FfiConverterSequenceTypeFfiConversationListItem.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterSequenceTypeFfiConversationListItem.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_fficonversations_list_groups(self.uniffiClonePointer(),
         FfiConverterTypeFfiListConversationsOptions_lower(opts),$0
     )
@@ -2856,7 +2856,7 @@ open func processStreamedWelcomeMessage(envelopeBytes: Data)async throws  -> [Ff
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceTypeFfiConversation.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -3065,7 +3065,7 @@ open func sync()async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -3082,7 +3082,7 @@ open func syncAllConversations(consentStates: [FfiConsentState]?)async throws  -
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeFfiGroupSyncSummary_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -3461,14 +3461,14 @@ open class FfiGroupPermissions: FfiGroupPermissionsProtocol, @unchecked Sendable
 
     
 open func policySet()throws  -> FfiPermissionPolicySet  {
-    return try  FfiConverterTypeFfiPermissionPolicySet_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiPermissionPolicySet_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_ffigrouppermissions_policy_set(self.uniffiClonePointer(),$0
     )
 })
 }
     
 open func policyType()throws  -> FfiGroupPermissionsOptions  {
-    return try  FfiConverterTypeFfiGroupPermissionsOptions_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiGroupPermissionsOptions_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_ffigrouppermissions_policy_type(self.uniffiClonePointer(),$0
     )
 })
@@ -3743,7 +3743,7 @@ public protocol FfiMessageCallback: AnyObject, Sendable {
     
     func onMessage(message: FfiMessage) 
     
-    func onError(error: FfiSubscribeError) 
+    func onError(error: FfiError) 
     
     func onClose() 
     
@@ -3807,9 +3807,9 @@ open func onMessage(message: FfiMessage)  {try! rustCall() {
 }
 }
     
-open func onError(error: FfiSubscribeError)  {try! rustCall() {
+open func onError(error: FfiError)  {try! rustCall() {
     uniffi_xmtpv3_fn_method_ffimessagecallback_on_error(self.uniffiClonePointer(),
-        FfiConverterTypeFfiSubscribeError_lower(error),$0
+        FfiConverterTypeFfiError_lower(error),$0
     )
 }
 }
@@ -3869,7 +3869,7 @@ fileprivate struct UniffiCallbackInterfaceFfiMessageCallback {
                     throw UniffiInternalError.unexpectedStaleHandle
                 }
                 return uniffiObj.onError(
-                     error: try FfiConverterTypeFfiSubscribeError_lift(error)
+                     error: try FfiConverterTypeFfiError_lift(error)
                 )
             }
 
@@ -4152,7 +4152,7 @@ public protocol FfiPreferenceCallback: AnyObject, Sendable {
     
     func onPreferenceUpdate(preference: [FfiPreferenceUpdate]) 
     
-    func onError(error: FfiSubscribeError) 
+    func onError(error: FfiError) 
     
     func onClose() 
     
@@ -4216,9 +4216,9 @@ open func onPreferenceUpdate(preference: [FfiPreferenceUpdate])  {try! rustCall(
 }
 }
     
-open func onError(error: FfiSubscribeError)  {try! rustCall() {
+open func onError(error: FfiError)  {try! rustCall() {
     uniffi_xmtpv3_fn_method_ffipreferencecallback_on_error(self.uniffiClonePointer(),
-        FfiConverterTypeFfiSubscribeError_lower(error),$0
+        FfiConverterTypeFfiError_lower(error),$0
     )
 }
 }
@@ -4278,7 +4278,7 @@ fileprivate struct UniffiCallbackInterfaceFfiPreferenceCallback {
                     throw UniffiInternalError.unexpectedStaleHandle
                 }
                 return uniffiObj.onError(
-                     error: try FfiConverterTypeFfiSubscribeError_lift(error)
+                     error: try FfiConverterTypeFfiError_lift(error)
                 )
             }
 
@@ -4467,7 +4467,7 @@ open func addEcdsaSignature(signatureBytes: Data)async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -4484,7 +4484,7 @@ open func addPasskeySignature(signature: FfiPasskeySignature)async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -4501,7 +4501,7 @@ open func addScwSignature(signatureBytes: Data, address: String, chainId: UInt64
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -4539,7 +4539,7 @@ open func missingAddressSignatures()async throws  -> [String]  {
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceString.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -4556,7 +4556,7 @@ open func signatureText()async throws  -> String  {
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterString.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -4714,7 +4714,7 @@ open func endAndWait()async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -4871,7 +4871,7 @@ open func wait(metric: FfiSyncMetric, count: UInt64)async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5160,7 +5160,7 @@ open func addIdentity(newIdentity: FfiIdentifier)async throws  -> FfiSignatureRe
             completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
             freeFunc: ffi_xmtpv3_rust_future_free_pointer,
             liftFunc: FfiConverterTypeFfiSignatureRequest_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5183,7 +5183,7 @@ open func addressesFromInboxId(refreshFromNetwork: Bool, inboxIds: [String])asyn
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceTypeFfiInboxState.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5221,7 +5221,7 @@ open func applySignatureRequest(signatureRequest: FfiSignatureRequest)async thro
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5242,7 +5242,7 @@ open func archiveMetadata(path: String, key: Data)async throws  -> FfiBackupMeta
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeFfiBackupMetadata_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5259,7 +5259,7 @@ open func canMessage(accountIdentifiers: [FfiIdentifier])async throws  -> [FfiId
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterDictionaryTypeFfiIdentifierBool.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5279,7 +5279,7 @@ open func changeRecoveryIdentifier(newRecoveryIdentifier: FfiIdentifier)async th
             completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
             freeFunc: ffi_xmtpv3_rust_future_free_pointer,
             liftFunc: FfiConverterTypeFfiSignatureRequest_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5290,7 +5290,7 @@ open func clearAllStatistics()  {try! rustCall() {
 }
     
 open func conversation(conversationId: Data)throws  -> FfiConversation  {
-    return try  FfiConverterTypeFfiConversation_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiConversation_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_ffixmtpclient_conversation(self.uniffiClonePointer(),
         FfiConverterData.lower(conversationId),$0
     )
@@ -5320,7 +5320,7 @@ open func createArchive(path: String, opts: FfiArchiveOptions, key: Data)async t
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeFfiBackupMetadata_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5337,12 +5337,12 @@ open func dbReconnect()async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
 open func deleteMessage(messageId: Data)throws  -> UInt32  {
-    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_ffixmtpclient_delete_message(self.uniffiClonePointer(),
         FfiConverterData.lower(messageId),$0
     )
@@ -5350,7 +5350,7 @@ open func deleteMessage(messageId: Data)throws  -> UInt32  {
 }
     
 open func dmConversation(targetInboxId: String)throws  -> FfiConversation  {
-    return try  FfiConverterTypeFfiConversation_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiConversation_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_ffixmtpclient_dm_conversation(self.uniffiClonePointer(),
         FfiConverterString.lower(targetInboxId),$0
     )
@@ -5358,7 +5358,7 @@ open func dmConversation(targetInboxId: String)throws  -> FfiConversation  {
 }
     
 open func enrichedMessage(messageId: Data)throws  -> FfiDecodedMessage  {
-    return try  FfiConverterTypeFfiDecodedMessage_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiDecodedMessage_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_ffixmtpclient_enriched_message(self.uniffiClonePointer(),
         FfiConverterData.lower(messageId),$0
     )
@@ -5378,7 +5378,7 @@ open func fetchInboxUpdatesCount(refreshFromNetwork: Bool, inboxIds: [String])as
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterDictionaryStringUInt32.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5395,7 +5395,7 @@ open func fetchOwnInboxUpdatesCount(refreshFromNetwork: Bool)async throws  -> UI
             completeFunc: ffi_xmtpv3_rust_future_complete_u32,
             freeFunc: ffi_xmtpv3_rust_future_free_u32,
             liftFunc: FfiConverterUInt32.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5412,7 +5412,7 @@ open func findInboxId(identifier: FfiIdentifier)async throws  -> String?  {
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterOptionString.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5429,7 +5429,7 @@ open func getConsentState(entityType: FfiConsentEntityType, entity: String)async
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeFfiConsentState_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5446,7 +5446,7 @@ open func getKeyPackageStatusesForInstallationIds(installationIds: [Data])async 
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterDictionaryDataTypeFfiKeyPackageStatus.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5463,7 +5463,7 @@ open func getLatestInboxState(inboxId: String)async throws  -> FfiInboxState  {
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeFfiInboxState_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5483,7 +5483,7 @@ open func importArchive(path: String, key: Data)async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5513,7 +5513,7 @@ open func inboxState(refreshFromNetwork: Bool)async throws  -> FfiInboxState  {
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeFfiInboxState_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5530,7 +5530,7 @@ open func installationId() -> Data  {
      * this function to see recently uploaded archives.
      */
 open func listAvailableArchives(daysCutoff: Int64)throws  -> [FfiAvailableArchive]  {
-    return try  FfiConverterSequenceTypeFfiAvailableArchive.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterSequenceTypeFfiAvailableArchive.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_ffixmtpclient_list_available_archives(self.uniffiClonePointer(),
         FfiConverterInt64.lower(daysCutoff),$0
     )
@@ -5538,7 +5538,7 @@ open func listAvailableArchives(daysCutoff: Int64)throws  -> [FfiAvailableArchiv
 }
     
 open func message(messageId: Data)throws  -> FfiMessage  {
-    return try  FfiConverterTypeFfiMessage_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiMessage_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_ffixmtpclient_message(self.uniffiClonePointer(),
         FfiConverterData.lower(messageId),$0
     )
@@ -5562,7 +5562,7 @@ open func processSyncArchive(archivePin: String?)async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5579,11 +5579,11 @@ open func registerIdentity(signatureRequest: FfiSignatureRequest)async throws   
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
-open func releaseDbConnection()throws   {try rustCallWithError(FfiConverterTypeGenericError_lift) {
+open func releaseDbConnection()throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_ffixmtpclient_release_db_connection(self.uniffiClonePointer(),$0
     )
 }
@@ -5607,7 +5607,7 @@ open func revokeAllOtherInstallationsSignatureRequest()async throws  -> FfiSigna
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterOptionTypeFfiSignatureRequest.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5627,7 +5627,7 @@ open func revokeIdentity(identifier: FfiIdentifier)async throws  -> FfiSignature
             completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
             freeFunc: ffi_xmtpv3_rust_future_free_pointer,
             liftFunc: FfiConverterTypeFfiSignatureRequest_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5647,7 +5647,7 @@ open func revokeInstallations(installationIds: [Data])async throws  -> FfiSignat
             completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
             freeFunc: ffi_xmtpv3_rust_future_free_pointer,
             liftFunc: FfiConverterTypeFfiSignatureRequest_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5668,7 +5668,7 @@ open func sendSyncArchive(options: FfiArchiveOptions, serverUrl: String, pin: St
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5688,7 +5688,7 @@ open func sendSyncRequest()async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5705,7 +5705,7 @@ open func setConsentStates(records: [FfiConsent])async throws   {
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5713,7 +5713,7 @@ open func setConsentStates(records: [FfiConsent])async throws   {
      * A utility function to sign a piece of text with this installation's private key.
      */
 open func signWithInstallationKey(text: String)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_ffixmtpclient_sign_with_installation_key(self.uniffiClonePointer(),
         FfiConverterString.lower(text),$0
     )
@@ -5743,7 +5743,7 @@ open func syncAllDeviceSyncGroups()async throws  -> FfiGroupSyncSummary  {
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeFfiGroupSyncSummary_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
@@ -5760,14 +5760,14 @@ open func syncPreferences()async throws  -> FfiGroupSyncSummary  {
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeFfiGroupSyncSummary_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
     /**
      * A utility function to easily verify that a piece of text was signed by this installation.
      */
-open func verifySignedWithInstallationKey(signatureText: String, signatureBytes: Data)throws   {try rustCallWithError(FfiConverterTypeGenericError_lift) {
+open func verifySignedWithInstallationKey(signatureText: String, signatureBytes: Data)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_ffixmtpclient_verify_signed_with_installation_key(self.uniffiClonePointer(),
         FfiConverterString.lower(signatureText),
         FfiConverterData.lower(signatureBytes),$0
@@ -5779,7 +5779,7 @@ open func verifySignedWithInstallationKey(signatureText: String, signatureBytes:
      * A utility function to easily verify that a string has been signed by another libXmtp installation.
      * Only works for verifying libXmtp public context signatures.
      */
-open func verifySignedWithPublicKey(signatureText: String, signatureBytes: Data, publicKey: Data)throws   {try rustCallWithError(FfiConverterTypeGenericError_lift) {
+open func verifySignedWithPublicKey(signatureText: String, signatureBytes: Data, publicKey: Data)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_method_ffixmtpclient_verify_signed_with_public_key(self.uniffiClonePointer(),
         FfiConverterString.lower(signatureText),
         FfiConverterData.lower(signatureBytes),
@@ -7777,6 +7777,76 @@ public func FfiConverterTypeFfiEnrichedReply_lift(_ buf: RustBuffer) throws -> F
 #endif
 public func FfiConverterTypeFfiEnrichedReply_lower(_ value: FfiEnrichedReply) -> RustBuffer {
     return FfiConverterTypeFfiEnrichedReply.lower(value)
+}
+
+
+public struct FfiErrorInfo {
+    public var code: String
+    public var message: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(code: String, message: String) {
+        self.code = code
+        self.message = message
+    }
+}
+
+#if compiler(>=6)
+extension FfiErrorInfo: Sendable {}
+#endif
+
+
+extension FfiErrorInfo: Equatable, Hashable {
+    public static func ==(lhs: FfiErrorInfo, rhs: FfiErrorInfo) -> Bool {
+        if lhs.code != rhs.code {
+            return false
+        }
+        if lhs.message != rhs.message {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(code)
+        hasher.combine(message)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiErrorInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiErrorInfo {
+        return
+            try FfiErrorInfo(
+                code: FfiConverterString.read(from: &buf), 
+                message: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiErrorInfo, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.code, into: &buf)
+        FfiConverterString.write(value.message, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiErrorInfo_lift(_ buf: RustBuffer) throws -> FfiErrorInfo {
+    return try FfiConverterTypeFfiErrorInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiErrorInfo_lower(_ value: FfiErrorInfo) -> RustBuffer {
+    return FfiConverterTypeFfiErrorInfo.lower(value)
 }
 
 
@@ -12250,6 +12320,87 @@ extension FfiDirection: Equatable, Hashable {}
 
 
 
+
+/**
+ * Wrapper that formats errors as `[error_code] message` for mobile SDKs.
+ * UniFFI uses Display to convert errors to strings, so this wrapper
+ * ensures mobile clients receive machine-readable error codes.
+ */
+public enum FfiError: Swift.Error {
+
+    
+    
+    case Error(message: String)
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
+    typealias SwiftType = FfiError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .Error(
+            message: try FfiConverterString.read(from: &buf)
+        )
+        
+
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        case .Error(_ /* message is ignored*/):
+            writeInt(&buf, Int32(1))
+
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiError_lift(_ buf: RustBuffer) throws -> FfiError {
+    return try FfiConverterTypeFfiError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiError_lower(_ value: FfiError) -> RustBuffer {
+    return FfiConverterTypeFfiError.lower(value)
+}
+
+
+extension FfiError: Equatable, Hashable {}
+
+
+
+
+extension FfiError: Foundation.LocalizedError {
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+}
+
+
+
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
@@ -13748,90 +13899,6 @@ extension FfiSortBy: Equatable, Hashable {}
 
 
 
-
-public enum FfiSubscribeError: Swift.Error {
-
-    
-    
-    case Subscribe(message: String)
-    
-    case Storage(message: String)
-    
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFfiSubscribeError: FfiConverterRustBuffer {
-    typealias SwiftType = FfiSubscribeError
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSubscribeError {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-
-        
-
-        
-        case 1: return .Subscribe(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 2: return .Storage(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-
-        default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: FfiSubscribeError, into buf: inout [UInt8]) {
-        switch value {
-
-        
-
-        
-        case .Subscribe(_ /* message is ignored*/):
-            writeInt(&buf, Int32(1))
-        case .Storage(_ /* message is ignored*/):
-            writeInt(&buf, Int32(2))
-
-        
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFfiSubscribeError_lift(_ buf: RustBuffer) throws -> FfiSubscribeError {
-    return try FfiConverterTypeFfiSubscribeError.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFfiSubscribeError_lower(_ value: FfiSubscribeError) -> RustBuffer {
-    return FfiConverterTypeFfiSubscribeError.lower(value)
-}
-
-
-extension FfiSubscribeError: Equatable, Hashable {}
-
-
-
-
-extension FfiSubscribeError: Foundation.LocalizedError {
-    public var errorDescription: String? {
-        String(reflecting: self)
-    }
-}
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
@@ -14024,298 +14091,6 @@ public func FfiConverterTypeFfiSyncWorkerMode_lower(_ value: FfiSyncWorkerMode) 
 extension FfiSyncWorkerMode: Equatable, Hashable {}
 
 
-
-
-
-
-
-public enum GenericError: Swift.Error {
-
-    
-    
-    case Client(message: String)
-    
-    case ClientBuilder(message: String)
-    
-    case Storage(message: String)
-    
-    case GroupError(message: String)
-    
-    case Signature(message: String)
-    
-    case GroupMetadata(message: String)
-    
-    case GroupMutablePermissions(message: String)
-    
-    case Generic(message: String)
-    
-    case SignatureRequestError(message: String)
-    
-    case Erc1271SignatureError(message: String)
-    
-    case Verifier(message: String)
-    
-    case FailedToConvertToU32(message: String)
-    
-    case Association(message: String)
-    
-    case DeviceSync(message: String)
-    
-    case Identity(message: String)
-    
-    case JoinError(message: String)
-    
-    case IoError(message: String)
-    
-    case Subscription(message: String)
-    
-    case ApiClientBuild(message: String)
-    
-    case Grpc(message: String)
-    
-    case AddressValidation(message: String)
-    
-    case LogInit(message: String)
-    
-    case ReloadLog(message: String)
-    
-    case Log(message: String)
-    
-    case Expired(message: String)
-    
-    case BackendBuilder(message: String)
-    
-    case Api(message: String)
-    
-    case Enrich(message: String)
-    
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeGenericError: FfiConverterRustBuffer {
-    typealias SwiftType = GenericError
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GenericError {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-
-        
-
-        
-        case 1: return .Client(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 2: return .ClientBuilder(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 3: return .Storage(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 4: return .GroupError(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 5: return .Signature(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 6: return .GroupMetadata(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 7: return .GroupMutablePermissions(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 8: return .Generic(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 9: return .SignatureRequestError(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 10: return .Erc1271SignatureError(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 11: return .Verifier(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 12: return .FailedToConvertToU32(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 13: return .Association(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 14: return .DeviceSync(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 15: return .Identity(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 16: return .JoinError(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 17: return .IoError(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 18: return .Subscription(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 19: return .ApiClientBuild(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 20: return .Grpc(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 21: return .AddressValidation(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 22: return .LogInit(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 23: return .ReloadLog(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 24: return .Log(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 25: return .Expired(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 26: return .BackendBuilder(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 27: return .Api(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 28: return .Enrich(
-            message: try FfiConverterString.read(from: &buf)
-        )
-        
-
-        default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: GenericError, into buf: inout [UInt8]) {
-        switch value {
-
-        
-
-        
-        case .Client(_ /* message is ignored*/):
-            writeInt(&buf, Int32(1))
-        case .ClientBuilder(_ /* message is ignored*/):
-            writeInt(&buf, Int32(2))
-        case .Storage(_ /* message is ignored*/):
-            writeInt(&buf, Int32(3))
-        case .GroupError(_ /* message is ignored*/):
-            writeInt(&buf, Int32(4))
-        case .Signature(_ /* message is ignored*/):
-            writeInt(&buf, Int32(5))
-        case .GroupMetadata(_ /* message is ignored*/):
-            writeInt(&buf, Int32(6))
-        case .GroupMutablePermissions(_ /* message is ignored*/):
-            writeInt(&buf, Int32(7))
-        case .Generic(_ /* message is ignored*/):
-            writeInt(&buf, Int32(8))
-        case .SignatureRequestError(_ /* message is ignored*/):
-            writeInt(&buf, Int32(9))
-        case .Erc1271SignatureError(_ /* message is ignored*/):
-            writeInt(&buf, Int32(10))
-        case .Verifier(_ /* message is ignored*/):
-            writeInt(&buf, Int32(11))
-        case .FailedToConvertToU32(_ /* message is ignored*/):
-            writeInt(&buf, Int32(12))
-        case .Association(_ /* message is ignored*/):
-            writeInt(&buf, Int32(13))
-        case .DeviceSync(_ /* message is ignored*/):
-            writeInt(&buf, Int32(14))
-        case .Identity(_ /* message is ignored*/):
-            writeInt(&buf, Int32(15))
-        case .JoinError(_ /* message is ignored*/):
-            writeInt(&buf, Int32(16))
-        case .IoError(_ /* message is ignored*/):
-            writeInt(&buf, Int32(17))
-        case .Subscription(_ /* message is ignored*/):
-            writeInt(&buf, Int32(18))
-        case .ApiClientBuild(_ /* message is ignored*/):
-            writeInt(&buf, Int32(19))
-        case .Grpc(_ /* message is ignored*/):
-            writeInt(&buf, Int32(20))
-        case .AddressValidation(_ /* message is ignored*/):
-            writeInt(&buf, Int32(21))
-        case .LogInit(_ /* message is ignored*/):
-            writeInt(&buf, Int32(22))
-        case .ReloadLog(_ /* message is ignored*/):
-            writeInt(&buf, Int32(23))
-        case .Log(_ /* message is ignored*/):
-            writeInt(&buf, Int32(24))
-        case .Expired(_ /* message is ignored*/):
-            writeInt(&buf, Int32(25))
-        case .BackendBuilder(_ /* message is ignored*/):
-            writeInt(&buf, Int32(26))
-        case .Api(_ /* message is ignored*/):
-            writeInt(&buf, Int32(27))
-        case .Enrich(_ /* message is ignored*/):
-            writeInt(&buf, Int32(28))
-
-        
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeGenericError_lift(_ buf: RustBuffer) throws -> GenericError {
-    return try FfiConverterTypeGenericError.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeGenericError_lower(_ value: GenericError) -> RustBuffer {
-    return FfiConverterTypeGenericError.lower(value)
-}
-
-
-extension GenericError: Equatable, Hashable {}
-
-
-
-
-extension GenericError: Foundation.LocalizedError {
-    public var errorDescription: String? {
-        String(reflecting: self)
-    }
-}
 
 
 
@@ -16306,7 +16081,7 @@ public func applySignatureRequest(api: XmtpApiClient, signatureRequest: FfiSigna
             completeFunc: ffi_xmtpv3_rust_future_complete_void,
             freeFunc: ffi_xmtpv3_rust_future_free_void,
             liftFunc: { $0 },
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
 /**
@@ -16326,7 +16101,7 @@ public func connectToBackend(v3Host: String, gatewayHost: String?, isSecure: Boo
             completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
             freeFunc: ffi_xmtpv3_rust_future_free_pointer,
             liftFunc: FfiConverterTypeXmtpApiClient_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
 /**
@@ -16361,207 +16136,207 @@ public func createClient(api: XmtpApiClient, syncApi: XmtpApiClient, db: DbOptio
             completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
             freeFunc: ffi_xmtpv3_rust_future_free_pointer,
             liftFunc: FfiConverterTypeFfiXmtpClient_lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
 public func decodeActions(bytes: Data)throws  -> FfiActions  {
-    return try  FfiConverterTypeFfiActions_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiActions_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_decode_actions(
         FfiConverterData.lower(bytes),$0
     )
 })
 }
 public func decodeAttachment(bytes: Data)throws  -> FfiAttachment  {
-    return try  FfiConverterTypeFfiAttachment_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiAttachment_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_decode_attachment(
         FfiConverterData.lower(bytes),$0
     )
 })
 }
 public func decodeDeleteMessage(bytes: Data)throws  -> FfiDeleteMessage  {
-    return try  FfiConverterTypeFfiDeleteMessage_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiDeleteMessage_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_decode_delete_message(
         FfiConverterData.lower(bytes),$0
     )
 })
 }
 public func decodeGroupUpdated(bytes: Data)throws  -> FfiGroupUpdated  {
-    return try  FfiConverterTypeFfiGroupUpdated_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiGroupUpdated_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_decode_group_updated(
         FfiConverterData.lower(bytes),$0
     )
 })
 }
 public func decodeIntent(bytes: Data)throws  -> FfiIntent  {
-    return try  FfiConverterTypeFfiIntent_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiIntent_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_decode_intent(
         FfiConverterData.lower(bytes),$0
     )
 })
 }
 public func decodeLeaveRequest(bytes: Data)throws  -> FfiLeaveRequest  {
-    return try  FfiConverterTypeFfiLeaveRequest_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiLeaveRequest_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_decode_leave_request(
         FfiConverterData.lower(bytes),$0
     )
 })
 }
 public func decodeMarkdown(bytes: Data)throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_decode_markdown(
         FfiConverterData.lower(bytes),$0
     )
 })
 }
 public func decodeMultiRemoteAttachment(bytes: Data)throws  -> FfiMultiRemoteAttachment  {
-    return try  FfiConverterTypeFfiMultiRemoteAttachment_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiMultiRemoteAttachment_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_decode_multi_remote_attachment(
         FfiConverterData.lower(bytes),$0
     )
 })
 }
 public func decodeReaction(bytes: Data)throws  -> FfiReactionPayload  {
-    return try  FfiConverterTypeFfiReactionPayload_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiReactionPayload_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_decode_reaction(
         FfiConverterData.lower(bytes),$0
     )
 })
 }
 public func decodeReadReceipt(bytes: Data)throws  -> FfiReadReceipt  {
-    return try  FfiConverterTypeFfiReadReceipt_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiReadReceipt_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_decode_read_receipt(
         FfiConverterData.lower(bytes),$0
     )
 })
 }
 public func decodeRemoteAttachment(bytes: Data)throws  -> FfiRemoteAttachment  {
-    return try  FfiConverterTypeFfiRemoteAttachment_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiRemoteAttachment_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_decode_remote_attachment(
         FfiConverterData.lower(bytes),$0
     )
 })
 }
 public func decodeReply(bytes: Data)throws  -> FfiReply  {
-    return try  FfiConverterTypeFfiReply_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiReply_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_decode_reply(
         FfiConverterData.lower(bytes),$0
     )
 })
 }
 public func decodeText(bytes: Data)throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_decode_text(
         FfiConverterData.lower(bytes),$0
     )
 })
 }
 public func decodeTransactionReference(bytes: Data)throws  -> FfiTransactionReference  {
-    return try  FfiConverterTypeFfiTransactionReference_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiTransactionReference_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_decode_transaction_reference(
         FfiConverterData.lower(bytes),$0
     )
 })
 }
 public func decodeWalletSendCalls(bytes: Data)throws  -> FfiWalletSendCalls  {
-    return try  FfiConverterTypeFfiWalletSendCalls_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiWalletSendCalls_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_decode_wallet_send_calls(
         FfiConverterData.lower(bytes),$0
     )
 })
 }
 public func encodeActions(actions: FfiActions)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_encode_actions(
         FfiConverterTypeFfiActions_lower(actions),$0
     )
 })
 }
 public func encodeAttachment(attachment: FfiAttachment)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_encode_attachment(
         FfiConverterTypeFfiAttachment_lower(attachment),$0
     )
 })
 }
 public func encodeDeleteMessage(request: FfiDeleteMessage)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_encode_delete_message(
         FfiConverterTypeFfiDeleteMessage_lower(request),$0
     )
 })
 }
 public func encodeIntent(intent: FfiIntent)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_encode_intent(
         FfiConverterTypeFfiIntent_lower(intent),$0
     )
 })
 }
 public func encodeLeaveRequest(request: FfiLeaveRequest)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_encode_leave_request(
         FfiConverterTypeFfiLeaveRequest_lower(request),$0
     )
 })
 }
 public func encodeMarkdown(text: String)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_encode_markdown(
         FfiConverterString.lower(text),$0
     )
 })
 }
 public func encodeMultiRemoteAttachment(ffiMultiRemoteAttachment: FfiMultiRemoteAttachment)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_encode_multi_remote_attachment(
         FfiConverterTypeFfiMultiRemoteAttachment_lower(ffiMultiRemoteAttachment),$0
     )
 })
 }
 public func encodeReaction(reaction: FfiReactionPayload)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_encode_reaction(
         FfiConverterTypeFfiReactionPayload_lower(reaction),$0
     )
 })
 }
 public func encodeReadReceipt(readReceipt: FfiReadReceipt)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_encode_read_receipt(
         FfiConverterTypeFfiReadReceipt_lower(readReceipt),$0
     )
 })
 }
 public func encodeRemoteAttachment(remoteAttachment: FfiRemoteAttachment)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_encode_remote_attachment(
         FfiConverterTypeFfiRemoteAttachment_lower(remoteAttachment),$0
     )
 })
 }
 public func encodeReply(reply: FfiReply)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_encode_reply(
         FfiConverterTypeFfiReply_lower(reply),$0
     )
 })
 }
 public func encodeText(text: String)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_encode_text(
         FfiConverterString.lower(text),$0
     )
 })
 }
 public func encodeTransactionReference(reference: FfiTransactionReference)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_encode_transaction_reference(
         FfiConverterTypeFfiTransactionReference_lower(reference),$0
     )
 })
 }
 public func encodeWalletSendCalls(walletSendCalls: FfiWalletSendCalls)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_encode_wallet_send_calls(
         FfiConverterTypeFfiWalletSendCalls_lower(walletSendCalls),$0
     )
@@ -16573,7 +16348,7 @@ public func encodeWalletSendCalls(walletSendCalls: FfiWalletSendCalls)throws  ->
  * i.e "libxmtp-v1.6.0.abc123.main.12345.log.2025-04-02"
  * A maximum of 'max_files' log files are kept.
  */
-public func enterDebugWriter(directory: String, logLevel: FfiLogLevel, rotation: FfiLogRotation, maxFiles: UInt32, processType: FfiProcessType)throws   {try rustCallWithError(FfiConverterTypeGenericError_lift) {
+public func enterDebugWriter(directory: String, logLevel: FfiLogLevel, rotation: FfiLogRotation, maxFiles: UInt32, processType: FfiProcessType)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_enter_debug_writer(
         FfiConverterString.lower(directory),
         FfiConverterTypeFfiLogLevel_lower(logLevel),
@@ -16589,7 +16364,7 @@ public func enterDebugWriter(directory: String, logLevel: FfiLogLevel, rotation:
  * i.e "libxmtp-v1.6.0.abc123.notif.67890.log.2025-04-02"
  * A maximum of 'max_files' log files are kept.
  */
-public func enterDebugWriterWithLevel(directory: String, rotation: FfiLogRotation, maxFiles: UInt32, logLevel: FfiLogLevel, processType: FfiProcessType)throws   {try rustCallWithError(FfiConverterTypeGenericError_lift) {
+public func enterDebugWriterWithLevel(directory: String, rotation: FfiLogRotation, maxFiles: UInt32, logLevel: FfiLogLevel, processType: FfiProcessType)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_enter_debug_writer_with_level(
         FfiConverterString.lower(directory),
         FfiConverterTypeFfiLogRotation_lower(rotation),
@@ -16654,13 +16429,13 @@ public func ethereumSignRecoverable(msg: Data, privateKey32: Data, hashing: Bool
  * This should be called before the program exits, to ensure all the logs in memory have been
  * written. this ends the writer thread.
  */
-public func exitDebugWriter()throws   {try rustCallWithError(FfiConverterTypeGenericError_lift) {
+public func exitDebugWriter()throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_exit_debug_writer($0
     )
 }
 }
 public func generateInboxId(accountIdentifier: FfiIdentifier, nonce: UInt64)throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_generate_inbox_id(
         FfiConverterTypeFfiIdentifier_lower(accountIdentifier),
         FfiConverterUInt64.lower(nonce),$0
@@ -16678,7 +16453,7 @@ public func getInboxIdForIdentifier(api: XmtpApiClient, accountIdentifier: FfiId
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterOptionString.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
 public func getNewestMessageMetadata(api: XmtpApiClient, groupIds: [Data])async throws  -> [Data: FfiMessageMetadata]  {
@@ -16692,7 +16467,7 @@ public func getNewestMessageMetadata(api: XmtpApiClient, groupIds: [Data])async 
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterDictionaryDataTypeFfiMessageMetadata.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
 public func getVersionInfo() -> String  {
@@ -16715,7 +16490,7 @@ public func inboxStateFromInboxIds(api: XmtpApiClient, inboxIds: [String])async 
             completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
             freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceTypeFfiInboxState.lift,
-            errorHandler: FfiConverterTypeGenericError_lift
+            errorHandler: FfiConverterTypeFfiError_lift
         )
 }
 public func isConnected(api: XmtpApiClient)async  -> Bool  {
@@ -16734,10 +16509,20 @@ public func isConnected(api: XmtpApiClient)async  -> Bool  {
         )
 }
 /**
+ * Parse an error string like `[ErrorCode] message` into a structured error info.
+ */
+public func parseXmtpError(message: String) -> FfiErrorInfo  {
+    return try!  FfiConverterTypeFfiErrorInfo_lift(try! rustCall() {
+    uniffi_xmtpv3_fn_func_parse_xmtp_error(
+        FfiConverterString.lower(message),$0
+    )
+})
+}
+/**
  * * Static revoke a list of installations
  */
 public func revokeInstallations(api: XmtpApiClient, recoveryIdentifier: FfiIdentifier, inboxId: String, installationIds: [Data])throws  -> FfiSignatureRequest  {
-    return try  FfiConverterTypeFfiSignatureRequest_lift(try rustCallWithError(FfiConverterTypeGenericError_lift) {
+    return try  FfiConverterTypeFfiSignatureRequest_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_xmtpv3_fn_func_revoke_installations(
         FfiConverterTypeXmtpApiClient_lower(api),
         FfiConverterTypeFfiIdentifier_lower(recoveryIdentifier),
@@ -16762,106 +16547,106 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_apply_signature_request() != 65134) {
+    if (uniffi_xmtpv3_checksum_func_apply_signature_request() != 5495) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_connect_to_backend() != 18636) {
+    if (uniffi_xmtpv3_checksum_func_connect_to_backend() != 63000) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_create_client() != 12635) {
+    if (uniffi_xmtpv3_checksum_func_create_client() != 18992) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_decode_actions() != 13209) {
+    if (uniffi_xmtpv3_checksum_func_decode_actions() != 48968) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_decode_attachment() != 20456) {
+    if (uniffi_xmtpv3_checksum_func_decode_attachment() != 8697) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_decode_delete_message() != 6483) {
+    if (uniffi_xmtpv3_checksum_func_decode_delete_message() != 63471) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_decode_group_updated() != 277) {
+    if (uniffi_xmtpv3_checksum_func_decode_group_updated() != 51824) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_decode_intent() != 24165) {
+    if (uniffi_xmtpv3_checksum_func_decode_intent() != 59375) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_decode_leave_request() != 20951) {
+    if (uniffi_xmtpv3_checksum_func_decode_leave_request() != 14629) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_decode_markdown() != 24145) {
+    if (uniffi_xmtpv3_checksum_func_decode_markdown() != 20635) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_decode_multi_remote_attachment() != 59746) {
+    if (uniffi_xmtpv3_checksum_func_decode_multi_remote_attachment() != 49952) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_decode_reaction() != 24150) {
+    if (uniffi_xmtpv3_checksum_func_decode_reaction() != 22136) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_decode_read_receipt() != 60393) {
+    if (uniffi_xmtpv3_checksum_func_decode_read_receipt() != 27191) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_decode_remote_attachment() != 53450) {
+    if (uniffi_xmtpv3_checksum_func_decode_remote_attachment() != 21885) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_decode_reply() != 41903) {
+    if (uniffi_xmtpv3_checksum_func_decode_reply() != 634) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_decode_text() != 7209) {
+    if (uniffi_xmtpv3_checksum_func_decode_text() != 8275) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_decode_transaction_reference() != 25896) {
+    if (uniffi_xmtpv3_checksum_func_decode_transaction_reference() != 61157) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_decode_wallet_send_calls() != 2959) {
+    if (uniffi_xmtpv3_checksum_func_decode_wallet_send_calls() != 48334) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_encode_actions() != 15414) {
+    if (uniffi_xmtpv3_checksum_func_encode_actions() != 42882) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_encode_attachment() != 47054) {
+    if (uniffi_xmtpv3_checksum_func_encode_attachment() != 42159) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_encode_delete_message() != 64741) {
+    if (uniffi_xmtpv3_checksum_func_encode_delete_message() != 6766) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_encode_intent() != 64568) {
+    if (uniffi_xmtpv3_checksum_func_encode_intent() != 29847) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_encode_leave_request() != 28716) {
+    if (uniffi_xmtpv3_checksum_func_encode_leave_request() != 33190) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_encode_markdown() != 14192) {
+    if (uniffi_xmtpv3_checksum_func_encode_markdown() != 45065) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_encode_multi_remote_attachment() != 28938) {
+    if (uniffi_xmtpv3_checksum_func_encode_multi_remote_attachment() != 41160) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_encode_reaction() != 48662) {
+    if (uniffi_xmtpv3_checksum_func_encode_reaction() != 56943) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_encode_read_receipt() != 46693) {
+    if (uniffi_xmtpv3_checksum_func_encode_read_receipt() != 16585) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_encode_remote_attachment() != 14050) {
+    if (uniffi_xmtpv3_checksum_func_encode_remote_attachment() != 62508) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_encode_reply() != 3022) {
+    if (uniffi_xmtpv3_checksum_func_encode_reply() != 21560) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_encode_text() != 6696) {
+    if (uniffi_xmtpv3_checksum_func_encode_text() != 31759) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_encode_transaction_reference() != 22144) {
+    if (uniffi_xmtpv3_checksum_func_encode_transaction_reference() != 62574) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_encode_wallet_send_calls() != 8163) {
+    if (uniffi_xmtpv3_checksum_func_encode_wallet_send_calls() != 55402) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_enter_debug_writer() != 60052) {
+    if (uniffi_xmtpv3_checksum_func_enter_debug_writer() != 17248) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_enter_debug_writer_with_level() != 41119) {
+    if (uniffi_xmtpv3_checksum_func_enter_debug_writer_with_level() != 18287) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_ethereum_address_from_pubkey() != 12568) {
@@ -16876,223 +16661,226 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_func_ethereum_sign_recoverable() != 58098) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_exit_debug_writer() != 31716) {
+    if (uniffi_xmtpv3_checksum_func_exit_debug_writer() != 27560) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_generate_inbox_id() != 35602) {
+    if (uniffi_xmtpv3_checksum_func_generate_inbox_id() != 42067) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_get_inbox_id_for_identifier() != 54811) {
+    if (uniffi_xmtpv3_checksum_func_get_inbox_id_for_identifier() != 61855) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_get_newest_message_metadata() != 45697) {
+    if (uniffi_xmtpv3_checksum_func_get_newest_message_metadata() != 27949) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_get_version_info() != 29277) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_inbox_state_from_inbox_ids() != 55434) {
+    if (uniffi_xmtpv3_checksum_func_inbox_state_from_inbox_ids() != 9472) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_is_connected() != 17295) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_revoke_installations() != 39546) {
+    if (uniffi_xmtpv3_checksum_func_parse_xmtp_error() != 57286) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffiauthcallback_on_auth_required() != 41151) {
+    if (uniffi_xmtpv3_checksum_func_revoke_installations() != 64481) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffiauthcallback_on_auth_required() != 29742) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffiauthhandle_id() != 11318) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffiauthhandle_set() != 39409) {
+    if (uniffi_xmtpv3_checksum_method_ffiauthhandle_set() != 2395) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonsentcallback_on_consent_update() != 12532) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonsentcallback_on_error() != 5882) {
+    if (uniffi_xmtpv3_checksum_method_fficonsentcallback_on_error() != 56475) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonsentcallback_on_close() != 18566) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_add_admin() != 52417) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_add_admin() != 14149) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_add_members() != 50391) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_add_members() != 40357) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_add_members_by_identity() != 19615) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_add_members_by_identity() != 56401) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_add_super_admin() != 62984) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_add_super_admin() != 57341) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_added_by_inbox_id() != 12748) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_added_by_inbox_id() != 56785) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_admin_list() != 26668) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_admin_list() != 44882) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_app_data() != 57646) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_app_data() != 26219) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_consent_state() != 25033) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_consent_state() != 3821) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_conversation_debug_info() != 13258) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_conversation_debug_info() != 23207) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_conversation_message_disappearing_settings() != 53380) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_conversation_message_disappearing_settings() != 48701) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_conversation_type() != 43322) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_count_messages() != 14036) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_count_messages() != 243) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_created_at_ns() != 17973) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_delete_message() != 54360) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_delete_message() != 34540) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_dm_peer_inbox_id() != 2178) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_find_duplicate_dms() != 15813) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_find_duplicate_dms() != 52) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_find_enriched_messages() != 4573) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_find_enriched_messages() != 59362) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_find_messages() != 19931) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_find_messages() != 54046) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_find_messages_with_reactions() != 46761) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_find_messages_with_reactions() != 14034) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_get_hmac_keys() != 35284) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_get_hmac_keys() != 49256) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_get_last_read_times() != 5152) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_get_last_read_times() != 24795) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_group_description() != 53570) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_group_description() != 6993) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_group_image_url_square() != 3200) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_group_image_url_square() != 22193) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_group_metadata() != 7860) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_group_metadata() != 17919) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_group_name() != 9344) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_group_name() != 16617) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_group_permissions() != 61947) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_group_permissions() != 47434) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_id() != 5542) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_is_active() != 49581) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_is_active() != 52886) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_is_admin() != 12325) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_is_admin() != 2121) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_is_conversation_message_disappearing_enabled() != 13756) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_is_conversation_message_disappearing_enabled() != 65312) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_is_super_admin() != 25811) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_is_super_admin() != 38152) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_leave_group() != 6817) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_leave_group() != 64752) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_list_members() != 21260) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_list_members() != 33630) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_membership_state() != 9048) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_membership_state() != 23889) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_paused_for_version() != 61438) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_paused_for_version() != 35645) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_prepare_message() != 2996) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_prepare_message() != 17501) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_process_streamed_conversation_message() != 33913) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_process_streamed_conversation_message() != 25980) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_publish_messages() != 15643) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_publish_messages() != 29588) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_publish_stored_message() != 23535) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_publish_stored_message() != 5747) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_admin() != 7973) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_admin() != 5640) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_conversation_message_disappearing_settings() != 37503) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_conversation_message_disappearing_settings() != 62483) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_members() != 50337) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_members() != 24740) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_members_by_identity() != 30761) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_members_by_identity() != 1043) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_super_admin() != 46017) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_super_admin() != 8802) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_send() != 12477) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_send() != 5758) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_send_optimistic() != 22242) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_send_optimistic() != 50020) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_send_text() != 55684) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_send_text() != 61657) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_stream() != 26870) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_super_admin_list() != 50610) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_super_admin_list() != 1368) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_sync() != 17206) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_sync() != 64532) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_update_app_data() != 26175) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_update_app_data() != 49116) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_update_consent_state() != 27721) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_update_consent_state() != 55592) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_update_conversation_message_disappearing_settings() != 18023) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_update_conversation_message_disappearing_settings() != 59303) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_update_group_description() != 14549) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_update_group_description() != 26687) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_update_group_image_url_square() != 36900) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_update_group_image_url_square() != 23989) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_update_group_name() != 62600) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_update_group_name() != 25195) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_update_permission_policy() != 3743) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_update_permission_policy() != 43445) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversationcallback_on_conversation() != 25316) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversationcallback_on_error() != 461) {
+    if (uniffi_xmtpv3_checksum_method_fficonversationcallback_on_error() != 17078) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversationcallback_on_close() != 26905) {
@@ -17113,34 +16901,34 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_fficonversationmetadata_creator_inbox_id() != 61067) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_create_group() != 47451) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_create_group() != 11757) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_create_group_by_identity() != 45378) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_create_group_by_identity() != 40956) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_create_group_optimistic() != 41612) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_create_group_optimistic() != 7796) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_find_or_create_dm() != 27374) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_find_or_create_dm() != 25156) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_find_or_create_dm_by_identity() != 11330) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_find_or_create_dm_by_identity() != 632) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_get_hmac_keys() != 44064) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_get_hmac_keys() != 60241) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_list() != 23197) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_list() != 45877) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_list_dms() != 39437) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_list_dms() != 14878) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_list_groups() != 7791) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_list_groups() != 13236) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_process_streamed_welcome_message() != 24295) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_process_streamed_welcome_message() != 47818) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversations_stream() != 31576) {
@@ -17173,10 +16961,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_fficonversations_stream_preferences() != 37452) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_sync() != 9054) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_sync() != 44913) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_sync_all_conversations() != 29050) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_sync_all_conversations() != 7672) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_content() != 6416) {
@@ -17227,10 +17015,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_sent_at_ns() != 54409) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_set() != 24928) {
+    if (uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_set() != 56212) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_type() != 56975) {
+    if (uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_type() != 31831) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffiinboxowner_get_identifier() != 4926) {
@@ -17242,7 +17030,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_ffimessagecallback_on_message() != 5286) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffimessagecallback_on_error() != 32204) {
+    if (uniffi_xmtpv3_checksum_method_ffimessagecallback_on_error() != 60750) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffimessagecallback_on_close() != 9150) {
@@ -17254,34 +17042,34 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_preference_update() != 19900) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_error() != 41454) {
+    if (uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_error() != 23172) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_close() != 48198) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_ecdsa_signature() != 8706) {
+    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_ecdsa_signature() != 23442) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_passkey_signature() != 11222) {
+    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_passkey_signature() != 57092) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_scw_signature() != 52793) {
+    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_scw_signature() != 35063) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_is_ready() != 65051) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_missing_address_signatures() != 55383) {
+    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_missing_address_signatures() != 46165) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_signature_text() != 60472) {
+    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_signature_text() != 22797) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffistreamcloser_end() != 11040) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffistreamcloser_end_and_wait() != 23074) {
+    if (uniffi_xmtpv3_checksum_method_ffistreamcloser_end_and_wait() != 32223) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffistreamcloser_is_closed() != 62423) {
@@ -17290,13 +17078,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_ffistreamcloser_wait_for_ready() != 38545) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffisyncworker_wait() != 30763) {
+    if (uniffi_xmtpv3_checksum_method_ffisyncworker_wait() != 27531) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_add_identity() != 61490) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_add_identity() != 16903) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_addresses_from_inbox_id() != 29264) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_addresses_from_inbox_id() != 24531) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_api_aggregate_statistics() != 18475) {
@@ -17308,121 +17096,121 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_api_statistics() != 31059) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_apply_signature_request() != 32172) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_apply_signature_request() != 27496) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_archive_metadata() != 27089) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_archive_metadata() != 9006) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_can_message() != 32993) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_can_message() != 44069) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_change_recovery_identifier() != 39513) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_change_recovery_identifier() != 2778) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_clear_all_statistics() != 38737) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_conversation() != 60290) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_conversation() != 54250) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_conversations() != 47463) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_create_archive() != 62287) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_create_archive() != 32355) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_db_reconnect() != 6707) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_db_reconnect() != 61877) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_delete_message() != 34289) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_delete_message() != 18971) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_dm_conversation() != 23917) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_dm_conversation() != 6444) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_enriched_message() != 37575) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_enriched_message() != 25161) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_fetch_inbox_updates_count() != 60324) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_fetch_inbox_updates_count() != 12507) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_fetch_own_inbox_updates_count() != 42893) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_fetch_own_inbox_updates_count() != 4788) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_find_inbox_id() != 17517) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_find_inbox_id() != 48840) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_get_consent_state() != 58208) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_get_consent_state() != 10787) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_get_key_package_statuses_for_installation_ids() != 60893) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_get_key_package_statuses_for_installation_ids() != 46014) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_get_latest_inbox_state() != 3165) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_get_latest_inbox_state() != 54337) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_import_archive() != 32679) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_import_archive() != 56828) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_id() != 25128) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_state() != 7826) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_state() != 7500) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_installation_id() != 37173) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_list_available_archives() != 34892) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_list_available_archives() != 47380) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_message() != 26932) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_message() != 51724) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_process_sync_archive() != 62816) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_process_sync_archive() != 57506) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_register_identity() != 42003) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_register_identity() != 15231) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_release_db_connection() != 11067) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_release_db_connection() != 45722) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_all_other_installations_signature_request() != 46778) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_all_other_installations_signature_request() != 4877) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_identity() != 63231) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_identity() != 48860) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_installations() != 2611) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_installations() != 2461) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_send_sync_archive() != 62254) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_send_sync_archive() != 860) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_send_sync_request() != 42032) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_send_sync_request() != 38464) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_set_consent_states() != 64566) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_set_consent_states() != 8012) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_sign_with_installation_key() != 42647) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_sign_with_installation_key() != 7127) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_signature_request() != 18270) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_all_device_sync_groups() != 62257) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_all_device_sync_groups() != 5558) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_preferences() != 36404) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_preferences() != 11661) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_verify_signed_with_installation_key() != 3285) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_verify_signed_with_installation_key() != 40247) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_verify_signed_with_public_key() != 10898) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_verify_signed_with_public_key() != 6101) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_constructor_ffiauthhandle_new() != 11700) {
