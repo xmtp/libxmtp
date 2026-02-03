@@ -9,6 +9,7 @@ use bollard::{
 use bon::Builder;
 use color_eyre::eyre::Result;
 use url::Url;
+use crate::types::XmtpdNode;
 
 use crate::{
     constants::{
@@ -27,13 +28,12 @@ pub struct ReplicationDb {
     #[builder(default = DEFAULT_POSTGRES_IMAGE.to_string())]
     image: String,
 
-    /// PostgreSQL password
-    #[builder(default = DEFAULT_POSTGRES_PASSWORD.to_string())]
-    password: String,
-
     /// Managed container state
     #[builder(default = ManagedContainer::new())]
     container: ManagedContainer,
+
+    /// the node this db is attached to
+    node: XmtpdNode,
 }
 
 impl ReplicationDb {
@@ -41,14 +41,14 @@ impl ReplicationDb {
     ///
     /// Registers itself with ToxiProxy for external access.
     /// If a container with the same name already exists, it will be reused.
-    pub async fn start(&mut self, toxiproxy: &ToxiProxy) -> Result<()> {
-        let options =
-            CreateContainerOptionsBuilder::default().name(REPLICATION_DB_CONTAINER_NAME);
+    pub async fn start(&mut self) -> Result<()> {
+        let name = self.name();
+        let options = CreateContainerOptionsBuilder::default().name(&name);
 
         let config = ContainerCreateBody {
             image: Some(self.image.clone()),
             env: Some(vec![
-                format!("POSTGRES_PASSWORD={}", self.password),
+                format!("POSTGRES_PASSWORD={DEFAULT_POSTGRES_PASSWORD}"),
                 format!("PGPORT={POSTGRES_PORT}"),
             ]),
             healthcheck: Some(HealthConfig {
@@ -70,27 +70,23 @@ impl ReplicationDb {
         };
 
         self.container
-            .start_container(REPLICATION_DB_CONTAINER_NAME, options, config)
+            .start_container(&name, options, config)
             .await?;
-
-        let port = self.register(toxiproxy, None).await?;
-        self.container.set_proxy_port(port);
-
         Ok(())
     }
 
     /// Stop the PostgreSQL container.
     pub async fn stop(&mut self) -> Result<()> {
         self.container
-            .stop_container(REPLICATION_DB_CONTAINER_NAME)
+            .stop_container(&self.name())
             .await
     }
 
     /// PostgreSQL connection URL for use within the docker network.
     pub fn url(&self) -> Url {
         Url::parse(&format!(
-            "postgres://postgres:{}@{}:{}/postgres",
-            self.password, REPLICATION_DB_CONTAINER_NAME, POSTGRES_PORT
+            "postgres://postgres:xmtp@{}:{POSTGRES_PORT}/postgres?sslmode=disable",
+            self.name(),
         ))
         .expect("valid URL")
     }
@@ -99,8 +95,8 @@ impl ReplicationDb {
     pub fn external_url(&self) -> Option<Url> {
         self.container.proxy_port().map(|port| {
             Url::parse(&format!(
-                "postgres://postgres:{}@localhost:{}/postgres",
-                self.password, port
+                "postgres://postgres:xmtp@localhost:{}/postgres",
+                self.port()
             ))
             .expect("valid URL")
         })
@@ -119,8 +115,8 @@ impl ReplicationDb {
 
 #[async_trait]
 impl Service for ReplicationDb {
-    async fn start(&mut self, toxiproxy: &ToxiProxy) -> Result<()> {
-        ReplicationDb::start(self, toxiproxy).await
+    async fn start(&mut self, _toxiproxy: &ToxiProxy) -> Result<()> {
+        ReplicationDb::start(self).await
     }
 
     async fn stop(&mut self) -> Result<()> {
@@ -140,7 +136,7 @@ impl Service for ReplicationDb {
     }
 
     fn name(&self) -> String {
-        "replication_db".to_string()
+        format!("xmtpd-db-{}", self.node.id())
     }
 
     fn port(&self) -> u16 {

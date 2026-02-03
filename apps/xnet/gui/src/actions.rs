@@ -145,7 +145,6 @@ pub async fn start_toxics_poller() -> Result<mpsc::Receiver<Vec<ToxicInfo>>> {
                                 for t in toxics {
                                     all_toxics.push(ToxicInfo {
                                         proxy_name: name.clone(),
-                                        toxic_name: t.name.clone(),
                                         toxic_type: t.r#type.clone(),
                                         stream: t.stream.clone(),
                                         toxicity: t.toxicity,

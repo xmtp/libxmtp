@@ -19,6 +19,8 @@ mod v3_db;
 mod validation;
 mod xmtpd;
 
+use std::time::Duration;
+
 pub use anvil::Anvil;
 pub use coredns::CoreDns;
 pub use gateway::Gateway;
@@ -43,12 +45,14 @@ use bollard::{
     Docker,
     models::ContainerCreateBody,
     query_parameters::{
-        CreateContainerOptionsBuilder, CreateImageOptionsBuilder, StopContainerOptionsBuilder,
+        CreateContainerOptionsBuilder, CreateImageOptionsBuilder, EventsOptions,
+        StopContainerOptionsBuilder,
     },
     secret::PortBinding,
 };
 use color_eyre::eyre::{OptionExt, Result, eyre};
 use futures::{StreamExt, TryStreamExt};
+use tokio::time::timeout;
 use tracing::info;
 use url::Url;
 
@@ -66,6 +70,40 @@ fn db_connection_string(password: &str, host: &str) -> Url {
         password, host
     ))
     .expect("valid postgres URL")
+}
+
+async fn wait_for_healthy_events<F, T>(start_fn: F, container_name: &str) -> Result<()>
+where
+    F: Future<Output = Result<T>>,
+{
+    let docker = Docker::connect_with_socket_defaults()?;
+    let mut filters = std::collections::HashMap::new();
+    filters.insert("container".to_string(), vec![container_name.to_string()]);
+    filters.insert("event".to_string(), vec!["health_status".to_string()]);
+
+    let mut stream = docker.events(Some(EventsOptions {
+        filters: Some(filters),
+        ..Default::default()
+    }));
+
+    start_fn.await?;
+    let result = timeout(Duration::from_secs(10), async {
+        while let Some(event) = stream.next().await {
+            let event = event?;
+            if let Some(status) = event.action {
+                if status == "health_status: healthy" {
+                    return Ok(());
+                }
+            }
+        }
+        Err(eyre!("Event stream ended"))
+    })
+    .await;
+
+    match result {
+        Ok(inner) => inner,
+        Err(_) => Err(eyre!("Timeout waiting for {} to be healthy", container_name).into()),
+    }
 }
 
 /// Check if a container exists and ensure it's running if it does.

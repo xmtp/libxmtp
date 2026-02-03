@@ -16,6 +16,7 @@ bon = "3.8"
 clap.workspace = true
 clap-verbosity-flag.workspace = true
 color-eyre.workspace = true
+directories = "6"
 futures.workspace = true
 map-macro = "0.3"
 serde = { version = "1.0", features = ["derive"] }
@@ -26,6 +27,7 @@ toxiproxy_rust = { workspace = true }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 url = "2"
+xshell = "0.2"
 xmtp_api_d14n.workspace = true
 xmtp_api_grpc.workspace = true
 xmtp_proto.workspace = true

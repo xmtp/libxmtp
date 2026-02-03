@@ -3,7 +3,8 @@
 use crate::{
     network::Network,
     services::{
-        self, CoreDns, Gateway, Otterscan, Service, ToxiProxy, Traefik, TraefikConfig, Xmtpd,
+        self, CoreDns, Gateway, Otterscan, ReplicationDb, Service, ToxiProxy, Traefik,
+        TraefikConfig, Xmtpd,
     },
     types::XmtpdNode,
 };
@@ -95,13 +96,8 @@ impl ServiceManager {
 async fn start_d14n(proxy: &ToxiProxy) -> Result<(Gateway, url::Url, Vec<Box<dyn Service>>)> {
     let mut anvil = services::Anvil::builder().build();
     let mut redis = services::Redis::builder().build();
-    let mut replication_db = services::ReplicationDb::builder().build();
 
-    let launch = vec![
-        anvil.start(&proxy).boxed(),
-        redis.start(&proxy).boxed(),
-        replication_db.start(&proxy).boxed(),
-    ];
+    let launch = vec![anvil.start(&proxy).boxed(), redis.start(&proxy).boxed()];
     futures::future::try_join_all(launch).await?;
     let mut gateway = services::Gateway::builder()
         .redis_host(redis.internal_proxy_host()?)
@@ -112,11 +108,7 @@ async fn start_d14n(proxy: &ToxiProxy) -> Result<(Gateway, url::Url, Vec<Box<dyn
     Ok((
         gateway,
         anvil_external_rpc,
-        vec![
-            Box::new(anvil) as _,
-            Box::new(redis) as _,
-            Box::new(replication_db) as _,
-        ],
+        vec![Box::new(anvil) as _, Box::new(redis) as _],
     ))
 }
 

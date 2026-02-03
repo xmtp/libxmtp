@@ -104,7 +104,6 @@ pub enum Page {
 #[derive(Debug, Clone)]
 pub struct ToxicInfo {
     pub proxy_name: String,
-    pub toxic_name: String,
     pub toxic_type: String,
     pub stream: String,
     pub toxicity: f32,

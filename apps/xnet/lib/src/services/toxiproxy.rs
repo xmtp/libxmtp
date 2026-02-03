@@ -31,7 +31,7 @@ use crate::{
         NODE_GO_API_PORT, POSTGRES_PORT, REDIS_PORT, TOXIPROXY_API_PORT, TOXIPROXY_CONTAINER_NAME,
         TOXIPROXY_STATIC_PORT_RANGE_END, TOXIPROXY_STATIC_PORT_RANGE_START,
         TOXIPROXY_XMTPD_PORT_RANGE_END, TOXIPROXY_XMTPD_PORT_RANGE_START, V3_DB_PORT,
-        VALIDATION_PORT,
+        VALIDATION_PORT, XMTPD_GRPC_PORT,
     },
     network::XNET_NETWORK_NAME,
     services::{
@@ -216,6 +216,7 @@ impl ToxiProxy {
                         format!("{NODE_GO_API_PORT}/tcp")     => expose(NODE_GO_API_PORT),
                         format!("{GATEWAY_PORT}/tcp")         => expose(GATEWAY_PORT),
                         format!("{TOXIPROXY_API_PORT}/tcp")   => expose(TOXIPROXY_API_PORT),
+                        format!("{XMTPD_GRPC_PORT}/tcp")          => expose(XMTPD_GRPC_PORT),
                     };
                     port_bindings.extend(map);
                 }

@@ -11279,6 +11279,7 @@ dependencies = [
   "clap",
   "clap-verbosity-flag",
   "color-eyre",
+  "directories",
   "futures",
   "map-macro",
   "serde",
@@ -11293,6 +11294,7 @@ dependencies = [
   "xmtp_api_d14n",
   "xmtp_api_grpc",
   "xmtp_proto",
+  "xshell",
 ]
 
 [[package]]

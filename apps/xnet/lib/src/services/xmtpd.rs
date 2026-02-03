@@ -3,6 +3,7 @@
 //! Manages an xmtpd Docker container. Each instance is launched from an `XmtpdNode`
 //! which provides the signer private key, node ID, and ToxiProxy port.
 
+use crate::services::{ReplicationDb, wait_for_healthy_events};
 use alloy::hex;
 use async_trait::async_trait;
 use bollard::{
@@ -11,6 +12,7 @@ use bollard::{
     query_parameters::CreateContainerOptionsBuilder,
 };
 use bon::Builder;
+use color_eyre::eyre::OptionExt;
 use color_eyre::eyre::Result;
 use url::Url;
 
@@ -51,10 +53,6 @@ pub struct Xmtpd {
     #[builder(default = default_anvil_host())]
     anvil_host: String,
 
-    /// Replication DB host (container:port) for writer connection
-    #[builder(default = default_replication_db_host())]
-    db_host: String,
-
     #[builder(default = default_validation_host())]
     validation_host: String,
 
@@ -79,6 +77,9 @@ pub struct Xmtpd {
 
     #[builder(skip)]
     container_name: Option<String>,
+
+    #[builder(skip)]
+    db: Option<ReplicationDb>,
 }
 
 impl Xmtpd {
@@ -87,15 +88,18 @@ impl Xmtpd {
     /// Registers itself with ToxiProxy for external access.
     /// If a container with the same name already exists, it will be reused.
     pub async fn start(&mut self, toxiproxy: &ToxiProxy) -> Result<()> {
-        let container_name = self.container_name();
+        let mut db = ReplicationDb::builder().node(self.node.clone()).build();
+        let name = db.name();
+        wait_for_healthy_events(db.start(), &name).await?;
+        self.db = Some(db);
 
+        let container_name = self.container_name();
         let options = CreateContainerOptionsBuilder::default()
             .name(&container_name)
             .platform("linux/amd64");
 
         let Self {
             node,
-            db_host,
             contracts_environment,
             anvil_host,
             log_level,
@@ -107,7 +111,11 @@ impl Xmtpd {
         } = self;
         let private_key = format!("0x{}", hex::encode(node.signer().credential().to_bytes()));
 
-        let db_connection = format!("postgres://postgres:xmtp@{db_host}/postgres?sslmode=disable",);
+        let db_connection = self
+            .db
+            .as_ref()
+            .ok_or_eyre("db must exist for xmtpd")?
+            .url();
 
         let env = vec![
             format!("XMTPD_SIGNER_PRIVATE_KEY={private_key}"),
@@ -146,8 +154,6 @@ impl Xmtpd {
         self.container.set_proxy_port(port);
 
         // When using standard ports, also expose the first XMTPD node on localhost:5050
-        // this is for compatiblity with libxmtp tests, some of which expect
-        // xmtpd to always be at localhost:5050
         let config = crate::Config::load_unchecked();
         if config.use_standard_ports && *self.node.id() == XMTPD_NODE_ID_INCREMENT {
             let upstream = format!("{}:{}", self.container_name(), XMTPD_GRPC_PORT);
