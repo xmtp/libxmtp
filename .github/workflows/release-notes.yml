@@ -26,61 +26,30 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Detected release version: $VERSION"
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install release-tools
+        run: cd dev/release-tools && yarn install --immutable
+
       - name: Find and classify release notes
         id: classify
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          EMPTY_FILES=""
-          CONTENT_FILES=""
-          EMPTY_META=""
-          CONTENT_META=""
+          RESULT=$(cd dev/release-tools && yarn --silent cli classify-notes --release-version "$VERSION" --repo-root "$GITHUB_WORKSPACE")
 
-          shopt -s nullglob
-          for file in docs/release-notes/*/"${VERSION}.md"; do
-            # Parse frontmatter
-            sdk=$(awk '/^---$/{if(c++)exit}c' "$file" | grep '^sdk:' | awk '{print $2}')
-            prev_tag=$(awk '/^---$/{if(c++)exit}c' "$file" | grep '^previous_release_tag:' | awk '{print $2}')
-
-            # Skip files with no previous release tag
-            if [ "$prev_tag" = "null" ] || [ -z "$prev_tag" ]; then
-              echo "Skipping $file — no previous release tag"
-              continue
-            fi
-
-            # Detect empty scaffold: strip frontmatter, HTML comments, headers, whitespace
-            body=$(awk '/^---$/{c++;next}c>=2' "$file")
-            stripped=$(echo "$body" | sed 's/<!--[^>]*-->//g' | sed '/^[[:space:]]*$/d' | sed '/^#/d' | tr -d '[:space:]')
-
-            if [ -z "$stripped" ]; then
-              echo "Empty scaffold: $file (sdk=$sdk, prev_tag=$prev_tag)"
-              EMPTY_FILES="${EMPTY_FILES}${file}\n"
-              EMPTY_META="${EMPTY_META}${sdk}|${file}|${prev_tag}\n"
-            else
-              echo "Has content: $file (sdk=$sdk, prev_tag=$prev_tag)"
-              CONTENT_FILES="${CONTENT_FILES}${file}\n"
-              CONTENT_META="${CONTENT_META}${sdk}|${file}|${prev_tag}\n"
-            fi
-          done
+          echo "has_empty=$(echo "$RESULT" | jq -r '.hasEmpty')" >> "$GITHUB_OUTPUT"
+          echo "has_content=$(echo "$RESULT" | jq -r '.hasContent')" >> "$GITHUB_OUTPUT"
 
           echo "empty_meta<<EOF" >> "$GITHUB_OUTPUT"
-          echo -e "$EMPTY_META" >> "$GITHUB_OUTPUT"
+          echo "$RESULT" | jq -r '.empty[] | "\(.sdk)|\(.filePath)|\(.previousReleaseTag)"' >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
           echo "content_meta<<EOF" >> "$GITHUB_OUTPUT"
-          echo -e "$CONTENT_META" >> "$GITHUB_OUTPUT"
+          echo "$RESULT" | jq -r '.content[] | "\(.sdk)|\(.filePath)|\(.previousReleaseTag)"' >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-
-          # Set boolean flags
-          if [ -n "$EMPTY_META" ]; then
-            echo "has_empty=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_empty=false" >> "$GITHUB_OUTPUT"
-          fi
-          if [ -n "$CONTENT_META" ]; then
-            echo "has_content=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_content=false" >> "$GITHUB_OUTPUT"
-          fi
 
       # --- Empty scaffold path: Claude writes first draft, commits to release branch ---
 
