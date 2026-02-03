@@ -147,19 +147,20 @@ jobs:
           VERSION: ${{ needs.compute-version.outputs.version }}
         working-directory: bindings/mobile
         run: |
-          TAG="ios-${VERSION}-libxmtp"
-          # Delete existing release if re-running
-          gh release delete "$TAG" --yes 2>/dev/null || true
-          git tag -d "$TAG" 2>/dev/null || true
-          git push origin ":refs/tags/$TAG" 2>/dev/null || true
-
-          gh release create "$TAG" \
-            --title "iOS $VERSION - libxmtp binaries" \
-            --notes "Intermediate artifact release for iOS SDK $VERSION" \
-            --prerelease \
-            LibXMTPSwiftFFI.zip
-
+          SHA=$(git rev-parse --short=7 HEAD)
+          TAG="libxmtp-ios-${SHA}"
           ARTIFACT_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/LibXMTPSwiftFFI.zip"
+
+          if gh release view "$TAG" &>/dev/null; then
+            echo "Release $TAG already exists, skipping creation"
+          else
+            gh release create "$TAG" \
+              --title "iOS $VERSION - libxmtp binaries" \
+              --notes "Intermediate artifact release for iOS SDK $VERSION" \
+              --prerelease \
+              LibXMTPSwiftFFI.zip
+          fi
+
           echo "artifact-url=$ARTIFACT_URL" >> "$GITHUB_OUTPUT"
 
   publish:
@@ -199,16 +200,19 @@ jobs:
           VERSION: ${{ needs.compute-version.outputs.version }}
         run: |
           TAG="ios-${VERSION}"
-          # Clean up existing tag if re-running
-          git tag -d "$TAG" 2>/dev/null || true
-          git push origin ":refs/tags/$TAG" 2>/dev/null || true
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Package.swift sdks/ios/XMTP.podspec
           git commit -m "release: iOS SDK $VERSION [skip ci]" || echo "No changes to commit"
-          git tag "$TAG"
-          git push origin HEAD "$TAG"
+
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
+            echo "Tag $TAG already exists, skipping"
+            git push origin HEAD
+          else
+            git tag "$TAG"
+            git push origin HEAD "$TAG"
+          fi
       - name: Copy release notes (final only)
         if: inputs.release-type == 'final'
         env:
@@ -216,17 +220,21 @@ jobs:
           VERSION: ${{ needs.compute-version.outputs.version }}
         run: |
           TAG="ios-${VERSION}"
-          NOTES_FILE="docs/release-notes/ios/${VERSION}.md"
-          if [ -f "$NOTES_FILE" ]; then
-            gh release create "$TAG" \
-              --title "iOS SDK $VERSION" \
-              --notes-file "$NOTES_FILE" \
-              --latest
+          if gh release view "$TAG" &>/dev/null; then
+            echo "Release $TAG already exists, skipping"
           else
-            gh release create "$TAG" \
-              --title "iOS SDK $VERSION" \
-              --notes "iOS SDK version $VERSION" \
-              --latest
+            NOTES_FILE="docs/release-notes/ios/${VERSION}.md"
+            if [ -f "$NOTES_FILE" ]; then
+              gh release create "$TAG" \
+                --title "iOS SDK $VERSION" \
+                --notes-file "$NOTES_FILE" \
+                --latest
+            else
+              gh release create "$TAG" \
+                --title "iOS SDK $VERSION" \
+                --notes "iOS SDK version $VERSION" \
+                --latest
+            fi
           fi
       - name: Publish to CocoaPods
         env:
