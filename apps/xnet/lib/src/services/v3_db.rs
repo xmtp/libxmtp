@@ -11,10 +11,7 @@ use color_eyre::eyre::Result;
 use url::Url;
 
 use crate::{
-    constants::{
-        DEFAULT_POSTGRES_PASSWORD, DEFAULT_V3_DB_IMAGE, POSTGRES_PORT, V3_DB_CONTAINER_NAME,
-        V3_DB_PORT,
-    },
+    constants::{POSTGRES_PASSWORD, ReplicationDb as ReplicationDbConst, V3Db as V3DbConst},
     network::XNET_NETWORK_NAME,
     services::{ManagedContainer, Service, ToxiProxy},
 };
@@ -24,11 +21,11 @@ use crate::{
 #[builder(on(String, into), derive(Debug))]
 pub struct V3Db {
     /// The PostgreSQL image
-    #[builder(default = DEFAULT_V3_DB_IMAGE.to_string())]
+    #[builder(default = V3DbConst::IMAGE.to_string())]
     image: String,
 
     /// PostgreSQL password
-    #[builder(default = DEFAULT_POSTGRES_PASSWORD.to_string())]
+    #[builder(default = POSTGRES_PASSWORD.to_string())]
     password: String,
 
     /// Managed container state
@@ -42,13 +39,13 @@ impl V3Db {
     /// Registers itself with ToxiProxy for external access.
     /// If a container with the same name already exists, it will be reused.
     pub async fn start(&mut self, toxiproxy: &ToxiProxy) -> Result<()> {
-        let options = CreateContainerOptionsBuilder::default().name(V3_DB_CONTAINER_NAME);
+        let options = CreateContainerOptionsBuilder::default().name(V3DbConst::CONTAINER_NAME);
 
         let config = ContainerCreateBody {
             image: Some(self.image.clone()),
             env: Some(vec![
                 format!("POSTGRES_PASSWORD={}", self.password),
-                format!("PGPORT={POSTGRES_PORT}"),
+                format!("PGPORT={}", ReplicationDbConst::PORT),
             ]),
             healthcheck: Some(HealthConfig {
                 test: Some(vec![
@@ -69,7 +66,7 @@ impl V3Db {
         };
 
         self.container
-            .start_container(V3_DB_CONTAINER_NAME, options, config)
+            .start_container(V3DbConst::CONTAINER_NAME, options, config)
             .await?;
 
         let port = self.register(toxiproxy, None).await?;
@@ -80,14 +77,14 @@ impl V3Db {
 
     /// Stop the V3 database container.
     pub async fn stop(&mut self) -> Result<()> {
-        self.container.stop_container(V3_DB_CONTAINER_NAME).await
+        self.container.stop_container(V3DbConst::CONTAINER_NAME).await
     }
 
     /// PostgreSQL connection URL for use within the docker network.
     pub fn url(&self) -> Url {
         Url::parse(&format!(
             "postgres://postgres:{}@{}:{}/postgres?sslmode=disable",
-            self.password, V3_DB_CONTAINER_NAME, POSTGRES_PORT
+            self.password, V3DbConst::CONTAINER_NAME, ReplicationDbConst::PORT
         ))
         .expect("valid URL")
     }
@@ -141,6 +138,6 @@ impl Service for V3Db {
     }
 
     fn port(&self) -> u16 {
-        V3_DB_PORT
+        V3DbConst::PORT
     }
 }

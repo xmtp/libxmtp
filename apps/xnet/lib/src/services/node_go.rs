@@ -12,10 +12,8 @@ use url::Url;
 
 use crate::{
     constants::{
-        DEFAULT_NODE_GO_IMAGE, DEFAULT_NODE_GO_NODE_KEY, DEFAULT_NODE_GO_VERSION,
-        DEFAULT_POSTGRES_PASSWORD, MLS_DB_CONTAINER_NAME, MLS_DB_PORT, NODE_GO_API_HTTP_PORT,
-        NODE_GO_API_PORT, NODE_GO_CONTAINER_NAME, V3_DB_CONTAINER_NAME, V3_DB_PORT,
-        VALIDATION_CONTAINER_NAME, VALIDATION_PORT,
+        MlsDb as MlsDbConst, NodeGo as NodeGoConst, POSTGRES_PASSWORD,
+        V3Db as V3DbConst, Validation as ValidationConst,
     },
     network::XNET_NETWORK_NAME,
     services::{ManagedContainer, Service, ToxiProxy},
@@ -26,15 +24,15 @@ use crate::{
 #[builder(on(String, into), derive(Debug))]
 pub struct NodeGo {
     /// The image name (e.g., "ghcr.io/xmtp/node-go")
-    #[builder(default = DEFAULT_NODE_GO_IMAGE.to_string())]
+    #[builder(default = NodeGoConst::IMAGE.to_string())]
     image: String,
 
     /// The version tag for the node-go image (e.g., "main", "v1.0.0")
-    #[builder(default = DEFAULT_NODE_GO_VERSION.to_string())]
+    #[builder(default = NodeGoConst::VERSION.to_string())]
     version: String,
 
     /// Node key for the node
-    #[builder(default = DEFAULT_NODE_GO_NODE_KEY.to_string())]
+    #[builder(default = NodeGoConst::NODE_KEY.to_string())]
     node_key: String,
 
     /// Store database connection string in the format container:port
@@ -67,15 +65,15 @@ pub struct NodeGo {
 }
 
 fn default_store_db_host() -> String {
-    format!("{}:{}", V3_DB_CONTAINER_NAME, V3_DB_PORT)
+    format!("{}:{}", V3DbConst::CONTAINER_NAME, V3DbConst::PORT)
 }
 
 fn default_mls_store_db_connection_string() -> String {
-    format!("{}:{}", MLS_DB_CONTAINER_NAME, MLS_DB_PORT)
+    format!("{}:{}", MlsDbConst::CONTAINER_NAME, MlsDbConst::PORT)
 }
 
 fn default_mls_validation_address() -> String {
-    format!("{}:{}", VALIDATION_CONTAINER_NAME, VALIDATION_PORT)
+    format!("{}:{}", ValidationConst::CONTAINER_NAME, ValidationConst::PORT)
 }
 
 impl NodeGo {
@@ -96,13 +94,13 @@ impl NodeGo {
         } = &self;
 
         let options = CreateContainerOptionsBuilder::default()
-            .name(NODE_GO_CONTAINER_NAME)
+            .name(NodeGoConst::CONTAINER_NAME)
             .platform("linux/amd64");
 
         let db_connection_str =
-            super::db_connection_string(DEFAULT_POSTGRES_PASSWORD, store_db_host);
+            super::db_connection_string(POSTGRES_PASSWORD, store_db_host);
         let mls_db_connection_str =
-            super::db_connection_string(DEFAULT_POSTGRES_PASSWORD, mls_store_db_host);
+            super::db_connection_string(POSTGRES_PASSWORD, mls_store_db_host);
         info!("Connection strings: {db_connection_str}, {mls_db_connection_str}");
         let cmd = vec![
             "--store.enable".to_string(),
@@ -126,14 +124,14 @@ impl NodeGo {
         };
 
         self.container
-            .start_container(NODE_GO_CONTAINER_NAME, options, config)
+            .start_container(NodeGoConst::CONTAINER_NAME, options, config)
             .await?;
 
         let grpc_port = self.register(toxiproxy, None).await?;
         self.grpc_proxy_port = Some(grpc_port);
 
         // the http is not used and will be gone in d14n so we're not giving it a standard port
-        let http_upstream = format!("{NODE_GO_CONTAINER_NAME}:{NODE_GO_API_HTTP_PORT}");
+        let http_upstream = format!("{}:{}", NodeGoConst::CONTAINER_NAME, NodeGoConst::API_HTTP_PORT);
         let http_port = toxiproxy.register("node_go_http", http_upstream).await?;
         self.http_proxy_port = Some(http_port);
 
@@ -142,14 +140,14 @@ impl NodeGo {
 
     /// Stop the node-go container.
     pub async fn stop(&mut self) -> Result<()> {
-        self.container.stop_container(NODE_GO_CONTAINER_NAME).await
+        self.container.stop_container(NodeGoConst::CONTAINER_NAME).await
     }
 
     /// gRPC API URL for use within the docker network.
     pub fn grpc_url(&self) -> Url {
         Url::parse(&format!(
             "http://{}:{}",
-            NODE_GO_CONTAINER_NAME, NODE_GO_API_PORT
+            NodeGoConst::CONTAINER_NAME, NodeGoConst::API_PORT
         ))
         .expect("valid URL")
     }
@@ -164,7 +162,7 @@ impl NodeGo {
     pub fn http_url(&self) -> Url {
         Url::parse(&format!(
             "http://{}:{}",
-            NODE_GO_CONTAINER_NAME, NODE_GO_API_HTTP_PORT
+            NodeGoConst::CONTAINER_NAME, NodeGoConst::API_HTTP_PORT
         ))
         .expect("valid URL")
     }
@@ -218,6 +216,6 @@ impl Service for NodeGo {
     }
 
     fn port(&self) -> u16 {
-        NODE_GO_API_PORT
+        NodeGoConst::API_PORT
     }
 }

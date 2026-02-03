@@ -17,9 +17,7 @@ use url::Url;
 
 use crate::{
     constants::{
-        ANVIL_CONTAINER_NAME, ANVIL_PORT, DEFAULT_GATEWAY_IMAGE, DEFAULT_GATEWAY_PRIVATE_KEY,
-        DEFAULT_GATEWAY_VERSION, GATEWAY_CONTAINER_NAME, GATEWAY_PORT, REDIS_CONTAINER_NAME,
-        REDIS_PORT,
+        Anvil as AnvilConst, Gateway as GatewayConst, Redis as RedisConst,
     },
     network::XNET_NETWORK_NAME,
     services::{ManagedContainer, Service, ToxiProxy},
@@ -30,15 +28,15 @@ use crate::{
 #[builder(on(String, into), derive(Debug))]
 pub struct Gateway {
     /// The image name (e.g., "ghcr.io/xmtp/xmtpd-gateway")
-    #[builder(default = DEFAULT_GATEWAY_IMAGE.to_string())]
+    #[builder(default = GatewayConst::IMAGE.to_string())]
     image: String,
 
     /// The version tag for the gateway image (e.g., "main", "v1.0.0")
-    #[builder(default = DEFAULT_GATEWAY_VERSION.to_string())]
+    #[builder(default = GatewayConst::VERSION.to_string())]
     version: String,
 
     /// API port for the gateway (inside the container)
-    #[builder(default = GATEWAY_PORT)]
+    #[builder(default = GatewayConst::PORT)]
     api_port: u16,
 
     /// Redis URL for caching
@@ -66,11 +64,11 @@ pub struct Gateway {
 }
 
 fn default_redis_host() -> String {
-    format!("{}:{}", REDIS_CONTAINER_NAME, REDIS_PORT)
+    format!("{}:{}", RedisConst::CONTAINER_NAME, RedisConst::PORT)
 }
 
 fn default_anvil_host() -> String {
-    format!("{ANVIL_CONTAINER_NAME}:{ANVIL_PORT}")
+    format!("{}:{}", AnvilConst::CONTAINER_NAME, AnvilConst::PORT)
 }
 
 impl Gateway {
@@ -80,7 +78,7 @@ impl Gateway {
     /// If a container with the same name already exists, it will be reused.
     pub async fn start(&mut self, toxiproxy: &ToxiProxy) -> Result<()> {
         let options = CreateContainerOptionsBuilder::default()
-            .name(GATEWAY_CONTAINER_NAME)
+            .name(GatewayConst::CONTAINER_NAME)
             .platform("linux/amd64");
 
         let Gateway {
@@ -103,7 +101,7 @@ impl Gateway {
             format!("XMTPD_REDIS_URL={redis_url}"),
             format!("XMTPD_LOG_LEVEL={log_level}"),
             format!("XMTPD_REFLECTION_ENABLE={reflection_enable}"),
-            format!("XMTPD_PAYER_PRIVATE_KEY={DEFAULT_GATEWAY_PRIVATE_KEY}"),
+            format!("XMTPD_PAYER_PRIVATE_KEY={}", GatewayConst::PRIVATE_KEY),
             format!("XMTPD_APP_CHAIN_RPC_URL=http://{anvil_host}"),
             format!("XMTPD_APP_CHAIN_WSS_URL=ws://{anvil_host}"),
             format!("XMTPD_SETTLEMENT_CHAIN_RPC_URL=http://{anvil_host}"),
@@ -121,10 +119,10 @@ impl Gateway {
         };
 
         self.container
-            .start_container(GATEWAY_CONTAINER_NAME, options, config)
+            .start_container(GatewayConst::CONTAINER_NAME, options, config)
             .await?;
 
-        let port = self.register(toxiproxy, Some(GATEWAY_PORT)).await?;
+        let port = self.register(toxiproxy, Some(GatewayConst::PORT)).await?;
         self.container.set_proxy_port(port);
 
         Ok(())
@@ -132,12 +130,12 @@ impl Gateway {
 
     /// Stop the gateway container.
     pub async fn stop(&mut self) -> Result<()> {
-        self.container.stop_container(GATEWAY_CONTAINER_NAME).await
+        self.container.stop_container(GatewayConst::CONTAINER_NAME).await
     }
 
     /// Gateway URL for use within the docker network.
     pub fn url(&self) -> Url {
-        Url::parse(&format!("http://{GATEWAY_CONTAINER_NAME}:5050")).expect("valid URL")
+        Url::parse(&format!("http://{}:5050", GatewayConst::CONTAINER_NAME)).expect("valid URL")
     }
 
     /// Gateway URL for external access (through ToxiProxy).
@@ -187,6 +185,6 @@ impl Service for Gateway {
     }
 
     fn port(&self) -> u16 {
-        GATEWAY_PORT
+        GatewayConst::PORT
     }
 }

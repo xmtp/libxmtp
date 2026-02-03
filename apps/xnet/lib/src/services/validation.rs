@@ -11,16 +11,13 @@ use color_eyre::eyre::Result;
 use url::Url;
 
 use crate::{
-    constants::{
-        ANVIL_CONTAINER_NAME, ANVIL_PORT, DEFAULT_VALIDATION_IMAGE, DEFAULT_VALIDATION_VERSION,
-        VALIDATION_CONTAINER_NAME, VALIDATION_PORT,
-    },
+    constants::{Anvil as AnvilConst, Validation as ValidationConst},
     network::XNET_NETWORK_NAME,
     services::{ManagedContainer, Service, ToxiProxy},
 };
 
 fn default_anvil_url() -> Url {
-    Url::parse(&format!("http://{}:{}", ANVIL_CONTAINER_NAME, ANVIL_PORT)).expect("valid URL")
+    Url::parse(&format!("http://{}:{}", AnvilConst::CONTAINER_NAME, AnvilConst::PORT)).expect("valid URL")
 }
 
 /// Manages an MLS Validation Service Docker container.
@@ -28,11 +25,11 @@ fn default_anvil_url() -> Url {
 #[builder(on(String, into), derive(Debug))]
 pub struct Validation {
     /// The image name (e.g., "ghcr.io/xmtp/mls-validation-service")
-    #[builder(default = DEFAULT_VALIDATION_IMAGE.to_string())]
+    #[builder(default = ValidationConst::IMAGE.to_string())]
     image: String,
 
     /// The version tag for the validation service image (e.g., "main", "v1.0.0")
-    #[builder(default = DEFAULT_VALIDATION_VERSION.to_string())]
+    #[builder(default = ValidationConst::VERSION.to_string())]
     version: String,
 
     /// Anvil URL for the validation service to connect to
@@ -51,7 +48,7 @@ impl Validation {
     /// If a container with the same name already exists, it will be reused.
     pub async fn start(&mut self, toxiproxy: &ToxiProxy) -> Result<()> {
         let options = CreateContainerOptionsBuilder::default()
-            .name(VALIDATION_CONTAINER_NAME)
+            .name(ValidationConst::CONTAINER_NAME)
             .platform("linux/amd64");
 
         let image = format!("{}:{}", self.image, self.version);
@@ -66,7 +63,7 @@ impl Validation {
         };
 
         self.container
-            .start_container(VALIDATION_CONTAINER_NAME, options, config)
+            .start_container(ValidationConst::CONTAINER_NAME, options, config)
             .await?;
 
         let port = self.register(toxiproxy, None).await?;
@@ -78,13 +75,13 @@ impl Validation {
     /// Stop the validation service container.
     pub async fn stop(&mut self) -> Result<()> {
         self.container
-            .stop_container(VALIDATION_CONTAINER_NAME)
+            .stop_container(ValidationConst::CONTAINER_NAME)
             .await
     }
 
     /// Validation service gRPC address for use within the docker network.
     pub fn grpc_address(&self) -> String {
-        format!("{}:{}", VALIDATION_CONTAINER_NAME, VALIDATION_PORT)
+        format!("{}:{}", ValidationConst::CONTAINER_NAME, ValidationConst::PORT)
     }
 
     /// Validation service gRPC address for external access (through ToxiProxy).
@@ -135,6 +132,6 @@ impl Service for Validation {
     }
 
     fn port(&self) -> u16 {
-        VALIDATION_PORT
+        ValidationConst::PORT
     }
 }

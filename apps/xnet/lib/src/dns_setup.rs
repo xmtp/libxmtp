@@ -2,7 +2,6 @@
 //!
 //! Provides instructions and utilities for configuring the host system
 //! to use CoreDNS for resolving XMTP local hostnames.
-use crate::constants::COREDNS_PORT;
 
 /// Check if DNS is configured correctly for *.xmtpd.local
 ///

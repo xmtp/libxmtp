@@ -11,7 +11,7 @@ use color_eyre::eyre::Result;
 use url::Url;
 
 use crate::{
-    constants::{DEFAULT_REDIS_IMAGE, REDIS_CONTAINER_NAME, REDIS_PORT},
+    constants::Redis as RedisConst,
     network::XNET_NETWORK_NAME,
     services::{ManagedContainer, Service, ToxiProxy},
 };
@@ -21,7 +21,7 @@ use crate::{
 #[builder(on(String, into), derive(Debug))]
 pub struct Redis {
     /// The Redis image
-    #[builder(default = DEFAULT_REDIS_IMAGE.to_string())]
+    #[builder(default = RedisConst::IMAGE.to_string())]
     image: String,
 
     /// Managed container state
@@ -35,7 +35,7 @@ impl Redis {
     /// Registers itself with ToxiProxy for external access.
     /// If a container with the same name already exists, it will be reused.
     pub async fn start(&mut self, toxiproxy: &ToxiProxy) -> Result<()> {
-        let options = CreateContainerOptionsBuilder::default().name(REDIS_CONTAINER_NAME);
+        let options = CreateContainerOptionsBuilder::default().name(RedisConst::CONTAINER_NAME);
 
         let config = ContainerCreateBody {
             image: Some(self.image.clone()),
@@ -59,7 +59,7 @@ impl Redis {
         };
 
         self.container
-            .start_container(REDIS_CONTAINER_NAME, options, config)
+            .start_container(RedisConst::CONTAINER_NAME, options, config)
             .await?;
 
         // Register with ToxiProxy
@@ -71,12 +71,12 @@ impl Redis {
 
     /// Stop the Redis container.
     pub async fn stop(&mut self) -> Result<()> {
-        self.container.stop_container(REDIS_CONTAINER_NAME).await
+        self.container.stop_container(RedisConst::CONTAINER_NAME).await
     }
 
     /// Redis URL for use within the docker network.
     pub fn url(&self) -> Url {
-        Url::parse(&format!("redis://{}:{}", REDIS_CONTAINER_NAME, REDIS_PORT)).expect("valid URL")
+        Url::parse(&format!("redis://{}:{}", RedisConst::CONTAINER_NAME, RedisConst::PORT)).expect("valid URL")
     }
 
     /// Redis URL for external access (through ToxiProxy).
@@ -124,6 +124,6 @@ impl Service for Redis {
     }
 
     fn port(&self) -> u16 {
-        REDIS_PORT
+        RedisConst::PORT
     }
 }

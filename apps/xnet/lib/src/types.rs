@@ -8,7 +8,7 @@ use xmtp_proto::{
     prelude::{ApiBuilder, NetConnectConfig},
 };
 
-use crate::{Config, constants::XMTPD_NODE_ID_INCREMENT, services::allocate_xmtpd_port};
+use crate::{Config, constants::Xmtpd as XmtpdConst, services::allocate_xmtpd_port};
 
 /// An XMTPD node that must run at `port`
 /// and is owned by `signer`.
@@ -24,7 +24,7 @@ impl XmtpdNode {
         let port = allocate_xmtpd_port()?;
         let next_id = Self::get_next_id(gateway_host).await?;
         let config = Config::load()?;
-        let num_ids = next_id / XMTPD_NODE_ID_INCREMENT;
+        let num_ids = next_id / XmtpdConst::NODE_ID_INCREMENT;
         let next_signer = &config.signers[num_ids as usize + 1];
         Ok(Self {
             port,
@@ -66,6 +66,6 @@ impl XmtpdNode {
         let grpc = grpc.build()?;
         let nodes = GetNodes::builder().build()?.query(&grpc).await?;
         let ids = nodes.nodes.iter().map(|(k, _)| k).max();
-        Ok(ids.unwrap_or(&0) + XMTPD_NODE_ID_INCREMENT)
+        Ok(ids.unwrap_or(&0) + XmtpdConst::NODE_ID_INCREMENT)
     }
 }

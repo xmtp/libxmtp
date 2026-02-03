@@ -16,13 +16,11 @@ use std::{collections::hash_map, fs};
 use url::Url;
 
 use crate::{
-    constants::{COREDNS_CONTAINER_NAME, COREDNS_PORT},
+    constants::CoreDns as CoreDnsConst,
     network::XNET_NETWORK_NAME,
     services::{ManagedContainer, Service, ToxiProxy, expose, expose_127, expose_udp},
 };
 
-const DEFAULT_COREDNS_IMAGE: &str = "coredns/coredns";
-const DEFAULT_COREDNS_VERSION: &str = "1.11.1";
 
 /// CoreDNS Corefile configuration
 /// Listens on both TCP and UDP for compatibility with macOS DNS resolver
@@ -47,11 +45,11 @@ const COREFILE: &str = r#".:5354 {
 #[builder(on(String, into), derive(Debug))]
 pub struct CoreDns {
     /// The CoreDNS image
-    #[builder(default = DEFAULT_COREDNS_IMAGE.to_string())]
+    #[builder(default = CoreDnsConst::IMAGE.to_string())]
     image: String,
 
     /// The version tag
-    #[builder(default = DEFAULT_COREDNS_VERSION.to_string())]
+    #[builder(default = CoreDnsConst::VERSION.to_string())]
     version: String,
 
     /// Path to the Corefile configuration
@@ -76,14 +74,14 @@ impl CoreDns {
         fs::write(&self.corefile_path, COREFILE)?;
         info!("Created Corefile at {}", self.corefile_path);
 
-        let options = CreateContainerOptionsBuilder::default().name(COREDNS_CONTAINER_NAME);
+        let options = CreateContainerOptionsBuilder::default().name(CoreDnsConst::CONTAINER_NAME);
 
         // Map host port 5353 to container port 5353 (both TCP and UDP)
         // TCP works better than UDP for Docker Desktop on macOS
         let port_bindings = hash_map! {
-            // format!("53/udp").to_string() => expose_127(COREDNS_PORT),
-            format!("5354/udp").to_string() => expose_udp(COREDNS_PORT),
-            format!("5354/tcp").to_string() => expose(COREDNS_PORT),
+            // format!("53/udp").to_string() => expose_127(CoreDnsConst::PORT),
+            format!("5354/udp").to_string() => expose_udp(CoreDnsConst::PORT),
+            format!("5354/tcp").to_string() => expose(CoreDnsConst::PORT),
         };
 
         let config = ContainerCreateBody {
@@ -109,16 +107,16 @@ impl CoreDns {
         };
 
         self.container
-            .start_container(COREDNS_CONTAINER_NAME, options, config)
+            .start_container(CoreDnsConst::CONTAINER_NAME, options, config)
             .await?;
 
-        info!("CoreDNS started on port {}", COREDNS_PORT);
+        info!("CoreDNS started on port {}", CoreDnsConst::PORT);
         Ok(())
     }
 
     /// Stop the CoreDNS container.
     pub async fn stop(&mut self) -> Result<()> {
-        self.container.stop_container(COREDNS_CONTAINER_NAME).await
+        self.container.stop_container(CoreDnsConst::CONTAINER_NAME).await
     }
 
     /// Check if CoreDNS is running.
@@ -128,7 +126,7 @@ impl CoreDns {
 
     /// Get the CoreDNS server address (for host queries).
     pub fn dns_server(&self) -> String {
-        format!("127.0.0.1:{}", COREDNS_PORT)
+        format!("127.0.0.1:{}", CoreDnsConst::PORT)
     }
 }
 
@@ -147,7 +145,7 @@ impl Service for CoreDns {
     }
 
     fn url(&self) -> Url {
-        Url::parse(&format!("dns://127.0.0.1:{}", COREDNS_PORT)).expect("valid URL")
+        Url::parse(&format!("dns://127.0.0.1:{}", CoreDnsConst::PORT)).expect("valid URL")
     }
 
     fn external_url(&self) -> Url {
@@ -159,11 +157,11 @@ impl Service for CoreDns {
     }
 
     fn port(&self) -> u16 {
-        COREDNS_PORT
+        CoreDnsConst::PORT
     }
 
     // CoreDNS doesn't use ToxiProxy
     async fn register(&mut self, _toxiproxy: &ToxiProxy, _: Option<u16>) -> Result<u16> {
-        Ok(COREDNS_PORT)
+        Ok(CoreDnsConst::PORT)
     }
 }

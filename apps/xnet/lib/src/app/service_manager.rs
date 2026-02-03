@@ -78,7 +78,16 @@ impl ServiceManager {
     }
 
     pub async fn add_xmtpd(&mut self, node: XmtpdNode) -> Result<()> {
-        let mut xmtpd = Xmtpd::builder().node(node).build();
+        let xmtpd = Xmtpd::builder().node(node).build();
+        self.internal_add_xmtpd(xmtpd).await
+    }
+
+    pub async fn add_xmtpd_with_migrator(&mut self, node: XmtpdNode) -> Result<()> {
+        let xmtpd = Xmtpd::builder().node(node).migrator(true).build();
+        self.internal_add_xmtpd(xmtpd).await
+    }
+
+    async fn internal_add_xmtpd(&mut self, mut xmtpd: Xmtpd) -> Result<()> {
         xmtpd.start(&self.proxy).await?;
 
         // Register with Traefik for unified addressing

@@ -27,11 +27,10 @@ use url::Url;
 use crate::{
     Config,
     constants::{
-        ANVIL_PORT, DEFAULT_TOXIPROXY_IMAGE, GATEWAY_PORT, HISTORY_SERVER_PORT, MLS_DB_PORT,
-        NODE_GO_API_PORT, POSTGRES_PORT, REDIS_PORT, TOXIPROXY_API_PORT, TOXIPROXY_CONTAINER_NAME,
-        TOXIPROXY_STATIC_PORT_RANGE_END, TOXIPROXY_STATIC_PORT_RANGE_START,
-        TOXIPROXY_XMTPD_PORT_RANGE_END, TOXIPROXY_XMTPD_PORT_RANGE_START, V3_DB_PORT,
-        VALIDATION_PORT, XMTPD_GRPC_PORT,
+        Anvil as AnvilConst, Gateway as GatewayConst, HistoryServer as HistoryServerConst,
+        MlsDb as MlsDbConst, NodeGo as NodeGoConst, ReplicationDb as ReplicationDbConst,
+        Redis as RedisConst, ToxiProxy as ToxiProxyConst, V3Db as V3DbConst,
+        Validation as ValidationConst, Xmtpd as XmtpdConst,
     },
     network::XNET_NETWORK_NAME,
     services::{
@@ -42,18 +41,18 @@ use crate::{
 
 /// Global port allocator for ToxiProxy proxy ports.
 /// Allocates ports from the range 8100-8150.
-static NEXT_STATIC_PORT: AtomicU16 = AtomicU16::new(TOXIPROXY_STATIC_PORT_RANGE_START);
+static NEXT_STATIC_PORT: AtomicU16 = AtomicU16::new(ToxiProxyConst::STATIC_PORT_RANGE.0);
 
-static NEXT_XMTPD_PORT: AtomicU16 = AtomicU16::new(TOXIPROXY_XMTPD_PORT_RANGE_START);
+static NEXT_XMTPD_PORT: AtomicU16 = AtomicU16::new(ToxiProxyConst::XMTPD_PORT_RANGE.0);
 
 /// Allocate the next available port from the ToxiProxy port range.
 pub fn allocate_static_port() -> Result<u16> {
     let port = NEXT_STATIC_PORT.fetch_add(1, Ordering::SeqCst);
-    if port >= TOXIPROXY_STATIC_PORT_RANGE_END {
+    if port >= ToxiProxyConst::STATIC_PORT_RANGE.1 {
         color_eyre::eyre::bail!(
             "ToxiProxy port range exhausted ({}..{})",
-            TOXIPROXY_STATIC_PORT_RANGE_START,
-            TOXIPROXY_STATIC_PORT_RANGE_END
+            ToxiProxyConst::STATIC_PORT_RANGE.0,
+            ToxiProxyConst::STATIC_PORT_RANGE.1
         );
     }
     Ok(port)
@@ -62,11 +61,11 @@ pub fn allocate_static_port() -> Result<u16> {
 /// Allocate the next available port from the ToxiProxy port range.
 pub fn allocate_xmtpd_port() -> Result<u16> {
     let port = NEXT_XMTPD_PORT.fetch_add(1, Ordering::SeqCst);
-    if port >= TOXIPROXY_XMTPD_PORT_RANGE_END {
+    if port >= ToxiProxyConst::XMTPD_PORT_RANGE.1 {
         color_eyre::eyre::bail!(
             "ToxiProxy port range exhausted ({}..{})",
-            TOXIPROXY_XMTPD_PORT_RANGE_START,
-            TOXIPROXY_XMTPD_PORT_RANGE_END
+            ToxiProxyConst::XMTPD_PORT_RANGE.0,
+            ToxiProxyConst::XMTPD_PORT_RANGE.1
         );
     }
     Ok(port)
@@ -92,16 +91,16 @@ async fn init_port_allocators(client: &Client) -> Result<()> {
             .and_then(|p| p.parse().ok())
             .ok_or_else(|| eyre!("Could not parse port from listen address: {}", listen))?;
 
-        if (TOXIPROXY_STATIC_PORT_RANGE_START..TOXIPROXY_STATIC_PORT_RANGE_END).contains(&port) {
+        if (ToxiProxyConst::STATIC_PORT_RANGE.0..ToxiProxyConst::STATIC_PORT_RANGE.1).contains(&port) {
             max_static = Some(max_static.map_or(port, |m: u16| m.max(port)));
-        } else if (TOXIPROXY_XMTPD_PORT_RANGE_START..TOXIPROXY_XMTPD_PORT_RANGE_END).contains(&port)
+        } else if (ToxiProxyConst::XMTPD_PORT_RANGE.0..ToxiProxyConst::XMTPD_PORT_RANGE.1).contains(&port)
         {
             max_xmtpd = Some(max_xmtpd.map_or(port, |m: u16| m.max(port)));
         }
     }
 
-    let static_next = max_static.map_or(TOXIPROXY_STATIC_PORT_RANGE_START, |m| m + 1);
-    let xmtpd_next = max_xmtpd.map_or(TOXIPROXY_XMTPD_PORT_RANGE_START, |m| m + 1);
+    let static_next = max_static.map_or(ToxiProxyConst::STATIC_PORT_RANGE.0, |m| m + 1);
+    let xmtpd_next = max_xmtpd.map_or(ToxiProxyConst::XMTPD_PORT_RANGE.0, |m| m + 1);
 
     NEXT_STATIC_PORT.store(static_next, Ordering::SeqCst);
     NEXT_XMTPD_PORT.store(xmtpd_next, Ordering::SeqCst);
@@ -145,7 +144,7 @@ fn default_toxiproxy_port() -> u16 {
     if conf.use_standard_ports {
         8474
     } else {
-        TOXIPROXY_API_PORT
+        ToxiProxyConst::API_PORT
     }
 }
 
@@ -154,7 +153,7 @@ fn default_toxiproxy_port() -> u16 {
 #[builder(on(String, into), derive(Debug))]
 pub struct ToxiProxy {
     /// The ToxiProxy image
-    #[builder(default = DEFAULT_TOXIPROXY_IMAGE.to_string())]
+    #[builder(default = ToxiProxyConst::IMAGE.to_string())]
     image: String,
     /// Host port for the ToxiProxy API
     #[builder(default = default_toxiproxy_port())]
@@ -193,12 +192,12 @@ impl ToxiProxy {
     pub async fn start(&mut self) -> Result<()> {
         let docker = Docker::connect_with_socket_defaults()?;
 
-        let container_id = match ensure_container_running(&docker, TOXIPROXY_CONTAINER_NAME).await?
+        let container_id = match ensure_container_running(&docker, ToxiProxyConst::CONTAINER_NAME).await?
         {
             ContainerState::Exists(id) => id,
             ContainerState::NotFound => {
                 let options =
-                    CreateContainerOptionsBuilder::default().name(TOXIPROXY_CONTAINER_NAME);
+                    CreateContainerOptionsBuilder::default().name(ToxiProxyConst::CONTAINER_NAME);
 
                 // expose "standard" ports if enabled
                 let mut port_bindings = HashMap::new();
@@ -206,27 +205,27 @@ impl ToxiProxy {
                 let config = Config::load()?;
                 if config.use_standard_ports {
                     let map = hash_map! {
-                        format!("{ANVIL_PORT}/tcp")           => expose(ANVIL_PORT),
-                        format!("{REDIS_PORT}/tcp")           => expose(REDIS_PORT),
-                        format!("{POSTGRES_PORT}/tcp")        => expose(POSTGRES_PORT),
-                        format!("{V3_DB_PORT}/tcp")           => expose(V3_DB_PORT),
-                        format!("{MLS_DB_PORT}/tcp")          => expose(MLS_DB_PORT),
-                        format!("{HISTORY_SERVER_PORT}/tcp")  => expose(HISTORY_SERVER_PORT),
-                        format!("{VALIDATION_PORT}/tcp")      => expose(VALIDATION_PORT),
-                        format!("{NODE_GO_API_PORT}/tcp")     => expose(NODE_GO_API_PORT),
-                        format!("{GATEWAY_PORT}/tcp")         => expose(GATEWAY_PORT),
-                        format!("{TOXIPROXY_API_PORT}/tcp")   => expose(TOXIPROXY_API_PORT),
-                        format!("{XMTPD_GRPC_PORT}/tcp")          => expose(XMTPD_GRPC_PORT),
+                        format!("{}/tcp", AnvilConst::PORT)           => expose(AnvilConst::PORT),
+                        format!("{}/tcp", RedisConst::PORT)           => expose(RedisConst::PORT),
+                        format!("{}/tcp", ReplicationDbConst::PORT)   => expose(ReplicationDbConst::PORT),
+                        format!("{}/tcp", V3DbConst::PORT)            => expose(V3DbConst::PORT),
+                        format!("{}/tcp", MlsDbConst::PORT)           => expose(MlsDbConst::PORT),
+                        format!("{}/tcp", HistoryServerConst::PORT)   => expose(HistoryServerConst::PORT),
+                        format!("{}/tcp", ValidationConst::PORT)      => expose(ValidationConst::PORT),
+                        format!("{}/tcp", NodeGoConst::API_PORT)      => expose(NodeGoConst::API_PORT),
+                        format!("{}/tcp", GatewayConst::PORT)         => expose(GatewayConst::PORT),
+                        format!("{}/tcp", ToxiProxyConst::API_PORT)   => expose(ToxiProxyConst::API_PORT),
+                        format!("{}/tcp", XmtpdConst::GRPC_PORT)      => expose(XmtpdConst::GRPC_PORT),
                     };
                     port_bindings.extend(map);
                 }
 
                 // Expose all ports in the range for dynamic proxy allocation
                 // for xmtpd nodes / static services
-                for port in TOXIPROXY_XMTPD_PORT_RANGE_START..TOXIPROXY_XMTPD_PORT_RANGE_END {
+                for port in ToxiProxyConst::XMTPD_PORT_RANGE.0..ToxiProxyConst::XMTPD_PORT_RANGE.1 {
                     port_bindings.insert(format!("{port}/tcp"), expose(port));
                 }
-                for port in TOXIPROXY_STATIC_PORT_RANGE_START..TOXIPROXY_STATIC_PORT_RANGE_END {
+                for port in ToxiProxyConst::STATIC_PORT_RANGE.0..ToxiProxyConst::STATIC_PORT_RANGE.1 {
                     port_bindings.insert(format!("{port}/tcp"), expose(port));
                 }
 
@@ -241,7 +240,7 @@ impl ToxiProxy {
                     ..Default::default()
                 };
 
-                create_and_start_container(&docker, TOXIPROXY_CONTAINER_NAME, options, config)
+                create_and_start_container(&docker, ToxiProxyConst::CONTAINER_NAME, options, config)
                     .await?
             }
         };
@@ -276,7 +275,7 @@ impl ToxiProxy {
     /// Stop the ToxiProxy container.
     pub async fn stop(&mut self) -> Result<()> {
         if let (Some(docker), Some(id)) = (&self.docker, &self.container_id) {
-            stop_container(docker, id, TOXIPROXY_CONTAINER_NAME).await?;
+            stop_container(docker, id, ToxiProxyConst::CONTAINER_NAME).await?;
         }
         Ok(())
     }
@@ -409,20 +408,20 @@ impl ToxiProxy {
     pub fn print_port_allocations() {
         let static_next = NEXT_STATIC_PORT.load(Ordering::SeqCst);
         let xmtpd_next = NEXT_XMTPD_PORT.load(Ordering::SeqCst);
-        let static_used = static_next - TOXIPROXY_STATIC_PORT_RANGE_START;
-        let xmtpd_used = xmtpd_next - TOXIPROXY_XMTPD_PORT_RANGE_START;
+        let static_used = static_next - ToxiProxyConst::STATIC_PORT_RANGE.0;
+        let xmtpd_used = xmtpd_next - ToxiProxyConst::XMTPD_PORT_RANGE.0;
 
         info!(
             "ToxiProxy port allocations: static {}/{} (range {}..{}, next {}), xmtpd {}/{} (range {}..{}, next {})",
             static_used,
-            TOXIPROXY_STATIC_PORT_RANGE_END - TOXIPROXY_STATIC_PORT_RANGE_START,
-            TOXIPROXY_STATIC_PORT_RANGE_START,
-            TOXIPROXY_STATIC_PORT_RANGE_END,
+            ToxiProxyConst::STATIC_PORT_RANGE.1 - ToxiProxyConst::STATIC_PORT_RANGE.0,
+            ToxiProxyConst::STATIC_PORT_RANGE.0,
+            ToxiProxyConst::STATIC_PORT_RANGE.1,
             static_next,
             xmtpd_used,
-            TOXIPROXY_XMTPD_PORT_RANGE_END - TOXIPROXY_XMTPD_PORT_RANGE_START,
-            TOXIPROXY_XMTPD_PORT_RANGE_START,
-            TOXIPROXY_XMTPD_PORT_RANGE_END,
+            ToxiProxyConst::XMTPD_PORT_RANGE.1 - ToxiProxyConst::XMTPD_PORT_RANGE.0,
+            ToxiProxyConst::XMTPD_PORT_RANGE.0,
+            ToxiProxyConst::XMTPD_PORT_RANGE.1,
             xmtpd_next,
         );
     }
@@ -436,7 +435,7 @@ impl ToxiProxy {
     pub fn api_url(&self) -> Url {
         Url::parse(&format!(
             "http://{}:{}",
-            TOXIPROXY_CONTAINER_NAME, TOXIPROXY_API_PORT
+            ToxiProxyConst::CONTAINER_NAME, ToxiProxyConst::API_PORT
         ))
         .expect("valid URL")
     }
@@ -481,6 +480,6 @@ impl Service for ToxiProxy {
     }
 
     fn port(&self) -> u16 {
-        TOXIPROXY_API_PORT
+        ToxiProxyConst::API_PORT
     }
 }

@@ -16,10 +16,7 @@ use color_eyre::eyre::Result;
 use url::Url;
 
 use crate::{
-    constants::{
-        ANVIL_CONTAINER_NAME, ANVIL_PORT, DEFAULT_OTTERSCAN_IMAGE, DEFAULT_OTTERSCAN_VERSION,
-        OTTERSCAN_CONTAINER_NAME, OTTERSCAN_EXTERNAL_PORT, OTTERSCAN_PORT,
-    },
+    constants::{Anvil as AnvilConst, Otterscan as OtterscanConst},
     network::XNET_NETWORK_NAME,
     services::{ManagedContainer, Service, ToxiProxy},
 };
@@ -29,15 +26,15 @@ use crate::{
 #[builder(on(String, into), derive(Debug))]
 pub struct Otterscan {
     /// The image name (e.g., "otterscan/otterscan")
-    #[builder(default = DEFAULT_OTTERSCAN_IMAGE.to_string())]
+    #[builder(default = OtterscanConst::IMAGE.to_string())]
     image: String,
 
     /// The version tag (e.g., "latest")
-    #[builder(default = DEFAULT_OTTERSCAN_VERSION.to_string())]
+    #[builder(default = OtterscanConst::VERSION.to_string())]
     version: String,
 
     /// The Anvil host for ERIGON_URL env var
-    #[builder(default = format!("http://{}:{}", ANVIL_CONTAINER_NAME, ANVIL_PORT))]
+    #[builder(default = format!("http://{}:{}", AnvilConst::CONTAINER_NAME, AnvilConst::PORT))]
     anvil_host: String,
 
     /// Managed container state
@@ -57,16 +54,16 @@ impl Otterscan {
             ..
         } = self;
 
-        let options = CreateContainerOptionsBuilder::default().name(OTTERSCAN_CONTAINER_NAME);
+        let options = CreateContainerOptionsBuilder::default().name(OtterscanConst::CONTAINER_NAME);
 
         let image_ref = format!("{image}:{version}");
 
         let mut port_bindings = HashMap::new();
         port_bindings.insert(
-            format!("{OTTERSCAN_PORT}/tcp"),
+            format!("{}/tcp", OtterscanConst::PORT),
             Some(vec![PortBinding {
                 host_ip: Some("0.0.0.0".to_string()),
-                host_port: Some(OTTERSCAN_EXTERNAL_PORT.to_string()),
+                host_port: Some(OtterscanConst::EXTERNAL_PORT.to_string()),
             }]),
         );
 
@@ -82,7 +79,7 @@ impl Otterscan {
         };
 
         self.container
-            .start_container(OTTERSCAN_CONTAINER_NAME, options, config)
+            .start_container(OtterscanConst::CONTAINER_NAME, options, config)
             .await?;
 
         Ok(())
@@ -90,21 +87,21 @@ impl Otterscan {
 
     /// Stop the Otterscan container.
     pub async fn stop(&mut self) -> Result<()> {
-        self.container.stop_container(OTTERSCAN_CONTAINER_NAME).await
+        self.container.stop_container(OtterscanConst::CONTAINER_NAME).await
     }
 
     /// URL for use within the Docker network.
     pub fn url(&self) -> Url {
         Url::parse(&format!(
             "http://{}:{}",
-            OTTERSCAN_CONTAINER_NAME, OTTERSCAN_PORT
+            OtterscanConst::CONTAINER_NAME, OtterscanConst::PORT
         ))
         .expect("valid URL")
     }
 
     /// URL for external access (direct port binding).
     pub fn external_url(&self) -> Url {
-        Url::parse(&format!("http://localhost:{}", OTTERSCAN_EXTERNAL_PORT)).expect("valid URL")
+        Url::parse(&format!("http://localhost:{}", OtterscanConst::EXTERNAL_PORT)).expect("valid URL")
     }
 
     /// Check if Otterscan is running.
@@ -140,11 +137,11 @@ impl Service for Otterscan {
     }
 
     fn port(&self) -> u16 {
-        OTTERSCAN_EXTERNAL_PORT
+        OtterscanConst::EXTERNAL_PORT
     }
 
     /// No-op: Otterscan uses direct port binding, not ToxiProxy.
     async fn register(&mut self, _toxiproxy: &ToxiProxy, _: Option<u16>) -> Result<u16> {
-        Ok(OTTERSCAN_EXTERNAL_PORT)
+        Ok(OtterscanConst::EXTERNAL_PORT)
     }
 }

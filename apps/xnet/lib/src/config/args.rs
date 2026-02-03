@@ -29,8 +29,15 @@ pub enum Commands {
 
 #[derive(Subcommand, Debug, Copy, Clone)]
 pub enum Node {
-    Add,
+    Add(AddNode),
     Remove,
+}
+
+#[derive(Args, Debug, Copy, Clone)]
+pub struct AddNode {
+    /// make this node a migrator node
+    #[arg(long, short)]
+    pub migrator: bool,
 }
 
 #[derive(Args, Debug, Copy, Clone)]

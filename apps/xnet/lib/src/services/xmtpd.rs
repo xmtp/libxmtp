@@ -18,9 +18,8 @@ use url::Url;
 
 use crate::{
     constants::{
-        ANVIL_CONTAINER_NAME, ANVIL_PORT, DEFAULT_XMTPD_IMAGE, DEFAULT_XMTPD_VERSION,
-        POSTGRES_PORT, REPLICATION_DB_CONTAINER_NAME, VALIDATION_CONTAINER_NAME, VALIDATION_PORT,
-        XMTPD_GRPC_PORT, XMTPD_NODE_ID_INCREMENT,
+        Anvil as AnvilConst, ReplicationDb as ReplicationDbConst, Validation as ValidationConst,
+        Xmtpd as XmtpdConst,
     },
     network::XNET_NETWORK_NAME,
     services::{ManagedContainer, Service, ToxiProxy},
@@ -28,25 +27,33 @@ use crate::{
 };
 
 fn default_anvil_host() -> String {
-    format!("{ANVIL_CONTAINER_NAME}:{ANVIL_PORT}")
+    format!("{}:{}", AnvilConst::CONTAINER_NAME, AnvilConst::PORT)
 }
 
 fn default_replication_db_host() -> String {
-    format!("{REPLICATION_DB_CONTAINER_NAME}:{POSTGRES_PORT}")
+    format!(
+        "{}:{}",
+        ReplicationDbConst::CONTAINER_NAME,
+        ReplicationDbConst::PORT
+    )
 }
 fn default_validation_host() -> String {
-    format!("{VALIDATION_CONTAINER_NAME}:{VALIDATION_PORT}")
+    format!(
+        "{}:{}",
+        ValidationConst::CONTAINER_NAME,
+        ValidationConst::PORT
+    )
 }
 /// Manages an xmtpd Docker container.
 #[derive(Builder)]
 #[builder(on(String, into), derive(Debug))]
 pub struct Xmtpd {
     /// xmtpd server image
-    #[builder(default = DEFAULT_XMTPD_IMAGE.to_string())]
+    #[builder(default = XmtpdConst::IMAGE.to_string())]
     image: String,
 
     /// Version tag
-    #[builder(default = DEFAULT_XMTPD_VERSION.to_string())]
+    #[builder(default = XmtpdConst::VERSION.to_string())]
     version: String,
 
     /// Anvil host (container:port) for chain URLs
@@ -67,6 +74,13 @@ pub struct Xmtpd {
     /// Enable gRPC reflection
     #[builder(default = true)]
     reflection_enable: bool,
+
+    #[builder(default = false)]
+    migrator: bool,
+
+    #[builder(default = false)]
+    migrator_client: bool,
+    migrator_client_id: Option<u32>,
 
     /// The XmtpdNode this service is launched from (provides signer, node_id, port)
     node: XmtpdNode,
@@ -117,7 +131,7 @@ impl Xmtpd {
             .ok_or_eyre("db must exist for xmtpd")?
             .url();
 
-        let env = vec![
+        let mut env = vec![
             format!("XMTPD_SIGNER_PRIVATE_KEY={private_key}"),
             format!("XMTPD_PAYER_PRIVATE_KEY={private_key}"),
             "XMTPD_REPLICATION_ENABLE=true".to_string(),
@@ -132,6 +146,28 @@ impl Xmtpd {
             format!("XMTPD_LOG_LEVEL={log_level}"),
             format!("XMTPD_REFLECTION_ENABLE={reflection_enable}"),
         ];
+        if self.migrator {
+            env.extend(vec![
+                format!("XMTPD_MIGRATION_SERVER_ENABLE=true"),
+                format!("XMTPD_MIGRATION_PAYER_PRIVATE_KEY={private_key}"),
+                format!("XMTPD_MIGRATION_NODE_SIGNING_KEY={private_key}"),
+                format!("XMTPD_MIGRATION_DB_READER_CONNECTION_STRING={db_connection}"),
+                format!("XMTPD_MIGRATION_DB_READER_TIMEOUT=10s"),
+                format!("XMTPD_MIGRATION_DB_WAIT_FOR=30s"),
+                format!("XMTPD_MIGRATION_DB_BATCH_SIZE=1000"),
+                format!("XMTPD_MIGRATION_DB_PROCESS_INTERVAL=10s"),
+                format!("XMTPD_MIGRATION_DB_NAMESPACE=postgres"),
+            ]);
+        }
+        if self.migrator_client {
+            let id = self
+                .migrator_client_id
+                .ok_or_eyre("node id must be provided for migrator client")?;
+            env.extend(vec![
+                format!("XMTPD_MIGRATION_CLIENT_ENABLE=true"),
+                format!("XMTPD_MIGRATION_CLIENT_FROM_NODE_ID={id}"),
+            ])
+        }
         let config = ContainerCreateBody {
             image: Some(format!("{image}:{version}")),
             cmd: Some(vec![format!(
@@ -155,18 +191,18 @@ impl Xmtpd {
 
         // When using standard ports, also expose the first XMTPD node on localhost:5050
         let config = crate::Config::load_unchecked();
-        if config.use_standard_ports && *self.node.id() == XMTPD_NODE_ID_INCREMENT {
-            let upstream = format!("{}:{}", self.container_name(), XMTPD_GRPC_PORT);
+        if config.use_standard_ports && *self.node.id() == XmtpdConst::NODE_ID_INCREMENT {
+            let upstream = format!("{}:{}", self.container_name(), XmtpdConst::GRPC_PORT);
             toxiproxy
                 .register_at(
                     format!("xmtpd_{}_grpc", self.node.id()),
                     upstream,
-                    XMTPD_GRPC_PORT,
+                    XmtpdConst::GRPC_PORT,
                 )
                 .await?;
             info!(
                 "registered first XMTPD node on standard port {}",
-                XMTPD_GRPC_PORT
+                XmtpdConst::GRPC_PORT
             );
         }
 
@@ -190,7 +226,7 @@ impl Xmtpd {
         Url::parse(&format!(
             "http://{}:{}",
             self.container_name(),
-            XMTPD_GRPC_PORT
+            XmtpdConst::GRPC_PORT
         ))
         .expect("valid URL")
     }

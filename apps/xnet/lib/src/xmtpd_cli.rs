@@ -5,10 +5,7 @@ use std::net::SocketAddrV4;
 use crate::app::ServiceManager;
 use crate::services::{allocate_xmtpd_port, Service};
 use crate::{
-    constants::{
-        ANVIL_ADMIN_KEY, DEFAULT_XMTPD_CLI_IMAGE, DEFAULT_XMTPD_VERSION, SETTLEMENT_RPC_URL,
-        TOXIPROXY_CONTAINER_NAME,
-    },
+    constants::{Anvil as AnvilConst, Xmtpd as XmtpdConst},
     network::XNET_NETWORK_NAME,
     services::{ensure_image_exists, ToxiProxy},
     types::XmtpdNode,
@@ -35,7 +32,7 @@ use xmtp_proto::api::Query;
 #[builder(on(String, into), derive(Debug, Clone))]
 pub struct XmtpdCli {
     /// The version tag for the xmtpd-cli image (e.g., "main", "v1.0.0")
-    #[builder(default = DEFAULT_XMTPD_VERSION.to_string())]
+    #[builder(default = XmtpdConst::VERSION.to_string())]
     version: String,
     /// ToxiProxy instance for network access
     toxiproxy: ToxiProxy,
@@ -55,8 +52,8 @@ impl XmtpdCli {
         let pubkey = hex::encode(node.compressed_public_key());
         let cmd = vec![
             "--config-file=config://anvil".into(),
-            format!("--private-key={ANVIL_ADMIN_KEY}"),
-            format!("--settlement-rpc-url={SETTLEMENT_RPC_URL}"),
+            format!("--private-key={}", AnvilConst::ADMIN_KEY),
+            format!("--settlement-rpc-url={}", AnvilConst::SETTLEMENT_RPC_URL),
             "nodes".to_string(),
             "register".to_string(),
             format!("--owner-address={addr}"),
@@ -71,8 +68,8 @@ impl XmtpdCli {
         let id = node.id();
         let cmd = vec![
             "--config-file=config://anvil".into(),
-            format!("--private-key={ANVIL_ADMIN_KEY}"),
-            format!("--settlement-rpc-url={SETTLEMENT_RPC_URL}"),
+            format!("--private-key={}", AnvilConst::ADMIN_KEY),
+            format!("--settlement-rpc-url={}", AnvilConst::SETTLEMENT_RPC_URL),
             "nodes".to_string(),
             "canonical-network".to_string(),
             "--add".to_string(),
@@ -90,7 +87,7 @@ impl XmtpdCli {
         mut write: impl Write,
     ) -> Result<()> {
         let docker = Docker::connect_with_socket_defaults()?;
-        let image = format!("{}:{}", DEFAULT_XMTPD_CLI_IMAGE, self.version);
+        let image = format!("{}:{}", XmtpdConst::CLI_IMAGE, self.version);
         ensure_image_exists(&docker, &image).await?;
 
         let config = ContainerCreateBody {

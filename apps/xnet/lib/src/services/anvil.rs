@@ -13,9 +13,7 @@ use color_eyre::eyre::Result;
 use url::Url;
 
 use crate::{
-    constants::{
-        ANVIL_CONTAINER_NAME, ANVIL_PORT, DEFAULT_CONTRACTS_IMAGE, DEFAULT_CONTRACTS_VERSION,
-    },
+    constants::Anvil as AnvilConst,
     network::XNET_NETWORK_NAME,
     services::{ManagedContainer, Service, ToxiProxy},
 };
@@ -25,11 +23,11 @@ use crate::{
 #[builder(on(String, into), derive(Debug))]
 pub struct Anvil {
     /// The image name (e.g., "ghcr.io/xmtp/contracts")
-    #[builder(default = DEFAULT_CONTRACTS_IMAGE.to_string())]
+    #[builder(default = AnvilConst::IMAGE.to_string())]
     image: String,
 
     /// The version tag for the contracts image (e.g., "v0.5.5", "main")
-    #[builder(default = DEFAULT_CONTRACTS_VERSION.to_string())]
+    #[builder(default = AnvilConst::VERSION.to_string())]
     version: String,
 
     /// Managed container state
@@ -44,7 +42,7 @@ impl Anvil {
     /// If a container with the same name already exists, it will be reused.
     pub async fn start(&mut self, toxiproxy: &ToxiProxy) -> Result<()> {
         let options = CreateContainerOptionsBuilder::default()
-            .name(ANVIL_CONTAINER_NAME)
+            .name(AnvilConst::CONTAINER_NAME)
             .platform("linux/amd64");
 
         let image = format!("{}:{}", self.image, self.version);
@@ -58,7 +56,7 @@ impl Anvil {
         };
 
         self.container
-            .start_container(ANVIL_CONTAINER_NAME, options, config)
+            .start_container(AnvilConst::CONTAINER_NAME, options, config)
             .await?;
 
         let port = self.register(toxiproxy, None).await?;
@@ -69,12 +67,12 @@ impl Anvil {
 
     /// Stop the Anvil container.
     pub async fn stop(&mut self) -> Result<()> {
-        self.container.stop_container(ANVIL_CONTAINER_NAME).await
+        self.container.stop_container(AnvilConst::CONTAINER_NAME).await
     }
 
     /// RPC URL for use within the docker network.
     pub fn rpc_url(&self) -> Url {
-        Url::parse(&format!("http://{}:{}", ANVIL_CONTAINER_NAME, ANVIL_PORT)).expect("valid URL")
+        Url::parse(&format!("http://{}:{}", AnvilConst::CONTAINER_NAME, AnvilConst::PORT)).expect("valid URL")
     }
 
     /// RPC URL for external access (through ToxiProxy).
@@ -122,6 +120,6 @@ impl Service for Anvil {
     }
 
     fn port(&self) -> u16 {
-        ANVIL_PORT
+        AnvilConst::PORT
     }
 }

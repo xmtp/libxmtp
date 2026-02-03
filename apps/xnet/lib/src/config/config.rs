@@ -7,10 +7,7 @@ use color_eyre::eyre::{Result, eyre};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use crate::constants::{
-    TOXIPROXY_STATIC_PORT_RANGE_END, TOXIPROXY_STATIC_PORT_RANGE_START,
-    TOXIPROXY_XMTPD_PORT_RANGE_END, TOXIPROXY_XMTPD_PORT_RANGE_START,
-};
+use crate::constants::ToxiProxy as ToxiProxyConst;
 
 use super::toml_config::{ImageConfig, MigrationConfig, NodeToml, TomlConfig};
 
@@ -25,10 +22,10 @@ pub struct Config {
     /// Ethereum Signers for XMTPD
     pub signers: [PrivateKeySigner; 100],
     /// Static services ToxiProxy port range
-    #[builder(default = (TOXIPROXY_STATIC_PORT_RANGE_START, TOXIPROXY_STATIC_PORT_RANGE_END))]
+    #[builder(default = ToxiProxyConst::STATIC_PORT_RANGE)]
     pub port_range: (u16, u16),
     /// XMTPD nodes ToxiProxy port range
-    #[builder(default = (TOXIPROXY_XMTPD_PORT_RANGE_START, TOXIPROXY_XMTPD_PORT_RANGE_END))]
+    #[builder(default = ToxiProxyConst::XMTPD_PORT_RANGE)]
     pub xmtpd_port_range: (u16, u16),
     /// Migration configuration
     #[builder(default)]
@@ -81,19 +78,13 @@ impl Config {
                     toml.xnet
                         .port_range
                         .map(|[s, e]| (s, e))
-                        .unwrap_or((
-                            TOXIPROXY_STATIC_PORT_RANGE_START,
-                            TOXIPROXY_STATIC_PORT_RANGE_END,
-                        )),
+                        .unwrap_or(ToxiProxyConst::STATIC_PORT_RANGE),
                 )
                 .xmtpd_port_range(
                     toml.xnet
                         .xmtpd_port_range
                         .map(|[s, e]| (s, e))
-                        .unwrap_or((
-                            TOXIPROXY_XMTPD_PORT_RANGE_START,
-                            TOXIPROXY_XMTPD_PORT_RANGE_END,
-                        )),
+                        .unwrap_or(ToxiProxyConst::XMTPD_PORT_RANGE),
                 )
                 .migration(toml.migration)
                 .xmtpd(toml.xmtpd.image)

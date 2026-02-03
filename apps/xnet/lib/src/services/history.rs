@@ -11,10 +11,7 @@ use color_eyre::eyre::Result;
 use url::Url;
 
 use crate::{
-    constants::{
-        DEFAULT_HISTORY_SERVER_IMAGE, DEFAULT_HISTORY_SERVER_VERSION,
-        HISTORY_SERVER_CONTAINER_NAME, HISTORY_SERVER_PORT,
-    },
+    constants::HistoryServer as HistoryServerConst,
     network::XNET_NETWORK_NAME,
     services::{ManagedContainer, Service, ToxiProxy},
 };
@@ -24,11 +21,11 @@ use crate::{
 #[builder(on(String, into), derive(Debug))]
 pub struct HistoryServer {
     /// The image name (e.g., "ghcr.io/xmtp/message-history-server")
-    #[builder(default = DEFAULT_HISTORY_SERVER_IMAGE.to_string())]
+    #[builder(default = HistoryServerConst::IMAGE.to_string())]
     image: String,
 
     /// The version tag for the history server image (e.g., "main", "v1.0.0")
-    #[builder(default = DEFAULT_HISTORY_SERVER_VERSION.to_string())]
+    #[builder(default = HistoryServerConst::VERSION.to_string())]
     version: String,
 
     /// Managed container state
@@ -43,7 +40,7 @@ impl HistoryServer {
     /// If a container with the same name already exists, it will be reused.
     pub async fn start(&mut self, toxiproxy: &ToxiProxy) -> Result<()> {
         let options = CreateContainerOptionsBuilder::default()
-            .name(HISTORY_SERVER_CONTAINER_NAME)
+            .name(HistoryServerConst::CONTAINER_NAME)
             .platform("linux/amd64");
 
         let image = format!("{}:{}", self.image, self.version);
@@ -57,7 +54,7 @@ impl HistoryServer {
         };
 
         self.container
-            .start_container(HISTORY_SERVER_CONTAINER_NAME, options, config)
+            .start_container(HistoryServerConst::CONTAINER_NAME, options, config)
             .await?;
 
         let port = self.register(toxiproxy, None).await?;
@@ -69,7 +66,7 @@ impl HistoryServer {
     /// Stop the history server container.
     pub async fn stop(&mut self) -> Result<()> {
         self.container
-            .stop_container(HISTORY_SERVER_CONTAINER_NAME)
+            .stop_container(HistoryServerConst::CONTAINER_NAME)
             .await
     }
 
@@ -77,7 +74,7 @@ impl HistoryServer {
     pub fn url(&self) -> Url {
         Url::parse(&format!(
             "http://{}:{}",
-            HISTORY_SERVER_CONTAINER_NAME, HISTORY_SERVER_PORT
+            HistoryServerConst::CONTAINER_NAME, HistoryServerConst::PORT
         ))
         .expect("valid URL")
     }
@@ -127,6 +124,6 @@ impl Service for HistoryServer {
     }
 
     fn port(&self) -> u16 {
-        HISTORY_SERVER_PORT
+        HistoryServerConst::PORT
     }
 }

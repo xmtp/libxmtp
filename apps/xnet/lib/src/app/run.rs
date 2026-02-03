@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use crate::{
     app::service_manager::ServiceManager,
-    config::{AppArgs, Node},
+    config::{AddNode, AppArgs, Node},
     network::Network,
     services::{self, Service, ToxiProxy},
     types::XmtpdNode,
@@ -65,13 +65,17 @@ impl App {
         Ok(())
     }
 
-    pub async fn add_node(&self) -> Result<XmtpdNode> {
+    pub async fn add_node(&self, add: &AddNode) -> Result<XmtpdNode> {
         let mut mgr = ServiceManager::start().await?;
         let cli = XmtpdCli::builder().toxiproxy(mgr.proxy.clone());
         let mut output = self.cli_output.lock().await;
         let mut xmtpd = cli.clone().build().register(&mgr, &mut *output).await?;
         cli.build().enable(&mut xmtpd, &mut *output).await?;
-        mgr.add_xmtpd(xmtpd.clone()).await?;
+        if add.migrator {
+            mgr.add_xmtpd_with_migrator(xmtpd.clone()).await?;
+        } else {
+            mgr.add_xmtpd(xmtpd.clone()).await?;
+        }
         Ok(xmtpd)
     }
 
@@ -97,8 +101,8 @@ impl App {
             crate::config::Commands::Down => self.down().await?,
             crate::config::Commands::Delete => self.delete().await?,
             crate::config::Commands::Node(node) => match node {
-                Node::Add => {
-                    self.add_node().await?;
+                Node::Add(add) => {
+                    let _ = self.add_node(add).await?;
                 }
                 _ => todo!(),
             },

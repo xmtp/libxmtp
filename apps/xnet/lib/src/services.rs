@@ -39,7 +39,7 @@ pub use validation::Validation;
 pub use xmtpd::Xmtpd;
 
 use crate::Config;
-use crate::constants::TOXIPROXY_CONTAINER_NAME;
+use crate::constants::ToxiProxy as ToxiProxyConst;
 use async_trait::async_trait;
 use bollard::{
     Docker,
@@ -387,7 +387,7 @@ pub trait Service: Send + Sync {
             .external_url()
             .port()
             .ok_or_else(|| eyre!("service {} does not have toxi port assigned", self.name()))?;
-        Ok(format!("{TOXIPROXY_CONTAINER_NAME}:{}", toxi_port))
+        Ok(format!("{}:{}", ToxiProxyConst::CONTAINER_NAME, toxi_port))
     }
 
     async fn register(&mut self, toxiproxy: &ToxiProxy, port_override: Option<u16>) -> Result<u16> {

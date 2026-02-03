@@ -7,7 +7,8 @@ use bollard::{
         RemoveContainerOptionsBuilder, RemoveVolumeOptions, StopContainerOptionsBuilder,
     },
 };
-use color_eyre::eyre::{Context, Result};
+use color_eyre::eyre::{Context, Error, Result};
+use futures::future::try_join_all;
 use std::collections::HashMap;
 use tracing::{debug, info, warn};
 
@@ -74,40 +75,46 @@ impl Network {
 
         let containers = self.docker.list_containers(Some(options)).await?;
 
+        let mut futures = Vec::new();
         for container in &containers {
-            let id = container.id.as_deref().unwrap_or("unknown");
-            let names = container
-                .names
-                .as_ref()
-                .map(|n| n.join(", "))
-                .unwrap_or_else(|| "unnamed".to_string());
+            let fut = async {
+                let id = container.id.as_deref().unwrap_or("unknown");
+                let names = container
+                    .names
+                    .as_ref()
+                    .map(|n| n.join(", "))
+                    .unwrap_or_else(|| "unnamed".to_string());
 
-            info!(
-                "Stopping and removing container: {} ({}..{})",
-                names,
-                &id[..3],
-                &id[id.len() - 3..]
-            );
-
-            let stop_options = StopContainerOptionsBuilder::default().t(10).build();
-            if let Err(e) = self.docker.stop_container(id, Some(stop_options)).await {
-                debug!(
-                    "Could not stop container {} (may already be stopped): {}",
-                    id, e
+                info!(
+                    "Stopping and removing container: {} ({}..{})",
+                    names,
+                    &id[..3],
+                    &id[id.len() - 3..]
                 );
-            }
 
-            // Remove the container with force and volume cleanup
-            let remove_options = RemoveContainerOptionsBuilder::default()
-                .force(true)
-                .v(true) // Remove associated anonymous volumes
-                .build();
+                let stop_options = StopContainerOptionsBuilder::default().t(10).build();
+                if let Err(e) = self.docker.stop_container(id, Some(stop_options)).await {
+                    debug!(
+                        "Could not stop container {} (may already be stopped): {}",
+                        id, e
+                    );
+                }
 
-            self.docker
-                .remove_container(id, Some(remove_options))
-                .await
-                .wrap_err("unable to remove container")?;
+                // Remove the container with force and volume cleanup
+                let remove_options = RemoveContainerOptionsBuilder::default()
+                    .force(true)
+                    .v(true) // Remove associated anonymous volumes
+                    .build();
+
+                self.docker
+                    .remove_container(id, Some(remove_options))
+                    .await
+                    .wrap_err("unable to remove container")?;
+                Ok::<_, Error>(())
+            };
+            futures.push(fut);
         }
+        try_join_all(futures).await?;
 
         // List and remove volumes with xnet label
         let volumes = self

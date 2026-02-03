@@ -11,10 +11,7 @@ use color_eyre::eyre::Result;
 use url::Url;
 
 use crate::{
-    constants::{
-        DEFAULT_MLS_DB_IMAGE, DEFAULT_POSTGRES_PASSWORD, MLS_DB_CONTAINER_NAME, MLS_DB_PORT,
-        POSTGRES_PORT,
-    },
+    constants::{MlsDb as MlsDbConst, POSTGRES_PASSWORD, ReplicationDb as ReplicationDbConst},
     network::XNET_NETWORK_NAME,
     services::{ManagedContainer, Service, ToxiProxy},
 };
@@ -24,11 +21,11 @@ use crate::{
 #[builder(on(String, into), derive(Debug))]
 pub struct MlsDb {
     /// The PostgreSQL image
-    #[builder(default = DEFAULT_MLS_DB_IMAGE.to_string())]
+    #[builder(default = MlsDbConst::IMAGE.to_string())]
     image: String,
 
     /// PostgreSQL password
-    #[builder(default = DEFAULT_POSTGRES_PASSWORD.to_string())]
+    #[builder(default = POSTGRES_PASSWORD.to_string())]
     password: String,
 
     /// Managed container state
@@ -42,13 +39,13 @@ impl MlsDb {
     /// Registers itself with ToxiProxy for external access.
     /// If a container with the same name already exists, it will be reused.
     pub async fn start(&mut self, toxiproxy: &ToxiProxy) -> Result<()> {
-        let options = CreateContainerOptionsBuilder::default().name(MLS_DB_CONTAINER_NAME);
+        let options = CreateContainerOptionsBuilder::default().name(MlsDbConst::CONTAINER_NAME);
 
         let config = ContainerCreateBody {
             image: Some(self.image.clone()),
             env: Some(vec![
                 format!("POSTGRES_PASSWORD={}", self.password),
-                format!("PGPORT={POSTGRES_PORT}"),
+                format!("PGPORT={}", ReplicationDbConst::PORT),
             ]),
             healthcheck: Some(HealthConfig {
                 test: Some(vec![
@@ -69,7 +66,7 @@ impl MlsDb {
         };
 
         self.container
-            .start_container(MLS_DB_CONTAINER_NAME, options, config)
+            .start_container(MlsDbConst::CONTAINER_NAME, options, config)
             .await?;
 
         let port = self.register(toxiproxy, None).await?;
@@ -80,14 +77,14 @@ impl MlsDb {
 
     /// Stop the MLS database container.
     pub async fn stop(&mut self) -> Result<()> {
-        self.container.stop_container(MLS_DB_CONTAINER_NAME).await
+        self.container.stop_container(MlsDbConst::CONTAINER_NAME).await
     }
 
     /// PostgreSQL connection URL for use within the docker network.
     pub fn url(&self) -> Url {
         Url::parse(&format!(
             "postgres://postgres:{}@{}:{}/postgres?sslmode=disable",
-            self.password, MLS_DB_CONTAINER_NAME, POSTGRES_PORT
+            self.password, MlsDbConst::CONTAINER_NAME, ReplicationDbConst::PORT
         ))
         .expect("valid URL")
     }
@@ -141,6 +138,6 @@ impl Service for MlsDb {
     }
 
     fn port(&self) -> u16 {
-        MLS_DB_PORT
+        MlsDbConst::PORT
     }
 }

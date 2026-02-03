@@ -12,10 +12,7 @@ use url::Url;
 use crate::types::XmtpdNode;
 
 use crate::{
-    constants::{
-        DEFAULT_POSTGRES_IMAGE, DEFAULT_POSTGRES_PASSWORD, POSTGRES_PORT,
-        REPLICATION_DB_CONTAINER_NAME,
-    },
+    constants::ReplicationDb as ReplicationDbConst,
     network::XNET_NETWORK_NAME,
     services::{ManagedContainer, Service, ToxiProxy},
 };
@@ -25,7 +22,7 @@ use crate::{
 #[builder(on(String, into), derive(Debug))]
 pub struct ReplicationDb {
     /// The PostgreSQL image
-    #[builder(default = DEFAULT_POSTGRES_IMAGE.to_string())]
+    #[builder(default = ReplicationDbConst::IMAGE.to_string())]
     image: String,
 
     /// Managed container state
@@ -48,8 +45,8 @@ impl ReplicationDb {
         let config = ContainerCreateBody {
             image: Some(self.image.clone()),
             env: Some(vec![
-                format!("POSTGRES_PASSWORD={DEFAULT_POSTGRES_PASSWORD}"),
-                format!("PGPORT={POSTGRES_PORT}"),
+                format!("POSTGRES_PASSWORD={}", ReplicationDbConst::PASSWORD),
+                format!("PGPORT={}", ReplicationDbConst::PORT),
             ]),
             healthcheck: Some(HealthConfig {
                 test: Some(vec![
@@ -85,8 +82,8 @@ impl ReplicationDb {
     /// PostgreSQL connection URL for use within the docker network.
     pub fn url(&self) -> Url {
         Url::parse(&format!(
-            "postgres://postgres:xmtp@{}:{POSTGRES_PORT}/postgres?sslmode=disable",
-            self.name(),
+            "postgres://postgres:xmtp@{}:{}/postgres?sslmode=disable",
+            self.name(), ReplicationDbConst::PORT,
         ))
         .expect("valid URL")
     }
@@ -140,6 +137,6 @@ impl Service for ReplicationDb {
     }
 
     fn port(&self) -> u16 {
-        POSTGRES_PORT
+        ReplicationDbConst::PORT
     }
 }

@@ -31,9 +31,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - uses: nixbuild/nix-quick-install-action@v34
-      - run: nix build --version
-      - name: Run sccache-cache
+       - uses: nixbuild/nix-quick-install-action@v34
+       - run: nix build --version
         uses: mozilla-actions/sccache-action@v0.0.9
       - name: Build target
         run: |
@@ -56,8 +55,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - uses: nixbuild/nix-quick-install-action@v34
-      - run: nix build --version
+       - uses: nixbuild/nix-quick-install-action@v34
+       - run: nix build --version
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.9
       - uses: cachix/cachix-action@v16
