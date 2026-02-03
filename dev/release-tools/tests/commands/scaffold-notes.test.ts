@@ -39,28 +39,21 @@ describe("scaffoldNotes", () => {
 
   it("creates release notes from a since tag", () => {
     gitTag("ios-4.9.0", tmpDir);
-    fs.writeFileSync(path.join(tmpDir, "file.txt"), "change1");
-    execSync("git add . && git commit -m 'feat: new feature'", {
-      cwd: tmpDir,
-    });
-    fs.writeFileSync(path.join(tmpDir, "file.txt"), "change2");
-    execSync("git add . && git commit -m 'fix: bug fix'", {
-      cwd: tmpDir,
-    });
 
     const outputPath = scaffoldNotes("ios", tmpDir, "ios-4.9.0");
     expect(outputPath).toContain("docs/release-notes/ios/4.10.0.md");
 
     const content = fs.readFileSync(outputPath, "utf-8");
     expect(content).toContain("# iOS SDK 4.10.0");
-    expect(content).toContain("new feature");
-    expect(content).toContain("bug fix");
+    expect(content).toContain("previous_release_tag: ios-4.9.0");
+    expect(content).toContain("sdk: ios");
   });
 
   it("handles no previous tag gracefully", () => {
     const outputPath = scaffoldNotes("ios", tmpDir, null);
     const content = fs.readFileSync(outputPath, "utf-8");
     expect(content).toContain("# iOS SDK 4.10.0");
-    expect(content).toContain("first release from the monorepo");
+    expect(content).toContain("previous_release_tag: null");
+    expect(content).toContain("sdk: ios");
   });
 });
