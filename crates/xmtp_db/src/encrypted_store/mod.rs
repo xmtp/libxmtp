@@ -51,6 +51,8 @@ pub use diesel::{
 use openmls::storage::OpenMlsProvider;
 use prost::DecodeError;
 use xmtp_common::{ErrorCode, MaybeSend, MaybeSync, RetryableError};
+use xmtp_proto::ConversionError;
+use zeroize::ZeroizeOnDrop;
 
 use super::StorageError;
 use crate::sql_key_store::SqlKeyStoreError;
@@ -61,10 +63,54 @@ pub use store::*;
 
 use diesel::{prelude::*, sql_query};
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
-pub type EncryptionKey = [u8; 32];
+#[derive(ZeroizeOnDrop, Clone)]
+pub struct EncryptionKey([u8; 32]);
+impl std::fmt::Debug for EncryptionKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("EncryptionKey").field(&"xxxx").finish()
+    }
+}
+
+impl Deref for EncryptionKey {
+    type Target = [u8; 32];
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> AsRef<T> for EncryptionKey
+where
+    T: ?Sized,
+    <EncryptionKey as Deref>::Target: AsRef<T>,
+{
+    fn as_ref(&self) -> &T {
+        self.deref().as_ref()
+    }
+}
+
+impl TryFrom<Vec<u8>> for EncryptionKey {
+    type Error = ConversionError;
+    fn try_from(v: Vec<u8>) -> Result<EncryptionKey, Self::Error> {
+        Ok(EncryptionKey(v.as_slice().try_into()?))
+    }
+}
+
+impl From<[u8; 32]> for EncryptionKey {
+    fn from(v: [u8; 32]) -> Self {
+        EncryptionKey(v)
+    }
+}
+
+impl TryFrom<&[u8]> for EncryptionKey {
+    type Error = ConversionError;
+    fn try_from(v: &[u8]) -> Result<EncryptionKey, Self::Error> {
+        let bytes: [u8; 32] = v.try_into()?;
+        Ok(EncryptionKey(bytes))
+    }
+}
 
 // For PRAGMA query log statements
 #[derive(QueryableByName, Debug)]

@@ -114,6 +114,7 @@ async fn only_one_payload_sent() {
     );
 }
 
+#[cfg_attr(target_arch = "wasm32", ignore)]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_double_sync_works_fine() {

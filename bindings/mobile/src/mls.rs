@@ -16,6 +16,7 @@ use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_d14n::{ClientBundle, MessageBackendBuilder};
 use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
+use xmtp_configuration::{MAX_DB_POOL_SIZE, MIN_DB_POOL_SIZE};
 use xmtp_content_types::actions::{Actions, ActionsCodec};
 use xmtp_content_types::attachment::Attachment;
 use xmtp_content_types::attachment::AttachmentCodec;
@@ -44,7 +45,7 @@ use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::group_message::{SortBy, SortDirection, StoredGroupMessageWithReactions};
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::{
-    EncryptedMessageStore, EncryptionKey, StorageOption,
+    EncryptedMessageStore, EncryptionKey,
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     group::GroupQueryArgs,
     group_message::{GroupMessageKind, StoredGroupMessage},
@@ -180,7 +181,7 @@ pub async fn inbox_state_from_inbox_ids(
         ApiClientWrapper::new(backend, strategies::exponential_cooldown());
     let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
-    let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral)?;
+    let db = NativeDb::builder().ephemeral().build_unencrypted()?;
     let store = EncryptedMessageStore::new(db)?;
 
     let states = inbox_addresses_with_verifier(
@@ -291,6 +292,30 @@ pub async fn apply_signature_request(
     Ok(())
 }
 
+#[derive(uniffi::Record, Clone)]
+pub struct DbOptions {
+    pub db: Option<String>,
+    pub encryption_key: Option<Vec<u8>>,
+    pub max_db_pool_size: Option<u32>,
+    pub min_db_pool_size: Option<u32>,
+}
+
+impl DbOptions {
+    pub fn new(
+        db: Option<String>,
+        encryption_key: Option<Vec<u8>>,
+        max_db_pool_size: Option<u32>,
+        min_db_pool_size: Option<u32>,
+    ) -> Self {
+        Self {
+            db,
+            encryption_key,
+            max_db_pool_size,
+            min_db_pool_size,
+        }
+    }
+}
+
 /// It returns a new client of the specified `inbox_id`.
 /// Note that the `inbox_id` must be either brand new or already associated with the `account_identifier`.
 /// i.e. `inbox_id` cannot be associated with another account address.
@@ -315,8 +340,7 @@ pub async fn apply_signature_request(
 pub async fn create_client(
     api: Arc<XmtpApiClient>,
     sync_api: Arc<XmtpApiClient>,
-    db: Option<String>,
-    encryption_key: Option<Vec<u8>>,
+    db: DbOptions,
     inbox_id: &InboxId,
     account_identifier: FfiIdentifier,
     nonce: u64,
@@ -329,6 +353,13 @@ pub async fn create_client(
     let ident = account_identifier.clone();
     init_logger();
 
+    let DbOptions {
+        db,
+        encryption_key,
+        max_db_pool_size,
+        min_db_pool_size,
+    } = db;
+
     log::info!(
         "Creating message store with path: {:?} and encryption key: {} of length {:?}",
         db,
@@ -336,24 +367,34 @@ pub async fn create_client(
         encryption_key.as_ref().map(|k| k.len())
     );
 
-    let storage_option = match db {
-        Some(path) => StorageOption::Persistent(path),
-        None => StorageOption::Ephemeral,
+    let db = if let Some(path) = db {
+        NativeDb::builder().persistent(path)
+    } else {
+        NativeDb::builder().ephemeral()
+    };
+    let db = if let Some(max_size) = max_db_pool_size {
+        db.max_pool_size(max_size)
+    } else {
+        db.max_pool_size(MAX_DB_POOL_SIZE)
     };
 
-    let store = match encryption_key {
-        Some(key) => {
-            let key: EncryptionKey = key
-                .try_into()
-                .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
-            let db = NativeDb::new(&storage_option, key)?;
-            EncryptedMessageStore::new(db)?
-        }
-        None => {
-            let db = NativeDb::new_unencrypted(&storage_option)?;
-            EncryptedMessageStore::new(db)?
-        }
+    let db = if let Some(min_size) = min_db_pool_size {
+        db.min_pool_size(min_size)
+    } else {
+        db.min_pool_size(MIN_DB_POOL_SIZE)
     };
+
+    let db = if let Some(key) = encryption_key {
+        let key: EncryptionKey = key
+            .try_into()
+            .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
+        db.key(key).build()
+    } else {
+        db.build_unencrypted()
+    }?;
+
+    let store = EncryptedMessageStore::new(db)?;
+
     log::info!("Creating XMTP client");
     let identity_strategy = IdentityStrategy::new(
         inbox_id.clone(),

@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use crate::{DbConnection, EncryptedMessageStore, StorageOption};
+use crate::{DbConnection, EncryptedMessageStore};
 mod impls;
 mod mls_memory_storage;
 
@@ -61,7 +61,7 @@ pub use wasm::*;
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 mod wasm {
     use super::*;
-    use crate::{PersistentOrMem, WasmDbConnection};
+    use crate::{PersistentOrMem, StorageOption, WasmDbConnection};
     use futures::FutureExt;
     use std::sync::Arc;
 
@@ -163,7 +163,8 @@ pub use native::*;
 mod native {
     use super::*;
     use crate::{
-        ConnectionExt, EphemeralDbConnection, MIGRATIONS, NativeDbConnection, PersistentOrMem,
+        ConnectionExt, EphemeralDbConnection, MIGRATIONS, NativeDb, NativeDbConnection,
+        PersistentOrMem,
     };
     use diesel::{Connection, SqliteConnection, connection::SimpleConnection};
     use diesel_migrations::MigrationHarness;
@@ -171,8 +172,10 @@ mod native {
 
     impl XmtpTestDb for super::TestDb {
         async fn create_ephemeral_store() -> crate::DefaultStore {
-            let opts = StorageOption::Ephemeral;
-            let db = crate::database::NativeDb::new_unencrypted(&opts).unwrap();
+            let db = crate::database::NativeDb::builder()
+                .ephemeral()
+                .build_unencrypted()
+                .unwrap();
             EncryptedMessageStore::new(db).unwrap()
         }
         async fn create_ephemeral_store_from_snapshot(
@@ -184,8 +187,10 @@ mod native {
 
             let mut i = 0;
             let store = loop {
-                let opts = StorageOption::Ephemeral;
-                let db = crate::database::NativeDb::new_unencrypted(&opts).unwrap();
+                let db = crate::database::NativeDb::builder()
+                    .ephemeral()
+                    .build_unencrypted()
+                    .unwrap();
                 let store = EncryptedMessageStore::new_uninit(db).unwrap();
                 let result = store.db().raw_query_write(|conn| {
                     conn.deserialize_database_from_buffer(snapshot)?;
@@ -228,15 +233,21 @@ mod native {
         }
         async fn create_persistent_store(path: Option<String>) -> crate::DefaultStore {
             let path = path.unwrap_or(xmtp_common::tmp_path());
-            let opts = StorageOption::Persistent(path.to_string());
-            let db = crate::database::NativeDb::new(&opts, [0u8; 32]).unwrap();
+            let db = crate::database::NativeDb::builder()
+                .persistent(path)
+                .key([0u8; 32])
+                .build()
+                .unwrap();
             EncryptedMessageStore::new(db).expect("constructing message store failed.")
         }
 
         async fn create_database(path: Option<String>) -> crate::DefaultDatabase {
             let path = path.unwrap_or(xmtp_common::tmp_path());
-            let opts = StorageOption::Persistent(path.to_string());
-            crate::database::NativeDb::new(&opts, xmtp_common::rand_array::<32>()).unwrap()
+            crate::database::NativeDb::builder()
+                .persistent(path)
+                .key([0u8; 32])
+                .build()
+                .unwrap()
         }
     }
 
@@ -247,8 +258,7 @@ mod native {
             &crate::DbConnection<Arc<PersistentOrMem<NativeDbConnection, EphemeralDbConnection>>>,
         ) -> R,
     {
-        let opts = StorageOption::Ephemeral;
-        let db = crate::database::NativeDb::new_unencrypted(&opts).unwrap();
+        let db = NativeDb::builder().ephemeral().build_unencrypted().unwrap();
         let store = EncryptedMessageStore::new(db).unwrap();
         let conn = store.conn();
         fun(&DbConnection::new(conn))
@@ -262,8 +272,7 @@ mod native {
         ) -> T,
         T: Future<Output = R>,
     {
-        let opts = StorageOption::Ephemeral;
-        let db = crate::database::NativeDb::new_unencrypted(&opts).unwrap();
+        let db = NativeDb::builder().ephemeral().build_unencrypted().unwrap();
         let store = EncryptedMessageStore::new(db).unwrap();
         let conn = store.conn();
         fun(DbConnection::new(conn)).await
@@ -272,16 +281,20 @@ mod native {
     impl EncryptedMessageStore<crate::database::NativeDb> {
         pub async fn new_test() -> Self {
             let tmp_path = xmtp_common::tmp_path();
-            let opts = StorageOption::Persistent(tmp_path);
-            let db =
-                crate::database::NativeDb::new(&opts, xmtp_common::rand_array::<32>()).unwrap();
+            let db = NativeDb::builder()
+                .persistent(tmp_path)
+                .key([0u8; 32])
+                .build()
+                .unwrap();
             EncryptedMessageStore::new(db).expect("constructing message store failed.")
         }
 
         pub async fn new_test_with_path(path: &str) -> Self {
-            let opts = StorageOption::Persistent(path.to_string());
-            let db =
-                crate::database::NativeDb::new(&opts, xmtp_common::rand_array::<32>()).unwrap();
+            let db = NativeDb::builder()
+                .persistent(path)
+                .key([0u8; 32])
+                .build()
+                .unwrap();
             EncryptedMessageStore::new(db).expect("constructing message store failed.")
         }
     }

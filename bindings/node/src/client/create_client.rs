@@ -9,7 +9,8 @@ use std::ops::Deref;
 use std::sync::Arc;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use xmtp_api_d14n::MessageBackendBuilder;
-use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb, StorageOption};
+use xmtp_configuration::{MAX_DB_POOL_SIZE, MIN_DB_POOL_SIZE};
+use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb};
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::identity::IdentityStrategy;
 
@@ -44,6 +45,30 @@ fn init_logging(options: LogOptions) -> Result<()> {
   Ok(())
 }
 
+#[napi(object)]
+pub struct DbOptions {
+  pub db_path: Option<String>,
+  pub encryption_key: Option<Uint8Array>,
+  pub max_db_pool_size: Option<u32>,
+  pub min_db_pool_size: Option<u32>,
+}
+
+impl DbOptions {
+  pub fn new(
+    db_path: Option<String>,
+    encryption_key: Option<Uint8Array>,
+    max_db_pool_size: Option<u32>,
+    min_db_pool_size: Option<u32>,
+  ) -> Self {
+    Self {
+      db_path,
+      encryption_key,
+      max_db_pool_size,
+      min_db_pool_size,
+    }
+  }
+}
+
 /**
  * Create a client.
  *
@@ -57,10 +82,9 @@ pub async fn create_client(
   v3_host: String,
   gateway_host: Option<String>,
   is_secure: bool,
-  db_path: Option<String>,
+  db: DbOptions,
   inbox_id: String,
   account_identifier: Identifier,
-  encryption_key: Option<Uint8Array>,
   device_sync_server_url: Option<String>,
   device_sync_worker_mode: Option<SyncWorkerMode>,
   log_options: Option<LogOptions>,
@@ -84,25 +108,42 @@ pub async fn create_client(
     .app_version(app_version.clone().unwrap_or_default())
     .is_secure(is_secure);
 
-  let storage_option = match db_path {
-    Some(path) => StorageOption::Persistent(path),
-    None => StorageOption::Ephemeral,
+  let DbOptions {
+    db_path,
+    encryption_key,
+    max_db_pool_size,
+    min_db_pool_size,
+  } = db;
+
+  let db = if let Some(path) = db_path {
+    NativeDb::builder().persistent(path)
+  } else {
+    NativeDb::builder().ephemeral()
   };
 
-  let store = match encryption_key {
-    Some(key) => {
-      let key: Vec<u8> = key.deref().into();
-      let key: EncryptionKey = key
-        .try_into()
-        .map_err(|_| Error::from_reason("Malformed 32 byte encryption key"))?;
-      let db = NativeDb::new(&storage_option, key).map_err(ErrorWrapper::from)?;
-      EncryptedMessageStore::new(db).map_err(ErrorWrapper::from)?
-    }
-    None => {
-      let db = NativeDb::new_unencrypted(&storage_option).map_err(ErrorWrapper::from)?;
-      EncryptedMessageStore::new(db).map_err(ErrorWrapper::from)?
-    }
+  let db = if let Some(max_size) = max_db_pool_size {
+    db.max_pool_size(max_size)
+  } else {
+    db.max_pool_size(MAX_DB_POOL_SIZE)
   };
+
+  let db = if let Some(min_size) = min_db_pool_size {
+    db.min_pool_size(min_size)
+  } else {
+    db.min_pool_size(MIN_DB_POOL_SIZE)
+  };
+
+  let db = if let Some(key) = encryption_key {
+    let key: Vec<u8> = key.deref().into();
+    let key: EncryptionKey = key
+      .try_into()
+      .map_err(|_| Error::from_reason("Malformed 32 byte encryption key"))?;
+    db.key(key).build()
+  } else {
+    db.build_unencrypted()
+  }
+  .map_err(ErrorWrapper::from)?;
+  let store = EncryptedMessageStore::new(db).map_err(ErrorWrapper::from)?;
 
   let nonce = match nonce {
     Some(n) => {
