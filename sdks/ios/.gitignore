@@ -19,6 +19,3 @@ XMTPiOSExample/XMTPiOSExample.xcworkspace
 
 ngrok-*.pid
 ngrok-*.log
-
-# Generated Swift bindings (rebuilt from Rust)
-Sources/XMTPiOS/LibXMTP/xmtpv3.swift
