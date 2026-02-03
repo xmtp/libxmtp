@@ -24,7 +24,15 @@ public protocol SigningKey {
 
 /// Default implementations for properties
 public extension SigningKey {
-	var type: SignerType { .EOA }
-	var chainId: Int64? { nil }
-	var blockNumber: Int64? { nil }
+	var type: SignerType {
+		.EOA
+	}
+
+	var chainId: Int64? {
+		nil
+	}
+
+	var blockNumber: Int64? {
+		nil
+	}
 }

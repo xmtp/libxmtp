@@ -56,9 +56,7 @@ public struct AttachmentCodec: ContentCodec {
 			throw AttachmentCodecError.invalidParameters
 		}
 
-		let attachment = Attachment(filename: filename, mimeType: mimeType, data: content.content)
-
-		return attachment
+		return Attachment(filename: filename, mimeType: mimeType, data: content.content)
 	}
 
 	public func fallback(content: Attachment) throws -> String? {

@@ -134,7 +134,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		try await ffiConversation.removeConversationMessageDisappearingSettings()
 	}
 
-	// Returns null if dm is not paused, otherwise the min version required to unpause this dm
+	/// Returns null if dm is not paused, otherwise the min version required to unpause this dm
 	public func pausedForVersion() throws -> String? {
 		try ffiConversation.pausedForVersion()
 	}
@@ -320,6 +320,17 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Get the raw list of messages from a conversation.
+	///
+	/// This method returns all messages in chronological order without additional processing.
+	/// Reactions, replies, and other associated metadata are returned as separate messages
+	/// and are not linked to their parent messages.
+	///
+	/// For UI rendering, consider using ``enrichedMessages(beforeNs:afterNs:limit:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
+	/// instead,
+	/// which provides messages with enriched metadata automatically included.
+	///
+	/// - SeeAlso: ``enrichedMessages(beforeNs:afterNs:limit:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
 	public func messages(
 		beforeNs: Int64? = nil,
 		afterNs: Int64? = nil,
@@ -459,7 +470,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	// Count the number of messages in the conversation according to the provided filters
+	/// Count the number of messages in the conversation according to the provided filters
 	public func countMessages(
 		beforeNs: Int64? = nil, afterNs: Int64? = nil, deliveryStatus: MessageDeliveryStatus = .all,
 		excludeContentTypes: [StandardContentType]? = nil,
@@ -484,6 +495,21 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		)
 	}
 
+	/// Get messages with enriched metadata automatically included.
+	///
+	/// This method retrieves messages with reactions, replies, and other associated data
+	/// "baked in" to each message, eliminating the need for separate queries to fetch
+	/// this information.
+	///
+	/// **Recommended for UI rendering.** This method provides better performance and
+	/// simpler code compared to ``messages(beforeNs:afterNs:limit:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
+	/// when displaying conversations.
+	///
+	/// When handling content types, use the generic `content<T>()` method with the
+	/// appropriate type for reactions and replies.
+	///
+	/// - Returns: Array of `DecodedMessageV2` with enriched metadata.
+	/// - SeeAlso: ``messages(beforeNs:afterNs:limit:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
 	public func enrichedMessages(
 		beforeNs: Int64? = nil,
 		afterNs: Int64? = nil,

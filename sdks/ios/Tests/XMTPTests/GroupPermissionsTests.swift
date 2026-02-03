@@ -37,8 +37,8 @@ class GroupPermissionsTests: XCTestCase {
 			with: [fixtures.alixClient.inboxID]
 		)
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try fixtures.alixClient.conversations
-			.listGroups().first!
+		let alixGroup = try XCTUnwrap(try fixtures.alixClient.conversations
+			.listGroups().first)
 
 		XCTAssertFalse(
 			try boGroup.isAdmin(inboxId: fixtures.boClient.inboxID)
@@ -72,8 +72,8 @@ class GroupPermissionsTests: XCTestCase {
 			permissions: .adminOnly
 		)
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try fixtures.alixClient.conversations
-			.listGroups().first!
+		let alixGroup = try XCTUnwrap(try fixtures.alixClient.conversations
+			.listGroups().first)
 
 		XCTAssertFalse(
 			try boGroup.isAdmin(inboxId: fixtures.boClient.inboxID)
@@ -159,8 +159,8 @@ class GroupPermissionsTests: XCTestCase {
 			permissions: .adminOnly
 		)
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try fixtures.alixClient.conversations
-			.listGroups().first!
+		let alixGroup = try XCTUnwrap(try fixtures.alixClient.conversations
+			.listGroups().first)
 
 		XCTAssertTrue(
 			try boGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID)
@@ -204,8 +204,8 @@ class GroupPermissionsTests: XCTestCase {
 			permissions: .adminOnly
 		)
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try fixtures.alixClient.conversations
-			.listGroups().first!
+		let alixGroup = try XCTUnwrap(try fixtures.alixClient.conversations
+			.listGroups().first)
 
 		// Initial checks for group members and their permissions
 		var members = try await boGroup.members
@@ -268,8 +268,8 @@ class GroupPermissionsTests: XCTestCase {
 			permissions: .allMembers
 		)
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try fixtures.alixClient.conversations
-			.listGroups().first!
+		let alixGroup = try XCTUnwrap(try fixtures.alixClient.conversations
+			.listGroups().first)
 
 		// Verify that alix can NOT add an admin
 		XCTAssertEqual(try boGroup.name(), "")
@@ -299,8 +299,8 @@ class GroupPermissionsTests: XCTestCase {
 			permissions: .adminOnly
 		)
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try fixtures.alixClient.conversations
-			.listGroups().first!
+		let alixGroup = try XCTUnwrap(try fixtures.alixClient.conversations
+			.listGroups().first)
 
 		// Verify that alix cannot update group description
 		XCTAssertEqual(try boGroup.description(), "")
@@ -365,8 +365,8 @@ class GroupPermissionsTests: XCTestCase {
 			)
 
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try fixtures.alixClient.conversations
-			.listGroups().first!
+		let alixGroup = try XCTUnwrap(try fixtures.alixClient.conversations
+			.listGroups().first)
 
 		let alixPermissionSet = try alixGroup.permissionPolicySet()
 		XCTAssert(alixPermissionSet.addMemberPolicy == PermissionOption.admin)
@@ -414,8 +414,8 @@ class GroupPermissionsTests: XCTestCase {
 			)
 
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try fixtures.alixClient.conversations
-			.listGroups().first!
+		let alixGroup = try XCTUnwrap(try fixtures.alixClient.conversations
+			.listGroups().first)
 
 		let alixPermissionSet = try alixGroup.permissionPolicySet()
 		XCTAssert(alixPermissionSet.addMemberPolicy == PermissionOption.admin)

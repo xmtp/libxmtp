@@ -1,9 +1,8 @@
 import Foundation
 import XCTest
-
 @testable import XMTPiOS
 
-// Fakes HTTPS urls
+/// Fakes HTTPS urls
 struct TestFetcher: RemoteContentFetcher {
 	func fetch(_ url: String) async throws -> Data {
 		guard

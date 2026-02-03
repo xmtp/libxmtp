@@ -8,7 +8,7 @@ struct ConversationListView: View {
 	@State private var conversations: [XMTPiOS.Conversation] = []
 	@State private var isShowingNewConversation = false
 
-	// Pre-sorted conversations to reduce complexity
+	/// Pre-sorted conversations to reduce complexity
 	private var sortedConversations: [XMTPiOS.Conversation] {
 		conversations.sorted(by: compareConversations)
 	}
@@ -39,13 +39,12 @@ struct ConversationListView: View {
 		}
 	}
 
-	// Helper function to compare conversations by createdAt date
+	/// Helper function to compare conversations by createdAt date
 	private func compareConversations(_ lhs: XMTPiOS.Conversation, _ rhs: XMTPiOS.Conversation) -> Bool {
 		lhs.createdAt > rhs.createdAt
 	}
 
-	// Extracted row view for each conversation
-	@ViewBuilder
+	/// Extracted row view for each conversation
 	private func conversationRow(for item: XMTPiOS.Conversation) -> some View {
 		HStack {
 			conversationIcon(for: item)
@@ -59,7 +58,7 @@ struct ConversationListView: View {
 		}
 	}
 
-	// Extracted icon view for conversation type
+	/// Extracted icon view for conversation type
 	@ViewBuilder
 	private func conversationIcon(for item: XMTPiOS.Conversation) -> some View {
 		switch item {
@@ -78,7 +77,7 @@ struct ConversationListView: View {
 		}
 	}
 
-	// Helper function to provide a display name based on the conversation type
+	/// Helper function to provide a display name based on the conversation type
 	private func conversationDisplayName(for item: XMTPiOS.Conversation) -> String {
 		switch item {
 		case let .dm(conversation):
@@ -89,12 +88,12 @@ struct ConversationListView: View {
 		}
 	}
 
-	// Helper function to format the date
+	/// Helper function to format the date
 	private func formattedDate(for date: Date) -> String {
 		date.formatted()
 	}
 
-	// Define destination view based on conversation type
+	/// Define destination view based on conversation type
 	@ViewBuilder
 	private func destinationView(for item: XMTPiOS.Conversation) -> some View {
 		switch item {
@@ -105,7 +104,7 @@ struct ConversationListView: View {
 		}
 	}
 
-	// Async function to load conversations
+	/// Async function to load conversations
 	func loadConversations() async {
 		do {
 			try await client.conversations.sync()
@@ -119,7 +118,7 @@ struct ConversationListView: View {
 		}
 	}
 
-	// Async function to stream conversations
+	/// Async function to stream conversations
 	func startConversationStream() async {
 		do {
 			for try await conversation in try await client.conversations.stream() {
@@ -133,7 +132,7 @@ struct ConversationListView: View {
 		}
 	}
 
-	// Helper function to add a conversation or group
+	/// Helper function to add a conversation or group
 	private func addConversation(_ conversationOrGroup: XMTPiOS.Conversation) {
 		switch conversationOrGroup {
 		case let .dm(conversation):

@@ -1,7 +1,6 @@
 import XCTest
-import XMTPTestHelpers
-
 @testable import XMTPiOS
+import XMTPTestHelpers
 
 func assertThrowsAsyncError<T>(
 	_ expression: @autoclosure () async throws -> T,
@@ -1572,7 +1571,7 @@ class GroupTests: XCTestCase {
 
 		XCTAssertNotNil(leaveMessage, "Should find a GroupUpdated message with leftInboxes")
 
-		let content: GroupUpdated = try leaveMessage!.content()
+		let content: GroupUpdated = try XCTUnwrap(try leaveMessage?.content())
 		XCTAssertEqual(
 			content.leftInboxes.map(\.inboxID),
 			[fixtures.boClient.inboxID],
@@ -1649,7 +1648,8 @@ class GroupTests: XCTestCase {
 
 		// Get messages using enrichedMessages() which goes through DecodedMessageV2
 		// This tests the FFI-to-proto mapping in mapGroupUpdated() after reinitialization
-		let messagesAfterReinit = try await reinitializedGroup!.enrichedMessages()
+		let messagesAfterReinitResult = try await reinitializedGroup?.enrichedMessages()
+		let messagesAfterReinit = try XCTUnwrap(messagesAfterReinitResult)
 
 		// Find the GroupUpdated message with leftInboxes
 		let leaveMessageAfterReinit = messagesAfterReinit.first { message in
@@ -1664,7 +1664,7 @@ class GroupTests: XCTestCase {
 			"Should find a GroupUpdated message with leftInboxes after client reinitialization"
 		)
 
-		let contentAfterReinit: GroupUpdated = try leaveMessageAfterReinit!.content()
+		let contentAfterReinit: GroupUpdated = try XCTUnwrap(try leaveMessageAfterReinit?.content())
 		XCTAssertEqual(
 			contentAfterReinit.leftInboxes.map(\.inboxID),
 			[boClient.inboxID],

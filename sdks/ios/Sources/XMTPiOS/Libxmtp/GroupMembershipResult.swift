@@ -10,10 +10,6 @@ import Foundation
 public struct GroupMembershipResult {
 	var ffiGroupMembershipResult: FfiUpdateGroupMembershipResult
 
-	init(ffiGroupMembershipResult: FfiUpdateGroupMembershipResult) {
-		self.ffiGroupMembershipResult = ffiGroupMembershipResult
-	}
-
 	public var addedMembers: [InboxId] {
 		ffiGroupMembershipResult.addedMembers.map(\.key)
 	}

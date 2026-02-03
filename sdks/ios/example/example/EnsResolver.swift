@@ -16,8 +16,8 @@ class EnsResolver {
 	// ref: https://docs.ens.domains/learn/deployments
 	private let resolverAddress = "0xce01f8eee7E479C928F8919abD53E553a36CeF67".lowercased()
 
-	// This works with any mainnet RPC provider
-	//  e.g. `https://eth-mainnet.g.alchemy.com/v2/...`
+	/// This works with any mainnet RPC provider
+	///  e.g. `https://eth-mainnet.g.alchemy.com/v2/...`
 	convenience init(rpcUrlString: String) {
 		// swiftlint:disable:next force_unwrapping
 		self.init(rpcUrl: URL(string: rpcUrlString)!)
@@ -27,11 +27,11 @@ class EnsResolver {
 		self.rpcUrl = rpcUrl
 	}
 
-	// Get the `name` specified by the `address`'s reverse record.
-	//
-	// Note: the universal resolver also forward-resolves to ensure a proper claims.
-	//
-	// https://docs.ens.domains/resolvers/universal#reverse-resolution
+	/// Get the `name` specified by the `address`'s reverse record.
+	///
+	/// Note: the universal resolver also forward-resolves to ensure a proper claims.
+	///
+	/// https://docs.ens.domains/resolvers/universal#reverse-resolution
 	func resolveName(forAddress address: String) async throws -> String? {
 		// TODO: consider supporting batch resolution via multicall3.
 
@@ -68,9 +68,9 @@ class EnsResolver {
 		return nil
 	}
 
-	// Get the address specified by the addr record for the specified `name`.
-	//
-	// https://docs.ens.domains/resolvers/universal#forward-resolution
+	/// Get the address specified by the addr record for the specified `name`.
+	///
+	/// https://docs.ens.domains/resolvers/universal#forward-resolution
 	func resolveAddress(forName name: String) async throws -> String? {
 		// TODO: consider supporting batch resolution via multicall3.
 
