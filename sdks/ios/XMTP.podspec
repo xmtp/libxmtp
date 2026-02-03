@@ -8,7 +8,7 @@ Pod::Spec.new do |spec|
   The XMTP cocoapod implements the XMTP protocol for iOS. It handles cryptographic operations and network communication with the XMTP network.
                    DESC
 
-  spec.homepage     	= "https://github.com/xmtp/xmtp-ios"
+  spec.homepage     	= "https://github.com/xmtp/libxmtp"
 
   spec.license      	= "MIT"
   spec.author       	= { "XMTP" => "eng@xmtp.com" }
@@ -18,7 +18,7 @@ Pod::Spec.new do |spec|
   spec.swift_version  = '5.6'
 
   # Release archive contains libxmtp uniffi bindings Sources/** and LibXMTPSwiftFFI.xcframework
-  spec.source       	= { :http => "https://github.com/xmtp/xmtp-ios/releases/download/#{spec.version}/XMTP-#{spec.version}.zip", :type => :zip }
+  spec.source       	= { :http => "https://github.com/xmtp/libxmtp/releases/download/ios-#{spec.version}/XMTP-#{spec.version}.zip", :type => :zip }
   spec.source_files  	= "Sources/**/*.swift"
   spec.frameworks 		= "CryptoKit", "UIKit"
 

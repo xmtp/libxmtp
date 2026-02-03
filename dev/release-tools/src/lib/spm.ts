@@ -26,6 +26,11 @@ export function updateSpmChecksum(
   }
 
   content = content.replace(SPM_URL_REGEX, `$1"${url}"`);
+  if (!SPM_CHECKSUM_REGEX.test(content)) {
+    throw new Error(
+      `Could not find checksum field in ${packageSwiftPath}`,
+    );
+  }
   content = content.replace(SPM_CHECKSUM_REGEX, `$1"${checksum}"`);
 
   fs.writeFileSync(packageSwiftPath, content);

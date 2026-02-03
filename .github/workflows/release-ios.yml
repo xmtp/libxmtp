@@ -133,6 +133,7 @@ jobs:
           mkdir -p Sources/LibXMTP
           mv build/swift/xmtpv3.swift Sources/LibXMTP/
           make framework
+          cp -r ../../sdks/ios/.build/LibXMTPSwiftFFI.xcframework ./
           cp ../../LICENSE ./LICENSE
           zip -r LibXMTPSwiftFFI.zip Sources LibXMTPSwiftFFI.xcframework LICENSE
       - name: Compute checksum
@@ -204,7 +205,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Package.swift sdks/ios/XMTP.podspec
-          git commit -m "release: iOS SDK $VERSION [skip ci]" || echo "No changes to commit"
+          if ! git diff-index --quiet HEAD --; then
+            git commit -m "release: iOS SDK $VERSION [skip ci]"
+          else
+            echo "No changes to commit"
+          fi
 
           if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
             echo "Tag $TAG already exists, skipping"

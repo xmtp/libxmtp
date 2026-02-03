@@ -41,7 +41,7 @@ jobs:
     secrets: inherit
 
   merge-pr:
-    if: inputs.release-type == 'final' && !inputs.no-merge && !failure() && !cancelled()
+    if: inputs.release-type == 'final' && !inputs.no-merge && !cancelled() && needs.release-ios.result != 'failure'
     needs: [release-ios]
     runs-on: ubuntu-latest
     permissions:

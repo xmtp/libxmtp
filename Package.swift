@@ -40,7 +40,7 @@ let package = Package(
 			)
 			: .binaryTarget(
 				name: "LibXMTPSwiftFFI",
-				url: "https://github.com/xmtp/libxmtp/releases/download/ios-0.0.0-libxmtp/LibXMTPSwiftFFI.xcframework.zip",
+				url: "https://github.com/xmtp/libxmtp/releases/download/ios-0.0.0-libxmtp/LibXMTPSwiftFFI.zip",
 				checksum: "PLACEHOLDER"
 			),
 		.target(
