@@ -41,7 +41,7 @@ fn init_logging(options: LogOptions) -> Result<()> {
       Ok(())
     })
     .as_ref()
-    .map_err(ErrorWrapper::from)?;
+    .map_err(|e| Error::from_reason(e.reason.clone()))?;
   Ok(())
 }
 
