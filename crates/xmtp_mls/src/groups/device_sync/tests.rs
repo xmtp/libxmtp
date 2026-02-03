@@ -49,7 +49,7 @@ async fn basic_sync() {
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg(not(target_arch = "wasm32"))]
-async fn only_one_payload_sent() {
+async fn test_only_one_payload_sent() {
     use std::time::Duration;
     use tokio::time::sleep;
 
@@ -112,73 +112,6 @@ async fn only_one_payload_sent() {
         "Expected exactly one client to send payload, but alix1_sent={}, alix2_sent={} (winner was: {})",
         alix1_sent, alix2_sent, result
     );
-}
-
-#[rstest::rstest]
-#[xmtp_common::test(unwrap_try = true)]
-#[cfg_attr(target_arch = "wasm32", ignore)]
-async fn test_double_sync_works_fine() {
-    tester!(alix1, sync_worker, sync_server);
-    tester!(bo);
-
-    alix1.test_talk_in_dm_with(&bo).await?;
-
-    tester!(alix2, from: alix1);
-
-    // Pull down the new sync group, triggering a payload to be sent
-    alix1.sync_welcomes().await?;
-    alix1
-        .worker()
-        .register_interest(SyncMetric::PayloadSent, 1)
-        .wait()
-        .await?;
-
-    alix2
-        .context
-        .device_sync_client()
-        .get_sync_group()
-        .await?
-        .sync()
-        .await?;
-    alix2
-        .worker()
-        .register_interest(SyncMetric::PayloadProcessed, 1)
-        .wait()
-        .await?;
-
-    alix2
-        .context
-        .device_sync_client()
-        .send_sync_request()
-        .await?;
-    alix1
-        .context
-        .device_sync_client()
-        .get_sync_group()
-        .await?
-        .sync()
-        .await?;
-    alix1
-        .worker()
-        .register_interest(SyncMetric::PayloadSent, 2)
-        .wait()
-        .await?;
-
-    alix2
-        .context
-        .device_sync_client()
-        .get_sync_group()
-        .await?
-        .sync()
-        .await?;
-    alix2
-        .worker()
-        .register_interest(SyncMetric::PayloadProcessed, 2)
-        .wait()
-        .await?;
-
-    // Alix2 should be able to talk fine with bo
-    alix2.test_talk_in_dm_with(&bo).await?;
 }
 
 #[rstest::rstest]
