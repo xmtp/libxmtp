@@ -1,11 +1,16 @@
 #!/bin/bash
 source "$(dirname "$0")/.setup"
+
+# Build static libs + Swift bindings via Nix (cached in Cachix)
+nix build "${ROOT}#ios-libs" --out-link "${ROOT}/bindings/mobile/build/nix"
+
+# Enter Nix shell for xcframework assembly (needs Xcode)
 ensure_nix_shell "$@"
 
-# Build libxmtp xcframework
+# Assemble xcframework from Nix-built artifacts
 cd "${ROOT}/bindings/mobile"
-make local
+make lipo framework
 
-# Build Swift package (Package.swift is at repo root)
+# Build Swift package
 cd "${ROOT}"
 swift build
