@@ -8686,6 +8686,7 @@ dependencies = [
  "openmls",
  "openmls_rust_crypto",
  "parking_lot 0.12.5",
+ "pbjson-types",
  "pin-project-lite",
  "proptest",
  "prost",
