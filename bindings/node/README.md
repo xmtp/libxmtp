@@ -50,4 +50,4 @@ src/
 
 ## Testing
 
-Before running the test suite, a local XMTP node must be running. This can be achieved by running `./dev/up` at the root of this repository. Docker is required.
+Before running the test suite, a local XMTP node must be running. This can be achieved by running `./dev/up` at the root of this repository. Docker and Rust are required.
