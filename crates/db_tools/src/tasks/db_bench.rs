@@ -1,11 +1,14 @@
 use anyhow::{Result, bail};
 use std::{cmp::Ordering, collections::HashMap};
+use xmtp_db::diesel;
 use xmtp_db::{
     ConnectionError, ConnectionExt, XmtpDb,
     association_state::QueryAssociationStateCache,
     consent_record::{ConsentState, ConsentType, QueryConsentRecord, StoredConsentRecord},
     conversation_list::QueryConversationList,
-    diesel::Connection,
+    diesel::{
+        Connection, ExpressionMethods, QueryDsl, QueryableByName, RunQueryDsl, sql_types::BigInt,
+    },
     group::{ConversationType, GroupQueryArgs, QueryGroup, StoredGroup},
     group_intent::{IntentKind, IntentState, QueryGroupIntent},
     group_message::{MsgQueryArgs, QueryGroupMessage, RelationQuery},
@@ -16,7 +19,143 @@ use xmtp_db::{
     proto::types::{Cursor, GlobalCursor},
     refresh_state::{EntityKind, QueryRefreshState},
     remote_commit_log::{QueryRemoteCommitLog, RemoteCommitLogOrder},
+    schema::{
+        association_state, consent_records, group_intents, group_messages, groups, icebox,
+        icebox_dependencies, identity, identity_cache, identity_updates, key_package_history,
+        local_commit_log, message_deletions, openmls_key_store, openmls_key_value, pending_remove,
+        processed_device_sync_messages, readd_status, refresh_state, remote_commit_log, tasks,
+        user_preferences,
+    },
 };
+
+#[derive(QueryableByName)]
+struct CountResult {
+    #[diesel(sql_type = BigInt)]
+    cnt: i64,
+}
+
+/// Helper for rendering formatted tables
+struct TablePrinter {
+    title: String,
+    columns: Vec<Column>,
+    rows: Vec<Vec<String>>,
+    footer: Option<Vec<String>>,
+}
+
+struct Column {
+    header: String,
+    width: usize,
+    align_right: bool,
+}
+
+impl TablePrinter {
+    fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            columns: Vec::new(),
+            rows: Vec::new(),
+            footer: None,
+        }
+    }
+
+    fn column(mut self, header: impl Into<String>, min_width: usize, align_right: bool) -> Self {
+        self.columns.push(Column {
+            header: header.into(),
+            width: min_width,
+            align_right,
+        });
+        self
+    }
+
+    fn row(mut self, values: Vec<String>) -> Self {
+        self.rows.push(values);
+        self
+    }
+
+    fn footer(mut self, values: Vec<String>) -> Self {
+        self.footer = Some(values);
+        self
+    }
+
+    fn print(mut self) {
+        // Calculate column widths based on content
+        for (i, col) in self.columns.iter_mut().enumerate() {
+            col.width = col.width.max(col.header.len());
+            for row in &self.rows {
+                if let Some(val) = row.get(i) {
+                    col.width = col.width.max(val.len());
+                }
+            }
+            if let Some(footer) = &self.footer {
+                if let Some(val) = footer.get(i) {
+                    col.width = col.width.max(val.len());
+                }
+            }
+        }
+
+        let total_width: usize =
+            self.columns.iter().map(|c| c.width).sum::<usize>() + (self.columns.len() - 1) * 2;
+
+        // Print header
+        println!("\n{}", "=".repeat(total_width));
+        println!("{:^width$}", self.title, width = total_width);
+        println!("{}", "=".repeat(total_width));
+
+        // Print column headers
+        let header_row: Vec<String> = self
+            .columns
+            .iter()
+            .map(|c| {
+                if c.align_right {
+                    format!("{:>width$}", c.header, width = c.width)
+                } else {
+                    format!("{:<width$}", c.header, width = c.width)
+                }
+            })
+            .collect();
+        println!("{}", header_row.join("  "));
+        println!("{}", "-".repeat(total_width));
+
+        // Print rows
+        for row in &self.rows {
+            let formatted: Vec<String> = self
+                .columns
+                .iter()
+                .enumerate()
+                .map(|(i, col)| {
+                    let val = row.get(i).map(|s| s.as_str()).unwrap_or("");
+                    if col.align_right {
+                        format!("{:>width$}", val, width = col.width)
+                    } else {
+                        format!("{:<width$}", val, width = col.width)
+                    }
+                })
+                .collect();
+            println!("{}", formatted.join("  "));
+        }
+
+        // Print footer if present
+        if let Some(footer) = &self.footer {
+            println!("{}", "-".repeat(total_width));
+            let formatted: Vec<String> = self
+                .columns
+                .iter()
+                .enumerate()
+                .map(|(i, col)| {
+                    let val = footer.get(i).map(|s| s.as_str()).unwrap_or("");
+                    if col.align_right {
+                        format!("{:>width$}", val, width = col.width)
+                    } else {
+                        format!("{:<width$}", val, width = col.width)
+                    }
+                })
+                .collect();
+            println!("{}", formatted.join("  "));
+        }
+
+        println!("{}", "=".repeat(total_width));
+    }
+}
 
 macro_rules! bench {
     ($self:ident, $fn:ident($($args:expr),*)) => {{
@@ -32,6 +171,8 @@ pub struct DbBencher<Db> {
     rand_group: Option<StoredGroup>,
     rand_inbox_id: Option<String>,
     measurements: HashMap<String, f32>,
+    table_counts: HashMap<String, i64>,
+    intent_state_counts: HashMap<String, (i64, i64, i64)>, // (count, with_commit_count, groups_count)
     store: Db,
 }
 
@@ -59,7 +200,224 @@ where
             rand_inbox_id,
             store,
             measurements: HashMap::default(),
+            table_counts: HashMap::default(),
+            intent_state_counts: HashMap::default(),
         })
+    }
+
+    fn count_table_records(&mut self) -> Result<()> {
+        use xmtp_db::diesel::dsl::count_star;
+        use xmtp_db::diesel::sql_query;
+
+        self.store.conn().raw_query_read(|conn| {
+            // Count group_intents by state
+            let intent_states = [
+                ("ToPublish", IntentState::ToPublish as i32),
+                ("Published", IntentState::Published as i32),
+                ("Committed", IntentState::Committed as i32),
+                ("Error", IntentState::Error as i32),
+                ("Processed", IntentState::Processed as i32),
+            ];
+
+            for (state_name, state_value) in intent_states {
+                let count = group_intents::table
+                    .filter(group_intents::dsl::state.eq(state_value))
+                    .select(count_star())
+                    .first::<i64>(conn)
+                    .unwrap_or(0);
+
+                let with_commit_count = group_intents::table
+                    .filter(group_intents::dsl::state.eq(state_value))
+                    .filter(group_intents::dsl::staged_commit.is_not_null())
+                    .select(count_star())
+                    .first::<i64>(conn)
+                    .unwrap_or(0);
+
+                // Count distinct groups with intents in this state
+                let groups_count = sql_query(format!(
+                    "SELECT COUNT(DISTINCT group_id) as cnt FROM group_intents WHERE state = {}",
+                    state_value
+                ))
+                .get_result::<CountResult>(conn)
+                .map(|r| r.cnt)
+                .unwrap_or(0);
+
+                self.intent_state_counts.insert(
+                    state_name.to_string(),
+                    (count, with_commit_count, groups_count),
+                );
+            }
+
+            // Count records in each table
+            let counts: Vec<(&str, i64)> = vec![
+                (
+                    "association_state",
+                    association_state::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "consent_records",
+                    consent_records::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "group_intents",
+                    group_intents::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "group_messages",
+                    group_messages::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "groups",
+                    groups::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "icebox",
+                    icebox::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "icebox_dependencies",
+                    icebox_dependencies::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "identity",
+                    identity::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "identity_cache",
+                    identity_cache::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "identity_updates",
+                    identity_updates::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "key_package_history",
+                    key_package_history::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "local_commit_log",
+                    local_commit_log::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "message_deletions",
+                    message_deletions::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "openmls_key_store",
+                    openmls_key_store::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "openmls_key_value",
+                    openmls_key_value::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "pending_remove",
+                    pending_remove::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "processed_device_sync_messages",
+                    processed_device_sync_messages::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "readd_status",
+                    readd_status::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "refresh_state",
+                    refresh_state::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "remote_commit_log",
+                    remote_commit_log::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "tasks",
+                    tasks::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+                (
+                    "user_preferences",
+                    user_preferences::table
+                        .select(count_star())
+                        .first::<i64>(conn)
+                        .unwrap_or(0),
+                ),
+            ];
+
+            for (table_name, count) in counts {
+                self.table_counts.insert(table_name.to_string(), count);
+            }
+
+            Ok::<_, xmtp_db::diesel::result::Error>(())
+        })?;
+
+        Ok(())
+    }
+
+    fn group_or_dm(&self) -> Option<StoredGroup> {
+        self.rand_dm.as_ref().or(self.rand_group.as_ref()).cloned()
     }
 
     fn bench_with_key<T, F>(&mut self, key: &str, mut f: F) -> T
@@ -88,6 +446,9 @@ where
     }
 
     pub fn bench(&mut self) -> Result<Vec<Result<()>>> {
+        // Count table records before benchmarking
+        self.count_table_records()?;
+
         let mut results = vec![];
         let result = self.store.conn().raw_query_write(|conn| {
             conn.transaction(|_txn| {
@@ -127,6 +488,9 @@ where
     }
 
     fn print_results(&self) {
+        // Print table record counts first
+        self.print_table_counts();
+
         // Sort measurements by execution time (greatest to least)
         let mut sorted_measurements: Vec<_> = self.measurements.iter().collect();
         // Send divide-by-zeroes to the bottom
@@ -162,8 +526,71 @@ where
         );
     }
 
+    fn print_table_counts(&self) {
+        let mut sorted_counts: Vec<_> = self.table_counts.iter().collect();
+        sorted_counts.sort_by(|a, b| b.1.cmp(a.1));
+
+        let total_records: i64 = sorted_counts.iter().map(|(_, c)| *c).sum();
+
+        let mut table = TablePrinter::new("Table Record Counts")
+            .column("Table Name", 10, false)
+            .column("Record Count", 12, true);
+
+        for (table_name, count) in sorted_counts {
+            table = table.row(vec![table_name.to_string(), format_count(*count)]);
+        }
+
+        table
+            .footer(vec!["TOTAL".to_string(), format_count(total_records)])
+            .print();
+
+        self.print_intent_breakdown();
+    }
+
+    fn print_intent_breakdown(&self) {
+        let total_intents = self.table_counts.get("group_intents").copied().unwrap_or(0);
+
+        if total_intents == 0 {
+            return;
+        }
+
+        let mut state_counts: Vec<_> = self.intent_state_counts.iter().collect();
+        state_counts.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+
+        let mut table = TablePrinter::new("Group Intents Breakdown")
+            .column("State", 10, false)
+            .column("Count", 10, true)
+            .column("Percent", 8, true)
+            .column("With Commit", 12, true)
+            .column("Commit %", 8, true)
+            .column("Groups", 8, true);
+
+        for (state, (count, with_commit, groups_count)) in state_counts {
+            let percent = if total_intents > 0 {
+                (*count as f64 / total_intents as f64) * 100.0
+            } else {
+                0.0
+            };
+            let commit_percent = if *count > 0 {
+                (*with_commit as f64 / *count as f64) * 100.0
+            } else {
+                0.0
+            };
+            table = table.row(vec![
+                state.to_string(),
+                format_count(*count),
+                format!("{:.1}%", percent),
+                format_count(*with_commit),
+                format!("{:.1}%", commit_percent),
+                format_count(*groups_count),
+            ]);
+        }
+
+        table.print();
+    }
+
     pub fn bench_message_queries(&mut self) -> Result<()> {
-        let Some(group) = self.rand_group.clone() else {
+        let Some(group) = self.group_or_dm() else {
             bail!("No groups to run message queries on.");
         };
 
@@ -236,7 +663,7 @@ where
     }
 
     pub fn bench_group_queries(&mut self) -> Result<()> {
-        let Some(group) = self.rand_group.clone() else {
+        let Some(group) = self.group_or_dm() else {
             bail!("No groups to run group queries on.");
         };
         bench!(self, get_conversation_ids_for_remote_log_download())?;
@@ -338,7 +765,7 @@ where
     }
 
     fn bench_group_intent_queries(&mut self) -> Result<()> {
-        let Some(group) = self.rand_group.clone() else {
+        let Some(group) = self.group_or_dm() else {
             bail!("No group to run group intent queries on.");
         };
 
@@ -369,7 +796,7 @@ where
     }
 
     fn bench_refresh_state_queries(&mut self) -> Result<()> {
-        let Some(group) = self.rand_group.clone() else {
+        let Some(group) = self.group_or_dm() else {
             bail!("No group to run refresh state queries on.");
         };
 
@@ -453,7 +880,7 @@ where
     }
 
     fn bench_commit_log_queries(&mut self) -> Result<()> {
-        let Some(group) = self.rand_group.clone() else {
+        let Some(group) = self.group_or_dm() else {
             bail!("No group to run commit log queries on.");
         };
 
@@ -479,6 +906,19 @@ where
 
         Ok(())
     }
+}
+
+fn format_count(count: i64) -> String {
+    // Format number with thousand separators
+    let s = count.to_string();
+    let mut result = String::new();
+    for (i, c) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            result.push(',');
+        }
+        result.push(c);
+    }
+    result.chars().rev().collect()
 }
 
 #[cfg(test)]
