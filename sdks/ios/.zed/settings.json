@@ -1,0 +1,15 @@
+{
+  "languages": {
+    "Swift": {
+      "enable_language_server": true,
+      "language_servers": ["sourcekit-lsp"],
+      "formatter": {
+        "external": {
+          "command": "swiftformat",
+          "arguments": ["--stdinpath", "{buffer_path}"]
+        }
+      },
+      "format_on_save": "on"
+    }
+  }
+}

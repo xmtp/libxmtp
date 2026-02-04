@@ -1,7 +1,7 @@
 use xmtp_api_d14n::AuthHandle;
 use xmtp_common::BoxDynError;
 
-use crate::GenericError;
+use crate::{FfiError, GenericError};
 use std::sync::Arc;
 
 #[derive(uniffi::Record)]
@@ -24,7 +24,7 @@ impl FfiAuthHandle {
             handle: AuthHandle::new(),
         }
     }
-    pub async fn set(&self, credential: FfiCredential) -> Result<(), GenericError> {
+    pub async fn set(&self, credential: FfiCredential) -> Result<(), FfiError> {
         let credential = credential.try_into()?;
         self.handle.set(credential).await;
         Ok(())
@@ -43,7 +43,7 @@ impl From<FfiAuthHandle> for xmtp_api_d14n::AuthHandle {
 #[uniffi::export(with_foreign)]
 #[xmtp_common::async_trait]
 pub trait FfiAuthCallback: Send + Sync + 'static {
-    async fn on_auth_required(&self) -> Result<FfiCredential, GenericError>;
+    async fn on_auth_required(&self) -> Result<FfiCredential, FfiError>;
 }
 
 impl TryFrom<FfiCredential> for xmtp_api_d14n::Credential {

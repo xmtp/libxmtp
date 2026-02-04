@@ -25,13 +25,15 @@ async fn test_can_add_wallet_to_inbox() {
     let nonce = 1;
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
-    let path = tmp_path();
-    let key = static_enc_key().to_vec();
     let client = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(path.clone()),
-        Some(key),
+        DbOptions::new(
+            Some(tmp_path()),
+            Some(static_enc_key().to_vec()),
+            None,
+            None,
+        ),
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
@@ -121,14 +123,16 @@ async fn test_can_revoke_wallet() {
     let nonce = 1;
     let ident = ffi_inbox_owner.identifier();
     let inbox_id = ident.inbox_id(nonce).unwrap();
-    let path = tmp_path();
-    let key = static_enc_key().to_vec();
 
     let client = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(path.clone()),
-        Some(key),
+        DbOptions::new(
+            Some(tmp_path()),
+            Some(static_enc_key().to_vec()),
+            None,
+            None,
+        ),
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
@@ -216,13 +220,16 @@ async fn test_invalid_external_signature() {
     let ident = inbox_owner.identifier();
     let nonce = 1;
     let inbox_id = ident.inbox_id(nonce).unwrap();
-    let path = tmp_path();
 
     let client = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(path.clone()),
-        None, // encryption_key
+        DbOptions::new(
+            Some(tmp_path()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            None,
+            None,
+        ),
         &inbox_id,
         inbox_owner.identifier(),
         nonce,
@@ -411,8 +418,12 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
     let client_a = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(tmp_path()),
-        Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+        DbOptions::new(
+            Some(tmp_path()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            None,
+            None,
+        ),
         &wallet_a_inbox_id,
         ffi_ident,
         1,
@@ -452,8 +463,12 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
     let client_b = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(tmp_path()),
-        Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+        DbOptions::new(
+            Some(tmp_path()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            None,
+            None,
+        ),
         &inbox_id,
         ffi_ident,
         nonce,
@@ -537,8 +552,12 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
     let client_b_new_result = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(tmp_path()),
-        Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+        DbOptions::new(
+            Some(tmp_path()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            None,
+            None,
+        ),
         &client_b_inbox_id,
         ffi_ident,
         nonce,
@@ -556,7 +575,7 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
             println!("Error returned: {:?}", err);
             assert_eq!(
                 err.to_string(),
-                "Client builder error: error creating new identity: Inbox ID mismatch".to_string()
+                "[ClientBuilderError::Identity] Client builder error: error creating new identity: Inbox ID mismatch".to_string()
             );
         }
         Ok(_) => panic!("Expected an error, but got Ok"),
@@ -573,8 +592,12 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
     let client_a = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(tmp_path()),
-        Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+        DbOptions::new(
+            Some(tmp_path()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            None,
+            None,
+        ),
         &wallet_a_inbox_id,
         ffi_ident,
         1,
@@ -597,8 +620,12 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
     let client_b1 = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(tmp_path()),
-        Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+        DbOptions::new(
+            Some(tmp_path()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            None,
+            None,
+        ),
         &wallet_b_inbox_id,
         ffi_ident,
         1,
@@ -618,8 +645,12 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
     let _client_b2 = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(tmp_path()),
-        Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+        DbOptions::new(
+            Some(tmp_path()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            None,
+            None,
+        ),
         &wallet_b_inbox_id,
         ffi_ident,
         1,
@@ -650,8 +681,12 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
     let client_b3 = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(tmp_path()),
-        Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+        DbOptions::new(
+            Some(tmp_path()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            None,
+            None,
+        ),
         &wallet_b_inbox_id,
         ffi_ident,
         1,
@@ -669,7 +704,7 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
             println!("Error returned: {:?}", err);
             assert_eq!(
                 err.to_string(),
-                "Client builder error: error creating new identity: Inbox ID mismatch".to_string()
+                "[ClientBuilderError::Identity] Client builder error: error creating new identity: Inbox ID mismatch".to_string()
             );
         }
         Ok(_) => panic!("Expected an error, but got Ok"),
@@ -761,13 +796,15 @@ async fn test_sorts_members_by_created_at_using_ffi_identifiers() {
     let nonce = 1;
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
-    let path = tmp_path();
-    let key = static_enc_key().to_vec();
     let client = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(path.clone()),
-        Some(key),
+        DbOptions::new(
+            Some(tmp_path()),
+            Some(static_enc_key().to_vec()),
+            None,
+            None,
+        ),
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,

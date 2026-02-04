@@ -1,0 +1,6 @@
+#!/bin/bash
+source "$(dirname "$0")/.setup"
+ensure_nix_shell "$@"
+
+cd "${IOS_SDK_DIR}"
+swiftformat . "$@"

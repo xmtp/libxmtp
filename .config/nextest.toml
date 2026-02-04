@@ -13,7 +13,6 @@ fail-fast = false
 [[profile.ci.overrides]]
 platform = 'cfg(all(target_family = "wasm", target_os = "unknown"))'
 slow-timeout = "1m"
-filter = "not (test(test_debug_pkg)|test(test_double_sync_works_fine))"
 
 # test_db_migrates experiences random failures b/c of 'corrupted double-linked list' coming from glibc/sqlcipher https://github.com/xmtp/libxmtp/issues/2402
 [[profile.ci.overrides]]

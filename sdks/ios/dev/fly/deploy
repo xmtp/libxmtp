@@ -1,0 +1,67 @@
+#!/bin/bash
+#
+# Deploy XMTP test infrastructure to Fly.io
+#
+# Usage:
+#   ./dev/fly/deploy [APP_NAME]
+#
+# If APP_NAME is not provided, generates one using timestamp.
+#
+# Outputs (to stdout):
+#   app_name=<name>
+#   node_url=<url>
+#   history_url=<url>
+#
+# Environment:
+#   FLY_API_TOKEN - Required for Fly.io authentication
+#   FLY_ORG       - Organization to deploy to (default: xmtp-labs)
+#   FLY_REGION    - Region to deploy to (default: sjc)
+
+set -e
+
+# Validate required environment variables
+if [ -z "$FLY_API_TOKEN" ]; then
+    echo "Error: FLY_API_TOKEN is not set" >&2
+    exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Note: machine-config.json contains hardcoded credentials (postgres passwords, node keys)
+# These are intentionally non-secret as they're only used for ephemeral CI test environments
+MACHINE_CONFIG="${SCRIPT_DIR}/machine-config.json"
+
+FLY_ORG="${FLY_ORG:-xmtp-labs}"
+FLY_REGION="${FLY_REGION:-sjc}"
+
+# Generate or use provided app name
+if [ -n "$1" ]; then
+    APP_NAME="$1"
+else
+    APP_NAME="libxmtp-ios-test-$(date +%s)"
+fi
+
+echo "Creating app: $APP_NAME" >&2
+
+# Create the app (fail if creation fails for reasons other than "already exists")
+flyctl apps create "$APP_NAME" --org "$FLY_ORG" 2>/dev/null || {
+    flyctl apps show "$APP_NAME" >/dev/null 2>&1 || {
+        echo "Failed to create app: $APP_NAME" >&2
+        exit 1
+    }
+}
+
+# Allocate IP addresses for the app (ignore if already allocated)
+flyctl ips allocate-v4 --shared --app "$APP_NAME" 2>/dev/null || true
+
+# Deploy multi-container machine
+flyctl machine run \
+    --app "$APP_NAME" \
+    --region "$FLY_REGION" \
+    --rm \
+    --restart no \
+    --machine-config "$MACHINE_CONFIG"
+
+# Output results
+echo "app_name=$APP_NAME"
+echo "node_url=https://${APP_NAME}.fly.dev"
+echo "history_url=https://${APP_NAME}.fly.dev:5558"

@@ -17,7 +17,7 @@ The generated artifacts of this crate are the bindings interface (`xmtpv3.kt`) g
 - Open the `build.gradle` of the example Android app in Android Studio.
 - Run the local server via `dev/up` from the root of this repo. If running from elsewhere, make sure your `docker-compose.yml` matches the one in this repo.
 
-# Rebuilding this crate
+# Rebuilding this crate (Android)
 
 The cross-compiled binaries (`jniLibs`) have been committed alongside the crate so you do not need to rebuild unless you make changes. The build is very slow (~3 mins on incremental builds, ~30 mins on full builds, per-target). Future changes will simplify the process and improve the build time as well as setting up async builds in CI.
 

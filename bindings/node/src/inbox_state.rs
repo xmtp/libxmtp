@@ -8,7 +8,6 @@ use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_api_d14n::TrackedStatsClient;
 use xmtp_db::EncryptedMessageStore;
 use xmtp_db::NativeDb;
-use xmtp_db::StorageOption;
 use xmtp_id::associations::{AssociationState, MemberIdentifier, ident};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_mls::client::inbox_addresses_with_verifier;
@@ -101,7 +100,10 @@ pub async fn fetch_inbox_states_by_inbox_ids(
   let api = ApiClientWrapper::new(Arc::new(backend), strategies::exponential_cooldown());
   let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
-  let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral).map_err(ErrorWrapper::from)?;
+  let db = NativeDb::builder()
+    .ephemeral()
+    .build_unencrypted()
+    .map_err(ErrorWrapper::from)?;
   let store = EncryptedMessageStore::new(db).map_err(ErrorWrapper::from)?;
 
   let state = inbox_addresses_with_verifier(

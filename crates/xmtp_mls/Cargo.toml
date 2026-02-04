@@ -57,6 +57,7 @@ dev = ["xmtp_configuration/dev", "xmtp_proto/dev", "xmtp_api_d14n/dev"]
 aes-gcm.workspace = true
 async-trait.workspace = true
 bincode.workspace = true
+bon.workspace = true
 bytes.workspace = true
 derive_builder.workspace = true
 futures = { workspace = true, features = ["alloc", "std"] }

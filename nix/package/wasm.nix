@@ -102,13 +102,13 @@ let
     SQLITE = "${sqlite.dev}";
     SQLITE_OUT = "${sqlite.out}";
     GECKODRIVER = "${lib.getBin geckodriver}/bin/geckodriver";
-    WASM_BINDGEN_TEST_TIMEOUT = 256;
+    WASM_BINDGEN_TEST_TIMEOUT = 1024;
     WASM_BINDGEN_TEST_ONLY_WEB = 1;
     RSTEST_TIMEOUT = 90;
     CARGO_PROFILE_TEST_DEBUG = 0;
     WASM_BINDGEN_TEST_WEBDRIVER_JSON = ./../../webdriver.json;
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
-    XMTP_NIX_ENV = "yes";
+    XMTP_NIX_ENV = 1;
   });
 in
 {

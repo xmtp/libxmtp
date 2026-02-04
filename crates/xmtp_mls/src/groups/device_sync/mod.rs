@@ -23,6 +23,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tracing::instrument;
 use worker::SyncMetric;
 use xmtp_archive::{ArchiveError, BackupMetadata};
+use xmtp_common::ErrorCode;
 use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
 use xmtp_content_types::encoded_content_to_bytes;
 use xmtp_db::{
@@ -50,17 +51,19 @@ pub mod worker;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum DeviceSyncError {
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),
     #[error("Serialization/Deserialization Error {0}")]
     Serde(#[from] serde_json::Error),
     #[error(transparent)]
+    #[error_code(inherit)]
     ProtoConversion(#[from] xmtp_proto::ConversionError),
     #[error("AES-GCM encryption error")]
     AesGcm(#[from] aes_gcm::Error),
     #[error("storage error: {0}")]
+    #[error_code(inherit)]
     Storage(#[from] StorageError),
     #[error("reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
@@ -69,8 +72,10 @@ pub enum DeviceSyncError {
     #[error("utf-8 error: {0}")]
     UTF8(#[from] std::str::Utf8Error),
     #[error("client error: {0}")]
+    #[error_code(inherit)]
     Client(#[from] ClientError),
     #[error("group error: {0}")]
+    #[error_code(inherit)]
     Group(#[from] GroupError),
     #[error("no pending request to reply to")]
     NoPendingRequest,
@@ -81,6 +86,7 @@ pub enum DeviceSyncError {
     #[error("sync reply is too old")]
     SyncPayloadTooOld,
     #[error(transparent)]
+    #[error_code(inherit)]
     Subscribe(#[from] SubscribeError),
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
@@ -89,6 +95,7 @@ pub enum DeviceSyncError {
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
+    #[error_code(inherit)]
     Deserialization(#[from] DeserializationError),
     #[error("Sync interaction is already acknowledged by another installation")]
     AlreadyAcknowledged,
@@ -99,6 +106,7 @@ pub enum DeviceSyncError {
     #[error("Missing sync group")]
     MissingSyncGroup,
     #[error(transparent)]
+    #[error_code(inherit)]
     Db(#[from] xmtp_db::ConnectionError),
     #[error("{}", _0.to_string())]
     Sync(Box<SyncSummary>),
