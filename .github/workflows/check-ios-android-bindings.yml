@@ -13,6 +13,9 @@ on:
       - "dev/docker/**"
       - "rust-toolchain.toml"
       - ".cargo/**"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 env:
   SCCACHE_GHA_ENABLED: "true"
   RUSTC_WRAPPER: "sccache"

@@ -25,7 +25,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
       - name: Cache
-        uses: Swatinem/rust-cache@v2
+        uses: WarpBuilds/rust-cache@v2
         with:
           workspaces: |
             .
