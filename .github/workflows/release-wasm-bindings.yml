@@ -37,15 +37,9 @@ jobs:
         with:
           tool: wasm-bindgen@0.2.108
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: ./.github/actions/setup-node
         with:
-          node-version-file: ".node-version"
           cache-dependency-path: "bindings/wasm/yarn.lock"
-          cache: "yarn"
-        env:
-          SKIP_YARN_COREPACK_CHECK: "1"
-      - name: Enable corepack
-        run: corepack enable
       - name: Install dependencies
         working-directory: bindings/wasm
         run: |
