@@ -12,6 +12,7 @@ LibXMTPSwiftFFIDynamic.xcframework
 
 /target
 /build
+build/nix
 
 # Ignore any swift files in include/Generated
 /include/**/*.swift

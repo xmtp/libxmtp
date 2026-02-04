@@ -128,34 +128,17 @@ docker build . -t libxmtp:1
 
 ## Quick Start (nix)
 
-This project has an option to use nix as the development environment. Nix sets
-up a reproducible & deterministic environment of the dependency tree libxmtp
-requires. In the future the hope is to cover all SDKs -- currently, Android &
-Wasm are best supported. Flake outputs are cached with
-[determinate nix](https://docs.determinate.systems/). Determinate is a
-distribution of nix catered towards developers & CI with sophisticated caching
-ability.
+This project supports [Determinate Nix](https://docs.determinate.systems/) for
+reproducible development environments. Nix provides pinned toolchains for Rust,
+Android, iOS, WebAssembly, and Node.js builds.
 
-### Install
+```bash
+./dev/nix-up    # Install Determinate Nix + direnv
+nix develop     # Enter the default dev shell
+```
 
-use the `./dev/nix-up` script and follow the prompts. this will install
-determinate nix & direnv. Direnv is a useful tool to auto-load default nix
-environments (with your consent, given `direnv allow` && `direnv deny` commands)
-with your already-used shell environment.
-
-### Uninstall
-
-use the `./dev/nix-down` script & follow prompts. this will uninstall nix &
-direnv.
-
-### Using direnv
-
-to configure direnv for a project, run the command
-`echo "use flake" . > .envrc"` in the project root. direnv will prompt you to
-allow the environment which can be done with `direnv allow`. using a non-default
-environment (ex: android) can be done using `nix develop .#environment`. EX:
-`nix develop .#android`. the environment description must be available in nix
-flake `devShells` output.
+See [docs/nix-setup.md](docs/nix-setup.md) for the full setup guide, including
+cachix configuration, available dev shells, and direnv usage.
 
 ## Structure
 

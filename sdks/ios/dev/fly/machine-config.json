@@ -1,0 +1,153 @@
+{
+  "containers": [
+    {
+      "name": "db",
+      "image": "postgres:16",
+      "env": {
+        "POSTGRES_PASSWORD": "xmtp"
+      },
+      "healthchecks": [
+        {
+          "exec": {
+            "command": ["pg_isready", "-U", "postgres"]
+          },
+          "interval": 5,
+          "timeout": 3,
+          "grace_period": 10
+        }
+      ]
+    },
+    {
+      "name": "mlsdb",
+      "image": "postgres:16",
+      "env": {
+        "POSTGRES_PASSWORD": "xmtp",
+        "PGPORT": "5433"
+      },
+      "healthchecks": [
+        {
+          "exec": {
+            "command": ["pg_isready", "-U", "postgres", "-p", "5433"]
+          },
+          "interval": 5,
+          "timeout": 3,
+          "grace_period": 10
+        }
+      ]
+    },
+    {
+      "name": "validation",
+      "image": "ghcr.io/xmtp/mls-validation-service:main",
+      "healthchecks": [
+        {
+          "tcp": {
+            "port": 50051
+          },
+          "interval": 5,
+          "timeout": 3,
+          "grace_period": 15
+        }
+      ]
+    },
+    {
+      "name": "anvil",
+      "image": "ghcr.io/foundry-rs/foundry",
+      "cmd": ["anvil", "--host", "0.0.0.0"],
+      "healthchecks": [
+        {
+          "tcp": {
+            "port": 8545
+          },
+          "interval": 5,
+          "timeout": 3,
+          "grace_period": 10
+        }
+      ]
+    },
+    {
+      "name": "history-server",
+      "image": "ghcr.io/xmtp/message-history-server:main",
+      "healthchecks": [
+        {
+          "tcp": {
+            "port": 5558
+          },
+          "interval": 5,
+          "timeout": 3,
+          "grace_period": 15
+        }
+      ]
+    },
+    {
+      "name": "node",
+      "image": "ghcr.io/xmtp/node-go:main",
+      "env": {
+        "GOWAKU-NODEKEY": "8a30dcb604b0b53627a5adc054dbf434b446628d4bd1eccc681d223f0550ce67"
+      },
+      "cmd": [
+        "--store.enable",
+        "--store.db-connection-string=postgres://postgres:xmtp@localhost:5432/postgres?sslmode=disable",
+        "--store.reader-db-connection-string=postgres://postgres:xmtp@localhost:5432/postgres?sslmode=disable",
+        "--mls-store.db-connection-string=postgres://postgres:xmtp@localhost:5433/postgres?sslmode=disable",
+        "--mls-validation.grpc-address=localhost:50051",
+        "--api.enable-mls",
+        "--wait-for-db=30s",
+        "--api.authn.enable"
+      ],
+      "depends_on": [
+        { "name": "db", "condition": "healthy" },
+        { "name": "mlsdb", "condition": "healthy" },
+        { "name": "validation", "condition": "healthy" }
+      ],
+      "healthchecks": [
+        {
+          "tcp": {
+            "port": 5556
+          },
+          "interval": 5,
+          "timeout": 3,
+          "grace_period": 30
+        }
+      ]
+    }
+  ],
+  "services": [
+    {
+      "internal_port": 5556,
+      "protocol": "tcp",
+      "ports": [
+        {
+          "port": 443,
+          "handlers": ["tls", "http"],
+          "tls_options": {
+            "alpn": ["h2"]
+          },
+          "http_options": {
+            "h2_backend": true
+          }
+        }
+      ]
+    },
+    {
+      "internal_port": 5558,
+      "protocol": "tcp",
+      "ports": [
+        {
+          "port": 5558,
+          "handlers": ["tls", "http"],
+          "tls_options": {
+            "alpn": ["h2"]
+          },
+          "http_options": {
+            "h2_backend": true
+          }
+        }
+      ]
+    }
+  ],
+  "guest": {
+    "cpu_kind": "shared",
+    "cpus": 8,
+    "memory_mb": 8192
+  }
+}

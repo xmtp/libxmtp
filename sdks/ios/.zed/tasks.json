@@ -1,0 +1,21 @@
+[
+  {
+    "label": "Run All Tests",
+    "command": "set -o pipefail && swift test 2>&1 | xcbeautify --disable-logging",
+    "tags": ["swift-test"]
+  },
+  {
+    "label": "Run Test Suite $ZED_STEM",
+    "command": "set -o pipefail && swift test --filter \"$ZED_STEM\" 2>&1 | xcbeautify --disable-logging",
+    "tags": ["swift-test-suite"]
+  },
+  {
+    "label": "Run test $ZED_SELECTED_TEXT",
+    "command": "swift test --filter \"$ZED_SELECTED_TEXT\"",
+    "tags": ["swift-test-func"]
+  },
+  {
+    "label": "Build package",
+    "command": "swift build --build-tests -q"
+  }
+]
