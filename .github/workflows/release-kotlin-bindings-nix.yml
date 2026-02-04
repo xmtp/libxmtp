@@ -24,12 +24,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - name: Cache
-        uses: WarpBuilds/rust-cache@v2
+      - uses: ./.github/actions/setup-rust
         with:
           workspaces: |
             .
             bindings/mobile
+          warp: 'true'
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
