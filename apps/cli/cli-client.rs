@@ -44,7 +44,6 @@ use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_db::NativeDb;
 use xmtp_db::{
     group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
-    StorageOption,
 };
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, AssociationState, Identifier, MemberKind};
@@ -605,7 +604,7 @@ fn format_messages(
 }
 
 fn static_enc_key() -> EncryptionKey {
-    [2u8; 32]
+    [2u8; 32].into()
 }
 
 async fn get_encrypted_store(
@@ -615,12 +614,17 @@ async fn get_encrypted_store(
         Some(path) => {
             let s = path.as_path().to_string_lossy().to_string();
             info!("Using persistent storage: {} ", s);
-            EncryptedMessageStore::new(NativeDb::new_unencrypted(&StorageOption::Persistent(s))?)?
+            let db = NativeDb::builder().persistent(s).build_unencrypted()?;
+            EncryptedMessageStore::new(db)?
         }
 
         None => {
             info!("Using ephemeral store");
-            EncryptedMessageStore::new(NativeDb::new(&StorageOption::Ephemeral, static_enc_key())?)?
+            let db = NativeDb::builder()
+                .key(static_enc_key())
+                .ephemeral()
+                .build()?;
+            EncryptedMessageStore::new(db)?
         }
     };
 

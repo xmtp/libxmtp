@@ -16,6 +16,8 @@
         filesets = import ./filesets.nix;
       };
       wasm-bindgen-cli = pkgs.callPackage ./packages/wasm-bindgen-cli.nix { };
+      swiftformat = pkgs.callPackage ./packages/swiftformat.nix { };
+      swiftlint = pkgs.callPackage ./packages/swiftlint.nix { };
     };
   };
 }

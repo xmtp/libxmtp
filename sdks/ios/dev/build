@@ -1,0 +1,12 @@
+#!/bin/bash
+source "$(dirname "$0")/.setup"
+
+# Build bindings (static libs + xcframework)
+"$(dirname "$0")/bindings" "$@"
+
+# Enter Nix shell for Swift build (needs Xcode toolchain)
+ensure_nix_shell "$@"
+
+# Build Swift package
+cd "${ROOT}"
+swift build

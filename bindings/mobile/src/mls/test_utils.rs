@@ -13,6 +13,7 @@ use xmtp_mls::{
 use crate::inbox_owner::FfiInboxOwner;
 
 use super::{inbox_owner::FfiWalletInboxOwner, *};
+use crate::FfiError;
 
 #[allow(async_fn_in_trait)]
 pub trait LocalBuilder<Owner>
@@ -20,7 +21,7 @@ where
     Owner: InboxOwner + Clone,
 {
     async fn build(&self) -> Tester<Owner, FfiXmtpClient>;
-    async fn build_no_panic(&self) -> Result<Tester<Owner, FfiXmtpClient>, GenericError>;
+    async fn build_no_panic(&self) -> Result<Tester<Owner, FfiXmtpClient>, FfiError>;
 }
 
 impl LocalBuilder<PrivateKeySigner> for TesterBuilder<PrivateKeySigner> {
@@ -29,9 +30,7 @@ impl LocalBuilder<PrivateKeySigner> for TesterBuilder<PrivateKeySigner> {
     }
 
     // Will not panic on registering identity. Will still panic on just about everything else.
-    async fn build_no_panic(
-        &self,
-    ) -> Result<Tester<PrivateKeySigner, FfiXmtpClient>, GenericError> {
+    async fn build_no_panic(&self) -> Result<Tester<PrivateKeySigner, FfiXmtpClient>, FfiError> {
         let client = create_raw_client(self).await;
         let mut replace = TestLogReplace::default();
         if let Some(name) = &self.name {
@@ -78,7 +77,7 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
         self.build_no_panic().await.unwrap()
     }
 
-    async fn build_no_panic(&self) -> Result<Tester<PasskeyUser, FfiXmtpClient>, GenericError> {
+    async fn build_no_panic(&self) -> Result<Tester<PasskeyUser, FfiXmtpClient>, FfiError> {
         let client = create_raw_client(self).await;
         let mut replace = TestLogReplace::default();
         if let Some(name) = &self.name {
@@ -186,8 +185,12 @@ where
     let client = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(tmp_path()),
-        Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+        DbOptions::new(
+            Some(tmp_path()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            None,
+            None,
+        ),
         &inbox_id,
         ident.into(),
         1,

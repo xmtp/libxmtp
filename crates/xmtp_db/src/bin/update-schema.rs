@@ -12,7 +12,7 @@ use std::{
 use rand::distributions::{Alphanumeric, DistString};
 use toml::Table;
 
-use xmtp_db::{EncryptedMessageStore, NativeDb, StorageOption};
+use xmtp_db::{EncryptedMessageStore, NativeDb};
 
 const DIESEL_TOML: &str = "diesel.toml";
 
@@ -41,7 +41,10 @@ fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> {
 
     {
         // Initialize DB to read the latest table definitions
-        let db = NativeDb::new_unencrypted(&StorageOption::Persistent(tmp_db.clone())).unwrap();
+        let db = NativeDb::builder()
+            .persistent(tmp_db.clone())
+            .build_unencrypted()
+            .unwrap();
         let _ = EncryptedMessageStore::new(db).unwrap();
     }
 
