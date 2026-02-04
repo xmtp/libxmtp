@@ -16,9 +16,6 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
-env:
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
 jobs:
   check-swift:
     runs-on: warp-macos-13-arm64-6x
@@ -38,8 +35,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.9
+          sccache: 'true'
       - name: Build target
         run: |
           nix develop .#ios --command \
@@ -65,8 +61,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.9
+          sccache: 'true'
       - name: check target
         run: |
           nix develop .#android --command \
