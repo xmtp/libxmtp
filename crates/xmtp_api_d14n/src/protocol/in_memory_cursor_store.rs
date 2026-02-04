@@ -6,18 +6,30 @@ use std::sync::Arc;
 use xmtp_proto::api::VectorClock;
 use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId, OrphanedEnvelope, Topic};
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct InMemoryCursorStore {
     topics: HashMap<Topic, GlobalCursor>,
     icebox: Arc<Mutex<HashSet<OrphanedEnvelope>>>,
+    cutover_ns: Arc<Mutex<i64>>,
+    last_checked_ns: Arc<Mutex<i64>>,
+    migrated: Arc<Mutex<bool>>,
+}
+
+impl Default for InMemoryCursorStore {
+    fn default() -> Self {
+        Self {
+            topics: HashMap::new(),
+            icebox: Arc::new(Mutex::new(HashSet::new())),
+            cutover_ns: Arc::new(Mutex::new(i64::MAX)),
+            last_checked_ns: Arc::new(Mutex::new(0)),
+            migrated: Arc::new(Mutex::new(false)),
+        }
+    }
 }
 
 impl InMemoryCursorStore {
     pub fn new() -> Self {
-        Self {
-            topics: HashMap::new(),
-            icebox: Arc::new(Mutex::new(HashSet::new())),
-        }
+        Self::default()
     }
 
     /// Record that a message for this topic with the given clock was received
@@ -132,6 +144,33 @@ impl CursorStore for InMemoryCursorStore {
     ) -> Result<Vec<OrphanedEnvelope>, CursorStoreError> {
         let icebox = self.icebox.lock();
         Ok(Vec::from_iter(resolve_children_inner(cursors, &icebox)))
+    }
+
+    fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), CursorStoreError> {
+        *self.cutover_ns.lock() = cutover_ns;
+        Ok(())
+    }
+
+    fn get_cutover_ns(&self) -> Result<i64, CursorStoreError> {
+        Ok(*self.cutover_ns.lock())
+    }
+
+    fn has_migrated(&self) -> Result<bool, CursorStoreError> {
+        Ok(*self.migrated.lock())
+    }
+
+    fn set_has_migrated(&self, has_migrated: bool) -> Result<(), CursorStoreError> {
+        *self.migrated.lock() = has_migrated;
+        Ok(())
+    }
+
+    fn get_last_checked_ns(&self) -> Result<i64, CursorStoreError> {
+        Ok(*self.last_checked_ns.lock())
+    }
+
+    fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), CursorStoreError> {
+        *self.last_checked_ns.lock() = last_checked_ns;
+        Ok(())
     }
 }
 

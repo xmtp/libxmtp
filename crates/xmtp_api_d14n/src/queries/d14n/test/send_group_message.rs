@@ -153,4 +153,28 @@ impl CursorStore for TestCursorStore {
     ) -> Result<Vec<xmtp_proto::types::OrphanedEnvelope>, CursorStoreError> {
         unreachable!()
     }
+
+    fn set_cutover_ns(&self, _cutover_ns: i64) -> Result<(), CursorStoreError> {
+        Ok(())
+    }
+
+    fn get_cutover_ns(&self) -> Result<i64, CursorStoreError> {
+        Ok(i64::MAX)
+    }
+
+    fn get_last_checked_ns(&self) -> Result<i64, CursorStoreError> {
+        Ok(0)
+    }
+
+    fn set_last_checked_ns(&self, _last_checked_ns: i64) -> Result<(), CursorStoreError> {
+        Ok(())
+    }
+
+    fn has_migrated(&self) -> Result<bool, CursorStoreError> {
+        Ok(false)
+    }
+
+    fn set_has_migrated(&self, _has_migrated: bool) -> Result<(), CursorStoreError> {
+        Ok(())
+    }
 }
