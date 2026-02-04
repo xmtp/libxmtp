@@ -21,6 +21,7 @@ impl-trait-for-tuples = "0.2"
 itertools.workspace = true
 openmls_rust_crypto = { workspace = true }
 parking_lot.workspace = true
+pbjson-types.workspace = true
 pin-project.workspace = true
 prost.workspace = true
 thiserror.workspace = true
