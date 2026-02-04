@@ -4,10 +4,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
 jobs:
-  release:
-    permissions:
-      id-token: write
-      contents: write
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -51,59 +48,22 @@ jobs:
         run: |
           source ../../emsdk/emsdk_env.sh
           yarn build
-      - name: Update version for dev releases
-        working-directory: bindings/wasm
-        run: |
-          # Read the current version from package.json
-          PACKAGE_VERSION=$(node -p "require('./package.json').version")
-
-          # Check if this is a dev version
-          if [[ "$PACKAGE_VERSION" == *"dev"* ]]; then
-            GIT_HASH=$(git log -1 --pretty=format:"%h")
-
-            # Create a new version string with the git hash
-            NEW_VERSION="${PACKAGE_VERSION}.${GIT_HASH}"
-
-            # Update package.json with the new version
-            npm version "$NEW_VERSION" --no-git-tag-version
-
-            echo "Updated version to $NEW_VERSION for publishing"
-          else
-            echo "Not a dev version, keeping original version: $PACKAGE_VERSION"
-          fi
-      - name: Determine NPM tag
-        id: npm-tag
-        working-directory: bindings/wasm
-        run: |
-          # Read the current version from package.json
-          PACKAGE_VERSION=$(node -p "require('./package.json').version")
-
-          # Set the tag based on whether it's a dev version
-          if [[ "$PACKAGE_VERSION" == *"dev"* ]]; then
-            echo "tag=prerelease" >> $GITHUB_OUTPUT
-          else
-            echo "tag=latest" >> $GITHUB_OUTPUT
-          fi
-      - name: Create Git Tag for Dev Releases
-        if: contains(steps.npm-tag.outputs.tag, 'prerelease')
-        run: |
-          # Read the current version from package.json
-          PACKAGE_VERSION=$(node -p "require('./bindings/wasm/package.json').version")
-
-          # Create and push the tag
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git tag -a "wasm-bindings-${PACKAGE_VERSION}" -m "WASM bindings version ${PACKAGE_VERSION}"
-          git push origin "wasm-bindings-${PACKAGE_VERSION}"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Update npm to latest
-        run: npm install -g npm@latest
-      - name: Publish to NPM
-        uses: JS-DevTools/npm-publish@v4
+      - name: Upload build output
+        uses: actions/upload-artifact@v6
         with:
-          package: bindings/wasm
-          tag: ${{ steps.npm-tag.outputs.tag }}
-          dry-run: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: wasm_build
+          path: |
+            bindings/wasm/dist
+            bindings/wasm/package.json
+            bindings/wasm/yarn.lock
+          retention-days: 1
+
+  publish:
+    needs: [build]
+    uses: ./.github/workflows/npm-publish.yml
+    with:
+      package-dir: bindings/wasm
+      tag-prefix: wasm-bindings
+      artifact-pattern: wasm_build
+      artifact-path: bindings/wasm
+    secrets: inherit
