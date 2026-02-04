@@ -93,10 +93,10 @@ impl TablePrinter {
                     col.width = col.width.max(val.len());
                 }
             }
-            if let Some(footer) = &self.footer {
-                if let Some(val) = footer.get(i) {
-                    col.width = col.width.max(val.len());
-                }
+            if let Some(footer) = &self.footer
+                && let Some(val) = footer.get(i)
+            {
+                col.width = col.width.max(val.len());
             }
         }
 
