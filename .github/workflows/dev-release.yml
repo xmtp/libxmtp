@@ -28,28 +28,14 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Notify Slack
+      - uses: actions/checkout@v6
+      - id: compute
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           IOS_RESULT: ${{ needs.release-ios.result }}
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
         run: |
-          STATUS="success"
-          if [ "$IOS_RESULT" = "failure" ]; then
-            STATUS="failure"
-          fi
-
-          CHANNEL="#notify-dev-releases"
-          if [ "$STATUS" = "failure" ]; then
-            CHANNEL="#notify-dev-release-failures"
-          fi
-
-          MESSAGE="Dev Release: iOS ${IOS_VERSION:-skipped} - ${IOS_RESULT:-skipped}"
-
-          if [ -n "$SLACK_WEBHOOK_URL" ]; then
-            curl -X POST "$SLACK_WEBHOOK_URL" \
-              -H 'Content-type: application/json' \
-              --data "{\"channel\":\"$CHANNEL\",\"text\":\"$MESSAGE\"}"
-          else
-            echo "$MESSAGE"
-          fi
+          echo "message=Dev Release: iOS ${IOS_VERSION:-skipped} - ${IOS_RESULT:-skipped}" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/slack-notify
+        with:
+          message: ${{ steps.compute.outputs.message }}
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
