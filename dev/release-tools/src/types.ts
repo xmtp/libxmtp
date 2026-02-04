@@ -25,3 +25,8 @@ export interface SdkConfig {
 export type ReleaseType = "dev" | "rc" | "final";
 
 export type BumpType = "major" | "minor" | "patch";
+
+/** Shape of the global CLI options (defined in cli.ts) */
+export interface GlobalArgs {
+  repoRoot: string;
+}
