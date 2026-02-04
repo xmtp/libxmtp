@@ -3,7 +3,7 @@ on:
   pull_request:
     paths:
       - "bindings/node/**"
-      - ".github/workflows/lint-node-bindings.yaml"
+      - ".github/workflows/lint-node-bindings.yml"
       - "rustfmt.toml"
       - "Cargo.toml"
       - "Cargo.lock"

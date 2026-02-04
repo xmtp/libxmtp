@@ -3,7 +3,7 @@ on:
   pull_request:
     paths:
       - "bindings/wasm/**"
-      - ".github/workflows/lint-wasm-bindings.yaml"
+      - ".github/workflows/lint-wasm-bindings.yml"
       - "rustfmt.toml"
       - "Cargo.toml"
       - "Cargo.lock"
