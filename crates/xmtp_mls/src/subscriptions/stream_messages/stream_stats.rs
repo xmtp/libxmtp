@@ -56,11 +56,8 @@ where
         xmtp_common::spawn(None, {
             let notify = notify.clone();
             async move {
-                loop {
-                    match self.next().await {
-                        Some(_) => notify.notify_one(),
-                        None => break, // Exit when stream ends
-                    }
+                while self.next().await.is_some() {
+                    notify.notify_one();
                 }
             }
         });
