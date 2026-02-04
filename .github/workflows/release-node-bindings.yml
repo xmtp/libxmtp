@@ -78,16 +78,9 @@ jobs:
           sudo apt-get install -y musl-tools
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: ./.github/actions/setup-node
         with:
-          node-version-file: ".node-version"
           cache-dependency-path: "bindings/node/yarn.lock"
-          cache: "yarn"
-        env:
-          SKIP_YARN_COREPACK_CHECK: "1"
-
-      - name: Enable corepack
-        run: corepack enable
 
       - name: Install dependencies
         working-directory: bindings/node
@@ -158,16 +151,9 @@ jobs:
             bindings/node
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: ./.github/actions/setup-node
         with:
-          node-version-file: ".node-version"
           cache-dependency-path: "bindings/node/yarn.lock"
-          cache: "yarn"
-        env:
-          SKIP_YARN_COREPACK_CHECK: "1"
-
-      - name: Enable corepack
-        run: corepack enable
 
       - name: Install dependencies
         working-directory: bindings/node
@@ -240,16 +226,9 @@ jobs:
         shell: bash
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: ./.github/actions/setup-node
         with:
-          node-version-file: ".node-version"
           cache-dependency-path: "bindings/node/yarn.lock"
-          cache: "yarn"
-        env:
-          SKIP_YARN_COREPACK_CHECK: "1"
-
-      - name: Enable corepack
-        run: corepack enable
 
       - name: Install dependencies
         working-directory: bindings/node
@@ -286,16 +265,9 @@ jobs:
           path: bindings/node/dist
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: ./.github/actions/setup-node
         with:
-          node-version-file: ".node-version"
           cache-dependency-path: "bindings/node/yarn.lock"
-          cache: "yarn"
-        env:
-          SKIP_YARN_COREPACK_CHECK: "1"
-
-      - name: Enable corepack
-        run: corepack enable
 
       - name: Install dependencies
         working-directory: bindings/node

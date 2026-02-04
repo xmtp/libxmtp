@@ -32,12 +32,10 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
+      - uses: ./.github/actions/setup-node
       - name: Install release tools
         working-directory: dev/release-tools
-        run: yarn install --frozen-lockfile
+        run: yarn install --immutable
       - name: Compute version
         id: version
         working-directory: dev/release-tools
@@ -124,12 +122,10 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
+      - uses: ./.github/actions/setup-node
       - name: Install release tools
         working-directory: dev/release-tools
-        run: yarn install --frozen-lockfile
+        run: yarn install --immutable
       - name: Update Package.swift and podspec
         env:
           VERSION: ${{ needs.compute-version.outputs.version }}
