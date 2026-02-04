@@ -57,33 +57,33 @@ fn main() -> Result<()> {
     let manager = Manager { store };
 
     match &args.task {
-        Task::QueryBench => {
+        Task::Report => {
             manager.new_bencher()?.bench()?;
         }
-        Task::DbVacuum => {
+        Task::Vacuum => {
             let target =
                 args.target("This will be where the persistent database will be written to.");
             tasks::db_vacuum(&manager.store, target)?;
         }
-        Task::DbRollback => {
+        Task::Rollback => {
             let target = args
                 .target("This will be the target version you want to roll the database back to.");
             tasks::rollback(&manager.store.conn(), target)?;
         }
-        Task::DbClearAllMessages => {
+        Task::ClearAllMessages => {
             tasks::clear_all_messages(&manager.store.conn(), args.retain_days, None)?;
         }
-        Task::DbClearMessages => {
+        Task::ClearMessages => {
             let group_ids = args.group_ids()?;
             tasks::clear_all_messages(&manager.store.conn(), args.retain_days, Some(&group_ids))?;
         }
-        Task::DbRunMigration => {
+        Task::RunMigration => {
             let target = args.target(
                 "This will be the name of the target migration you wish to run on the database.",
             );
             tasks::run_migration(&manager.store.conn(), target)?;
         }
-        Task::DbRevertMigration => {
+        Task::RevertMigration => {
             let target = args.target(
                 "This will be the name of the target migration you wish to run on the database.",
             );
@@ -99,7 +99,7 @@ fn main() -> Result<()> {
             let group_ids: Vec<_> = arg_group_ids.iter().map(Vec::as_slice).collect();
             tasks::disable_groups(&manager.store.db(), &group_ids)?;
         }
-        Task::DbListMigrations => {
+        Task::ListMigrations => {
             let conn = manager.store.conn();
             let db = DbConnection::new(&conn);
             let mut available = db.available_migrations()?;
@@ -203,25 +203,24 @@ impl Args {
 
 #[derive(ValueEnum, Clone, Debug)]
 enum Task {
-    /// Measure the performance of database queries
-    /// to identify problematic performers.
-    QueryBench,
+    /// Generate a database report.
+    Report,
     /// Dump an encrypted database into an un-encrypted file.
-    DbVacuum,
+    Vacuum,
     /// Attempt to revert all migrations after and including specified migration version.
     /// Requires migration name as --target param.
-    DbRollback,
+    Rollback,
     /// Attempt to run a specific migration.
     /// Requires migration name as --target param.
-    DbRunMigration,
+    RunMigration,
     /// Attempt to revert a specific migration.
     /// Requires migration name as --target param.
-    DbRevertMigration,
+    RevertMigration,
     /// Clear all messages in a group.
     /// Requires hex-encoded group_id as --target param.
-    DbClearMessages,
+    ClearMessages,
     /// Clear all messages in the database.
-    DbClearAllMessages,
+    ClearAllMessages,
     /// Disable a group.
     /// Requires hex-encoded group_id as --target param.
     DisableGroup,
@@ -229,5 +228,5 @@ enum Task {
     /// Requires hex-encoded group_id as --target param.
     EnableGroup,
     /// List all available migrations and their status.
-    DbListMigrations,
+    ListMigrations,
 }
