@@ -33,23 +33,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - uses: nixbuild/nix-quick-install-action@v34
-      - run: nix build --version
+      - uses: ./.github/actions/setup-nix
+        with:
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.9
-      - uses: cachix/cachix-action@v16
-        with:
-          name: xmtp
-          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
       - name: Install omnix
         run: nix profile install nixpkgs#omnix
 
       - name: Start Docker containers
         run: |
-          nix build .#docker-mls_validation_service --accept-flake-config
+          nix build .#docker-mls_validation_service
           dev/docker/up
       - name: run tests
-        run: om ci run .#wasm -- --accept-flake-config
+        run: om ci run .#wasm
 
   wasm-integration:
     name: WASM Integration Tests
@@ -60,17 +57,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - uses: nixbuild/nix-quick-install-action@v34
-      - run: nix build --version
+      - uses: ./.github/actions/setup-nix
+        with:
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.9
-      - uses: cachix/cachix-action@v16
-        with:
-          name: xmtp
-          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
       - name: Start Docker containers
         run: |
-          nix build .#docker-mls_validation_service --accept-flake-config
+          nix build .#docker-mls_validation_service
           dev/docker/up
       - name: webassembly integration tests
         working-directory: bindings/wasm

@@ -1,0 +1,23 @@
+name: 'Setup Nix'
+description: 'Install Nix with Cachix caching for XMTP'
+inputs:
+  cachix-auth-token:
+    description: 'Cachix auth token for xmtp cache'
+    required: false
+runs:
+  using: 'composite'
+  steps:
+    - uses: cachix/install-nix-action@v31
+      with:
+        github_access_token: ${{ github.token }}
+        extra_nix_config: |
+          accept-flake-config = true
+    - uses: cachix/cachix-action@v16
+      if: ${{ inputs.cachix-auth-token != '' }}
+      with:
+        name: xmtp
+        authToken: ${{ inputs.cachix-auth-token }}
+    - uses: cachix/cachix-action@v16
+      if: ${{ inputs.cachix-auth-token == '' }}
+      with:
+        name: xmtp
