@@ -35,12 +35,10 @@ jobs:
         with:
           ref: ${{ inputs.base-ref }}
           fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
+      - uses: ./.github/actions/setup-node
       - name: Install release tools
         working-directory: dev/release-tools
-        run: yarn install --frozen-lockfile
+        run: yarn install
       - name: Create release branch
         env:
           RELEASE_VERSION: ${{ inputs.version }}
@@ -54,9 +52,9 @@ jobs:
 
           if [ "$IOS_BUMP" != "none" ]; then
             cd dev/release-tools
-            NEW_VERSION=$(yarn cli bump-version --sdk ios --type "$IOS_BUMP" --repo-root ../..)
+            NEW_VERSION=$(yarn cli bump-version --sdk ios --type "$IOS_BUMP")
             echo "iOS version bumped to: $NEW_VERSION"
-            yarn cli scaffold-notes --sdk ios --repo-root ../..
+            yarn cli scaffold-notes --sdk ios
             cd ../..
           fi
 

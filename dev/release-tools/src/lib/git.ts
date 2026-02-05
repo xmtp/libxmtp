@@ -14,6 +14,14 @@ export function getShortSha(cwd: string, ref = "HEAD"): string {
   return exec(`git rev-parse --short=7 ${ref}`, cwd);
 }
 
+export function getRepoRoot(cwd?: string): string {
+  try {
+    return exec("git rev-parse --show-toplevel", cwd ?? process.cwd());
+  } catch {
+    return process.cwd();
+  }
+}
+
 export function getCommitsBetween(
   cwd: string,
   sinceRef: string | null,
