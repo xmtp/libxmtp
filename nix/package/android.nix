@@ -27,6 +27,7 @@
 , stdenv
 , androidenv
 , cargo-ndk
+, zlib
 , ...
 }:
 let
@@ -39,7 +40,7 @@ let
 
   # Shared mobile build configuration (commonArgs, filesets, version)
   mobile = import ./../lib/mobile-common.nix {
-    inherit lib craneLib xmtp zstd openssl sqlite pkg-config perl;
+    inherit lib craneLib xmtp zstd openssl sqlite pkg-config perl zlib;
   };
 
   # Rust toolchain with Android cross-compilation targets
@@ -69,6 +70,11 @@ let
     ANDROID_NDK_HOME = androidPaths.ndkHome;
     ANDROID_NDK_ROOT = androidPaths.ndkHome;
     OPENSSL_DIR = "${openssl.dev}";
+
+    # Ensure host build-dependencies (like libz-sys) use Nix stdenv's cc, not NDK clang.
+    # Without this, cargo-ndk's CC override causes host compilations to use NDK clang
+    # which lacks Linux host headers (stdio.h, etc.).
+    HOST_CC = "${stdenv.cc}/bin/cc";
   };
 
   # Build dependencies for a specific Android target
@@ -148,10 +154,12 @@ let
       # Apply required sed replacements:
       # 1) Replace `return "xmtpv3"` with `return "uniffi_xmtpv3"` (library name fix)
       # 2) Replace `value.forEach { (k, v) ->` with `value.iterator().forEach { (k, v) ->`
+      # 3) Suppress NewApi lint for java.lang.ref.Cleaner usage (requires API 33, minSdk is 23)
       # Note: uniffi outputs to uniffi/<crate_name>/<crate_name>.kt
       sed -i \
         -e 's/return "xmtpv3"/return "uniffi_xmtpv3"/' \
         -e 's/value\.forEach { (k, v) ->/value.iterator().forEach { (k, v) ->/g' \
+        -e 's/@file:Suppress("NAME_SHADOWING")/@file:Suppress("NAME_SHADOWING", "NewApi")/' \
         "$TMPDIR/kotlin-out/uniffi/xmtpv3/xmtpv3.kt"
 
       cp $TMPDIR/kotlin-out/uniffi/xmtpv3/xmtpv3.kt $out/kotlin/
