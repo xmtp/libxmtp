@@ -5,7 +5,7 @@ on:
       - main
   pull_request:
     paths:
-      - ".github/workflows/lint-workspace.yaml"
+      - ".github/workflows/lint-workspace.yml"
       - "apps/mls_validation_service/**"
       - "crates/xmtp_api_grpc/**"
       - "crates/xmtp_cryptography/**"
@@ -25,6 +25,9 @@ on:
       - ".cargo/**"
       - "rust-toolchain.toml"
       - "rustfmt.toml"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
@@ -37,13 +40,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - name: Update rust toolchains
-        run: rustup update
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-rust
         with:
-          workspaces: |
-            .
+          warp: 'true'
       - name: Run clippy and fail on warnings
         # Exclude bindings_wasm since it only compiles for wasm32
         run: cargo clippy --locked --workspace --all-features --all-targets --no-deps --exclude bindings_wasm -- -D warnings

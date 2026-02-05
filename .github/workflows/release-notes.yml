@@ -15,7 +15,7 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -27,18 +27,16 @@ jobs:
           echo "Detected release version: $VERSION"
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
+        uses: ./.github/actions/setup-node
 
       - name: Install release-tools
-        run: cd dev/release-tools && yarn install --immutable
+        run: cd dev/release-tools && yarn install
 
       - name: Find and classify release notes
         id: classify
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          RESULT=$(cd dev/release-tools && yarn --silent cli classify-notes --release-version "$VERSION" --repo-root "$GITHUB_WORKSPACE")
+          RESULT=$(cd dev/release-tools && yarn --silent cli classify-notes --release-version "$VERSION")
 
           echo "has_empty=$(echo "$RESULT" | jq -r '.hasEmpty')" >> "$GITHUB_OUTPUT"
           echo "has_content=$(echo "$RESULT" | jq -r '.hasContent')" >> "$GITHUB_OUTPUT"

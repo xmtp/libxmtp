@@ -3,12 +3,15 @@ on:
   pull_request:
     paths:
       - "bindings/wasm/**"
-      - ".github/workflows/lint-wasm-bindings.yaml"
+      - ".github/workflows/lint-wasm-bindings.yml"
       - "rustfmt.toml"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".cargo/**"
       - "rust-toolchain.toml"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
@@ -20,15 +23,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - name: Update rust toolchains
-        run: |
-          rustup update
-          rustup target add wasm32-unknown-unknown
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-rust
         with:
-          workspaces: |
-            bindings/wasm
+          targets: wasm32-unknown-unknown
+          workspaces: bindings/wasm
       - name: Install emscripten toolchains
         run: |
           git clone https://github.com/emscripten-core/emsdk.git

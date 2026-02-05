@@ -32,12 +32,10 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
+      - uses: ./.github/actions/setup-node
       - name: Install release tools
         working-directory: dev/release-tools
-        run: yarn install --frozen-lockfile
+        run: yarn install
       - name: Compute version
         id: version
         working-directory: dev/release-tools
@@ -66,15 +64,10 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
-      - uses: cachix/install-nix-action@v31
+      - uses: ./.github/actions/setup-nix
         with:
-          extra_nix_config: |
-            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-      - uses: DeterminateSystems/magic-nix-cache-action@v13
-      - uses: cachix/cachix-action@v16
-        with:
-          name: xmtp
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Build iOS libs
         run: nix build .#ios-libs --out-link bindings/mobile/build/nix
       - name: Build xcframework
@@ -130,12 +123,10 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
+      - uses: ./.github/actions/setup-node
       - name: Install release tools
         working-directory: dev/release-tools
-        run: yarn install --frozen-lockfile
+        run: yarn install
       - name: Update Package.swift and podspec
         env:
           VERSION: ${{ needs.compute-version.outputs.version }}

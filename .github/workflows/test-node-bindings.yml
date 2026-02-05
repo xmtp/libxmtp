@@ -21,6 +21,9 @@ on:
       - "Cargo.lock"
       - ".cargo/**"
       - "rust-toolchain.toml"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
     name: Test
@@ -28,26 +31,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - name: Update rust toolchains
-        run: rustup update
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-rust
         with:
           workspaces: |
             .
             bindings/node
+          warp: 'true'
       - name: Start Docker containers
         run: dev/up
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: ./.github/actions/setup-node
         with:
-          node-version-file: ".node-version"
           cache-dependency-path: "bindings/node/yarn.lock"
-          cache: "yarn"
-        env:
-          SKIP_YARN_COREPACK_CHECK: "1"
-      - name: Enable corepack
-        run: corepack enable
       - name: Install dependencies
         working-directory: bindings/node
         run: |
