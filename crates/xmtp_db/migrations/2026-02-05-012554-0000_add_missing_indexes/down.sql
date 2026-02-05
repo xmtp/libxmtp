@@ -1,0 +1,3 @@
+DROP INDEX idx_local_commit_log_group_id;
+DROP INDEX idx_remote_commit_log_group_id;
+DROP INDEX idx_group_messages_expire_at_ns;
