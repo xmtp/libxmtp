@@ -4,6 +4,7 @@ use prost::Message;
 use sha2::{Digest as _, Sha512};
 use std::array::TryFromSliceError;
 use thiserror::Error;
+use xmtp_common::ErrorCode;
 use xmtp_cryptography::{
     CredentialSign, CredentialVerify, SignerError, SigningContextProvider,
     XmtpInstallationCredential,
@@ -19,13 +20,15 @@ use super::{
 
 use alloy::signers::k256::ecdsa::Signature as K256Signature;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum SignatureError {
     #[error("Malformed legacy key: {0}")]
     MalformedLegacyKey(String),
     #[error(transparent)]
+    #[error_code(inherit)]
     CryptoSignatureError(#[from] xmtp_cryptography::signature::SignatureError),
     #[error(transparent)]
+    #[error_code(inherit)]
     VerifierError(#[from] crate::scw_verifier::VerifierError),
     #[error("ed25519 Signature failed {0}")]
     Ed25519Error(#[from] ed25519_dalek::SignatureError),
@@ -34,12 +37,14 @@ pub enum SignatureError {
     #[error("Signature validation failed")]
     Invalid,
     #[error(transparent)]
+    #[error_code(inherit)]
     AddressValidationError(#[from] xmtp_cryptography::signature::IdentifierValidationError),
     #[error(transparent)]
     UrlParseError(#[from] url::ParseError),
     #[error(transparent)]
     DecodeError(#[from] prost::DecodeError),
     #[error(transparent)]
+    #[error_code(inherit)]
     AccountIdError(#[from] AccountIdError),
     #[error(transparent)]
     Signer(#[from] SignerError),
@@ -135,7 +140,7 @@ impl std::fmt::Display for SignatureKind {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum AccountIdError {
     #[error("Chain ID is not a valid u64")]
     InvalidChainId,

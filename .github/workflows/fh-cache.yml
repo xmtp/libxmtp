@@ -31,11 +31,18 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: xmtp
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: true
       - name: Install omnix
         run: nix profile install nixpkgs#omnix
       - name: build all flake outputs
         run: om ci run --include-all-dependencies --results=om.json -- --accept-flake-config
       - name: push to cachix
+        if: env.BRANCH_NAME == 'main'
         run: nix run github:juspay/cachix-push -- --cache xmtp --subflake ROOT --prefix "$BRANCH_NAME" < om.json
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}

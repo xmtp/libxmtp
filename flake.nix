@@ -59,18 +59,30 @@
             # Shell for iOS builds
             ios = pkgs.callPackage ./nix/ios.nix { };
           };
-          packages.wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { craneLib = crane.mkLib pkgs; }).bin;
-          packages.wasm-bindgen-cli = pkgs.callPackage ./nix/lib/packages/wasm-bindgen-cli.nix { };
-          packages.docker-mls_validation_service = pkgs.dockerTools.buildLayeredImage {
-            name = "ghcr.io/xmtp/mls-validation-service"; # override ghcr images
-            tag = "main";
-            created = "now";
-            config = {
-              Env = [
-                "ANVIL_URL=http://anvil:8545"
-              ];
-              entrypoint = [ "${self'.packages.musl-mls_validation_service}/bin/mls-validation-service" ];
+          packages = {
+            wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { craneLib = crane.mkLib pkgs; }).bin;
+            wasm-bindgen-cli = pkgs.callPackage ./nix/lib/packages/wasm-bindgen-cli.nix { };
+            docker-mls_validation_service = pkgs.dockerTools.buildLayeredImage {
+              name = "ghcr.io/xmtp/mls-validation-service"; # override ghcr images
+              tag = "main";
+              created = "now";
+              config = {
+                Env = [
+                  "ANVIL_URL=http://anvil:8545"
+                ];
+                entrypoint = [ "${self'.packages.musl-mls_validation_service}/bin/mls-validation-service" ];
+              };
             };
+          } // lib.optionalAttrs pkgs.stdenv.isDarwin {
+            # stdenvNoCC is passed to both callPackage (for the aggregate derivation)
+            # and crane.mkLib (for the Rust build derivations). This avoids Nix's
+            # apple-sdk and cc-wrapper, which inject -mmacos-version-min flags that
+            # conflict with iOS cross-compilation. The builds are impure (__noChroot)
+            # and use the system Xcode SDK directly via ios-env.nix paths.
+            ios-libs = (pkgs.callPackage ./nix/package/ios.nix {
+              craneLib = crane.mkLib (pkgs // { stdenv = pkgs.stdenvNoCC; });
+              stdenv = pkgs.stdenvNoCC;
+            }).aggregate;
           };
         };
     };

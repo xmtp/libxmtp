@@ -1,5 +1,6 @@
 //! XMTP DB Pool
 
+use bon::bon;
 use diesel::{
     SqliteConnection,
     connection::SimpleConnection,
@@ -15,15 +16,21 @@ pub struct DbPool {
     inner: Pool,
 }
 
+#[bon]
 impl DbPool {
-    pub(super) fn new(customizer: Box<dyn XmtpConnection>) -> Result<Self, PlatformStorageError> {
+    #[builder]
+    pub(super) fn new(
+        customizer: Box<dyn XmtpConnection>,
+        max_size: Option<u32>,
+        min_size: Option<u32>,
+    ) -> Result<Self, PlatformStorageError> {
         let StorageOption::Persistent(path) = customizer.options() else {
             return Err(PlatformStorageError::PoolRequiresPath);
         };
         let pool = Pool::builder()
             .connection_customizer(customizer.clone())
-            .max_size(MAX_DB_POOL_SIZE)
-            .min_idle(Some(MIN_DB_POOL_SIZE))
+            .max_size(max_size.unwrap_or(MAX_DB_POOL_SIZE))
+            .min_idle(Some(min_size.unwrap_or(MIN_DB_POOL_SIZE)))
             .build(ConnectionManager::new(path))?;
 
         let mut c = pool.get()?;
@@ -102,7 +109,8 @@ mod tests {
     fn encrypted_connection() -> Box<dyn XmtpConnection> {
         let path = xmtp_common::tmp_path();
         let c = Box::new(
-            EncryptedConnection::new([0u8; 32], &StorageOption::Persistent(path.clone())).unwrap(),
+            EncryptedConnection::new([0u8; 32].into(), &StorageOption::Persistent(path.clone()))
+                .unwrap(),
         );
         let mut conn = SqliteConnection::establish(&path).unwrap();
         // do simple db queries to ensure encrypted database sets up correctly
@@ -124,7 +132,10 @@ mod tests {
     pub fn sets_busy_timeout(#[case] customizer: Box<dyn XmtpConnection>) {
         use crate::DbConnection;
         use xmtp_configuration::BUSY_TIMEOUT;
-        let pool = DbPool::new(customizer.clone()).unwrap();
+        let pool = DbPool::builder()
+            .customizer(customizer.clone())
+            .build()
+            .unwrap();
         let dbconn = DbConnection::new(pool);
         let timeout = dbconn.busy_timeout().unwrap();
         assert_eq!(timeout, BUSY_TIMEOUT, "wrong timeout");
@@ -136,7 +147,10 @@ mod tests {
     #[ignore]
     #[test]
     pub fn sets_journal_mode(#[case] customizer: Box<dyn XmtpConnection>) {
-        let pool = DbPool::new(customizer.clone()).unwrap();
+        let pool = DbPool::builder()
+            .customizer(customizer.clone())
+            .build()
+            .unwrap();
         let mut conn = pool.get().unwrap();
         let JournalMode { journal_mode } = diesel::sql_query("PRAGMA journal_mode")
             .get_result::<JournalMode>(&mut conn)
@@ -150,7 +164,10 @@ mod tests {
     #[ignore]
     #[test]
     pub fn sets_synchronous(#[case] customizer: Box<dyn XmtpConnection>) {
-        let pool = DbPool::new(customizer.clone()).unwrap();
+        let pool = DbPool::builder()
+            .customizer(customizer.clone())
+            .build()
+            .unwrap();
         let mut conn = pool.get().unwrap();
         let Synchronous { synchronous } = diesel::sql_query("PRAGMA synchronous")
             .get_result::<Synchronous>(&mut conn)
@@ -165,7 +182,10 @@ mod tests {
     #[ignore]
     #[test]
     pub fn sets_autocheckpoint(#[case] customizer: Box<dyn XmtpConnection>) {
-        let pool = DbPool::new(customizer.clone()).unwrap();
+        let pool = DbPool::builder()
+            .customizer(customizer.clone())
+            .build()
+            .unwrap();
         let mut conn = pool.get().unwrap();
         let Autocheckpoint { wal_autocheckpoint } = diesel::sql_query("PRAGMA wal_autocheckpoint")
             .get_result::<Autocheckpoint>(&mut conn)

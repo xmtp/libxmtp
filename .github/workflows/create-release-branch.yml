@@ -1,0 +1,87 @@
+# .github/workflows/create-release-branch.yml
+name: Create Release Branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      base-ref:
+        description: "Base ref (commit/branch) to create the release from"
+        required: true
+        type: string
+        default: "main"
+      version:
+        description: "Release version number (e.g. 1.8.0)"
+        required: true
+        type: string
+      ios-bump:
+        description: "iOS SDK version bump"
+        required: false
+        type: choice
+        options:
+          - "none"
+          - "patch"
+          - "minor"
+          - "major"
+        default: "none"
+
+jobs:
+  create-branch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.base-ref }}
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-node
+      - name: Install release tools
+        working-directory: dev/release-tools
+        run: yarn install
+      - name: Create release branch
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          IOS_BUMP: ${{ inputs.ios-bump }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          BRANCH="release/${RELEASE_VERSION}"
+          git checkout -b "$BRANCH"
+
+          if [ "$IOS_BUMP" != "none" ]; then
+            cd dev/release-tools
+            NEW_VERSION=$(yarn cli bump-version --sdk ios --type "$IOS_BUMP")
+            echo "iOS version bumped to: $NEW_VERSION"
+            yarn cli scaffold-notes --sdk ios
+            cd ../..
+          fi
+
+          git add -A
+          git commit -m "chore: create release ${RELEASE_VERSION}" || echo "No changes"
+          git push -u origin "$BRANCH"
+      - name: Create pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          BRANCH="release/${RELEASE_VERSION}"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "Release ${RELEASE_VERSION}" \
+            --body "$(cat <<EOF
+          ## Release ${RELEASE_VERSION}
+
+          This PR was created by the Create Release Branch workflow.
+
+          ### Checklist
+          - [ ] Release notes reviewed and finalized
+          - [ ] All SDK versions bumped
+          - [ ] RC published and validated
+          - [ ] Final release published via Publish Release workflow
+
+          > **Note:** This PR will be merged automatically by the Publish Release workflow upon final release.
+          EOF
+          )"

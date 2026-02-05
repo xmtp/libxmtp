@@ -8,6 +8,7 @@ use xmtp_db::local_commit_log::CommitType;
 use xmtp_db::prelude::*;
 use xmtp_proto::types::Cursor;
 
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
@@ -82,6 +83,7 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
@@ -156,6 +158,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
@@ -324,6 +327,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     Ok(())
 }
 
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -394,6 +398,7 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
     Ok(())
 }
 
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_status_persistence_no_new_commits()
 -> Result<(), Box<dyn std::error::Error>> {

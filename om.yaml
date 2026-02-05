@@ -15,16 +15,14 @@ ci:
             type: devshell
             name: wasm
             command:
-              - ./dev/test/wasm-nextest
-              - "kind(lib)"
+              - ./dev/test/wasm-ci
+              - --v3
           wasm-test-d14n:
             type: devshell
             name: wasm
             command:
-              - ./dev/test/wasm-nextest
-              - "kind(lib)"
-              - ci-d14n
-              - d14n
+              - ./dev/test/wasm-ci
+              - --d14n
 develop:
   default:
     readme: |

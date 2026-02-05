@@ -6,16 +6,16 @@ use super::{
     FfiSignatureRequest, FfiXmtpClient, create_client,
 };
 use crate::{
-    FfiAction, FfiActionStyle, FfiActions, FfiAttachment, FfiConsent, FfiConsentEntityType,
-    FfiConsentState, FfiContentType, FfiConversationCallback, FfiConversationMessageKind,
-    FfiConversationType, FfiCreateDMOptions, FfiCreateGroupOptions, FfiDecodedMessage,
-    FfiDecodedMessageBody, FfiDecodedMessageContent, FfiDirection, FfiGroupMembershipState,
-    FfiGroupMessageKind, FfiGroupPermissionsOptions, FfiGroupQueryOrderBy, FfiIntent,
-    FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
+    DbOptions, FfiAction, FfiActionStyle, FfiActions, FfiAttachment, FfiConsent,
+    FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversationCallback,
+    FfiConversationMessageKind, FfiConversationType, FfiCreateDMOptions, FfiCreateGroupOptions,
+    FfiDecodedMessage, FfiDecodedMessageBody, FfiDecodedMessageContent, FfiDirection, FfiError,
+    FfiGroupMembershipState, FfiGroupMessageKind, FfiGroupPermissionsOptions, FfiGroupQueryOrderBy,
+    FfiIntent, FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
     FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
     FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReactionAction,
     FfiReactionPayload, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply,
-    FfiSendMessageOpts, FfiSignatureKind, FfiSubscribeError, FfiTransactionReference, GenericError,
+    FfiSendMessageOpts, FfiSignatureKind, FfiTransactionReference, GenericError,
     apply_signature_request, connect_to_backend, decode_actions, decode_attachment,
     decode_delete_message, decode_group_updated, decode_intent, decode_leave_request,
     decode_multi_remote_attachment, decode_reaction, decode_read_receipt, decode_remote_attachment,
@@ -68,7 +68,6 @@ use xmtp_content_types::{
     transaction_reference::TransactionReferenceCodec,
 };
 use xmtp_cryptography::utils::generate_local_wallet;
-use xmtp_db::EncryptionKey;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::prelude::*;
@@ -169,7 +168,7 @@ impl FfiMessageCallback for RustStreamCallback {
         self.notify.notify_one();
     }
 
-    fn on_error(&self, error: FfiSubscribeError) {
+    fn on_error(&self, error: FfiError) {
         log::error!("{}", error)
     }
 
@@ -191,7 +190,7 @@ impl FfiConversationCallback for RustStreamCallback {
         self.notify.notify_one();
     }
 
-    fn on_error(&self, error: FfiSubscribeError) {
+    fn on_error(&self, error: FfiError) {
         log::error!("{}", error)
     }
 
@@ -212,7 +211,7 @@ impl FfiConsentCallback for RustStreamCallback {
         self.notify.notify_one();
     }
 
-    fn on_error(&self, error: FfiSubscribeError) {
+    fn on_error(&self, error: FfiError) {
         log::error!("{}", error)
     }
 
@@ -232,7 +231,7 @@ impl FfiPreferenceCallback for RustStreamCallback {
         self.notify.notify_one();
     }
 
-    fn on_error(&self, error: FfiSubscribeError) {
+    fn on_error(&self, error: FfiError) {
         log::error!("{}", error)
     }
 
@@ -322,13 +321,13 @@ impl FfiMessageEditCallback for RustMessageEditCallback {
         self.notify.notify_one();
     }
 
-    fn on_error(&self, error: FfiSubscribeError) {
+    fn on_error(&self, error: FfiError) {
         log::error!("ON MESSAGE EDIT ERROR: {:?}", error);
     }
 }
 
 // Helper functions
-pub(crate) fn static_enc_key() -> EncryptionKey {
+pub(crate) fn static_enc_key() -> [u8; 32] {
     [2u8; 32]
 }
 
@@ -344,7 +343,7 @@ pub(crate) async fn register_client_with_wallet(
 pub(crate) async fn register_client_with_wallet_no_panic(
     wallet: &FfiWalletInboxOwner,
     client: &FfiXmtpClient,
-) -> Result<(), GenericError> {
+) -> Result<(), FfiError> {
     let signature_request = client.signature_request().unwrap();
 
     signature_request
@@ -384,8 +383,12 @@ pub(crate) async fn new_test_client_with_wallet_and_history_sync_url(
     let client = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(tmp_path()),
-        Some([0u8; 32].to_vec()),
+        DbOptions::new(
+            Some(tmp_path()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            None,
+            None,
+        ),
         &inbox_id,
         ident,
         nonce,
@@ -409,7 +412,7 @@ pub(crate) async fn new_test_client_with_wallet_and_history_sync_url(
 pub(crate) async fn new_test_client_no_panic(
     wallet: PrivateKeySigner,
     sync_server_url: Option<String>,
-) -> Result<Arc<FfiXmtpClient>, GenericError> {
+) -> Result<Arc<FfiXmtpClient>, FfiError> {
     let ffi_inbox_owner = FfiWalletInboxOwner::with_wallet(wallet);
     let ident = ffi_inbox_owner.identifier();
     let nonce = 1;
@@ -418,8 +421,12 @@ pub(crate) async fn new_test_client_no_panic(
     let client = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(tmp_path()),
-        Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+        DbOptions::new(
+            Some(tmp_path()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            None,
+            None,
+        ),
         &inbox_id,
         ident,
         nonce,

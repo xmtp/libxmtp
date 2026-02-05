@@ -1,0 +1,15 @@
+#!/bin/bash
+# Common setup for iOS dev scripts
+# Source this file, don't execute it directly
+
+set -eou pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+IOS_SDK_DIR="${ROOT}/sdks/ios"
+
+# Re-exec in the ios Nix shell if not already there
+ensure_nix_shell() {
+    if [[ "${XMTP_DEV_SHELL:-}" != "ios" ]]; then
+        exec nix develop "${ROOT}#ios" --command "$0" "$@"
+    fi
+}

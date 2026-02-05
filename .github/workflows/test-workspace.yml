@@ -16,6 +16,9 @@ on:
       - "Cargo.lock"
       - ".cargo/**"
       - "rust-toolchain.toml"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
@@ -30,11 +33,9 @@ jobs:
         uses: actions/checkout@v6
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
-      - name: Cache
-        uses: WarpBuilds/rust-cache@v2
+      - uses: ./.github/actions/setup-rust
         with:
-          workspaces: |
-            .
+          warp: 'true'
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:

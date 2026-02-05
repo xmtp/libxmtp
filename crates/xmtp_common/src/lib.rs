@@ -4,6 +4,12 @@ extern crate self as xmtp_common;
 
 mod macros;
 
+mod error_code;
+pub use error_code::ErrorCode;
+
+#[doc(inline)]
+pub use xmtp_macro::ErrorCode;
+
 #[cfg(any(test, feature = "test-utils"))]
 mod test;
 #[cfg(any(test, feature = "test-utils"))]

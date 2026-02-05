@@ -1,0 +1,27 @@
+name: "Setup Node"
+description: "Install Node.js from .node-version with corepack enabled"
+inputs:
+  cache-dependency-path:
+    description: "Path to lock file for dependency caching (omit to disable caching)"
+    required: false
+  cache-provider:
+    description: "Package manager for caching (passed as cache to setup-node)"
+    required: false
+    default: "yarn"
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-node@v6
+      if: ${{ inputs.cache-dependency-path != '' }}
+      with:
+        node-version-file: ".node-version"
+        cache: ${{ inputs.cache-provider }}
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}
+      env:
+        SKIP_YARN_COREPACK_CHECK: "1"
+    - uses: actions/setup-node@v6
+      if: ${{ inputs.cache-dependency-path == '' }}
+      with:
+        node-version-file: ".node-version"
+    - run: corepack enable
+      shell: bash

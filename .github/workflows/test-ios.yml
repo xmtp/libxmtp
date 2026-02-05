@@ -1,0 +1,81 @@
+name: iOS Tests
+
+on:
+  push:
+    branches: ["main"]
+    paths: ["Package.swift", "sdks/ios/**", "bindings/mobile/**", "crates/**"]
+  pull_request:
+    paths: ["Package.swift", "sdks/ios/**", "bindings/mobile/**", "crates/**"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      node_url: ${{ steps.deploy.outputs.node_url }}
+      history_url: ${{ steps.deploy.outputs.history_url }}
+      app_name: ${{ steps.deploy.outputs.app_name }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy test infrastructure
+        id: deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          APP_NAME="libxmtp-ios-test-${{ github.run_id }}-${{ github.run_attempt }}"
+          ./sdks/ios/dev/fly/deploy "$APP_NAME"
+          echo "app_name=$APP_NAME" >> "$GITHUB_OUTPUT"
+          echo "node_url=https://${APP_NAME}.fly.dev" >> "$GITHUB_OUTPUT"
+          echo "history_url=https://${APP_NAME}.fly.dev:5558" >> "$GITHUB_OUTPUT"
+      - name: Wait for services
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          NODE_HOST="${{ steps.deploy.outputs.app_name }}.fly.dev"
+          for i in $(seq 1 60); do
+            if echo | openssl s_client -connect "${NODE_HOST}:443" -servername "${NODE_HOST}" 2>/dev/null | grep -q "CONNECTED"; then
+              echo "Services ready"
+              exit 0
+            fi
+            echo "Waiting... ($i/60)"
+            sleep 5
+          done
+          exit 1
+
+  tests:
+    runs-on: warp-macos-15-arm64-6x
+    needs: deploy-backend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.0"
+      - name: Build
+        run: nix develop .#ios --command ./sdks/ios/dev/build
+      - name: Run tests
+        env:
+          XMTP_NODE_ADDRESS: ${{ needs.deploy-backend.outputs.node_url }}
+          XMTP_HISTORY_SERVER_ADDRESS: ${{ needs.deploy-backend.outputs.history_url }}
+        run: nix develop .#ios --command ./sdks/ios/dev/test
+
+  cleanup:
+    runs-on: ubuntu-latest
+    needs: [deploy-backend, tests]
+    if: always()
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Destroy app
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          APP_NAME="${{ needs.deploy-backend.outputs.app_name }}"
+          [ -n "$APP_NAME" ] && flyctl apps destroy "$APP_NAME" --yes || true

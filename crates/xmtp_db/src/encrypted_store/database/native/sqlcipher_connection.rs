@@ -1,4 +1,5 @@
 //! SQLCipher-specific Connection
+use bon::Builder;
 use diesel::{
     connection::{LoadConnection, SimpleConnection},
     deserialize::FromSqlRow,
@@ -40,7 +41,7 @@ struct CipherProviderVersion {
 }
 
 /// Specialized Connection for r2d2 connection pool.
-#[derive(Clone, Debug, zeroize::ZeroizeOnDrop)]
+#[derive(Clone, Debug, Builder, zeroize::ZeroizeOnDrop)]
 pub struct EncryptedConnection {
     key: EncryptionKey,
     /// We don't store the salt for Ephemeral Dbs
@@ -86,7 +87,7 @@ impl EncryptedConnection {
                             db_pathbuf.display(),
                             salt_path.display()
                         );
-                        Self::migrate(db_path, key, &mut salt)?;
+                        Self::migrate(db_path, &key, &mut salt)?;
                     }
                     // the db doesn't exist yet and needs to be created
                     (false, false) => {
@@ -95,7 +96,7 @@ impl EncryptedConnection {
                             db_pathbuf.display(),
                             salt_path.display()
                         );
-                        Self::create(db_path, key, &mut salt)?;
+                        Self::create(db_path, &key, &mut salt)?;
                     }
                     // the db doesn't exist but the salt does
                     // This generally doesn't make sense & shouldn't happen.
@@ -107,7 +108,7 @@ impl EncryptedConnection {
                             salt_path.display(),
                         );
                         std::fs::remove_file(salt_path)?;
-                        Self::create(db_path, key, &mut salt)?;
+                        Self::create(db_path, &key, &mut salt)?;
                     }
                 }
                 tracing::info!("db_path=[{}]", db_path);
@@ -126,7 +127,7 @@ impl EncryptedConnection {
     /// writes the 16-bytes hex-encoded salt to `salt`
     fn create(
         path: &String,
-        key: EncryptionKey,
+        key: &EncryptionKey,
         salt: &mut [u8],
     ) -> Result<(), PlatformStorageError> {
         let conn = &mut SqliteConnection::establish(path)?;
@@ -150,7 +151,7 @@ impl EncryptedConnection {
     /// if the salt file already exists, deletes it.
     fn migrate(
         path: &String,
-        key: EncryptionKey,
+        key: &EncryptionKey,
         salt: &mut [u8],
     ) -> Result<(), PlatformStorageError> {
         let conn = &mut SqliteConnection::establish(path)?;
@@ -403,8 +404,11 @@ mod tests {
             assert!(String::from_utf8_lossy(&plaintext_header) != SQLITE3_PLAINTEXT_HEADER);
 
             tracing::info!("Creating store with file at {}", &db_path);
-            let opts = Persistent(db_path.clone());
-            let db = NativeDb::new(&opts, key).unwrap();
+            let db = NativeDb::builder()
+                .persistent(db_path.clone())
+                .key(key)
+                .build()
+                .unwrap();
             let _ = EncryptedMessageStore::new(db);
 
             assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());

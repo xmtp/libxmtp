@@ -129,10 +129,10 @@ dist
 .idea/
 
 # yarn v2
-.yarn/cache
-.yarn/unplugged
-.yarn/build-state.yml
-.yarn/install-state.gz
+**/.yarn/cache
+**/.yarn/unplugged
+**/.yarn/build-state.yml
+**/.yarn/install-state.gz
 .pnp.*
 
 # Swap files for vim
@@ -180,3 +180,11 @@ archive.xmtp
 coverage_diff_html/**
 .direnv/**
 om.json
+
+# Git worktrees
+.worktrees/
+
+# Swift Package Manager (Package.swift is at root for SPM resolution)
+/.build
+/.swiftpm
+**/.direnv/**

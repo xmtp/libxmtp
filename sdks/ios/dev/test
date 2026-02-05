@@ -1,0 +1,7 @@
+#!/bin/bash
+source "$(dirname "$0")/.setup"
+ensure_nix_shell "$@"
+
+# Package.swift is at repo root
+cd "${ROOT}"
+swift test -q --parallel
