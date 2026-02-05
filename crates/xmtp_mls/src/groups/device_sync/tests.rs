@@ -218,9 +218,11 @@ async fn test_hmac_and_consent_preference_sync() {
     assert_eq!(alix1_group.consent_state()?, ConsentState::Unknown);
     alix1_group.update_consent_state(ConsentState::Allowed)?;
 
+    alix2.sync_all_welcomes_and_groups(None).await?;
+
     alix2
         .worker()
-        .register_interest(SyncMetric::ConsentReceived, 3)
+        .register_interest(SyncMetric::ConsentReceived, 2)
         .wait()
         .await?;
     let alix2_group = alix2.group(&bo_group.group_id)?;
