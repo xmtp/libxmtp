@@ -274,14 +274,14 @@ fn get_relations(
     let mut all_ids: Vec<Vec<u8>> = message_ids.iter().map(|id| id.to_vec()).collect();
     all_ids.extend(reference_ids.iter().map(|id| id.to_vec()));
     let deletions = conn.get_deletions_for_messages(all_ids.clone())?;
-    let edits = conn.get_edits_for_messages(all_ids)?;
+    let edits = conn.get_latest_edits_for_messages(all_ids)?;
 
     Ok(GetRelationsResults {
         reactions: get_reactions(reactions),
         referenced_messages: get_referenced_messages(referenced_messages),
         reply_counts,
         deletions: get_deletions(deletions),
-        edits: get_latest_edits(edits),
+        edits: edits_to_map(edits),
     })
 }
 
@@ -341,21 +341,9 @@ fn get_deletions(deletions: Vec<StoredMessageDeletion>) -> DeletionMap {
         .collect()
 }
 
-/// Gets the latest edit for each original message. If multiple edits exist for the same
-/// message, only the most recent one (by edited_at_ns) is kept.
-fn get_latest_edits(edits: Vec<StoredMessageEdit>) -> EditMap {
-    let mut edit_map: EditMap = HashMap::new();
-    for edit in edits {
-        let original_id = edit.original_message_id.clone();
-        edit_map
-            .entry(original_id)
-            .and_modify(|existing| {
-                // Keep the edit with the latest timestamp
-                if edit.edited_at_ns > existing.edited_at_ns {
-                    *existing = edit.clone();
-                }
-            })
-            .or_insert(edit);
-    }
-    edit_map
+fn edits_to_map(edits: Vec<StoredMessageEdit>) -> EditMap {
+    edits
+        .into_iter()
+        .map(|edit| (edit.original_message_id.clone(), edit))
+        .collect()
 }

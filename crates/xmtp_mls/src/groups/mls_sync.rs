@@ -1533,6 +1533,11 @@ where
             }
         };
 
+        if edited_content.content.is_empty() {
+            tracing::warn!("EditMessage has empty edited_content, skipping");
+            return Ok(());
+        }
+
         let target_message_id = match hex::decode(&edit_msg.message_id) {
             Ok(id) => id,
             Err(_) => {
@@ -1542,6 +1547,11 @@ where
         };
 
         let original_msg_opt = storage.db().get_group_message(&target_message_id)?;
+
+        if storage.db().is_message_deleted(&target_message_id)? {
+            tracing::warn!("Edit rejected for deleted message {}", edit_msg.message_id);
+            return Ok(());
+        }
 
         if let Some(ref original_msg) = original_msg_opt {
             // Validate the edit is for the same group
@@ -3983,6 +3993,255 @@ pub(crate) mod tests {
         assert!(
             result.is_ok(),
             "Missing edited_content should not cause error"
+        );
+    }
+
+    /// Test that process_edit_message handles empty edited_content gracefully
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_process_edit_message_empty_edited_content() {
+        use crate::tester;
+        use prost::Message;
+        use xmtp_db::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
+        use xmtp_db::message_edit::QueryMessageEdit;
+        use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+        use xmtp_proto::xmtp::mls::message_contents::content_types::EditMessage;
+
+        tester!(alix);
+        let alix_group = alix.create_group(None, None)?;
+
+        // Create an EditMessage with empty content (Some but empty bytes)
+        let empty_edited_content = EncodedContent {
+            r#type: Some(xmtp_proto::xmtp::mls::message_contents::ContentTypeId {
+                authority_id: "xmtp.org".to_string(),
+                type_id: "text".to_string(),
+                version_major: 1,
+                version_minor: 0,
+            }),
+            parameters: std::collections::HashMap::new(),
+            fallback: None,
+            compression: None,
+            content: vec![], // Empty content
+        };
+
+        let edit_msg = EditMessage {
+            message_id: hex::encode(vec![1, 2, 3]),
+            edited_content: Some(empty_edited_content),
+        };
+
+        let mut edit_bytes = Vec::new();
+        edit_msg.encode(&mut edit_bytes)?;
+
+        let encoded_content = EncodedContent {
+            r#type: Some(xmtp_proto::xmtp::mls::message_contents::ContentTypeId {
+                authority_id: "xmtp.org".to_string(),
+                type_id: "editMessage".to_string(),
+                version_major: 1,
+                version_minor: 0,
+            }),
+            parameters: std::collections::HashMap::new(),
+            fallback: None,
+            compression: None,
+            content: edit_bytes,
+        };
+
+        let mut encoded_bytes = Vec::new();
+        encoded_content.encode(&mut encoded_bytes)?;
+
+        let message_with_empty_content = xmtp_db::group_message::StoredGroupMessage {
+            id: vec![10, 11, 12],
+            group_id: alix_group.group_id.clone(),
+            decrypted_message_bytes: encoded_bytes,
+            sent_at_ns: xmtp_common::time::now_ns(),
+            kind: GroupMessageKind::Application,
+            sender_installation_id: vec![1, 2, 3],
+            sender_inbox_id: alix.inbox_id().to_string(),
+            delivery_status: DeliveryStatus::Published,
+            content_type: ContentType::EditMessage,
+            version_major: 1,
+            version_minor: 0,
+            authority_id: "xmtp.org".to_string(),
+            reference_id: None,
+            expire_at_ns: None,
+            sequence_id: 4,
+            originator_id: 1,
+            inserted_at_ns: 0,
+            should_push: false,
+        };
+
+        let storage = alix.context.mls_storage();
+        let result: Result<(), crate::groups::GroupError> =
+            alix_group.load_mls_group_with_lock(storage, |mls_group| {
+                let inner_result = alix_group.process_edit_message(
+                    &mls_group,
+                    storage,
+                    &message_with_empty_content,
+                );
+                match inner_result {
+                    Ok(()) => Ok(()),
+                    Err(_) => Err(crate::groups::GroupError::InvalidGroupMembership),
+                }
+            });
+
+        assert!(
+            result.is_ok(),
+            "Empty edited_content should not cause error"
+        );
+
+        // Verify that no edit was stored (edit was rejected)
+        let edits = storage.db().get_edits_by_original_message_id(&[1, 2, 3])?;
+        assert!(
+            edits.is_empty(),
+            "No edit should be stored for empty content"
+        );
+    }
+
+    /// Test that process_edit_message rejects edits for deleted messages
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_process_edit_message_rejects_edit_for_deleted_message() {
+        use crate::tester;
+        use prost::Message;
+        use xmtp_db::Store;
+        use xmtp_db::group_message::{
+            ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
+        };
+        use xmtp_db::message_deletion::StoredMessageDeletion;
+        use xmtp_db::message_edit::QueryMessageEdit;
+        use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+        use xmtp_proto::xmtp::mls::message_contents::content_types::EditMessage;
+
+        tester!(alix);
+        let alix_group = alix.create_group(None, None)?;
+
+        // First, send an original message
+        alix_group
+            .send_message(b"original message", Default::default())
+            .await?;
+        alix_group.sync().await?;
+
+        let messages = alix_group.find_messages(&Default::default())?;
+        let original_message = messages
+            .iter()
+            .find(|m| m.kind == GroupMessageKind::Application)
+            .unwrap();
+        let original_message_id = original_message.id.clone();
+
+        let storage = alix.context.mls_storage();
+
+        // Create a delete message in group_messages first (for FK constraint)
+        let delete_message_id = vec![99, 98, 97];
+        let delete_msg = StoredGroupMessage {
+            id: delete_message_id.clone(),
+            group_id: alix_group.group_id.clone(),
+            decrypted_message_bytes: vec![],
+            sent_at_ns: xmtp_common::time::now_ns(),
+            kind: GroupMessageKind::Application,
+            sender_installation_id: vec![1, 2, 3],
+            sender_inbox_id: alix.inbox_id().to_string(),
+            delivery_status: DeliveryStatus::Published,
+            content_type: ContentType::DeleteMessage,
+            version_major: 1,
+            version_minor: 0,
+            authority_id: "xmtp.org".to_string(),
+            reference_id: None,
+            expire_at_ns: None,
+            sequence_id: 10,
+            originator_id: 1,
+            inserted_at_ns: 0,
+            should_push: false,
+        };
+        delete_msg.store(&storage.db())?;
+
+        // Store a deletion record for this message (simulating message was deleted)
+        let deletion = StoredMessageDeletion {
+            id: delete_message_id,
+            group_id: alix_group.group_id.clone(),
+            deleted_message_id: original_message_id.clone(),
+            deleted_by_inbox_id: alix.inbox_id().to_string(),
+            is_super_admin_deletion: false,
+            deleted_at_ns: xmtp_common::time::now_ns(),
+        };
+        deletion.store(&storage.db())?;
+
+        // Now try to process an edit for the deleted message
+        let edit_msg = EditMessage {
+            message_id: hex::encode(&original_message_id),
+            edited_content: Some(EncodedContent {
+                r#type: Some(xmtp_proto::xmtp::mls::message_contents::ContentTypeId {
+                    authority_id: "xmtp.org".to_string(),
+                    type_id: "text".to_string(),
+                    version_major: 1,
+                    version_minor: 0,
+                }),
+                parameters: std::collections::HashMap::new(),
+                fallback: None,
+                compression: None,
+                content: b"edited text after delete".to_vec(),
+            }),
+        };
+
+        let mut edit_bytes = Vec::new();
+        edit_msg.encode(&mut edit_bytes)?;
+
+        let encoded_content = EncodedContent {
+            r#type: Some(xmtp_proto::xmtp::mls::message_contents::ContentTypeId {
+                authority_id: "xmtp.org".to_string(),
+                type_id: "editMessage".to_string(),
+                version_major: 1,
+                version_minor: 0,
+            }),
+            parameters: std::collections::HashMap::new(),
+            fallback: None,
+            compression: None,
+            content: edit_bytes,
+        };
+
+        let mut encoded_bytes = Vec::new();
+        encoded_content.encode(&mut encoded_bytes)?;
+
+        let edit_message = xmtp_db::group_message::StoredGroupMessage {
+            id: vec![100, 101, 102],
+            group_id: alix_group.group_id.clone(),
+            decrypted_message_bytes: encoded_bytes,
+            sent_at_ns: xmtp_common::time::now_ns(),
+            kind: GroupMessageKind::Application,
+            sender_installation_id: vec![1, 2, 3],
+            sender_inbox_id: alix.inbox_id().to_string(),
+            delivery_status: DeliveryStatus::Published,
+            content_type: ContentType::EditMessage,
+            version_major: 1,
+            version_minor: 0,
+            authority_id: "xmtp.org".to_string(),
+            reference_id: None,
+            expire_at_ns: None,
+            sequence_id: 5,
+            originator_id: 1,
+            inserted_at_ns: 0,
+            should_push: false,
+        };
+
+        // Process the edit - it should succeed (return Ok) but NOT store the edit
+        let result: Result<(), crate::groups::GroupError> =
+            alix_group.load_mls_group_with_lock(storage, |mls_group| {
+                let inner_result =
+                    alix_group.process_edit_message(&mls_group, storage, &edit_message);
+                match inner_result {
+                    Ok(()) => Ok(()),
+                    Err(_) => Err(crate::groups::GroupError::InvalidGroupMembership),
+                }
+            });
+
+        assert!(
+            result.is_ok(),
+            "Edit for deleted message should not cause error"
+        );
+
+        // Verify no edit was stored for the deleted message
+        let edits = storage
+            .db()
+            .get_edits_for_messages(vec![original_message_id.clone()])?;
+        assert!(
+            edits.is_empty(),
+            "Edit should NOT be stored for a deleted message"
         );
     }
 }

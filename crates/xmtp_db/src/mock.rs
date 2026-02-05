@@ -872,6 +872,11 @@ mock! {
             _message_ids: Vec<Vec<u8>>,
         ) -> Result<Vec<crate::message_edit::StoredMessageEdit>, crate::ConnectionError>;
 
+        fn get_latest_edits_for_messages(
+            &self,
+            _message_ids: Vec<Vec<u8>>,
+        ) -> Result<Vec<crate::message_edit::StoredMessageEdit>, crate::ConnectionError>;
+
         fn get_group_edits(
             &self,
             _group_id: &[u8],

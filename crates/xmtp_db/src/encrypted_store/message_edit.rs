@@ -63,6 +63,12 @@ pub trait QueryMessageEdit {
         message_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<StoredMessageEdit>, crate::ConnectionError>;
 
+    /// Get the latest edit for each message in a list of message IDs
+    fn get_latest_edits_for_messages(
+        &self,
+        message_ids: Vec<Vec<u8>>,
+    ) -> Result<Vec<StoredMessageEdit>, crate::ConnectionError>;
+
     /// Get all edits in a group
     fn get_group_edits(
         &self,
@@ -103,6 +109,13 @@ where
         message_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<StoredMessageEdit>, crate::ConnectionError> {
         (**self).get_edits_for_messages(message_ids)
+    }
+
+    fn get_latest_edits_for_messages(
+        &self,
+        message_ids: Vec<Vec<u8>>,
+    ) -> Result<Vec<StoredMessageEdit>, crate::ConnectionError> {
+        (**self).get_latest_edits_for_messages(message_ids)
     }
 
     fn get_group_edits(
@@ -167,6 +180,43 @@ impl<C: ConnectionExt> QueryMessageEdit for DbConnection<C> {
             dsl::message_edits
                 .filter(dsl::original_message_id.eq_any(message_ids))
                 .load(conn)
+        })
+    }
+
+    fn get_latest_edits_for_messages(
+        &self,
+        message_ids: Vec<Vec<u8>>,
+    ) -> Result<Vec<StoredMessageEdit>, crate::ConnectionError> {
+        if message_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let placeholders = message_ids
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let query = format!(
+            "SELECT id, group_id, original_message_id, edited_by_inbox_id, edited_content, edited_at_ns
+             FROM (
+                 SELECT *, ROW_NUMBER() OVER (PARTITION BY original_message_id ORDER BY edited_at_ns DESC) as rn
+                 FROM message_edits
+                 WHERE original_message_id IN ({})
+             ) WHERE rn = 1",
+            placeholders
+        );
+
+        self.raw_query_read(|conn| {
+            use diesel::sql_types::Binary;
+
+            let mut q = diesel::sql_query(query).into_boxed();
+
+            for id in &message_ids {
+                q = q.bind::<Binary, _>(id);
+            }
+
+            q.load::<StoredMessageEdit>(conn)
         })
     }
 
@@ -458,6 +508,89 @@ mod tests {
             let group2_edits = conn.get_group_edits(&group2)?;
             assert_eq!(group2_edits.len(), 1);
             assert_eq!(group2_edits[0].original_message_id, msg2);
+        })
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_get_latest_edits_for_messages() {
+        with_connection(|conn| {
+            let group_id = vec![1, 2, 3];
+            let msg1 = vec![4, 5, 6];
+            let msg2 = vec![7, 8, 9];
+            let msg3 = vec![10, 11, 12]; // not edited
+            let edit1_v1 = vec![13, 14, 15];
+            let edit1_v2 = vec![16, 17, 18];
+            let edit2_v1 = vec![19, 20, 21];
+
+            create_test_group(conn, group_id.clone());
+            create_test_message(conn, msg1.clone(), group_id.clone());
+            create_test_message(conn, msg2.clone(), group_id.clone());
+            create_test_message(conn, msg3.clone(), group_id.clone());
+            create_test_message(conn, edit1_v1.clone(), group_id.clone());
+            create_test_message(conn, edit1_v2.clone(), group_id.clone());
+            create_test_message(conn, edit2_v1.clone(), group_id.clone());
+
+            // msg1 has two edits - first edit (older)
+            StoredMessageEdit {
+                id: edit1_v1.clone(),
+                group_id: group_id.clone(),
+                original_message_id: msg1.clone(),
+                edited_by_inbox_id: "sender".to_string(),
+                edited_content: b"msg1 first edit".to_vec(),
+                edited_at_ns: 2000,
+            }
+            .store(conn)?;
+
+            // msg1 has two edits - second edit (newer, should be returned)
+            StoredMessageEdit {
+                id: edit1_v2.clone(),
+                group_id: group_id.clone(),
+                original_message_id: msg1.clone(),
+                edited_by_inbox_id: "sender".to_string(),
+                edited_content: b"msg1 second edit".to_vec(),
+                edited_at_ns: 4000,
+            }
+            .store(conn)?;
+
+            // msg2 has one edit
+            StoredMessageEdit {
+                id: edit2_v1.clone(),
+                group_id: group_id.clone(),
+                original_message_id: msg2.clone(),
+                edited_by_inbox_id: "sender".to_string(),
+                edited_content: b"msg2 only edit".to_vec(),
+                edited_at_ns: 3000,
+            }
+            .store(conn)?;
+
+            // Query for all three messages - should get only 2 results (latest per message)
+            let latest_edits =
+                conn.get_latest_edits_for_messages(vec![msg1.clone(), msg2.clone(), msg3.clone()])?;
+            assert_eq!(latest_edits.len(), 2);
+
+            // Find the edit for msg1 - should be the second edit (newer timestamp)
+            let msg1_edit = latest_edits
+                .iter()
+                .find(|e| e.original_message_id == msg1)
+                .expect("msg1 should have an edit");
+            assert_eq!(msg1_edit.id, edit1_v2);
+            assert_eq!(msg1_edit.edited_content, b"msg1 second edit".to_vec());
+            assert_eq!(msg1_edit.edited_at_ns, 4000);
+
+            // Find the edit for msg2
+            let msg2_edit = latest_edits
+                .iter()
+                .find(|e| e.original_message_id == msg2)
+                .expect("msg2 should have an edit");
+            assert_eq!(msg2_edit.id, edit2_v1);
+            assert_eq!(msg2_edit.edited_content, b"msg2 only edit".to_vec());
+
+            // Verify msg3 is not in the results (it was never edited)
+            assert!(!latest_edits.iter().any(|e| e.original_message_id == msg3));
+
+            // Test empty input
+            let empty_result = conn.get_latest_edits_for_messages(vec![])?;
+            assert!(empty_result.is_empty());
         })
     }
 }
