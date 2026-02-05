@@ -228,9 +228,14 @@ jobs:
                 NOTES_ARGS=(--notes-file "$NOTES_FILE")
               fi
             fi
+            PRERELEASE_FLAG=""
+            if [ "${{ inputs.release-type }}" != "final" ]; then
+              PRERELEASE_FLAG="--prerelease"
+            fi
             gh release create "$TAG" \
               --title "iOS SDK $VERSION" \
               "${NOTES_ARGS[@]}" \
+              $PRERELEASE_FLAG \
               "XMTP-${VERSION}.zip"
           fi
       - name: Publish to CocoaPods
