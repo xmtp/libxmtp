@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   lint:
-    name: Lint
+    name: Lint (Android)
     runs-on: warp-ubuntu-latest-x64-16x
     steps:
       - uses: actions/checkout@v4
