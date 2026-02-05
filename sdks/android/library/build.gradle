@@ -50,6 +50,13 @@ android {
         checkTestSources = false
         ignoreTestSources = true
     }
+    // Include generated bindings from Nix build
+    sourceSets {
+        main {
+            java.srcDirs += ["${rootProject.projectDir}/.build/bindings/java"]
+            jniLibs.srcDirs += ["${rootProject.projectDir}/.build/bindings/jniLibs"]
+        }
+    }
 }
 
 protobuf {
