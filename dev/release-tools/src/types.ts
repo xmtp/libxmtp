@@ -1,5 +1,6 @@
 export enum Sdk {
   Ios = "ios",
+  Android = "android",
 }
 
 export interface ManifestProvider {
