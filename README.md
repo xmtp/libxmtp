@@ -174,6 +174,10 @@ service
 │ └ [`xmtp_proto`](./crates/xmtp_proto): Generated code for handling XMTP
 protocol buffers
 
+├ sdks/
+
+│ └ [`android`](./sdks/android): Android SDK (Kotlin)
+
 ### Run the benchmarks
 
 **possible benchmarks include:**
