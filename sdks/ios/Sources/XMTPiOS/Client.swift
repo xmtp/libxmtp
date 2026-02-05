@@ -111,6 +111,8 @@ public struct ClientOptions {
 	public var deviceSyncEnabled: Bool
 	public var debugEventsEnabled: Bool
 	public var forkRecoveryOptions: ForkRecoveryOptions?
+	public var maxDbPoolSize: UInt32?
+	public var minDbPoolSize: UInt32?
 
 	public init(
 		api: Api = Api(),
@@ -123,6 +125,8 @@ public struct ClientOptions {
 		deviceSyncEnabled: Bool = true,
 		debugEventsEnabled: Bool = false,
 		forkRecoveryOptions: ForkRecoveryOptions? = nil,
+		maxDbPoolSize _: UInt32? = nil,
+		minDbPoolSize _: UInt32? = nil,
 	) {
 		self.api = api
 		self.codecs = codecs
@@ -137,6 +141,8 @@ public struct ClientOptions {
 		self.deviceSyncEnabled = deviceSyncEnabled
 		self.debugEventsEnabled = debugEventsEnabled
 		self.forkRecoveryOptions = forkRecoveryOptions
+		maxDbPoolSize = maxDbPoolSize
+		minDbPoolSize = minDbPoolSize
 	}
 }
 
@@ -394,7 +400,12 @@ public final class Client {
 		let ffiClient = try await createClient(
 			api: connectToApiBackend(api: options.api),
 			syncApi: connectToSyncApiBackend(api: options.api),
-			db: DbOptions(db: dbURL, encryptionKey: options.dbEncryptionKey, maxDbPoolSize: nil, minDbPoolSize: nil),
+			db: DbOptions(
+				db: dbURL,
+				encryptionKey: options.dbEncryptionKey,
+				maxDbPoolSize: options.maxDbPoolSize,
+				minDbPoolSize: options.minDbPoolSize,
+			),
 			inboxId: inboxId,
 			accountIdentifier: accountIdentifier.ffiPrivate,
 			nonce: 0,
