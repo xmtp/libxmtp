@@ -125,8 +125,8 @@ public struct ClientOptions {
 		deviceSyncEnabled: Bool = true,
 		debugEventsEnabled: Bool = false,
 		forkRecoveryOptions: ForkRecoveryOptions? = nil,
-		maxDbPoolSize _: UInt32? = nil,
-		minDbPoolSize _: UInt32? = nil,
+		maxDbPoolSize: UInt32? = nil,
+		minDbPoolSize: UInt32? = nil,
 	) {
 		self.api = api
 		self.codecs = codecs
@@ -141,8 +141,8 @@ public struct ClientOptions {
 		self.deviceSyncEnabled = deviceSyncEnabled
 		self.debugEventsEnabled = debugEventsEnabled
 		self.forkRecoveryOptions = forkRecoveryOptions
-		maxDbPoolSize = maxDbPoolSize
-		minDbPoolSize = minDbPoolSize
+		self.maxDbPoolSize = maxDbPoolSize
+		self.minDbPoolSize = minDbPoolSize
 	}
 }
 
