@@ -21,8 +21,8 @@ on:
         value: ${{ jobs.publish.outputs.version }}
 
 jobs:
-  compute-version:
-    runs-on: ubuntu-latest
+  publish:
+    runs-on: warp-ubuntu-latest-arm64-16x
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -30,49 +30,29 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
-      - uses: ./.github/actions/setup-node
-      - name: Install release tools
-        working-directory: dev/release-tools
-        run: yarn install
-      - name: Compute version
-        id: version
-        working-directory: dev/release-tools
-        run: |
-          if [ "${{ inputs.release-type }}" = "rc" ]; then
-            VERSION=$(yarn cli compute-version --sdk android --release-type rc --rc-number ${{ inputs.rc-number }})
-          elif [ "${{ inputs.release-type }}" = "dev" ]; then
-            VERSION=$(yarn cli compute-version --sdk android --release-type dev)
-          else
-            VERSION=$(yarn cli compute-version --sdk android --release-type final)
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Computed version: $VERSION"
-
-  publish:
-    needs: [compute-version]
-    runs-on: warp-ubuntu-latest-arm64-8x
-    outputs:
-      version: ${{ needs.compute-version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.ref }}
-          fetch-depth: 0
-      - uses: ./.github/actions/setup-node
+      - uses: ./.github/actions/setup-release-tools
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-      - name: Install release tools
-        working-directory: dev/release-tools
-        run: yarn install
+      - name: Compute version
+        id: version
+        run: |
+          if [ "${{ inputs.release-type }}" = "rc" ]; then
+            VERSION=$(xmtp-release compute-version --sdk android --release-type rc --rc-number ${{ inputs.rc-number }})
+          elif [ "${{ inputs.release-type }}" = "dev" ]; then
+            VERSION=$(xmtp-release compute-version --sdk android --release-type dev)
+          else
+            VERSION=$(xmtp-release compute-version --sdk android --release-type final)
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Computed version: $VERSION"
 
       - name: Set version in gradle.properties
-        working-directory: dev/release-tools
         env:
-          VERSION: ${{ needs.compute-version.outputs.version }}
-        run: yarn cli set-manifest-version --sdk android --version "$VERSION"
+          VERSION: ${{ steps.version.outputs.version }}
+        run: xmtp-release set-manifest-version --sdk android --version "$VERSION"
 
       - name: Build Android bindings
         run: ./sdks/android/dev/bindings
@@ -99,7 +79,7 @@ jobs:
       - name: Commit and tag (final releases only)
         if: inputs.release-type == 'final'
         env:
-          VERSION: ${{ needs.compute-version.outputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           TAG="android-${VERSION}"
           git config user.name "github-actions[bot]"
@@ -110,7 +90,7 @@ jobs:
       - name: Tag only (dev/rc releases)
         if: inputs.release-type != 'final'
         env:
-          VERSION: ${{ needs.compute-version.outputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           TAG="android-${VERSION}"
           git config user.name "github-actions[bot]"

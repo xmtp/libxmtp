@@ -4,6 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import { bumpVersion } from "../../src/commands/bump-version.js";
 import { readPodspecVersion } from "../../src/lib/manifest.js";
+import type { BumpType } from "../../src/types.js";
 
 const SAMPLE_PODSPEC = `Pod::Spec.new do |spec|
   spec.name         = "XMTP"
@@ -42,4 +43,20 @@ describe("bumpVersion", () => {
     const result = bumpVersion("ios", "major", tmpDir);
     expect(result).toBe("5.0.0");
   });
+
+  it.each([
+    ["4.9.0-dev.abc1234", "patch", "4.9.1"],
+    ["4.9.0-rc1", "minor", "4.10.0"],
+    ["4.9.0-rc1+build.456", "major", "5.0.0"],
+  ] as const)(
+    "normalizes %s before bumping %s => %s",
+    (version, bumpType, expected) => {
+      fs.writeFileSync(
+        path.join(tmpDir, "sdks/ios/XMTP.podspec"),
+        SAMPLE_PODSPEC.replace("4.9.0", version),
+      );
+      const result = bumpVersion("ios", bumpType as BumpType, tmpDir);
+      expect(result).toBe(expected);
+    },
+  );
 });

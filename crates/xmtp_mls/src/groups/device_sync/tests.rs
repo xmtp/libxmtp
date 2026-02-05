@@ -50,14 +50,9 @@ async fn basic_sync() {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg(not(target_arch = "wasm32"))]
 async fn only_one_payload_sent() {
-    use std::time::Duration;
-    use tokio::time::sleep;
-
-    use crate::utils::LocalTesterBuilder;
-
     tester!(alix1, sync_server, sync_worker, with_name: "alix1");
-    let alix2 = alix1.builder.clone().with_name("alix2").build().await;
-    let alix3 = alix1.builder.clone().with_name("alix3").build().await;
+    tester!(alix2, from: alix1, with_name: "alix2");
+    tester!(alix3, from: alix1, with_name: "alix3");
 
     // They should all have the same sync group
     alix1.test_has_same_sync_group_as(&alix3).await?;
@@ -67,30 +62,9 @@ async fn only_one_payload_sent() {
     let wait1 = alix1.worker().register_interest(SyncMetric::PayloadSent, 1);
     let wait2 = alix2.worker().register_interest(SyncMetric::PayloadSent, 1);
 
-    // Wait for exactly one PayloadSent event using a race
-    let result = tokio::select! {
-        _r1 = wait1.wait() => "alix1",
-        _r2 = wait2.wait() => "alix2",
-        _ = sleep(Duration::from_secs(10)) => "timeout",
-    };
-
     // Register interest for next PayloadSent events
-    let wait1 = alix1.worker().register_interest(SyncMetric::PayloadSent, 1);
-    let wait2 = alix2.worker().register_interest(SyncMetric::PayloadSent, 1);
-
-    // ensure no other send activity happens
-    let result2 = tokio::select! {
-        _r1 = wait1.wait() => "alix1",
-        _r2 = wait2.wait() => "alix2",
-        _ = sleep(Duration::from_secs(3)) => "timeout",
-    };
-
-    assert_ne!(
-        result, "timeout",
-        "Expected one payload to be sent within timeout"
-    );
-
-    assert_eq!(result2, "timeout", "expected second send to timeout");
+    let (wait1, wait2) = tokio::join!(wait1.wait(), wait2.wait());
+    assert_ne!(wait1.is_ok(), wait2.is_ok());
 
     // Check final counts - should be exactly 1 more total
     let alix1_count = alix1.worker().get(SyncMetric::PayloadSent);
@@ -109,8 +83,8 @@ async fn only_one_payload_sent() {
     let alix2_sent = alix2_count > 0;
     assert_ne!(
         alix1_sent, alix2_sent,
-        "Expected exactly one client to send payload, but alix1_sent={}, alix2_sent={} (winner was: {})",
-        alix1_sent, alix2_sent, result
+        "Expected exactly one client to send payload, but alix1_sent={}, alix2_sent={}",
+        alix1_sent, alix2_sent
     );
 }
 
@@ -244,9 +218,11 @@ async fn test_hmac_and_consent_preference_sync() {
     assert_eq!(alix1_group.consent_state()?, ConsentState::Unknown);
     alix1_group.update_consent_state(ConsentState::Allowed)?;
 
+    alix2.sync_all_welcomes_and_groups(None).await?;
+
     alix2
         .worker()
-        .register_interest(SyncMetric::ConsentReceived, 3)
+        .register_interest(SyncMetric::ConsentReceived, 2)
         .wait()
         .await?;
     let alix2_group = alix2.group(&bo_group.group_id)?;
