@@ -83,6 +83,8 @@ jobs:
           mkdir -p Sources/LibXMTP
           cp build/nix/swift/xmtpv3.swift Sources/LibXMTP/
           cp ../../LICENSE ./LICENSE
+          # Fix permissions on xcframework (xcodebuild creates read-only headers)
+          chmod -R u+w build/swift/LibXMTPSwiftFFI.xcframework
           zip -r LibXMTPSwiftFFI.zip \
             Sources \
             build/swift/LibXMTPSwiftFFI.xcframework \
@@ -90,6 +92,8 @@ jobs:
       - name: Package dynamic zip
         working-directory: bindings/mobile
         run: |
+          # Fix permissions on xcframework (xcodebuild creates read-only headers)
+          chmod -R u+w build/swift/LibXMTPSwiftFFIDynamic.xcframework
           zip -r LibXMTPSwiftFFIDynamic.zip \
             Sources \
             build/swift/LibXMTPSwiftFFIDynamic.xcframework \
