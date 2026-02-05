@@ -36,7 +36,7 @@ export function createPodspecManifestProvider(
   };
 }
 
-const GRADLE_VERSION_REGEX = /^version=(.+)$/m;
+const GRADLE_VERSION_REGEX = /^version\s*=\s*(.+)$/m;
 
 export function readGradlePropertiesVersion(propsPath: string): string {
   const content = fs.readFileSync(propsPath, "utf-8");
@@ -44,7 +44,7 @@ export function readGradlePropertiesVersion(propsPath: string): string {
   if (!match) {
     throw new Error(`Could not find version= in ${propsPath}`);
   }
-  return match[1];
+  return match[1].trim();
 }
 
 export function writeGradlePropertiesVersion(
