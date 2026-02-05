@@ -13,8 +13,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		public var description: String {
 			switch self {
 			case .missingPeerInboxId:
-				return
-					"ConversationError.missingPeerInboxId: The direct message is missing a peer inbox ID"
+				"ConversationError.missingPeerInboxId: The direct message is missing a peer inbox ID"
 			}
 		}
 
@@ -114,16 +113,16 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	}
 
 	public func updateDisappearingMessageSettings(
-		_ disappearingMessageSettings: DisappearingMessageSettings?
+		_ disappearingMessageSettings: DisappearingMessageSettings?,
 	) async throws {
 		if let settings = disappearingMessageSettings {
 			let ffiSettings = FfiMessageDisappearingSettings(
 				fromNs: settings.disappearStartingAtNs,
-				inNs: settings.retentionDurationInNs
+				inNs: settings.retentionDurationInNs,
 			)
 			try await ffiConversation
 				.updateConversationMessageDisappearingSettings(
-					settings: ffiSettings
+					settings: ffiSettings,
 				)
 		} else {
 			try await clearDisappearingMessageSettings()
@@ -142,7 +141,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	public func processMessage(messageBytes: Data) async throws -> DecodedMessage? {
 		let messages =
 			try await ffiConversation.processStreamedConversationMessage(
-				envelopeBytes: messageBytes
+				envelopeBytes: messageBytes,
 			)
 		guard let firstMessage = messages.first else {
 			return nil
@@ -150,22 +149,22 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		return DecodedMessage.create(ffiMessage: firstMessage)
 	}
 
-	public func send<T>(content: T, options: SendOptions? = nil) async throws
+	public func send(content: some Any, options: SendOptions? = nil) async throws
 		-> String
 	{
 		let (encodeContent, visibilityOptions) = try await encodeContent(
-			content: content, options: options
+			content: content, options: options,
 		)
 		return try await send(encodedContent: encodeContent, visibilityOptions: visibilityOptions)
 	}
 
 	public func send(
-		encodedContent: EncodedContent, visibilityOptions: MessageVisibilityOptions? = nil
+		encodedContent: EncodedContent, visibilityOptions: MessageVisibilityOptions? = nil,
 	) async throws -> String {
 		let opts = visibilityOptions?.toFfi() ?? FfiSendMessageOpts(shouldPush: true)
 		let messageId = try await ffiConversation.send(
 			contentBytes: encodedContent.serializedData(),
-			opts: opts
+			opts: opts,
 		)
 		return messageId.toHex
 	}
@@ -216,7 +215,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		}
 
 		let visibilityOptions = try MessageVisibilityOptions(
-			shouldPush: shouldPush(codec: codec, content: content)
+			shouldPush: shouldPush(codec: codec, content: content),
 		)
 
 		return (encoded, visibilityOptions)
@@ -225,7 +224,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	public func prepareMessage(
 		encodedContent: EncodedContent,
 		visibilityOptions: MessageVisibilityOptions? = nil,
-		noSend: Bool = false
+		noSend: Bool = false,
 	) async throws
 		-> String
 	{
@@ -234,28 +233,28 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		if noSend {
 			messageId = try ffiConversation.prepareMessage(
 				contentBytes: encodedContent.serializedData(),
-				shouldPush: shouldPush
+				shouldPush: shouldPush,
 			)
 		} else {
 			let opts = visibilityOptions?.toFfi() ?? FfiSendMessageOpts(shouldPush: true)
 			messageId = try ffiConversation.sendOptimistic(
 				contentBytes: encodedContent.serializedData(),
-				opts: opts
+				opts: opts,
 			)
 		}
 		return messageId.toHex
 	}
 
-	public func prepareMessage<T>(content: T, options: SendOptions? = nil, noSend: Bool = false)
+	public func prepareMessage(content: some Any, options: SendOptions? = nil, noSend: Bool = false)
 		async throws -> String
 	{
 		let (encodeContent, visibilityOptions) = try await encodeContent(
-			content: content, options: options
+			content: content, options: options,
 		)
 		return try await prepareMessage(
 			encodedContent: encodeContent,
 			visibilityOptions: visibilityOptions,
-			noSend: noSend
+			noSend: noSend,
 		)
 	}
 
@@ -289,7 +288,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 					} onClose: {
 						onClose?()
 						continuation.finish()
-					}
+					},
 				)
 
 				continuation.onTermination = { @Sendable _ in
@@ -306,17 +305,17 @@ public struct Dm: Identifiable, Equatable, Hashable {
 
 	public func lastMessage() async throws -> DecodedMessage? {
 		if let ffiMessage = ffiLastMessage {
-			return DecodedMessage.create(ffiMessage: ffiMessage)
+			DecodedMessage.create(ffiMessage: ffiMessage)
 		} else {
-			return try await messages(limit: 1).first
+			try await messages(limit: 1).first
 		}
 	}
 
 	public func commitLogForkStatus() -> CommitLogForkStatus {
 		switch ffiCommitLogForkStatus {
-		case true: return .forked
-		case false: return .notForked
-		default: return .unknown
+		case true: .forked
+		case false: .notForked
+		default: .unknown
 		}
 	}
 
@@ -341,7 +340,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		excludeSenderInboxIds: [String]? = nil,
 		sortBy: MessageSortBy? = nil,
 		insertedAfterNs: Int64? = nil,
-		insertedBeforeNs: Int64? = nil
+		insertedBeforeNs: Int64? = nil,
 	) async throws -> [DecodedMessage] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
@@ -354,7 +353,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			excludeSenderInboxIds: nil,
 			sortBy: nil,
 			insertedAfterNs: nil,
-			insertedBeforeNs: nil
+			insertedBeforeNs: nil,
 		)
 
 		if let beforeNs {
@@ -369,29 +368,25 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			options.limit = Int64(limit)
 		}
 
-		let status: FfiDeliveryStatus? = {
-			switch deliveryStatus {
-			case .published:
-				return FfiDeliveryStatus.published
-			case .unpublished:
-				return FfiDeliveryStatus.unpublished
-			case .failed:
-				return FfiDeliveryStatus.failed
-			default:
-				return nil
-			}
-		}()
+		let status: FfiDeliveryStatus? = switch deliveryStatus {
+		case .published:
+			FfiDeliveryStatus.published
+		case .unpublished:
+			FfiDeliveryStatus.unpublished
+		case .failed:
+			FfiDeliveryStatus.failed
+		default:
+			nil
+		}
 
 		options.deliveryStatus = status
 
-		let direction: FfiDirection? = {
-			switch direction {
-			case .ascending:
-				return FfiDirection.ascending
-			default:
-				return FfiDirection.descending
-			}
-		}()
+		let direction: FfiDirection? = switch direction {
+		case .ascending:
+			FfiDirection.ascending
+		default:
+			FfiDirection.descending
+		}
 
 		options.direction = direction
 		options.excludeContentTypes = excludeContentTypes
@@ -416,7 +411,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		excludeSenderInboxIds: [String]? = nil,
 		sortBy: MessageSortBy? = nil,
 		insertedAfterNs: Int64? = nil,
-		insertedBeforeNs: Int64? = nil
+		insertedBeforeNs: Int64? = nil,
 	) async throws -> [DecodedMessage] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
@@ -429,7 +424,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			excludeSenderInboxIds: nil,
 			sortBy: nil,
 			insertedAfterNs: nil,
-			insertedBeforeNs: nil
+			insertedBeforeNs: nil,
 		)
 
 		if let beforeNs {
@@ -446,14 +441,12 @@ public struct Dm: Identifiable, Equatable, Hashable {
 
 		options.deliveryStatus = deliveryStatus.toFfi()
 
-		let direction: FfiDirection? = {
-			switch direction {
-			case .ascending:
-				return FfiDirection.ascending
-			default:
-				return FfiDirection.descending
-			}
-		}()
+		let direction: FfiDirection? = switch direction {
+		case .ascending:
+			FfiDirection.ascending
+		default:
+			FfiDirection.descending
+		}
 
 		options.direction = direction
 		options.excludeContentTypes = excludeContentTypes
@@ -463,7 +456,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		options.insertedBeforeNs = insertedBeforeNs
 
 		return try ffiConversation.findMessagesWithReactions(
-			opts: options
+			opts: options,
 		).compactMap {
 			ffiMessageWithReactions in
 			DecodedMessage.create(ffiMessage: ffiMessageWithReactions)
@@ -476,7 +469,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		excludeContentTypes: [StandardContentType]? = nil,
 		excludeSenderInboxIds: [String]? = nil,
 		insertedAfterNs: Int64? = nil,
-		insertedBeforeNs: Int64? = nil
+		insertedBeforeNs: Int64? = nil,
 	) throws -> Int64 {
 		try ffiConversation.countMessages(
 			opts: FfiListMessagesOptions(
@@ -490,8 +483,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				sortBy: nil,
 				insertedAfterNs: insertedAfterNs,
-				insertedBeforeNs: insertedBeforeNs
-			)
+				insertedBeforeNs: insertedBeforeNs,
+			),
 		)
 	}
 
@@ -520,7 +513,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		excludeSenderInboxIds: [String]? = nil,
 		sortBy: MessageSortBy? = nil,
 		insertedAfterNs: Int64? = nil,
-		insertedBeforeNs: Int64? = nil
+		insertedBeforeNs: Int64? = nil,
 	) async throws -> [DecodedMessageV2] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
@@ -533,7 +526,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			excludeSenderInboxIds: nil,
 			sortBy: nil,
 			insertedAfterNs: nil,
-			insertedBeforeNs: nil
+			insertedBeforeNs: nil,
 		)
 
 		if let beforeNs {
@@ -548,29 +541,25 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			options.limit = Int64(limit)
 		}
 
-		let status: FfiDeliveryStatus? = {
-			switch deliveryStatus {
-			case .published:
-				return FfiDeliveryStatus.published
-			case .unpublished:
-				return FfiDeliveryStatus.unpublished
-			case .failed:
-				return FfiDeliveryStatus.failed
-			default:
-				return nil
-			}
-		}()
+		let status: FfiDeliveryStatus? = switch deliveryStatus {
+		case .published:
+			FfiDeliveryStatus.published
+		case .unpublished:
+			FfiDeliveryStatus.unpublished
+		case .failed:
+			FfiDeliveryStatus.failed
+		default:
+			nil
+		}
 
 		options.deliveryStatus = status
 
-		let direction: FfiDirection? = {
-			switch direction {
-			case .ascending:
-				return FfiDirection.ascending
-			default:
-				return FfiDirection.descending
-			}
-		}()
+		let direction: FfiDirection? = switch direction {
+		case .ascending:
+			FfiDirection.ascending
+		default:
+			FfiDirection.descending
+		}
 
 		options.direction = direction
 		options.excludeContentTypes = excludeContentTypes
@@ -603,7 +592,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 				hmacKeys.values.append(hmacKeyData)
 			}
 			hmacKeysResponse.hmacKeys[
-				Topic.groupMessage(convo.key.toHex).description
+				Topic.groupMessage(convo.key.toHex).description,
 			] = hmacKeys
 		}
 
@@ -619,7 +608,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 
 	public func getDebugInformation() async throws -> ConversationDebugInfo {
 		try await ConversationDebugInfo(
-			ffiConversationDebugInfo: ffiConversation.conversationDebugInfo()
+			ffiConversationDebugInfo: ffiConversation.conversationDebugInfo(),
 		)
 	}
 

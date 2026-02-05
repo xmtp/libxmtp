@@ -67,17 +67,17 @@ struct MessageTextView: View {
 
 	var background: Color {
 		if message.senderInboxId.lowercased() == myAddress.lowercased() {
-			return .purple
+			.purple
 		} else {
-			return .secondary.opacity(0.2)
+			.secondary.opacity(0.2)
 		}
 	}
 
 	var color: Color {
 		if message.senderInboxId.lowercased() == myAddress.lowercased() {
-			return .white
+			.white
 		} else {
-			return .primary
+			.primary
 		}
 	}
 }

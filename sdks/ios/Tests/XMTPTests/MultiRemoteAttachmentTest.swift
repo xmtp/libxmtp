@@ -19,13 +19,13 @@ class MultiRemoteAttachmentTests: XCTestCase {
 		let originalAttachment = Attachment(
 			filename: "test.txt",
 			mimeType: "text/plain",
-			data: Data("hello world".utf8)
+			data: Data("hello world".utf8),
 		)
 
 		// Convert attachment into an encryptedEncodedContent
 		let encryptedEncodedContent = try RemoteAttachment.encodeEncrypted(
 			content: originalAttachment,
-			codec: AttachmentCodec()
+			codec: AttachmentCodec(),
 		)
 
 		// Now decrypt via decryptAttachment
@@ -56,13 +56,13 @@ class MultiRemoteAttachmentTests: XCTestCase {
 		let attachment1 = Attachment(
 			filename: "test1.txt",
 			mimeType: "text/plain",
-			data: Data("hello world".utf8)
+			data: Data("hello world".utf8),
 		)
 
 		let attachment2 = Attachment(
 			filename: "test2.txt",
 			mimeType: "text/plain",
-			data: Data("hello world".utf8)
+			data: Data("hello world".utf8),
 		)
 
 		// We'll store the encrypted payloads in a local dictionary keyed by a fake https URL
@@ -89,7 +89,7 @@ class MultiRemoteAttachmentTests: XCTestCase {
 			// 4) Build a RemoteAttachmentInfo for that URL
 			let info = try MultiRemoteAttachmentCodec.buildRemoteAttachmentInfo(
 				encryptedAttachment: encrypted,
-				remoteUrl: XCTUnwrap(URL(string: urlString))
+				remoteUrl: XCTUnwrap(URL(string: urlString)),
 			)
 			remoteAttachmentInfos.append(info)
 		}
@@ -137,7 +137,7 @@ class MultiRemoteAttachmentTests: XCTestCase {
 				nonce: info.nonce,
 				scheme: RemoteAttachment.Scheme(rawValue: info.scheme) ?? .https, // Convert string to enum
 				contentLength: Int(info.contentLength),
-				filename: info.filename
+				filename: info.filename,
 			)
 
 			// “Download” the encrypted payload
@@ -149,7 +149,7 @@ class MultiRemoteAttachmentTests: XCTestCase {
 			// Recombine that payload with the attachment’s metadata
 			let encryptedAttachment = MultiRemoteAttachmentCodec.buildEncryptAttachmentResult(
 				remoteAttachment: remoteAttachment,
-				encryptedPayload: downloadedPayload
+				encryptedPayload: downloadedPayload,
 			)
 
 			// Decrypt

@@ -16,15 +16,13 @@ enum Crypto {
 		let resultKey = HKDF<SHA256>.deriveKey(
 			inputKeyMaterial: SymmetricKey(data: secret),
 			salt: salt,
-			outputByteCount: 32
+			outputByteCount: 32,
 		)
 
-		var payload: AES.GCM.SealedBox
-
-		if let additionalData {
-			payload = try AES.GCM.seal(message, using: resultKey, nonce: nonce, authenticating: additionalData)
+		var payload: AES.GCM.SealedBox = if let additionalData {
+			try AES.GCM.seal(message, using: resultKey, nonce: nonce, authenticating: additionalData)
 		} else {
-			payload = try AES.GCM.seal(message, using: resultKey, nonce: nonce)
+			try AES.GCM.seal(message, using: resultKey, nonce: nonce)
 		}
 
 		var ciphertext = CipherText()
@@ -55,7 +53,7 @@ enum Crypto {
 		let resultKey = HKDF<SHA256>.deriveKey(
 			inputKeyMaterial: SymmetricKey(data: secret),
 			salt: salt,
-			outputByteCount: 32
+			outputByteCount: 32,
 		)
 
 		if let additionalData {
@@ -75,7 +73,7 @@ enum Crypto {
 			inputKeyMaterial: SymmetricKey(data: secret),
 			salt: nonce,
 			info: info,
-			outputByteCount: 32
+			outputByteCount: 32,
 		)
 		return key.withUnsafeBytes { body in
 			Data(body)
@@ -89,7 +87,7 @@ enum Crypto {
 		let status = SecRandomCopyBytes(
 			kSecRandomDefault,
 			count,
-			&bytes
+			&bytes,
 		)
 
 		// A status of errSecSuccess indicates success
@@ -105,7 +103,7 @@ enum Crypto {
 			inputKeyMaterial: SymmetricKey(data: secret),
 			salt: Data(),
 			info: info,
-			outputByteCount: 32
+			outputByteCount: 32,
 		)
 	}
 
@@ -137,7 +135,7 @@ enum Crypto {
 		HMAC<SHA256>.isValidAuthenticationCode(
 			signature,
 			authenticating: message,
-			using: key
+			using: key,
 		)
 	}
 }

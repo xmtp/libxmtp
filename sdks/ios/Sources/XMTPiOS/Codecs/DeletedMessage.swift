@@ -5,7 +5,7 @@ public let ContentTypeDeletedMessage = ContentTypeID(
 	authorityID: "xmtp.org",
 	typeID: "deletedMessage",
 	versionMajor: 1,
-	versionMinor: 0
+	versionMinor: 0,
 )
 
 /// Represents a message that has been deleted.

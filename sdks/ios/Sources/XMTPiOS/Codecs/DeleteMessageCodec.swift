@@ -4,7 +4,7 @@ public let ContentTypeDeleteMessageRequest = ContentTypeID(
 	authorityID: "xmtp.org",
 	typeID: "deleteMessage",
 	versionMajor: 1,
-	versionMinor: 0
+	versionMinor: 0,
 )
 
 /// Represents a request to delete a message.
@@ -28,7 +28,7 @@ public struct DeleteMessageCodec: ContentCodec {
 
 	public func encode(content: DeleteMessageRequest) throws -> EncodedContent {
 		let ffi = FfiDeleteMessage(
-			messageId: content.messageId
+			messageId: content.messageId,
 		)
 		return try EncodedContent(serializedBytes: encodeDeleteMessage(request: ffi))
 	}
@@ -36,7 +36,7 @@ public struct DeleteMessageCodec: ContentCodec {
 	public func decode(content: EncodedContent) throws -> DeleteMessageRequest {
 		let decoded = try decodeDeleteMessage(bytes: content.serializedBytes())
 		return DeleteMessageRequest(
-			messageId: decoded.messageId
+			messageId: decoded.messageId,
 		)
 	}
 

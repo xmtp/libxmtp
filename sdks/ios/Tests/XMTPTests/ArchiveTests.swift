@@ -29,8 +29,8 @@ class ArchiveTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir1
-			)
+				dbDirectory: dbDir1,
+			),
 		)
 
 		let allPath = randomTempFile()
@@ -45,23 +45,23 @@ class ArchiveTests: XCTestCase {
 		_ = try await fixtures.boClient.conversations.syncAllConversations()
 
 		let boGroupResult = try await fixtures.boClient.conversations.findGroup(
-			groupId: group.id
+			groupId: group.id,
 		)
 		let boGroup = try XCTUnwrap(boGroupResult)
 		try await alixClient.createArchive(
-			path: allPath, encryptionKey: encryptionKey
+			path: allPath, encryptionKey: encryptionKey,
 		)
 		try await alixClient.createArchive(
 			path: consentPath,
 			encryptionKey: encryptionKey,
-			opts: .init(archiveElements: [.consent])
+			opts: .init(archiveElements: [.consent]),
 		)
 
 		let metadataAll = try await alixClient.archiveMetadata(
-			path: allPath, encryptionKey: encryptionKey
+			path: allPath, encryptionKey: encryptionKey,
 		)
 		let metadataConsent = try await alixClient.archiveMetadata(
-			path: consentPath, encryptionKey: encryptionKey
+			path: consentPath, encryptionKey: encryptionKey,
 		)
 
 		let allElementsCount = metadataAll.elements.count
@@ -75,12 +75,12 @@ class ArchiveTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir2
-			)
+				dbDirectory: dbDir2,
+			),
 		)
 
 		try await alixClient2.importArchive(
-			path: allPath, encryptionKey: encryptionKey
+			path: allPath, encryptionKey: encryptionKey,
 		)
 		_ = try await alixClient.conversations.syncAllConversations()
 		sleep(2)
@@ -120,21 +120,21 @@ class ArchiveTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir1
-			)
+				dbDirectory: dbDir1,
+			),
 		)
 
 		let allPath = randomTempFile()
 
 		// 1. Alix creates a dm with Bo, sends a message, and then creates an archive
 		let dm = try await alixClient.conversations.findOrCreateDm(
-			with: fixtures.boClient.inboxID
+			with: fixtures.boClient.inboxID,
 		)
 		_ = try await dm.send(content: "hi")
 		_ = try await alixClient.conversations.syncAllConversations()
 
 		try await alixClient.createArchive(
-			path: allPath, encryptionKey: encryptionKey
+			path: allPath, encryptionKey: encryptionKey,
 		)
 
 		// 2. Alix creates a second installation and imports our archive
@@ -143,12 +143,12 @@ class ArchiveTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir2
-			)
+				dbDirectory: dbDir2,
+			),
 		)
 
 		try await alixClient2.importArchive(
-			path: allPath, encryptionKey: encryptionKey
+			path: allPath, encryptionKey: encryptionKey,
 		)
 		_ = try await alixClient2.conversations.syncAllConversations()
 
@@ -160,7 +160,7 @@ class ArchiveTests: XCTestCase {
 
 		// While our dm with Bo from archive is still in an inactive state, Alix installation 2 creates a duplicate DM with Bo
 		let dm2 = try await alixClient2.conversations.findOrCreateDm(
-			with: fixtures.boClient.inboxID
+			with: fixtures.boClient.inboxID,
 		)
 		let isActive = try dm2.isActive()
 		XCTAssertTrue(isActive)
@@ -194,7 +194,7 @@ class ArchiveTests: XCTestCase {
 			fixtures.boClient.inboxID,
 		])
 		let dm = try await fixtures.alixClient.conversations.findOrCreateDm(
-			with: fixtures.boClient.inboxID
+			with: fixtures.boClient.inboxID,
 		)
 
 		_ = try await group.send(content: "First")
@@ -204,7 +204,7 @@ class ArchiveTests: XCTestCase {
 		_ = try await fixtures.boClient.conversations.syncAllConversations()
 
 		let boGroupResult2 = try await fixtures.boClient.conversations.findGroup(
-			groupId: group.id
+			groupId: group.id,
 		)
 		let boGroup = try XCTUnwrap(boGroupResult2)
 
@@ -221,11 +221,11 @@ class ArchiveTests: XCTestCase {
 		XCTAssertEqual(boListCount1, 2)
 
 		try await fixtures.alixClient.createArchive(
-			path: allPath, encryptionKey: encryptionKey
+			path: allPath, encryptionKey: encryptionKey,
 		)
 		_ = try await group.send(content: "Second")
 		try await fixtures.alixClient.importArchive(
-			path: allPath, encryptionKey: encryptionKey
+			path: allPath, encryptionKey: encryptionKey,
 		)
 		_ = try await group.send(content: "Third")
 		_ = try await dm.send(content: "hi")

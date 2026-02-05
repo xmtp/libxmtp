@@ -12,12 +12,11 @@ public enum ClientError: Error, CustomStringConvertible, LocalizedError {
 	public var description: String {
 		switch self {
 		case let .creationError(err):
-			return "ClientError.creationError: \(err)"
+			"ClientError.creationError: \(err)"
 		case .missingInboxId:
-			return "ClientError.missingInboxId"
+			"ClientError.missingInboxId"
 		case let .invalidInboxId(inboxId):
-			return
-				"Invalid inboxId: \(inboxId). Inbox IDs cannot start with '0x'."
+			"Invalid inboxId: \(inboxId). Inbox IDs cannot start with '0x'."
 		}
 	}
 
@@ -34,11 +33,11 @@ public enum ForkRecoveryPolicy {
 	func toFfi() -> FfiForkRecoveryPolicy {
 		switch self {
 		case .none:
-			return .none
+			.none
 		case .allowlistedGroups:
-			return .allowlistedGroups
+			.allowlistedGroups
 		case .all:
-			return .all
+			.all
 		}
 	}
 }
@@ -53,7 +52,7 @@ public struct ForkRecoveryOptions {
 		enableRecoveryRequests: ForkRecoveryPolicy,
 		groupsToRequestRecovery: [String],
 		disableRecoveryResponses: Bool? = nil,
-		workerIntervalNs: UInt64? = nil
+		workerIntervalNs: UInt64? = nil,
 	) {
 		self.enableRecoveryRequests = enableRecoveryRequests
 		self.groupsToRequestRecovery = groupsToRequestRecovery
@@ -66,7 +65,7 @@ public struct ForkRecoveryOptions {
 			enableRecoveryRequests: enableRecoveryRequests.toFfi(),
 			groupsToRequestRecovery: groupsToRequestRecovery,
 			disableRecoveryResponses: disableRecoveryResponses,
-			workerIntervalNs: workerIntervalNs
+			workerIntervalNs: workerIntervalNs,
 		)
 	}
 }
@@ -90,7 +89,7 @@ public struct ClientOptions {
 		public init(
 			env: XMTPEnvironment = .dev, isSecure: Bool = true,
 			appVersion: String? = nil,
-			gatewayHost: String? = nil
+			gatewayHost: String? = nil,
 		) {
 			self.env = env
 			self.isSecure = isSecure
@@ -123,7 +122,7 @@ public struct ClientOptions {
 		useDefaultHistorySyncUrl: Bool = true,
 		deviceSyncEnabled: Bool = true,
 		debugEventsEnabled: Bool = false,
-		forkRecoveryOptions: ForkRecoveryOptions? = nil
+		forkRecoveryOptions: ForkRecoveryOptions? = nil,
 	) {
 		self.api = api
 		self.codecs = codecs
@@ -184,15 +183,15 @@ public final class Client {
 
 	public lazy var conversations: Conversations = .init(
 		client: self, ffiConversations: ffiClient.conversations(),
-		ffiClient: ffiClient
+		ffiClient: ffiClient,
 	)
 
 	public lazy var preferences: PrivatePreferences = .init(
-		client: self, ffiClient: ffiClient
+		client: self, ffiClient: ffiClient,
 	)
 
 	public lazy var debugInformation: XMTPDebugInformation = .init(
-		client: self, ffiClient: ffiClient
+		client: self, ffiClient: ffiClient,
 	)
 
 	static var codecRegistry = CodecRegistry()
@@ -207,13 +206,13 @@ public final class Client {
 		signingKey: SigningKey?,
 		inboxId: InboxId,
 		apiClient _: XmtpApiClient? = nil,
-		buildOffline: Bool = false
+		buildOffline: Bool = false,
 	) async throws -> Client {
 		let (libxmtpClient, dbPath) = try await initFFiClient(
 			accountIdentifier: publicIdentity,
 			options: options,
 			inboxId: inboxId,
-			buildOffline: buildOffline
+			buildOffline: buildOffline,
 		)
 
 		let client = try Client(
@@ -222,22 +221,22 @@ public final class Client {
 			installationID: libxmtpClient.installationId().toHex,
 			inboxID: libxmtpClient.inboxId(),
 			environment: options.api.env,
-			publicIdentity: publicIdentity
+			publicIdentity: publicIdentity,
 		)
 
 		try await options.preAuthenticateToInboxCallback?()
 		if let signatureRequest = client.ffiClient.signatureRequest() {
-			if let signingKey = signingKey {
+			if let signingKey {
 				do {
 					try await handleSignature(
-						for: signatureRequest, signingKey: signingKey
+						for: signatureRequest, signingKey: signingKey,
 					)
 					try await client.ffiClient.registerIdentity(
-						signatureRequest: signatureRequest
+						signatureRequest: signatureRequest,
 					)
 				} catch {
 					throw ClientError.creationError(
-						"Failed to sign the message: \(error.localizedDescription)"
+						"Failed to sign the message: \(error.localizedDescription)",
 					)
 				}
 			} else {
@@ -245,17 +244,17 @@ public final class Client {
 				let dbPathDirectory = URL(fileURLWithPath: dbPath)
 					.deletingLastPathComponent().path
 				XMTPLogger.database.error(
-					"custom dbDirectory: \(options.dbDirectory ?? "nil")"
+					"custom dbDirectory: \(options.dbDirectory ?? "nil")",
 				)
 				XMTPLogger.database.error("dbPath: \(dbPath)")
 				XMTPLogger.database.error(
-					"dbPath Directory: \(dbPathDirectory)"
+					"dbPath Directory: \(dbPathDirectory)",
 				)
 				XMTPLogger.database.error(
-					"Number of files in dbDirectory: \(getNumberOfFilesInDirectory(directory: dbPathDirectory))"
+					"Number of files in dbDirectory: \(getNumberOfFilesInDirectory(directory: dbPathDirectory))",
 				)
 				throw ClientError.creationError(
-					"No signing key found, you must pass a SigningKey in order to create an MLS client"
+					"No signing key found, you must pass a SigningKey in order to create an MLS client",
 				)
 			}
 		}
@@ -269,35 +268,34 @@ public final class Client {
 	}
 
 	public static func create(
-		account: SigningKey, options: ClientOptions
+		account: SigningKey, options: ClientOptions,
 	)
 		async throws -> Client
 	{
 		let identity = account.identity
 		let inboxId = try await getOrCreateInboxId(
-			api: options.api, publicIdentity: identity
+			api: options.api, publicIdentity: identity,
 		)
 
 		return try await initializeClient(
 			publicIdentity: identity,
 			options: options,
 			signingKey: account,
-			inboxId: inboxId
+			inboxId: inboxId,
 		)
 	}
 
 	public static func build(
 		publicIdentity: PublicIdentity, options: ClientOptions,
-		inboxId: InboxId? = nil
+		inboxId: InboxId? = nil,
 	)
 		async throws -> Client
 	{
-		let resolvedInboxId: String
-		if let existingInboxId = inboxId {
-			resolvedInboxId = existingInboxId
+		let resolvedInboxId: String = if let existingInboxId = inboxId {
+			existingInboxId
 		} else {
-			resolvedInboxId = try await getOrCreateInboxId(
-				api: options.api, publicIdentity: publicIdentity
+			try await getOrCreateInboxId(
+				api: options.api, publicIdentity: publicIdentity,
 			)
 		}
 
@@ -306,7 +304,7 @@ public final class Client {
 			options: options,
 			signingKey: nil,
 			inboxId: resolvedInboxId,
-			buildOffline: inboxId != nil
+			buildOffline: inboxId != nil,
 		)
 	}
 
@@ -320,16 +318,16 @@ public final class Client {
 		"""
 	)
 	public static func ffiCreateClient(
-		identity: PublicIdentity, clientOptions: ClientOptions
+		identity: PublicIdentity, clientOptions: ClientOptions,
 	) async throws -> Client {
 		let recoveredInboxId = try await getOrCreateInboxId(
-			api: clientOptions.api, publicIdentity: identity
+			api: clientOptions.api, publicIdentity: identity,
 		)
 
 		let (ffiClient, dbPath) = try await initFFiClient(
 			accountIdentifier: identity,
 			options: clientOptions,
-			inboxId: recoveredInboxId
+			inboxId: recoveredInboxId,
 		)
 
 		return try Client(
@@ -338,7 +336,7 @@ public final class Client {
 			installationID: ffiClient.installationId().toHex,
 			inboxID: ffiClient.inboxId(),
 			environment: clientOptions.api.env,
-			publicIdentity: identity
+			publicIdentity: identity,
 		)
 	}
 
@@ -346,25 +344,25 @@ public final class Client {
 		accountIdentifier: PublicIdentity,
 		options: ClientOptions,
 		inboxId: InboxId,
-		buildOffline: Bool = false
+		buildOffline: Bool = false,
 	) async throws -> (FfiXmtpClient, String) {
 		let mlsDbDirectory = options.dbDirectory
 		var directoryURL: URL
-		if let mlsDbDirectory = mlsDbDirectory {
+		if let mlsDbDirectory {
 			let fileManager = FileManager.default
 			directoryURL = URL(
-				fileURLWithPath: mlsDbDirectory, isDirectory: true
+				fileURLWithPath: mlsDbDirectory, isDirectory: true,
 			)
 			// Check if the directory exists, if not, create it
 			if !fileManager.fileExists(atPath: directoryURL.path) {
 				do {
 					try fileManager.createDirectory(
 						at: directoryURL, withIntermediateDirectories: true,
-						attributes: nil
+						attributes: nil,
 					)
 				} catch {
 					throw ClientError.creationError(
-						"Failed db directory \(mlsDbDirectory)"
+						"Failed db directory \(mlsDbDirectory)",
 					)
 				}
 			}
@@ -382,7 +380,7 @@ public final class Client {
 			let legacyDbURL = directoryURL.appendingPathComponent(legacyAlias)
 				.path
 			let legacyFileExists = FileManager.default.fileExists(
-				atPath: legacyDbURL
+				atPath: legacyDbURL,
 			)
 
 			if legacyFileExists {
@@ -404,36 +402,36 @@ public final class Client {
 			deviceSyncServerUrl: options.historySyncUrl,
 			deviceSyncMode: deviceSyncMode,
 			allowOffline: buildOffline,
-			forkRecoveryOpts: options.forkRecoveryOptions?.toFfi()
+			forkRecoveryOpts: options.forkRecoveryOptions?.toFfi(),
 		)
 
 		return (ffiClient, dbURL)
 	}
 
 	private static func handleSignature(
-		for signatureRequest: FfiSignatureRequest, signingKey: SigningKey
+		for signatureRequest: FfiSignatureRequest, signingKey: SigningKey,
 	) async throws {
 		let signedData = try await signingKey.sign(
-			signatureRequest.signatureText()
+			signatureRequest.signatureText(),
 		)
 
 		switch signingKey.type {
 		case .SCW:
 			guard let chainId = signingKey.chainId else {
 				throw ClientError.creationError(
-					"Chain id must be present to sign Smart Contract Wallet"
+					"Chain id must be present to sign Smart Contract Wallet",
 				)
 			}
 			try await signatureRequest.addScwSignature(
 				signatureBytes: signedData.rawData,
 				address: signingKey.identity.identifier,
 				chainId: UInt64(chainId),
-				blockNumber: signingKey.blockNumber.map { UInt64($0) }
+				blockNumber: signingKey.blockNumber.map { UInt64($0) },
 			)
 
 		case .EOA:
 			try await signatureRequest.addEcdsaSignature(
-				signatureBytes: signedData.rawData
+				signatureBytes: signedData.rawData,
 			)
 		}
 	}
@@ -458,7 +456,7 @@ public final class Client {
 			clientMode: FfiClientMode.default,
 			appVersion: api.appVersion,
 			authCallback: nil,
-			authHandle: nil
+			authHandle: nil,
 		)
 		await apiCache.setClient(newClient, forKey: cacheKey)
 		return newClient
@@ -485,28 +483,28 @@ public final class Client {
 			clientMode: FfiClientMode.default,
 			appVersion: api.appVersion,
 			authCallback: nil,
-			authHandle: nil
+			authHandle: nil,
 		)
 		await apiCache.setSyncClient(newClient, forKey: cacheKey)
 		return newClient
 	}
 
 	public static func getOrCreateInboxId(
-		api: ClientOptions.Api, publicIdentity: PublicIdentity
+		api: ClientOptions.Api, publicIdentity: PublicIdentity,
 	) async throws -> InboxId {
 		var inboxId: String
 		do {
 			inboxId =
 				try await getInboxIdForIdentifier(
 					api: connectToApiBackend(api: api),
-					accountIdentifier: publicIdentity.ffiPrivate
+					accountIdentifier: publicIdentity.ffiPrivate,
 				)
 				?? generateInboxId(
-					accountIdentifier: publicIdentity.ffiPrivate, nonce: 0
+					accountIdentifier: publicIdentity.ffiPrivate, nonce: 0,
 				)
 		} catch {
 			inboxId = try generateInboxId(
-				accountIdentifier: publicIdentity.ffiPrivate, nonce: 0
+				accountIdentifier: publicIdentity.ffiPrivate, nonce: 0,
 			)
 		}
 		return inboxId
@@ -516,7 +514,7 @@ public final class Client {
 		api: ClientOptions.Api,
 		signingKey: SigningKey,
 		inboxId: InboxId,
-		installationIds: [String]
+		installationIds: [String],
 	) async throws {
 		let apiClient = try await connectToApiBackend(api: api)
 		let rootIdentity = signingKey.identity.ffiPrivate
@@ -525,25 +523,25 @@ public final class Client {
 		#if canImport(XMTPiOS)
 			signatureRequest = try await XMTPiOS.revokeInstallations(
 				api: apiClient, recoveryIdentifier: rootIdentity, inboxId: inboxId,
-				installationIds: ids
+				installationIds: ids,
 			)
 		#else
 			signatureRequest = try await XMTP.revokeInstallations(
 				api: apiClient, recoveryIdentifier: rootIdentity, inboxId: inboxId,
-				installationIds: ids
+				installationIds: ids,
 			)
 		#endif
 		do {
 			try await Client.handleSignature(
 				for: signatureRequest,
-				signingKey: signingKey
+				signingKey: signingKey,
 			)
 			try await applySignatureRequest(
-				api: apiClient, signatureRequest: signatureRequest
+				api: apiClient, signatureRequest: signatureRequest,
 			)
 		} catch {
 			throw ClientError.creationError(
-				"Failed to sign the message: \(error.localizedDescription)"
+				"Failed to sign the message: \(error.localizedDescription)",
 			)
 		}
 	}
@@ -559,14 +557,14 @@ public final class Client {
 	)
 	public static func ffiApplySignatureRequest(
 		api: ClientOptions.Api,
-		signatureRequest: SignatureRequest
+		signatureRequest: SignatureRequest,
 	)
 		async throws
 	{
 		let apiClient = try await connectToApiBackend(api: api)
 		try await applySignatureRequest(
 			api: apiClient,
-			signatureRequest: signatureRequest.ffiSignatureRequest
+			signatureRequest: signatureRequest.ffiSignatureRequest,
 		)
 	}
 
@@ -583,7 +581,7 @@ public final class Client {
 		api: ClientOptions.Api,
 		publicIdentity: PublicIdentity,
 		inboxId: InboxId,
-		installationIds: [String]
+		installationIds: [String],
 	) async throws
 		-> SignatureRequest
 	{
@@ -594,12 +592,12 @@ public final class Client {
 		#if canImport(XMTPiOS)
 			signatureRequest = try await XMTPiOS.revokeInstallations(
 				api: apiClient, recoveryIdentifier: rootIdentity, inboxId: inboxId,
-				installationIds: ids
+				installationIds: ids,
 			)
 		#else
 			signatureRequest = try await XMTP.revokeInstallations(
 				api: apiClient, recoveryIdentifier: rootIdentity, inboxId: inboxId,
-				installationIds: ids
+				installationIds: ids,
 			)
 		#endif
 		return SignatureRequest(ffiSignatureRequest: signatureRequest)
@@ -609,11 +607,11 @@ public final class Client {
 		api: ClientOptions.Api,
 		identity: PublicIdentity = PublicIdentity(
 			kind: .ethereum,
-			identifier: "0x0000000000000000000000000000000000000000"
-		)
+			identifier: "0x0000000000000000000000000000000000000000",
+		),
 	) async throws -> FfiXmtpClient {
 		let inboxId = try await getOrCreateInboxId(
-			api: api, publicIdentity: identity
+			api: api, publicIdentity: identity,
 		)
 		return try await createClient(
 			api: connectToApiBackend(api: api),
@@ -626,45 +624,45 @@ public final class Client {
 			deviceSyncServerUrl: nil,
 			deviceSyncMode: nil,
 			allowOffline: false,
-			forkRecoveryOpts: nil
+			forkRecoveryOpts: nil,
 		)
 	}
 
 	public static func canMessage(
-		accountIdentities: [PublicIdentity], api: ClientOptions.Api
+		accountIdentities: [PublicIdentity], api: ClientOptions.Api,
 	) async throws -> [String: Bool] {
 		let ffiClient = try await prepareClient(api: api)
 		let ffiIdentifiers = accountIdentities.map(\.ffiPrivate)
 		let result = try await ffiClient.canMessage(
-			accountIdentifiers: ffiIdentifiers
+			accountIdentifiers: ffiIdentifiers,
 		)
 
 		return Dictionary(
-			uniqueKeysWithValues: result.map { ($0.key.identifier, $0.value) }
+			uniqueKeysWithValues: result.map { ($0.key.identifier, $0.value) },
 		)
 	}
 
 	public static func inboxStatesForInboxIds(
 		inboxIds: [InboxId],
-		api: ClientOptions.Api
+		api: ClientOptions.Api,
 	) async throws -> [InboxState] {
 		let apiClient = try await connectToApiBackend(api: api)
 		let result = try await inboxStateFromInboxIds(
-			api: apiClient, inboxIds: inboxIds
+			api: apiClient, inboxIds: inboxIds,
 		)
 		return result.map { InboxState(ffiInboxState: $0) }
 	}
 
 	public static func keyPackageStatusesForInstallationIds(
 		installationIds: [String],
-		api: ClientOptions.Api
+		api: ClientOptions.Api,
 	) async throws -> [String: FfiKeyPackageStatus] {
 		let ffiClient = try await prepareClient(api: api)
 
 		let byteArrays = installationIds.map(\.hexToData)
 		let result =
 			try await ffiClient.getKeyPackageStatusesForInstallationIds(
-				installationIds: byteArrays
+				installationIds: byteArrays,
 			)
 		var statusMap: [String: FfiKeyPackageStatus] = [:]
 		for (keyBytes, status) in result {
@@ -676,7 +674,7 @@ public final class Client {
 
 	public static func getNewestMessageMetadata(
 		groupIds: [String],
-		api: ClientOptions.Api
+		api: ClientOptions.Api,
 	) async throws -> [String: MessageMetadata] {
 		let apiClient = try await connectToApiBackend(api: api)
 		let groupIdData = groupIds.map(\.hexToData)
@@ -684,23 +682,23 @@ public final class Client {
 		#if canImport(XMTPiOS)
 			result = try await XMTPiOS.getNewestMessageMetadata(
 				api: apiClient,
-				groupIds: groupIdData
+				groupIds: groupIdData,
 			)
 		#else
 			result = try await XMTP.getNewestMessageMetadata(
 				api: apiClient,
-				groupIds: groupIdData
+				groupIds: groupIdData,
 			)
 		#endif
 		return Dictionary(
-			uniqueKeysWithValues: result.map { ($0.key.toHex, $0.value) }
+			uniqueKeysWithValues: result.map { ($0.key.toHex, $0.value) },
 		)
 	}
 
 	init(
 		ffiClient: FfiXmtpClient, dbPath: String,
 		installationID: String, inboxID: InboxId, environment: XMTPEnvironment,
-		publicIdentity: PublicIdentity
+		publicIdentity: PublicIdentity,
 	) throws {
 		self.ffiClient = ffiClient
 		self.dbPath = dbPath
@@ -716,7 +714,7 @@ public final class Client {
 		"This function is delicate and should be used with caution. Adding a wallet already associated with an inboxId will cause the wallet to loose access to that inbox. See: inboxIdFromIdentity(publicIdentity)"
 	)
 	public func addAccount(
-		newAccount: SigningKey, allowReassignInboxId: Bool = false
+		newAccount: SigningKey, allowReassignInboxId: Bool = false,
 	)
 		async throws
 	{
@@ -727,45 +725,45 @@ public final class Client {
 		if allowReassignInboxId || (inboxId?.isEmpty ?? true) {
 			let signatureRequest = try await ffiAddIdentity(
 				identityToAdd: newAccount.identity,
-				allowReassignInboxId: allowReassignInboxId
+				allowReassignInboxId: allowReassignInboxId,
 			)
 			do {
 				try await Client.handleSignature(
 					for: signatureRequest.ffiSignatureRequest,
-					signingKey: newAccount
+					signingKey: newAccount,
 				)
 				try await ffiApplySignatureRequest(
-					signatureRequest: signatureRequest
+					signatureRequest: signatureRequest,
 				)
 			} catch {
 				throw ClientError.creationError(
-					"Failed to sign the message: \(error.localizedDescription)"
+					"Failed to sign the message: \(error.localizedDescription)",
 				)
 			}
 		} else {
 			throw ClientError.creationError(
-				"This wallet is already associated with inbox \(inboxId ?? "Unknown")"
+				"This wallet is already associated with inbox \(inboxId ?? "Unknown")",
 			)
 		}
 	}
 
 	public func removeAccount(
-		recoveryAccount: SigningKey, identityToRemove: PublicIdentity
+		recoveryAccount: SigningKey, identityToRemove: PublicIdentity,
 	) async throws {
 		let signatureRequest = try await ffiRevokeIdentity(
-			identityToRemove: identityToRemove
+			identityToRemove: identityToRemove,
 		)
 		do {
 			try await Client.handleSignature(
 				for: signatureRequest.ffiSignatureRequest,
-				signingKey: recoveryAccount
+				signingKey: recoveryAccount,
 			)
 			try await ffiApplySignatureRequest(
-				signatureRequest: signatureRequest
+				signatureRequest: signatureRequest,
 			)
 		} catch {
 			throw ClientError.creationError(
-				"Failed to sign the message: \(error.localizedDescription)"
+				"Failed to sign the message: \(error.localizedDescription)",
 			)
 		}
 	}
@@ -778,36 +776,36 @@ public final class Client {
 		do {
 			try await Client.handleSignature(
 				for: signatureRequest.ffiSignatureRequest,
-				signingKey: signingKey
+				signingKey: signingKey,
 			)
 			try await ffiApplySignatureRequest(
-				signatureRequest: signatureRequest
+				signatureRequest: signatureRequest,
 			)
 		} catch {
 			throw ClientError.creationError(
-				"Failed to sign the message: \(error.localizedDescription)"
+				"Failed to sign the message: \(error.localizedDescription)",
 			)
 		}
 	}
 
 	public func revokeInstallations(
-		signingKey: SigningKey, installationIds: [String]
+		signingKey: SigningKey, installationIds: [String],
 	) async throws {
 		let installations = installationIds.map(\.hexToData)
 		let signatureRequest = try await ffiRevokeInstallations(
-			ids: installations
+			ids: installations,
 		)
 		do {
 			try await Client.handleSignature(
 				for: signatureRequest.ffiSignatureRequest,
-				signingKey: signingKey
+				signingKey: signingKey,
 			)
 			try await ffiApplySignatureRequest(
-				signatureRequest: signatureRequest
+				signatureRequest: signatureRequest,
 			)
 		} catch {
 			throw ClientError.creationError(
-				"Failed to sign the message: \(error.localizedDescription)"
+				"Failed to sign the message: \(error.localizedDescription)",
 			)
 		}
 	}
@@ -824,11 +822,11 @@ public final class Client {
 	{
 		let ffiIdentifiers = identities.map(\.ffiPrivate)
 		let result = try await ffiClient.canMessage(
-			accountIdentifiers: ffiIdentifiers
+			accountIdentifiers: ffiIdentifiers,
 		)
 
 		return Dictionary(
-			uniqueKeysWithValues: result.map { ($0.key.identifier, $0.value) }
+			uniqueKeysWithValues: result.map { ($0.key.identifier, $0.value) },
 		)
 	}
 
@@ -869,7 +867,7 @@ public final class Client {
 	public func verifySignature(message: String, signature: Data) throws -> Bool {
 		do {
 			try ffiClient.verifySignedWithInstallationKey(
-				signatureText: message, signatureBytes: signature
+				signatureText: message, signatureBytes: signature,
 			)
 			return true
 		} catch {
@@ -878,12 +876,12 @@ public final class Client {
 	}
 
 	public func verifySignatureWithInstallationId(
-		message: String, signature: Data, installationId: String
+		message: String, signature: Data, installationId: String,
 	) throws -> Bool {
 		do {
 			try ffiClient.verifySignedWithPublicKey(
 				signatureText: message, signatureBytes: signature,
-				publicKey: installationId.hexToData
+				publicKey: installationId.hexToData,
 			)
 			return true
 		} catch {
@@ -894,23 +892,23 @@ public final class Client {
 	public func inboxState(refreshFromNetwork: Bool) async throws -> InboxState {
 		try await InboxState(
 			ffiInboxState: ffiClient.inboxState(
-				refreshFromNetwork: refreshFromNetwork
-			)
+				refreshFromNetwork: refreshFromNetwork,
+			),
 		)
 	}
 
 	public func inboxStatesForInboxIds(
-		refreshFromNetwork: Bool, inboxIds: [InboxId]
+		refreshFromNetwork: Bool, inboxIds: [InboxId],
 	) async throws -> [InboxState] {
 		try await ffiClient.addressesFromInboxId(
-			refreshFromNetwork: refreshFromNetwork, inboxIds: inboxIds
+			refreshFromNetwork: refreshFromNetwork, inboxIds: inboxIds,
 		).map { InboxState(ffiInboxState: $0) }
 	}
 
 	public func createArchive(
 		path: String,
 		encryptionKey: Data,
-		opts: ArchiveOptions = ArchiveOptions()
+		opts: ArchiveOptions = ArchiveOptions(),
 	) async throws {
 		try await ffiClient.createArchive(path: path, opts: opts.toFfi(), key: encryptionKey)
 	}
@@ -923,7 +921,7 @@ public final class Client {
 		-> ArchiveMetadata
 	{
 		let ffiMetadata = try await ffiClient.archiveMetadata(
-			path: path, key: encryptionKey
+			path: path, key: encryptionKey,
 		)
 		return ArchiveMetadata(ffiMetadata)
 	}
@@ -941,7 +939,7 @@ public final class Client {
 		async throws
 	{
 		try await ffiClient.applySignatureRequest(
-			signatureRequest: signatureRequest.ffiSignatureRequest
+			signatureRequest: signatureRequest.ffiSignatureRequest,
 		)
 	}
 
@@ -958,7 +956,7 @@ public final class Client {
 		-> SignatureRequest
 	{
 		let ffiSigReq = try await ffiClient.revokeInstallations(
-			installationIds: ids
+			installationIds: ids,
 		)
 		return SignatureRequest(ffiSignatureRequest: ffiSigReq)
 	}
@@ -993,7 +991,7 @@ public final class Client {
 		-> SignatureRequest
 	{
 		let ffiSigReq = try await ffiClient.revokeIdentity(
-			identifier: identityToRemove.ffiPrivate
+			identifier: identityToRemove.ffiPrivate,
 		)
 		return SignatureRequest(ffiSignatureRequest: ffiSigReq)
 	}
@@ -1008,7 +1006,7 @@ public final class Client {
 		"""
 	)
 	public func ffiAddIdentity(
-		identityToAdd: PublicIdentity, allowReassignInboxId: Bool = false
+		identityToAdd: PublicIdentity, allowReassignInboxId: Bool = false,
 	) async throws
 		-> SignatureRequest
 	{
@@ -1017,18 +1015,18 @@ public final class Client {
 				? try inboxIdFromIdentity(
 					identity: PublicIdentity(
 						kind: identityToAdd.kind,
-						identifier: identityToAdd.identifier
-					)
+						identifier: identityToAdd.identifier,
+					),
 				) : nil
 
 		if allowReassignInboxId || (inboxId?.isEmpty ?? true) {
 			let ffiSigReq = try await ffiClient.addIdentity(
-				newIdentity: identityToAdd.ffiPrivate
+				newIdentity: identityToAdd.ffiPrivate,
 			)
 			return SignatureRequest(ffiSignatureRequest: ffiSigReq)
 		} else {
 			throw ClientError.creationError(
-				"This wallet is already associated with inbox \(inboxId ?? "Unknown")"
+				"This wallet is already associated with inbox \(inboxId ?? "Unknown")",
 			)
 		}
 	}
@@ -1062,7 +1060,7 @@ public final class Client {
 		async throws
 	{
 		try await ffiClient.registerIdentity(
-			signatureRequest: signatureRequest.ffiSignatureRequest
+			signatureRequest: signatureRequest.ffiSignatureRequest,
 		)
 	}
 }
@@ -1081,10 +1079,10 @@ public extension Client {
 
 		fileprivate var ffiLogLevel: FfiLogLevel {
 			switch self {
-			case .error: return .error
-			case .warn: return .warn
-			case .info: return .info
-			case .debug: return .debug
+			case .error: .error
+			case .warn: .warn
+			case .info: .info
+			case .debug: .debug
 			}
 		}
 	}
@@ -1101,7 +1099,7 @@ public extension Client {
 		rotationSchedule: FfiLogRotation,
 		maxFiles: Int,
 		customLogDirectory: URL? = nil,
-		processType: FfiProcessType = .main
+		processType: FfiProcessType = .main,
 	) {
 		let fileManager = FileManager.default
 		let logDirectory =
@@ -1114,12 +1112,12 @@ public extension Client {
 				try fileManager.createDirectory(
 					at: logDirectory,
 					withIntermediateDirectories: true,
-					attributes: nil
+					attributes: nil,
 				)
 			} catch {
 				os_log(
 					"Failed to create log directory: %{public}@",
-					log: OSLog.default, type: .error, error.localizedDescription
+					log: OSLog.default, type: .error, error.localizedDescription,
 				)
 				return
 			}
@@ -1128,11 +1126,11 @@ public extension Client {
 		// Verify write permissions by attempting to create a test file
 		let testFilePath = logDirectory.appendingPathComponent("write_test.tmp")
 		if !fileManager.createFile(
-			atPath: testFilePath.path, contents: Data("test".utf8)
+			atPath: testFilePath.path, contents: Data("test".utf8),
 		) {
 			os_log(
 				"Directory exists but is not writable: %{public}@",
-				log: OSLog.default, type: .error, logDirectory.path
+				log: OSLog.default, type: .error, logDirectory.path,
 			)
 			return
 		}
@@ -1144,7 +1142,7 @@ public extension Client {
 			// If we can't remove the test file, log but continue
 			os_log(
 				"Could not remove test file: %{public}@", log: OSLog.default,
-				type: .error, error.localizedDescription
+				type: .error, error.localizedDescription,
 			)
 		}
 
@@ -1152,7 +1150,7 @@ public extension Client {
 		signal(SIGABRT) { _ in
 			os_log(
 				"Caught SIGABRT from Rust panic in logging", log: OSLog.default,
-				type: .error
+				type: .error,
 			)
 			// Try to safely deactivate the logger
 			do {
@@ -1161,7 +1159,7 @@ public extension Client {
 				// Already in a bad state, just log
 				os_log(
 					"Failed to deactivate logger after panic",
-					log: OSLog.default, type: .error
+					log: OSLog.default, type: .error,
 				)
 			}
 		}
@@ -1172,12 +1170,12 @@ public extension Client {
 				logLevel: logLevel.ffiLogLevel,
 				rotation: rotationSchedule,
 				maxFiles: UInt32(maxFiles),
-				processType: processType
+				processType: processType,
 			)
 		} catch {
 			os_log(
 				"Failed to activate persistent log writer: %{public}@",
-				log: OSLog.default, type: .error, error.localizedDescription
+				log: OSLog.default, type: .error, error.localizedDescription,
 			)
 		}
 	}
@@ -1189,7 +1187,7 @@ public extension Client {
 		} catch {
 			os_log(
 				"Failed to deactivate persistent log writer: %{public}@",
-				log: OSLog.default, type: .error, error.localizedDescription
+				log: OSLog.default, type: .error, error.localizedDescription,
 			)
 		}
 	}
@@ -1213,7 +1211,7 @@ public extension Client {
 			let fileURLs = try fileManager.contentsOfDirectory(
 				at: logDirectory,
 				includingPropertiesForKeys: [.isRegularFileKey],
-				options: []
+				options: [],
 			)
 
 			return fileURLs.compactMap { url in
@@ -1257,7 +1255,7 @@ public extension Client {
 			let fileURLs = try fileManager.contentsOfDirectory(
 				at: logDirectory,
 				includingPropertiesForKeys: [.isRegularFileKey],
-				options: []
+				options: [],
 			)
 
 			for fileURL in fileURLs {
@@ -1281,7 +1279,7 @@ public extension Client {
 	}
 
 	private static func getNumberOfFilesInDirectory(directory: String?) -> Int {
-		guard let directory = directory else {
+		guard let directory else {
 			XMTPLogger.database.error("Directory is nil")
 			return 0
 		}
@@ -1299,12 +1297,12 @@ public extension Client {
 			let contents = try fileManager.contentsOfDirectory(
 				at: directoryURL,
 				includingPropertiesForKeys: [.isRegularFileKey],
-				options: []
+				options: [],
 			)
 
 			// Log the contents found
 			XMTPLogger.database.debug(
-				"Found \(contents.count) items in directory"
+				"Found \(contents.count) items in directory",
 			)
 
 			// Count only regular files, not directories
@@ -1317,16 +1315,16 @@ public extension Client {
 					if resourceValues.isRegularFile == true {
 						fileCount += 1
 						XMTPLogger.database.debug(
-							"Regular file found: \(url.lastPathComponent)"
+							"Regular file found: \(url.lastPathComponent)",
 						)
 					} else {
 						XMTPLogger.database.debug(
-							"Non-regular file found: \(url.lastPathComponent)"
+							"Non-regular file found: \(url.lastPathComponent)",
 						)
 					}
 				} catch {
 					XMTPLogger.database.error(
-						"Error checking file type: \(error.localizedDescription)"
+						"Error checking file type: \(error.localizedDescription)",
 					)
 				}
 			}
@@ -1334,7 +1332,7 @@ public extension Client {
 			return fileCount
 		} catch {
 			XMTPLogger.database.error(
-				"Error reading directory: \(error.localizedDescription)"
+				"Error reading directory: \(error.localizedDescription)",
 			)
 			return 0
 		}

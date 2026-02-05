@@ -1,4 +1,4 @@
-// swift-tools-version: 5.6
+// swift-tools-version: 6.1
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 //
 // NOTE: This file MUST remain at the repository root for Swift Package Manager
@@ -22,13 +22,14 @@ let package = Package(
             targets: ["XMTPiOS"]
         ),
         .library(
-            name: "XMTPiOSDynamic",
-            targets: ["XMTPiOSDynamic"]
-        ),
-        .library(
             name: "XMTPTestHelpers",
             targets: ["XMTPTestHelpers"]
         ),
+    ],
+    traits: [
+        "static",
+        "dynamic",
+        .default(enabledTraits: ["static"]),
     ],
     dependencies: [
         .package(url: "https://github.com/bufbuild/connect-swift", exact: "1.2.0"),
@@ -63,16 +64,8 @@ let package = Package(
             name: "XMTPiOS",
             dependencies: [
                 .product(name: "Connect", package: "connect-swift"),
-                "LibXMTPSwiftFFI",
-                .product(name: "CryptoSwift", package: "CryptoSwift"),
-            ],
-            path: "sdks/ios/Sources/XMTPiOS"
-        ),
-        .target(
-            name: "XMTPiOSDynamic",
-            dependencies: [
-                .product(name: "Connect", package: "connect-swift"),
-                "LibXMTPSwiftFFIDynamic",
+                .target(name: "LibXMTPSwiftFFI", condition: .when(traits: ["static"])),
+                .target(name: "LibXMTPSwiftFFIDynamic", condition: .when(traits: ["dynamic"])),
                 .product(name: "CryptoSwift", package: "CryptoSwift"),
             ],
             path: "sdks/ios/Sources/XMTPiOS"
@@ -87,5 +80,6 @@ let package = Package(
             dependencies: ["XMTPiOS", "XMTPTestHelpers"],
             path: "sdks/ios/Tests/XMTPTests"
         ),
-    ]
+    ],
+    swiftLanguageModes: [.v5]
 )

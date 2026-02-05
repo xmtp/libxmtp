@@ -45,11 +45,11 @@ public struct DecodedMessageV2: Identifiable {
 	public var deliveryStatus: MessageDeliveryStatus {
 		switch ffiMessage.deliveryStatus() {
 		case .unpublished:
-			return .unpublished
+			.unpublished
 		case .published:
-			return .published
+			.published
 		case .failed:
-			return .failed
+			.failed
 		}
 	}
 
@@ -67,7 +67,7 @@ public struct DecodedMessageV2: Identifiable {
 		let decodedContent = try mapContent(ffiMessage.content())
 		guard let result = decodedContent as? T else {
 			throw DecodedMessageError.decodeError(
-				"Decoded content could not be cast to the expected type \(T.self)."
+				"Decoded content could not be cast to the expected type \(T.self).",
 			)
 		}
 		return result
@@ -107,7 +107,7 @@ public struct DecodedMessageV2: Identifiable {
 			authorityID: ffiContentType.authorityId,
 			typeID: ffiContentType.typeId,
 			versionMajor: Int(ffiContentType.versionMajor),
-			versionMinor: Int(ffiContentType.versionMinor)
+			versionMinor: Int(ffiContentType.versionMinor),
 		)
 	}
 
@@ -174,12 +174,11 @@ public struct DecodedMessageV2: Identifiable {
 	}
 
 	private func mapDeletedMessage(_ ffiDeletedMessage: FfiDeletedMessage) -> DeletedMessage {
-		let deletedBy: DeletedBy
-		switch ffiDeletedMessage.deletedBy {
+		let deletedBy: DeletedBy = switch ffiDeletedMessage.deletedBy {
 		case .sender:
-			deletedBy = .sender
+			.sender
 		case let .admin(inboxId):
-			deletedBy = .admin(inboxId: inboxId)
+			.admin(inboxId: inboxId)
 		}
 		return DeletedMessage(deletedBy: deletedBy)
 	}
@@ -199,7 +198,7 @@ public struct DecodedMessageV2: Identifiable {
 		var reply = Reply(
 			reference: enrichedReply.inReplyTo?.id().toHex ?? "",
 			content: content,
-			contentType: contentType
+			contentType: contentType,
 		)
 
 		if let inReplyToMessage = enrichedReply.inReplyTo {
@@ -249,65 +248,65 @@ public struct DecodedMessageV2: Identifiable {
 	private func determineContentType(from body: FfiDecodedMessageBody) -> ContentTypeID {
 		switch body {
 		case .text:
-			return ContentTypeText
+			ContentTypeText
 		case .markdown:
-			return ContentTypeID(
+			ContentTypeID(
 				authorityID: "xmtp.org",
 				typeID: "markdown",
 				versionMajor: 1,
-				versionMinor: 0
+				versionMinor: 0,
 			)
 		case .reaction:
-			return ContentTypeReaction
+			ContentTypeReaction
 		case .attachment:
-			return ContentTypeAttachment
+			ContentTypeAttachment
 		case .remoteAttachment:
-			return ContentTypeRemoteAttachment
+			ContentTypeRemoteAttachment
 		case .multiRemoteAttachment:
-			return ContentTypeMultiRemoteAttachment
+			ContentTypeMultiRemoteAttachment
 		case .transactionReference:
-			return ContentTypeTransactionReference
+			ContentTypeTransactionReference
 		case .groupUpdated:
-			return ContentTypeGroupUpdated
+			ContentTypeGroupUpdated
 		case .readReceipt:
-			return ContentTypeReadReceipt
+			ContentTypeReadReceipt
 		case .leaveRequest:
-			return ContentTypeLeaveRequest
+			ContentTypeLeaveRequest
 		case .walletSendCalls:
-			return ContentTypeID(
+			ContentTypeID(
 				authorityID: "xmtp.org",
 				typeID: "walletSendCalls",
 				versionMajor: 1,
-				versionMinor: 0
+				versionMinor: 0,
 			)
 		case let .custom(ffiEncodedContent):
 			if let typeId = ffiEncodedContent.typeId {
-				return ContentTypeID(
+				ContentTypeID(
 					authorityID: typeId.authorityId,
 					typeID: typeId.typeId,
 					versionMajor: Int(typeId.versionMajor),
-					versionMinor: Int(typeId.versionMinor)
+					versionMinor: Int(typeId.versionMinor),
 				)
 			} else {
 				// Return a default content type if none is specified
-				return ContentTypeText
+				ContentTypeText
 			}
 		case .intent:
-			return ContentTypeID(
+			ContentTypeID(
 				authorityID: "coinbase.com",
 				typeID: "intent",
 				versionMajor: 1,
-				versionMinor: 0
+				versionMinor: 0,
 			)
 		case .actions:
-			return ContentTypeID(
+			ContentTypeID(
 				authorityID: "coinbase.com",
 				typeID: "actions",
 				versionMajor: 1,
-				versionMinor: 0
+				versionMinor: 0,
 			)
 		case .deletedMessage:
-			return ContentTypeDeletedMessage
+			ContentTypeDeletedMessage
 		}
 	}
 
@@ -317,20 +316,20 @@ public struct DecodedMessageV2: Identifiable {
 			action: reactionPayload.action == .added ? .added : .removed,
 			content: reactionPayload.content,
 			schema: mapReactionSchema(reactionPayload.schema),
-			referenceInboxId: reactionPayload.referenceInboxId
+			referenceInboxId: reactionPayload.referenceInboxId,
 		)
 	}
 
 	private func mapReactionSchema(_ schema: FfiReactionSchema) -> ReactionSchema {
 		switch schema {
 		case .unicode:
-			return .unicode
+			.unicode
 		case .shortcode:
-			return .shortcode
+			.shortcode
 		case .custom:
-			return .custom
+			.custom
 		case .unknown:
-			return .unknown
+			.unknown
 		}
 	}
 
@@ -342,7 +341,7 @@ public struct DecodedMessageV2: Identifiable {
 		Attachment(
 			filename: ffiAttachment.filename ?? "",
 			mimeType: ffiAttachment.mimeType,
-			data: ffiAttachment.content
+			data: ffiAttachment.content,
 		)
 	}
 
@@ -355,7 +354,7 @@ public struct DecodedMessageV2: Identifiable {
 			nonce: ffiAttachment.nonce,
 			scheme: mapRemoteAttachmentScheme(ffiAttachment.scheme),
 			contentLength: ffiAttachment.contentLength.map { Int($0) },
-			filename: ffiAttachment.filename
+			filename: ffiAttachment.filename,
 		)
 	}
 
@@ -370,9 +369,9 @@ public struct DecodedMessageV2: Identifiable {
 					nonce: info.nonce,
 					scheme: info.scheme,
 					salt: info.salt,
-					secret: info.secret
+					secret: info.secret,
 				)
-			}
+			},
 		)
 	}
 
@@ -388,9 +387,9 @@ public struct DecodedMessageV2: Identifiable {
 					amount: metadata.amount,
 					decimals: metadata.decimals,
 					fromAddress: metadata.fromAddress,
-					toAddress: metadata.toAddress
+					toAddress: metadata.toAddress,
 				)
-			}
+			},
 		)
 	}
 
@@ -429,7 +428,7 @@ public struct DecodedMessageV2: Identifiable {
 				authorityID: typeId.authorityId,
 				typeID: typeId.typeId,
 				versionMajor: Int(typeId.versionMajor),
-				versionMinor: Int(typeId.versionMinor)
+				versionMinor: Int(typeId.versionMinor),
 			)
 		}
 		encoded.parameters = ffiContent.parameters

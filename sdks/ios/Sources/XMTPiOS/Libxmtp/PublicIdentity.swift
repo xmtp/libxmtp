@@ -18,7 +18,7 @@ public struct PublicIdentity {
 	public init(kind: IdentityKind, identifier: String) {
 		ffiPrivate = FfiIdentifier(
 			identifier: identifier,
-			identifierKind: kind.toFfiPublicIdentifierKind()
+			identifierKind: kind.toFfiPublicIdentifierKind(),
 		)
 	}
 
@@ -39,9 +39,9 @@ public extension IdentityKind {
 	func toFfiPublicIdentifierKind() -> FfiIdentifierKind {
 		switch self {
 		case .ethereum:
-			return .ethereum
+			.ethereum
 		case .passkey:
-			return .passkey
+			.passkey
 		}
 	}
 }
@@ -50,9 +50,9 @@ public extension FfiIdentifierKind {
 	func toIdentityKind() -> IdentityKind {
 		switch self {
 		case .ethereum:
-			return .ethereum
+			.ethereum
 		case .passkey:
-			return .passkey
+			.passkey
 		}
 	}
 }

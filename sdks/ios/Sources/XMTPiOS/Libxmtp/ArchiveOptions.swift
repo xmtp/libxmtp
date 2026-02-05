@@ -15,7 +15,7 @@ public struct ArchiveOptions {
 		startNs: Int64? = nil,
 		endNs: Int64? = nil,
 		archiveElements: [ArchiveElement] = [.messages, .consent],
-		excludeDisappearingMessages: Bool = false
+		excludeDisappearingMessages: Bool = false,
 	) {
 		self.startNs = startNs
 		self.endNs = endNs
@@ -28,7 +28,7 @@ public struct ArchiveOptions {
 			startNs: startNs,
 			endNs: endNs,
 			elements: archiveElements.map { $0.toFfi() },
-			excludeDisappearingMessages: excludeDisappearingMessages
+			excludeDisappearingMessages: excludeDisappearingMessages,
 		)
 	}
 }
@@ -40,9 +40,9 @@ public enum ArchiveElement {
 	public func toFfi() -> FfiBackupElementSelection {
 		switch self {
 		case .messages:
-			return .messages
+			.messages
 		case .consent:
-			return .consent
+			.consent
 		}
 	}
 
@@ -51,9 +51,9 @@ public enum ArchiveElement {
 	{
 		switch element {
 		case .messages:
-			return .messages
+			.messages
 		case .consent:
-			return .consent
+			.consent
 		}
 	}
 }

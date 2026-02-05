@@ -11,11 +11,11 @@ enum PrivateKeyError: Error, CustomStringConvertible {
 	var description: String {
 		switch self {
 		case .invalidSignatureText:
-			return "PrivateKeyError.invalidSignatureText"
+			"PrivateKeyError.invalidSignatureText"
 		case .invalidPrefix:
-			return "PrivateKeyError.invalidPrefix"
+			"PrivateKeyError.invalidPrefix"
 		case .invalidSignature:
-			return "PrivateKeyError.invalidSignature"
+			"PrivateKeyError.invalidSignature"
 		}
 	}
 }
@@ -37,7 +37,7 @@ extension PrivateKey: SigningKey {
 			rawData: signatureData,
 			publicKey: publicKey.secp256K1Uncompressed.bytes,
 			authenticatorData: nil,
-			clientDataJson: nil
+			clientDataJson: nil,
 		)
 	}
 }

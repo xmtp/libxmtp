@@ -70,7 +70,7 @@ class LeaveRequestTests: XCTestCase {
 
 		try await alixConversation.send(
 			content: leaveRequest,
-			options: .init(contentType: ContentTypeLeaveRequest)
+			options: .init(contentType: ContentTypeLeaveRequest),
 		)
 
 		let messages = try await alixConversation.messages()
@@ -99,7 +99,7 @@ class LeaveRequestTests: XCTestCase {
 
 		try await alixConversation.send(
 			content: leaveRequest,
-			options: .init(contentType: ContentTypeLeaveRequest)
+			options: .init(contentType: ContentTypeLeaveRequest),
 		)
 
 		let messages = try await alixConversation.messages()
@@ -170,13 +170,13 @@ class LeaveRequestTests: XCTestCase {
 
 		// Alix creates a group with Bo
 		let alixGroup = try await alixClient.conversations.newGroup(
-			with: [boClient.inboxID]
+			with: [boClient.inboxID],
 		)
 
 		// Bo syncs and gets the group
 		_ = try await boClient.conversations.syncAllConversations()
 		let boGroup = try XCTUnwrap(
-			boClient.conversations.findGroup(groupId: alixGroup.id)
+			boClient.conversations.findGroup(groupId: alixGroup.id),
 		)
 
 		// Bo leaves the group - this creates a LeaveRequest message
@@ -205,7 +205,7 @@ class LeaveRequestTests: XCTestCase {
 
 		XCTAssertNotNil(
 			leaveRequestMessage,
-			"LeaveRequest message should be properly decoded with correct content type"
+			"LeaveRequest message should be properly decoded with correct content type",
 		)
 
 		// Verify we can decode the content as LeaveRequest
@@ -224,13 +224,13 @@ class LeaveRequestTests: XCTestCase {
 
 		// Alix creates a group with Bo
 		let alixGroup = try await alixClient.conversations.newGroup(
-			with: [boClient.inboxID]
+			with: [boClient.inboxID],
 		)
 
 		// Bo syncs and gets the group
 		_ = try await boClient.conversations.syncAllConversations()
 		let boGroup = try XCTUnwrap(
-			boClient.conversations.findGroup(groupId: alixGroup.id)
+			boClient.conversations.findGroup(groupId: alixGroup.id),
 		)
 
 		// Bo leaves the group
@@ -265,13 +265,13 @@ class LeaveRequestTests: XCTestCase {
 
 		// Alix creates a group with Bo
 		let alixGroup = try await alixClient.conversations.newGroup(
-			with: [boClient.inboxID]
+			with: [boClient.inboxID],
 		)
 
 		// Bo syncs and gets the group
 		_ = try await boClient.conversations.syncAllConversations()
 		let boGroup = try XCTUnwrap(
-			boClient.conversations.findGroup(groupId: alixGroup.id)
+			boClient.conversations.findGroup(groupId: alixGroup.id),
 		)
 
 		// Bo leaves the group

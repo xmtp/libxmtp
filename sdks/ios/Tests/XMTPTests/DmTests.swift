@@ -13,14 +13,14 @@ class DmTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caroClient.inboxID
+			with: fixtures.caroClient.inboxID,
 		)
 
 		let caroDm = try await fixtures.boClient.conversations.findDmByInboxId(
-			inboxId: fixtures.caroClient.inboxID
+			inboxId: fixtures.caroClient.inboxID,
 		)
 		let alixDm = try await fixtures.boClient.conversations.findDmByInboxId(
-			inboxId: fixtures.alixClient.inboxID
+			inboxId: fixtures.alixClient.inboxID,
 		)
 
 		XCTAssertNil(alixDm)
@@ -32,14 +32,14 @@ class DmTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caroClient.inboxID
+			with: fixtures.caroClient.inboxID,
 		)
 
 		let caroDm = try await fixtures.boClient.conversations.findDmByIdentity(
-			publicIdentity: fixtures.caro.identity
+			publicIdentity: fixtures.caro.identity,
 		)
 		let alixDm = try await fixtures.boClient.conversations.findDmByIdentity(
-			publicIdentity: fixtures.alix.identity
+			publicIdentity: fixtures.alix.identity,
 		)
 
 		XCTAssertNil(alixDm)
@@ -51,7 +51,7 @@ class DmTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let convo1 = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID
+			with: fixtures.alixClient.inboxID,
 		)
 		try await fixtures.alixClient.conversations.sync()
 		let sameConvo1 = try await fixtures.alixClient.conversations
@@ -65,7 +65,7 @@ class DmTests: XCTestCase {
 
 		let convo1 = try await fixtures.boClient.conversations
 			.findOrCreateDmWithIdentity(
-				with: fixtures.alix.identity
+				with: fixtures.alix.identity,
 			)
 		try await fixtures.alixClient.conversations.sync()
 		let sameConvo1 = try await fixtures.alixClient.conversations
@@ -78,7 +78,7 @@ class DmTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID
+			with: fixtures.alixClient.inboxID,
 		)
 		let members = try await dm.members
 		XCTAssertEqual(members.count, 2)
@@ -93,8 +93,8 @@ class DmTests: XCTestCase {
 
 		try await assertThrowsAsyncError(
 			await fixtures.alixClient.conversations.findOrCreateDm(
-				with: fixtures.alixClient.inboxID
-			)
+				with: fixtures.alixClient.inboxID,
+			),
 		)
 		try fixtures.cleanUpDatabases()
 	}
@@ -104,14 +104,14 @@ class DmTests: XCTestCase {
 
 		do {
 			_ = try await fixtures.boClient.conversations.newConversation(
-				with: fixtures.alix.walletAddress
+				with: fixtures.alix.walletAddress,
 			)
 			XCTFail("Did not throw error")
 		} catch {
 			if case let ClientError.invalidInboxId(message) = error {
 				XCTAssertEqual(
 					message.lowercased(),
-					fixtures.alix.walletAddress.lowercased()
+					fixtures.alix.walletAddress.lowercased(),
 				)
 			} else {
 				XCTFail("Did not throw correct error")
@@ -127,8 +127,8 @@ class DmTests: XCTestCase {
 		try await assertThrowsAsyncError(
 			await fixtures.alixClient.conversations
 				.findOrCreateDmWithIdentity(
-					with: nonRegistered.identity
-				)
+					with: nonRegistered.identity,
+				),
 		)
 	}
 
@@ -136,7 +136,7 @@ class DmTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID
+			with: fixtures.alixClient.inboxID,
 		)
 		_ = try await dm.send(content: "howdy")
 		_ = try await dm.send(content: "gm")
@@ -153,10 +153,10 @@ class DmTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caroClient.inboxID
+			with: fixtures.caroClient.inboxID,
 		)
 		let dm2 = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID
+			with: fixtures.alixClient.inboxID,
 		)
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
 			fixtures.caroClient.inboxID,
@@ -189,13 +189,13 @@ class DmTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caroClient.inboxID
+			with: fixtures.caroClient.inboxID,
 		)
 		let dm2 = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID
+			with: fixtures.alixClient.inboxID,
 		)
 		let group2 = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.caroClient.inboxID]
+			with: [fixtures.caroClient.inboxID],
 		)
 
 		_ = try await dm.send(content: "Howdy")
@@ -206,7 +206,7 @@ class DmTests: XCTestCase {
 			.listDms()
 		XCTAssertEqual(conversations.count, 2)
 		XCTAssertEqual(
-			try conversations.map { try $0.id }, [dm2.id, dm.id]
+			try conversations.map { try $0.id }, [dm2.id, dm.id],
 		)
 		try fixtures.cleanUpDatabases()
 	}
@@ -215,7 +215,7 @@ class DmTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID
+			with: fixtures.alixClient.inboxID,
 		)
 		_ = try await dm.send(content: "howdy")
 		let messageId = try await dm.send(content: "gm")
@@ -244,7 +244,7 @@ class DmTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID
+			with: fixtures.alixClient.inboxID,
 		)
 		try await fixtures.alixClient.conversations.sync()
 
@@ -281,7 +281,7 @@ class DmTests: XCTestCase {
 			fixtures.alixClient.inboxID,
 		])
 		_ = try await fixtures.caroClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID
+			with: fixtures.alixClient.inboxID,
 		)
 
 		await fulfillment(of: [expectation1], timeout: 3)
@@ -292,7 +292,7 @@ class DmTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID
+			with: fixtures.alixClient.inboxID,
 		)
 		try await fixtures.alixClient.conversations.sync()
 
@@ -309,7 +309,7 @@ class DmTests: XCTestCase {
 
 		_ = try await dm.send(content: "hi")
 		let caroDm = try await fixtures.caroClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID
+			with: fixtures.alixClient.inboxID,
 		)
 		_ = try await caroDm.send(content: "hi")
 
@@ -321,7 +321,7 @@ class DmTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID
+			with: fixtures.alixClient.inboxID,
 		)
 
 		let isDm = try await fixtures.boClient.preferences
@@ -333,9 +333,9 @@ class DmTests: XCTestCase {
 			entries: [
 				ConsentRecord(
 					value: dm.id, entryType: .conversation_id,
-					consentType: .denied
+					consentType: .denied,
 				),
-			]
+			],
 		)
 		let isDenied = try await fixtures.boClient.preferences
 			.conversationState(conversationId: dm.id)
@@ -355,13 +355,13 @@ class DmTests: XCTestCase {
 
 		let initialSettings = DisappearingMessageSettings(
 			disappearStartingAtNs: 1_000_000_000,
-			retentionDurationInNs: 1_000_000_000 // 1s duration
+			retentionDurationInNs: 1_000_000_000, // 1s duration
 		)
 
 		// Create group with disappearing messages enabled
 		let boDm = try await fixtures.boClient.conversations.findOrCreateDm(
 			with: fixtures.alixClient.inboxID,
-			disappearingMessageSettings: initialSettings
+			disappearingMessageSettings: initialSettings,
 		)
 		_ = try await boDm.send(content: "howdy")
 		_ = try await fixtures.alixClient.conversations.syncAllConversations()
@@ -402,10 +402,10 @@ class DmTests: XCTestCase {
 
 		// Send messages after disabling disappearing settings
 		_ = try await boDm.send(
-			content: "message after disabling disappearing"
+			content: "message after disabling disappearing",
 		)
 		_ = try await alixDm?.send(
-			content: "another message after disabling"
+			content: "another message after disabling",
 		)
 		try await boDm.sync()
 
@@ -423,7 +423,7 @@ class DmTests: XCTestCase {
 		let updatedSettings = try DisappearingMessageSettings(
 			disappearStartingAtNs: XCTUnwrap(boDmMessages.first?.sentAtNs)
 				+ 1_000_000_000, // 1s from now
-			retentionDurationInNs: 1_000_000_000 // 2s duration
+			retentionDurationInNs: 1_000_000_000, // 2s duration
 		)
 		try await boDm.updateDisappearingMessageSettings(updatedSettings)
 		try await boDm.sync()
@@ -435,11 +435,11 @@ class DmTests: XCTestCase {
 
 		XCTAssertEqual(
 			boGroupUpdatedSettings?.retentionDurationInNs,
-			updatedSettings.retentionDurationInNs
+			updatedSettings.retentionDurationInNs,
 		)
 		XCTAssertEqual(
 			alixGroupUpdatedSettings?.retentionDurationInNs,
-			updatedSettings.retentionDurationInNs
+			updatedSettings.retentionDurationInNs,
 		)
 
 		// Send new messages
@@ -468,11 +468,11 @@ class DmTests: XCTestCase {
 
 		XCTAssertEqual(
 			boGroupFinalSettings?.retentionDurationInNs,
-			updatedSettings.retentionDurationInNs
+			updatedSettings.retentionDurationInNs,
 		)
 		XCTAssertEqual(
 			alixGroupFinalSettings?.retentionDurationInNs,
-			updatedSettings.retentionDurationInNs
+			updatedSettings.retentionDurationInNs,
 		)
 		XCTAssert(try boDm.isDisappearingMessagesEnabled())
 		XCTAssert(try XCTUnwrap(alixDm?.isDisappearingMessagesEnabled()))
@@ -483,7 +483,7 @@ class DmTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let convoBo = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID
+			with: fixtures.alixClient.inboxID,
 		)
 		let convoAlix = try await fixtures.alixClient.conversations
 			.findOrCreateDm(with: fixtures.boClient.inboxID)
@@ -558,13 +558,13 @@ class DmTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let convoBo = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID
+			with: fixtures.alixClient.inboxID,
 		)
 
 		Client.register(codec: ReadReceiptCodec())
 		let messageID = try await convoBo.send(
 			content: ReadReceipt(),
-			options: .init(contentType: ReadReceiptCodec().contentType)
+			options: .init(contentType: ReadReceiptCodec().contentType),
 		)
 
 		let message = try fixtures.boClient.conversations.findMessage(messageId: messageID)

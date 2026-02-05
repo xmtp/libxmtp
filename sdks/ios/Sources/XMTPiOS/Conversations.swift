@@ -8,19 +8,15 @@ public enum ConversationError: Error, CustomStringConvertible, LocalizedError {
 	public var description: String {
 		switch self {
 		case .memberCannotBeSelf:
-			return
-				"GroupError.memberCannotBeSelf you cannot add yourself to a group"
+			"GroupError.memberCannotBeSelf you cannot add yourself to a group"
 		case let .memberNotRegistered(array):
-			return
-				"GroupError.memberNotRegistered members not registered: \(array.joined(separator: ", "))"
+			"GroupError.memberNotRegistered members not registered: \(array.joined(separator: ", "))"
 		case .groupsRequireMessagePassed:
-			return
-				"GroupError.groupsRequireMessagePassed you cannot call this method without passing a message instead of an envelope"
+			"GroupError.groupsRequireMessagePassed you cannot call this method without passing a message instead of an envelope"
 		case .notSupportedByGroups:
-			return
-				"GroupError.notSupportedByGroups this method is not supported by groups"
+			"GroupError.notSupportedByGroups this method is not supported by groups"
 		case .streamingFailure:
-			return "GroupError.streamingFailure a stream has failed"
+			"GroupError.streamingFailure a stream has failed"
 		}
 	}
 
@@ -53,8 +49,8 @@ public enum ConversationsOrderBy {
 
 	fileprivate var ffiOrderBy: FfiGroupQueryOrderBy {
 		switch self {
-		case .createdAt: return .createdAt
-		case .lastActivity: return .lastActivity
+		case .createdAt: .createdAt
+		case .lastActivity: .lastActivity
 		}
 	}
 }
@@ -65,7 +61,7 @@ final class ConversationStreamCallback: FfiConversationCallback {
 
 	init(
 		callback: @escaping (FfiConversation) -> Void,
-		onClose: @escaping () -> Void
+		onClose: @escaping () -> Void,
 	) {
 		self.callback = callback
 		onCloseCallback = onClose
@@ -90,7 +86,7 @@ final class MessageDeletionCallback: FfiMessageDeletionCallback {
 
 	init(
 		callback: @escaping (FfiDecodedMessage) -> Void,
-		onClose: @escaping () -> Void
+		onClose: @escaping () -> Void,
 	) {
 		self.callback = callback
 		onCloseCallback = onClose
@@ -129,7 +125,7 @@ public class Conversations {
 
 	init(
 		client: Client, ffiConversations: FfiConversations,
-		ffiClient: FfiXmtpClient
+		ffiClient: FfiXmtpClient,
 	) {
 		self.client = client
 		self.ffiConversations = ffiConversations
@@ -141,10 +137,10 @@ public class Conversations {
 	private func toFfiDisappearingMessageSettings(_ settings: DisappearingMessageSettings?)
 		-> FfiMessageDisappearingSettings?
 	{
-		guard let settings = settings else { return nil }
+		guard let settings else { return nil }
 		return FfiMessageDisappearingSettings(
 			fromNs: settings.disappearStartingAtNs,
-			inNs: settings.retentionDurationInNs
+			inNs: settings.retentionDurationInNs,
 		)
 	}
 
@@ -152,9 +148,9 @@ public class Conversations {
 		do {
 			return try Group(
 				ffiGroup: ffiClient.conversation(
-					conversationId: groupId.hexToData
+					conversationId: groupId.hexToData,
 				),
-				client: client
+				client: client,
 			)
 		} catch {
 			return nil
@@ -166,7 +162,7 @@ public class Conversations {
 	{
 		do {
 			let conversation = try ffiClient.conversation(
-				conversationId: conversationId.hexToData
+				conversationId: conversationId.hexToData,
 			)
 			return try await conversation.toConversation(client: client)
 		} catch {
@@ -182,13 +178,13 @@ public class Conversations {
 			if let regex = try? NSRegularExpression(pattern: regexPattern) {
 				let range = NSRange(location: 0, length: topic.utf16.count)
 				if let match = regex.firstMatch(
-					in: topic, options: [], range: range
+					in: topic, options: [], range: range,
 				) {
 					let conversationId = (topic as NSString).substring(
-						with: match.range(at: 1)
+						with: match.range(at: 1),
 					)
 					let conversation = try ffiClient.conversation(
-						conversationId: conversationId.hexToData
+						conversationId: conversationId.hexToData,
 					)
 					return try await conversation.toConversation(client: client)
 				}
@@ -202,10 +198,10 @@ public class Conversations {
 	public func findDmByInboxId(inboxId: InboxId) throws -> Dm? {
 		do {
 			let conversation = try ffiClient.dmConversation(
-				targetInboxId: inboxId
+				targetInboxId: inboxId,
 			)
 			return Dm(
-				ffiConversation: conversation, client: client
+				ffiConversation: conversation, client: client,
 			)
 		} catch {
 			return nil
@@ -217,7 +213,7 @@ public class Conversations {
 	{
 		guard
 			let inboxId = try await client.inboxIdFromIdentity(
-				identity: publicIdentity
+				identity: publicIdentity,
 			)
 		else {
 			throw ClientError.creationError("No inboxId present")
@@ -229,8 +225,8 @@ public class Conversations {
 		do {
 			return try DecodedMessage.create(
 				ffiMessage: ffiClient.message(
-					messageId: messageId.hexToData
-				)
+					messageId: messageId.hexToData,
+				),
 			)
 		} catch {
 			return nil
@@ -240,7 +236,7 @@ public class Conversations {
 	public func findEnrichedMessage(messageId: String) throws -> DecodedMessageV2? {
 		do {
 			return try DecodedMessageV2.create(
-				ffiMessage: ffiClient.enrichedMessage(messageId: messageId.hexToData)
+				ffiMessage: ffiClient.enrichedMessage(messageId: messageId.hexToData),
 			)
 		} catch {
 			return nil
@@ -260,7 +256,7 @@ public class Conversations {
 		async throws -> GroupSyncSummary
 	{
 		let ffiResult = try await ffiConversations.syncAllConversations(
-			consentStates: consentStates?.toFFI
+			consentStates: consentStates?.toFFI,
 		)
 		return GroupSyncSummary(ffiGroupSyncSummary: ffiResult)
 	}
@@ -272,7 +268,7 @@ public class Conversations {
 		lastActivityBeforeNs: Int64? = nil,
 		limit: Int? = nil,
 		consentStates: [ConsentState]? = nil,
-		orderBy: ConversationsOrderBy = ConversationsOrderBy.lastActivity
+		orderBy: ConversationsOrderBy = ConversationsOrderBy.lastActivity,
 	) throws -> [Group] {
 		var options = FfiListConversationsOptions(
 			createdAfterNs: createdAfterNs,
@@ -282,14 +278,14 @@ public class Conversations {
 			orderBy: orderBy.ffiOrderBy,
 			limit: nil,
 			consentStates: consentStates?.toFFI,
-			includeDuplicateDms: false
+			includeDuplicateDms: false,
 		)
 
 		if let limit {
 			options.limit = Int64(limit)
 		}
 		let conversations = try ffiConversations.listGroups(
-			opts: options
+			opts: options,
 		)
 
 		return conversations.map {
@@ -304,7 +300,7 @@ public class Conversations {
 		lastActivityAfterNs: Int64? = nil,
 		limit: Int? = nil,
 		consentStates: [ConsentState]? = nil,
-		orderBy: ConversationsOrderBy = ConversationsOrderBy.lastActivity
+		orderBy: ConversationsOrderBy = ConversationsOrderBy.lastActivity,
 	) throws -> [Dm] {
 		var options = FfiListConversationsOptions(
 			createdAfterNs: createdAfterNs,
@@ -314,7 +310,7 @@ public class Conversations {
 			orderBy: orderBy.ffiOrderBy,
 			limit: nil,
 			consentStates: consentStates?.toFFI,
-			includeDuplicateDms: false
+			includeDuplicateDms: false,
 		)
 
 		if let limit {
@@ -322,7 +318,7 @@ public class Conversations {
 		}
 
 		let conversations = try ffiConversations.listDms(
-			opts: options
+			opts: options,
 		)
 
 		return conversations.map {
@@ -337,7 +333,7 @@ public class Conversations {
 		lastActivityAfterNs: Int64? = nil,
 		limit: Int? = nil,
 		consentStates: [ConsentState]? = nil,
-		orderBy: ConversationsOrderBy = ConversationsOrderBy.lastActivity
+		orderBy: ConversationsOrderBy = ConversationsOrderBy.lastActivity,
 	) async throws -> [Conversation] {
 		var options = FfiListConversationsOptions(
 			createdAfterNs: createdAfterNs,
@@ -347,20 +343,20 @@ public class Conversations {
 			orderBy: orderBy.ffiOrderBy,
 			limit: nil,
 			consentStates: consentStates?.toFFI,
-			includeDuplicateDms: false
+			includeDuplicateDms: false,
 		)
 
 		if let limit {
 			options.limit = Int64(limit)
 		}
 		let ffiConversations = try ffiConversations.list(
-			opts: options
+			opts: options,
 		)
 
 		var conversations: [Conversation] = []
 		for conversation in ffiConversations {
 			let conversation = try await conversation.toConversation(
-				client: client
+				client: client,
 			)
 			conversations.append(conversation)
 		}
@@ -368,7 +364,7 @@ public class Conversations {
 	}
 
 	public func stream(
-		type: ConversationFilterType = .all, onClose: (() -> Void)? = nil
+		type: ConversationFilterType = .all, onClose: (() -> Void)? = nil,
 	) -> AsyncThrowingStream<
 		Conversation, Error
 	> {
@@ -387,16 +383,16 @@ public class Conversations {
 						if conversationType == .dm {
 							continuation.yield(
 								Conversation.dm(
-									conversation.dmFromFFI(client: self.client)
-								)
+									conversation.dmFromFFI(client: self.client),
+								),
 							)
 						} else if conversationType == .group {
 							continuation.yield(
 								Conversation.group(
 									conversation.groupFromFFI(
-										client: self.client
-									)
-								)
+										client: self.client,
+									),
+								),
 							)
 						}
 					} catch {
@@ -409,19 +405,18 @@ public class Conversations {
 			}
 
 			let task = Task {
-				let stream: FfiStreamCloser
-				switch type {
+				let stream: FfiStreamCloser = switch type {
 				case .groups:
-					stream = await ffiConversations.streamGroups(
-						callback: conversationCallback
+					await ffiConversations.streamGroups(
+						callback: conversationCallback,
 					)
 				case .all:
-					stream = await ffiConversations.stream(
-						callback: conversationCallback
+					await ffiConversations.stream(
+						callback: conversationCallback,
 					)
 				case .dms:
-					stream = await ffiConversations.streamDms(
-						callback: conversationCallback
+					await ffiConversations.streamDms(
+						callback: conversationCallback,
 					)
 				}
 				await ffiStreamActor.setFfiStream(stream)
@@ -443,18 +438,18 @@ public class Conversations {
 
 	public func newConversationWithIdentity(
 		with peerIdentity: PublicIdentity,
-		disappearingMessageSettings: DisappearingMessageSettings? = nil
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
 	) async throws -> Conversation {
 		let dm = try await findOrCreateDmWithIdentity(
 			with: peerIdentity,
-			disappearingMessageSettings: disappearingMessageSettings
+			disappearingMessageSettings: disappearingMessageSettings,
 		)
 		return Conversation.dm(dm)
 	}
 
 	public func findOrCreateDmWithIdentity(
 		with peerIdentity: PublicIdentity,
-		disappearingMessageSettings: DisappearingMessageSettings? = nil
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
 	) async throws -> Dm {
 		if try await client.inboxState(refreshFromNetwork: false).identities
 			.map(\.identifier).contains(peerIdentity.identifier)
@@ -468,9 +463,9 @@ public class Conversations {
 					targetIdentity: peerIdentity.ffiPrivate,
 					opts: FfiCreateDmOptions(
 						messageDisappearingSettings: toFfiDisappearingMessageSettings(
-							disappearingMessageSettings
-						)
-					)
+							disappearingMessageSettings,
+						),
+					),
 				)
 
 		return dm.dmFromFFI(client: client)
@@ -478,18 +473,18 @@ public class Conversations {
 
 	public func newConversation(
 		with peerInboxId: InboxId,
-		disappearingMessageSettings: DisappearingMessageSettings? = nil
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
 	) async throws -> Conversation {
 		let dm = try await findOrCreateDm(
 			with: peerInboxId,
-			disappearingMessageSettings: disappearingMessageSettings
+			disappearingMessageSettings: disappearingMessageSettings,
 		)
 		return Conversation.dm(dm)
 	}
 
 	public func findOrCreateDm(
 		with peerInboxId: InboxId,
-		disappearingMessageSettings: DisappearingMessageSettings? = nil
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
 	)
 		async throws -> Dm
 	{
@@ -503,9 +498,9 @@ public class Conversations {
 					inboxId: peerInboxId,
 					opts: FfiCreateDmOptions(
 						messageDisappearingSettings: toFfiDisappearingMessageSettings(
-							disappearingMessageSettings
-						)
-					)
+							disappearingMessageSettings,
+						),
+					),
 				)
 		return dm.dmFromFFI(client: client)
 	}
@@ -517,20 +512,20 @@ public class Conversations {
 		imageUrl: String = "",
 		description: String = "",
 		disappearingMessageSettings: DisappearingMessageSettings? = nil,
-		appData: String? = nil
+		appData: String? = nil,
 	) async throws -> Group {
 		try await newGroupInternalWithIdentities(
 			with: identities,
 			permissions:
 			GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(
-				option: permissions
+				option: permissions,
 			),
 			name: name,
 			imageUrl: imageUrl,
 			description: description,
 			permissionPolicySet: nil,
 			disappearingMessageSettings: disappearingMessageSettings,
-			appData: appData
+			appData: appData,
 		)
 	}
 
@@ -541,7 +536,7 @@ public class Conversations {
 		imageUrl: String = "",
 		description: String = "",
 		disappearingMessageSettings: DisappearingMessageSettings? = nil,
-		appData: String? = nil
+		appData: String? = nil,
 	) async throws -> Group {
 		try await newGroupInternalWithIdentities(
 			with: identities,
@@ -550,10 +545,10 @@ public class Conversations {
 			imageUrl: imageUrl,
 			description: description,
 			permissionPolicySet: PermissionPolicySet.toFfiPermissionPolicySet(
-				permissionPolicySet
+				permissionPolicySet,
 			),
 			disappearingMessageSettings: disappearingMessageSettings,
-			appData: appData
+			appData: appData,
 		)
 	}
 
@@ -565,7 +560,7 @@ public class Conversations {
 		description: String = "",
 		permissionPolicySet: FfiPermissionPolicySet? = nil,
 		disappearingMessageSettings: DisappearingMessageSettings? = nil,
-		appData: String?
+		appData: String?,
 	) async throws -> Group {
 		try await ffiConversations.createGroupByIdentity(
 			accountIdentities: identities.map(\.ffiPrivate),
@@ -576,10 +571,10 @@ public class Conversations {
 				groupDescription: description,
 				customPermissionPolicySet: permissionPolicySet,
 				messageDisappearingSettings: toFfiDisappearingMessageSettings(
-					disappearingMessageSettings
+					disappearingMessageSettings,
 				),
-				appData: appData
-			)
+				appData: appData,
+			),
 		).groupFromFFI(client: client)
 	}
 
@@ -590,20 +585,20 @@ public class Conversations {
 		imageUrl: String = "",
 		description: String = "",
 		disappearingMessageSettings: DisappearingMessageSettings? = nil,
-		appData: String? = nil
+		appData: String? = nil,
 	) async throws -> Group {
 		try await newGroupInternal(
 			with: inboxIds,
 			permissions:
 			GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(
-				option: permissions
+				option: permissions,
 			),
 			name: name,
 			imageUrl: imageUrl,
 			description: description,
 			permissionPolicySet: nil,
 			disappearingMessageSettings: disappearingMessageSettings,
-			appData: appData
+			appData: appData,
 		)
 	}
 
@@ -614,7 +609,7 @@ public class Conversations {
 		imageUrl: String = "",
 		description: String = "",
 		disappearingMessageSettings: DisappearingMessageSettings? = nil,
-		appData: String? = nil
+		appData: String? = nil,
 	) async throws -> Group {
 		try await newGroupInternal(
 			with: inboxIds,
@@ -623,10 +618,10 @@ public class Conversations {
 			imageUrl: imageUrl,
 			description: description,
 			permissionPolicySet: PermissionPolicySet.toFfiPermissionPolicySet(
-				permissionPolicySet
+				permissionPolicySet,
 			),
 			disappearingMessageSettings: disappearingMessageSettings,
-			appData: appData
+			appData: appData,
 		)
 	}
 
@@ -638,7 +633,7 @@ public class Conversations {
 		description: String = "",
 		permissionPolicySet: FfiPermissionPolicySet? = nil,
 		disappearingMessageSettings: DisappearingMessageSettings? = nil,
-		appData: String?
+		appData: String?,
 	) async throws -> Group {
 		try validateInboxIds(inboxIds)
 		return try await ffiConversations.createGroup(
@@ -650,10 +645,10 @@ public class Conversations {
 				groupDescription: description,
 				customPermissionPolicySet: permissionPolicySet,
 				messageDisappearingSettings: toFfiDisappearingMessageSettings(
-					disappearingMessageSettings
+					disappearingMessageSettings,
 				),
-				appData: appData
-			)
+				appData: appData,
+			),
 		).groupFromFFI(client: client)
 	}
 
@@ -663,21 +658,21 @@ public class Conversations {
 		groupImageUrlSquare: String = "",
 		groupDescription: String = "",
 		disappearingMessageSettings: DisappearingMessageSettings? = nil,
-		appData: String? = nil
+		appData: String? = nil,
 	) throws -> Group {
 		let ffiOpts = FfiCreateGroupOptions(
 			permissions:
 			GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(
-				option: permissions
+				option: permissions,
 			),
 			groupName: groupName,
 			groupImageUrlSquare: groupImageUrlSquare,
 			groupDescription: groupDescription,
 			customPermissionPolicySet: nil,
 			messageDisappearingSettings: toFfiDisappearingMessageSettings(
-				disappearingMessageSettings
+				disappearingMessageSettings,
 			),
-			appData: appData
+			appData: appData,
 		)
 
 		let ffiGroup = try ffiConversations.createGroupOptimistic(opts: ffiOpts)
@@ -687,7 +682,7 @@ public class Conversations {
 	public func streamAllMessages(
 		type: ConversationFilterType = .all,
 		consentStates: [ConsentState]? = nil,
-		onClose: (() -> Void)? = nil
+		onClose: (() -> Void)? = nil,
 	)
 		-> AsyncThrowingStream<DecodedMessage, Error>
 	{
@@ -712,22 +707,21 @@ public class Conversations {
 			}
 
 			let task = Task {
-				let stream: FfiStreamCloser
-				switch type {
+				let stream: FfiStreamCloser = switch type {
 				case .groups:
-					stream = await ffiConversations.streamAllGroupMessages(
+					await ffiConversations.streamAllGroupMessages(
 						messageCallback: messageCallback,
-						consentStates: consentStates?.toFFI
+						consentStates: consentStates?.toFFI,
 					)
 				case .dms:
-					stream = await ffiConversations.streamAllDmMessages(
+					await ffiConversations.streamAllDmMessages(
 						messageCallback: messageCallback,
-						consentStates: consentStates?.toFFI
+						consentStates: consentStates?.toFFI,
 					)
 				case .all:
-					stream = await ffiConversations.streamAllMessages(
+					await ffiConversations.streamAllMessages(
 						messageCallback: messageCallback,
-						consentStates: consentStates?.toFFI
+						consentStates: consentStates?.toFFI,
 					)
 				}
 				await ffiStreamActor.setFfiStream(stream)
@@ -745,7 +739,7 @@ public class Conversations {
 	/// A stream of all deleted or disappeared messages
 	/// that will be emitted as the messages are removed from the database
 	public func streamMessageDeletions(
-		onClose: (() -> Void)? = nil
+		onClose: (() -> Void)? = nil,
 	) -> AsyncThrowingStream<DecodedMessageV2, Error> {
 		AsyncThrowingStream { continuation in
 			let ffiStreamActor = FfiStreamActor()
@@ -769,7 +763,7 @@ public class Conversations {
 
 			let task = Task {
 				let stream = await ffiConversations.streamMessageDeletions(
-					callback: deletionCallback
+					callback: deletionCallback,
 				)
 				await ffiStreamActor.setFfiStream(stream)
 			}
@@ -814,7 +808,7 @@ public class Conversations {
 				hmacKeys.values.append(hmacKeyData)
 			}
 			hmacKeysResponse.hmacKeys[
-				Topic.groupMessage(convo.key.toHex).description
+				Topic.groupMessage(convo.key.toHex).description,
 			] = hmacKeys
 		}
 
@@ -830,7 +824,7 @@ public class Conversations {
 			orderBy: nil,
 			limit: nil,
 			consentStates: nil,
-			includeDuplicateDms: true
+			includeDuplicateDms: true,
 		)
 
 		let conversations = try ffiConversations.list(opts: options)
