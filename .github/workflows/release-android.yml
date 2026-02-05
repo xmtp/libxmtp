@@ -50,7 +50,7 @@ jobs:
 
   publish:
     needs: [compute-version]
-    runs-on: warp-ubuntu-latest-arm64-8x
+    runs-on: warp-ubuntu-latest-arm64-16x
     outputs:
       version: ${{ needs.compute-version.outputs.version }}
     steps:
