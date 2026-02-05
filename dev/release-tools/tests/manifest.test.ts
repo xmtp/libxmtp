@@ -95,6 +95,10 @@ describe("gradle properties manifest", () => {
     // Last line without trailing newline
     fs.writeFileSync(propsPath, "other=value\nversion=3.0.0");
     expect(readGradlePropertiesVersion(propsPath)).toBe("3.0.0");
+
+    // With whitespace around equals sign
+    fs.writeFileSync(propsPath, "version = 4.0.0\n");
+    expect(readGradlePropertiesVersion(propsPath)).toBe("4.0.0");
   });
 
   it("preserves other content and comments when writing", () => {
