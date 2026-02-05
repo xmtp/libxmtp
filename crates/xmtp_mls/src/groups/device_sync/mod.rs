@@ -221,7 +221,7 @@ where
         let sync_group = self.get_sync_group().await?;
 
         let msg = format!(
-            "[{}] Sending sync message to group {:?}: {content:?}",
+            "[{}] Sending sync message to group {:?}",
             self.context.installation_id(),
             xmtp_common::fmt::debug_hex(&sync_group.group_id)
         );

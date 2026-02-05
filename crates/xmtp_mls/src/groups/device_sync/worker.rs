@@ -554,6 +554,12 @@ where
         }
         self.metrics.increment_metric(SyncMetric::PayloadSent);
 
+        log_event!(
+            Event::DeviceSyncArchiveUploadComplete,
+            self.context.installation_id(),
+            group_id = sync_group_id.short_hex(),
+        );
+
         Ok(())
     }
 
