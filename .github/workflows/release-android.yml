@@ -1,0 +1,120 @@
+name: Release Android SDK
+
+on:
+  workflow_call:
+    inputs:
+      release-type:
+        required: true
+        type: string
+        description: "dev, rc, or final"
+      rc-number:
+        required: false
+        type: number
+        description: "RC number (required for rc releases)"
+      ref:
+        required: true
+        type: string
+        description: "Git ref to build from"
+    outputs:
+      version:
+        description: "The published version string"
+        value: ${{ jobs.publish.outputs.version }}
+
+jobs:
+  compute-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/setup-node
+      - name: Install release tools
+        working-directory: dev/release-tools
+        run: yarn install
+      - name: Compute version
+        id: version
+        working-directory: dev/release-tools
+        run: |
+          if [ "${{ inputs.release-type }}" = "rc" ]; then
+            VERSION=$(yarn cli compute-version --sdk android --release-type rc --rc-number ${{ inputs.rc-number }})
+          elif [ "${{ inputs.release-type }}" = "dev" ]; then
+            VERSION=$(yarn cli compute-version --sdk android --release-type dev)
+          else
+            VERSION=$(yarn cli compute-version --sdk android --release-type final)
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Computed version: $VERSION"
+
+  publish:
+    needs: [compute-version]
+    runs-on: warp-ubuntu-latest-arm64-8x
+    outputs:
+      version: ${{ needs.compute-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-node
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Install release tools
+        working-directory: dev/release-tools
+        run: yarn install
+
+      - name: Set version in gradle.properties
+        working-directory: dev/release-tools
+        env:
+          VERSION: ${{ needs.compute-version.outputs.version }}
+        run: yarn cli set-manifest-version --sdk android --version "$VERSION"
+
+      - name: Build Android bindings
+        run: ./sdks/android/dev/bindings
+
+      - name: Configure JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: "adopt"
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build and publish
+        working-directory: sdks/android
+        env:
+          MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
+          SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
+          SIGN_PASSWORD: ${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}
+          MAVEN_PROFILE_ID: ${{ secrets.MAVEN_PROFILE_ID }}
+        run: ./gradlew build publishToSonatype closeAndReleaseSonatypeStagingRepository
+
+      - name: Commit and tag (final releases only)
+        if: inputs.release-type == 'final'
+        env:
+          VERSION: ${{ needs.compute-version.outputs.version }}
+        run: |
+          TAG="android-${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add sdks/android/gradle.properties
+          git commit -m "release: Android SDK $VERSION [skip ci]"
+          git tag "$TAG"
+          git push origin HEAD "$TAG"
+
+      - name: Tag only (dev/rc releases)
+        if: inputs.release-type != 'final'
+        env:
+          VERSION: ${{ needs.compute-version.outputs.version }}
+        run: |
+          TAG="android-${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
