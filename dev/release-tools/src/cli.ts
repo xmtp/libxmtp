@@ -9,6 +9,7 @@ import * as updateSpmChecksum from "./commands/update-spm-checksum.js";
 import * as scaffoldNotes from "./commands/scaffold-notes.js";
 import * as createReleaseBranch from "./commands/create-release-branch.js";
 import * as classifyNotes from "./commands/classify-notes.js";
+import * as tagRelease from "./commands/tag-release.js";
 import { getRepoRoot } from "./lib/git.js";
 
 yargs(hideBin(process.argv))
@@ -26,6 +27,7 @@ yargs(hideBin(process.argv))
   .command(scaffoldNotes)
   .command(createReleaseBranch)
   .command(classifyNotes)
+  .command(tagRelease)
   .demandCommand(1, "You must specify a command")
   .version(false)
   .strict()
