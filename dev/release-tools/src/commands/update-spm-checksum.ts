@@ -53,6 +53,17 @@ export function handler(
   if (!config.spmManifestPath) {
     throw new Error(`SDK ${argv.sdk} does not have an SPM manifest`);
   }
+
+  // Validate that dynamic parameters are provided together
+  if (
+    (argv.dynamicUrl && !argv.dynamicChecksum) ||
+    (!argv.dynamicUrl && argv.dynamicChecksum)
+  ) {
+    throw new Error(
+      "Both --dynamic-url and --dynamic-checksum must be provided together",
+    );
+  }
+
   const spmPath = path.join(argv.repoRoot, config.spmManifestPath);
   updateSpmChecksumFn(spmPath, argv.url, argv.checksum);
   console.log(`Updated ${config.spmManifestPath}`);

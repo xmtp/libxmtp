@@ -15,7 +15,7 @@ Pod::Spec.new do |spec|
 
   spec.platform      	= :ios, '14.0', :macos, '11.0'
 
-  spec.swift_version  = '5.6'
+  spec.swift_version  = '6.1'
 
   # Release archive contains libxmtp uniffi bindings Sources/** and LibXMTPSwiftFFI.xcframework
   spec.source       	= { :http => "https://github.com/xmtp/libxmtp/releases/download/ios-#{spec.version}/XMTP-#{spec.version}.zip", :type => :zip }

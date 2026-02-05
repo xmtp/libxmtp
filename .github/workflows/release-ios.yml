@@ -60,6 +60,8 @@ jobs:
     outputs:
       artifact-url: ${{ steps.release.outputs.artifact-url }}
       checksum: ${{ steps.checksum.outputs.checksum }}
+      dynamic-artifact-url: ${{ steps.release.outputs.dynamic-artifact-url }}
+      dynamic-checksum: ${{ steps.checksum.outputs.dynamic-checksum }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -70,9 +72,12 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Build iOS libs
         run: nix build .#ios-libs --out-link bindings/mobile/build/nix
-      - name: Build xcframework
+      - name: Build static xcframework
         run: |
           nix develop .#ios --command make -C bindings/mobile lipo framework
+      - name: Build dynamic xcframework
+        run: |
+          nix develop .#ios --command make -C bindings/mobile lipodyn frameworkdyn
       - name: Package zip
         working-directory: bindings/mobile
         run: |
@@ -83,11 +88,19 @@ jobs:
             Sources \
             build/swift/LibXMTPSwiftFFI.xcframework \
             LICENSE
-      - name: Compute checksum
+      - name: Package dynamic zip
+        working-directory: bindings/mobile
+        run: |
+          zip -r LibXMTPSwiftFFIDynamic.zip \
+            Sources \
+            build/swift/LibXMTPSwiftFFIDynamic.xcframework \
+            LICENSE
+      - name: Compute checksums
         id: checksum
         working-directory: bindings/mobile
         run: |
           echo "checksum=$(shasum -a 256 LibXMTPSwiftFFI.zip | awk '{ print $1 }')" >> "$GITHUB_OUTPUT"
+          echo "dynamic-checksum=$(shasum -a 256 LibXMTPSwiftFFIDynamic.zip | awk '{ print $1 }')" >> "$GITHUB_OUTPUT"
       - name: Create or update GitHub Release
         id: release
         env:
@@ -98,18 +111,21 @@ jobs:
           SHA=$(git rev-parse --short=7 HEAD)
           TAG="libxmtp-ios-${SHA}"
           ARTIFACT_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/LibXMTPSwiftFFI.zip"
+          DYNAMIC_ARTIFACT_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/LibXMTPSwiftFFIDynamic.zip"
 
           if gh release view "$TAG" &>/dev/null; then
-            echo "Release $TAG already exists, skipping creation"
+            echo "Release $TAG already exists, uploading artifacts"
+            gh release upload "$TAG" LibXMTPSwiftFFI.zip LibXMTPSwiftFFIDynamic.zip --clobber
           else
             gh release create "$TAG" \
               --title "iOS $VERSION - libxmtp binaries" \
               --notes "Intermediate artifact release for iOS SDK $VERSION" \
               --prerelease \
-              LibXMTPSwiftFFI.zip
+              LibXMTPSwiftFFI.zip LibXMTPSwiftFFIDynamic.zip
           fi
 
           echo "artifact-url=$ARTIFACT_URL" >> "$GITHUB_OUTPUT"
+          echo "dynamic-artifact-url=$DYNAMIC_ARTIFACT_URL" >> "$GITHUB_OUTPUT"
 
   publish:
     needs: [compute-version, build-and-package]
@@ -132,9 +148,13 @@ jobs:
           VERSION: ${{ needs.compute-version.outputs.version }}
           ARTIFACT_URL: ${{ needs.build-and-package.outputs.artifact-url }}
           CHECKSUM: ${{ needs.build-and-package.outputs.checksum }}
+          DYNAMIC_ARTIFACT_URL: ${{ needs.build-and-package.outputs.dynamic-artifact-url }}
+          DYNAMIC_CHECKSUM: ${{ needs.build-and-package.outputs.dynamic-checksum }}
         run: |
           cd dev/release-tools
-          yarn cli update-spm-checksum --sdk ios --url "$ARTIFACT_URL" --checksum "$CHECKSUM"
+          yarn cli update-spm-checksum --sdk ios \
+            --url "$ARTIFACT_URL" --checksum "$CHECKSUM" \
+            --dynamic-url "$DYNAMIC_ARTIFACT_URL" --dynamic-checksum "$DYNAMIC_CHECKSUM"
 
           # For dev/rc releases, update podspec with suffixed version
           if [ "${{ inputs.release-type }}" != "final" ]; then

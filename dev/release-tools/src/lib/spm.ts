@@ -37,8 +37,11 @@ export function updateSpmChecksum(
 const SPM_DYNAMIC_URL_REGEX =
   /(\.binaryTarget\(\s*name:\s*"LibXMTPSwiftFFIDynamic",\s*url:\s*)"([^"]+)"/s;
 
+// Matches the checksum field within a LibXMTPSwiftFFIDynamic binaryTarget block.
+// Uses url:\s*"[^"]+",?\s* as a boundary marker to ensure we only match the checksum
+// that follows the url field, preventing unintended matches if file structure changes.
 const SPM_DYNAMIC_CHECKSUM_REGEX =
-  /(\.binaryTarget\(\s*name:\s*"LibXMTPSwiftFFIDynamic",[\s\S]*?checksum:\s*)"([^"]+)"/s;
+  /(\.binaryTarget\(\s*name:\s*"LibXMTPSwiftFFIDynamic",\s*url:\s*"[^"]+",?\s*checksum:\s*)"([^"]+)"/s;
 
 export function updateSpmDynamicChecksum(
   packageSwiftPath: string,
