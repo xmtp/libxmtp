@@ -178,6 +178,7 @@ jobs:
           cp -r artifact/build/swift/LibXMTPSwiftFFI.xcframework bundle/
           cp ../../LICENSE bundle/
           (cd bundle && zip -qry ../XMTP-${VERSION}.zip .)
+          chmod -R u+w artifact bundle 2>/dev/null || true
           rm -rf artifact bundle
       - name: Commit and tag
         env:
