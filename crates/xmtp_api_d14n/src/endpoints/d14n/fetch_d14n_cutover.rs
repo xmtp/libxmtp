@@ -8,7 +8,7 @@ use xmtp_proto::xmtp::migration::api::v1::FetchD14nCutoverResponse;
 pub struct FetchD14nCutover;
 
 impl Endpoint for FetchD14nCutover {
-    type Output = FetchD14nCutover;
+    type Output = FetchD14nCutoverResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         xmtp_proto::path_and_query::<FetchD14nCutoverResponse>()
     }
