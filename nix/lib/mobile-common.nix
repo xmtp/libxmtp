@@ -2,7 +2,7 @@
 # Centralizes common build arguments, filesets, and version extraction.
 #
 # Usage:
-#   mobile = import ./mobile-common.nix { inherit lib craneLib xmtp zstd openssl sqlite pkg-config perl; };
+#   mobile = import ./mobile-common.nix { inherit lib craneLib xmtp zstd openssl sqlite pkg-config perl zlib; };
 #   # Then use: mobile.commonArgs, mobile.filesets, mobile.version, mobile.depsFileset, mobile.bindingsFileset
 { lib
 , craneLib
@@ -12,6 +12,7 @@
 , sqlite
 , pkg-config
 , perl
+, zlib
 }:
 let
   # Shared filesets from nix/lib/filesets.nix
@@ -38,7 +39,7 @@ let
     src = depsFileset;
     strictDeps = true;
     # perl is needed for openssl-sys's vendored build (its Configure script is Perl).
-    nativeBuildInputs = [ pkg-config perl ];
+    nativeBuildInputs = [ pkg-config perl zlib ];
     buildInputs = [ zstd openssl sqlite ];
     doCheck = false;
     # Disable zerocallusedregs hardening which can cause issues with cross-compilation.
