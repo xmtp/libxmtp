@@ -72,11 +72,10 @@ lipo:
 	lipo -create -output build/lipo_ios_sim/$(LIB) $(foreach arch,$(ARCHS_IOS),$(wildcard $(NIX_OUT)/$(arch)/$(LIB)))
 	lipo -create -output build/lipo_macos/$(LIB) $(foreach arch,$(ARCHS_MAC),$(wildcard $(NIX_OUT)/$(arch)/$(LIB)))
 
-# lipo combines libs for different architectures (aarch64, x86_64, ...) into one fat lib
 lipodyn:
 	mkdir -p build/lipo_macos build/lipo_ios_sim
-	lipo -create -output build/lipo_ios_sim/$(DYLIB) $(foreach arch,$(ARCHS_IOS),$(wildcard build/$(arch)/$(DYLIB)))
-	lipo -create -output build/lipo_macos/$(DYLIB) $(foreach arch,$(ARCHS_MAC),$(wildcard build/$(arch)/$(DYLIB)))
+	lipo -create -output build/lipo_ios_sim/$(DYLIB) $(foreach arch,$(ARCHS_IOS),$(wildcard $(NIX_OUT)/$(arch)/$(DYLIB)))
+	lipo -create -output build/lipo_macos/$(DYLIB) $(foreach arch,$(ARCHS_MAC),$(wildcard $(NIX_OUT)/$(arch)/$(DYLIB)))
 
 # xcframework combines libs for different platforms (iOS, iOS-simulator, macOS, ...) into one framework that can be used in Xcode
 framework: lipo
@@ -95,15 +94,17 @@ framework: lipo
 	cp $(SWIFT_OUT)/xmtpv3.swift $(IOS_SDK_SWIFT_DIR)/xmtpv3.swift
 
 frameworkdyn: lipodyn
-	rm -rf LibXMTPSwiftFFIDynamic.xcframework
+	mkdir -p build/swift
+	chmod -R u+w build/swift/LibXMTPSwiftFFIDynamic.xcframework 2>/dev/null || true
+	rm -rf build/swift/LibXMTPSwiftFFIDynamic.xcframework
 	xcodebuild -create-xcframework \
-		-library build/aarch64-apple-ios/$(DYLIB) \
-		-headers build/swift/dynamic/include/libxmtp/ \
+		-library $(NIX_OUT)/aarch64-apple-ios/$(DYLIB) \
+		-headers $(SWIFT_OUT)/include/libxmtp/ \
 		-library build/lipo_ios_sim/$(DYLIB) \
-		-headers build/swift/dynamic/include/libxmtp/ \
+		-headers $(SWIFT_OUT)/include/libxmtp/ \
 		-library build/lipo_macos/$(DYLIB) \
-		-headers build/swift/dynamic/include/libxmtp/ \
-		-output LibXMTPSwiftFFIDynamic.xcframework
+		-headers $(SWIFT_OUT)/include/libxmtp/ \
+		-output build/swift/LibXMTPSwiftFFIDynamic.xcframework
 
 bindgenstatic:
 	cargo build --release -p xmtpv3
@@ -112,22 +113,6 @@ bindgenstatic:
 		--library $(TARGET_DIR)/release/$(LIB) \
 		--out-dir build/swift/static \
 		--language swift
-
-bindgendynamic:
-	cargo build --release -p xmtpv3
-	rm -rf build/swift/dynamic
-	cargo run --bin ffi-uniffi-bindgen --release --features uniffi/cli generate \
-		--library $(TARGET_DIR)/release/$(DYLIB) \
-		--out-dir build/swift/dynamic \
-		--language swift
-
-# build uniffi bindings for swift
-swiftdyn: libxmtp-version
-	# https://mozilla.github.io/uniffi-rs/swift/module.html#compiling-a-swift-module
-	mkdir -p build/swift/dynamic/include/libxmtp
-	mv build/swift/dynamic/$(PROJECT_NAME)FFI.h build/swift/dynamic/include/libxmtp/  # Move header
-	mv build/swift/dynamic/$(PROJECT_NAME)FFI.modulemap build/swift/dynamic/include/libxmtp/module.modulemap  # Move modulemap
-	cp libxmtp-version.txt build/swift/dynamic
 
 swift: libxmtp-version
 	# https://mozilla.github.io/uniffi-rs/swift/module.html#compiling-a-swift-module
@@ -138,8 +123,6 @@ swift: libxmtp-version
 
 swiftlocal: libxmtpv3.a bindgenstatic swift framework
 
-swiftdynamic: libxmtpv3.dylib bindgendynamic swiftdyn frameworkdyn
-
 # Build everything needed for local iOS SDK development.
 # Uses cargo directly (no nix build) — for devs who want a self-contained build
 # without Nix. The nix build path (`nix build .#ios-libs` + `make framework`)
@@ -148,6 +131,6 @@ swiftdynamic: libxmtpv3.dylib bindgendynamic swiftdyn frameworkdyn
 # in a CONTRIBUTING or README section for iOS developers.
 local: NIX_OUT = build
 local: SWIFT_OUT = build/swift/static
-local: $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios bindgenstatic swift lipo framework
+local: $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios bindgenstatic swift lipo framework lipodyn frameworkdyn
 
-.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift bindgendynamic bindgenstatic frameworkdyn lipo lipodyn download-sqlcipher build-sqlcipher local
+.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift bindgenstatic frameworkdyn lipo lipodyn local
