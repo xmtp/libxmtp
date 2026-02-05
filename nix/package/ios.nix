@@ -1,9 +1,9 @@
 # iOS cross-compilation package derivation.
-# Builds static libraries for 4 targets + Swift bindings, cacheable in Cachix.
+# Builds static and dynamic libraries for 4 targets + Swift bindings, cacheable in Cachix.
 # Uses shared config from nix/lib/ios-env.nix.
 #
 # This file produces 6 derivations:
-#   1-4. Per-target static libraries (impure — need Xcode SDK):
+#   1-4. Per-target static+dynamic libraries (impure — need Xcode SDK):
 #        xmtpv3-{x86_64-apple-darwin,aarch64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim}
 #   5.   Swift bindings (impure — needs Xcode SDK for native host build):
 #        xmtpv3-swift-bindings (runs uniffi-bindgen, outputs .swift + .h + .modulemap)
@@ -96,7 +96,7 @@ let
     hardeningDisable = [ "zerocallusedregs" ];
   };
 
-  # Build a static library (.a) for a single cross-compilation target.
+  # Build static (.a) and dynamic (.dylib) libraries for a single cross-compilation target.
   #
   # Uses crane's two-phase approach:
   #   1. buildDepsOnly — compiles all dependencies, outputs cargo artifacts.
@@ -147,10 +147,11 @@ let
       # need to replace source files, so crane leaves the build hooks intact.
       preBuild = iosEnv.envSetup target;
       # Override crane's default installPhase which expects a binary executable.
-      # We produce a static library (.a), so we copy it directly.
+      # We produce a static library (.a) and dynamic library (.dylib), so we copy them directly.
       installPhaseCommand = ''
         mkdir -p $out/${target}
         cp target/${target}/release/libxmtpv3.a $out/${target}/
+        cp target/${target}/release/libxmtpv3.dylib $out/${target}/
       '';
     });
 
@@ -210,7 +211,7 @@ let
     '';
   });
 
-  # Aggregate derivation: combines all per-target static libraries + Swift bindings
+  # Aggregate derivation: combines all per-target static+dynamic libraries + Swift bindings
   # into a single output directory.
   # Uses symlinks instead of copies to avoid ~100MB duplication in the Nix store
   # (each .a file is 20-30MB). The Makefile's lipo/framework targets follow symlinks.
@@ -227,6 +228,7 @@ let
       ${lib.concatMapStringsSep "\n" (target: ''
         mkdir -p $out/${target}
         ln -s ${targets.${target}}/${target}/libxmtpv3.a $out/${target}/libxmtpv3.a
+        ln -s ${targets.${target}}/${target}/libxmtpv3.dylib $out/${target}/libxmtpv3.dylib
       '') iosEnv.iosTargets}
       ln -s ${swiftBindings}/swift/xmtpv3.swift $out/swift/xmtpv3.swift
       ln -s ${swiftBindings}/swift/include $out/swift/include
