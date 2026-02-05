@@ -36,7 +36,6 @@ import uniffi.xmtpv3.FfiReactionAction
 import uniffi.xmtpv3.FfiReactionPayload
 import uniffi.xmtpv3.FfiReactionSchema
 import uniffi.xmtpv3.FfiRemoteAttachment
-import uniffi.xmtpv3.FfiRemoteAttachmentInfo
 import uniffi.xmtpv3.FfiTransactionMetadata
 import uniffi.xmtpv3.FfiTransactionReference
 import java.net.URL
@@ -150,11 +149,11 @@ class DecodedMessageV2 private constructor(
                 salt = ffiRemote.salt.toByteString(),
                 nonce = ffiRemote.nonce.toByteString(),
                 scheme = ffiRemote.scheme,
-                contentLength = ffiRemote.contentLength.toInt(),
+                contentLength = ffiRemote.contentLength?.toInt() ?: 0,
                 filename = ffiRemote.filename,
             )
 
-        private fun mapRemoteAttachmentInfo(ffiInfo: FfiRemoteAttachmentInfo): RemoteAttachmentInfo =
+        private fun mapRemoteAttachmentInfo(ffiInfo: FfiRemoteAttachment): RemoteAttachmentInfo =
             RemoteAttachmentInfo(
                 url = ffiInfo.url,
                 filename = ffiInfo.filename ?: "",

@@ -27,6 +27,7 @@
 , stdenv
 , androidenv
 , cargo-ndk
+, zlib
 , ...
 }:
 let
@@ -39,7 +40,7 @@ let
 
   # Shared mobile build configuration (commonArgs, filesets, version)
   mobile = import ./../lib/mobile-common.nix {
-    inherit lib craneLib xmtp zstd openssl sqlite pkg-config perl;
+    inherit lib craneLib xmtp zstd openssl sqlite pkg-config perl zlib;
   };
 
   # Rust toolchain with Android cross-compilation targets
