@@ -54,8 +54,8 @@ describe("setManifestVersion", () => {
   });
 
   it("throws for an unknown SDK", () => {
-    expect(() => setManifestVersion("android", "1.0.0", tmpDir)).toThrow(
-      "Unknown SDK: android",
+    expect(() => setManifestVersion("unknown", "1.0.0", tmpDir)).toThrow(
+      "Unknown SDK: unknown",
     );
   });
 });
