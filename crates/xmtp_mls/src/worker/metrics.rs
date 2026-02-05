@@ -140,8 +140,20 @@ where
     pub fn register_interest(&self, metric_key: Metric, count: usize) -> MetricInterest<Metric> {
         tracing::info!("registering interest in {metric_key:?}");
         let info = self.info(metric_key);
+
+        let fut = if self
+            .metrics
+            .lock()
+            .get(&metric_key)
+            .is_some_and(|info| info.count() == count)
+        {
+            futures::future::ready(()).boxed()
+        } else {
+            info.register_interest().boxed()
+        };
+
         MetricInterest {
-            fut: info.register_interest().boxed(),
+            fut,
             count,
             info: self.info(metric_key),
             metric: metric_key,
