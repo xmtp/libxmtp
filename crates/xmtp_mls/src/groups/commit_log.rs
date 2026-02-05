@@ -601,6 +601,7 @@ where
                 db.set_group_commit_log_forked_status(&conversation_id, is_forked)?;
                 Ok::<(), CommitLogError>(())
             })?;
+            tokio::task::yield_now().await;
         }
 
         Ok(())
