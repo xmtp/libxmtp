@@ -145,7 +145,7 @@ where
             .metrics
             .lock()
             .get(&metric_key)
-            .is_some_and(|info| info.count() == count)
+            .is_some_and(|info| info.count() >= count)
         {
             futures::future::ready(()).boxed()
         } else {
