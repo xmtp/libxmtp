@@ -8,4 +8,4 @@ ensure_nix_shell "$@"
 
 # Run Gradle build
 cd "${SDK_ROOT}"
-./gradlew build
+./gradlew :library:build
