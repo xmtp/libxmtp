@@ -25,6 +25,9 @@ on:
       - ".cargo/**"
       - "rust-toolchain.toml"
       - "rustfmt.toml"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
@@ -40,7 +43,7 @@ jobs:
       - name: Update rust toolchains
         run: rustup update
       - name: Cache
-        uses: Swatinem/rust-cache@v2
+        uses: WarpBuilds/rust-cache@v2
         with:
           workspaces: |
             .

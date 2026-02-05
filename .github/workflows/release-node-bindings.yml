@@ -53,7 +53,7 @@ jobs:
           rustup target add ${{ matrix.target }}
 
       - name: Cache
-        uses: Swatinem/rust-cache@v2
+        uses: WarpBuilds/rust-cache@v2
         with:
           workspaces: |
             .
@@ -144,7 +144,7 @@ jobs:
           rustup target add ${{ matrix.target }}
 
       - name: Cache
-        uses: Swatinem/rust-cache@v2
+        uses: WarpBuilds/rust-cache@v2
         with:
           workspaces: |
             .
@@ -198,7 +198,7 @@ jobs:
           rustup target add ${{ matrix.target }}
 
       - name: Cache
-        uses: Swatinem/rust-cache@v2
+        uses: WarpBuilds/rust-cache@v2
         with:
           workspaces: |
             .

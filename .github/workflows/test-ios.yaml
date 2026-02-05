@@ -8,7 +8,7 @@ on:
     paths: ["Package.swift", "sdks/ios/**", "bindings/mobile/**", "crates/**"]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -20,7 +20,7 @@ jobs:
       history_url: ${{ steps.deploy.outputs.history_url }}
       app_name: ${{ steps.deploy.outputs.app_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - name: Deploy test infrastructure
         id: deploy
@@ -51,7 +51,7 @@ jobs:
     runs-on: warp-macos-15-arm64-6x
     needs: deploy-backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}

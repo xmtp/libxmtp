@@ -5,6 +5,9 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   cargo-deny:
     runs-on: ubuntu-latest
@@ -17,19 +20,10 @@ jobs:
           - sources
     steps:
       - uses: actions/checkout@v6
-      # Install Rust toolchain
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-
-      # Run cargo-deny with the installed toolchain
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check ${{ matrix.checks }}
-          rust-version: stable # Use the stable toolchain we just installed
+          rust-version: stable
 
     # Prevent sudden announcement of a new advisory from failing CI
     continue-on-error: ${{ matrix.checks == 'advisories' }}
