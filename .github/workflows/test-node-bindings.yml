@@ -31,14 +31,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - name: Update rust toolchains
-        run: rustup update
-      - name: Cache
-        uses: WarpBuilds/rust-cache@v2
+      - uses: ./.github/actions/setup-rust
         with:
           workspaces: |
             .
             bindings/node
+          warp: 'true'
       - name: Start Docker containers
         run: dev/up
       - name: Setup node

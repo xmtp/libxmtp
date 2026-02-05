@@ -23,15 +23,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - name: Update rust toolchains
-        run: |
-          rustup update
-          rustup target add wasm32-unknown-unknown
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-rust
         with:
-          workspaces: |
-            bindings/wasm
+          targets: wasm32-unknown-unknown
+          workspaces: bindings/wasm
       - name: Install emscripten toolchains
         run: |
           git clone https://github.com/emscripten-core/emsdk.git

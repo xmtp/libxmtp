@@ -24,12 +24,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - name: Cache
-        uses: WarpBuilds/rust-cache@v2
-        with:
-          workspaces: |
-            .
-            bindings/mobile
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}

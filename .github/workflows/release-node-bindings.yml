@@ -47,17 +47,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Update rust toolchains, add target
-        run: |
-          rustup update
-          rustup target add ${{ matrix.target }}
-
-      - name: Cache
-        uses: WarpBuilds/rust-cache@v2
+      - uses: ./.github/actions/setup-rust
         with:
+          targets: ${{ matrix.target }}
           workspaces: |
             .
             bindings/node
+          warp: 'true'
 
       - name: Configure aarch64 toolchain
         if: startsWith(matrix.target, 'aarch64')
@@ -138,17 +134,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Update rust toolchains, add target
-        run: |
-          rustup update
-          rustup target add ${{ matrix.target }}
-
-      - name: Cache
-        uses: WarpBuilds/rust-cache@v2
+      - uses: ./.github/actions/setup-rust
         with:
+          targets: ${{ matrix.target }}
           workspaces: |
             .
             bindings/node
+          warp: 'true'
 
       - name: Setup node
         uses: ./.github/actions/setup-node
@@ -192,17 +184,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Update rust toolchains
-        run: |
-          rustup update
-          rustup target add ${{ matrix.target }}
-
-      - name: Cache
-        uses: WarpBuilds/rust-cache@v2
+      - uses: ./.github/actions/setup-rust
         with:
+          targets: ${{ matrix.target }}
           workspaces: |
             .
             bindings/node
+          warp: 'true'
 
       - name: Disable usePackageExitCodes feature
         uses: crazy-max/ghaction-chocolatey@v3

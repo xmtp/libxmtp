@@ -40,13 +40,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - name: Update rust toolchains
-        run: rustup update
-      - name: Cache
-        uses: WarpBuilds/rust-cache@v2
+      - uses: ./.github/actions/setup-rust
         with:
-          workspaces: |
-            .
+          warp: 'true'
       - name: Run clippy and fail on warnings
         # Exclude bindings_wasm since it only compiles for wasm32
         run: cargo clippy --locked --workspace --all-features --all-targets --no-deps --exclude bindings_wasm -- -D warnings

@@ -31,14 +31,7 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Update rust toolchains
-        run: rustup update
-
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            .
+      - uses: ./.github/actions/setup-rust
 
       - name: Invoke cargo doc
         run: ./dev/docs
