@@ -15,7 +15,12 @@ runs:
         mkdir -p "$BIN_DIR"
         cat > "$BIN_DIR/xmtp-release" << 'WRAPPER'
         #!/usr/bin/env bash
-        exec yarn --cwd "$GITHUB_WORKSPACE/dev/release-tools" cli "$@"
+        cd "$GITHUB_WORKSPACE/dev/release-tools" && exec yarn cli "$@"
         WRAPPER
         chmod +x "$BIN_DIR/xmtp-release"
         echo "$BIN_DIR" >> "$GITHUB_PATH"
+    - name: Configure git user
+      shell: bash
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"

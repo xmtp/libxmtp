@@ -57,15 +57,6 @@ jobs:
       - name: Build Android bindings
         run: ./sdks/android/dev/bindings
 
-      - name: Configure JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: "adopt"
-          java-version: "17"
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-
       - name: Build and publish
         working-directory: sdks/android
         env:
@@ -74,26 +65,9 @@ jobs:
           SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
           SIGN_PASSWORD: ${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}
           MAVEN_PROFILE_ID: ${{ secrets.MAVEN_PROFILE_ID }}
-        run: ./gradlew build publishToSonatype closeAndReleaseSonatypeStagingRepository
+        run: nix develop .#android --command ./gradlew build publishToSonatype closeAndReleaseSonatypeStagingRepository
 
-      - name: Commit and tag (final releases only)
-        if: inputs.release-type == 'final'
+      - name: Tag release
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          TAG="android-${VERSION}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "$TAG"
-          git push origin HEAD "$TAG"
-
-      - name: Tag only (dev/rc releases)
-        if: inputs.release-type != 'final'
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          TAG="android-${VERSION}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "$TAG"
-          git push origin "$TAG"
+        run: xmtp-release tag-release --sdk android --version "$VERSION" --push-branch

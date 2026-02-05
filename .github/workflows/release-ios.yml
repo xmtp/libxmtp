@@ -166,15 +166,10 @@ jobs:
           (cd bundle && zip -qry ../XMTP-${VERSION}.zip .)
           chmod -R u+w artifact bundle 2>/dev/null || true
           rm -rf artifact bundle
-      - name: Commit and tag
+      - name: Commit changes
         env:
           VERSION: ${{ needs.build-and-package.outputs.version }}
         run: |
-          TAG="ios-${VERSION}"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
           # Always commit Package.swift, only commit podspec for final releases
           if [ "${{ inputs.release-type }}" = "final" ]; then
             git add Package.swift sdks/ios/XMTP.podspec
@@ -187,13 +182,10 @@ jobs:
             echo "No changes to commit"
           fi
 
-          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
-            echo "Tag $TAG already exists, skipping"
-            git push origin HEAD
-          else
-            git tag "$TAG"
-            git push origin HEAD "$TAG"
-          fi
+      - name: Tag release
+        env:
+          VERSION: ${{ needs.build-and-package.outputs.version }}
+        run: xmtp-release tag-release --sdk ios --version "$VERSION" --push-branch
       - name: Create release and upload bundle
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
