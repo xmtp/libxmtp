@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { BumpType } from "../types.js";
+import type { BumpType, GlobalArgs } from "../types.js";
 import { bumpVersion } from "./bump-version.js";
 import { scaffoldNotes } from "./scaffold-notes.js";
 import { findLastVersion } from "./find-last-version.js";
@@ -14,7 +14,7 @@ export const command = "create-release-branch";
 export const describe =
   "Create a release branch with bumped versions and scaffolded notes";
 
-export function builder(yargs: Argv) {
+export function builder(yargs: Argv<GlobalArgs>) {
   return yargs
     .option("version", {
       type: "string",
@@ -40,14 +40,11 @@ export function builder(yargs: Argv) {
 }
 
 export function handler(
-  argv: ArgumentsCamelCase<{
-    version: string;
-    base: string;
-    sdk: string;
-    bump: BumpType;
-  }>,
+  argv: ArgumentsCamelCase<
+    GlobalArgs & { version: string; base: string; sdk: string; bump: BumpType }
+  >,
 ) {
-  const cwd = process.cwd();
+  const cwd = argv.repoRoot;
   const branchName = `release/${argv.version}`;
 
   // Validate SDK before creating branch to fail fast on invalid SDK names

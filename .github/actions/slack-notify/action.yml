@@ -1,0 +1,25 @@
+name: 'Slack Notify'
+description: 'Send a notification to Slack via webhook'
+inputs:
+  message:
+    description: 'Message text to send'
+    required: true
+  webhook-url:
+    description: 'Slack webhook URL (channel is bound to the webhook)'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - name: Notify Slack
+      env:
+        SLACK_WEBHOOK_URL: ${{ inputs.webhook-url }}
+        MESSAGE: ${{ inputs.message }}
+      run: |
+        if [ -n "$SLACK_WEBHOOK_URL" ]; then
+          curl -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-type: application/json' \
+            --data "$(jq -n --arg text "$MESSAGE" '{text: $text}')"
+        else
+          echo "$MESSAGE"
+        fi
+      shell: bash

@@ -1,6 +1,6 @@
 import semver from "semver";
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { BumpType } from "../types.js";
+import type { BumpType, GlobalArgs } from "../types.js";
 import { getSdkConfig } from "../lib/sdk-config.js";
 
 export function bumpVersion(
@@ -21,7 +21,7 @@ export function bumpVersion(
 export const command = "bump-version";
 export const describe = "Bump the version in an SDK manifest";
 
-export function builder(yargs: Argv) {
+export function builder(yargs: Argv<GlobalArgs>) {
   return yargs
     .option("sdk", {
       type: "string",
@@ -33,16 +33,11 @@ export function builder(yargs: Argv) {
       demandOption: true,
       choices: ["major", "minor", "patch"] as const,
       describe: "Version bump type",
-    })
-    .option("repoRoot", {
-      type: "string",
-      default: process.cwd(),
-      describe: "Repository root directory",
     });
 }
 
 export function handler(
-  argv: ArgumentsCamelCase<{ sdk: string; type: BumpType; repoRoot: string }>,
+  argv: ArgumentsCamelCase<GlobalArgs & { sdk: string; type: BumpType }>,
 ) {
   const version = bumpVersion(argv.sdk, argv.type, argv.repoRoot);
   console.log(version);
