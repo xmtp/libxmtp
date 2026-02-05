@@ -45,10 +45,7 @@ jobs:
         with:
           ref: ${{ inputs.base-ref }}
           fetch-depth: 0
-      - uses: ./.github/actions/setup-node
-      - name: Install release tools
-        working-directory: dev/release-tools
-        run: yarn install
+      - uses: ./.github/actions/setup-release-tools
       - name: Create release branch
         env:
           RELEASE_VERSION: ${{ inputs.version }}
@@ -59,13 +56,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          cd dev/release-tools
-          yarn cli create-release-branch \
+          xmtp-release create-release-branch \
             --version "$RELEASE_VERSION" \
             --base "$BASE_REF" \
             --ios "$IOS_BUMP" \
             --android "$ANDROID_BUMP"
-          cd ../..
 
           git push -u origin "release/${RELEASE_VERSION}"
       - name: Create pull request
