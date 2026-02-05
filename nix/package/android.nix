@@ -69,6 +69,11 @@ let
     ANDROID_NDK_HOME = androidPaths.ndkHome;
     ANDROID_NDK_ROOT = androidPaths.ndkHome;
     OPENSSL_DIR = "${openssl.dev}";
+
+    # Ensure host build scripts use the Nix stdenv compiler, not NDK clang.
+    # Without this, the cc crate may pick up NDK clang for host compilation,
+    # which fails on Linux because NDK clang lacks host sysroot headers (stdio.h).
+    HOST_CC = "${stdenv.cc}/bin/cc";
   };
 
   # Build dependencies for a specific Android target
