@@ -7,6 +7,10 @@ inputs:
   cachix-auth-token:
     description: 'Cachix auth token for xmtp cache'
     required: false
+  sccache:
+    description: 'Enable sccache with GitHub Actions cache backend'
+    required: false
+    default: 'false'
 runs:
   using: 'composite'
   steps:
@@ -24,3 +28,12 @@ runs:
       if: ${{ inputs.cachix-auth-token == '' }}
       with:
         name: xmtp
+    - name: Setup sccache
+      if: ${{ inputs.sccache == 'true' }}
+      uses: mozilla-actions/sccache-action@v0.0.9
+    - name: Configure sccache env
+      if: ${{ inputs.sccache == 'true' }}
+      run: |
+        echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+        echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+      shell: bash
