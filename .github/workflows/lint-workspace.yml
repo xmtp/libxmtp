@@ -5,7 +5,7 @@ on:
       - main
   pull_request:
     paths:
-      - ".github/workflows/lint-workspace.yaml"
+      - ".github/workflows/lint-workspace.yml"
       - "apps/mls_validation_service/**"
       - "crates/xmtp_api_grpc/**"
       - "crates/xmtp_cryptography/**"
