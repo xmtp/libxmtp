@@ -91,7 +91,7 @@ framework: lipo
 		-library build/lipo_macos/$(LIB) \
 		-headers $(SWIFT_OUT)/include/libxmtp/ \
 		-output build/swift/LibXMTPSwiftFFI.xcframework
-	cp $(SWIFT_OUT)/xmtpv3.swift $(IOS_SDK_SWIFT_DIR)/xmtpv3.swift
+	cp -f $(SWIFT_OUT)/xmtpv3.swift $(IOS_SDK_SWIFT_DIR)/xmtpv3.swift
 
 frameworkdyn: lipodyn
 	mkdir -p build/swift
