@@ -25,12 +25,12 @@ import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationMetadata
 import uniffi.xmtpv3.FfiDeliveryStatus
 import uniffi.xmtpv3.FfiDirection
+import uniffi.xmtpv3.FfiException
 import uniffi.xmtpv3.FfiListMessagesOptions
 import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
 import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiSortBy
-import uniffi.xmtpv3.FfiSubscribeException
 import java.util.Date
 
 class Dm(
@@ -510,8 +510,8 @@ class Dm(
                         }
                     }
 
-                    override fun onError(error: FfiSubscribeException) {
-                        Log.e("XMTP Dm stream", "Stream error: ${error.message}", error)
+                    override fun onError(error: FfiException) {
+                        Log.e("XMTP Dm stream", "Stream error: $error")
                     }
 
                     override fun onClose() {

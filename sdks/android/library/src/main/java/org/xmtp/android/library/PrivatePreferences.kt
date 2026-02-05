@@ -8,9 +8,9 @@ import uniffi.xmtpv3.FfiConsent
 import uniffi.xmtpv3.FfiConsentCallback
 import uniffi.xmtpv3.FfiConsentEntityType
 import uniffi.xmtpv3.FfiConsentState
+import uniffi.xmtpv3.FfiException
 import uniffi.xmtpv3.FfiPreferenceCallback
 import uniffi.xmtpv3.FfiPreferenceUpdate
-import uniffi.xmtpv3.FfiSubscribeException
 import uniffi.xmtpv3.FfiXmtpClient
 
 enum class ConsentState {
@@ -106,8 +106,8 @@ data class PrivatePreferences(
                         }
                     }
 
-                    override fun onError(error: FfiSubscribeException) {
-                        Log.e("XMTP preference update stream", error.message.toString())
+                    override fun onError(error: FfiException) {
+                        Log.e("XMTP preference update stream", error.toString())
                     }
 
                     override fun onClose() {
@@ -131,8 +131,8 @@ data class PrivatePreferences(
                         }
                     }
 
-                    override fun onError(error: FfiSubscribeException) {
-                        Log.e("XMTP consent stream", error.message.toString())
+                    override fun onError(error: FfiException) {
+                        Log.e("XMTP consent stream", error.toString())
                     }
 
                     override fun onClose() {
