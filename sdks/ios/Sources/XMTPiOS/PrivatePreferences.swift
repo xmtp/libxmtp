@@ -47,11 +47,9 @@ public struct ConsentRecord: Codable, Hashable {
 
 /// Provides access to contact bundles.
 public actor PrivatePreferences {
-	var client: Client
 	var ffiClient: FfiXmtpClient
 
-	init(client: Client, ffiClient: FfiXmtpClient) {
-		self.client = client
+	init(ffiClient: FfiXmtpClient) {
 		self.ffiClient = ffiClient
 	}
 
@@ -93,22 +91,24 @@ public actor PrivatePreferences {
 		AsyncThrowingStream { continuation in
 			let ffiStreamActor = FfiStreamActor()
 
-			let consentCallback = ConsentCallback(client: self.client) {
-				records in
-				guard !Task.isCancelled else {
-					continuation.finish()
-					Task {
-						await ffiStreamActor.endStream()
-					}
-					return
-				}
-				for consent in records {
-					continuation.yield(consent.fromFfi)
-				}
-			} onClose: {
-				onClose?()
-				continuation.finish()
-			}
+			let consentCallback = ConsentCallback(
+							{ records in
+								guard !Task.isCancelled else {
+									continuation.finish()
+									Task {
+										await ffiStreamActor.endStream()
+									}
+									return
+								}
+								for consent in records {
+									continuation.yield(consent.fromFfi)
+								}
+							},
+							onClose: {
+								onClose?()
+								continuation.finish()
+							}
+						)
 
 			let task = Task {
 				let stream = await ffiClient.conversations().streamConsent(
@@ -132,24 +132,26 @@ public actor PrivatePreferences {
 		AsyncThrowingStream { continuation in
 			let ffiStreamActor = FfiStreamActor()
 
-			let preferenceCallback = PreferenceCallback(client: self.client) {
-				records in
-				guard !Task.isCancelled else {
-					continuation.finish()
-					Task {
-						await ffiStreamActor.endStream()
-					}
-					return
-				}
-				for preference in records {
-					if case let .hmac(key) = preference {
-						continuation.yield(.hmac_keys)
-					}
-				}
-			} onClose: {
-				onClose?()
-				continuation.finish()
-			}
+			let preferenceCallback = PreferenceCallback(
+							{ records in
+								guard !Task.isCancelled else {
+									continuation.finish()
+									Task {
+										await ffiStreamActor.endStream()
+									}
+									return
+								}
+								for preference in records {
+									if case let .hmac(key) = preference {
+										continuation.yield(.hmac_keys)
+									}
+								}
+							},
+							onClose: {
+								onClose?()
+								continuation.finish()
+							}
+						)
 
 			let task = Task {
 				let stream = await ffiClient.conversations().streamPreferences(
@@ -169,15 +171,13 @@ public actor PrivatePreferences {
 }
 
 final class ConsentCallback: FfiConsentCallback {
-	let client: Client
 	let callback: ([FfiConsent]) -> Void
 	let onCloseCallback: () -> Void
 
 	init(
-		client: Client, _ callback: @escaping ([FfiConsent]) -> Void,
+		_ callback: @escaping ([FfiConsent]) -> Void,
 		onClose: @escaping () -> Void,
 	) {
-		self.client = client
 		self.callback = callback
 		onCloseCallback = onClose
 	}
@@ -196,15 +196,13 @@ final class ConsentCallback: FfiConsentCallback {
 }
 
 final class PreferenceCallback: FfiPreferenceCallback {
-	let client: Client
 	let callback: ([FfiPreferenceUpdate]) -> Void
 	let onCloseCallback: () -> Void
 
 	init(
-		client: Client, _ callback: @escaping ([FfiPreferenceUpdate]) -> Void,
+		_ callback: @escaping ([FfiPreferenceUpdate]) -> Void,
 		onClose: @escaping () -> Void,
 	) {
-		self.client = client
 		self.callback = callback
 		onCloseCallback = onClose
 	}
