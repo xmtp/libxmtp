@@ -141,6 +141,24 @@ jobs:
             # Write the full version (with suffix) directly to podspec
             yarn cli set-manifest-version --sdk ios --version "$VERSION"
           fi
+      - name: Prepare CocoaPods bundle
+        env:
+          ARTIFACT_URL: ${{ needs.build-and-package.outputs.artifact-url }}
+          VERSION: ${{ needs.compute-version.outputs.version }}
+        working-directory: sdks/ios
+        run: |
+          set -euo pipefail
+          curl -L "$ARTIFACT_URL" -o LibXMTPSwiftFFI.zip
+          unzip -qo LibXMTPSwiftFFI.zip -d artifact
+          rm -f LibXMTPSwiftFFI.zip
+
+          rm -rf bundle && mkdir -p bundle/Sources
+          cp -r Sources/* bundle/Sources/
+          cp -r artifact/Sources/LibXMTP bundle/Sources/LibXMTP
+          cp -r artifact/build/swift/LibXMTPSwiftFFI.xcframework bundle/
+          cp ../../LICENSE bundle/
+          (cd bundle && zip -qry ../XMTP-${VERSION}.zip .)
+          rm -rf artifact bundle
       - name: Commit and tag
         env:
           VERSION: ${{ needs.compute-version.outputs.version }}
@@ -163,38 +181,38 @@ jobs:
             git tag "$TAG"
             git push origin HEAD "$TAG"
           fi
-      - name: Copy release notes (final only)
-        if: inputs.release-type == 'final'
+      - name: Create release and upload bundle
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.compute-version.outputs.version }}
+        working-directory: sdks/ios
         run: |
           TAG="ios-${VERSION}"
           if gh release view "$TAG" &>/dev/null; then
-            echo "Release $TAG already exists, skipping"
+            gh release upload "$TAG" "XMTP-${VERSION}.zip" --clobber
           else
-            NOTES_FILE="docs/release-notes/ios/${VERSION}.md"
-            if [ -f "$NOTES_FILE" ]; then
-              gh release create "$TAG" \
-                --title "iOS SDK $VERSION" \
-                --notes-file "$NOTES_FILE" \
-                --latest
-            else
-              gh release create "$TAG" \
-                --title "iOS SDK $VERSION" \
-                --notes "iOS SDK version $VERSION" \
-                --latest
+            NOTES_ARGS=(--notes "iOS SDK version $VERSION")
+            if [ "${{ inputs.release-type }}" = "final" ]; then
+              NOTES_FILE="../../docs/release-notes/ios/${VERSION}.md"
+              if [ -f "$NOTES_FILE" ]; then
+                NOTES_ARGS=(--notes-file "$NOTES_FILE")
+              fi
             fi
+            gh release create "$TAG" \
+              --title "iOS SDK $VERSION" \
+              "${NOTES_ARGS[@]}" \
+              "XMTP-${VERSION}.zip"
           fi
       - name: Publish to CocoaPods
         env:
           COCOAPODS_TRUNK_TOKEN: ${{ secrets.COCOAPODS_TRUNK_TOKEN }}
           VERSION: ${{ needs.compute-version.outputs.version }}
+        working-directory: sdks/ios
         run: |
           # Check if version is already published
           PUBLISHED=$(pod trunk info XMTP 2>/dev/null | grep -wc "$VERSION" || true)
           if [ "$PUBLISHED" -gt 0 ]; then
             echo "Version $VERSION already published to CocoaPods, skipping"
           else
-            pod trunk push sdks/ios/XMTP.podspec --allow-warnings --skip-tests
+            pod trunk push XMTP.podspec --allow-warnings --skip-tests
           fi
