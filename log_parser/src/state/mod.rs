@@ -40,7 +40,7 @@ impl LogState {
         while let Ok(event) =
             LogEvent::from(&mut lines).inspect_err(|e| tracing::error!("Parsing err: {e:?}"))
         {
-            if let Err(err) = state.ingest(event) {
+            if let Err(err) = state.ingest(Arc::new(event)) {
                 tracing::warn!("{err:?}");
             };
         }
@@ -52,7 +52,7 @@ impl LogState {
         Arc::new(state)
     }
 
-    fn ingest(&mut self, event: LogEvent) -> Result<()> {
+    fn ingest(&mut self, event: Arc<LogEvent>) -> Result<()> {
         let ctx = |key: &str| -> Result<&Value> {
             event
                 .context(key)
@@ -82,8 +82,7 @@ impl LogState {
                     }
                 }
 
-                let mut group = client.update_group(group_id);
-                group.msg = event.msg.clone();
+                let mut group = client.update_group(group_id, &event);
 
                 if let Ok(epoch) = ctx("epoch").and_then(|e| e.as_int()) {
                     group.epoch = Some(epoch);
@@ -112,7 +111,7 @@ impl LogState {
 
 pub struct ClientState {
     pub name: Option<String>,
-    pub events: Vec<LogEvent>,
+    pub events: Vec<Arc<LogEvent>>,
     pub groups: HashMap<String, Arc<RwLock<GroupState>>>,
     pub inst: String,
 }
@@ -127,21 +126,24 @@ impl ClientState {
         }
     }
 
-    fn update_group(&mut self, group_id: &str) -> RwLockWriteGuard<'_, GroupState> {
+    fn update_group(
+        &mut self,
+        group_id: &str,
+        event: &Arc<LogEvent>,
+    ) -> RwLockWriteGuard<'_, GroupState> {
         self.groups
             .entry(group_id.to_string())
-            .or_insert_with(|| GroupState::new(&self.inst))
+            .or_insert_with(|| GroupState::new(&self.inst, event))
             .update()
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct GroupState {
     pub prev: Option<Arc<RwLock<Self>>>,
     pub next: Option<Weak<RwLock<Self>>>,
     pub installation_id: String,
-    pub event: Option<Event>,
-    pub msg: String,
+    pub event: Arc<LogEvent>,
     pub dm_target: Option<InstallationId>,
     pub created_at: Option<i64>,
     pub previous_epoch: Option<i64>,
@@ -198,10 +200,20 @@ impl Iterator for GroupStateIterator {
 }
 
 impl GroupState {
-    fn new(inst: &str) -> Arc<RwLock<Self>> {
+    fn new(inst: &str, event: &Arc<LogEvent>) -> Arc<RwLock<Self>> {
         Arc::new(RwLock::new(Self {
             installation_id: inst.to_string(),
-            ..Default::default()
+            event: event.clone(),
+            prev: None,
+            next: None,
+            dm_target: None,
+            created_at: None,
+            previous_epoch: None,
+            epoch: None,
+            correlations: Vec::new(),
+            cursor: None,
+            members: HashMap::new(),
+            problems: Vec::new(),
         }))
     }
 }
