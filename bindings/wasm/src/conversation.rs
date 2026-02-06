@@ -182,6 +182,38 @@ impl Conversation {
     Ok(hex::encode(message_id.clone()))
   }
 
+  /// Edit a message by its ID. Returns the ID of the edit message.
+  #[wasm_bindgen(js_name = editMessage)]
+  pub fn edit_message(
+    &self,
+    #[wasm_bindgen(js_name = messageId)] message_id: String,
+    #[wasm_bindgen(js_name = newContent)] new_content: EncodedContent,
+  ) -> Result<String, JsError> {
+    let message_id_bytes =
+      hex::decode(&message_id).map_err(|e| JsError::new(&format!("Invalid hex: {}", e)))?;
+    let new_content: XmtpEncodedContent = new_content.into();
+    let group = self.to_mls_group();
+    let edit_id = group
+      .edit_message(message_id_bytes, new_content.encode_to_vec())
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    Ok(hex::encode(edit_id))
+  }
+
+  /// Delete a message by its ID. Returns the ID of the deletion message.
+  #[wasm_bindgen(js_name = deleteMessage)]
+  pub fn delete_message(
+    &self,
+    #[wasm_bindgen(js_name = messageId)] message_id: String,
+  ) -> Result<String, JsError> {
+    let message_id_bytes =
+      hex::decode(&message_id).map_err(|e| JsError::new(&format!("Invalid hex: {}", e)))?;
+    let group = self.to_mls_group();
+    let deletion_id = group
+      .delete_message(message_id_bytes)
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    Ok(hex::encode(deletion_id))
+  }
+
   /// Prepare a message for later publishing.
   /// Stores the message locally without publishing. Returns the message ID.
   #[wasm_bindgen(js_name = prepareMessage)]

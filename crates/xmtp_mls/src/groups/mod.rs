@@ -68,6 +68,7 @@ use xmtp_configuration::{
     SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
 use xmtp_content_types::delete_message::DeleteMessageCodec;
+use xmtp_content_types::edit_message::EditMessageCodec;
 use xmtp_content_types::leave_request::LeaveRequestCodec;
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
 use xmtp_content_types::{
@@ -77,6 +78,7 @@ use xmtp_content_types::{
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
 use xmtp_db::group_message::Deletable;
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
+use xmtp_db::message_edit::StoredMessageEdit;
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
@@ -106,6 +108,7 @@ use xmtp_mls_common::{
         GroupMutableMetadata, GroupMutableMetadataError, MessageDisappearingSettings, MetadataField,
     },
 };
+use xmtp_proto::xmtp::mls::message_contents::content_types::EditMessage;
 use xmtp_proto::xmtp::mls::message_contents::content_types::{DeleteMessage, LeaveRequest};
 use xmtp_proto::{
     types::Cursor,
@@ -827,6 +830,117 @@ where
         deletion.store(&conn)?;
 
         Ok(deletion_message_id)
+    }
+
+    /// Edit a message in this group. Only the original sender can edit their message.
+    pub fn edit_message(
+        &self,
+        message_id: Vec<u8>,
+        new_content: Vec<u8>,
+    ) -> Result<Vec<u8>, GroupError> {
+        use error::EditMessageError;
+
+        let conn = self.context.db();
+
+        // Load the original message
+        let original_msg = conn
+            .get_group_message(&message_id)?
+            .ok_or_else(|| EditMessageError::MessageNotFound(hex::encode(&message_id)))?;
+
+        // Validate message belongs to this group (prevent cross-group edit)
+        if original_msg.group_id != self.group_id {
+            return Err(EditMessageError::NotAuthorized.into());
+        }
+
+        // Only the original sender can edit their message
+        let sender_inbox_id = self.context.inbox_id();
+        if original_msg.sender_inbox_id != sender_inbox_id {
+            return Err(EditMessageError::NotAuthorized.into());
+        }
+
+        // Check if the message type is editable
+        if !original_msg.kind.is_editable() || !original_msg.content_type.is_editable() {
+            return Err(EditMessageError::NonEditableMessage.into());
+        }
+
+        // Check if the message has been deleted - cannot edit deleted messages
+        if conn.is_message_deleted(&message_id)? {
+            return Err(EditMessageError::MessageAlreadyDeleted.into());
+        }
+
+        // Parse the new content as EncodedContent
+        let edited_content = EncodedContent::decode(new_content.as_slice())?;
+
+        // Validate that the content is not empty
+        if edited_content.content.is_empty() {
+            return Err(EditMessageError::EmptyContent.into());
+        }
+
+        // Validate content type matches - you cannot change the content type when editing
+        // Get the type_id from the edited content
+        let edited_type_id = edited_content
+            .r#type
+            .as_ref()
+            .map(|t| t.type_id.as_str())
+            .unwrap_or("unknown");
+        let original_type_str = original_msg.content_type.to_string();
+
+        if edited_type_id != original_type_str {
+            return Err(EditMessageError::ContentTypeMismatch {
+                original: original_type_str,
+                edited: edited_type_id.to_string(),
+            }
+            .into());
+        }
+
+        let edit_msg = EditMessage {
+            message_id: hex::encode(&message_id),
+            edited_content: Some(edited_content.clone()),
+        };
+
+        let encoded_edit = EditMessageCodec::encode(edit_msg)?;
+        let mut buf = Vec::new();
+        encoded_edit.encode(&mut buf)?;
+
+        let edit_message_id = self.send_message_optimistic(&buf, SendMessageOpts::default())?;
+
+        // Serialize edited_content for storage
+        let mut edited_content_bytes = Vec::new();
+        edited_content.encode(&mut edited_content_bytes)?;
+
+        let edited_at_ns = now_ns();
+        let edit = StoredMessageEdit {
+            id: edit_message_id.clone(),
+            group_id: self.group_id.clone(),
+            original_message_id: message_id.clone(),
+            edited_by_inbox_id: sender_inbox_id.to_string(),
+            edited_content: edited_content_bytes.clone(),
+            edited_at_ns,
+        };
+
+        edit.store(&conn)?;
+
+        // Emit MessageEdited event for local edit
+        match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
+            Ok(mut decoded_message) => {
+                decoded_message.edited = Some(crate::messages::decoded_message::EditedContent {
+                    content: edited_content_bytes,
+                    edited_at_ns,
+                });
+                let _ = self.context.local_events().send(
+                    crate::subscriptions::LocalEvents::MessageEdited(Box::new(decoded_message)),
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    message_id = hex::encode(&message_id),
+                    error = ?e,
+                    "Failed to decode edited message for edit event"
+                );
+            }
+        }
+
+        Ok(edit_message_id)
     }
 
     /// Helper function to extract queryable content fields from a message

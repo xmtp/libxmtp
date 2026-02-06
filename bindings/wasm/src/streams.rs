@@ -39,6 +39,9 @@ extern "C" {
   #[wasm_bindgen(structural, method)]
   pub fn on_message_deleted(this: &StreamCallback, message: DecodedMessage);
 
+  #[wasm_bindgen(structural, method)]
+  pub fn on_message_edited(this: &StreamCallback, message: DecodedMessage);
+
   /// Js Fn to call on error
   #[wasm_bindgen(structural, method)]
   pub fn on_error(this: &StreamCallback, error: JsError);

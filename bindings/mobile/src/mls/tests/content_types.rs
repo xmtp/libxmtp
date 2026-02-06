@@ -1353,6 +1353,157 @@ async fn test_text_codec() {
     assert!(result.is_err());
 }
 
+/// Test that editing a Reply message preserves the Reply structure
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_edit_reply_preserves_reply_structure() {
+    let alix = Tester::new().await;
+    let bo = Tester::new().await;
+
+    // Create a DM conversation
+    let alix_dm = alix
+        .client
+        .conversations()
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .await
+        .unwrap();
+
+    // Bo finds the DM
+    bo.client.conversations().sync().await.unwrap();
+    let bo_dm = bo.client.dm_conversation(alix.client.inbox_id()).unwrap();
+
+    // Send original message to reply to
+    let original_text =
+        TextCodec::encode("Hello, this is the original message!".to_string()).unwrap();
+    let original_msg_id = alix_dm
+        .send(
+            encoded_content_to_bytes(original_text),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+
+    // Sync bo
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // Bo sends a reply to Alix's message
+    let reply = FfiReply {
+        reference: hex::encode(&original_msg_id),
+        reference_inbox_id: Some(alix.client.inbox_id()),
+        content: TextCodec::encode("This is my reply!".to_string())
+            .unwrap()
+            .into(),
+    };
+    let reply_msg_id = bo_dm
+        .send(encode_reply(reply).unwrap(), FfiSendMessageOpts::default())
+        .await
+        .unwrap();
+
+    // Sync both
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // Verify the reply is correctly structured before edit
+    let messages_before = bo_dm
+        .find_enriched_messages(FfiListMessagesOptions::default())
+        .unwrap();
+
+    let reply_msg_before = messages_before
+        .iter()
+        .find(|m| m.id() == reply_msg_id)
+        .expect("Reply message should exist");
+
+    // Verify it's a Reply with correct content type
+    assert_eq!(reply_msg_before.content_type_id().type_id, "reply");
+
+    if let FfiDecodedMessageContent::Reply(reply_content) = reply_msg_before.content() {
+        assert!(
+            reply_content.in_reply_to.is_some(),
+            "Reply should have in_reply_to reference"
+        );
+        if let Some(FfiDecodedMessageBody::Text(text)) = &reply_content.content {
+            assert_eq!(text.content, "This is my reply!");
+        } else {
+            panic!("Reply content should be Text");
+        }
+    } else {
+        panic!("Message content should be Reply");
+    }
+
+    // Now Bo edits the reply message - must use Reply content type to match original
+    let edited_reply = FfiReply {
+        reference: hex::encode(&original_msg_id),
+        reference_inbox_id: Some(alix.client.inbox_id()),
+        content: TextCodec::encode("This is my EDITED reply!".to_string())
+            .unwrap()
+            .into(),
+    };
+    bo_dm
+        .edit_message(reply_msg_id.clone(), encode_reply(edited_reply).unwrap())
+        .unwrap();
+
+    // Publish and sync
+    bo_dm.publish_messages().await.unwrap();
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // Verify the edited message STILL has Reply structure
+    let messages_after = bo_dm
+        .find_enriched_messages(FfiListMessagesOptions::default())
+        .unwrap();
+
+    let reply_msg_after = messages_after
+        .iter()
+        .find(|m| m.id() == reply_msg_id)
+        .expect("Reply message should still exist after edit");
+
+    // CRITICAL: The content type should STILL be "reply" after edit
+    assert_eq!(
+        reply_msg_after.content_type_id().type_id,
+        "reply",
+        "Edited reply should still have 'reply' content type"
+    );
+
+    // CRITICAL: The content should still be Reply with the edited text
+    if let FfiDecodedMessageContent::Reply(reply_content) = reply_msg_after.content() {
+        // The in_reply_to should be preserved
+        assert!(
+            reply_content.in_reply_to.is_some(),
+            "Edited reply should still have in_reply_to reference"
+        );
+        // The content should be the edited text
+        if let Some(FfiDecodedMessageBody::Text(text)) = &reply_content.content {
+            assert_eq!(
+                text.content, "This is my EDITED reply!",
+                "Edited reply content should have the new text"
+            );
+        } else {
+            panic!("Edited reply content should be Text");
+        }
+    } else {
+        panic!(
+            "Edited message content should still be Reply, but got: {:?}",
+            reply_msg_after.content()
+        );
+    }
+
+    // Also verify from Alix's perspective
+    let alix_messages = alix_dm
+        .find_enriched_messages(FfiListMessagesOptions::default())
+        .unwrap();
+
+    let alix_reply = alix_messages
+        .iter()
+        .find(|m| m.id() == reply_msg_id)
+        .expect("Reply message should exist for Alix");
+
+    assert_eq!(
+        alix_reply.content_type_id().type_id,
+        "reply",
+        "Alix should also see the edited reply with 'reply' content type"
+    );
+}
+
 #[tokio::test]
 async fn test_delete_message_encode_decode() {
     // Test basic delete message encoding/decoding
@@ -1393,4 +1544,676 @@ async fn test_delete_message_encode_decode() {
     let invalid_bytes = vec![0xFF, 0xFF, 0xFF, 0xFF];
     let result = decode_delete_message(invalid_bytes);
     assert!(result.is_err());
+}
+
+/// Test basic edit message functionality in FFI layer
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_edit_message_ffi() {
+    let alix = Tester::new().await;
+    let bo = Tester::new().await;
+
+    // Create a DM conversation
+    let alix_dm = alix
+        .client
+        .conversations()
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .await
+        .unwrap();
+
+    // Bo finds the DM
+    bo.client.conversations().sync().await.unwrap();
+    let bo_dm = bo.client.dm_conversation(alix.client.inbox_id()).unwrap();
+
+    // Send original message
+    let original_text = TextCodec::encode("Original message".to_string()).unwrap();
+    let original_msg_id = alix_dm
+        .send(
+            encoded_content_to_bytes(original_text),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+
+    // Sync bo
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // Verify original message
+    let messages_before = alix_dm
+        .find_enriched_messages(FfiListMessagesOptions::default())
+        .unwrap();
+    let original_msg = messages_before
+        .iter()
+        .find(|m| m.id() == original_msg_id)
+        .expect("Original message should exist");
+    assert!(
+        !original_msg.is_edited(),
+        "Message should not be edited yet"
+    );
+    assert!(
+        original_msg.edited_at_ns().is_none(),
+        "edited_at_ns should be None"
+    );
+
+    // Edit the message
+    let edited_text = TextCodec::encode("Edited message".to_string()).unwrap();
+    let edit_id = alix_dm
+        .edit_message(
+            original_msg_id.clone(),
+            encoded_content_to_bytes(edited_text),
+        )
+        .unwrap();
+
+    // Sync both parties
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // Verify edit was applied for sender
+    let alix_messages = alix_dm
+        .find_enriched_messages(FfiListMessagesOptions::default())
+        .unwrap();
+    let edited_msg = alix_messages
+        .iter()
+        .find(|m| m.id() == original_msg_id)
+        .expect("Edited message should exist");
+
+    assert!(edited_msg.is_edited(), "Message should be marked as edited");
+    assert!(
+        edited_msg.edited_at_ns().is_some(),
+        "edited_at_ns should be set"
+    );
+    if let FfiDecodedMessageContent::Text(text) = edited_msg.content() {
+        assert_eq!(text.content, "Edited message");
+    } else {
+        panic!("Expected Text content");
+    }
+
+    // Verify edit was applied for receiver
+    let bo_messages = bo_dm
+        .find_enriched_messages(FfiListMessagesOptions::default())
+        .unwrap();
+    let bo_edited_msg = bo_messages
+        .iter()
+        .find(|m| m.id() == original_msg_id)
+        .expect("Bo should see edited message");
+
+    assert!(bo_edited_msg.is_edited(), "Bo should see message as edited");
+    if let FfiDecodedMessageContent::Text(text) = bo_edited_msg.content() {
+        assert_eq!(text.content, "Edited message");
+    } else {
+        panic!("Expected Text content for Bo");
+    }
+
+    // Note: edit_id is the ID of the EditMessage content type message,
+    // which is stored separately from the original message
+    assert!(!edit_id.is_empty(), "Edit should return a valid message ID");
+}
+
+/// Test that only the sender can edit their message in FFI layer
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_edit_message_unauthorized_ffi() {
+    let alix = Tester::new().await;
+    let bo = Tester::new().await;
+
+    // Create a DM conversation
+    let alix_dm = alix
+        .client
+        .conversations()
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .await
+        .unwrap();
+
+    // Bo finds the DM
+    bo.client.conversations().sync().await.unwrap();
+    let bo_dm = bo.client.dm_conversation(alix.client.inbox_id()).unwrap();
+
+    // Alix sends a message
+    let original_text = TextCodec::encode("Alix's message".to_string()).unwrap();
+    let original_msg_id = alix_dm
+        .send(
+            encoded_content_to_bytes(original_text),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+
+    // Sync bo
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // Bo tries to edit Alix's message - should fail
+    let edited_text = TextCodec::encode("Bo's unauthorized edit".to_string()).unwrap();
+    let result = bo_dm.edit_message(
+        original_msg_id.clone(),
+        encoded_content_to_bytes(edited_text),
+    );
+
+    assert!(
+        result.is_err(),
+        "Bo should not be able to edit Alix's message"
+    );
+}
+
+/// Test editing a message multiple times in FFI layer
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_edit_message_multiple_times_ffi() {
+    let alix = Tester::new().await;
+    let bo = Tester::new().await;
+
+    // Create a DM conversation
+    let alix_dm = alix
+        .client
+        .conversations()
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .await
+        .unwrap();
+
+    // Bo finds the DM
+    bo.client.conversations().sync().await.unwrap();
+    let bo_dm = bo.client.dm_conversation(alix.client.inbox_id()).unwrap();
+
+    // Send original message
+    let original_text = TextCodec::encode("Version 1".to_string()).unwrap();
+    let original_msg_id = alix_dm
+        .send(
+            encoded_content_to_bytes(original_text),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // First edit
+    let edit1_text = TextCodec::encode("Version 2".to_string()).unwrap();
+    alix_dm
+        .edit_message(
+            original_msg_id.clone(),
+            encoded_content_to_bytes(edit1_text),
+        )
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+
+    // Second edit
+    let edit2_text = TextCodec::encode("Version 3".to_string()).unwrap();
+    alix_dm
+        .edit_message(
+            original_msg_id.clone(),
+            encoded_content_to_bytes(edit2_text),
+        )
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // Verify final content
+    let messages = alix_dm
+        .find_enriched_messages(FfiListMessagesOptions::default())
+        .unwrap();
+    let edited_msg = messages
+        .iter()
+        .find(|m| m.id() == original_msg_id)
+        .expect("Message should exist");
+
+    assert!(edited_msg.is_edited(), "Message should be marked as edited");
+    if let FfiDecodedMessageContent::Text(text) = edited_msg.content() {
+        assert_eq!(text.content, "Version 3", "Should have latest edit");
+    } else {
+        panic!("Expected Text content");
+    }
+}
+
+/// Test edit then delete interaction in FFI layer
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_edit_then_delete_ffi() {
+    let alix = Tester::new().await;
+    let bo = Tester::new().await;
+
+    // Create a DM conversation
+    let alix_dm = alix
+        .client
+        .conversations()
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .await
+        .unwrap();
+
+    bo.client.conversations().sync().await.unwrap();
+    let bo_dm = bo.client.dm_conversation(alix.client.inbox_id()).unwrap();
+
+    // Send original message
+    let original_text = TextCodec::encode("Original".to_string()).unwrap();
+    let original_msg_id = alix_dm
+        .send(
+            encoded_content_to_bytes(original_text),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // Edit the message
+    let edited_text = TextCodec::encode("Edited".to_string()).unwrap();
+    alix_dm
+        .edit_message(
+            original_msg_id.clone(),
+            encoded_content_to_bytes(edited_text),
+        )
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+
+    // Now delete it
+    alix_dm.delete_message(original_msg_id.clone()).unwrap();
+
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // Verify message shows as deleted (not edited content)
+    let messages = alix_dm
+        .find_enriched_messages(FfiListMessagesOptions::default())
+        .unwrap();
+    let deleted_msg = messages
+        .iter()
+        .find(|m| m.id() == original_msg_id)
+        .expect("Message should exist");
+
+    // Should show deleted content, not edited
+    if let FfiDecodedMessageContent::DeletedMessage(_) = deleted_msg.content() {
+        // Good - message shows as deleted
+    } else {
+        panic!("Expected DeletedMessage content after delete");
+    }
+}
+
+/// Test delete then edit interaction in FFI layer - edit should fail
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_delete_then_edit_fails_ffi() {
+    let alix = Tester::new().await;
+    let bo = Tester::new().await;
+
+    // Create a DM conversation
+    let alix_dm = alix
+        .client
+        .conversations()
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .await
+        .unwrap();
+
+    bo.client.conversations().sync().await.unwrap();
+    let bo_dm = bo.client.dm_conversation(alix.client.inbox_id()).unwrap();
+
+    // Send original message
+    let original_text = TextCodec::encode("Original".to_string()).unwrap();
+    let original_msg_id = alix_dm
+        .send(
+            encoded_content_to_bytes(original_text),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // Delete the message first
+    alix_dm.delete_message(original_msg_id.clone()).unwrap();
+    alix_dm.sync().await.unwrap();
+
+    // Try to edit the deleted message - should fail
+    let edited_text = TextCodec::encode("Edited".to_string()).unwrap();
+    let result = alix_dm.edit_message(
+        original_msg_id.clone(),
+        encoded_content_to_bytes(edited_text),
+    );
+
+    assert!(
+        result.is_err(),
+        "Should not be able to edit a deleted message"
+    );
+}
+
+/// Test editing a reply message in FFI layer
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_edit_reply_ffi() {
+    let alix = Tester::new().await;
+    let bo = Tester::new().await;
+
+    // Create a DM conversation
+    let alix_dm = alix
+        .client
+        .conversations()
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .await
+        .unwrap();
+
+    bo.client.conversations().sync().await.unwrap();
+    let bo_dm = bo.client.dm_conversation(alix.client.inbox_id()).unwrap();
+
+    // Send original message
+    let original_text = TextCodec::encode("Original".to_string()).unwrap();
+    let original_msg_id = alix_dm
+        .send(
+            encoded_content_to_bytes(original_text),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // Bo sends a reply
+    let reply = FfiReply {
+        reference: hex::encode(&original_msg_id),
+        reference_inbox_id: Some(alix.client.inbox_id()),
+        content: TextCodec::encode("My reply".to_string()).unwrap().into(),
+    };
+    let reply_msg_id = bo_dm
+        .send(encode_reply(reply).unwrap(), FfiSendMessageOpts::default())
+        .await
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // Bo edits the reply - must use Reply content type to match original
+    let edited_reply = FfiReply {
+        reference: hex::encode(&original_msg_id),
+        reference_inbox_id: Some(alix.client.inbox_id()),
+        content: TextCodec::encode("My edited reply".to_string())
+            .unwrap()
+            .into(),
+    };
+    bo_dm
+        .edit_message(reply_msg_id.clone(), encode_reply(edited_reply).unwrap())
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // Verify the edited reply maintains its reply structure
+    let messages = bo_dm
+        .find_enriched_messages(FfiListMessagesOptions::default())
+        .unwrap();
+    let edited_reply = messages
+        .iter()
+        .find(|m| m.id() == reply_msg_id)
+        .expect("Reply should exist");
+
+    assert!(edited_reply.is_edited(), "Reply should be marked as edited");
+    assert_eq!(
+        edited_reply.content_type_id().type_id,
+        "reply",
+        "Should still be a reply"
+    );
+
+    if let FfiDecodedMessageContent::Reply(reply_content) = edited_reply.content() {
+        assert!(
+            reply_content.in_reply_to.is_some(),
+            "Reply should still have reference"
+        );
+        if let Some(FfiDecodedMessageBody::Text(text)) = &reply_content.content {
+            assert_eq!(text.content, "My edited reply");
+        } else {
+            panic!("Expected Text content in reply");
+        }
+    } else {
+        panic!("Expected Reply content");
+    }
+}
+
+/// Test complex chain: message -> reply -> edit reply -> delete original
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_reply_edit_delete_chain_ffi() {
+    let alix = Tester::new().await;
+    let bo = Tester::new().await;
+
+    // Create a DM conversation
+    let alix_dm = alix
+        .client
+        .conversations()
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .await
+        .unwrap();
+
+    bo.client.conversations().sync().await.unwrap();
+    let bo_dm = bo.client.dm_conversation(alix.client.inbox_id()).unwrap();
+
+    // Alix sends original message
+    let original_text = TextCodec::encode("Original by Alix".to_string()).unwrap();
+    let original_msg_id = alix_dm
+        .send(
+            encoded_content_to_bytes(original_text),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // Bo replies
+    let reply = FfiReply {
+        reference: hex::encode(&original_msg_id),
+        reference_inbox_id: Some(alix.client.inbox_id()),
+        content: TextCodec::encode("Bo's reply".to_string()).unwrap().into(),
+    };
+    let reply_msg_id = bo_dm
+        .send(encode_reply(reply).unwrap(), FfiSendMessageOpts::default())
+        .await
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // Bo edits the reply - must use Reply content type to match original
+    let edited_reply = FfiReply {
+        reference: hex::encode(&original_msg_id),
+        reference_inbox_id: Some(alix.client.inbox_id()),
+        content: TextCodec::encode("Bo's edited reply".to_string())
+            .unwrap()
+            .into(),
+    };
+    bo_dm
+        .edit_message(reply_msg_id.clone(), encode_reply(edited_reply).unwrap())
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // Alix deletes the original message
+    alix_dm.delete_message(original_msg_id.clone()).unwrap();
+
+    alix_dm.sync().await.unwrap();
+    bo_dm.sync().await.unwrap();
+
+    // Verify state
+    let alix_messages = alix_dm
+        .find_enriched_messages(FfiListMessagesOptions::default())
+        .unwrap();
+
+    // Original should be deleted
+    let original = alix_messages
+        .iter()
+        .find(|m| m.id() == original_msg_id)
+        .expect("Original should exist");
+    if let FfiDecodedMessageContent::DeletedMessage(_) = original.content() {
+        // Good
+    } else {
+        panic!("Original should show as deleted");
+    }
+
+    // Reply should still exist and be edited
+    let reply = alix_messages
+        .iter()
+        .find(|m| m.id() == reply_msg_id)
+        .expect("Reply should exist");
+    assert!(reply.is_edited(), "Reply should still be marked as edited");
+    assert_eq!(reply.content_type_id().type_id, "reply");
+}
+
+/// Test that edit messages cannot be edited themselves
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_cannot_edit_edit_message_ffi() {
+    let alix = Tester::new().await;
+    let bo = Tester::new().await;
+
+    // Create a DM conversation
+    let alix_dm = alix
+        .client
+        .conversations()
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .await
+        .unwrap();
+
+    bo.client.conversations().sync().await.unwrap();
+
+    // Send original message
+    let original_text = TextCodec::encode("Original".to_string()).unwrap();
+    let original_msg_id = alix_dm
+        .send(
+            encoded_content_to_bytes(original_text),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+
+    // Edit it and get the edit message ID
+    let edited_text = TextCodec::encode("Edited".to_string()).unwrap();
+    let edit_msg_id = alix_dm
+        .edit_message(
+            original_msg_id.clone(),
+            encoded_content_to_bytes(edited_text),
+        )
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+
+    // Try to edit the edit message - should fail
+    let double_edit_text = TextCodec::encode("Double edit".to_string()).unwrap();
+    let result = alix_dm.edit_message(edit_msg_id, encoded_content_to_bytes(double_edit_text));
+
+    assert!(
+        result.is_err(),
+        "Should not be able to edit an edit message"
+    );
+}
+
+/// Test that non-editable content types (reaction) cannot be edited
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_cannot_edit_reaction_ffi() {
+    let alix = Tester::new().await;
+    let bo = Tester::new().await;
+
+    let alix_dm = alix
+        .client
+        .conversations()
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .await
+        .unwrap();
+
+    bo.client.conversations().sync().await.unwrap();
+
+    // Send a message to react to
+    let text = TextCodec::encode("Hello!".to_string()).unwrap();
+    let msg_id = alix_dm
+        .send(
+            encoded_content_to_bytes(text),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+
+    // Send a reaction
+    let reaction = FfiReactionPayload {
+        reference: hex::encode(&msg_id),
+        reference_inbox_id: alix.client.inbox_id(),
+        action: FfiReactionAction::Added,
+        content: "👍".to_string(),
+        schema: FfiReactionSchema::Unicode,
+    };
+    let reaction_id = alix_dm
+        .send(
+            encode_reaction(reaction).unwrap(),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+
+    // Try to edit the reaction - should fail
+    let edited_text = TextCodec::encode("Edited".to_string()).unwrap();
+    let result = alix_dm.edit_message(reaction_id, encoded_content_to_bytes(edited_text));
+
+    assert!(result.is_err(), "Reactions should not be editable");
+}
+
+/// Test that edit messages are filtered from normal message lists
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_edit_message_filtered_ffi() {
+    let alix = Tester::new().await;
+    let bo = Tester::new().await;
+
+    let alix_dm = alix
+        .client
+        .conversations()
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .await
+        .unwrap();
+
+    bo.client.conversations().sync().await.unwrap();
+
+    // Send a message
+    let text = TextCodec::encode("Original".to_string()).unwrap();
+    let msg_id = alix_dm
+        .send(
+            encoded_content_to_bytes(text),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+
+    // Edit the message
+    let edited_text = TextCodec::encode("Edited".to_string()).unwrap();
+    alix_dm
+        .edit_message(msg_id.clone(), encoded_content_to_bytes(edited_text))
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+
+    // Get enriched messages - edit messages should not appear as separate items
+    let messages = alix_dm
+        .find_enriched_messages(FfiListMessagesOptions::default())
+        .unwrap();
+
+    // Should have membership change + original text message, NOT the edit message
+    let text_messages: Vec<_> = messages
+        .iter()
+        .filter(|m| m.content_type_id().type_id == "text")
+        .collect();
+    assert_eq!(
+        text_messages.len(),
+        1,
+        "Should have exactly one text message"
+    );
+
+    // The original message should show edited content
+    let edited_msg = text_messages[0];
+    assert!(edited_msg.is_edited(), "Message should be marked as edited");
+    if let FfiDecodedMessageContent::Text(text) = edited_msg.content() {
+        assert_eq!(text.content, "Edited");
+    } else {
+        panic!("Expected Text content");
+    }
 }

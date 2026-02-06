@@ -1831,6 +1831,28 @@ impl FfiConversations {
         FfiStreamCloser::new(handle)
     }
 
+    /// Get notified when a message is edited.
+    /// The callback receives the decoded message with the edit info populated.
+    pub async fn stream_message_edits(
+        &self,
+        callback: Arc<dyn FfiMessageEditCallback>,
+    ) -> FfiStreamCloser {
+        let error_callback = callback.clone();
+        let handle = RustXmtpClient::stream_message_edits_with_callback(
+            self.inner_client.clone(),
+            move |msg| match msg {
+                Ok(message) => {
+                    let ffi_message: FfiDecodedMessage = message.into();
+                    callback.on_message_edited(Arc::new(ffi_message))
+                }
+                Err(e) => error_callback.on_error(e.into()),
+            },
+            || {},
+        );
+
+        FfiStreamCloser::new(handle)
+    }
+
     pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, FfiError> {
         let inner = self.inner_client.as_ref();
         let conversations = inner.find_groups(GroupQueryArgs {
@@ -2345,6 +2367,16 @@ impl FfiConversation {
     pub fn delete_message(&self, message_id: Vec<u8>) -> Result<Vec<u8>, FfiError> {
         let deletion_id = self.inner.delete_message(message_id)?;
         Ok(deletion_id)
+    }
+
+    /// Edit a message by its ID. Returns the ID of the edit message.
+    pub fn edit_message(
+        &self,
+        message_id: Vec<u8>,
+        new_content: Vec<u8>,
+    ) -> Result<Vec<u8>, FfiError> {
+        let edit_id = self.inner.edit_message(message_id, new_content)?;
+        Ok(edit_id)
     }
 
     /// Publish all unpublished messages
@@ -3426,6 +3458,12 @@ pub trait FfiPreferenceCallback: Send + Sync {
 #[uniffi::export(with_foreign)]
 pub trait FfiMessageDeletionCallback: Send + Sync {
     fn on_message_deleted(&self, message: Arc<FfiDecodedMessage>);
+}
+
+#[uniffi::export(with_foreign)]
+pub trait FfiMessageEditCallback: Send + Sync {
+    fn on_message_edited(&self, message: Arc<FfiDecodedMessage>);
+    fn on_error(&self, error: FfiError);
 }
 
 #[derive(uniffi::Enum, Debug)]

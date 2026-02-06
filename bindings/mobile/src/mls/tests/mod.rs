@@ -2,8 +2,8 @@
 
 use super::{
     FfiConsentCallback, FfiConversation, FfiMessage, FfiMessageCallback,
-    FfiMessageDeletionCallback, FfiPreferenceCallback, FfiPreferenceUpdate, FfiSignatureRequest,
-    FfiXmtpClient, create_client,
+    FfiMessageDeletionCallback, FfiMessageEditCallback, FfiPreferenceCallback, FfiPreferenceUpdate,
+    FfiSignatureRequest, FfiXmtpClient, create_client,
 };
 use crate::{
     DbOptions, FfiAction, FfiActionStyle, FfiActions, FfiAttachment, FfiConsent,
@@ -282,6 +282,47 @@ impl FfiMessageDeletionCallback for RustMessageDeletionCallback {
         );
         self.deleted_messages.lock().push(message);
         self.notify.notify_one();
+    }
+}
+
+#[derive(Default)]
+#[allow(dead_code)]
+pub(crate) struct RustMessageEditCallback {
+    edited_messages: Mutex<Vec<Arc<FfiDecodedMessage>>>,
+    notify: Arc<Notify>,
+}
+
+#[allow(dead_code)]
+impl RustMessageEditCallback {
+    pub fn edited_message_count(&self) -> usize {
+        self.edited_messages.lock().len()
+    }
+
+    pub fn edited_messages(&self) -> Vec<Arc<FfiDecodedMessage>> {
+        self.edited_messages.lock().clone()
+    }
+
+    pub async fn wait_for_delivery(&self, timeout_secs: Option<u64>) -> Result<(), Elapsed> {
+        tokio::time::timeout(
+            Duration::from_secs(timeout_secs.unwrap_or(120)),
+            self.notify.notified(),
+        )
+        .await
+    }
+}
+
+impl FfiMessageEditCallback for RustMessageEditCallback {
+    fn on_message_edited(&self, message: Arc<FfiDecodedMessage>) {
+        log::info!(
+            "ON MESSAGE EDITED Received\n-------- \nid: {:?}\n----------",
+            message.id()
+        );
+        self.edited_messages.lock().push(message);
+        self.notify.notify_one();
+    }
+
+    fn on_error(&self, error: FfiError) {
+        log::error!("ON MESSAGE EDIT ERROR: {:?}", error);
     }
 }
 
