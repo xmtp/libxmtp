@@ -1,8 +1,8 @@
 import semver from "semver";
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { BumpType, GlobalArgs } from "../types.js";
-import { getSdkConfig } from "../lib/sdk-config.js";
-import { normalizeVersion } from "../lib/version.js";
+import type { BumpType, GlobalArgs } from "../types";
+import { getSdkConfig } from "../lib/sdk-config";
+import { normalizeVersion } from "../lib/version";
 
 export function bumpVersion(
   sdk: string,

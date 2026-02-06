@@ -2,11 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { setManifestVersion } from "../../src/commands/set-manifest-version.js";
+import { setManifestVersion } from "../../src/commands/set-manifest-version";
 import {
   readPodspecVersion,
   readGradlePropertiesVersion,
-} from "../../src/lib/manifest.js";
+} from "../../src/lib/manifest";
 
 const SAMPLE_PODSPEC = `Pod::Spec.new do |spec|
   spec.name         = "XMTP"

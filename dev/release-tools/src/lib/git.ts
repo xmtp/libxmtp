@@ -1,8 +1,4 @@
-import { execSync } from "node:child_process";
-
-function exec(cmd: string, cwd: string): string {
-  return execSync(cmd, { cwd, encoding: "utf-8" }).trim();
-}
+import { exec } from "./exec";
 
 export function listTags(cwd: string): string[] {
   const output = exec("git tag --list", cwd);
