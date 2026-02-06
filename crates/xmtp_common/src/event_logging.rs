@@ -35,9 +35,6 @@ pub enum Event {
     /// Received application message.
     #[context(group_id, epoch, msg_epoch, sender_inbox)]
     MLSReceivedApplicationMessage,
-    /// Processed application message.
-    #[context(group_id)]
-    MLSProcessedApplicationMessage,
     /// Group epoch updated.
     #[context(group_id, cursor, epoch, previous_epoch)]
     MLSGroupEpochUpdated,

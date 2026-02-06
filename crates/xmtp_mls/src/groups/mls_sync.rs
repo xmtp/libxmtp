@@ -1166,12 +1166,6 @@ where
                             self.process_leave_request_message(mls_group, storage, &message)?;
                         }
 
-                        log_event!(
-                            Event::MLSProcessedApplicationMessage,
-                            self.context.installation_id(),
-                            group_id = msg_group_id,
-                        );
-
                         if message.content_type == ContentType::DeleteMessage {
                             self.process_delete_message(mls_group, storage, &message)?;
                         }
