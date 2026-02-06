@@ -1,16 +1,16 @@
 #!/usr/bin/env tsx
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
-import * as findLastVersion from "./commands/find-last-version.js";
-import * as bumpVersion from "./commands/bump-version.js";
-import * as setManifestVersion from "./commands/set-manifest-version.js";
-import * as computeVersion from "./commands/compute-version.js";
-import * as updateSpmChecksum from "./commands/update-spm-checksum.js";
-import * as scaffoldNotes from "./commands/scaffold-notes.js";
-import * as createReleaseBranch from "./commands/create-release-branch.js";
-import * as classifyNotes from "./commands/classify-notes.js";
-import * as tagRelease from "./commands/tag-release.js";
-import { getRepoRoot } from "./lib/git.js";
+import * as findLastVersion from "./commands/find-last-version";
+import * as bumpVersion from "./commands/bump-version";
+import * as setManifestVersion from "./commands/set-manifest-version";
+import * as computeVersion from "./commands/compute-version";
+import * as updateSpmChecksum from "./commands/update-spm-checksum";
+import * as scaffoldNotes from "./commands/scaffold-notes";
+import * as createReleaseBranch from "./commands/create-release-branch";
+import * as classifyNotes from "./commands/classify-notes";
+import * as tagRelease from "./commands/tag-release";
+import { getRepoRoot } from "./lib/git";
 
 yargs(hideBin(process.argv))
   .scriptName("release-tools")

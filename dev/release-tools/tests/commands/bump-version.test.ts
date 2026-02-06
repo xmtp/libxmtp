@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { bumpVersion } from "../../src/commands/bump-version.js";
-import { readPodspecVersion } from "../../src/lib/manifest.js";
-import type { BumpType } from "../../src/types.js";
+import { bumpVersion } from "../../src/commands/bump-version";
+import { readPodspecVersion } from "../../src/lib/manifest";
+import type { BumpType } from "../../src/types";
 
 const SAMPLE_PODSPEC = `Pod::Spec.new do |spec|
   spec.name         = "XMTP"
