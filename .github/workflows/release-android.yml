@@ -29,7 +29,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
-          fetch-depth: 0
       - uses: ./.github/actions/setup-release-tools
       - uses: ./.github/actions/setup-nix
         with:
@@ -70,4 +69,4 @@ jobs:
       - name: Tag release
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: xmtp-release tag-release --sdk android --version "$VERSION" --push-branch
+        run: xmtp-release tag-release --sdk android --version "$VERSION"
