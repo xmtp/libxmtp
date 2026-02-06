@@ -33,6 +33,12 @@ describe("create-release-branch", () => {
       `version=1.0.0\n`,
     );
 
+    // Create libxmtp (Cargo.toml) structure
+    fs.writeFileSync(
+      path.join(tmpDir, "Cargo.toml"),
+      `[workspace.package]\nversion = "0.0.0"\n`,
+    );
+
     // Create release notes directory
     fs.mkdirSync(path.join(tmpDir, "docs/release-notes"), { recursive: true });
 
@@ -52,9 +58,8 @@ describe("create-release-branch", () => {
 
   it("creates branch with single iOS bump", async () => {
     // Dynamically import to get fresh module
-    const { handler } = await import(
-      "../../src/commands/create-release-branch.js"
-    );
+    const { handler } =
+      await import("../../src/commands/create-release-branch");
 
     handler({
       repoRoot: tmpDir,
@@ -86,13 +91,17 @@ describe("create-release-branch", () => {
     );
     expect(gradle).toContain("version=1.0.0");
 
+    // Check Cargo.toml version was set to --version
+    const cargoToml = fs.readFileSync(path.join(tmpDir, "Cargo.toml"), "utf-8");
+    expect(cargoToml).toContain('version = "1.1.0"');
+
     // Check release notes were created for iOS only
     expect(
       fs.existsSync(path.join(tmpDir, "docs/release-notes/ios/1.0.1.md")),
     ).toBe(true);
-    expect(
-      fs.existsSync(path.join(tmpDir, "docs/release-notes/android")),
-    ).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, "docs/release-notes/android"))).toBe(
+      false,
+    );
 
     // Check commit message
     const commitMsg = execSync("git log -1 --pretty=%B", { cwd: tmpDir })
@@ -102,9 +111,8 @@ describe("create-release-branch", () => {
   });
 
   it("creates branch with single Android bump", async () => {
-    const { handler } = await import(
-      "../../src/commands/create-release-branch.js"
-    );
+    const { handler } =
+      await import("../../src/commands/create-release-branch");
 
     handler({
       repoRoot: tmpDir,
@@ -149,9 +157,8 @@ describe("create-release-branch", () => {
   });
 
   it("creates branch with both iOS and Android bumps", async () => {
-    const { handler } = await import(
-      "../../src/commands/create-release-branch.js"
-    );
+    const { handler } =
+      await import("../../src/commands/create-release-branch");
 
     handler({
       repoRoot: tmpDir,
@@ -201,9 +208,8 @@ describe("create-release-branch", () => {
   });
 
   it("throws error when no SDKs are bumped", async () => {
-    const { handler } = await import(
-      "../../src/commands/create-release-branch.js"
-    );
+    const { handler } =
+      await import("../../src/commands/create-release-branch");
 
     expect(() =>
       handler({

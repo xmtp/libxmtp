@@ -1,6 +1,7 @@
 export enum Sdk {
   Ios = "ios",
   Android = "android",
+  Libxmtp = "libxmtp",
 }
 
 export interface ManifestProvider {
