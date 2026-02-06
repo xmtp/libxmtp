@@ -27,5 +27,8 @@ Pod::Spec.new do |spec|
   spec.dependency 'SQLCipher', '= 4.5.7'
   spec.vendored_frameworks = 'LibXMTPSwiftFFI.xcframework'
 
+  # xcframework ships arm64 simulator only (x86_64 simulator dropped for Nix build compatibility)
+  spec.pod_target_xcconfig = { 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'x86_64' }
+
   spec.ios.deployment_target = '14.0'
 end
