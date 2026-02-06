@@ -131,10 +131,13 @@ impl ClientState {
         group_id: &str,
         event: &Arc<LogEvent>,
     ) -> RwLockWriteGuard<'_, GroupState> {
-        self.groups
-            .entry(group_id.to_string())
-            .or_insert_with(|| GroupState::new(&self.inst, event))
-            .update()
+        if !self.groups.contains_key(group_id) {
+            let state = GroupState::new(&self.inst, event);
+            self.groups.insert(group_id.to_string(), state.clone());
+            return self.groups[group_id].write();
+        }
+
+        self.groups.get_mut(group_id).unwrap().update(event)
     }
 }
 
@@ -219,16 +222,17 @@ impl GroupState {
 }
 
 trait GroupStateExt {
-    fn update(&mut self) -> RwLockWriteGuard<'_, GroupState>;
+    fn update(&mut self, event: &Arc<LogEvent>) -> RwLockWriteGuard<'_, GroupState>;
     fn beginning(&self) -> Result<Arc<RwLock<GroupState>>>;
     fn traverse(&self) -> GroupStateIterator;
 }
 impl GroupStateExt for Arc<RwLock<GroupState>> {
-    fn update(&mut self) -> RwLockWriteGuard<'_, GroupState> {
+    fn update(&mut self, event: &Arc<LogEvent>) -> RwLockWriteGuard<'_, GroupState> {
         let prev = self.clone();
         let new_group = GroupState {
             prev: Some(prev.clone()),
             problems: vec![],
+            event: event.clone(),
             ..self.read().clone()
         };
         *self = Arc::new(RwLock::new(new_group));
@@ -255,7 +259,7 @@ impl GroupStateExt for Arc<RwLock<GroupState>> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{collections::HashSet, time::Duration};
 
     use crate::state::{LogEvent, LogState, Value};
     use tracing_subscriber::fmt;
@@ -296,6 +300,19 @@ mod tests {
         tracing::warn!("Groups: {}", grouped_epochs.len());
         for (key, epochs) in &*grouped_epochs {
             tracing::warn!("Group id: {key} Epochs: {}", epochs.len());
+            // Assert that epoch transitions happen in chronological order
+            let mut timestamps = HashSet::new();
+
+            for (_epoch_num, epoch) in epochs.iter() {
+                for (_inst, states) in &epoch.states {
+                    for state in states {
+                        let t = state.read().event.time;
+                        assert!(!timestamps.contains(&t));
+                        timestamps.insert(t);
+                    }
+                }
+            }
+
             for (i, epoch) in epochs {
                 tracing::warn!("Epoch {i} has {} group states", epoch.states.len());
             }

@@ -12,6 +12,7 @@ pub struct LogEvent {
     pub installation: String,
     pub context: HashMap<String, Value>,
     pub intermediate: String,
+    pub time: i64,
 }
 
 pub(crate) const TIME_KEY: &str = "time_ms";
@@ -42,17 +43,6 @@ impl LogEvent {
 
     pub fn installation(&self) -> &str {
         &self.installation
-    }
-
-    pub fn timestamp_str(&self) -> String {
-        self.timestamp().to_string()
-    }
-
-    pub fn timestamp(&self) -> i64 {
-        self.context
-            .get(TIME_KEY)
-            .and_then(|v| v.as_int().ok())
-            .unwrap_or(0)
     }
 
     pub fn group_id(&self) -> Option<&str> {
@@ -105,10 +95,13 @@ impl LogEvent {
             context.insert(key.as_str().to_string(), value);
         }
 
-        let inbox = context
+        let installation = context
             .remove("inst")
             .with_context(|| format!("{line_str} is missing inst field."))?;
-        let inbox = inbox.as_str()?.to_string();
+        let installation = installation.as_str()?.to_string();
+        let time = context
+            .remove(TIME_KEY)
+            .with_context(|| format!("{line_str} is missing time_ms field."))?;
 
         // Collect up the intermediate lines that don't parse.
         let mut intermediate = String::new();
@@ -122,9 +115,10 @@ impl LogEvent {
         Ok(Self {
             event: event_meta.event,
             msg: event_str.to_string(),
-            installation: inbox,
+            installation,
             context,
             intermediate,
+            time: time.as_int()?,
         })
     }
 }

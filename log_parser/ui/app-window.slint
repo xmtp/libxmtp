@@ -8,20 +8,16 @@ import {
 
 import {
     EpochTab,
+    UIContextEntry,
     UIGroupState,
     UIInstallationCell,
     UIEpochHeader,
     UIInstallationRow,
     UIGroupRow,
 } from "epoch-tab.slint";
-export { UIGroupState, UIInstallationCell, UIEpochHeader, UIInstallationRow, UIGroupRow }
+export { UIContextEntry, UIGroupState, UIInstallationCell, UIEpochHeader, UIInstallationRow, UIGroupRow }
 
 // ─── Shared Data Structures ───
-
-export struct UIContextEntry {
-    key: string,
-    value: string,
-}
 
 export struct UIEvent {
     event: string,
