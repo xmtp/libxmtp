@@ -72,7 +72,7 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "16.2"
+          xcode-version: "26"
       - name: Build
         run: nix develop .#ios --command ./sdks/ios/dev/build
       - name: Run tests
