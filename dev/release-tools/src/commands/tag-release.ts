@@ -1,8 +1,8 @@
 import type { ArgumentsCamelCase, Argv } from "yargs";
 import semver from "semver";
-import type { GlobalArgs } from "../types.js";
-import { getSdkConfig } from "../lib/sdk-config.js";
-import { createTag, pushTag } from "../lib/git.js";
+import type { GlobalArgs } from "../types";
+import { getSdkConfig } from "../lib/sdk-config";
+import { createTag, pushTag } from "../lib/git";
 
 export const command = "tag-release";
 export const describe = "Create and push a git tag for an SDK release";
@@ -29,7 +29,7 @@ export function builder(yargs: Argv<GlobalArgs>) {
       demandOption: true,
       describe: "Version string for the tag",
     })
-    .option("push-branch", {
+    .option("pushBranch", {
       type: "boolean",
       default: false,
       describe: "Also push the current branch (HEAD) along with the tag",
