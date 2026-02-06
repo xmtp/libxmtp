@@ -27,6 +27,7 @@
 , stdenv
 , androidenv
 , cargo-ndk
+, zlib
 , ...
 }:
 let
@@ -39,7 +40,7 @@ let
 
   # Shared mobile build configuration (commonArgs, filesets, version)
   mobile = import ./../lib/mobile-common.nix {
-    inherit lib craneLib xmtp zstd openssl sqlite pkg-config perl;
+    inherit lib craneLib xmtp zstd openssl sqlite pkg-config perl zlib;
   };
 
   # Rust toolchain with Android cross-compilation targets
@@ -69,6 +70,11 @@ let
     ANDROID_NDK_HOME = androidPaths.ndkHome;
     ANDROID_NDK_ROOT = androidPaths.ndkHome;
     OPENSSL_DIR = "${openssl.dev}";
+
+    # Ensure host build-dependencies (like libz-sys) use Nix stdenv's cc, not NDK clang.
+    # Without this, cargo-ndk's CC override causes host compilations to use NDK clang
+    # which lacks Linux host headers (stdio.h, etc.).
+    HOST_CC = "${stdenv.cc}/bin/cc";
   };
 
   # Build dependencies for a specific Android target

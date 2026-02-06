@@ -30,6 +30,7 @@ import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationMetadata
 import uniffi.xmtpv3.FfiDeliveryStatus
 import uniffi.xmtpv3.FfiDirection
+import uniffi.xmtpv3.FfiException
 import uniffi.xmtpv3.FfiGroupMembershipState
 import uniffi.xmtpv3.FfiGroupPermissions
 import uniffi.xmtpv3.FfiListMessagesOptions
@@ -39,7 +40,6 @@ import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiMetadataField
 import uniffi.xmtpv3.FfiPermissionUpdateType
 import uniffi.xmtpv3.FfiSortBy
-import uniffi.xmtpv3.FfiSubscribeException
 import java.util.Date
 
 class Group(
@@ -510,7 +510,7 @@ class Group(
     suspend fun addMembersByIdentity(identities: List<PublicIdentity>): GroupMembershipResult =
         withContext(Dispatchers.IO) {
             try {
-                val result = libXMTPGroup.addMembers(identities.map { it.ffiPrivate })
+                val result = libXMTPGroup.addMembersByIdentity(identities.map { it.ffiPrivate })
                 GroupMembershipResult(result)
             } catch (e: Exception) {
                 throw XMTPException("Unable to add member", e)
@@ -520,7 +520,7 @@ class Group(
     suspend fun removeMembersByIdentity(identities: List<PublicIdentity>) =
         withContext(Dispatchers.IO) {
             try {
-                libXMTPGroup.removeMembers(identities.map { it.ffiPrivate })
+                libXMTPGroup.removeMembersByIdentity(identities.map { it.ffiPrivate })
             } catch (e: Exception) {
                 throw XMTPException("Unable to remove member", e)
             }
@@ -530,7 +530,7 @@ class Group(
         withContext(Dispatchers.IO) {
             validateInboxIds(inboxIds)
             try {
-                val result = libXMTPGroup.addMembersByInboxId(inboxIds)
+                val result = libXMTPGroup.addMembers(inboxIds)
                 GroupMembershipResult(result)
             } catch (e: Exception) {
                 throw XMTPException("Unable to add member", e)
@@ -541,7 +541,7 @@ class Group(
         withContext(Dispatchers.IO) {
             validateInboxIds(inboxIds)
             try {
-                libXMTPGroup.removeMembersByInboxId(inboxIds)
+                libXMTPGroup.removeMembers(inboxIds)
             } catch (e: Exception) {
                 throw XMTPException("Unable to remove member", e)
             }
@@ -764,8 +764,8 @@ class Group(
                         }
                     }
 
-                    override fun onError(error: FfiSubscribeException) {
-                        Log.e("XMTP Group stream", "Stream error: ${error.message}", error)
+                    override fun onError(error: FfiException) {
+                        Log.e("XMTP Group stream", "Stream error: $error")
                     }
 
                     override fun onClose() {

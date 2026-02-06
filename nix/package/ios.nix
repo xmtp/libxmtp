@@ -31,6 +31,7 @@
 , craneLib
 , xmtp
 , stdenv
+, zlib
 , ...
 }:
 let
@@ -38,7 +39,7 @@ let
 
   # Shared mobile build configuration (commonArgs, filesets, version)
   mobile = import ./../lib/mobile-common.nix {
-    inherit lib craneLib xmtp zstd openssl sqlite pkg-config perl;
+    inherit lib craneLib xmtp zstd openssl sqlite pkg-config perl zlib;
   };
 
   # Rust toolchain with iOS/macOS cross-compilation targets.

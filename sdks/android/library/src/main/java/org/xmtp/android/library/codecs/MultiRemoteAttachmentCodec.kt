@@ -5,7 +5,7 @@ import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.codecs.RemoteAttachment.Companion.decryptEncoded
 import org.xmtp.android.library.codecs.RemoteAttachment.Companion.encodeEncryptedBytes
 import uniffi.xmtpv3.FfiMultiRemoteAttachment
-import uniffi.xmtpv3.FfiRemoteAttachmentInfo
+import uniffi.xmtpv3.FfiRemoteAttachment
 import uniffi.xmtpv3.decodeMultiRemoteAttachment
 import uniffi.xmtpv3.encodeMultiRemoteAttachment
 import java.net.URI
@@ -64,7 +64,7 @@ data class MultiRemoteAttachmentCodec(
             FfiMultiRemoteAttachment(
                 attachments =
                     content.remoteAttachments.map { attachment ->
-                        FfiRemoteAttachmentInfo(
+                        FfiRemoteAttachment(
                             url = attachment.url,
                             filename = attachment.filename,
                             contentDigest = attachment.contentDigest,
