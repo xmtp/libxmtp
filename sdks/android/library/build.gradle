@@ -109,7 +109,7 @@ afterEvaluate {
             release(MavenPublication) {
                 groupId = "org.xmtp"
                 artifactId = "android"
-                version = System.getenv("RELEASE_VERSION")
+                version = rootProject.version
 
                 from components.release
 

@@ -1,4 +1,3 @@
-# .github/workflows/dev-release.yml
 name: Dev Release
 
 on:
@@ -13,6 +12,11 @@ on:
         required: false
         type: boolean
         default: false
+      android:
+        description: "Release Android SDK"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   release-ios:
@@ -23,8 +27,16 @@ jobs:
       ref: ${{ inputs.branch || github.ref }}
     secrets: inherit
 
+  release-android:
+    if: inputs.android
+    uses: ./.github/workflows/release-android.yml
+    with:
+      release-type: dev
+      ref: ${{ inputs.branch || github.ref }}
+    secrets: inherit
+
   notify:
-    needs: [release-ios]
+    needs: [release-ios, release-android]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -33,8 +45,17 @@ jobs:
         env:
           IOS_RESULT: ${{ needs.release-ios.result }}
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
+          ANDROID_RESULT: ${{ needs.release-android.result }}
+          ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
         run: |
-          echo "message=Dev Release: iOS ${IOS_VERSION:-skipped} - ${IOS_RESULT:-skipped}" >> "$GITHUB_OUTPUT"
+          MSG="Dev Release:"
+          if [ -n "$IOS_VERSION" ] || [ "$IOS_RESULT" != "skipped" ]; then
+            MSG="$MSG iOS ${IOS_VERSION:-failed} (${IOS_RESULT})"
+          fi
+          if [ -n "$ANDROID_VERSION" ] || [ "$ANDROID_RESULT" != "skipped" ]; then
+            MSG="$MSG Android ${ANDROID_VERSION:-failed} (${ANDROID_RESULT})"
+          fi
+          echo "message=$MSG" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/slack-notify
         with:
           message: ${{ steps.compute.outputs.message }}

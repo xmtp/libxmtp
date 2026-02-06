@@ -1,4 +1,3 @@
-# .github/workflows/publish-release.yml
 name: Publish Release
 
 on:
@@ -24,6 +23,11 @@ on:
         required: false
         type: boolean
         default: false
+      android:
+        description: "Release Android SDK"
+        required: false
+        type: boolean
+        default: false
       no-merge:
         description: "Skip merging the release PR to main"
         required: false
@@ -40,9 +44,18 @@ jobs:
       ref: ${{ inputs.release-branch }}
     secrets: inherit
 
+  release-android:
+    if: inputs.android
+    uses: ./.github/workflows/release-android.yml
+    with:
+      release-type: ${{ inputs.release-type }}
+      rc-number: ${{ inputs.rc-number }}
+      ref: ${{ inputs.release-branch }}
+    secrets: inherit
+
   merge-pr:
-    if: inputs.release-type == 'final' && !inputs.no-merge && !cancelled() && needs.release-ios.result != 'failure'
-    needs: [release-ios]
+    if: inputs.release-type == 'final' && !inputs.no-merge && !cancelled() && needs.release-ios.result != 'failure' && needs.release-android.result != 'failure'
+    needs: [release-ios, release-android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -64,7 +77,7 @@ jobs:
           gh pr merge "$PR_NUMBER" --merge --delete-branch
 
   notify:
-    needs: [release-ios, merge-pr]
+    needs: [release-ios, release-android, merge-pr]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -73,9 +86,18 @@ jobs:
         env:
           IOS_RESULT: ${{ needs.release-ios.result }}
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
+          ANDROID_RESULT: ${{ needs.release-android.result }}
+          ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
           RELEASE_TYPE: ${{ inputs.release-type }}
         run: |
-          echo "message=${RELEASE_TYPE^} Release: iOS ${IOS_VERSION:-skipped} - ${IOS_RESULT:-skipped}" >> "$GITHUB_OUTPUT"
+          MSG="${RELEASE_TYPE^} Release:"
+          if [ -n "$IOS_VERSION" ] || [ "$IOS_RESULT" != "skipped" ]; then
+            MSG="$MSG iOS ${IOS_VERSION:-failed} (${IOS_RESULT})"
+          fi
+          if [ -n "$ANDROID_VERSION" ] || [ "$ANDROID_RESULT" != "skipped" ]; then
+            MSG="$MSG Android ${ANDROID_VERSION:-failed} (${ANDROID_RESULT})"
+          fi
+          echo "message=$MSG" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/slack-notify
         with:
           message: ${{ steps.compute.outputs.message }}

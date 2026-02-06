@@ -23,6 +23,16 @@ on:
           - "minor"
           - "major"
         default: "none"
+      android-bump:
+        description: "Android SDK version bump"
+        required: false
+        type: choice
+        options:
+          - "none"
+          - "patch"
+          - "minor"
+          - "major"
+        default: "none"
 
 jobs:
   create-branch:
@@ -42,25 +52,22 @@ jobs:
       - name: Create release branch
         env:
           RELEASE_VERSION: ${{ inputs.version }}
+          BASE_REF: ${{ inputs.base-ref }}
           IOS_BUMP: ${{ inputs.ios-bump }}
+          ANDROID_BUMP: ${{ inputs.android-bump }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          BRANCH="release/${RELEASE_VERSION}"
-          git checkout -b "$BRANCH"
+          cd dev/release-tools
+          yarn cli create-release-branch \
+            --version "$RELEASE_VERSION" \
+            --base "$BASE_REF" \
+            --ios "$IOS_BUMP" \
+            --android "$ANDROID_BUMP"
+          cd ../..
 
-          if [ "$IOS_BUMP" != "none" ]; then
-            cd dev/release-tools
-            NEW_VERSION=$(yarn cli bump-version --sdk ios --type "$IOS_BUMP")
-            echo "iOS version bumped to: $NEW_VERSION"
-            yarn cli scaffold-notes --sdk ios
-            cd ../..
-          fi
-
-          git add -A
-          git commit -m "chore: create release ${RELEASE_VERSION}" || echo "No changes"
-          git push -u origin "$BRANCH"
+          git push -u origin "release/${RELEASE_VERSION}"
       - name: Create pull request
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
