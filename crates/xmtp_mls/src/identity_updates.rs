@@ -490,13 +490,15 @@ where
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
     ) -> Result<InstallationDiff, InstallationDiffError> {
-        log_event!(
-            Event::MembershipInstallationDiff,
-            self.context.installation_id(),
-            #group_id,
-            old_membership = ?old_group_membership,
-            new_membership = ?new_group_membership,
-        );
+        if new_group_membership != old_group_membership {
+            log_event!(
+                Event::MembershipInstallationDiff,
+                self.context.installation_id(),
+                #group_id,
+                old_membership = ?old_group_membership,
+                new_membership = ?new_group_membership,
+            );
+        }
 
         let added_and_updated_members = membership_diff
             .added_inboxes
@@ -563,13 +565,15 @@ where
             removed_installations.extend(state_diff.new_installations());
         }
 
-        log_event!(
-            Event::MembershipInstallationDiffComputed,
-            self.context.installation_id(),
-            #group_id,
-            added_installations = ?added_installations,
-            removed_installations = ?removed_installations
-        );
+        if !added_installations.is_empty() || !removed_installations.is_empty() {
+            log_event!(
+                Event::MembershipInstallationDiffComputed,
+                self.context.installation_id(),
+                #group_id,
+                added_installations = ?added_installations,
+                removed_installations = ?removed_installations
+            );
+        }
 
         Ok(InstallationDiff {
             added_installations,

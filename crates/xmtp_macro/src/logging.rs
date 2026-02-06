@@ -125,6 +125,7 @@ impl Parse for LogEventInput {
             }
 
             // Handle # sigil for short_hex transformation
+            // Keep sigil as '#' so context formatting can quote the value
             if sigil == Some('#') {
                 let value_expr = value.unwrap_or_else(|| {
                     let name_clone = name.clone();
@@ -135,7 +136,7 @@ impl Parse for LogEventInput {
                 };
                 fields.push(Field {
                     name,
-                    sigil: Some('%'),
+                    sigil: Some('#'),
                     value: Some(transformed_value),
                 });
                 continue;
@@ -163,7 +164,7 @@ impl Field {
             .unwrap_or_else(|| name.to_token_stream());
 
         match self.sigil {
-            Some('%') => quote! { #name = %#value },
+            Some('%') | Some('#') => quote! { #name = %#value },
             Some('?') => quote! { #name = ?#value },
             _ => quote! { #name = #value },
         }

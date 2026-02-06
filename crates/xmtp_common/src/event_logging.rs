@@ -22,7 +22,7 @@ pub enum Event {
     #[context(group_id, members, epoch)]
     AddedMembers,
     /// Received new group from welcome.
-    #[context(group_id, conversation_type)]
+    #[context(group_id, conversation_type, epoch)]
     ProcessedWelcome,
 
     // ===================== MLS Operations =====================
@@ -46,7 +46,7 @@ pub enum Event {
     /// Begin syncing group.
     #[context(group_id)]
     GroupSyncStart,
-    /// Attempting to sync group.
+    /// Syncing group.
     #[context(group_id, attempt, backoff)]
     GroupSyncAttempt,
     /// Group sync complete.

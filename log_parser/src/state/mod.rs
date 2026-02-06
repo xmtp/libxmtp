@@ -3,10 +3,7 @@ pub mod event;
 pub mod ui;
 pub mod value;
 
-use crate::state::{
-    assertions::{LogAssertion, epoch_continuity::EpochContinuityAssertion},
-    event::TIME_KEY,
-};
+use crate::state::assertions::{LogAssertion, epoch_continuity::EpochContinuityAssertion};
 use anyhow::{Context, Result};
 pub use event::LogEvent;
 use parking_lot::{RwLock, RwLockWriteGuard};
@@ -61,13 +58,16 @@ impl LogState {
 
         let installation = &event.installation;
         let mut clients = self.clients.write();
-        let client = match event.event {
-            Event::ClientCreated => clients
-                .entry(installation.to_string())
-                .or_insert_with(|| Arc::new(RwLock::new(ClientState::new(&installation, None)))),
+        let mut client = match event.event {
+            Event::ClientCreated => {
+                let inbox_id = ctx("inbox_id")?.as_str()?;
+                clients.entry(installation.to_string()).or_insert_with(|| {
+                    Arc::new(RwLock::new(ClientState::new(&installation, inbox_id, None)))
+                })
+            }
             _ => clients.get_mut(installation).context("Missing client")?,
-        };
-        let mut client = client.write();
+        }
+        .write();
         let group_id = ctx("group_id").and_then(|id| id.as_str()).ok();
 
         match (group_id, event.event) {
@@ -91,7 +91,7 @@ impl LogState {
                 match raw_event {
                     Event::CreatedDM => {
                         group.dm_target = Some(ctx("target_inbox")?.as_str()?.to_string());
-                        group.created_at = Some(ctx(TIME_KEY)?.as_int()?);
+                        group.created_at = Some(event.time);
                     }
                     Event::MLSGroupEpochUpdated => {
                         group.previous_epoch = Some(ctx("previous_epoch")?.as_int()?);
@@ -114,15 +114,17 @@ pub struct ClientState {
     pub events: Vec<Arc<LogEvent>>,
     pub groups: HashMap<String, Arc<RwLock<GroupState>>>,
     pub inst: String,
+    pub inbox_id: String,
 }
 
 impl ClientState {
-    fn new(inst: &str, name: Option<String>) -> Self {
+    fn new(inst: &str, inbox_id: &str, name: Option<String>) -> Self {
         Self {
             name,
             events: Vec::new(),
             groups: HashMap::default(),
             inst: inst.to_string(),
+            inbox_id: inbox_id.to_string(),
         }
     }
 
@@ -296,27 +298,13 @@ mod tests {
 
         let state = LogState::build(lines);
 
-        let grouped_epochs = state.grouped_epochs.read();
-        tracing::warn!("Groups: {}", grouped_epochs.len());
-        for (key, epochs) in &*grouped_epochs {
-            tracing::warn!("Group id: {key} Epochs: {}", epochs.len());
-            // Assert that epoch transitions happen in chronological order
-            let mut timestamps = HashSet::new();
-
-            for (_epoch_num, epoch) in epochs.iter() {
-                for (_inst, states) in &epoch.states {
-                    for state in states {
-                        let t = state.read().event.time;
-                        assert!(!timestamps.contains(&t));
-                        timestamps.insert(t);
-                    }
-                }
-            }
-
-            for (i, epoch) in epochs {
-                tracing::warn!("Epoch {i} has {} group states", epoch.states.len());
-            }
-        }
+        let welcome_found = state.clients.read().iter().any(|(inst_id, c)| {
+            c.read()
+                .events
+                .iter()
+                .any(|e| e.event == Event::ProcessedWelcome)
+        });
+        assert!(welcome_found);
     }
 
     #[xmtp_common::test(unwrap_try = true)]

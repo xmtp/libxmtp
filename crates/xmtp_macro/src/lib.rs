@@ -230,7 +230,13 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         .map(|(i, f)| {
             let name_str = &provided_names[i];
             let value = f.value_tokens();
-            if matches!(f.sigil, Some('%')) {
+            if matches!(f.sigil, Some('#')) {
+                // # sigil (short_hex): always quote the value so hex strings
+                // like "1713e608" aren't misinterpreted as scientific notation
+                quote! {
+                    #name_str => Some(format!("{}: \"{}\"", #name_str, #value))
+                }
+            } else if matches!(f.sigil, Some('%')) {
                 quote! {
                     #name_str => Some(format!("{}: {}", #name_str, #value))
                 }
@@ -292,7 +298,7 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                 __context_parts.push(format!("time_ms: {__now_ms}"));
                 __context_parts.push(format!("inst: \"{__inst}\""));
-                let __context_str = __context_parts.join(", ");
+                let __context_str = __context_parts.join(", ").replace('\n', " ");
 
                 format!("➣ {} {{{__context_str}}}", __meta.doc)
             };

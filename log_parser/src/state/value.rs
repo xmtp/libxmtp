@@ -92,7 +92,9 @@ impl Value {
                 _ => unreachable!(),
             },
             Rule::null => Self::None,
-            Rule::unquoted_string => Self::String(pair_str.to_string()),
+            Rule::unquoted_string | Rule::option_value | Rule::option_inner => {
+                Self::String(pair_str.to_string())
+            }
             _ => bail!("Unsupportd rule encountered while parsing context."),
         };
 

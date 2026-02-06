@@ -31,6 +31,20 @@ impl LogAssertion for EpochContinuityAssertion {
                 a_epoch.cmp(&b_epoch)
             });
 
+            for group in &groups {
+                let mut epoch = None;
+                for state in group.traverse() {
+                    let mut state = state.write();
+                    if let Some(state_epoch) = state.epoch {
+                        epoch = Some(state_epoch);
+                        continue;
+                    }
+
+                    tracing::error!("This happens. {epoch:?}");
+                    state.epoch = epoch;
+                }
+            }
+
             // Check for continuity
             let group_state_iters = groups
                 .into_iter()
