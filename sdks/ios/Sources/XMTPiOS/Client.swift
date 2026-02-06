@@ -114,6 +114,8 @@ public struct ClientOptions {
 	public var deviceSyncEnabled: Bool
 	public var debugEventsEnabled: Bool
 	public var forkRecoveryOptions: ForkRecoveryOptions?
+	public var maxDbPoolSize: UInt32?
+	public var minDbPoolSize: UInt32?
 
 	public init(
 		api: Api = Api(),

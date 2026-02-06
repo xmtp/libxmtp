@@ -584,7 +584,7 @@ public class Conversations {
 		appData: String?,
 	) async throws -> Group {
 		let client = try requireClient()
-		try await ffiConversations.createGroupByIdentity(
+		return try await ffiConversations.createGroupByIdentity(
 			accountIdentities: identities.map(\.ffiPrivate),
 			opts: FfiCreateGroupOptions(
 				permissions: permissions,
@@ -804,6 +804,7 @@ public class Conversations {
 	public func fromWelcome(envelopeBytes: Data) async throws
 		-> Conversation?
 	{
+		let client = try requireClient()
 		let conversations =
 			try await ffiConversations
 				.processStreamedWelcomeMessage(envelopeBytes: envelopeBytes)
