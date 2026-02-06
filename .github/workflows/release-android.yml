@@ -70,4 +70,4 @@ jobs:
       - name: Tag release
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: xmtp-release tag-release --sdk android --version "$VERSION" --push-branch
+        run: xmtp-release tag-release --sdk android --version "$VERSION"
