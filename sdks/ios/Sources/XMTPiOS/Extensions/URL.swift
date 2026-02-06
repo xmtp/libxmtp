@@ -14,7 +14,7 @@ extension URL {
 			for: .documentDirectory,
 			in: .userDomainMask,
 			appropriateFor: nil,
-			create: false
+			create: false,
 		) else {
 			fatalError("No documents directory")
 		}

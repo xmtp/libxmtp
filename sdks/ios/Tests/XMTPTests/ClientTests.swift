@@ -15,13 +15,13 @@ class ClientTests: XCTestCase {
 		let clientOptions = ClientOptions(
 			api: ClientOptions.Api(
 				env: XMTPEnvironment.local, isSecure: XMTPEnvironment.local.isSecure,
-				appVersion: "Testing/0.0.0"
+				appVersion: "Testing/0.0.0",
 			),
-			dbEncryptionKey: key
+			dbEncryptionKey: key,
 		)
 		let fakeWallet = try PrivateKey.generate()
 		let client = try await Client.create(
-			account: fakeWallet, options: clientOptions
+			account: fakeWallet, options: clientOptions,
 		)
 		try client.deleteLocalDatabase()
 	}
@@ -34,8 +34,8 @@ class ClientTests: XCTestCase {
 			account: bo,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-				dbEncryptionKey: key
-			)
+				dbEncryptionKey: key,
+			),
 		)
 		try client.deleteLocalDatabase()
 	}
@@ -50,7 +50,7 @@ class ClientTests: XCTestCase {
 				notOnNetwork.identity,
 				fixtures.bo.identity,
 			],
-			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure)
+			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 		)
 
 		let expectedResults: [String: Bool] = [
@@ -62,7 +62,7 @@ class ClientTests: XCTestCase {
 		for (address, expected) in expectedResults {
 			XCTAssertEqual(
 				canMessageList[address.lowercased()], expected,
-				"Failed for address: \(address)"
+				"Failed for address: \(address)",
 			)
 		}
 		try fixtures.cleanUpDatabases()
@@ -76,16 +76,16 @@ class ClientTests: XCTestCase {
 				fixtures.alixClient.inboxID,
 				fixtures.boClient.inboxID,
 			],
-			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure)
+			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 		)
 
 		XCTAssertEqual(
 			inboxStates.first?.recoveryIdentity.identifier,
-			fixtures.alix.walletAddress.lowercased()
+			fixtures.alix.walletAddress.lowercased(),
 		)
 		XCTAssertEqual(
 			inboxStates.last?.recoveryIdentity.identifier,
-			fixtures.bo.walletAddress.lowercased()
+			fixtures.bo.walletAddress.lowercased(),
 		)
 		try fixtures.cleanUpDatabases()
 		sleep(10)
@@ -99,16 +99,16 @@ class ClientTests: XCTestCase {
 			account: bo,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-				dbEncryptionKey: key
-			)
+				dbEncryptionKey: key,
+			),
 		)
 
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-				dbEncryptionKey: key
-			)
+				dbEncryptionKey: key,
+			),
 		)
 
 		_ = try await boClient.conversations.newGroup(with: [alixClient.inboxID])
@@ -124,8 +124,8 @@ class ClientTests: XCTestCase {
 			account: bo,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-				dbEncryptionKey: key
-			)
+				dbEncryptionKey: key,
+			),
 		)
 
 		try await boClient.conversations.sync()
@@ -141,16 +141,16 @@ class ClientTests: XCTestCase {
 			account: bo,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-				dbEncryptionKey: key
-			)
+				dbEncryptionKey: key,
+			),
 		)
 
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-				dbEncryptionKey: key
-			)
+				dbEncryptionKey: key,
+			),
 		)
 
 		_ = try await boClient.conversations.newGroup(with: [alixClient.inboxID])
@@ -162,7 +162,7 @@ class ClientTests: XCTestCase {
 		try boClient.dropLocalDatabaseConnection()
 
 		try await assertThrowsAsyncError(
-			await boClient.conversations.listGroups()
+			await boClient.conversations.listGroups(),
 		)
 
 		try await boClient.reconnectLocalDatabase()
@@ -178,10 +178,10 @@ class ClientTests: XCTestCase {
 		let notOnNetwork = try PrivateKey.generate()
 
 		let canMessage = try await fixtures.alixClient.canMessage(
-			identity: fixtures.bo.identity
+			identity: fixtures.bo.identity,
 		)
 		let cannotMessage = try await fixtures.alixClient.canMessage(
-			identity: notOnNetwork.identity
+			identity: notOnNetwork.identity,
 		)
 		XCTAssertTrue(canMessage)
 		XCTAssertFalse(cannotMessage)
@@ -192,7 +192,7 @@ class ClientTests: XCTestCase {
 	func testPreAuthenticateToInboxCallback() async throws {
 		let fakeWallet = try PrivateKey.generate()
 		let expectation = XCTestExpectation(
-			description: "preAuthenticateToInboxCallback is called"
+			description: "preAuthenticateToInboxCallback is called",
 		)
 		let key = try Crypto.secureRandomBytes(count: 32)
 
@@ -204,7 +204,7 @@ class ClientTests: XCTestCase {
 		let opts = ClientOptions(
 			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 			preAuthenticateToInboxCallback: preAuthenticateToInboxCallback,
-			dbEncryptionKey: key
+			dbEncryptionKey: key,
 		)
 		do {
 			_ = try await Client.create(account: fakeWallet, options: opts)
@@ -224,8 +224,8 @@ class ClientTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir
-			)
+				dbDirectory: dbDir,
+			),
 		)
 
 		let bundleClient = try await Client.build(
@@ -233,8 +233,8 @@ class ClientTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir
-			)
+				dbDirectory: dbDir,
+			),
 		)
 
 		XCTAssertEqual(client.inboxID, bundleClient.inboxID)
@@ -247,9 +247,9 @@ class ClientTests: XCTestCase {
 				options: .init(
 					api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 					dbEncryptionKey: key,
-					dbDirectory: nil
-				)
-			)
+					dbDirectory: nil,
+				),
+			),
 		)
 		try client.deleteLocalDatabase()
 	}
@@ -265,8 +265,8 @@ class ClientTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir
-			)
+				dbDirectory: dbDir,
+			),
 		)
 
 		let alixClient = try await Client.create(
@@ -274,8 +274,8 @@ class ClientTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir
-			)
+				dbDirectory: dbDir,
+			),
 		)
 
 		_ = try await boClient.conversations.newGroup(with: [
@@ -289,9 +289,9 @@ class ClientTests: XCTestCase {
 				options: .init(
 					api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 					dbEncryptionKey: key2,
-					dbDirectory: dbDir
-				)
-			)
+					dbDirectory: dbDir,
+				),
+			),
 		)
 		try alixClient.deleteLocalDatabase()
 		try boClient.deleteLocalDatabase()
@@ -305,19 +305,19 @@ class ClientTests: XCTestCase {
 			account: bo,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-				dbEncryptionKey: key
-			)
+				dbEncryptionKey: key,
+			),
 		)
 
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-				dbEncryptionKey: key
-			)
+				dbEncryptionKey: key,
+			),
 		)
 		let boInboxId = try await alixClient.inboxIdFromIdentity(
-			identity: bo.identity
+			identity: bo.identity,
 		)
 		XCTAssertEqual(boClient.inboxID, boInboxId)
 		try alixClient.deleteLocalDatabase()
@@ -329,27 +329,27 @@ class ClientTests: XCTestCase {
 		let alix = try PrivateKey.generate()
 		let options = ClientOptions(
 			api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-			dbEncryptionKey: key
+			dbEncryptionKey: key,
 		)
 
 		let inboxId = try await Client.getOrCreateInboxId(
-			api: options.api, publicIdentity: alix.identity
+			api: options.api, publicIdentity: alix.identity,
 		)
 		let alixClient = try await Client.create(
 			account: alix,
-			options: options
+			options: options,
 		)
 
 		XCTAssertEqual(inboxId, alixClient.inboxID)
 
 		let alixClient2 = try await Client.build(
 			publicIdentity: alix.identity,
-			options: options
+			options: options,
 		)
 
 		XCTAssertEqual(
 			alixClient2.publicIdentity.identifier,
-			alixClient.publicIdentity.identifier
+			alixClient.publicIdentity.identifier,
 		)
 		XCTAssertEqual(alixClient2.inboxID, alixClient.inboxID)
 		try alixClient.deleteLocalDatabase()
@@ -367,8 +367,8 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir1
-			)
+				dbDirectory: dbDir1,
+			),
 		)
 
 		let alixClient2 = try await Client.create(
@@ -376,8 +376,8 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir2
-			)
+				dbDirectory: dbDir2,
+			),
 		)
 
 		let alixClient3 = try await Client.create(
@@ -385,19 +385,19 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir3
-			)
+				dbDirectory: dbDir3,
+			),
 		)
 
 		let state = try await alixClient3.inboxState(refreshFromNetwork: true)
 		XCTAssertEqual(state.installations.count, 3)
 
 		try await alixClient3.revokeInstallations(
-			signingKey: alix, installationIds: [alixClient2.installationID]
+			signingKey: alix, installationIds: [alixClient2.installationID],
 		)
 
 		let newState = try await alixClient3.inboxState(
-			refreshFromNetwork: true
+			refreshFromNetwork: true,
 		)
 		XCTAssertEqual(newState.installations.count, 2)
 		try alixClient.deleteLocalDatabase()
@@ -417,8 +417,8 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir1
-			)
+				dbDirectory: dbDir1,
+			),
 		)
 
 		let alixClient2 = try await Client.create(
@@ -426,8 +426,8 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir2
-			)
+				dbDirectory: dbDir2,
+			),
 		)
 
 		let alixClient3 = try await Client.create(
@@ -435,8 +435,8 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir3
-			)
+				dbDirectory: dbDir3,
+			),
 		)
 
 		let state = try await alixClient3.inboxState(refreshFromNetwork: true)
@@ -446,7 +446,7 @@ class ClientTests: XCTestCase {
 		try await alixClient3.revokeAllOtherInstallations(signingKey: alix)
 
 		let newState = try await alixClient3.inboxState(
-			refreshFromNetwork: true
+			refreshFromNetwork: true,
 		)
 		XCTAssertEqual(newState.installations.count, 1)
 		try alixClient.deleteLocalDatabase()
@@ -458,15 +458,15 @@ class ClientTests: XCTestCase {
 		let fixtures = try await fixtures()
 		let states = try await fixtures.alixClient.inboxStatesForInboxIds(
 			refreshFromNetwork: true,
-			inboxIds: [fixtures.boClient.inboxID, fixtures.caroClient.inboxID]
+			inboxIds: [fixtures.boClient.inboxID, fixtures.caroClient.inboxID],
 		)
 		XCTAssertEqual(
 			states.first?.recoveryIdentity.identifier,
-			fixtures.bo.walletAddress.lowercased()
+			fixtures.bo.walletAddress.lowercased(),
 		)
 		XCTAssertEqual(
 			states.last?.recoveryIdentity.identifier,
-			fixtures.caro.walletAddress.lowercased()
+			fixtures.caro.walletAddress.lowercased(),
 		)
 		try fixtures.cleanUpDatabases()
 	}
@@ -480,13 +480,13 @@ class ClientTests: XCTestCase {
 		try await fixtures.alixClient.addAccount(newAccount: alix3Wallet)
 
 		let state = try await fixtures.alixClient.inboxState(
-			refreshFromNetwork: true
+			refreshFromNetwork: true,
 		)
 		XCTAssertEqual(state.installations.count, 1)
 		XCTAssertEqual(state.identities.count, 3)
 		XCTAssertEqual(
 			state.recoveryIdentity.identifier,
-			fixtures.alix.walletAddress.lowercased()
+			fixtures.alix.walletAddress.lowercased(),
 		)
 		XCTAssertEqual(
 			state.identities.map(\.identifier).sorted(),
@@ -494,7 +494,7 @@ class ClientTests: XCTestCase {
 				alix2Wallet.walletAddress.lowercased(),
 				alix3Wallet.walletAddress.lowercased(),
 				fixtures.alix.walletAddress.lowercased(),
-			].sorted()
+			].sorted(),
 		)
 		try fixtures.cleanUpDatabases()
 	}
@@ -503,21 +503,21 @@ class ClientTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		try await assertThrowsAsyncError(
-			await fixtures.alixClient.addAccount(newAccount: fixtures.bo)
+			await fixtures.alixClient.addAccount(newAccount: fixtures.bo),
 		)
 
 		XCTAssert(fixtures.boClient.inboxID != fixtures.alixClient.inboxID)
 		try await fixtures.alixClient.addAccount(
-			newAccount: fixtures.bo, allowReassignInboxId: true
+			newAccount: fixtures.bo, allowReassignInboxId: true,
 		)
 
 		let state = try await fixtures.alixClient.inboxState(
-			refreshFromNetwork: true
+			refreshFromNetwork: true,
 		)
 		XCTAssertEqual(state.identities.count, 2)
 
 		let inboxId = try await fixtures.alixClient.inboxIdFromIdentity(
-			identity: fixtures.bo.identity
+			identity: fixtures.bo.identity,
 		)
 		XCTAssertEqual(inboxId, fixtures.alixClient.inboxID)
 		try fixtures.cleanUpDatabases()
@@ -532,33 +532,33 @@ class ClientTests: XCTestCase {
 		try await fixtures.alixClient.addAccount(newAccount: alix3Wallet)
 
 		var state = try await fixtures.alixClient.inboxState(
-			refreshFromNetwork: true
+			refreshFromNetwork: true,
 		)
 		XCTAssertEqual(state.identities.count, 3)
 		XCTAssertEqual(
 			state.recoveryIdentity.identifier,
-			fixtures.alix.walletAddress.lowercased()
+			fixtures.alix.walletAddress.lowercased(),
 		)
 
 		try await fixtures.alixClient.removeAccount(
 			recoveryAccount: fixtures.alix,
-			identityToRemove: alix2Wallet.identity
+			identityToRemove: alix2Wallet.identity,
 		)
 
 		state = try await fixtures.alixClient.inboxState(
-			refreshFromNetwork: true
+			refreshFromNetwork: true,
 		)
 		XCTAssertEqual(state.identities.count, 2)
 		XCTAssertEqual(
 			state.recoveryIdentity.identifier,
-			fixtures.alix.walletAddress.lowercased()
+			fixtures.alix.walletAddress.lowercased(),
 		)
 		XCTAssertEqual(
 			state.identities.map(\.identifier).sorted(),
 			[
 				alix3Wallet.walletAddress.lowercased(),
 				fixtures.alix.walletAddress.lowercased(),
-			].sorted()
+			].sorted(),
 		)
 		XCTAssertEqual(state.installations.count, 1)
 
@@ -566,8 +566,8 @@ class ClientTests: XCTestCase {
 		try await assertThrowsAsyncError(
 			await fixtures.alixClient.removeAccount(
 				recoveryAccount: alix3Wallet,
-				identityToRemove: fixtures.alix.identity
-			)
+				identityToRemove: fixtures.alix.identity,
+			),
 		)
 		try fixtures.cleanUpDatabases()
 	}
@@ -577,17 +577,17 @@ class ClientTests: XCTestCase {
 
 		// Signing with installation key
 		let signature = try fixtures.alixClient.signWithInstallationKey(
-			message: "Testing"
+			message: "Testing",
 		)
 		XCTAssertTrue(
 			try fixtures.alixClient.verifySignature(
-				message: "Testing", signature: signature
-			)
+				message: "Testing", signature: signature,
+			),
 		)
 		XCTAssertFalse(
 			try fixtures.alixClient.verifySignature(
-				message: "Not Testing", signature: signature
-			)
+				message: "Not Testing", signature: signature,
+			),
 		)
 
 		let alixInstallationId = fixtures.alixClient.installationID
@@ -596,57 +596,57 @@ class ClientTests: XCTestCase {
 			try fixtures.alixClient.verifySignatureWithInstallationId(
 				message: "Testing",
 				signature: signature,
-				installationId: alixInstallationId
-			)
+				installationId: alixInstallationId,
+			),
 		)
 		XCTAssertFalse(
 			try fixtures.alixClient.verifySignatureWithInstallationId(
 				message: "Not Testing",
 				signature: signature,
-				installationId: alixInstallationId
-			)
+				installationId: alixInstallationId,
+			),
 		)
 		XCTAssertFalse(
 			try fixtures.alixClient.verifySignatureWithInstallationId(
 				message: "Testing",
 				signature: signature,
-				installationId: fixtures.boClient.installationID
-			)
+				installationId: fixtures.boClient.installationID,
+			),
 		)
 		XCTAssertTrue(
 			try fixtures.boClient.verifySignatureWithInstallationId(
 				message: "Testing",
 				signature: signature,
-				installationId: alixInstallationId
-			)
+				installationId: alixInstallationId,
+			),
 		)
 
 		try fixtures.alixClient.deleteLocalDatabase()
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let options = ClientOptions(
 			api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-			dbEncryptionKey: key
+			dbEncryptionKey: key,
 		)
 
 		// Creating a new client
 		let alixClient2 = try await Client.create(
 			account: fixtures.alix,
-			options: options
+			options: options,
 		)
 
 		XCTAssertTrue(
 			try alixClient2.verifySignatureWithInstallationId(
 				message: "Testing",
 				signature: signature,
-				installationId: alixInstallationId
-			)
+				installationId: alixInstallationId,
+			),
 		)
 		XCTAssertFalse(
 			try alixClient2.verifySignatureWithInstallationId(
 				message: "Testing2",
 				signature: signature,
-				installationId: alixInstallationId
-			)
+				installationId: alixInstallationId,
+			),
 		)
 		try fixtures.cleanUpDatabases()
 	}
@@ -656,27 +656,27 @@ class ClientTests: XCTestCase {
 		let alix = try PrivateKey.generate()
 		let options = ClientOptions(
 			api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-			dbEncryptionKey: key
+			dbEncryptionKey: key,
 		)
 
 		let inboxId = try await Client.getOrCreateInboxId(
-			api: options.api, publicIdentity: alix.identity
+			api: options.api, publicIdentity: alix.identity,
 		)
 		let client = try await Client.ffiCreateClient(
-			identity: alix.identity, clientOptions: options
+			identity: alix.identity, clientOptions: options,
 		)
 		let sigRequest = client.ffiSignatureRequest()
 		let signatureText = try await sigRequest?.signatureText()
 		let signature = try await alix.sign(XCTUnwrap(signatureText))
 		let addResult = try await sigRequest?.addEcdsaSignature(
-			signatureBytes: signature.rawData
+			signatureBytes: signature.rawData,
 		)
 		try XCTUnwrap(addResult)
 		try await client.ffiRegisterIdentity(signatureRequest: XCTUnwrap(sigRequest))
 		let state = try await client.inboxState(refreshFromNetwork: true)
 			.identities
 		let canMessage = try await client.canMessage(identities: state)[
-			XCTUnwrap(state.first?.identifier)
+			XCTUnwrap(state.first?.identifier),
 		]
 
 		XCTAssertTrue(canMessage == true)
@@ -690,18 +690,18 @@ class ClientTests: XCTestCase {
 
 		let options = ClientOptions(
 			api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-			dbEncryptionKey: key
+			dbEncryptionKey: key,
 		)
 
 		let alix = try await Client.create(
-			account: alixWallet, options: options
+			account: alixWallet, options: options,
 		)
 
 		var inboxState = try await alix.inboxState(refreshFromNetwork: true)
 		XCTAssertEqual(inboxState.identities.count, 1)
 
 		let sigRequest = try await alix.ffiAddIdentity(
-			identityToAdd: boWallet.identity
+			identityToAdd: boWallet.identity,
 		)
 		let signedMessage = try await boWallet.sign(sigRequest.signatureText())
 			.rawData
@@ -713,10 +713,10 @@ class ClientTests: XCTestCase {
 		XCTAssertEqual(inboxState.identities.count, 2)
 
 		let sigRequest2 = try await alix.ffiRevokeIdentity(
-			identityToRemove: boWallet.identity
+			identityToRemove: boWallet.identity,
 		)
 		let signedMessage2 = try await alixWallet.sign(
-			sigRequest2.signatureText()
+			sigRequest2.signatureText(),
 		).rawData
 
 		try await sigRequest2.addEcdsaSignature(signatureBytes: signedMessage2)
@@ -740,8 +740,8 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDirPath
-			)
+				dbDirectory: dbDirPath,
+			),
 		)
 
 		let alix2 = try await Client.create(
@@ -749,8 +749,8 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDirPath2
-			)
+				dbDirectory: dbDirPath2,
+			),
 		)
 
 		let alix3 = try await Client.create(
@@ -758,8 +758,8 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDirPath3
-			)
+				dbDirectory: dbDirPath3,
+			),
 		)
 
 		var inboxState = try await alix3.inboxState(refreshFromNetwork: true)
@@ -769,7 +769,7 @@ class ClientTests: XCTestCase {
 			alix2.installationID.hexToData,
 		])
 		let signedMessage = try await alixWallet.sign(
-			sigRequest.signatureText()
+			sigRequest.signatureText(),
 		).rawData
 
 		try await sigRequest.addEcdsaSignature(signatureBytes: signedMessage)
@@ -781,7 +781,7 @@ class ClientTests: XCTestCase {
 		let sigRequest2 = try await alix.ffiRevokeAllOtherInstallations()
 		let signatureTextForSign = try await sigRequest2?.signatureText()
 		let signedMessage2 = try await alixWallet.sign(
-			XCTUnwrap(signatureTextForSign)
+			XCTUnwrap(signatureTextForSign),
 		).rawData
 
 		let addResult2 = try await sigRequest2?.addEcdsaSignature(signatureBytes: signedMessage2)
@@ -808,7 +808,7 @@ class ClientTests: XCTestCase {
 			try fileManager.removeItem(at: logDirectory)
 		}
 		try fileManager.createDirectory(
-			at: logDirectory, withIntermediateDirectories: true
+			at: logDirectory, withIntermediateDirectories: true,
 		)
 
 		// Clear any existing logs in this directory
@@ -824,7 +824,7 @@ class ClientTests: XCTestCase {
 			logLevel: .debug,
 			rotationSchedule: .hourly,
 			maxFiles: 3,
-			customLogDirectory: logDirectory
+			customLogDirectory: logDirectory,
 		)
 
 		// Create a client
@@ -832,8 +832,8 @@ class ClientTests: XCTestCase {
 			account: fakeWallet,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-				dbEncryptionKey: key
-			)
+				dbEncryptionKey: key,
+			),
 		)
 
 		// Create a group with only the client as a member
@@ -849,7 +849,7 @@ class ClientTests: XCTestCase {
 
 		// Verify logs were created
 		let logFiles = Client.getXMTPLogFilePaths(
-			customLogDirectory: logDirectory
+			customLogDirectory: logDirectory,
 		)
 		XCTAssertFalse(logFiles.isEmpty, "No log files were created")
 
@@ -864,7 +864,7 @@ class ClientTests: XCTestCase {
 				// Print first 1000 chars to avoid overwhelming the console
 				let truncatedContent = content.prefix(1000)
 				print(
-					"\(truncatedContent)\(content.count > 1000 ? "...(truncated)" : "")"
+					"\(truncatedContent)\(content.count > 1000 ? "...(truncated)" : "")",
 				)
 
 				// Check if the inbox ID appears in the logs
@@ -878,16 +878,16 @@ class ClientTests: XCTestCase {
 		}
 
 		XCTAssertTrue(
-			foundInboxId, "Inbox ID \(client.inboxID) not found in logs"
+			foundInboxId, "Inbox ID \(client.inboxID) not found in logs",
 		)
 
 		// Test clearing logs
 		Client.clearXMTPLogs(customLogDirectory: logDirectory)
 		let logFilesAfterClear = Client.getXMTPLogFilePaths(
-			customLogDirectory: logDirectory
+			customLogDirectory: logDirectory,
 		)
 		XCTAssertEqual(
-			logFilesAfterClear.count, 0, "Logs were not cleared properly"
+			logFilesAfterClear.count, 0, "Logs were not cleared properly",
 		)
 		try client.deleteLocalDatabase()
 	}
@@ -899,8 +899,8 @@ class ClientTests: XCTestCase {
 			account: alixWallet,
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-				dbEncryptionKey: key
-			)
+				dbEncryptionKey: key,
+			),
 		)
 
 		alix.debugInformation.clearAllStatistics()
@@ -947,7 +947,7 @@ class ClientTests: XCTestCase {
 		guard
 			let inboxState = try await Client.inboxStatesForInboxIds(
 				inboxIds: [fixtures.alixClient.inboxID],
-				api: api
+				api: api,
 			).first
 		else {
 			XCTFail("No inbox state found")
@@ -959,36 +959,32 @@ class ClientTests: XCTestCase {
 		let keyPackageStatus =
 			try await Client.keyPackageStatusesForInstallationIds(
 				installationIds: installationIds,
-				api: api
+				api: api,
 			)
 
 		for installationId in keyPackageStatus.keys {
 			guard let thisKPStatus = keyPackageStatus[installationId] else {
 				XCTFail(
-					"Missing key package status for installationId: \(installationId)"
+					"Missing key package status for installationId: \(installationId)",
 				)
 				continue
 			}
 
-			let notBeforeDate: String
-			if let notBefore = thisKPStatus.lifetime?.notBefore {
-				notBeforeDate =
-					Date(timeIntervalSince1970: TimeInterval(notBefore))
-						.description
+			let notBeforeDate: String = if let notBefore = thisKPStatus.lifetime?.notBefore {
+				Date(timeIntervalSince1970: TimeInterval(notBefore))
+					.description
 			} else {
-				notBeforeDate = "null"
+				"null"
 			}
 
-			let notAfterDate: String
-			if let notAfter = thisKPStatus.lifetime?.notAfter {
-				notAfterDate =
-					Date(timeIntervalSince1970: TimeInterval(notAfter))
-						.description
+			let notAfterDate: String = if let notAfter = thisKPStatus.lifetime?.notAfter {
+				Date(timeIntervalSince1970: TimeInterval(notAfter))
+					.description
 			} else {
-				notAfterDate = "null"
+				"null"
 			}
 			print(
-				"inst: \(installationId) - valid from: \(notBeforeDate) to: \(notAfterDate)"
+				"inst: \(installationId) - valid from: \(notBeforeDate) to: \(notAfterDate)",
 			)
 			print("error code: \(thisKPStatus.validationError ?? "none")")
 
@@ -1007,7 +1003,7 @@ class ClientTests: XCTestCase {
 		let wallet = try PrivateKey.generate()
 		let options = ClientOptions(
 			api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-			dbEncryptionKey: key
+			dbEncryptionKey: key,
 		)
 
 		let client = try await Client.create(account: wallet, options: options)
@@ -1018,18 +1014,18 @@ class ClientTests: XCTestCase {
 		let builtClient = try await Client.build(
 			publicIdentity: client.publicIdentity,
 			options: options,
-			inboxId: client.inboxID
+			inboxId: client.inboxID,
 		)
 
 		print(
-			"Post-build stats: \(builtClient.debugInformation.aggregateStatistics)"
+			"Post-build stats: \(builtClient.debugInformation.aggregateStatistics)",
 		)
 		XCTAssertEqual(client.inboxID, builtClient.inboxID)
 
 		let fixtures = try await fixtures() // Assuming this provides alixClient and boClient
 
 		let group = try await builtClient.conversations.newGroup(
-			with: [fixtures.alixClient.inboxID]
+			with: [fixtures.alixClient.inboxID],
 		)
 		try await group.send(content: "howdy")
 
@@ -1039,7 +1035,7 @@ class ClientTests: XCTestCase {
 
 		let boGroup = try await fixtures.boClient.conversations
 			.newGroupWithIdentities(
-				with: [builtClient.publicIdentity]
+				with: [builtClient.publicIdentity],
 			)
 		try await boGroup.send(content: "howdy")
 
@@ -1064,8 +1060,8 @@ class ClientTests: XCTestCase {
 				options: ClientOptions(
 					api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 					dbEncryptionKey: key,
-					dbDirectory: dbDirs[i]
-				)
+					dbDirectory: dbDirs[i],
+				),
 			)
 			clients.append(client)
 		}
@@ -1080,9 +1076,9 @@ class ClientTests: XCTestCase {
 				options: ClientOptions(
 					api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 					dbEncryptionKey: key,
-					dbDirectory: dbDirs[10]
-				)
-			)
+					dbDirectory: dbDirs[10],
+				),
+			),
 		)
 
 		let boWallet = try PrivateKey.generate()
@@ -1091,8 +1087,8 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: Crypto.secureRandomBytes(count: 32),
-				dbDirectory: boDbDir
-			)
+				dbDirectory: boDbDir,
+			),
 		)
 
 		let group = try await boClient.conversations.newGroup(with: [
@@ -1104,17 +1100,17 @@ class ClientTests: XCTestCase {
 
 		let inboxState = try await boClient.inboxStatesForInboxIds(
 			refreshFromNetwork: true,
-			inboxIds: [XCTUnwrap(alixMember?.inboxId)]
+			inboxIds: [XCTUnwrap(alixMember?.inboxId)],
 		)
 		XCTAssertEqual(inboxState.first?.installations.count, 10)
 
 		try await clients[0].revokeInstallations(
 			signingKey: wallet,
-			installationIds: [clients[4].installationID]
+			installationIds: [clients[4].installationID],
 		)
 
 		let stateAfterRevoke = try await clients[0].inboxState(
-			refreshFromNetwork: true
+			refreshFromNetwork: true,
 		)
 		XCTAssertEqual(stateAfterRevoke.installations.count, 9)
 
@@ -1123,12 +1119,12 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDirs[11]
-			)
+				dbDirectory: dbDirs[11],
+			),
 		)
 
 		let finalState = try await clients[0].inboxState(
-			refreshFromNetwork: true
+			refreshFromNetwork: true,
 		)
 
 		XCTAssertEqual(finalState.installations.count, 10)
@@ -1148,8 +1144,8 @@ class ClientTests: XCTestCase {
 				options: ClientOptions(
 					api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 					dbEncryptionKey: key,
-					dbDirectory: dbDirs[i]
-				)
+					dbDirectory: dbDirs[i],
+				),
 			)
 			clients.append(client)
 		}
@@ -1163,7 +1159,7 @@ class ClientTests: XCTestCase {
 			api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 			signingKey: wallet,
 			inboxId: XCTUnwrap(clients.first?.inboxID),
-			installationIds: [toRevokeId]
+			installationIds: [toRevokeId],
 		)
 
 		let lastClientState = try await clients.last?.inboxState(refreshFromNetwork: true)
@@ -1187,8 +1183,8 @@ class ClientTests: XCTestCase {
 				options: ClientOptions(
 					api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 					dbEncryptionKey: key,
-					dbDirectory: dbDirs[i]
-				)
+					dbDirectory: dbDirs[i],
+				),
 			)
 			clients.append(client)
 		}
@@ -1197,7 +1193,7 @@ class ClientTests: XCTestCase {
 			inboxIds: [
 				XCTUnwrap(clients.last?.inboxID),
 			],
-			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure)
+			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 		)
 		XCTAssertEqual(states.first?.installations.count, 5)
 
@@ -1207,14 +1203,14 @@ class ClientTests: XCTestCase {
 			api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 			signingKey: wallet,
 			inboxId: XCTUnwrap(clients.first?.inboxID),
-			installationIds: toRevokeIds
+			installationIds: toRevokeIds,
 		)
 
 		states = try await Client.inboxStatesForInboxIds(
 			inboxIds: [
 				XCTUnwrap(clients.last?.inboxID),
 			],
-			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure)
+			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 		)
 		XCTAssertEqual(states.first?.installations.count, 0)
 	}
@@ -1232,8 +1228,8 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDirPath
-			)
+				dbDirectory: dbDirPath,
+			),
 		)
 
 		let alix2 = try await Client.create(
@@ -1241,8 +1237,8 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDirPath2
-			)
+				dbDirectory: dbDirPath2,
+			),
 		)
 
 		let alix3 = try await Client.create(
@@ -1250,8 +1246,8 @@ class ClientTests: XCTestCase {
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDirPath3
-			)
+				dbDirectory: dbDirPath3,
+			),
 		)
 
 		var inboxState = try await alix3.inboxState(refreshFromNetwork: true)
@@ -1263,16 +1259,16 @@ class ClientTests: XCTestCase {
 			inboxId: alix.inboxID,
 			installationIds: [
 				alix2.installationID,
-			]
+			],
 		)
 		let signedMessage = try await alixWallet.sign(
-			sigRequest.signatureText()
+			sigRequest.signatureText(),
 		).rawData
 
 		try await sigRequest.addEcdsaSignature(signatureBytes: signedMessage)
 		try await Client.ffiApplySignatureRequest(
 			api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-			signatureRequest: sigRequest
+			signatureRequest: sigRequest,
 		)
 
 		inboxState = try await alix.inboxState(refreshFromNetwork: true)
@@ -1287,7 +1283,7 @@ class ClientTests: XCTestCase {
 
 		// Create a group and send a message
 		let group = try await fixtures.alixClient.conversations.newGroup(
-			with: [fixtures.boClient.inboxID]
+			with: [fixtures.boClient.inboxID],
 		)
 		_ = try await group.send(content: "Hello from alix")
 
@@ -1297,7 +1293,7 @@ class ClientTests: XCTestCase {
 		// Call the static method
 		let metadata = try await Client.getNewestMessageMetadata(
 			groupIds: [groupId],
-			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure)
+			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 		)
 
 		// Verify we got metadata for our group
@@ -1322,17 +1318,17 @@ class ClientTests: XCTestCase {
 		XCTAssertNotEqual(
 			key1.stringValue,
 			key2.stringValue,
-			"Cache keys should differ for different environments (local vs dev)"
+			"Cache keys should differ for different environments (local vs dev)",
 		)
 		XCTAssertNotEqual(
 			key2.stringValue,
 			key3.stringValue,
-			"Cache keys should differ for different environments (dev vs production)"
+			"Cache keys should differ for different environments (dev vs production)",
 		)
 		XCTAssertNotEqual(
 			key1.stringValue,
 			key3.stringValue,
-			"Cache keys should differ for different environments (local vs production)"
+			"Cache keys should differ for different environments (local vs production)",
 		)
 
 		// Test 2: Different isSecure values (same env)
@@ -1351,7 +1347,7 @@ class ClientTests: XCTestCase {
 		XCTAssertNotEqual(
 			key8.stringValue,
 			key9.stringValue,
-			"Cache keys should differ when one has appVersion and other doesn't"
+			"Cache keys should differ when one has appVersion and other doesn't",
 		)
 
 		// Test 5: Different gatewayHost values (same env, same isSecure, same appVersion)
@@ -1359,13 +1355,13 @@ class ClientTests: XCTestCase {
 			env: .local,
 			isSecure: true,
 			appVersion: nil,
-			gatewayHost: "https://gateway1.example.com"
+			gatewayHost: "https://gateway1.example.com",
 		))
 		let key11 = ApiCacheKey(api: .init(
 			env: .local,
 			isSecure: true,
 			appVersion: nil,
-			gatewayHost: "https://gateway2.example.com"
+			gatewayHost: "https://gateway2.example.com",
 		))
 		XCTAssertNotEqual(key10.stringValue, key11.stringValue, "Cache keys should differ for different gatewayHost values")
 
@@ -1375,12 +1371,12 @@ class ClientTests: XCTestCase {
 			env: .local,
 			isSecure: true,
 			appVersion: nil,
-			gatewayHost: "https://gateway.example.com"
+			gatewayHost: "https://gateway.example.com",
 		))
 		XCTAssertNotEqual(
 			key12.stringValue,
 			key13.stringValue,
-			"Cache keys should differ when one has gatewayHost and other doesn't"
+			"Cache keys should differ when one has gatewayHost and other doesn't",
 		)
 
 		// Test 7: Multiple parameters different
@@ -1388,18 +1384,18 @@ class ClientTests: XCTestCase {
 			env: .dev,
 			isSecure: true,
 			appVersion: "1.0.0",
-			gatewayHost: "https://gateway.example.com"
+			gatewayHost: "https://gateway.example.com",
 		))
 		let key15 = ApiCacheKey(api: .init(
 			env: .local,
 			isSecure: false,
 			appVersion: "2.0.0",
-			gatewayHost: "https://other-gateway.example.com"
+			gatewayHost: "https://other-gateway.example.com",
 		))
 		XCTAssertNotEqual(
 			key14.stringValue,
 			key15.stringValue,
-			"Cache keys should differ when multiple parameters are different"
+			"Cache keys should differ when multiple parameters are different",
 		)
 
 		// Test 8: Completely identical configurations should produce same key
@@ -1407,13 +1403,13 @@ class ClientTests: XCTestCase {
 			env: .local,
 			isSecure: true,
 			appVersion: "1.0.0",
-			gatewayHost: "https://gateway.example.com"
+			gatewayHost: "https://gateway.example.com",
 		))
 		let key17 = ApiCacheKey(api: .init(
 			env: .local,
 			isSecure: true,
 			appVersion: "1.0.0",
-			gatewayHost: "https://gateway.example.com"
+			gatewayHost: "https://gateway.example.com",
 		))
 		XCTAssertEqual(key16.stringValue, key17.stringValue, "Cache keys should be identical for identical configurations")
 
@@ -1423,7 +1419,7 @@ class ClientTests: XCTestCase {
 		XCTAssertEqual(
 			key18.stringValue,
 			key19.stringValue,
-			"Cache keys should be identical when all optional params are nil"
+			"Cache keys should be identical when all optional params are nil",
 		)
 
 		// Test 10: Edge case - same gatewayHost but different other params should still differ
@@ -1431,18 +1427,18 @@ class ClientTests: XCTestCase {
 			env: .dev,
 			isSecure: true,
 			appVersion: nil,
-			gatewayHost: "https://gateway.example.com"
+			gatewayHost: "https://gateway.example.com",
 		))
 		let key21 = ApiCacheKey(api: .init(
 			env: .dev,
 			isSecure: false,
 			appVersion: nil,
-			gatewayHost: "https://gateway.example.com"
+			gatewayHost: "https://gateway.example.com",
 		))
 		XCTAssertNotEqual(
 			key20.stringValue,
 			key21.stringValue,
-			"Cache keys should differ even when gatewayHost is same but isSecure differs"
+			"Cache keys should differ even when gatewayHost is same but isSecure differs",
 		)
 
 		// Test 11: Edge case - same everything except gatewayHost
@@ -1451,7 +1447,7 @@ class ClientTests: XCTestCase {
 			env: .production,
 			isSecure: true,
 			appVersion: "3.0.0",
-			gatewayHost: "https://gateway.example.com"
+			gatewayHost: "https://gateway.example.com",
 		))
 		XCTAssertNotEqual(key22.stringValue, key23.stringValue, "Cache keys should differ when only gatewayHost differs")
 	}

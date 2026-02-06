@@ -69,7 +69,7 @@ class XmtpSession {
 			}
 			if let inbox = try await client.inboxStatesForInboxIds(
 				refreshFromNetwork: true, // TODO: consider false sometimes?
-				inboxIds: [inboxId]
+				inboxIds: [inboxId],
 			).first // there's only one.
 			{
 				return inbox

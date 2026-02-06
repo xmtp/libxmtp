@@ -14,7 +14,7 @@ final class MessageCallback: FfiMessageCallback {
 
 	init(
 		callback: @escaping (FfiMessage) -> Void,
-		onClose: @escaping () -> Void
+		onClose: @escaping () -> Void,
 	) {
 		self.callback = callback
 		onCloseCallback = onClose
@@ -122,7 +122,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 	public func permissionPolicySet() throws -> PermissionPolicySet {
 		try PermissionPolicySet.fromFfiPermissionPolicySet(
-			permissions().policySet()
+			permissions().policySet(),
 		)
 	}
 
@@ -187,7 +187,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		-> GroupMembershipResult
 	{
 		let result = try await ffiGroup.addMembersByIdentity(
-			accountIdentifiers: identities.map(\.ffiPrivate)
+			accountIdentifiers: identities.map(\.ffiPrivate),
 		)
 		return GroupMembershipResult(ffiGroupMembershipResult: result)
 	}
@@ -196,7 +196,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		async throws
 	{
 		try await ffiGroup.removeMembersByIdentity(
-			accountIdentifiers: identities.map(\.ffiPrivate)
+			accountIdentifiers: identities.map(\.ffiPrivate),
 		)
 	}
 
@@ -222,13 +222,13 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 	public func updateImageUrl(imageUrl: String) async throws {
 		try await ffiGroup.updateGroupImageUrlSquare(
-			groupImageUrlSquare: imageUrl
+			groupImageUrlSquare: imageUrl,
 		)
 	}
 
 	public func updateDescription(description: String) async throws {
 		try await ffiGroup.updateGroupDescription(
-			groupDescription: description
+			groupDescription: description,
 		)
 	}
 
@@ -242,19 +242,19 @@ public struct Group: Identifiable, Equatable, Hashable {
 		try await ffiGroup.updatePermissionPolicy(
 			permissionUpdateType: FfiPermissionUpdateType.addMember,
 			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
-				option: newPermissionOption
-			), metadataField: nil
+				option: newPermissionOption,
+			), metadataField: nil,
 		)
 	}
 
 	public func updateRemoveMemberPermission(
-		newPermissionOption: PermissionOption
+		newPermissionOption: PermissionOption,
 	) async throws {
 		try await ffiGroup.updatePermissionPolicy(
 			permissionUpdateType: FfiPermissionUpdateType.removeMember,
 			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
-				option: newPermissionOption
-			), metadataField: nil
+				option: newPermissionOption,
+			), metadataField: nil,
 		)
 	}
 
@@ -264,19 +264,19 @@ public struct Group: Identifiable, Equatable, Hashable {
 		try await ffiGroup.updatePermissionPolicy(
 			permissionUpdateType: FfiPermissionUpdateType.addAdmin,
 			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
-				option: newPermissionOption
-			), metadataField: nil
+				option: newPermissionOption,
+			), metadataField: nil,
 		)
 	}
 
 	public func updateRemoveAdminPermission(
-		newPermissionOption: PermissionOption
+		newPermissionOption: PermissionOption,
 	) async throws {
 		try await ffiGroup.updatePermissionPolicy(
 			permissionUpdateType: FfiPermissionUpdateType.removeAdmin,
 			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
-				option: newPermissionOption
-			), metadataField: nil
+				option: newPermissionOption,
+			), metadataField: nil,
 		)
 	}
 
@@ -286,46 +286,46 @@ public struct Group: Identifiable, Equatable, Hashable {
 		try await ffiGroup.updatePermissionPolicy(
 			permissionUpdateType: FfiPermissionUpdateType.updateMetadata,
 			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
-				option: newPermissionOption
+				option: newPermissionOption,
 			),
-			metadataField: FfiMetadataField.groupName
+			metadataField: FfiMetadataField.groupName,
 		)
 	}
 
 	public func updateDescriptionPermission(
-		newPermissionOption: PermissionOption
+		newPermissionOption: PermissionOption,
 	) async throws {
 		try await ffiGroup.updatePermissionPolicy(
 			permissionUpdateType: FfiPermissionUpdateType.updateMetadata,
 			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
-				option: newPermissionOption
+				option: newPermissionOption,
 			),
-			metadataField: FfiMetadataField.description
+			metadataField: FfiMetadataField.description,
 		)
 	}
 
 	public func updateImageUrlPermission(
-		newPermissionOption: PermissionOption
+		newPermissionOption: PermissionOption,
 	) async throws {
 		try await ffiGroup.updatePermissionPolicy(
 			permissionUpdateType: FfiPermissionUpdateType.updateMetadata,
 			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
-				option: newPermissionOption
+				option: newPermissionOption,
 			),
-			metadataField: FfiMetadataField.imageUrlSquare
+			metadataField: FfiMetadataField.imageUrlSquare,
 		)
 	}
 
 	public func updateDisappearingMessageSettings(
-		_ disappearingMessageSettings: DisappearingMessageSettings?
+		_ disappearingMessageSettings: DisappearingMessageSettings?,
 	) async throws {
 		if let settings = disappearingMessageSettings {
 			let ffiSettings = FfiMessageDisappearingSettings(
 				fromNs: settings.disappearStartingAtNs,
-				inNs: settings.retentionDurationInNs
+				inNs: settings.retentionDurationInNs,
 			)
 			try await ffiGroup.updateConversationMessageDisappearingSettings(
-				settings: ffiSettings
+				settings: ffiSettings,
 			)
 		} else {
 			try await clearDisappearingMessageSettings()
@@ -353,7 +353,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		-> DecodedMessage?
 	{
 		let messages = try await ffiGroup.processStreamedConversationMessage(
-			envelopeBytes: messageBytes
+			envelopeBytes: messageBytes,
 		)
 		guard let firstMessage = messages.first else {
 			return nil
@@ -361,23 +361,23 @@ public struct Group: Identifiable, Equatable, Hashable {
 		return DecodedMessage.create(ffiMessage: firstMessage)
 	}
 
-	public func send<T>(content: T, options: SendOptions? = nil) async throws
+	public func send(content: some Any, options: SendOptions? = nil) async throws
 		-> String
 	{
 		let (encodeContent, visibilityOptions) = try await encodeContent(
-			content: content, options: options
+			content: content, options: options,
 		)
 		return try await send(encodedContent: encodeContent, visibilityOptions: visibilityOptions)
 	}
 
 	public func send(
-		encodedContent: EncodedContent, visibilityOptions: MessageVisibilityOptions? = nil
+		encodedContent: EncodedContent, visibilityOptions: MessageVisibilityOptions? = nil,
 	) async throws -> String {
 		do {
 			let opts = visibilityOptions?.toFfi() ?? FfiSendMessageOpts(shouldPush: true)
 			let messageId = try await ffiGroup.send(
 				contentBytes: encodedContent.serializedData(),
-				opts: opts
+				opts: opts,
 			)
 			return messageId.toHex
 		} catch {
@@ -431,7 +431,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 
 		let visibilityOptions = try MessageVisibilityOptions(
-			shouldPush: shouldPush(codec: codec, content: content)
+			shouldPush: shouldPush(codec: codec, content: content),
 		)
 
 		return (encoded, visibilityOptions)
@@ -440,7 +440,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func prepareMessage(
 		encodedContent: EncodedContent,
 		visibilityOptions: MessageVisibilityOptions? = nil,
-		noSend: Bool = false
+		noSend: Bool = false,
 	) async throws
 		-> String
 	{
@@ -449,28 +449,28 @@ public struct Group: Identifiable, Equatable, Hashable {
 		if noSend {
 			messageId = try ffiGroup.prepareMessage(
 				contentBytes: encodedContent.serializedData(),
-				shouldPush: shouldPush
+				shouldPush: shouldPush,
 			)
 		} else {
 			let opts = visibilityOptions?.toFfi() ?? FfiSendMessageOpts(shouldPush: true)
 			messageId = try ffiGroup.sendOptimistic(
 				contentBytes: encodedContent.serializedData(),
-				opts: opts
+				opts: opts,
 			)
 		}
 		return messageId.toHex
 	}
 
-	public func prepareMessage<T>(content: T, options: SendOptions? = nil, noSend: Bool = false)
+	public func prepareMessage(content: some Any, options: SendOptions? = nil, noSend: Bool = false)
 		async throws -> String
 	{
 		let (encodeContent, visibilityOptions) = try await encodeContent(
-			content: content, options: options
+			content: content, options: options,
 		)
 		return try await prepareMessage(
 			encodedContent: encodeContent,
 			visibilityOptions: visibilityOptions,
-			noSend: noSend
+			noSend: noSend,
 		)
 	}
 
@@ -498,14 +498,14 @@ public struct Group: Identifiable, Equatable, Hashable {
 							return
 						}
 						if let message = DecodedMessage.create(
-							ffiMessage: message
+							ffiMessage: message,
 						) {
 							continuation.yield(message)
 						}
 					} onClose: {
 						onClose?()
 						continuation.finish()
-					}
+					},
 				)
 
 				continuation.onTermination = { @Sendable _ in
@@ -522,17 +522,17 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 	public func lastMessage() async throws -> DecodedMessage? {
 		if let ffiMessage = ffiLastMessage {
-			return DecodedMessage.create(ffiMessage: ffiMessage)
+			DecodedMessage.create(ffiMessage: ffiMessage)
 		} else {
-			return try await messages(limit: 1).first
+			try await messages(limit: 1).first
 		}
 	}
 
 	public func commitLogForkStatus() -> CommitLogForkStatus {
 		switch ffiCommitLogForkStatus {
-		case true: return .forked
-		case false: return .notForked
-		default: return .unknown
+		case true: .forked
+		case false: .notForked
+		default: .unknown
 		}
 	}
 
@@ -557,7 +557,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		excludeSenderInboxIds: [String]? = nil,
 		sortBy: MessageSortBy? = nil,
 		insertedAfterNs: Int64? = nil,
-		insertedBeforeNs: Int64? = nil
+		insertedBeforeNs: Int64? = nil,
 	) async throws -> [DecodedMessage] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
@@ -570,7 +570,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 			excludeSenderInboxIds: nil,
 			sortBy: nil,
 			insertedAfterNs: nil,
-			insertedBeforeNs: nil
+			insertedBeforeNs: nil,
 		)
 
 		if let beforeNs {
@@ -585,29 +585,25 @@ public struct Group: Identifiable, Equatable, Hashable {
 			options.limit = Int64(limit)
 		}
 
-		let status: FfiDeliveryStatus? = {
-			switch deliveryStatus {
-			case .published:
-				return FfiDeliveryStatus.published
-			case .unpublished:
-				return FfiDeliveryStatus.unpublished
-			case .failed:
-				return FfiDeliveryStatus.failed
-			default:
-				return nil
-			}
-		}()
+		let status: FfiDeliveryStatus? = switch deliveryStatus {
+		case .published:
+			FfiDeliveryStatus.published
+		case .unpublished:
+			FfiDeliveryStatus.unpublished
+		case .failed:
+			FfiDeliveryStatus.failed
+		default:
+			nil
+		}
 
 		options.deliveryStatus = status
 
-		let direction: FfiDirection? = {
-			switch direction {
-			case .ascending:
-				return FfiDirection.ascending
-			default:
-				return FfiDirection.descending
-			}
-		}()
+		let direction: FfiDirection? = switch direction {
+		case .ascending:
+			FfiDirection.ascending
+		default:
+			FfiDirection.descending
+		}
 
 		options.direction = direction
 		options.excludeContentTypes = excludeContentTypes
@@ -632,7 +628,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		excludeSenderInboxIds: [String]? = nil,
 		sortBy: MessageSortBy? = nil,
 		insertedAfterNs: Int64? = nil,
-		insertedBeforeNs: Int64? = nil
+		insertedBeforeNs: Int64? = nil,
 	) async throws -> [DecodedMessage] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
@@ -645,7 +641,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 			excludeSenderInboxIds: nil,
 			sortBy: nil,
 			insertedAfterNs: nil,
-			insertedBeforeNs: nil
+			insertedBeforeNs: nil,
 		)
 
 		if let beforeNs {
@@ -660,29 +656,25 @@ public struct Group: Identifiable, Equatable, Hashable {
 			options.limit = Int64(limit)
 		}
 
-		let status: FfiDeliveryStatus? = {
-			switch deliveryStatus {
-			case .published:
-				return FfiDeliveryStatus.published
-			case .unpublished:
-				return FfiDeliveryStatus.unpublished
-			case .failed:
-				return FfiDeliveryStatus.failed
-			default:
-				return nil
-			}
-		}()
+		let status: FfiDeliveryStatus? = switch deliveryStatus {
+		case .published:
+			FfiDeliveryStatus.published
+		case .unpublished:
+			FfiDeliveryStatus.unpublished
+		case .failed:
+			FfiDeliveryStatus.failed
+		default:
+			nil
+		}
 
 		options.deliveryStatus = status
 
-		let direction: FfiDirection? = {
-			switch direction {
-			case .ascending:
-				return FfiDirection.ascending
-			default:
-				return FfiDirection.descending
-			}
-		}()
+		let direction: FfiDirection? = switch direction {
+		case .ascending:
+			FfiDirection.ascending
+		default:
+			FfiDirection.descending
+		}
 
 		options.direction = direction
 		options.excludeContentTypes = excludeContentTypes
@@ -695,7 +687,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 			.compactMap {
 				ffiMessageWithReactions in
 				DecodedMessage.create(
-					ffiMessage: ffiMessageWithReactions
+					ffiMessage: ffiMessageWithReactions,
 				)
 			}
 	}
@@ -725,7 +717,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		excludeSenderInboxIds: [String]? = nil,
 		sortBy: MessageSortBy? = nil,
 		insertedAfterNs: Int64? = nil,
-		insertedBeforeNs: Int64? = nil
+		insertedBeforeNs: Int64? = nil,
 	) async throws -> [DecodedMessageV2] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
@@ -738,7 +730,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 			excludeSenderInboxIds: nil,
 			sortBy: nil,
 			insertedAfterNs: nil,
-			insertedBeforeNs: nil
+			insertedBeforeNs: nil,
 		)
 
 		if let beforeNs {
@@ -753,29 +745,25 @@ public struct Group: Identifiable, Equatable, Hashable {
 			options.limit = Int64(limit)
 		}
 
-		let status: FfiDeliveryStatus? = {
-			switch deliveryStatus {
-			case .published:
-				return FfiDeliveryStatus.published
-			case .unpublished:
-				return FfiDeliveryStatus.unpublished
-			case .failed:
-				return FfiDeliveryStatus.failed
-			default:
-				return nil
-			}
-		}()
+		let status: FfiDeliveryStatus? = switch deliveryStatus {
+		case .published:
+			FfiDeliveryStatus.published
+		case .unpublished:
+			FfiDeliveryStatus.unpublished
+		case .failed:
+			FfiDeliveryStatus.failed
+		default:
+			nil
+		}
 
 		options.deliveryStatus = status
 
-		let direction: FfiDirection? = {
-			switch direction {
-			case .ascending:
-				return FfiDirection.ascending
-			default:
-				return FfiDirection.descending
-			}
-		}()
+		let direction: FfiDirection? = switch direction {
+		case .ascending:
+			FfiDirection.ascending
+		default:
+			FfiDirection.descending
+		}
 
 		options.direction = direction
 		options.excludeContentTypes = excludeContentTypes
@@ -795,7 +783,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		excludeContentTypes: [StandardContentType]? = nil,
 		excludeSenderInboxIds: [String]? = nil,
 		insertedAfterNs: Int64? = nil,
-		insertedBeforeNs: Int64? = nil
+		insertedBeforeNs: Int64? = nil,
 	) throws -> Int64 {
 		try ffiGroup.countMessages(
 			opts: FfiListMessagesOptions(
@@ -809,8 +797,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				sortBy: nil,
 				insertedAfterNs: insertedAfterNs,
-				insertedBeforeNs: insertedBeforeNs
-			)
+				insertedBeforeNs: insertedBeforeNs,
+			),
 		)
 	}
 
@@ -832,7 +820,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 				hmacKeys.values.append(hmacKeyData)
 			}
 			hmacKeysResponse.hmacKeys[
-				Topic.groupMessage(convo.key.toHex).description
+				Topic.groupMessage(convo.key.toHex).description,
 			] = hmacKeys
 		}
 
@@ -845,7 +833,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 	public func getDebugInformation() async throws -> ConversationDebugInfo {
 		try await ConversationDebugInfo(
-			ffiConversationDebugInfo: ffiGroup.conversationDebugInfo()
+			ffiConversationDebugInfo: ffiGroup.conversationDebugInfo(),
 		)
 	}
 

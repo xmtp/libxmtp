@@ -6,7 +6,7 @@ public let ContentTypeMultiRemoteAttachment = ContentTypeID(
 	authorityID: "xmtp.org",
 	typeID: "multiRemoteStaticAttachment",
 	versionMajor: 1,
-	versionMinor: 0
+	versionMinor: 0,
 )
 
 public enum MultiRemoteAttachmentError: Error, CustomStringConvertible {
@@ -16,17 +16,17 @@ public enum MultiRemoteAttachmentError: Error, CustomStringConvertible {
 	public var description: String {
 		switch self {
 		case .invalidURL:
-			return "MultiRemoteAttachmentError.invalidURL"
+			"MultiRemoteAttachmentError.invalidURL"
 		case .v1NotSupported:
-			return "MultiRemoteAttachmentError.v1NotSupported"
+			"MultiRemoteAttachmentError.v1NotSupported"
 		case let .invalidParameters(string):
-			return "MultiRemoteAttachmentError.invalidParameters: \(string)"
+			"MultiRemoteAttachmentError.invalidParameters: \(string)"
 		case let .invalidDigest(string):
-			return "MultiRemoteAttachmentError.invalidDigest: \(string)"
+			"MultiRemoteAttachmentError.invalidDigest: \(string)"
 		case let .invalidScheme(string):
-			return "MultiRemoteAttachmentError.invalidScheme: \(string)"
+			"MultiRemoteAttachmentError.invalidScheme: \(string)"
 		case .payloadNotFound:
-			return "MultiRemoteAttachmentError.payloadNotFound"
+			"MultiRemoteAttachmentError.payloadNotFound"
 		}
 	}
 }
@@ -60,7 +60,7 @@ public struct MultiRemoteAttachment {
 			nonce: Data,
 			scheme: String,
 			salt: Data,
-			secret: Data
+			secret: Data,
 		) {
 			self.url = url
 			self.filename = filename
@@ -85,7 +85,7 @@ public struct MultiRemoteAttachment {
 				nonce: encryptedEncodedContent.nonce,
 				scheme: url.scheme ?? "https",
 				salt: encryptedEncodedContent.salt,
-				secret: encryptedEncodedContent.secret
+				secret: encryptedEncodedContent.secret,
 			)
 		}
 	}
@@ -108,10 +108,10 @@ public struct MultiRemoteAttachmentCodec: ContentCodec {
 				nonce: $0.nonce,
 				scheme: $0.scheme,
 				contentLength: $0.contentLength,
-				filename: $0.filename
+				filename: $0.filename,
 			) })
 		return try EncodedContent(
-			serializedBytes: encodeMultiRemoteAttachment(ffiMultiRemoteAttachment: ffiMultiRemoteAttachment)
+			serializedBytes: encodeMultiRemoteAttachment(ffiMultiRemoteAttachment: ffiMultiRemoteAttachment),
 		)
 	}
 
@@ -126,7 +126,7 @@ public struct MultiRemoteAttachmentCodec: ContentCodec {
 				nonce: attachment.nonce,
 				scheme: attachment.scheme,
 				salt: attachment.salt,
-				secret: attachment.secret
+				secret: attachment.secret,
 			)
 		}
 		return MultiRemoteAttachment(remoteAttachments: remoteAttachments)
@@ -151,11 +151,11 @@ public struct MultiRemoteAttachmentCodec: ContentCodec {
 	/// Builds a `RemoteAttachmentInfo` from an `EncryptedEncodedContent` plus a remote HTTPS URL.
 	static func buildRemoteAttachmentInfo(
 		encryptedAttachment: EncryptedEncodedContent,
-		remoteUrl: URL
+		remoteUrl: URL,
 	) throws -> MultiRemoteAttachment.RemoteAttachmentInfo {
 		try MultiRemoteAttachment.RemoteAttachmentInfo.from(
 			url: remoteUrl,
-			encryptedEncodedContent: encryptedAttachment
+			encryptedEncodedContent: encryptedAttachment,
 		)
 	}
 
@@ -163,7 +163,7 @@ public struct MultiRemoteAttachmentCodec: ContentCodec {
 	/// fields (digest, salt, nonce, etc.) with the actual encrypted payload you downloaded (or stored).
 	static func buildEncryptAttachmentResult(
 		remoteAttachment: RemoteAttachment,
-		encryptedPayload: Data
+		encryptedPayload: Data,
 	) -> EncryptedEncodedContent {
 		EncryptedEncodedContent(
 			secret: remoteAttachment.secret,
@@ -172,7 +172,7 @@ public struct MultiRemoteAttachmentCodec: ContentCodec {
 			nonce: remoteAttachment.nonce,
 			payload: encryptedPayload,
 			filename: remoteAttachment.filename,
-			contentLength: remoteAttachment.contentLength.map(UInt32.init)
+			contentLength: remoteAttachment.contentLength.map(UInt32.init),
 		)
 	}
 

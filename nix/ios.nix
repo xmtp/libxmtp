@@ -74,12 +74,12 @@ mkShell {
     fi
 
     # IMPROVEMENT: Version validation — check that Xcode is recent enough for
-    # the iOS 14 deployment target. Currently just warns; could be made stricter.
+    # Swift 6.1 (Package Traits). Currently just warns; could be made stricter.
     XCODE_VERSION=$(xcodebuild -version 2>/dev/null | head -1 | awk '{print $2}')
     if [[ -n "$XCODE_VERSION" ]]; then
       MAJOR=$(echo "$XCODE_VERSION" | cut -d. -f1)
-      if [[ "$MAJOR" -lt 14 ]]; then
-        echo "WARNING: Xcode $XCODE_VERSION detected. Xcode 14+ recommended for iOS 14 deployment target." >&2
+      if [[ "$MAJOR" -lt 16 ]]; then
+        echo "WARNING: Xcode $XCODE_VERSION detected. Xcode 16+ required for Swift 6.1 (Package Traits)." >&2
       fi
     fi
 

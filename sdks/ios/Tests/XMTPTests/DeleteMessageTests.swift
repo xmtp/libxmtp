@@ -118,7 +118,7 @@ class DeleteMessageTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID
+			with: fixtures.alixClient.inboxID,
 		)
 
 		let messageId = try await dm.send(content: "Message to delete")
@@ -148,12 +148,12 @@ class DeleteMessageTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let boDm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID
+			with: fixtures.alixClient.inboxID,
 		)
 
 		try await fixtures.alixClient.conversations.sync()
 		let alixDm = try fixtures.alixClient.conversations.findDmByInboxId(
-			inboxId: fixtures.boClient.inboxID
+			inboxId: fixtures.boClient.inboxID,
 		)
 		XCTAssertNotNil(alixDm)
 

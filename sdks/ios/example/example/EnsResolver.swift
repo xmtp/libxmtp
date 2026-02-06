@@ -57,7 +57,7 @@ class EnsResolver {
 		let result = try await EthereumRPCRequest.ethCall(
 			using: rpcUrl,
 			to: resolverAddress,
-			data: reverseCallEncoded
+			data: reverseCallEncoded,
 		)
 
 		let resolvedNameLength = UInt64(BigUInt(result[128 ..< 160]))
@@ -116,7 +116,7 @@ class EnsResolver {
 		let result = try await EthereumRPCRequest.ethCall(
 			using: rpcUrl,
 			to: resolverAddress,
-			data: encodedResolveCall
+			data: encodedResolveCall,
 		)
 
 		// Note: this works because the address is encoded in the last bytes of the output.
@@ -190,14 +190,14 @@ private struct EthereumRPCRequest: Encodable {
 				Call(
 					from: "0x0000000000000000000000000000000000000000",
 					to: to,
-					data: "0x\(data.toHexString())"
+					data: "0x\(data.toHexString())",
 				),
 				"latest",
-			]
+			],
 		)
 		var req = URLRequest(
 			url: providerUrl,
-			cachePolicy: .reloadIgnoringCacheData
+			cachePolicy: .reloadIgnoringCacheData,
 		)
 		req.setValue("application/json", forHTTPHeaderField: "Content-Type")
 		req.setValue("application/json", forHTTPHeaderField: "Accept")

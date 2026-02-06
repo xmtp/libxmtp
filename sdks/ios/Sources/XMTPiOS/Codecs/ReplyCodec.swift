@@ -60,7 +60,7 @@ public struct ReplyCodec: ContentCodec {
 		return Reply(
 			reference: reference,
 			content: replyContent,
-			contentType: replyCodec.contentType
+			contentType: replyCodec.contentType,
 		)
 	}
 

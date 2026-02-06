@@ -133,7 +133,7 @@ struct NewConversationView: View {
 			do {
 				let conversation = try await client.conversations.newConversationWithIdentity(with: PublicIdentity(
 					kind: .ethereum,
-					identifier: address
+					identifier: address,
 				))
 				await MainActor.run {
 					dismiss()

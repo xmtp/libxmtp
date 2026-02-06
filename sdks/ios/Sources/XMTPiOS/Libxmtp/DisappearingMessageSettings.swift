@@ -17,7 +17,7 @@ public struct DisappearingMessageSettings {
 	static func createFromFfi(_ ffiSettings: FfiMessageDisappearingSettings) -> DisappearingMessageSettings {
 		DisappearingMessageSettings(
 			disappearStartingAtNs: ffiSettings.fromNs,
-			retentionDurationInNs: ffiSettings.inNs
+			retentionDurationInNs: ffiSettings.inNs,
 		)
 	}
 }
