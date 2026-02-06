@@ -47,11 +47,9 @@ public struct ConsentRecord: Codable, Hashable {
 
 /// Provides access to contact bundles.
 public actor PrivatePreferences {
-	var client: Client
 	var ffiClient: FfiXmtpClient
 
-	init(client: Client, ffiClient: FfiXmtpClient) {
-		self.client = client
+	init(ffiClient: FfiXmtpClient) {
 		self.ffiClient = ffiClient
 	}
 
@@ -93,8 +91,7 @@ public actor PrivatePreferences {
 		AsyncThrowingStream { continuation in
 			let ffiStreamActor = FfiStreamActor()
 
-			let consentCallback = ConsentCallback(client: self.client) {
-				records in
+			let consentCallback = ConsentCallback { records in
 				guard !Task.isCancelled else {
 					continuation.finish()
 					Task {
@@ -132,8 +129,7 @@ public actor PrivatePreferences {
 		AsyncThrowingStream { continuation in
 			let ffiStreamActor = FfiStreamActor()
 
-			let preferenceCallback = PreferenceCallback(client: self.client) {
-				records in
+			let preferenceCallback = PreferenceCallback { records in
 				guard !Task.isCancelled else {
 					continuation.finish()
 					Task {
@@ -169,15 +165,13 @@ public actor PrivatePreferences {
 }
 
 final class ConsentCallback: FfiConsentCallback {
-	let client: Client
 	let callback: ([FfiConsent]) -> Void
 	let onCloseCallback: () -> Void
 
 	init(
-		client: Client, _ callback: @escaping ([FfiConsent]) -> Void,
+		_ callback: @escaping ([FfiConsent]) -> Void,
 		onClose: @escaping () -> Void
 	) {
-		self.client = client
 		self.callback = callback
 		onCloseCallback = onClose
 	}
@@ -196,15 +190,13 @@ final class ConsentCallback: FfiConsentCallback {
 }
 
 final class PreferenceCallback: FfiPreferenceCallback {
-	let client: Client
 	let callback: ([FfiPreferenceUpdate]) -> Void
 	let onCloseCallback: () -> Void
 
 	init(
-		client: Client, _ callback: @escaping ([FfiPreferenceUpdate]) -> Void,
+		_ callback: @escaping ([FfiPreferenceUpdate]) -> Void,
 		onClose: @escaping () -> Void
 	) {
-		self.client = client
 		self.callback = callback
 		onCloseCallback = onClose
 	}
