@@ -1,20 +1,10 @@
 use super::*;
-use derive_builder::Builder;
+use bon::Builder;
 
 /// Manages a Sqlite db for persisting messages and other objects.
 #[derive(Clone, Debug, Builder)]
-#[builder(setter(into))]
 pub struct EncryptedMessageStore<Db> {
     pub(super) db: Db,
-}
-
-impl<Db> EncryptedMessageStore<Db> {
-    pub fn builder() -> EncryptedMessageStoreBuilder<Db>
-    where
-        Db: Clone,
-    {
-        Default::default()
-    }
 }
 
 impl<Db: XmtpDb> EncryptedMessageStore<Db> {

@@ -1,0 +1,32 @@
+{
+  "name": "@xmtp/release-tools",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": "./src/cli.ts",
+  "scripts": {
+    "cli": "tsx src/cli.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "semver": "^7.7.0",
+    "yargs": "^18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.0",
+    "@types/semver": "^7.5.0",
+    "@types/yargs": "^17.0.35",
+    "prettier": "^3.8.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  },
+  "packageManager": "yarn@4.11.0",
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,102 @@
+# Shared iOS cross-compilation environment configuration.
+# Used by both nix/ios.nix (dev shell) and nix/package/ios.nix (build derivation).
+#
+# Key insight: /usr/bin/clang is an xcode-select shim that reads DEVELOPER_DIR.
+# Nix's stdenv overrides DEVELOPER_DIR to its own apple-sdk, causing the shim
+# to dispatch to Nix's cc-wrapper (which injects -mmacos-version-min, breaking
+# iOS builds). We bypass this entirely by using the full Xcode toolchain clang path.
+{ lib }:
+let
+  # Cross-compilation targets for the iOS release:
+  #   x86_64-apple-darwin    — macOS Intel (for universal macOS binary)
+  #   aarch64-apple-darwin   — macOS Apple Silicon (for universal macOS binary)
+  #   aarch64-apple-ios      — iOS device (arm64)
+  #   aarch64-apple-ios-sim  — iOS simulator on Apple Silicon
+  iosTargets = [
+    "x86_64-apple-darwin"
+    "aarch64-apple-darwin"
+    "aarch64-apple-ios"
+    "aarch64-apple-ios-sim"
+  ];
+
+  # Xcode paths
+  developerDir = "/Applications/Xcode.app/Contents/Developer";
+  iosSdk = "${developerDir}/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk";
+  iosSimSdk = "${developerDir}/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk";
+  macSdk = "${developerDir}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk";
+
+  # Direct Xcode toolchain clang — bypasses the /usr/bin/clang shim entirely.
+  xcodeClang = "${developerDir}/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang";
+  xcodeClangxx = "${developerDir}/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++";
+
+  # Map target triple to the correct Xcode SDK path.
+  # cc-rs uses SDKROOT directly when set, bypassing xcrun entirely.
+  # This is necessary because Nix provides its own xcrun (from xcbuild)
+  # that doesn't support iOS SDKs.
+  sdkrootForTarget = target: {
+    "aarch64-apple-ios" = iosSdk;
+    "aarch64-apple-ios-sim" = iosSimSdk;
+    "x86_64-apple-darwin" = macSdk;
+    "aarch64-apple-darwin" = macSdk;
+  }.${target};
+
+  # iOS targets need explicit CC/CXX overrides to bypass Nix's cc-wrapper,
+  # which injects macOS-specific flags (e.g., -mmacos-version-min) that break
+  # iOS compilation. macOS targets don't need this — Nix's cc-wrapper is
+  # compatible with macOS builds.
+  isIosTarget = target: builtins.elem target [ "aarch64-apple-ios" "aarch64-apple-ios-sim" ];
+
+  # Cargo/cc-rs environment variables for iOS cross-compilation.
+  #
+  # Two-level approach: these are Nix attribute sets that can be used in two ways:
+  #   1. As derivation attrs (merged into derivation with //) — for package builds
+  #   2. As shell exports (via lib.mapAttrsToList in shellHook) — for dev shells
+  #
+  # Note: SDKROOT is intentionally absent here. In the dev shell, it's unset so
+  # xcrun can discover the right SDK per invocation. In package builds, it's set
+  # per-target in envSetup (below) because each target needs a different SDK.
+  envVars = {
+    DEVELOPER_DIR = developerDir;
+    IPHONEOS_DEPLOYMENT_TARGET = "14";
+    CC_aarch64_apple_ios = xcodeClang;
+    CXX_aarch64_apple_ios = xcodeClangxx;
+    CC_aarch64_apple_ios_sim = xcodeClang;
+    CXX_aarch64_apple_ios_sim = xcodeClangxx;
+    CARGO_TARGET_AARCH64_APPLE_IOS_LINKER = xcodeClang;
+    CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER = xcodeClang;
+    BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios = "--target=arm64-apple-ios --sysroot=${iosSdk}";
+    BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios_sim = "--target=arm64-apple-ios-simulator --sysroot=${iosSimSdk}";
+  };
+
+  # Shell snippet that overrides Nix's build environment for a specific target.
+  # Must run as shell code because Nix's apple-sdk setup hook sets DEVELOPER_DIR
+  # and SDKROOT AFTER env var assignment. For iOS targets, also bypasses Nix's
+  # cc-wrapper which injects conflicting macOS flags.
+  #
+  # In buildDepsOnly: inline in buildPhaseCargoCommand (preBuild is stripped by crane).
+  # In buildPackage: use as preBuild hook.
+  envSetup = target: ''
+    export DEVELOPER_DIR="${developerDir}"
+    export SDKROOT="${sdkrootForTarget target}"
+    # Prepend Xcode's usr/bin to PATH so the real xcrun/xcodebuild are found
+    # instead of Nix's xcbuild wrappers (which don't support iOS SDKs).
+    export PATH="${developerDir}/usr/bin:$PATH"
+  '' + lib.optionalString (isIosTarget target) ''
+    export CC="${xcodeClang}"
+    export CXX="${xcodeClangxx}"
+  '';
+
+in {
+  inherit
+    iosTargets
+    developerDir
+    iosSdk
+    iosSimSdk
+    macSdk
+    xcodeClang
+    xcodeClangxx
+    sdkrootForTarget
+    isIosTarget
+    envVars
+    envSetup;
+}

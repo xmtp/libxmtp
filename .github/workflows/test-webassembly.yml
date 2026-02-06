@@ -18,12 +18,15 @@ on:
       - "Cargo.lock"
       - ".cargo/**"
       - "rust-toolchain.toml"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
 jobs:
-  test:
-    name: Test
+  wasm-ci:
+    name: WASM CI
     runs-on: warp-ubuntu-latest-x64-16x
     permissions:
       id-token: write
@@ -31,30 +34,39 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - uses: nixbuild/nix-quick-install-action@v34
-      - run: nix build --version
-      - uses: cachix/cachix-action@v16
+      - uses: ./.github/actions/setup-nix
         with:
-          name: xmtp
-          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
-      #     - uses: nix-community/cache-nix-action@v6
-      #       with:
-      #         primary-key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      #         paths: |
-      #           ~/.cargo/bin/
-      #           ~/.cargo/registry/index/
-      #           ~/.cargo/registry/cache/
-      #           ~/.cargo/git/db/
-      #           target/
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          sccache: 'true'
       - name: Install omnix
         run: nix profile install nixpkgs#omnix
 
       - name: Start Docker containers
         run: |
-          nix build .#docker-mls_validation_service --accept-flake-config
+          nix build .#docker-mls_validation_service
           dev/docker/up
       - name: run tests
-        run: om ci run .#wasm -- --accept-flake-config
+        run: om ci run .#wasm
+
+  wasm-integration:
+    name: WASM Integration Tests
+    runs-on: warp-ubuntu-latest-x64-16x
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          sccache: 'true'
+      - name: Start Docker containers
+        run: |
+          nix build .#docker-mls_validation_service
+          dev/docker/up
       - name: webassembly integration tests
         working-directory: bindings/wasm
         run: |

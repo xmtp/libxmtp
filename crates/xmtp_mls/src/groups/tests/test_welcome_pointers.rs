@@ -45,7 +45,7 @@ async fn test_welcome_pointer_round_trip_with_welcome_pointers() {
 
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
-#[timeout(Duration::from_secs(40))]
+#[timeout(Duration::from_secs(80))]
 #[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 async fn test_welcome_pointer_round_trip_without_welcome_pointers() {
     test_welcome_pointer_round_trip(

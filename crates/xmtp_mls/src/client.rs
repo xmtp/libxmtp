@@ -31,7 +31,7 @@ use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
-use xmtp_common::{Event, Retry, retry_async, retryable};
+use xmtp_common::{ErrorCode, Event, Retry, retry_async, retryable};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::{
     ConnectionExt, NotFound, StorageError, XmtpDb,
@@ -71,9 +71,10 @@ pub enum Network {
     Prod,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, ErrorCode)]
 pub enum ClientError {
     #[error(transparent)]
+    #[error_code(inherit)]
     AddressValidation(#[from] IdentifierValidationError),
     #[error("could not publish: {0}")]
     PublishError(String),

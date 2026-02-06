@@ -1,0 +1,26 @@
+name: Lint iOS
+
+on:
+  push:
+    branches: ["main"]
+    paths: ["sdks/ios/**"]
+  pull_request:
+    paths: ["sdks/ios/**"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+      - name: Run SwiftLint
+        run: ./sdks/ios/dev/lint
+      - name: Check SwiftFormat
+        run: ./sdks/ios/dev/fmt --lint

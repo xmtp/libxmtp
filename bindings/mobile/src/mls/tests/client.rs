@@ -1,5 +1,7 @@
 //! Tests for client creation, registration, identity management, and wallet operations
 
+use crate::DbOptions;
+
 use super::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -14,8 +16,7 @@ async fn test_create_client_with_storage() {
     let client_a = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(path.clone()),
-        None,
+        DbOptions::new(Some(path.clone()), None, None, None),
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
@@ -35,8 +36,7 @@ async fn test_create_client_with_storage() {
     let client_b = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(path),
-        None,
+        DbOptions::new(Some(path.clone()), None, None, None),
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
@@ -72,8 +72,7 @@ async fn test_create_client_with_key() {
     let client_a = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(path.clone()),
-        Some(key),
+        DbOptions::new(Some(path.clone()), Some(key), None, None),
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
@@ -94,8 +93,7 @@ async fn test_create_client_with_key() {
     let result_errored = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(path),
-        Some(other_key.to_vec()),
+        DbOptions::new(Some(path.clone()), Some(other_key.to_vec()), None, None),
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
@@ -126,8 +124,7 @@ async fn test_can_message() {
     let client_amal = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(path.clone()),
-        None,
+        DbOptions::new(Some(path.clone()), None, None, None),
         &amal_inbox_id,
         amal.identifier(),
         nonce,
@@ -168,8 +165,7 @@ async fn test_can_message() {
     let client_bola = create_client(
         connect_to_backend_test().await,
         connect_to_backend_test().await,
-        Some(path.clone()),
-        None,
+        DbOptions::new(Some(path.clone()), None, None, None),
         &bola_inbox_id,
         bola.identifier(),
         nonce,

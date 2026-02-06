@@ -1,0 +1,835 @@
+import Foundation
+
+public enum ConversationError: Error, CustomStringConvertible, LocalizedError {
+	case memberCannotBeSelf
+	case memberNotRegistered([String])
+	case groupsRequireMessagePassed, notSupportedByGroups, streamingFailure
+
+	public var description: String {
+		switch self {
+		case .memberCannotBeSelf:
+			"GroupError.memberCannotBeSelf you cannot add yourself to a group"
+		case let .memberNotRegistered(array):
+			"GroupError.memberNotRegistered members not registered: \(array.joined(separator: ", "))"
+		case .groupsRequireMessagePassed:
+			"GroupError.groupsRequireMessagePassed you cannot call this method without passing a message instead of an envelope"
+		case .notSupportedByGroups:
+			"GroupError.notSupportedByGroups this method is not supported by groups"
+		case .streamingFailure:
+			"GroupError.streamingFailure a stream has failed"
+		}
+	}
+
+	public var errorDescription: String? {
+		description
+	}
+}
+
+public struct GroupSyncSummary {
+	public var numEligible: UInt64
+	public var numSynced: UInt64
+
+	public init(numEligible: UInt64, numSynced: UInt64) {
+		self.numEligible = numEligible
+		self.numSynced = numSynced
+	}
+
+	init(ffiGroupSyncSummary: FfiGroupSyncSummary) {
+		numEligible = ffiGroupSyncSummary.numEligible
+		numSynced = ffiGroupSyncSummary.numSynced
+	}
+}
+
+public enum ConversationFilterType {
+	case all, groups, dms
+}
+
+public enum ConversationsOrderBy {
+	case createdAt, lastActivity
+
+	fileprivate var ffiOrderBy: FfiGroupQueryOrderBy {
+		switch self {
+		case .createdAt: .createdAt
+		case .lastActivity: .lastActivity
+		}
+	}
+}
+
+final class ConversationStreamCallback: FfiConversationCallback {
+	let onCloseCallback: () -> Void
+	let callback: (FfiConversation) -> Void
+
+	init(
+		callback: @escaping (FfiConversation) -> Void,
+		onClose: @escaping () -> Void,
+	) {
+		self.callback = callback
+		onCloseCallback = onClose
+	}
+
+	func onClose() {
+		onCloseCallback()
+	}
+
+	func onError(error: FfiError) {
+		print("Error ConversationStreamCallback \(error)")
+	}
+
+	func onConversation(conversation: FfiConversation) {
+		callback(conversation)
+	}
+}
+
+final class MessageDeletionCallback: FfiMessageDeletionCallback {
+	let onCloseCallback: () -> Void
+	let callback: (FfiDecodedMessage) -> Void
+
+	init(
+		callback: @escaping (FfiDecodedMessage) -> Void,
+		onClose: @escaping () -> Void,
+	) {
+		self.callback = callback
+		onCloseCallback = onClose
+	}
+
+	func onClose() {
+		onCloseCallback()
+	}
+
+	func onError(error: FfiError) {
+		print("Error MessageDeletionCallback \(error)")
+	}
+
+	func onMessageDeleted(message: FfiDecodedMessage) {
+		callback(message)
+	}
+}
+
+actor FfiStreamActor {
+	private var ffiStream: FfiStreamCloser?
+
+	func setFfiStream(_ stream: FfiStreamCloser?) {
+		ffiStream = stream
+	}
+
+	func endStream() {
+		ffiStream?.end()
+	}
+}
+
+/// Handles listing and creating Conversations.
+public class Conversations {
+	var client: Client
+	var ffiConversations: FfiConversations
+	var ffiClient: FfiXmtpClient
+
+	init(
+		client: Client, ffiConversations: FfiConversations,
+		ffiClient: FfiXmtpClient,
+	) {
+		self.client = client
+		self.ffiConversations = ffiConversations
+		self.ffiClient = ffiClient
+	}
+
+	/// Helper function to convert DisappearingMessageSettings to FfiMessageDisappearingSettings
+	/// Returns nil if the input is nil, making it explicit that nil will be passed to FFI
+	private func toFfiDisappearingMessageSettings(_ settings: DisappearingMessageSettings?)
+		-> FfiMessageDisappearingSettings?
+	{
+		guard let settings else { return nil }
+		return FfiMessageDisappearingSettings(
+			fromNs: settings.disappearStartingAtNs,
+			inNs: settings.retentionDurationInNs,
+		)
+	}
+
+	public func findGroup(groupId: String) throws -> Group? {
+		do {
+			return try Group(
+				ffiGroup: ffiClient.conversation(
+					conversationId: groupId.hexToData,
+				),
+				client: client,
+			)
+		} catch {
+			return nil
+		}
+	}
+
+	public func findConversation(conversationId: String) async throws
+		-> Conversation?
+	{
+		do {
+			let conversation = try ffiClient.conversation(
+				conversationId: conversationId.hexToData,
+			)
+			return try await conversation.toConversation(client: client)
+		} catch {
+			return nil
+		}
+	}
+
+	public func findConversationByTopic(topic: String) async throws
+		-> Conversation?
+	{
+		do {
+			let regexPattern = #"/xmtp/mls/1/g-(.*?)/proto"#
+			if let regex = try? NSRegularExpression(pattern: regexPattern) {
+				let range = NSRange(location: 0, length: topic.utf16.count)
+				if let match = regex.firstMatch(
+					in: topic, options: [], range: range,
+				) {
+					let conversationId = (topic as NSString).substring(
+						with: match.range(at: 1),
+					)
+					let conversation = try ffiClient.conversation(
+						conversationId: conversationId.hexToData,
+					)
+					return try await conversation.toConversation(client: client)
+				}
+			}
+		} catch {
+			return nil
+		}
+		return nil
+	}
+
+	public func findDmByInboxId(inboxId: InboxId) throws -> Dm? {
+		do {
+			let conversation = try ffiClient.dmConversation(
+				targetInboxId: inboxId,
+			)
+			return Dm(
+				ffiConversation: conversation, client: client,
+			)
+		} catch {
+			return nil
+		}
+	}
+
+	public func findDmByIdentity(publicIdentity: PublicIdentity) async throws
+		-> Dm?
+	{
+		guard
+			let inboxId = try await client.inboxIdFromIdentity(
+				identity: publicIdentity,
+			)
+		else {
+			throw ClientError.creationError("No inboxId present")
+		}
+		return try findDmByInboxId(inboxId: inboxId)
+	}
+
+	public func findMessage(messageId: String) throws -> DecodedMessage? {
+		do {
+			return try DecodedMessage.create(
+				ffiMessage: ffiClient.message(
+					messageId: messageId.hexToData,
+				),
+			)
+		} catch {
+			return nil
+		}
+	}
+
+	public func findEnrichedMessage(messageId: String) throws -> DecodedMessageV2? {
+		do {
+			return try DecodedMessageV2.create(
+				ffiMessage: ffiClient.enrichedMessage(messageId: messageId.hexToData),
+			)
+		} catch {
+			return nil
+		}
+	}
+
+	/// Delete a message from your local database. Does not impact other devices or installations
+	public func deleteMessageLocally(messageId: String) throws {
+		_ = try ffiClient.deleteMessage(messageId: messageId.hexToData)
+	}
+
+	public func sync() async throws {
+		try await ffiConversations.sync()
+	}
+
+	public func syncAllConversations(consentStates: [ConsentState]? = nil)
+		async throws -> GroupSyncSummary
+	{
+		let ffiResult = try await ffiConversations.syncAllConversations(
+			consentStates: consentStates?.toFFI,
+		)
+		return GroupSyncSummary(ffiGroupSyncSummary: ffiResult)
+	}
+
+	public func listGroups(
+		createdAfterNs: Int64? = nil,
+		createdBeforeNs: Int64? = nil,
+		lastActivityAfterNs: Int64? = nil,
+		lastActivityBeforeNs: Int64? = nil,
+		limit: Int? = nil,
+		consentStates: [ConsentState]? = nil,
+		orderBy: ConversationsOrderBy = ConversationsOrderBy.lastActivity,
+	) throws -> [Group] {
+		var options = FfiListConversationsOptions(
+			createdAfterNs: createdAfterNs,
+			createdBeforeNs: createdBeforeNs,
+			lastActivityBeforeNs: lastActivityBeforeNs,
+			lastActivityAfterNs: lastActivityAfterNs,
+			orderBy: orderBy.ffiOrderBy,
+			limit: nil,
+			consentStates: consentStates?.toFFI,
+			includeDuplicateDms: false,
+		)
+
+		if let limit {
+			options.limit = Int64(limit)
+		}
+		let conversations = try ffiConversations.listGroups(
+			opts: options,
+		)
+
+		return conversations.map {
+			$0.groupFromFFI(client: client)
+		}
+	}
+
+	public func listDms(
+		createdAfterNs: Int64? = nil,
+		createdBeforeNs: Int64? = nil,
+		lastActivityBeforeNs: Int64? = nil,
+		lastActivityAfterNs: Int64? = nil,
+		limit: Int? = nil,
+		consentStates: [ConsentState]? = nil,
+		orderBy: ConversationsOrderBy = ConversationsOrderBy.lastActivity,
+	) throws -> [Dm] {
+		var options = FfiListConversationsOptions(
+			createdAfterNs: createdAfterNs,
+			createdBeforeNs: createdBeforeNs,
+			lastActivityBeforeNs: lastActivityBeforeNs,
+			lastActivityAfterNs: lastActivityAfterNs,
+			orderBy: orderBy.ffiOrderBy,
+			limit: nil,
+			consentStates: consentStates?.toFFI,
+			includeDuplicateDms: false,
+		)
+
+		if let limit {
+			options.limit = Int64(limit)
+		}
+
+		let conversations = try ffiConversations.listDms(
+			opts: options,
+		)
+
+		return conversations.map {
+			$0.dmFromFFI(client: client)
+		}
+	}
+
+	public func list(
+		createdAfterNs: Int64? = nil,
+		createdBeforeNs: Int64? = nil,
+		lastActivityBeforeNs: Int64? = nil,
+		lastActivityAfterNs: Int64? = nil,
+		limit: Int? = nil,
+		consentStates: [ConsentState]? = nil,
+		orderBy: ConversationsOrderBy = ConversationsOrderBy.lastActivity,
+	) async throws -> [Conversation] {
+		var options = FfiListConversationsOptions(
+			createdAfterNs: createdAfterNs,
+			createdBeforeNs: createdBeforeNs,
+			lastActivityBeforeNs: lastActivityBeforeNs,
+			lastActivityAfterNs: lastActivityAfterNs,
+			orderBy: orderBy.ffiOrderBy,
+			limit: nil,
+			consentStates: consentStates?.toFFI,
+			includeDuplicateDms: false,
+		)
+
+		if let limit {
+			options.limit = Int64(limit)
+		}
+		let ffiConversations = try ffiConversations.list(
+			opts: options,
+		)
+
+		var conversations: [Conversation] = []
+		for conversation in ffiConversations {
+			let conversation = try await conversation.toConversation(
+				client: client,
+			)
+			conversations.append(conversation)
+		}
+		return conversations
+	}
+
+	public func stream(
+		type: ConversationFilterType = .all, onClose: (() -> Void)? = nil,
+	) -> AsyncThrowingStream<
+		Conversation, Error
+	> {
+		AsyncThrowingStream { continuation in
+			let ffiStreamActor = FfiStreamActor()
+			let conversationCallback = ConversationStreamCallback {
+				conversation in
+				Task {
+					guard !Task.isCancelled else {
+						continuation.finish()
+						return
+					}
+					do {
+						let conversationType =
+							try await conversation.conversationType()
+						if conversationType == .dm {
+							continuation.yield(
+								Conversation.dm(
+									conversation.dmFromFFI(client: self.client),
+								),
+							)
+						} else if conversationType == .group {
+							continuation.yield(
+								Conversation.group(
+									conversation.groupFromFFI(
+										client: self.client,
+									),
+								),
+							)
+						}
+					} catch {
+						print("Error processing conversation type: \(error)")
+					}
+				}
+			} onClose: {
+				onClose?()
+				continuation.finish()
+			}
+
+			let task = Task {
+				let stream: FfiStreamCloser = switch type {
+				case .groups:
+					await ffiConversations.streamGroups(
+						callback: conversationCallback,
+					)
+				case .all:
+					await ffiConversations.stream(
+						callback: conversationCallback,
+					)
+				case .dms:
+					await ffiConversations.streamDms(
+						callback: conversationCallback,
+					)
+				}
+				await ffiStreamActor.setFfiStream(stream)
+				continuation.onTermination = { @Sendable _ in
+					Task {
+						await ffiStreamActor.endStream()
+					}
+				}
+			}
+
+			continuation.onTermination = { @Sendable _ in
+				task.cancel()
+				Task {
+					await ffiStreamActor.endStream()
+				}
+			}
+		}
+	}
+
+	public func newConversationWithIdentity(
+		with peerIdentity: PublicIdentity,
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+	) async throws -> Conversation {
+		let dm = try await findOrCreateDmWithIdentity(
+			with: peerIdentity,
+			disappearingMessageSettings: disappearingMessageSettings,
+		)
+		return Conversation.dm(dm)
+	}
+
+	public func findOrCreateDmWithIdentity(
+		with peerIdentity: PublicIdentity,
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+	) async throws -> Dm {
+		if try await client.inboxState(refreshFromNetwork: false).identities
+			.map(\.identifier).contains(peerIdentity.identifier)
+		{
+			throw ConversationError.memberCannotBeSelf
+		}
+
+		let dm =
+			try await ffiConversations
+				.findOrCreateDmByIdentity(
+					targetIdentity: peerIdentity.ffiPrivate,
+					opts: FfiCreateDmOptions(
+						messageDisappearingSettings: toFfiDisappearingMessageSettings(
+							disappearingMessageSettings,
+						),
+					),
+				)
+
+		return dm.dmFromFFI(client: client)
+	}
+
+	public func newConversation(
+		with peerInboxId: InboxId,
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+	) async throws -> Conversation {
+		let dm = try await findOrCreateDm(
+			with: peerInboxId,
+			disappearingMessageSettings: disappearingMessageSettings,
+		)
+		return Conversation.dm(dm)
+	}
+
+	public func findOrCreateDm(
+		with peerInboxId: InboxId,
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+	)
+		async throws -> Dm
+	{
+		if peerInboxId == client.inboxID {
+			throw ConversationError.memberCannotBeSelf
+		}
+		try validateInboxId(peerInboxId)
+		let dm =
+			try await ffiConversations
+				.findOrCreateDm(
+					inboxId: peerInboxId,
+					opts: FfiCreateDmOptions(
+						messageDisappearingSettings: toFfiDisappearingMessageSettings(
+							disappearingMessageSettings,
+						),
+					),
+				)
+		return dm.dmFromFFI(client: client)
+	}
+
+	public func newGroupWithIdentities(
+		with identities: [PublicIdentity],
+		permissions: GroupPermissionPreconfiguration = .allMembers,
+		name: String = "",
+		imageUrl: String = "",
+		description: String = "",
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+		appData: String? = nil,
+	) async throws -> Group {
+		try await newGroupInternalWithIdentities(
+			with: identities,
+			permissions:
+			GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(
+				option: permissions,
+			),
+			name: name,
+			imageUrl: imageUrl,
+			description: description,
+			permissionPolicySet: nil,
+			disappearingMessageSettings: disappearingMessageSettings,
+			appData: appData,
+		)
+	}
+
+	public func newGroupCustomPermissionsWithIdentities(
+		with identities: [PublicIdentity],
+		permissionPolicySet: PermissionPolicySet,
+		name: String = "",
+		imageUrl: String = "",
+		description: String = "",
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+		appData: String? = nil,
+	) async throws -> Group {
+		try await newGroupInternalWithIdentities(
+			with: identities,
+			permissions: FfiGroupPermissionsOptions.customPolicy,
+			name: name,
+			imageUrl: imageUrl,
+			description: description,
+			permissionPolicySet: PermissionPolicySet.toFfiPermissionPolicySet(
+				permissionPolicySet,
+			),
+			disappearingMessageSettings: disappearingMessageSettings,
+			appData: appData,
+		)
+	}
+
+	private func newGroupInternalWithIdentities(
+		with identities: [PublicIdentity],
+		permissions: FfiGroupPermissionsOptions = .default,
+		name: String = "",
+		imageUrl: String = "",
+		description: String = "",
+		permissionPolicySet: FfiPermissionPolicySet? = nil,
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+		appData: String?,
+	) async throws -> Group {
+		try await ffiConversations.createGroupByIdentity(
+			accountIdentities: identities.map(\.ffiPrivate),
+			opts: FfiCreateGroupOptions(
+				permissions: permissions,
+				groupName: name,
+				groupImageUrlSquare: imageUrl,
+				groupDescription: description,
+				customPermissionPolicySet: permissionPolicySet,
+				messageDisappearingSettings: toFfiDisappearingMessageSettings(
+					disappearingMessageSettings,
+				),
+				appData: appData,
+			),
+		).groupFromFFI(client: client)
+	}
+
+	public func newGroup(
+		with inboxIds: [InboxId],
+		permissions: GroupPermissionPreconfiguration = .allMembers,
+		name: String = "",
+		imageUrl: String = "",
+		description: String = "",
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+		appData: String? = nil,
+	) async throws -> Group {
+		try await newGroupInternal(
+			with: inboxIds,
+			permissions:
+			GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(
+				option: permissions,
+			),
+			name: name,
+			imageUrl: imageUrl,
+			description: description,
+			permissionPolicySet: nil,
+			disappearingMessageSettings: disappearingMessageSettings,
+			appData: appData,
+		)
+	}
+
+	public func newGroupCustomPermissions(
+		with inboxIds: [InboxId],
+		permissionPolicySet: PermissionPolicySet,
+		name: String = "",
+		imageUrl: String = "",
+		description: String = "",
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+		appData: String? = nil,
+	) async throws -> Group {
+		try await newGroupInternal(
+			with: inboxIds,
+			permissions: FfiGroupPermissionsOptions.customPolicy,
+			name: name,
+			imageUrl: imageUrl,
+			description: description,
+			permissionPolicySet: PermissionPolicySet.toFfiPermissionPolicySet(
+				permissionPolicySet,
+			),
+			disappearingMessageSettings: disappearingMessageSettings,
+			appData: appData,
+		)
+	}
+
+	private func newGroupInternal(
+		with inboxIds: [InboxId],
+		permissions: FfiGroupPermissionsOptions = .default,
+		name: String = "",
+		imageUrl: String = "",
+		description: String = "",
+		permissionPolicySet: FfiPermissionPolicySet? = nil,
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+		appData: String?,
+	) async throws -> Group {
+		try validateInboxIds(inboxIds)
+		return try await ffiConversations.createGroup(
+			inboxIds: inboxIds,
+			opts: FfiCreateGroupOptions(
+				permissions: permissions,
+				groupName: name,
+				groupImageUrlSquare: imageUrl,
+				groupDescription: description,
+				customPermissionPolicySet: permissionPolicySet,
+				messageDisappearingSettings: toFfiDisappearingMessageSettings(
+					disappearingMessageSettings,
+				),
+				appData: appData,
+			),
+		).groupFromFFI(client: client)
+	}
+
+	public func newGroupOptimistic(
+		permissions: GroupPermissionPreconfiguration = .allMembers,
+		groupName: String = "",
+		groupImageUrlSquare: String = "",
+		groupDescription: String = "",
+		disappearingMessageSettings: DisappearingMessageSettings? = nil,
+		appData: String? = nil,
+	) throws -> Group {
+		let ffiOpts = FfiCreateGroupOptions(
+			permissions:
+			GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(
+				option: permissions,
+			),
+			groupName: groupName,
+			groupImageUrlSquare: groupImageUrlSquare,
+			groupDescription: groupDescription,
+			customPermissionPolicySet: nil,
+			messageDisappearingSettings: toFfiDisappearingMessageSettings(
+				disappearingMessageSettings,
+			),
+			appData: appData,
+		)
+
+		let ffiGroup = try ffiConversations.createGroupOptimistic(opts: ffiOpts)
+		return Group(ffiGroup: ffiGroup, client: client)
+	}
+
+	public func streamAllMessages(
+		type: ConversationFilterType = .all,
+		consentStates: [ConsentState]? = nil,
+		onClose: (() -> Void)? = nil,
+	)
+		-> AsyncThrowingStream<DecodedMessage, Error>
+	{
+		AsyncThrowingStream { continuation in
+			let ffiStreamActor = FfiStreamActor()
+
+			let messageCallback = MessageCallback {
+				message in
+				guard !Task.isCancelled else {
+					continuation.finish()
+					Task {
+						await ffiStreamActor.endStream()
+					}
+					return
+				}
+				if let message = DecodedMessage.create(ffiMessage: message) {
+					continuation.yield(message)
+				}
+			} onClose: {
+				onClose?()
+				continuation.finish()
+			}
+
+			let task = Task {
+				let stream: FfiStreamCloser = switch type {
+				case .groups:
+					await ffiConversations.streamAllGroupMessages(
+						messageCallback: messageCallback,
+						consentStates: consentStates?.toFFI,
+					)
+				case .dms:
+					await ffiConversations.streamAllDmMessages(
+						messageCallback: messageCallback,
+						consentStates: consentStates?.toFFI,
+					)
+				case .all:
+					await ffiConversations.streamAllMessages(
+						messageCallback: messageCallback,
+						consentStates: consentStates?.toFFI,
+					)
+				}
+				await ffiStreamActor.setFfiStream(stream)
+			}
+
+			continuation.onTermination = { _ in
+				task.cancel()
+				Task {
+					await ffiStreamActor.endStream()
+				}
+			}
+		}
+	}
+
+	/// A stream of all deleted or disappeared messages
+	/// that will be emitted as the messages are removed from the database
+	public func streamMessageDeletions(
+		onClose: (() -> Void)? = nil,
+	) -> AsyncThrowingStream<DecodedMessageV2, Error> {
+		AsyncThrowingStream { continuation in
+			let ffiStreamActor = FfiStreamActor()
+
+			let deletionCallback = MessageDeletionCallback {
+				ffiMessage in
+				guard !Task.isCancelled else {
+					continuation.finish()
+					Task {
+						await ffiStreamActor.endStream()
+					}
+					return
+				}
+				if let message = DecodedMessageV2(ffiMessage: ffiMessage) {
+					continuation.yield(message)
+				}
+			} onClose: {
+				onClose?()
+				continuation.finish()
+			}
+
+			let task = Task {
+				let stream = await ffiConversations.streamMessageDeletions(
+					callback: deletionCallback,
+				)
+				await ffiStreamActor.setFfiStream(stream)
+			}
+
+			continuation.onTermination = { _ in
+				task.cancel()
+				Task {
+					await ffiStreamActor.endStream()
+				}
+			}
+		}
+	}
+
+	public func fromWelcome(envelopeBytes: Data) async throws
+		-> Conversation?
+	{
+		let conversations =
+			try await ffiConversations
+				.processStreamedWelcomeMessage(envelopeBytes: envelopeBytes)
+		guard let firstConversation = conversations.first else {
+			return nil
+		}
+		return try await firstConversation.toConversation(client: client)
+	}
+
+	public func getHmacKeys() throws
+		-> Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse
+	{
+		var hmacKeysResponse =
+			Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse()
+		let conversations: [Data: [FfiHmacKey]] =
+			try ffiConversations.getHmacKeys()
+		for convo in conversations {
+			var hmacKeys =
+				Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse.HmacKeys()
+			for key in convo.value {
+				var hmacKeyData =
+					Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse
+						.HmacKeyData()
+				hmacKeyData.hmacKey = key.key
+				hmacKeyData.thirtyDayPeriodsSinceEpoch = Int32(key.epoch)
+				hmacKeys.values.append(hmacKeyData)
+			}
+			hmacKeysResponse.hmacKeys[
+				Topic.groupMessage(convo.key.toHex).description,
+			] = hmacKeys
+		}
+
+		return hmacKeysResponse
+	}
+
+	public func allPushTopics() async throws -> [String] {
+		let options = FfiListConversationsOptions(
+			createdAfterNs: nil,
+			createdBeforeNs: nil,
+			lastActivityBeforeNs: nil,
+			lastActivityAfterNs: nil,
+			orderBy: nil,
+			limit: nil,
+			consentStates: nil,
+			includeDuplicateDms: true,
+		)
+
+		let conversations = try ffiConversations.list(opts: options)
+		return conversations.map {
+			Topic.groupMessage($0.conversation().id().toHex).description
+		}
+	}
+}

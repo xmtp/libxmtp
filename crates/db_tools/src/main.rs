@@ -5,7 +5,7 @@ use dotenvy::{dotenv, var};
 use std::io::{self, Write};
 use tracing::info;
 use xmtp_db::{
-    ConnectionExt, DbConnection, EncryptedMessageStore, NativeDb, StorageOption, XmtpDb,
+    ConnectionExt, DbConnection, EncryptedMessageStore, EncryptionKey, NativeDb, XmtpDb,
     migrations::QueryMigrations,
 };
 
@@ -36,21 +36,32 @@ fn main() -> Result<()> {
     let _ = dotenv();
     let args = Args::parse().load_env();
 
+    tracing::info!("Starting up.");
+
     // Connect to the database
-    let storage_option = StorageOption::Persistent(args.db.clone());
     let db_key = std::env::var(ENV_ENC_KEY)
         .ok()
+        .or_else(|| std::env::var("ENCRYPTION_KEY").ok())
         .or_else(|| args.db_key.clone());
 
     let db = match &db_key {
         Some(key) => {
+            tracing::info!("Db Key: \"{}...\"", &key[..4]);
             let key_bytes = hex::decode(key)?;
             if key_bytes.len() != 32 {
                 bail!("Encryption key must be exactly 32 bytes (64 hex characters)");
             }
-            NativeDb::new(&storage_option, key_bytes.try_into().unwrap())
+            NativeDb::builder()
+                .persistent(args.db.clone())
+                .key(EncryptionKey::try_from(key_bytes).unwrap())
+                .build()
         }
-        None => NativeDb::new_unencrypted(&storage_option),
+        None => {
+            tracing::info!("No db encryption key provided.");
+            NativeDb::builder()
+                .persistent(args.db.clone())
+                .build_unencrypted()
+        }
     }?;
     let store = EncryptedMessageStore::new(db)?;
 
@@ -58,6 +69,7 @@ fn main() -> Result<()> {
 
     match &args.task {
         Task::QueryBench => {
+            tracing::info!("Running query bench task.");
             manager.new_bencher()?.bench()?;
         }
         Task::DbVacuum => {

@@ -1,0 +1,82 @@
+# .github/workflows/publish-release.yml
+name: Publish Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release-branch:
+        description: "Release or hotfix branch to publish from"
+        required: true
+        type: string
+      release-type:
+        description: "Release type"
+        required: true
+        type: choice
+        options:
+          - "rc"
+          - "final"
+      rc-number:
+        description: "RC number (required for RC releases)"
+        required: false
+        type: number
+      ios:
+        description: "Release iOS SDK"
+        required: false
+        type: boolean
+        default: false
+      no-merge:
+        description: "Skip merging the release PR to main"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  release-ios:
+    if: inputs.ios
+    uses: ./.github/workflows/release-ios.yml
+    with:
+      release-type: ${{ inputs.release-type }}
+      rc-number: ${{ inputs.rc-number }}
+      ref: ${{ inputs.release-branch }}
+    secrets: inherit
+
+  merge-pr:
+    if: inputs.release-type == 'final' && !inputs.no-merge && !cancelled() && needs.release-ios.result != 'failure'
+    needs: [release-ios]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Merge release PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_BRANCH: ${{ inputs.release-branch }}
+        run: |
+          PR_NUMBER=$(gh pr list --head "$RELEASE_BRANCH" --base main --json number --jq '.[0].number')
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No PR found for branch $RELEASE_BRANCH targeting main"
+            exit 1
+          fi
+          gh pr merge "$PR_NUMBER" --merge --delete-branch
+
+  notify:
+    needs: [release-ios, merge-pr]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - id: compute
+        env:
+          IOS_RESULT: ${{ needs.release-ios.result }}
+          IOS_VERSION: ${{ needs.release-ios.outputs.version }}
+          RELEASE_TYPE: ${{ inputs.release-type }}
+        run: |
+          echo "message=${RELEASE_TYPE^} Release: iOS ${IOS_VERSION:-skipped} - ${IOS_RESULT:-skipped}" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/slack-notify
+        with:
+          message: ${{ steps.compute.outputs.message }}
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}

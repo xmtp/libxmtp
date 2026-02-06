@@ -1,0 +1,41 @@
+# .github/workflows/dev-release.yml
+name: Dev Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to release from (defaults to the branch the workflow is run from)"
+        required: false
+        type: string
+      ios:
+        description: "Release iOS SDK"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  release-ios:
+    if: inputs.ios
+    uses: ./.github/workflows/release-ios.yml
+    with:
+      release-type: dev
+      ref: ${{ inputs.branch || github.ref }}
+    secrets: inherit
+
+  notify:
+    needs: [release-ios]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - id: compute
+        env:
+          IOS_RESULT: ${{ needs.release-ios.result }}
+          IOS_VERSION: ${{ needs.release-ios.outputs.version }}
+        run: |
+          echo "message=Dev Release: iOS ${IOS_VERSION:-skipped} - ${IOS_RESULT:-skipped}" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/slack-notify
+        with:
+          message: ${{ steps.compute.outputs.message }}
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
