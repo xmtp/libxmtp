@@ -9,7 +9,7 @@ use crate::{
 use futures::{StreamExt, future::try_join_all, stream::FuturesUnordered};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use xmtp_common::{Event, Retry, RetryableError, fmt::ShortHex, retry_async, retryable};
+use xmtp_common::{Event, Retry, RetryableError, retry_async, retryable};
 use xmtp_configuration::Originators;
 use xmtp_cryptography::CredentialSign;
 use xmtp_db::StorageError;
@@ -490,13 +490,15 @@ where
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
     ) -> Result<InstallationDiff, InstallationDiffError> {
-        log_event!(
-            Event::MembershipInstallationDiff,
-            self.context.installation_id(),
-            group_id = group_id.short_hex(),
-            old_membership = ?old_group_membership,
-            new_membership = ?new_group_membership
-        );
+        if new_group_membership != old_group_membership {
+            log_event!(
+                Event::MembershipInstallationDiff,
+                self.context.installation_id(),
+                #group_id,
+                old_membership = ?old_group_membership,
+                new_membership = ?new_group_membership,
+            );
+        }
 
         let added_and_updated_members = membership_diff
             .added_inboxes
@@ -563,13 +565,15 @@ where
             removed_installations.extend(state_diff.new_installations());
         }
 
-        log_event!(
-            Event::MembershipInstallationDiffComputed,
-            self.context.installation_id(),
-            group_id = group_id.short_hex(),
-            added_installations = ?added_installations,
-            removed_installations = ?removed_installations
-        );
+        if !added_installations.is_empty() || !removed_installations.is_empty() {
+            log_event!(
+                Event::MembershipInstallationDiffComputed,
+                self.context.installation_id(),
+                #group_id,
+                added_installations = ?added_installations,
+                removed_installations = ?removed_installations
+            );
+        }
 
         Ok(InstallationDiff {
             added_installations,

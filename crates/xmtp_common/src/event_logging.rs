@@ -4,37 +4,37 @@ pub use utils::*;
 #[xmtp_macro::build_logging_metadata]
 pub enum Event {
     // ===================== General Client =====================
-    /// Client created
+    /// Client created.
     #[context(device_sync_enabled, disabled_workers, inbox_id, full_installation_id)]
     ClientCreated,
+    /// Associating name with installation.
+    #[context(name)]
+    AssociateName,
 
     // ===================== Group Operations =====================
     /// DM created.
-    #[context(group_id, target_inbox_id)]
+    #[context(group_id, target_inbox)]
     CreatedDM,
     /// Group created.
     #[context(group_id)]
     CreatedGroup,
     /// Added members to group.
-    #[context(group_id, members)]
+    #[context(group_id, members, epoch)]
     AddedMembers,
     /// Received new group from welcome.
-    #[context(group_id, conversation_type)]
+    #[context(group_id, conversation_type, epoch)]
     ProcessedWelcome,
 
     // ===================== MLS Operations =====================
     /// Received staged commit. Merging and clearing any pending commits.
-    #[context(group_id, inbox_id, sender_inbox_id, msg_epoch, current_epoch)]
+    #[context(group_id, sender_inbox, msg_epoch, epoch)]
     MLSReceivedStagedCommit,
     /// Processed staged commit.
-    #[context(group_id, current_epoch)]
+    #[context(group_id, epoch)]
     MLSProcessedStagedCommit,
     /// Received application message.
-    #[context(group_id, current_epoch, msg_epoch, sender_inbox_id)]
+    #[context(group_id, epoch, msg_epoch, sender_inbox)]
     MLSReceivedApplicationMessage,
-    /// Processed application message.
-    #[context(group_id)]
-    MLSProcessedApplicationMessage,
     /// Group epoch updated.
     #[context(group_id, cursor, epoch, previous_epoch)]
     MLSGroupEpochUpdated,
@@ -43,7 +43,7 @@ pub enum Event {
     /// Begin syncing group.
     #[context(group_id)]
     GroupSyncStart,
-    /// Attempting to sync group.
+    /// Syncing group.
     #[context(group_id, attempt, backoff)]
     GroupSyncAttempt,
     /// Group sync complete.
