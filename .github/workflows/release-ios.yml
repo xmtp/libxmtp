@@ -167,6 +167,8 @@ jobs:
           (cd bundle && zip -qry ../XMTP-${VERSION}.zip .)
           chmod -R u+w artifact bundle 2>/dev/null || true
           rm -rf artifact bundle
+      - name: Detach HEAD
+        run: git checkout --detach
       - name: Commit changes
         env:
           VERSION: ${{ needs.build-and-package.outputs.version }}
@@ -186,7 +188,7 @@ jobs:
       - name: Tag release
         env:
           VERSION: ${{ needs.build-and-package.outputs.version }}
-        run: xmtp-release tag-release --sdk ios --version "$VERSION" --push-branch
+        run: xmtp-release tag-release --sdk ios --version "$VERSION"
       - name: Create release and upload bundle
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
