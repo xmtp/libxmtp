@@ -17,14 +17,14 @@ class ConversationTests: XCTestCase {
 			fixtures.caroClient.inboxID,
 		])
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caroClient.inboxID,
+			with: fixtures.caroClient.inboxID
 		)
 
 		let sameDm = try await fixtures.boClient.conversations.findConversationByTopic(
-			topic: dm.topic,
+			topic: dm.topic
 		)
 		let sameGroup = try await fixtures.boClient.conversations.findConversationByTopic(
-			topic: group.topic,
+			topic: group.topic
 		)
 
 		XCTAssertEqual(group.id, sameGroup?.id)
@@ -36,7 +36,7 @@ class ConversationTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caroClient.inboxID,
+			with: fixtures.caroClient.inboxID
 		)
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
 			fixtures.caroClient.inboxID,
@@ -65,7 +65,7 @@ class ConversationTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caroClient.inboxID,
+			with: fixtures.caroClient.inboxID
 		)
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
 			fixtures.caroClient.inboxID,
@@ -98,7 +98,7 @@ class ConversationTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caroClient.inboxID,
+			with: fixtures.caroClient.inboxID
 		)
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
 			fixtures.caroClient.inboxID,
@@ -131,13 +131,13 @@ class ConversationTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caroClient.inboxID,
+			with: fixtures.caroClient.inboxID
 		)
 		let group1 = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.caroClient.inboxID],
+			with: [fixtures.caroClient.inboxID]
 		)
 		let group2 = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.caroClient.inboxID],
+			with: [fixtures.caroClient.inboxID]
 		)
 
 		_ = try await dm.send(content: "Howdy")
@@ -149,7 +149,7 @@ class ConversationTests: XCTestCase {
 
 		XCTAssertEqual(conversations.count, 3)
 		XCTAssertEqual(
-			conversations.map(\.id), [group2.id, dm.id, group1.id],
+			conversations.map(\.id), [group2.id, dm.id, group1.id]
 		)
 		try fixtures.cleanUpDatabases()
 	}
@@ -170,10 +170,10 @@ class ConversationTests: XCTestCase {
 			fixtures.alixClient.inboxID,
 		])
 		_ = try await fixtures.boClient.conversations.newConversation(
-			with: fixtures.alixClient.inboxID,
+			with: fixtures.alixClient.inboxID
 		)
 		_ = try await fixtures.caroClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID,
+			with: fixtures.alixClient.inboxID
 		)
 
 		await fulfillment(of: [expectation1], timeout: 3)
@@ -186,13 +186,13 @@ class ConversationTests: XCTestCase {
 		let expectation1 = XCTestExpectation(description: "got a conversation")
 		expectation1.expectedFulfillmentCount = 2
 		let convo = try await fixtures.boClient.conversations.newConversation(
-			with: fixtures.alixClient.inboxID,
+			with: fixtures.alixClient.inboxID
 		)
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
 			fixtures.alixClient.inboxID,
 		])
 		let dm = try await fixtures.caroClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID,
+			with: fixtures.alixClient.inboxID
 		)
 
 		try await fixtures.alixClient.conversations.sync()
@@ -216,20 +216,20 @@ class ConversationTests: XCTestCase {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let opts = ClientOptions(
 			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-			dbEncryptionKey: key,
+			dbEncryptionKey: key
 		)
 		let fixtures = try await fixtures()
 		var conversations: [Conversation] = []
 		for _ in 0 ..< 5 {
 			let account = try PrivateKey.generate()
 			let client = try await Client.create(
-				account: account, options: opts,
+				account: account, options: opts
 			)
 			do {
 				let newConversation = try await fixtures.alixClient
 					.conversations
 					.newConversation(
-						with: client.inboxID,
+						with: client.inboxID
 					)
 				conversations.append(newConversation)
 			} catch {
@@ -250,7 +250,7 @@ class ConversationTests: XCTestCase {
 		let alixGroup = try await fixtures.alixClient.conversations.newGroup(
 			with: [
 				fixtures.boClient.inboxID,
-			],
+			]
 		)
 
 		_ = try await fixtures.alixClient.conversations.syncAllConversations()
@@ -278,13 +278,13 @@ class ConversationTests: XCTestCase {
 		let alixGroup = try await fixtures.alixClient.conversations.newGroup(
 			with: [
 				fixtures.caroClient.inboxID, fixtures.boClient.inboxID,
-			],
+			]
 		)
 
 		let caroGroup2 = try await fixtures.caroClient.conversations.newGroup(
 			with: [
 				fixtures.alixClient.inboxID, fixtures.boClient.inboxID,
-			],
+			]
 		)
 
 		_ = try await fixtures.alixClient.conversations.syncAllConversations()
@@ -292,19 +292,19 @@ class ConversationTests: XCTestCase {
 		_ = try await fixtures.boClient.conversations.syncAllConversations()
 
 		let boGroupResult = try await fixtures.boClient.conversations.findGroup(
-			groupId: alixGroup.id,
+			groupId: alixGroup.id
 		)
 		let boGroup = try XCTUnwrap(boGroupResult)
 		let caroGroupResult = try await fixtures.caroClient.conversations.findGroup(
-			groupId: alixGroup.id,
+			groupId: alixGroup.id
 		)
 		let caroGroup = try XCTUnwrap(caroGroupResult)
 		let boGroup2Result = try await fixtures.boClient.conversations.findGroup(
-			groupId: caroGroup2.id,
+			groupId: caroGroup2.id
 		)
 		let boGroup2 = try XCTUnwrap(boGroup2Result)
 		let alixGroup2Result = try await fixtures.alixClient.conversations.findGroup(
-			groupId: caroGroup2.id,
+			groupId: caroGroup2.id
 		)
 		let alixGroup2 = try XCTUnwrap(alixGroup2Result)
 
@@ -355,7 +355,7 @@ class ConversationTests: XCTestCase {
 					let spamMessage = "Davon Spam Message \(i)"
 					let group = try await fixtures.davonClient.conversations
 						.newGroup(
-							with: [fixtures.caroClient.inboxID],
+							with: [fixtures.caroClient.inboxID]
 						)
 					_ = try await group.send(content: spamMessage)
 					print("Davon spam: \(spamMessage)")
@@ -401,7 +401,7 @@ class ConversationTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let optimisticGroup = try await fixtures.boClient.conversations.newGroupOptimistic(
-			groupName: "Testing",
+			groupName: "Testing"
 		)
 
 		XCTAssertEqual(try optimisticGroup.name(), "Testing")
@@ -431,13 +431,13 @@ class ConversationTests: XCTestCase {
 			fixtures.caroClient.inboxID,
 		])
 		let conversation = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caroClient.inboxID,
+			with: fixtures.caroClient.inboxID
 		)
 		let blockedGroup = try await fixtures.boClient.conversations.newGroup(with: [
 			fixtures.alixClient.inboxID,
 		])
 		let blockedConversation = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.alixClient.inboxID,
+			with: fixtures.alixClient.inboxID
 		)
 
 		// Block some conversations
@@ -453,7 +453,7 @@ class ConversationTests: XCTestCase {
 		// Start streaming
 		let streamTask = Task {
 			for try await message in await fixtures.boClient.conversations.streamAllMessages(
-				consentStates: [.allowed],
+				consentStates: [.allowed]
 			) {
 				allMessages.append(message)
 				expectation.fulfill()
@@ -488,7 +488,7 @@ class ConversationTests: XCTestCase {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let opts = ClientOptions(
 			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure),
-			dbEncryptionKey: key,
+			dbEncryptionKey: key
 		)
 
 		// Create a new private key for Eri
@@ -497,36 +497,36 @@ class ConversationTests: XCTestCase {
 		// Create first client for Eri
 		let eriClient = try await Client.create(
 			account: eriWallet,
-			options: opts,
+			options: opts
 		)
 
 		let fixtures = try await fixtures()
 
 		// Create first DM
 		let dm1 = try await eriClient.conversations.findOrCreateDm(
-			with: fixtures.boClient.inboxID,
+			with: fixtures.boClient.inboxID
 		)
 
 		// Create a group
 		_ = try await fixtures.boClient.conversations.newGroup(
-			with: [eriClient.inboxID],
+			with: [eriClient.inboxID]
 		)
 
 		// Create a second client with the same key
 		let dbPath = FileManager.default.temporaryDirectory.appendingPathComponent(
-			UUID().uuidString,
+			UUID().uuidString
 		).path
 		var opts2 = opts
 		opts2.dbDirectory = dbPath
 
 		let eriClient2 = try await Client.create(
 			account: eriWallet,
-			options: opts2,
+			options: opts2
 		)
 
 		// Create a second DM using the second client
 		_ = try await eriClient2.conversations.findOrCreateDm(
-			with: fixtures.boClient.inboxID,
+			with: fixtures.boClient.inboxID
 		)
 
 		// Sync all the clients
@@ -564,7 +564,7 @@ class ConversationTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		_ = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caroClient.inboxID,
+			with: fixtures.caroClient.inboxID
 		)
 		_ = try await fixtures.boClient.conversations.newGroup(with: [
 			fixtures.caroClient.inboxID,
@@ -603,7 +603,7 @@ class ConversationTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caroClient.inboxID,
+			with: fixtures.caroClient.inboxID
 		)
 
 		let msgID = try await dm.send(content: "This will be deleted")
@@ -623,7 +623,7 @@ class ConversationTests: XCTestCase {
 			fixtures.caroClient.inboxID,
 		])
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caroClient.inboxID,
+			with: fixtures.caroClient.inboxID
 		)
 
 		// Initially both should have 0 messages (or 1 for group with membership change)
@@ -691,9 +691,9 @@ class ConversationTests: XCTestCase {
 				reference: textMessageId,
 				action: .added,
 				content: "👍",
-				schema: .unicode,
+				schema: .unicode
 			),
-			options: SendOptions(contentType: ContentTypeReaction),
+			options: SendOptions(contentType: ContentTypeReaction)
 		)
 
 		// Wait a bit for messages to sync
@@ -705,7 +705,7 @@ class ConversationTests: XCTestCase {
 
 		// Get messages excluding reactions
 		let messagesWithoutReactions = try await group.messages(
-			excludeContentTypes: [.reaction],
+			excludeContentTypes: [.reaction]
 		)
 
 		// Should have fewer messages when excluding reactions
@@ -725,7 +725,7 @@ class ConversationTests: XCTestCase {
 
 		// Create a DM
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caroClient.inboxID,
+			with: fixtures.caroClient.inboxID
 		)
 
 		// Send different types of messages
@@ -740,18 +740,18 @@ class ConversationTests: XCTestCase {
 				reference: textMessageId,
 				action: .added,
 				content: "👍",
-				schema: .unicode,
+				schema: .unicode
 			),
-			options: SendOptions(contentType: ContentTypeReaction),
+			options: SendOptions(contentType: ContentTypeReaction)
 		)
 		_ = try await dm.send(
 			content: Reaction(
 				reference: textMessageId,
 				action: .added,
 				content: "❤️",
-				schema: .unicode,
+				schema: .unicode
 			),
-			options: SendOptions(contentType: ContentTypeReaction),
+			options: SendOptions(contentType: ContentTypeReaction)
 		)
 
 		// Wait a bit for messages to sync
@@ -763,7 +763,7 @@ class ConversationTests: XCTestCase {
 
 		// Count messages excluding reactions
 		let countWithoutReactions = try dm.countMessages(
-			excludeContentTypes: [.reaction],
+			excludeContentTypes: [.reaction]
 		)
 
 		// Should have 6 total (4 text + 2 reactions)
@@ -784,12 +784,12 @@ class ConversationTests: XCTestCase {
 		// Set disappearing messages to start immediately (fromNs=0) with 1 second retention
 		let disappearingSettings = DisappearingMessageSettings(
 			disappearStartingAtNs: 1,
-			retentionDurationInNs: 1_000_000, // 1 second
+			retentionDurationInNs: 1_000_000 // 1 second
 		)
 
 		let group = try await fixtures.alixClient.conversations.newGroup(
 			with: [fixtures.boClient.inboxID],
-			disappearingMessageSettings: disappearingSettings,
+			disappearingMessageSettings: disappearingSettings
 		)
 
 		var deletedMessageIds: [String] = []

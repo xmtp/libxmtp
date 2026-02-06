@@ -4,7 +4,7 @@ public let ContentTypeLeaveRequest = ContentTypeID(
 	authorityID: "xmtp.org",
 	typeID: "leave_request",
 	versionMajor: 1,
-	versionMinor: 0,
+	versionMinor: 0
 )
 
 /// Represents a leave request message sent when a user wants to leave a group.
@@ -34,7 +34,7 @@ public struct LeaveRequestCodec: ContentCodec {
 
 	public func encode(content: LeaveRequest) throws -> EncodedContent {
 		let ffi = FfiLeaveRequest(
-			authenticatedNote: content.authenticatedNote,
+			authenticatedNote: content.authenticatedNote
 		)
 		return try EncodedContent(serializedBytes: encodeLeaveRequest(request: ffi))
 	}
@@ -42,7 +42,7 @@ public struct LeaveRequestCodec: ContentCodec {
 	public func decode(content: EncodedContent) throws -> LeaveRequest {
 		let decoded = try decodeLeaveRequest(bytes: content.serializedBytes())
 		return LeaveRequest(
-			authenticatedNote: decoded.authenticatedNote,
+			authenticatedNote: decoded.authenticatedNote
 		)
 	}
 

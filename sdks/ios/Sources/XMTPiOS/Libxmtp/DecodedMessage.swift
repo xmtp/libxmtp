@@ -105,7 +105,7 @@ public struct DecodedMessage: Identifiable {
 	public var sentAt: Date {
 		Date(
 			timeIntervalSince1970: TimeInterval(ffiMessage.sentAtNs)
-				/ 1_000_000_000,
+				/ 1_000_000_000
 		)
 	}
 
@@ -116,7 +116,7 @@ public struct DecodedMessage: Identifiable {
 	public var insertedAt: Date {
 		Date(
 			timeIntervalSince1970: TimeInterval(ffiMessage.insertedAtNs)
-				/ 1_000_000_000,
+				/ 1_000_000_000
 		)
 	}
 
@@ -150,7 +150,7 @@ public struct DecodedMessage: Identifiable {
 	public func content<T>() throws -> T {
 		guard let result = decodedContent as? T else {
 			throw DecodedMessageError.decodeError(
-				"Decoded content could not be cast to the expected type \(T.self).",
+				"Decoded content could not be cast to the expected type \(T.self)."
 			)
 		}
 		return result
@@ -183,20 +183,20 @@ public struct DecodedMessage: Identifiable {
 	{
 		do {
 			let encodedContent = try EncodedContent(
-				serializedBytes: ffiMessage.content,
+				serializedBytes: ffiMessage.content
 			)
 			if encodedContent.type == ContentTypeGroupUpdated,
 			   ffiMessage.kind != .membershipChange
 			{
 				throw DecodedMessageError.decodeError(
-					"Error decoding group membership change",
+					"Error decoding group membership change"
 				)
 			}
 			// Decode the content once during creation
 			let decodedContent: Any = try encodedContent.decoded()
 			return DecodedMessage(
 				ffiMessage: ffiMessage, decodedContent: decodedContent,
-				childMessages: nil,
+				childMessages: nil
 			)
 		} catch {
 			print("Error creating Message: \(error)")
@@ -209,13 +209,13 @@ public struct DecodedMessage: Identifiable {
 	{
 		do {
 			let encodedContent = try EncodedContent(
-				serializedBytes: ffiMessage.message.content,
+				serializedBytes: ffiMessage.message.content
 			)
 			if encodedContent.type == ContentTypeGroupUpdated,
 			   ffiMessage.message.kind != .membershipChange
 			{
 				throw DecodedMessageError.decodeError(
-					"Error decoding group membership change",
+					"Error decoding group membership change"
 				)
 			}
 			// Decode the content once during creation
@@ -223,19 +223,19 @@ public struct DecodedMessage: Identifiable {
 
 			let childMessages = try ffiMessage.reactions.map { reaction in
 				let encodedContent = try EncodedContent(
-					serializedBytes: reaction.content,
+					serializedBytes: reaction.content
 				)
 				// Decode the content once during creation
 				let decodedContent: Any = try encodedContent.decoded()
 				return DecodedMessage(
 					ffiMessage: reaction, decodedContent: decodedContent,
-					childMessages: nil,
+					childMessages: nil
 				)
 			}
 
 			return DecodedMessage(
 				ffiMessage: ffiMessage.message, decodedContent: decodedContent,
-				childMessages: childMessages,
+				childMessages: childMessages
 			)
 		} catch {
 			print("Error creating Message: \(error)")

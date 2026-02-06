@@ -77,7 +77,7 @@ func secureRandomBytes(count: Int) throws -> Data {
 	let status = SecRandomCopyBytes(
 		kSecRandomDefault,
 		count,
-		&bytes,
+		&bytes
 	)
 
 	// A status of errSecSuccess indicates success

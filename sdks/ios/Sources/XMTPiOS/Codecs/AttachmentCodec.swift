@@ -10,7 +10,7 @@ public let ContentTypeAttachment = ContentTypeID(
 	authorityID: "xmtp.org",
 	typeID: "attachment",
 	versionMajor: 1,
-	versionMinor: 0,
+	versionMinor: 0
 )
 
 public enum AttachmentCodecError: Error {

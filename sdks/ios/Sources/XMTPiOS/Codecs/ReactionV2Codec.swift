@@ -11,7 +11,7 @@ public let ContentTypeReactionV2 = ContentTypeID(
 	authorityID: "xmtp.org",
 	typeID: "reaction",
 	versionMajor: 2,
-	versionMinor: 0,
+	versionMinor: 0
 )
 
 public struct ReactionV2Codec: ContentCodec {
@@ -27,7 +27,7 @@ public struct ReactionV2Codec: ContentCodec {
 			referenceInboxId: content.referenceInboxId ?? "",
 			action: content.action.toFfiReactionAction(),
 			content: content.content,
-			schema: content.schema.toFfiReactionSchema(),
+			schema: content.schema.toFfiReactionSchema()
 		)
 		return try EncodedContent(serializedBytes: encodeReaction(reaction: ffiReaction))
 	}
@@ -40,7 +40,7 @@ public struct ReactionV2Codec: ContentCodec {
 			action: ReactionAction.fromFfiReactionAction(ffiReaction.action),
 			content: ffiReaction.content,
 			schema: ReactionSchema.fromFfiReactionSchema(ffiReaction.schema),
-			referenceInboxId: ffiReaction.referenceInboxId,
+			referenceInboxId: ffiReaction.referenceInboxId
 		)
 	}
 

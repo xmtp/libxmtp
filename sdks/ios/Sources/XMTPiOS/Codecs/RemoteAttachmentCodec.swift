@@ -6,7 +6,7 @@ public let ContentTypeRemoteAttachment = ContentTypeID(
 	authorityID: "xmtp.org",
 	typeID: "remoteStaticAttachment",
 	versionMajor: 1,
-	versionMinor: 0,
+	versionMinor: 0
 )
 
 public enum RemoteAttachmentError: Error, CustomStringConvertible {
@@ -70,7 +70,7 @@ public struct RemoteAttachment {
 		nonce: Data,
 		scheme: Scheme,
 		contentLength: Int? = nil,
-		filename: String? = nil,
+		filename: String? = nil
 	) throws {
 		self.url = url
 		self.contentDigest = contentDigest
@@ -118,7 +118,7 @@ public struct RemoteAttachment {
 			digest: contentDigest,
 			salt: ciphertext.aes256GcmHkdfSha256.hkdfSalt,
 			nonce: ciphertext.aes256GcmHkdfSha256.gcmNonce,
-			payload: ciphertext.aes256GcmHkdfSha256.payload,
+			payload: ciphertext.aes256GcmHkdfSha256.payload
 		)
 	}
 
@@ -133,7 +133,7 @@ public struct RemoteAttachment {
 			salt: ciphertext.aes256GcmHkdfSha256.hkdfSalt,
 			nonce: ciphertext.aes256GcmHkdfSha256.gcmNonce,
 			payload: ciphertext.aes256GcmHkdfSha256.payload,
-			filename: filename,
+			filename: filename
 		)
 	}
 
@@ -141,7 +141,7 @@ public struct RemoteAttachment {
 		if RemoteAttachment.sha256(data: encrypted.payload) != encrypted.digest {
 			throw RemoteAttachmentError
 				.invalidDigest(
-					"content digest does not match. expected: \(encrypted.digest), got: \(SHA256.hash(data: encrypted.payload).description)",
+					"content digest does not match. expected: \(encrypted.digest), got: \(SHA256.hash(data: encrypted.payload).description)"
 				)
 		}
 
@@ -169,7 +169,7 @@ public struct RemoteAttachment {
 			digest: contentDigest,
 			salt: salt,
 			nonce: nonce,
-			payload: payload,
+			payload: payload
 		))
 	}
 
@@ -230,7 +230,7 @@ public struct RemoteAttachmentCodec: ContentCodec {
 			secret: secret,
 			salt: salt,
 			nonce: nonce,
-			scheme: RemoteAttachment.Scheme.https,
+			scheme: RemoteAttachment.Scheme.https
 		)
 
 		if let contentLength = content.parameters["contentLength"] {

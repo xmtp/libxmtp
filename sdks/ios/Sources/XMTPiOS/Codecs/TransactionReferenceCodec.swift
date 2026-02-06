@@ -11,7 +11,7 @@ public let ContentTypeTransactionReference = ContentTypeID(
 	authorityID: "xmtp.org",
 	typeID: "transactionReference",
 	versionMajor: 1,
-	versionMinor: 0,
+	versionMinor: 0
 )
 
 public struct TransactionReference {
@@ -29,7 +29,7 @@ public struct TransactionReference {
 			amount: Double,
 			decimals: UInt32,
 			fromAddress: String,
-			toAddress: String,
+			toAddress: String
 		) {
 			self.transactionType = transactionType
 			self.currency = currency
@@ -49,7 +49,7 @@ public struct TransactionReference {
 		namespace: String? = nil,
 		networkId: String,
 		reference: String,
-		metadata: Metadata? = nil,
+		metadata: Metadata? = nil
 	) {
 		self.namespace = namespace
 		self.networkId = networkId
@@ -77,20 +77,20 @@ public struct TransactionReferenceCodec: ContentCodec {
 					amount: $0.amount,
 					decimals: $0.decimals,
 					fromAddress: $0.fromAddress,
-					toAddress: $0.toAddress,
+					toAddress: $0.toAddress
 				)
-			},
+			}
 		)
 		return try EncodedContent(
 			serializedBytes: encodeTransactionReference(
-				reference: ffi,
-			),
+				reference: ffi
+			)
 		)
 	}
 
 	public func decode(content: EncodedContent) throws -> TransactionReference {
 		let decoded = try decodeTransactionReference(
-			bytes: content.serializedData(),
+			bytes: content.serializedData()
 		)
 
 		let metadata = decoded.metadata.map {
@@ -100,7 +100,7 @@ public struct TransactionReferenceCodec: ContentCodec {
 				amount: $0.amount,
 				decimals: $0.decimals,
 				fromAddress: $0.fromAddress,
-				toAddress: $0.toAddress,
+				toAddress: $0.toAddress
 			)
 		}
 
@@ -108,7 +108,7 @@ public struct TransactionReferenceCodec: ContentCodec {
 			namespace: decoded.namespace,
 			networkId: decoded.networkId,
 			reference: decoded.reference,
-			metadata: metadata,
+			metadata: metadata
 		)
 	}
 

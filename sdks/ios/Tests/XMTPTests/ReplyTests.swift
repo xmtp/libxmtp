@@ -23,12 +23,12 @@ class ReplyTests: XCTestCase {
 		let reply = Reply(
 			reference: messageToReply.id,
 			content: "Hello",
-			contentType: ContentTypeText,
+			contentType: ContentTypeText
 		)
 
 		try await conversation.send(
 			content: reply,
-			options: .init(contentType: ContentTypeReply),
+			options: .init(contentType: ContentTypeReply)
 		)
 
 		_ = try await conversation.messages()
