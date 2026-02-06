@@ -1,20 +1,19 @@
 import path from "node:path";
 import fs from "node:fs";
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { GlobalArgs } from "../types.js";
-import { classifyNoteFiles } from "../lib/classify-notes.js";
+import type { GlobalArgs } from "../types";
+import { classifyNoteFiles } from "../lib/classify-notes";
 
 export const command = "classify-notes";
 export const describe =
   "Find and classify release note files as empty scaffolds or having content";
 
 export function builder(yargs: Argv<GlobalArgs>) {
-  return yargs
-    .option("releaseVersion", {
-      type: "string",
-      demandOption: true,
-      describe: "Release version to look up (e.g. 1.0.0)",
-    });
+  return yargs.option("releaseVersion", {
+    type: "string",
+    demandOption: true,
+    describe: "Release version to look up (e.g. 1.0.0)",
+  });
 }
 
 export async function handler(

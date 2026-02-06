@@ -3,7 +3,7 @@ import {
   computeVersion,
   filterAndSortTags,
   normalizeVersion,
-} from "../src/lib/version.js";
+} from "../src/lib/version";
 
 describe("filterAndSortTags", () => {
   it("filters tags by prefix and sorts descending", () => {

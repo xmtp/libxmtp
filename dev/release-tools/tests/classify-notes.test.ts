@@ -3,7 +3,7 @@ import {
   parseFrontmatter,
   isEmptyScaffold,
   classifyNoteFiles,
-} from "../src/lib/classify-notes.js";
+} from "../src/lib/classify-notes";
 
 describe("parseFrontmatter", () => {
   it("parses valid frontmatter", () => {

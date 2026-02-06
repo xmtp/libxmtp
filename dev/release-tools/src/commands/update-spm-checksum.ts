@@ -1,11 +1,11 @@
 import path from "node:path";
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { GlobalArgs } from "../types.js";
-import { getSdkConfig } from "../lib/sdk-config.js";
+import type { GlobalArgs } from "../types";
+import { getSdkConfig } from "../lib/sdk-config";
 import {
   updateSpmChecksum as updateSpmChecksumFn,
   updateSpmDynamicChecksum as updateSpmDynamicChecksumFn,
-} from "../lib/spm.js";
+} from "../lib/spm";
 
 export const command = "update-spm-checksum";
 export const describe =

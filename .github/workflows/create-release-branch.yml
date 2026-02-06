@@ -6,9 +6,8 @@ on:
     inputs:
       base-ref:
         description: "Base ref (commit/branch) to create the release from"
-        required: true
+        required: false
         type: string
-        default: "main"
       version:
         description: "Release version number (e.g. 1.8.0)"
         required: true
@@ -43,19 +42,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.base-ref }}
+          ref: ${{ inputs.base-ref || github.ref_name }}
           fetch-depth: 0
       - uses: ./.github/actions/setup-release-tools
       - name: Create release branch
         env:
           RELEASE_VERSION: ${{ inputs.version }}
-          BASE_REF: ${{ inputs.base-ref }}
+          BASE_REF: ${{ inputs.base-ref || github.ref_name }}
           IOS_BUMP: ${{ inputs.ios-bump }}
           ANDROID_BUMP: ${{ inputs.android-bump }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
           xmtp-release create-release-branch \
             --version "$RELEASE_VERSION" \
             --base "$BASE_REF" \

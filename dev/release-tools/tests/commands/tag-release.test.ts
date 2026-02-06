@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTag } from "../../src/commands/tag-release.js";
+import { buildTag } from "../../src/commands/tag-release";
 
 describe("buildTag", () => {
   it("builds iOS tag with prefix", () => {

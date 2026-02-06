@@ -1,8 +1,8 @@
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { GlobalArgs, ReleaseType } from "../types.js";
-import { getSdkConfig } from "../lib/sdk-config.js";
-import { computeVersion as computeVersionFn } from "../lib/version.js";
-import { getShortSha } from "../lib/git.js";
+import type { GlobalArgs, ReleaseType } from "../types";
+import { getSdkConfig } from "../lib/sdk-config";
+import { computeVersion as computeVersionFn } from "../lib/version";
+import { getShortSha } from "../lib/git";
 
 export const command = "compute-version";
 export const describe = "Compute the full version string for a release type";

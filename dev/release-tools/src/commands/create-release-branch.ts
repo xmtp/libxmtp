@@ -1,4 +1,3 @@
-import { execSync } from "node:child_process";
 import type { ArgumentsCamelCase, Argv } from "yargs";
 import {
   Sdk,
@@ -6,15 +5,18 @@ import {
   type BumpOption,
   type BumpType,
   type GlobalArgs,
-} from "../types.js";
-import { bumpVersion } from "./bump-version.js";
-import { scaffoldNotes } from "./scaffold-notes.js";
-import { findLastVersion } from "./find-last-version.js";
-import { getSdkConfig } from "../lib/sdk-config.js";
+} from "../types";
+import { bumpVersion } from "./bump-version";
+import { setManifestVersion } from "./set-manifest-version";
+import { scaffoldNotes } from "./scaffold-notes";
+import { findLastVersion } from "./find-last-version";
+import { getSdkConfig } from "../lib/sdk-config";
+import { execInherit } from "../lib/exec";
 
-function exec(cmd: string, cwd: string): void {
-  execSync(cmd, { cwd, stdio: "inherit" });
-}
+type SdkBump = {
+  sdk: Sdk;
+  bump: BumpType;
+};
 
 export const command = "create-release-branch";
 export const describe =
@@ -49,8 +51,8 @@ export function builder(yargs: Argv<GlobalArgs>) {
 interface CreateReleaseBranchArgs extends GlobalArgs {
   version: string;
   base: string;
-  ios: BumpOption;
-  android: BumpOption;
+  ios: string;
+  android: string;
 }
 
 export function handler(argv: ArgumentsCamelCase<CreateReleaseBranchArgs>) {
@@ -58,7 +60,7 @@ export function handler(argv: ArgumentsCamelCase<CreateReleaseBranchArgs>) {
   const branchName = `release/${argv.version}`;
 
   // Collect SDK bumps to process
-  const sdkBumps: Array<{ sdk: Sdk; bump: BumpType }> = [];
+  const sdkBumps: Array<SdkBump> = [];
 
   if (argv.ios !== "none") {
     sdkBumps.push({ sdk: Sdk.Ios, bump: argv.ios as BumpType });
@@ -75,7 +77,7 @@ export function handler(argv: ArgumentsCamelCase<CreateReleaseBranchArgs>) {
   }
 
   console.log(`Creating branch ${branchName} from ${argv.base}...`);
-  exec(`git checkout -b ${branchName} ${argv.base}`, cwd);
+  execInherit(`git checkout -b ${branchName} ${argv.base}`, cwd);
 
   // Process each SDK
   const bumpedSdks: string[] = [];
@@ -95,8 +97,12 @@ export function handler(argv: ArgumentsCamelCase<CreateReleaseBranchArgs>) {
     bumpedSdks.push(`${sdk} ${newVersion}`);
   }
 
-  exec("git add -A", cwd);
-  exec(
+  // Always set the libxmtp (Cargo.toml) version to the release version
+  console.log(`Setting libxmtp version to ${argv.version}...`);
+  setManifestVersion("libxmtp", argv.version, cwd);
+
+  execInherit("git add -A", cwd);
+  execInherit(
     `git commit -m "chore: create release ${argv.version} (${bumpedSdks.join(", ")})"`,
     cwd,
   );

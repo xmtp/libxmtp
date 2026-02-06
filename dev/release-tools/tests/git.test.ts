@@ -3,7 +3,7 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { listTags, getShortSha, getCommitsBetween } from "../src/lib/git.js";
+import { listTags, getShortSha, getCommitsBetween } from "../src/lib/git";
 
 function gitTag(name: string, cwd: string) {
   execSync(`git -c tag.gpgSign=false tag ${name}`, { cwd });
