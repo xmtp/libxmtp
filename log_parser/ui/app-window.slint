@@ -3,7 +3,20 @@ import {
     VerticalBox,
     HorizontalBox,
     ScrollView,
+    TabWidget,
 } from "std-widgets.slint";
+
+import {
+    EpochTab,
+    UIGroupState,
+    UIInstallationCell,
+    UIEpochHeader,
+    UIInstallationRow,
+    UIGroupRow,
+} from "epoch-tab.slint";
+export { UIGroupState, UIInstallationCell, UIEpochHeader, UIInstallationRow, UIGroupRow }
+
+// ─── Shared Data Structures ───
 
 export struct UIContextEntry {
     key: string,
@@ -23,25 +36,7 @@ export struct UIStream {
     entries: [UIEvent],
 }
 
-component DurationBadge inherits Rectangle {
-    in property <string> duration-text;
-
-    height: 24px;
-    background: #f0f0f0;
-    border-radius: 4px;
-
-    HorizontalBox {
-        padding: 4px;
-        alignment: center;
-
-        Text {
-            text: root.duration-text;
-            font-size: 11px;
-            color: #888888;
-            horizontal-alignment: center;
-        }
-    }
-}
+// ─── Events Tab Components ───
 
 component LogEntryRow inherits Rectangle {
     in property <UIEvent> entry;
@@ -58,7 +53,6 @@ component LogEntryRow inherits Rectangle {
     layout := HorizontalBox {
         spacing: 0px;
 
-        // Group color indicator
         if root.entry.has-group: Rectangle {
             width: 6px;
             background: root.entry.group-color;
@@ -76,7 +70,6 @@ component LogEntryRow inherits Rectangle {
                 color: #333333;
             }
 
-            // Context entries
             ctx-scroll := ScrollView {
                 min-height: min(120px, ctx-layout.preferred-height + 10px);
                 max-height: 150px;
@@ -87,7 +80,6 @@ component LogEntryRow inherits Rectangle {
                     spacing: 2px;
 
                     for ctx in root.entry.context: VerticalBox {
-                        // spacing: 4px;
                         alignment: LayoutAlignment.start;
 
                         Text {
@@ -123,7 +115,6 @@ component LogColumn inherits Rectangle {
         padding: 8px;
         spacing: 0px;
 
-        // Header
         Rectangle {
             height: 40px;
             background: #e8e8e8;
@@ -148,7 +139,6 @@ component LogColumn inherits Rectangle {
             }
         }
 
-        // Scrollable log entries
         scroll := ScrollView {
             VerticalLayout {
                 alignment: start;
@@ -164,8 +154,12 @@ component LogColumn inherits Rectangle {
     }
 }
 
+// ─── Main Application Window ───
+
 export component AppWindow inherits Window {
     in-out property <[UIStream]> log-streams: [];
+    in-out property <[UIGroupRow]> epoch-groups: [];
+    in-out property <int> active-tab: 0;
 
     callback request-open-file();
     callback file-selected(string);
@@ -204,8 +198,73 @@ export component AppWindow inherits Window {
             }
         }
 
-        // Main content area with side-by-side log columns
+        // Tab bar
         HorizontalBox {
+            height: 36px;
+            padding-left: 8px;
+            padding-right: 8px;
+            spacing: 4px;
+            alignment: start;
+
+            Rectangle {
+                width: events-tab-text.preferred-width + 24px;
+                height: 32px;
+                background: root.active-tab == 0 ? #4a72c4 : #e0e0e0;
+                border-radius: 6px;
+                border-bottom-left-radius: 0px;
+                border-bottom-right-radius: 0px;
+
+                events-tab-text := Text {
+                    text: "Events";
+                    font-size: 13px;
+                    font-weight: root.active-tab == 0 ? 700 : 400;
+                    color: root.active-tab == 0 ? #ffffff : #555555;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                TouchArea {
+                    clicked => {
+                        root.active-tab = 0;
+                    }
+                }
+            }
+
+            Rectangle {
+                width: epochs-tab-text.preferred-width + 24px;
+                height: 32px;
+                background: root.active-tab == 1 ? #4a72c4 : #e0e0e0;
+                border-radius: 6px;
+                border-bottom-left-radius: 0px;
+                border-bottom-right-radius: 0px;
+
+                epochs-tab-text := Text {
+                    text: "Epochs";
+                    font-size: 13px;
+                    font-weight: root.active-tab == 1 ? 700 : 400;
+                    color: root.active-tab == 1 ? #ffffff : #555555;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                TouchArea {
+                    clicked => {
+                        root.active-tab = 1;
+                    }
+                }
+            }
+        }
+
+        // Tab divider line
+        Rectangle {
+            height: 2px;
+            background: #4a72c4;
+        }
+
+        // ─── Tab Content ───
+
+        // Events Tab
+        if root.active-tab == 0: HorizontalBox {
             padding: 8px;
             spacing: 8px;
 
@@ -226,6 +285,11 @@ export component AppWindow inherits Window {
                 min-width: 300px;
                 horizontal-stretch: 1;
             }
+        }
+
+        // Epochs Tab
+        if root.active-tab == 1: EpochTab {
+            epoch-groups: root.epoch-groups;
         }
     }
 }

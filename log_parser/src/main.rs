@@ -53,12 +53,13 @@ fn main() -> Result<()> {
 
             runtime_handle
                 .block_on(async {
-                    tester!(bo);
-                    tester!(alix);
-                    tester!(caro);
+                    tester!(bo, stream);
+                    tester!(alix, stream);
+                    tester!(caro, stream);
                     bo.test_talk_in_dm_with(&alix).await?;
                     let (group, _) = bo.test_talk_in_new_group_with(&alix).await?;
                     group.add_members(&[caro.inbox_id()]).await?;
+                    group.update_group_name("Fellows".into()).await?;
                     caro.sync_all_welcomes_and_groups(None).await?;
                     bo.sync_all_welcomes_and_groups(None).await?;
 

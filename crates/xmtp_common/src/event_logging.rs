@@ -19,7 +19,7 @@ pub enum Event {
     #[context(group_id)]
     CreatedGroup,
     /// Added members to group.
-    #[context(group_id, members)]
+    #[context(group_id, members, epoch)]
     AddedMembers,
     /// Received new group from welcome.
     #[context(group_id, conversation_type)]

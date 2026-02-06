@@ -1042,12 +1042,14 @@ where
             .queue(self)?;
 
         self.sync_until_intent_resolved(intent.id).await?;
+        let epoch = self.epoch().await?;
 
         log_event!(
             Event::AddedMembers,
             self.context.installation_id(),
             group_id = #self.group_id,
-            members = ?ids
+            members = ?ids,
+            epoch
         );
 
         ok_result

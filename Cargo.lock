@@ -6173,6 +6173,7 @@ name = "log_parser"
 version = "1.10.0-dev"
 dependencies = [
  "anyhow",
+ "chrono",
  "futures",
  "native-dialog",
  "parking_lot 0.12.5",

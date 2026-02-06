@@ -6,6 +6,7 @@ version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+chrono.workspace = true
 futures.workspace = true
 native-dialog = "0.7"
 parking_lot.workspace = true

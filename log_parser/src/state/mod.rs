@@ -74,7 +74,7 @@ impl LogState {
             (_, Event::AssociateName) => {
                 client.name = Some(ctx("name")?.as_str()?.to_string());
             }
-            (Some(group_id), event) => {
+            (Some(group_id), raw_event) => {
                 {
                     let mut epochs = self.grouped_epochs.write();
                     if !epochs.contains_key(group_id) {
@@ -83,12 +83,13 @@ impl LogState {
                 }
 
                 let mut group = client.update_group(group_id);
+                group.msg = event.msg.clone();
 
                 if let Ok(epoch) = ctx("epoch").and_then(|e| e.as_int()) {
                     group.epoch = Some(epoch);
                 }
 
-                match event {
+                match raw_event {
                     Event::CreatedDM => {
                         group.dm_target = Some(ctx("target_inbox")?.as_str()?.to_string());
                         group.created_at = Some(ctx(TIME_KEY)?.as_int()?);
@@ -140,6 +141,7 @@ pub struct GroupState {
     pub next: Option<Weak<RwLock<Self>>>,
     pub installation_id: String,
     pub event: Option<Event>,
+    pub msg: String,
     pub dm_target: Option<InstallationId>,
     pub created_at: Option<i64>,
     pub previous_epoch: Option<i64>,
