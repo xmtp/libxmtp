@@ -121,7 +121,7 @@ afterEvaluate {
                     licenses {
                         license {
                             name = "MIT License"
-                            url = "https://github.com/xmtp/xmtp-android/blob/main/LICENSE"
+                            url = "https://github.com/xmtp/libxmtp/blob/main/LICENSE"
                         }
                     }
                     developers {
@@ -133,9 +133,9 @@ afterEvaluate {
                         }
                     }
                     scm {
-                        connection = "https://github.com/xmtp/xmtp-android.git"
-                        developerConnection = "https://github.com/xmtp/xmtp-android.git"
-                        url = "https://github.com/xmtp/xmtp-android/tree/main"
+                        connection = "https://github.com/xmtp/libxmtp.git"
+                        developerConnection = "https://github.com/xmtp/libxmtp.git"
+                        url = "https://github.com/xmtp/libxmtp/tree/main"
                     }
                 }
             }
