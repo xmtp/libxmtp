@@ -53,9 +53,6 @@ jobs:
           IOS_BUMP: ${{ inputs.ios-bump }}
           ANDROID_BUMP: ${{ inputs.android-bump }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
           xmtp-release create-release-branch \
             --version "$RELEASE_VERSION" \
             --base "$BASE_REF" \
