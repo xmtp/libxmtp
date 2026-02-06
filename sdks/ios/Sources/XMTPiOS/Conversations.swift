@@ -133,7 +133,7 @@ public class Conversations {
 	}
 
 	private func requireClient() throws -> Client {
-		guard let client = client else {
+		guard let client else {
 			throw ClientError.clientDeallocated
 		}
 		return client
@@ -385,9 +385,9 @@ public class Conversations {
 	> {
 		AsyncThrowingStream { continuation in
 			guard let client = self.client else {
-					continuation.finish(throwing: ClientError.clientDeallocated)
-					return
-				}
+				continuation.finish(throwing: ClientError.clientDeallocated)
+				return
+			}
 			let ffiStreamActor = FfiStreamActor()
 			let conversationCallback = ConversationStreamCallback {
 				conversation in

@@ -196,7 +196,7 @@ public final class Client {
 	)
 
 	public lazy var preferences: PrivatePreferences = .init(
-		ffiClient: ffiClient
+		ffiClient: ffiClient,
 	)
 
 	public lazy var debugInformation: XMTPDebugInformation = .init(

@@ -91,24 +91,21 @@ public actor PrivatePreferences {
 		AsyncThrowingStream { continuation in
 			let ffiStreamActor = FfiStreamActor()
 
-			let consentCallback = ConsentCallback(
-							{ records in
-								guard !Task.isCancelled else {
-									continuation.finish()
-									Task {
-										await ffiStreamActor.endStream()
-									}
-									return
-								}
-								for consent in records {
-									continuation.yield(consent.fromFfi)
-								}
-							},
-							onClose: {
-								onClose?()
-								continuation.finish()
-							}
-						)
+			let consentCallback = ConsentCallback { records in
+				guard !Task.isCancelled else {
+					continuation.finish()
+					Task {
+						await ffiStreamActor.endStream()
+					}
+					return
+				}
+				for consent in records {
+					continuation.yield(consent.fromFfi)
+				}
+			} onClose: {
+				onClose?()
+				continuation.finish()
+			}
 
 			let task = Task {
 				let stream = await ffiClient.conversations().streamConsent(
@@ -132,26 +129,23 @@ public actor PrivatePreferences {
 		AsyncThrowingStream { continuation in
 			let ffiStreamActor = FfiStreamActor()
 
-			let preferenceCallback = PreferenceCallback(
-							{ records in
-								guard !Task.isCancelled else {
-									continuation.finish()
-									Task {
-										await ffiStreamActor.endStream()
-									}
-									return
-								}
-								for preference in records {
-									if case let .hmac(key) = preference {
-										continuation.yield(.hmac_keys)
-									}
-								}
-							},
-							onClose: {
-								onClose?()
-								continuation.finish()
-							}
-						)
+			let preferenceCallback = PreferenceCallback { records in
+				guard !Task.isCancelled else {
+					continuation.finish()
+					Task {
+						await ffiStreamActor.endStream()
+					}
+					return
+				}
+				for preference in records {
+					if case let .hmac(key) = preference {
+						continuation.yield(.hmac_keys)
+					}
+				}
+			} onClose: {
+				onClose?()
+				continuation.finish()
+			}
 
 			let task = Task {
 				let stream = await ffiClient.conversations().streamPreferences(
