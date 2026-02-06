@@ -1,0 +1,56 @@
+name: Android Tests
+
+on:
+  push:
+    branches: ["main"]
+    paths: ["sdks/android/**", "bindings/mobile/**", "crates/**"]
+  pull_request:
+    paths: ["sdks/android/**", "bindings/mobile/**", "crates/**"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: warp-ubuntu-latest-x64-16x
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Build bindings
+        run: nix develop .#android --command ./sdks/android/dev/bindings
+      - name: Start backend
+        run: ./dev/up
+      - name: Run unit tests
+        run: nix develop .#android --command ./sdks/android/gradlew -p sdks/android library:testDebug
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: warp-ubuntu-latest-x64-16x
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build bindings
+        run: nix develop .#android --command ./sdks/android/dev/bindings
+      - name: Start backend
+        run: ./dev/up
+      - name: Run integration tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -memory 4096 -partition-size 8192
+          script: nix develop .#android --command ./sdks/android/gradlew -p sdks/android connectedCheck --continue
