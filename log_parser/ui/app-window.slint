@@ -5,23 +5,22 @@ import {
     ScrollView,
 } from "std-widgets.slint";
 
-export struct ContextEntry {
+export struct UIContextEntry {
     key: string,
     value: string,
 }
 
-export struct LogEntry {
+export struct UIEvent {
     event: string,
-    inbox: string,
-    duration-to-next: string,
-    context: [ContextEntry],
+    inst: string,
+    context: [UIContextEntry],
     group-color: color,
     has-group: bool,
 }
 
-export struct LogStream {
-    inbox: string,
-    entries: [LogEntry],
+export struct UIStream {
+    inst: string,
+    entries: [UIEvent],
 }
 
 component DurationBadge inherits Rectangle {
@@ -45,7 +44,7 @@ component DurationBadge inherits Rectangle {
 }
 
 component LogEntryRow inherits Rectangle {
-    in property <LogEntry> entry;
+    in property <UIEvent> entry;
     in property <length> available-width;
 
     min-height: layout.preferred-height;
@@ -114,7 +113,7 @@ component LogEntryRow inherits Rectangle {
 }
 
 component LogColumn inherits Rectangle {
-    in property <LogStream> log-stream;
+    in property <UIStream> log-stream;
 
     border-width: 1px;
     border-color: #cccccc;
@@ -134,7 +133,7 @@ component LogColumn inherits Rectangle {
                 padding: 8px;
 
                 Text {
-                    text: root.log-stream.inbox;
+                    text: root.log-stream.inst;
                     font-weight: 700;
                     vertical-alignment: center;
                     overflow: elide;
@@ -166,7 +165,7 @@ component LogColumn inherits Rectangle {
 }
 
 export component AppWindow inherits Window {
-    in-out property <[LogStream]> log-streams: [];
+    in-out property <[UIStream]> log-streams: [];
 
     callback request-open-file();
     callback file-selected(string);

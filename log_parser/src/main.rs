@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use pest_derive::Parser;
@@ -7,7 +7,10 @@ use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberI
 use xmtp_common::TestWriter;
 use xmtp_mls::tester;
 
-use crate::ui::file_open::{file_selected, open_file_dialog, open_log};
+use crate::{
+    state::LogState,
+    ui::file_open::{file_selected, open_file_dialog},
+};
 
 mod state;
 mod ui;
@@ -65,7 +68,11 @@ fn main() -> Result<()> {
 
             std::thread::sleep(Duration::from_millis(500));
 
-            open_log(ui_handle.clone(), &writer.as_string());
+            let file = writer.as_string();
+            let lines = file.split('\n').peekable();
+
+            let state = LogState::build(lines);
+            state.update_ui(&ui_handle);
         }
     });
 

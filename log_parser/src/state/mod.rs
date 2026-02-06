@@ -1,7 +1,12 @@
 pub mod assertions;
 pub mod event;
+pub mod ui;
 pub mod value;
 
+use crate::state::{
+    assertions::{LogAssertion, epoch_continuity::EpochContinuityAssertion},
+    event::TIME_KEY,
+};
 use anyhow::{Context, Result};
 pub use event::LogEvent;
 use parking_lot::{RwLock, RwLockWriteGuard};
@@ -10,14 +15,8 @@ use std::{
     iter::Peekable,
     sync::{Arc, Weak},
 };
-
 pub use value::Value;
 use xmtp_common::Event;
-
-use crate::state::{
-    assertions::{LogAssertion, epoch_continuity::EpochContinuityAssertion},
-    event::TIME_KEY,
-};
 
 type InstallationId = String;
 type GroupId = String;
@@ -26,7 +25,7 @@ type EpochNumber = i64;
 #[derive(Default)]
 pub struct LogState {
     pub grouped_epochs: RwLock<HashMap<GroupId, HashMap<EpochNumber, Epoch>>>,
-    pub clients: HashMap<InstallationId, Arc<RwLock<ClientState>>>,
+    pub clients: RwLock<HashMap<InstallationId, Arc<RwLock<ClientState>>>>,
 }
 
 #[derive(Default)]
@@ -35,7 +34,7 @@ struct Epoch {
 }
 
 impl LogState {
-    pub fn build<'a>(mut lines: Peekable<impl Iterator<Item = &'a str>>) -> Self {
+    pub fn build<'a>(mut lines: Peekable<impl Iterator<Item = &'a str>>) -> Arc<Self> {
         let mut state = Self::default();
 
         while let Ok(event) =
@@ -50,29 +49,23 @@ impl LogState {
             tracing::error!("Continuity error: {err}");
         };
 
-        state
+        Arc::new(state)
     }
 
     fn ingest(&mut self, event: LogEvent) -> Result<()> {
         let ctx = |key: &str| -> Result<&Value> {
             event
-                .context
-                .iter()
-                .find(|(k, _)| k == key)
+                .context(key)
                 .with_context(|| format!("Missing context field {key}"))
-                .map(|(_, v)| v)
         };
 
         let installation = &event.installation;
+        let mut clients = self.clients.write();
         let client = match event.event {
-            Event::ClientCreated => self
-                .clients
+            Event::ClientCreated => clients
                 .entry(installation.to_string())
                 .or_insert_with(|| Arc::new(RwLock::new(ClientState::new(&installation, None)))),
-            _ => self
-                .clients
-                .get_mut(installation)
-                .context("Missing client")?,
+            _ => clients.get_mut(installation).context("Missing client")?,
         };
         let mut client = client.write();
         let group_id = ctx("group_id").and_then(|id| id.as_str()).ok();
@@ -158,8 +151,14 @@ pub struct GroupState {
     pub problems: Vec<GroupStateProblem>,
 }
 
-#[derive(Clone, Default)]
-struct GroupStateProblem {}
+#[derive(Clone)]
+pub struct GroupStateProblem {
+    description: String,
+    severity: Severity,
+}
+
+#[derive(Clone)]
+pub enum Severity {}
 
 impl IntoIterator for &GroupState {
     type IntoIter = GroupStateIterator;

@@ -11,7 +11,7 @@ pub struct EpochContinuityAssertion;
 impl LogAssertion for EpochContinuityAssertion {
     fn assert(state: &LogState) -> Result<Option<AssertionFailure>> {
         let mut group_collection = HashMap::new();
-        for (inst, state) in &state.clients {
+        for (_inst, state) in &*state.clients.read() {
             for (group_id, group) in &state.read().groups {
                 let g = group_collection
                     .entry(group_id.clone())

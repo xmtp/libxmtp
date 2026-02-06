@@ -1,5 +1,5 @@
-use crate::{AppWindow, ContextEntry, LogEntry, LogStream, state::LogState};
-use slint::{Color, Model, ModelRc, SharedString, VecModel, Weak};
+use crate::{AppWindow, state::LogState};
+use slint::{Color, Weak};
 use std::{
     collections::HashMap,
     fs::read_to_string,
@@ -42,7 +42,7 @@ fn format_duration_ns(duration_ns: i64) -> String {
 }
 
 /// Generate a color from a string by hashing it
-fn color_from_string(s: &str) -> Color {
+pub fn color_from_string(s: &str) -> Color {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     s.hash(&mut hasher);
     let hash = hasher.finish();
@@ -89,7 +89,7 @@ struct StreamData {
 struct EntryData {
     event: String,
     duration_to_next: String,
-    context: Vec<(String, String)>,
+    context: HashMap<String, String>,
     group_id: Option<String>,
 }
 
@@ -106,111 +106,7 @@ pub fn file_selected(handle: Weak<AppWindow>, path: impl AsRef<Path>) {
         }
     };
 
-    open_log(handle, &log_file);
-}
-
-pub fn open_log(handle: Weak<AppWindow>, log_file: &str) {
     let lines = log_file.split('\n').peekable();
     let state = LogState::build(lines);
-
-    // Convert each inbox stream to a StreamData
-    let streams: Vec<StreamData> = state
-        .clients
-        .into_iter()
-        .map(|(installation, client_state)| {
-            let client_state = client_state.read();
-            // Collect timestamps for duration calculation
-            let timestamps: Vec<i64> = client_state.events.iter().map(|e| e.timestamp()).collect();
-
-            let entries: Vec<EntryData> = client_state
-                .events
-                .iter()
-                .enumerate()
-                .map(|(index, event)| {
-                    let duration_to_next = if index + 1 < timestamps.len() {
-                        let duration_ms = timestamps[index + 1] - timestamps[index];
-                        format_duration_ns(duration_ms)
-                    } else {
-                        String::new()
-                    };
-
-                    EntryData {
-                        event: event.event_name().to_string(),
-                        duration_to_next,
-                        context: event.context_entries(),
-                        group_id: event.group_id().map(|s| s.to_string()),
-                    }
-                })
-                .collect();
-
-            StreamData {
-                installation,
-                entries,
-            }
-        })
-        .collect();
-
-    handle
-        .upgrade_in_event_loop(move |ui| {
-            // Build a color map for all group_ids
-            let mut group_colors: HashMap<String, Color> = HashMap::new();
-
-            // Convert StreamData to Slint LogStream (must happen in event loop due to ModelRc)
-            let slint_streams: Vec<LogStream> = streams
-                .into_iter()
-                .map(|stream| {
-                    let slint_entries: Vec<LogEntry> = stream
-                        .entries
-                        .into_iter()
-                        .map(|e| {
-                            // Get or create color for this group_id
-                            let (group_color, has_group) = if let Some(ref gid) = e.group_id {
-                                let color = group_colors
-                                    .entry(gid.clone())
-                                    .or_insert_with(|| color_from_string(gid))
-                                    .clone();
-                                (color, true)
-                            } else {
-                                (Color::from_rgb_u8(200, 200, 200), false)
-                            };
-
-                            // Convert context to Slint ContextEntry model
-                            let context_entries: Vec<ContextEntry> = e
-                                .context
-                                .into_iter()
-                                .map(|(key, value)| ContextEntry {
-                                    key: SharedString::from(key),
-                                    value: SharedString::from(value),
-                                })
-                                .collect();
-
-                            LogEntry {
-                                event: SharedString::from(e.event),
-                                inbox: SharedString::from(&stream.installation),
-                                duration_to_next: SharedString::from(e.duration_to_next),
-                                context: ModelRc::new(VecModel::from(context_entries)),
-                                group_color,
-                                has_group,
-                            }
-                        })
-                        .collect();
-
-                    let entries_model = ModelRc::new(VecModel::from(slint_entries));
-
-                    LogStream {
-                        inbox: SharedString::from(stream.installation),
-                        entries: entries_model,
-                    }
-                })
-                .collect();
-
-            // Get existing log streams and append the new ones
-            let existing = ui.get_log_streams();
-            let mut all_streams: Vec<LogStream> = existing.iter().collect();
-            all_streams.extend(slint_streams);
-
-            let model = ModelRc::new(VecModel::from(all_streams));
-            ui.set_log_streams(model);
-        })
-        .ok();
+    state.update_ui(&handle);
 }

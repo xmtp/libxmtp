@@ -1,14 +1,16 @@
-use crate::{LogParser, Rule, state::Value};
+use crate::{LogParser, Rule, UIContextEntry, state::Value, ui::file_open::color_from_string};
 use anyhow::{Context, Result, bail};
 use pest::Parser;
-use std::iter::Peekable;
+use slint::{Color, SharedString};
+use std::{collections::HashMap, iter::Peekable};
 use xmtp_common::Event;
 
 #[derive(Debug)]
 pub struct LogEvent {
     pub event: Event,
+    pub msg: String,
     pub installation: String,
-    pub context: Vec<(String, Value)>,
+    pub context: HashMap<String, Value>,
     pub intermediate: String,
 }
 
@@ -16,7 +18,22 @@ pub(crate) const TIME_KEY: &str = "time_ms";
 
 impl LogEvent {
     pub fn context(&self, key: &str) -> Option<&Value> {
-        self.context.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+        self.context.get(key)
+    }
+
+    pub fn ui_context_entries(&self) -> Vec<UIContextEntry> {
+        self.context
+            .iter()
+            .map(|(k, v)| UIContextEntry {
+                key: SharedString::from(k),
+                value: SharedString::from(v.to_string()),
+            })
+            .collect()
+    }
+
+    pub fn ui_group_color(&self) -> Option<Color> {
+        let group_id = self.context("group_id")?.as_str().ok()?;
+        Some(color_from_string(group_id))
     }
 
     pub fn event_name(&self) -> &str {
@@ -33,25 +50,13 @@ impl LogEvent {
 
     pub fn timestamp(&self) -> i64 {
         self.context
-            .iter()
-            .find(|(k, _)| k == TIME_KEY)
-            .and_then(|(_, v)| v.as_int().ok())
+            .get(TIME_KEY)
+            .and_then(|v| v.as_int().ok())
             .unwrap_or(0)
     }
 
-    pub fn context_entries(&self) -> Vec<(String, String)> {
-        self.context
-            .iter()
-            .filter(|(k, _)| *k != TIME_KEY) // timestamp is handled separately
-            .map(|(k, v)| (k.clone(), v.to_string()))
-            .collect()
-    }
-
     pub fn group_id(&self) -> Option<&str> {
-        self.context
-            .iter()
-            .find(|(k, _)| k == "group_id")
-            .and_then(|(_, v)| v.as_str().ok())
+        self.context.get("group_id").and_then(|v| v.as_str().ok())
     }
 
     pub fn from<'a>(lines: &mut Peekable<impl Iterator<Item = &'a str>>) -> Result<Self> {
@@ -81,7 +86,7 @@ impl LogEvent {
             bail!("Unable to find matching event for {event_str}");
         };
 
-        let mut context = Vec::new();
+        let mut context = HashMap::new();
         for pair in object.into_inner() {
             if !matches!(pair.as_rule(), Rule::pair) {
                 continue;
@@ -97,13 +102,11 @@ impl LogEvent {
                 continue;
             };
 
-            context.push((key.as_str().to_string(), value));
+            context.insert(key.as_str().to_string(), value);
         }
 
-        let (_, inbox) = context
-            .extract_if(.., |(k, _)| k == "inst")
-            .collect::<Vec<_>>()
-            .pop()
+        let inbox = context
+            .remove("inst")
             .with_context(|| format!("{line_str} is missing inst field."))?;
         let inbox = inbox.as_str()?.to_string();
 
@@ -118,6 +121,7 @@ impl LogEvent {
 
         Ok(Self {
             event: event_meta.event,
+            msg: event_str.to_string(),
             installation: inbox,
             context,
             intermediate,
