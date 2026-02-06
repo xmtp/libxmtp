@@ -32,3 +32,15 @@ export function getCommitsBetween(
   if (!output) return [];
   return output.split("\n").filter(Boolean);
 }
+
+export function createTag(cwd: string, tag: string): void {
+  exec(`git tag ${tag}`, cwd);
+}
+
+export function pushTag(cwd: string, tag: string, pushBranch: boolean): void {
+  if (pushBranch) {
+    exec(`git push origin HEAD ${tag}`, cwd);
+  } else {
+    exec(`git push origin ${tag}`, cwd);
+  }
+}

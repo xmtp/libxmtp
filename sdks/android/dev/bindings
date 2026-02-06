@@ -10,11 +10,11 @@ nix build "${ROOT}#android-libs" --out-link "${SDK_ROOT}/.build/nix"
 # Set up the bindings directory structure for Gradle
 BINDINGS_DIR="${SDK_ROOT}/.build/bindings"
 rm -rf "${BINDINGS_DIR}"
-mkdir -p "${BINDINGS_DIR}/java"
+mkdir -p "${BINDINGS_DIR}/java/uniffi/xmtpv3"
 mkdir -p "${BINDINGS_DIR}/jniLibs"
 
 # Copy Kotlin bindings
-cp "${SDK_ROOT}/.build/nix/kotlin/xmtpv3.kt" "${BINDINGS_DIR}/java/"
+cp "${SDK_ROOT}/.build/nix/kotlin/xmtpv3.kt" "${BINDINGS_DIR}/java/uniffi/xmtpv3/"
 cp "${SDK_ROOT}/.build/nix/kotlin/libxmtp-version.txt" "${BINDINGS_DIR}/"
 
 # Copy JNI libraries for each ABI
@@ -24,5 +24,5 @@ for abi in arm64-v8a armeabi-v7a x86 x86_64; do
 done
 
 echo "Android bindings built successfully:"
-echo "  Kotlin: ${BINDINGS_DIR}/java/xmtpv3.kt"
+echo "  Kotlin: ${BINDINGS_DIR}/java/uniffi/xmtpv3/xmtpv3.kt"
 echo "  JNI libs: ${BINDINGS_DIR}/jniLibs/"

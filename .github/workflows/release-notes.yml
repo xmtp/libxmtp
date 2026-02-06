@@ -26,17 +26,13 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Detected release version: $VERSION"
 
-      - name: Set up Node.js
-        uses: ./.github/actions/setup-node
-
-      - name: Install release-tools
-        run: cd dev/release-tools && yarn install
+      - uses: ./.github/actions/setup-release-tools
 
       - name: Find and classify release notes
         id: classify
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          RESULT=$(cd dev/release-tools && yarn --silent cli classify-notes --release-version "$VERSION")
+          RESULT=$(xmtp-release classify-notes --release-version "$VERSION")
 
           echo "has_empty=$(echo "$RESULT" | jq -r '.hasEmpty')" >> "$GITHUB_OUTPUT"
           echo "has_content=$(echo "$RESULT" | jq -r '.hasContent')" >> "$GITHUB_OUTPUT"

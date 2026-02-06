@@ -2,6 +2,7 @@ import semver from "semver";
 import type { ArgumentsCamelCase, Argv } from "yargs";
 import type { BumpType, GlobalArgs } from "../types.js";
 import { getSdkConfig } from "../lib/sdk-config.js";
+import { normalizeVersion } from "../lib/version.js";
 
 export function bumpVersion(
   sdk: string,
@@ -10,9 +11,11 @@ export function bumpVersion(
 ): string {
   const config = getSdkConfig(sdk);
   const currentVersion = config.manifest.readVersion(repoRoot);
-  const newVersion = semver.inc(currentVersion, bumpType);
+  const baseVersion = normalizeVersion(currentVersion);
+
+  const newVersion = semver.inc(baseVersion, bumpType);
   if (!newVersion) {
-    throw new Error(`Failed to bump ${bumpType} on version ${currentVersion}`);
+    throw new Error(`Failed to bump ${bumpType} on version ${baseVersion}`);
   }
   config.manifest.writeVersion(repoRoot, newVersion);
   return newVersion;

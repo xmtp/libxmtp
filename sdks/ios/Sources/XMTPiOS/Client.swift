@@ -148,6 +148,7 @@ struct ApiCacheKey {
 	}
 }
 
+// To be removed in a future release
 actor ApiClientCache {
 	private var apiClientCache: [String: XmtpApiClient] = [:]
 	private var syncApiClientCache: [String: XmtpApiClient] = [:]

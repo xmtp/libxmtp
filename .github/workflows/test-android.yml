@@ -3,9 +3,9 @@ name: Android Tests
 on:
   push:
     branches: ["main"]
-    paths: ["sdks/android/**", "bindings/mobile/**", "crates/**"]
+    paths: ["sdks/android/**", "bindings/mobile/**", "crates/**", "nix/**"]
   pull_request:
-    paths: ["sdks/android/**", "bindings/mobile/**", "crates/**"]
+    paths: ["sdks/android/**", "bindings/mobile/**", "crates/**", "nix/**"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

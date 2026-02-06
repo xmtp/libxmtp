@@ -9,4 +9,4 @@ ensure_nix_shell "$@"
 
 # Assemble xcframework from Nix-built artifacts
 cd "${ROOT}/bindings/mobile"
-make lipo framework frameworkdyn
+make lipo framework

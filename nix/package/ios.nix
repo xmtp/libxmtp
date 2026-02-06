@@ -69,23 +69,19 @@ let
   # rather than failing deep in the cc-rs build with cryptic SDK path errors.
   buildTarget = target:
     let
-      targetEnv = iosEnv.envVars // {
-        CARGO_BUILD_TARGET = target;
-      };
-
       envSetup = iosEnv.envSetup target;
 
       # Phase 1: Dep caching — rebuilds when Cargo.lock, Cargo.toml, or build.rs change.
-      cargoArtifacts = rust.buildDepsOnly (targetEnv // commonArgs // {
+      cargoArtifacts = rust.buildDepsOnly (commonArgs // {
         pname = "xmtpv3-deps-${target}";
+        CARGO_BUILD_TARGET = target;
         # Impure: needs Xcode SDK for bindgen during dep compilation
         __noChroot = true;
         cargoExtraArgs = "--target ${target} -p xmtpv3";
         # envSetup is inlined in buildPhaseCargoCommand because crane's buildDepsOnly
         # strips preBuild hooks (it needs full control of the build phase to replace
-        # source files with dummies). The env overrides must happen here to counteract
-        # Nix's apple-sdk setup hook which sets DEVELOPER_DIR/SDKROOT after derivation
-        # env vars are applied.
+        # source files with dummies). envSetup dynamically resolves the Xcode path
+        # via xcode-select and sets DEVELOPER_DIR, SDKROOT, CC/CXX, and bindgen args.
         buildPhaseCargoCommand = ''
           ${envSetup}
           cargo build --release --target ${target} -p xmtpv3
@@ -93,8 +89,9 @@ let
       });
     in
     # Phase 2: Build project source using cached dep artifacts.
-    rust.buildPackage (targetEnv // commonArgs // {
+    rust.buildPackage (commonArgs // {
       inherit cargoArtifacts version;
+      CARGO_BUILD_TARGET = target;
       __noChroot = true;
       pname = "xmtpv3-${target}";
       src = bindingsFileset;
@@ -108,6 +105,7 @@ let
         mkdir -p $out/${target}
         cp target/${target}/release/libxmtpv3.a $out/${target}/
         cp target/${target}/release/libxmtpv3.dylib $out/${target}/
+        install_name_tool -id @rpath/libxmtpv3.dylib $out/${target}/libxmtpv3.dylib
       '';
     });
 
