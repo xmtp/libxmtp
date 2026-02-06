@@ -1,0 +1,47 @@
+name: Release XMTP Android Package
+on:
+  push:
+    branches:
+      - release
+
+env:
+  RELEASE_VERSION: "4.9.0"
+
+jobs:
+  library:
+    name: Release Library
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout project sources
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Configure JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: "adopt"
+          java-version: "17"
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+      - name: Run build with Gradle Wrapper
+        run: ./gradlew :library:build
+      - name: Tag version ${{ env.RELEASE_VERSION }}
+        run: |
+          git tag ${{ env.RELEASE_VERSION }}
+          git push origin ${{ env.RELEASE_VERSION }}
+      - name: Create a GitHub release for version ${{ env.RELEASE_VERSION }}
+        uses: ncipollo/release-action@v1
+        with:
+          tag: "${{ env.RELEASE_VERSION }}"
+          name: "v${{ env.RELEASE_VERSION }}"
+          body: " "
+
+      - name: Gradle Publish
+        env:
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
+          MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
+          SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
+          SIGN_PASSWORD: ${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}
+          MAVEN_PROFILE_ID: ${{ secrets.MAVEN_PROFILE_ID }}
+        run: ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository
