@@ -277,7 +277,7 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             // Build message with context for non-structured logging
             let __message = if ::xmtp_common::is_structured_logging() {
                 // Structured logging: include installation_id and timestamp in message
-                format!("➣ {} {{time_ms: {__now_ms}, inst: {__inst}}}", __meta.doc)
+                format!("➣ {} {{time_ms: {__now_ms}, inst: \"{__inst}\"}}", __meta.doc)
             } else {
                 // Non-structured logging: embed context in message for readability
                 let mut __context_parts: ::std::vec::Vec<String> = __meta.context_fields
@@ -291,7 +291,7 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     .collect();
 
                 __context_parts.push(format!("time_ms: {__now_ms}"));
-                __context_parts.push(format!("inst: {__inst}"));
+                __context_parts.push(format!("inst: \"{__inst}\""));
                 let __context_str = __context_parts.join(", ");
 
                 format!("➣ {} {{{__context_str}}}", __meta.doc)
