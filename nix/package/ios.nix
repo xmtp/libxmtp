@@ -1,6 +1,6 @@
 # iOS cross-compilation package derivation.
 # Builds static and dynamic libraries for 4 targets + Swift bindings, cacheable in Cachix.
-# Uses shared config from nix/lib/ios-env.nix.
+# Uses shared config from nix/lib/ios-env.nix and nix/lib/mobile-common.nix.
 #
 # This file produces 6 derivations:
 #   1-4. Per-target static+dynamic libraries (impure — need Xcode SDK):
@@ -23,7 +23,6 @@
 #   4. `make local` would break — devs who don't use nix build depend on the Makefile flow.
 #   5. Manually building xcframework (without xcodebuild) would be fragile.
 { lib
-, fenix
 , zstd
 , openssl
 , sqlite
@@ -37,6 +36,11 @@
 let
   iosEnv = import ./../lib/ios-env.nix { inherit lib; };
 
+  # Shared mobile build configuration (commonArgs, filesets, version)
+  mobile = import ./../lib/mobile-common.nix {
+    inherit lib craneLib xmtp zstd openssl sqlite pkg-config perl;
+  };
+
   # Rust toolchain with iOS/macOS cross-compilation targets.
   # No clippy/rustfmt — this is a build-only toolchain (the dev shell adds those).
   # overrideToolchain tells crane to use our custom fenix-based toolchain instead
@@ -44,57 +48,11 @@ let
   rust-toolchain = xmtp.mkToolchain iosEnv.iosTargets [];
   rust = craneLib.overrideToolchain (p: rust-toolchain);
 
-  # Narrow fileset for buildDepsOnly — only includes files that affect
-  # dependency compilation. Cargo.toml/Cargo.lock for resolution, build.rs
-  # for build scripts, plus files referenced by build scripts.
-  # Source (.rs) changes don't invalidate the dep cache since crane replaces
-  # them with dummies anyway.
-  #
-  # If a new crate with a build.rs is added to the workspace, its build.rs
-  # will be picked up automatically by the fileFilter below. If that build.rs
-  # references additional files (like JSON configs or migration dirs), those
-  # files must be added to the union list manually.
-  depsFileset = lib.fileset.toSource {
-    root = ./../..;
-    fileset = lib.fileset.unions [
-      ../../Cargo.lock
-      ../../.cargo/config.toml
-      # All Cargo.toml and build.rs files in the workspace
-      (lib.fileset.fileFilter (file:
-        file.name == "Cargo.toml" || file.name == "build.rs"
-      ) ../../.)
-      # Files referenced by build scripts (e.g., include_bytes!, include_str!).
-      # These are needed at dep-compilation time because build.rs runs then.
-      ../../crates/xmtp_id/src/scw_verifier/chain_urls_default.json
-      ../../crates/xmtp_id/artifact
-      ../../crates/xmtp_id/src/scw_verifier/signature_validation.hex
-      ../../crates/xmtp_db/migrations
-      ../../crates/xmtp_proto/src/gen/proto_descriptor.bin
-    ];
-  };
+  # Extract version once for use throughout the file
+  version = mobile.mkVersion rust;
 
-  # Full fileset for buildPackage — includes all source files needed to compile
-  # the xmtpv3 crate and its workspace dependencies.
-  # Uses xmtp.filesets.forCrate which walks Cargo.toml dependencies to include
-  # only relevant crates, unlike depsFileset which excludes .rs files entirely.
-  bindingsFileset = lib.fileset.toSource {
-    root = ./../..;
-    fileset = (xmtp.filesets { inherit lib craneLib; }).forCrate ./../../bindings/mobile;
-  };
-
-  commonArgs = {
-    # depsFileset for buildDepsOnly; buildPackage calls override with bindingsFileset
-    src = depsFileset;
-    strictDeps = true;
-    # perl is needed for openssl-sys's vendored build (its Configure script is Perl).
-    nativeBuildInputs = [ pkg-config perl ];
-    buildInputs = [ zstd openssl sqlite ];
-    doCheck = false;
-    # For iOS cross-compilation, openssl must be vendored (built from source per target).
-    # Do NOT set OPENSSL_NO_VENDOR — that would try to link a macOS-built libssl
-    # into an iOS binary, causing linker errors.
-    hardeningDisable = [ "zerocallusedregs" ];
-  };
+  # Inherit shared config
+  inherit (mobile) commonArgs depsFileset bindingsFileset;
 
   # Build static (.a) and dynamic (.dylib) libraries for a single cross-compilation target.
   #
@@ -135,13 +93,10 @@ let
     in
     # Phase 2: Build project source using cached dep artifacts.
     rust.buildPackage (targetEnv // commonArgs // {
-      inherit cargoArtifacts;
+      inherit cargoArtifacts version;
       __noChroot = true;
       pname = "xmtpv3-${target}";
       src = bindingsFileset;
-      inherit (rust.crateNameFromCargoToml {
-        cargoToml = ./../../Cargo.toml;
-      }) version;
       cargoExtraArgs = "--target ${target} -p xmtpv3";
       # preBuild works here (unlike buildDepsOnly) because buildPackage doesn't
       # need to replace source files, so crane leaves the build hooks intact.
@@ -170,9 +125,7 @@ let
     pname = "xmtpv3-swift-bindings";
     __noChroot = true;
     src = bindingsFileset;
-    inherit (rust.crateNameFromCargoToml {
-      cargoToml = ./../../Cargo.toml;
-    }) version;
+    inherit version;
     cargoArtifacts = rust.buildDepsOnly (commonArgs // {
       pname = "xmtpv3-swift-bindings-deps";
       __noChroot = true;
@@ -219,9 +172,7 @@ let
   # creates symlinks to other Nix store paths.
   aggregate = stdenv.mkDerivation {
     pname = "xmtpv3-ios-libs";
-    version = (rust.crateNameFromCargoToml {
-      cargoToml = ./../../Cargo.toml;
-    }).version;
+    inherit version;
     dontUnpack = true;
     installPhase = ''
       mkdir -p $out/swift
