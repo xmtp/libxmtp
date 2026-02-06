@@ -8,6 +8,7 @@ public enum ClientError: Error, CustomStringConvertible, LocalizedError {
 	case creationError(String)
 	case missingInboxId
 	case invalidInboxId(String)
+	case clientDeallocated
 
 	public var description: String {
 		switch self {
@@ -17,6 +18,8 @@ public enum ClientError: Error, CustomStringConvertible, LocalizedError {
 			"ClientError.missingInboxId"
 		case let .invalidInboxId(inboxId):
 			"Invalid inboxId: \(inboxId). Inbox IDs cannot start with '0x'."
+		case .clientDeallocated:
+			"ClientError.clientDeallocated: The Client has been deallocated."
 		}
 	}
 
@@ -125,8 +128,8 @@ public struct ClientOptions {
 		deviceSyncEnabled: Bool = true,
 		debugEventsEnabled: Bool = false,
 		forkRecoveryOptions: ForkRecoveryOptions? = nil,
-		maxDbPoolSize _: UInt32? = nil,
-		minDbPoolSize _: UInt32? = nil,
+		maxDbPoolSize: UInt32? = nil,
+		minDbPoolSize: UInt32? = nil,
 	) {
 		self.api = api
 		self.codecs = codecs
@@ -141,8 +144,8 @@ public struct ClientOptions {
 		self.deviceSyncEnabled = deviceSyncEnabled
 		self.debugEventsEnabled = debugEventsEnabled
 		self.forkRecoveryOptions = forkRecoveryOptions
-		maxDbPoolSize = maxDbPoolSize
-		minDbPoolSize = minDbPoolSize
+		self.maxDbPoolSize = maxDbPoolSize
+		self.minDbPoolSize = minDbPoolSize
 	}
 }
 
@@ -193,11 +196,11 @@ public final class Client {
 	)
 
 	public lazy var preferences: PrivatePreferences = .init(
-		client: self, ffiClient: ffiClient,
+		ffiClient: ffiClient,
 	)
 
 	public lazy var debugInformation: XMTPDebugInformation = .init(
-		client: self, ffiClient: ffiClient,
+		historySyncUrl: environment.getHistorySyncUrl(), ffiClient: ffiClient,
 	)
 
 	static var codecRegistry = CodecRegistry()
