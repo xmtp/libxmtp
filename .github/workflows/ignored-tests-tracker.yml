@@ -1,0 +1,142 @@
+name: Ignored Tests Tracker
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+
+jobs:
+  test-ignored-native:
+    name: Native Ignored Tests (${{ matrix.features }})
+    runs-on: warp-ubuntu-latest-x64-16x
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - features: "default"
+            feature_flag: ""
+          - features: "d14n"
+            feature_flag: "--features d14n"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache
+        uses: WarpBuilds/rust-cache@v2
+        with:
+          workspaces: |
+            .
+
+      - name: Run ignored tests
+        shell: bash
+        run: |
+          set +e
+          cargo test --workspace --exclude bindings_wasm ${{ matrix.feature_flag }} -- --ignored 2>&1 | tee test-output.txt
+
+          # Check if cargo actually ran tests
+          if ! grep -qE "(running [0-9]+ tests|test result:)" test-output.txt; then
+            echo "::warning::Cargo may have failed before running tests"
+            echo "CARGO_BUILD_FAILURE" >> test-output.txt
+          fi
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.features }}-results
+          path: test-output.txt
+          retention-days: 7
+
+  test-ignored-wasm:
+    name: WASM Ignored Tests (${{ matrix.features }})
+    runs-on: warp-ubuntu-latest-x64-8x
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - features: "default"
+            feature_flag: ""
+          - features: "d14n"
+            feature_flag: "--features d14n"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache
+        uses: WarpBuilds/rust-cache@v2
+        with:
+          workspaces: |
+            .
+
+      - uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: true
+
+      - uses: DeterminateSystems/flakehub-cache-action@main
+
+      - uses: cachix/cachix-action@v16
+        with:
+          name: xmtp
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Run ignored tests
+        shell: bash
+        run: |
+          set +e
+          # Use --workspace with exclusions to automatically pick up new WASM-compatible packages
+          # Exclusions based on nix/package/wasm.nix - packages that don't support WASM target
+          nix develop .#wasm --command \
+            cargo test --locked --release ${{ matrix.feature_flag }} \
+            --workspace \
+            --exclude xmtpv3 \
+            --exclude bindings_node \
+            --exclude xmtp_cli \
+            --exclude xdbg \
+            --exclude mls_validation_service \
+            --exclude xmtp_api_grpc \
+            --exclude xmtp-db-tools \
+            -- --ignored 2>&1 | tee test-output.txt
+
+          # Check if cargo actually ran tests
+          if ! grep -qE "(running [0-9]+ tests|test result:)" test-output.txt; then
+            echo "::warning::Cargo may have failed before running tests"
+            echo "CARGO_BUILD_FAILURE" >> test-output.txt
+          fi
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-${{ matrix.features }}-results
+          path: test-output.txt
+          retention-days: 7
+
+  update-issue:
+    name: Update Tracking Issue
+    runs-on: ubuntu-latest
+    needs: [test-ignored-native, test-ignored-wasm]
+    if: always()
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Update tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          .github/scripts/update-ignored-tests-issue.sh \
+            artifacts \
+            "${{ github.run_number }}" \
+            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
