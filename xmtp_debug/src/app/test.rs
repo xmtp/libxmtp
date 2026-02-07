@@ -231,7 +231,19 @@ impl Test {
 
         // Step 3: Sync user2 to receive the group welcome (but don't sync messages yet)
         println!("Syncing user2 welcomes...");
-        client2.sync_welcomes().await?;
+        let mut welcome_attempts = 0;
+        loop {
+            client2.sync_welcomes().await?;
+            if client2.group(&group.group_id).is_ok() {
+                break;
+            }
+            welcome_attempts += 1;
+            if welcome_attempts >= 30 {
+                return Err(eyre!("Welcome never arrived after {} attempts", welcome_attempts));
+            }
+            println!("  Welcome not yet received, retrying ({}/30)...", welcome_attempts);
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
 
         // Step 4: user1 sends N messages to the group
         println!("User1 sending {} messages...", message_count);

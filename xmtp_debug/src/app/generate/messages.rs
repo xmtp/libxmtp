@@ -17,6 +17,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use rand::{Rng, SeedableRng, prelude::IteratorRandom, rngs::SmallRng, seq::SliceRandom};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
@@ -84,7 +85,8 @@ impl GenerateMessages {
         })
     }
 
-    pub async fn run(self, n: usize) -> Result<()> {
+    /// Returns Vec of send_message latencies (only the actual send, not sync overhead)
+    pub async fn run(self, n: usize) -> Result<Vec<Duration>> {
         info!(fdlimit = app::get_fdlimit(), "generating messages");
         let args::MessageGenerateOpts {
             r#loop,
@@ -95,7 +97,7 @@ impl GenerateMessages {
             ..
         } = self.opts;
 
-        self.send_many_messages(n).await?;
+        let mut all_latencies = self.send_many_messages(n).await?;
 
         if r#loop {
             loop {
@@ -104,7 +106,7 @@ impl GenerateMessages {
                 let group_store = self.group_store.clone();
                 let network = self.network.clone();
                 let identities = self.identities.clone();
-                tokio::try_join!(
+                let (latencies, _, _) = tokio::try_join!(
                     self.send_many_messages(n),
                     flatten(tokio::spawn(Self::add_member(
                         add_and_change_description,
@@ -122,9 +124,10 @@ impl GenerateMessages {
                         identities.clone()
                     ))),
                 )?;
+                all_latencies.extend(latencies);
             }
         }
-        Ok(())
+        Ok(all_latencies)
     }
 
     async fn add_member(
@@ -211,7 +214,8 @@ impl GenerateMessages {
         }
     }
 
-    async fn send_many_messages(&self, n: usize) -> Result<usize> {
+    /// Returns a Vec of send_message latencies (only the actual send, not sync overhead)
+    async fn send_many_messages(&self, n: usize) -> Result<Vec<Duration>> {
         let Self { network, opts, .. } = self;
 
         let style = ProgressStyle::with_template(
@@ -221,7 +225,7 @@ impl GenerateMessages {
 
         let semaphore = self.semaphore.clone();
         let clients = self.identities.clone();
-        let mut set: tokio::task::JoinSet<Result<(), eyre::Error>> = tokio::task::JoinSet::new();
+        let mut set: tokio::task::JoinSet<Result<Duration, eyre::Error>> = tokio::task::JoinSet::new();
         let stores = (self.identity_store.clone(), self.group_store.clone());
         for _ in 0..n {
             let bar_pointer = bar.clone();
@@ -232,9 +236,9 @@ impl GenerateMessages {
             let cs = clients.clone();
             set.spawn(async move {
                 let _permit = semaphore.acquire().await?;
-                Self::send_message(&group, cs, n, opts).await?;
+                let latency = Self::send_message(&group, cs, n, opts).await?;
                 bar_pointer.inc(1);
-                Ok(())
+                Ok(latency)
             });
         }
 
@@ -253,19 +257,20 @@ impl GenerateMessages {
             info!(errors = ?errors, "errors");
         }
 
-        let msgs_sent = res
+        let latencies: Vec<Duration> = res
             .into_iter()
-            .filter(|r| r.is_ok())
-            .collect::<Vec<Result<_, _>>>();
-        Ok(msgs_sent.len())
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(latencies)
     }
 
+    /// Returns the duration of just the send_message() call (excluding sync overhead)
     async fn send_message(
         group_store: &GroupStore<'static>,
         clients: Arc<HashMap<InboxId, Mutex<DbgClient>>>,
         network: args::BackendOpts,
         opts: args::MessageGenerateOpts,
-    ) -> Result<(), MessageSendError> {
+    ) -> Result<Duration, MessageSendError> {
         let args::MessageGenerateOpts {
             ref max_message_size,
             ..
@@ -288,6 +293,8 @@ impl GenerateMessages {
             let words = rng.gen_range(0..*max_message_size);
             let words = lipsum::lipsum_words_with_rng(&mut *rng, words as usize);
             let message = content_type::new_message(words);
+            // Time ONLY the send_message() call
+            let start = Instant::now();
             group
                 .send_message(
                     &message,
@@ -297,7 +304,8 @@ impl GenerateMessages {
                         .unwrap(),
                 )
                 .await?;
-            Ok(())
+            let send_latency = start.elapsed();
+            Ok(send_latency)
         } else {
             Err(MessageSendError::NoGroup)
         }
