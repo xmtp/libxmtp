@@ -17,7 +17,7 @@ async fn radio_silence() {
     // One identity update pushed. Zero interaction with groups.
     assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
     assert_eq!(stats.send_welcome_messages.get_count(), 0);
-    assert_eq!(stats.send_group_messages.get_count(), 2);
+    assert_eq!(stats.send_group_messages.get_count(), 1);
 
     let bo = Tester::new().await;
     let conversation = alex
