@@ -132,6 +132,7 @@ web-time = "1.1"
 zeroize = "1.8"
 smallvec = { version = "1.15", features = ["union"] }
 http-body-util = { version = "0.1" }
+time = "0.3.47"
 
 # Internal Crate Dependencies
 bindings-wasm = { path = "bindings/wasm" }
