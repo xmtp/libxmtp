@@ -3,6 +3,7 @@ import {
   createPodspecManifestProvider,
   createGradlePropertiesManifestProvider,
   createCargoManifestProvider,
+  createPackageJsonManifestProvider,
 } from "./manifest";
 
 export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
@@ -22,6 +23,20 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     manifest: createGradlePropertiesManifestProvider(
       "sdks/android/gradle.properties",
     ),
+  },
+  [Sdk.Node]: {
+    name: "Node",
+    manifestPath: "bindings/node/package.json",
+    tagPrefix: "node-bindings-",
+    artifactTagSuffix: "",
+    manifest: createPackageJsonManifestProvider("bindings/node/package.json"),
+  },
+  [Sdk.Wasm]: {
+    name: "WASM",
+    manifestPath: "bindings/wasm/package.json",
+    tagPrefix: "wasm-bindings-",
+    artifactTagSuffix: "",
+    manifest: createPackageJsonManifestProvider("bindings/wasm/package.json"),
   },
   [Sdk.Libxmtp]: {
     name: "Libxmtp",

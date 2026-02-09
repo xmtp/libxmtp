@@ -1,6 +1,8 @@
 export enum Sdk {
   Ios = "ios",
   Android = "android",
+  Node = "node",
+  Wasm = "wasm",
   Libxmtp = "libxmtp",
 }
 

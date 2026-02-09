@@ -1,0 +1,134 @@
+name: Release WASM Bindings
+
+on:
+  workflow_call:
+    inputs:
+      release-type:
+        required: true
+        type: string
+        description: "dev, rc, or final"
+      rc-number:
+        required: false
+        type: number
+        description: "RC number (required for rc releases)"
+      ref:
+        required: true
+        type: string
+        description: "Git ref to build from"
+    outputs:
+      version:
+        description: "The published version string"
+        value: ${{ jobs.tag.outputs.version }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/setup-release-tools
+
+      - name: Compute version
+        id: version
+        run: |
+          if [ "${{ inputs.release-type }}" = "rc" ]; then
+            VERSION=$(xmtp-release compute-version --sdk wasm --release-type rc --rc-number ${{ inputs.rc-number }})
+          elif [ "${{ inputs.release-type }}" = "dev" ]; then
+            VERSION=$(xmtp-release compute-version --sdk wasm --release-type dev)
+          else
+            VERSION=$(xmtp-release compute-version --sdk wasm --release-type final)
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Computed version: $VERSION"
+
+  build:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          workspaces: |
+            .
+            bindings/wasm
+
+      - uses: ./.github/actions/setup-release-tools
+
+      - name: Set version in package.json
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: xmtp-release set-manifest-version --sdk wasm --version "$VERSION"
+
+      - name: Install wasm-bindgen
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@0.2.108
+
+      - name: Setup node
+        uses: ./.github/actions/setup-node
+        with:
+          cache-dependency-path: "bindings/wasm/yarn.lock"
+
+      - name: Install dependencies
+        working-directory: bindings/wasm
+        run: |
+          yarn
+
+      - name: Install emscripten toolchains
+        run: |
+          git clone https://github.com/emscripten-core/emsdk.git
+          cd emsdk
+          ./emsdk install latest
+          ./emsdk activate latest
+
+      - name: Build
+        working-directory: bindings/wasm
+        run: |
+          source ../../emsdk/emsdk_env.sh
+          yarn build
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v6
+        with:
+          name: wasm_build
+          path: |
+            bindings/wasm/dist
+            bindings/wasm/package.json
+            bindings/wasm/yarn.lock
+          retention-days: 1
+
+  publish:
+    needs: [setup, build]
+    uses: ./.github/workflows/npm-publish.yml
+    with:
+      package-dir: bindings/wasm
+      tag-prefix: wasm-bindings
+      artifact-pattern: wasm_build
+      artifact-path: bindings/wasm
+    secrets: inherit
+
+  tag:
+    needs: [setup, publish]
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ needs.setup.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/setup-release-tools
+
+      - name: Tag release
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: xmtp-release tag-release --sdk wasm --version "$VERSION"

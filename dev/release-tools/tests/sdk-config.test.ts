@@ -15,6 +15,14 @@ describe("SDK configs", () => {
     expect(android.name).toBe("Android");
     expect(android.tagPrefix).toBe("android-");
 
+    const node = getSdkConfig("node");
+    expect(node.name).toBe("Node");
+    expect(node.tagPrefix).toBe("node-bindings-");
+
+    const wasm = getSdkConfig("wasm");
+    expect(wasm.name).toBe("WASM");
+    expect(wasm.tagPrefix).toBe("wasm-bindings-");
+
     const libxmtp = getSdkConfig("libxmtp");
     expect(libxmtp.name).toBe("Libxmtp");
     expect(libxmtp.tagPrefix).toBe("v");
@@ -22,7 +30,7 @@ describe("SDK configs", () => {
 
   it("throws for unknown SDK with available options", () => {
     expect(() => getSdkConfig("unknown")).toThrow(
-      "Unknown SDK: unknown. Available: ios, android, libxmtp",
+      "Unknown SDK: unknown. Available: ios, android, node, wasm, libxmtp",
     );
   });
 
@@ -54,6 +62,56 @@ describe("SDK configs", () => {
 
       config.manifest.writeVersion(tmpDir, "2.0.0-dev.abc1234");
       expect(config.manifest.readVersion(tmpDir)).toBe("2.0.0-dev.abc1234");
+    });
+  });
+
+  describe("Node manifest provider", () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "release-tools-test-"));
+      fs.mkdirSync(path.join(tmpDir, "bindings", "node"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, "bindings", "node", "package.json"),
+        '{\n  "name": "@xmtp/node-bindings",\n  "version": "1.10.0"\n}\n',
+      );
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true });
+    });
+
+    it("reads and writes version via manifest provider", () => {
+      const config = getSdkConfig("node");
+      expect(config.manifest.readVersion(tmpDir)).toBe("1.10.0");
+
+      config.manifest.writeVersion(tmpDir, "1.11.0-dev.abc1234");
+      expect(config.manifest.readVersion(tmpDir)).toBe("1.11.0-dev.abc1234");
+    });
+  });
+
+  describe("WASM manifest provider", () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "release-tools-test-"));
+      fs.mkdirSync(path.join(tmpDir, "bindings", "wasm"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, "bindings", "wasm", "package.json"),
+        '{\n  "name": "@xmtp/wasm-bindings",\n  "version": "1.10.0"\n}\n',
+      );
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true });
+    });
+
+    it("reads and writes version via manifest provider", () => {
+      const config = getSdkConfig("wasm");
+      expect(config.manifest.readVersion(tmpDir)).toBe("1.10.0");
+
+      config.manifest.writeVersion(tmpDir, "1.11.0-dev.abc1234");
+      expect(config.manifest.readVersion(tmpDir)).toBe("1.11.0-dev.abc1234");
     });
   });
 

@@ -1,30 +1,51 @@
 name: Release Node Bindings
 
 on:
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release-type:
+        required: true
+        type: string
+        description: "dev, rc, or final"
+      rc-number:
+        required: false
+        type: number
+        description: "RC number (required for rc releases)"
+      ref:
+        required: true
+        type: string
+        description: "Git ref to build from"
+    outputs:
+      version:
+        description: "The published version string"
+        value: ${{ jobs.tag.outputs.version }}
 
 jobs:
-  check-versions:
+  setup:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/setup-release-tools
 
-      - name: Check versions are in sync
+      - name: Compute version
+        id: version
         run: |
-          chmod +x dev/sync-versions.sh
-          ./dev/sync-versions.sh
-
-          # Check if there are any changes after syncing versions
-          if [[ -n $(git status --porcelain) ]]; then
-            echo "::error::Version mismatch detected! Please run 'dev/sync-versions.sh' locally, commit the changes before releasing bindings/node"
-            echo "Changes detected:"
-            git status --porcelain
-            exit 1
+          if [ "${{ inputs.release-type }}" = "rc" ]; then
+            VERSION=$(xmtp-release compute-version --sdk node --release-type rc --rc-number ${{ inputs.rc-number }})
+          elif [ "${{ inputs.release-type }}" = "dev" ]; then
+            VERSION=$(xmtp-release compute-version --sdk node --release-type dev)
+          else
+            VERSION=$(xmtp-release compute-version --sdk node --release-type final)
           fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Computed version: $VERSION"
 
   build-linux:
-    needs: check-versions
+    needs: setup
     runs-on: warp-ubuntu-2204-x64-16x
     strategy:
       fail-fast: false
@@ -46,6 +67,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
 
       - uses: ./.github/actions/setup-rust
         with:
@@ -54,6 +77,13 @@ jobs:
             .
             bindings/node
           warp: 'true'
+
+      - uses: ./.github/actions/setup-release-tools
+
+      - name: Set version in package.json
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: xmtp-release set-manifest-version --sdk node --version "$VERSION"
 
       - name: Configure aarch64 toolchain
         if: startsWith(matrix.target, 'aarch64')
@@ -89,7 +119,7 @@ jobs:
         run: |
           yarn build:release --target ${{ matrix.target }}
 
-      - name: Build target (aaarch64)
+      - name: Build target (aarch64)
         if: startsWith(matrix.target, 'aarch64')
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
@@ -117,7 +147,7 @@ jobs:
           retention-days: 1
 
   build-macos:
-    needs: check-versions
+    needs: setup
     runs-on: warp-macos-latest-arm64-6x
     strategy:
       fail-fast: false
@@ -133,6 +163,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
 
       - uses: ./.github/actions/setup-rust
         with:
@@ -141,6 +173,13 @@ jobs:
             .
             bindings/node
           warp: 'true'
+
+      - uses: ./.github/actions/setup-release-tools
+
+      - name: Set version in package.json
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: xmtp-release set-manifest-version --sdk node --version "$VERSION"
 
       - name: Setup node
         uses: ./.github/actions/setup-node
@@ -165,7 +204,7 @@ jobs:
           retention-days: 1
 
   build-windows:
-    needs: check-versions
+    needs: setup
     runs-on: warp-windows-latest-x64-16x
     strategy:
       fail-fast: false
@@ -183,6 +222,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
 
       - uses: ./.github/actions/setup-rust
         with:
@@ -191,6 +232,13 @@ jobs:
             .
             bindings/node
           warp: 'true'
+
+      - uses: ./.github/actions/setup-release-tools
+
+      - name: Set version in package.json
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: xmtp-release set-manifest-version --sdk node --version "$VERSION"
 
       - name: Disable usePackageExitCodes feature
         uses: crazy-max/ghaction-chocolatey@v3
@@ -236,7 +284,7 @@ jobs:
           retention-days: 1
 
   publish:
-    needs: [build-linux, build-macos, build-windows]
+    needs: [setup, build-linux, build-macos, build-windows]
     uses: ./.github/workflows/npm-publish.yml
     with:
       package-dir: bindings/node
@@ -244,3 +292,19 @@ jobs:
       artifact-pattern: bindings_node_*
       artifact-path: bindings/node/dist
     secrets: inherit
+
+  tag:
+    needs: [setup, publish]
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ needs.setup.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/setup-release-tools
+
+      - name: Tag release
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: xmtp-release tag-release --sdk node --version "$VERSION"
