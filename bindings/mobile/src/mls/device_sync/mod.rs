@@ -15,7 +15,7 @@ use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
     /// Manually trigger a device sync request to sync records from another active device on this account.
-    pub async fn send_sync_request(
+    pub async fn send_full_sync_request(
         &self,
         options: FfiArchiveOptions,
         server_url: String,
@@ -120,6 +120,19 @@ pub struct FfiArchiveOptions {
     pub end_ns: Option<i64>,
     pub elements: Vec<FfiBackupElementSelection>,
     pub exclude_disappearing_messages: bool,
+}
+impl Default for FfiArchiveOptions {
+    fn default() -> Self {
+        Self {
+            elements: vec![
+                FfiBackupElementSelection::Messages,
+                FfiBackupElementSelection::Consent,
+            ],
+            end_ns: None,
+            start_ns: None,
+            exclude_disappearing_messages: false,
+        }
+    }
 }
 impl From<FfiArchiveOptions> for BackupOptions {
     fn from(value: FfiArchiveOptions) -> Self {
