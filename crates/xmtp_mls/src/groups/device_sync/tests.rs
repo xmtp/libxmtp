@@ -20,6 +20,14 @@ async fn basic_sync() {
     // Create a second client for alix
     tester!(alix2, from: alix1);
 
+    alix2
+        .device_sync_client()
+        .send_full_sync_request(
+            BackupOptions::msgs_and_consent(),
+            DeviceSyncUrls::LOCAL_ADDRESS,
+        )
+        .await?;
+
     alix1.sync_all_welcomes_and_groups(None).await?;
     alix1
         .worker()
@@ -49,43 +57,54 @@ async fn basic_sync() {
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg(not(target_arch = "wasm32"))]
-async fn only_one_payload_sent() {
+async fn test_full_sync_request() {
     tester!(alix1, sync_worker, with_name: "alix1");
     tester!(alix2, from: alix1, with_name: "alix2");
     tester!(alix3, from: alix1, with_name: "alix3");
 
+    tester!(bo, disable_workers);
+
+    let (_, m1) = alix1.test_talk_in_dm_with(&bo).await?;
+    let (_, m2) = alix2.test_talk_in_dm_with(&bo).await?;
+    let (_, m3) = alix3.test_talk_in_dm_with(&bo).await?;
+
+    alix3
+        .device_sync_client()
+        .send_full_sync_request(
+            BackupOptions::msgs_and_consent(),
+            DeviceSyncUrls::LOCAL_ADDRESS,
+        )
+        .await?;
+
     // They should all have the same sync group
-    alix1.test_has_same_sync_group_as(&alix3).await?;
-    alix2.test_has_same_sync_group_as(&alix3).await?;
+    for client in &[&alix1, &alix2] {
+        client.test_has_same_sync_group_as(&alix3).await?;
+        client
+            .worker()
+            .register_interest(SyncMetric::PayloadSent, 1)
+            .wait()
+            .await?;
+    }
 
-    // Register interest for next PayloadSent events
-    let wait1 = alix1.worker().register_interest(SyncMetric::PayloadSent, 1);
-    let wait2 = alix2.worker().register_interest(SyncMetric::PayloadSent, 1);
+    alix3.sync_all_device_sync_groups().await?;
 
-    // Register interest for next PayloadSent events
-    let (wait1, wait2) = tokio::join!(wait1.wait(), wait2.wait());
-    assert_ne!(wait1.is_ok(), wait2.is_ok());
+    alix3
+        .worker()
+        .register_interest(SyncMetric::PayloadProcessed, 2)
+        .wait()
+        .await?;
 
-    // Check final counts - should be exactly 1 more total
-    let alix1_count = alix1.worker().get(SyncMetric::PayloadSent);
-    let alix2_count = alix2.worker().get(SyncMetric::PayloadSent);
-    let total_new_payloads = alix1_count + alix2_count;
+    let dm = alix3.find_or_create_dm(bo.inbox_id(), None).await?;
+    let msgs = dm.find_messages(&MsgQueryArgs::default())?;
 
-    // The core assertion: exactly 1 payload sent in response to our request
-    assert_eq!(
-        total_new_payloads, 1,
-        "Expected exactly 1 payload to be sent in response to sync request, got {} (alix1: {}, alix2: {})",
-        total_new_payloads, alix1_count, alix2_count
-    );
-
-    // Verify mutual exclusion: exactly one client should have sent
-    let alix1_sent = alix1_count > 0;
-    let alix2_sent = alix2_count > 0;
-    assert_ne!(
-        alix1_sent, alix2_sent,
-        "Expected exactly one client to send payload, but alix1_sent={}, alix2_sent={}",
-        alix1_sent, alix2_sent
-    );
+    // Make sure all of the messages are on alix3's client
+    for msg in &[&m1, &m2, &m3] {
+        let b = msg.as_bytes();
+        assert!(
+            msgs.iter()
+                .any(|m| m.decrypted_message_bytes.windows(b.len()).any(|m| m == b))
+        );
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", ignore)]

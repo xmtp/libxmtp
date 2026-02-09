@@ -470,7 +470,7 @@ where
     pub async fn send_full_sync_request(
         &self,
         options: BackupOptions,
-        server_url: String,
+        server_url: impl ToString,
     ) -> Result<(), ClientError> {
         let sync_group = self.get_sync_group().await?;
         sync_group
@@ -481,7 +481,7 @@ where
         let request = DeviceSyncRequestProto {
             pin: xmtp_common::rand_string::<ENC_KEY_SIZE>(),
             options: Some(options.into()),
-            server_url,
+            server_url: server_url.to_string(),
 
             // Deprecated fields
             #[allow(deprecated)]
