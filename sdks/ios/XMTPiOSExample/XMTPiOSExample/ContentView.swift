@@ -36,8 +36,8 @@ struct ContentView: View {
 										options: .init(
 											api: .init(env: .dev, isSecure: true),
 											codecs: [GroupUpdatedCodec()],
-											dbEncryptionKey: keysData,
-										),
+											dbEncryptionKey: keysData
+										)
 									)
 									await MainActor.run {
 										status = .connected(client)
@@ -85,8 +85,8 @@ struct ContentView: View {
 					options: .init(
 						api: .init(env: .dev, isSecure: true),
 						codecs: [GroupUpdatedCodec()],
-						dbEncryptionKey: key,
-					),
+						dbEncryptionKey: key
+					)
 				)
 
 				await MainActor.run {

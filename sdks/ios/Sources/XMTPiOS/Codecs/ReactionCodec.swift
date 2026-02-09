@@ -11,7 +11,7 @@ public let ContentTypeReaction = ContentTypeID(
 	authorityID: "xmtp.org",
 	typeID: "reaction",
 	versionMajor: 1,
-	versionMinor: 0,
+	versionMinor: 0
 )
 
 public struct Reaction: Codable {
@@ -26,7 +26,7 @@ public struct Reaction: Codable {
 		action: ReactionAction,
 		content: String,
 		schema: ReactionSchema,
-		referenceInboxId: String = "",
+		referenceInboxId: String = ""
 	) {
 		self.reference = reference
 		self.referenceInboxId = referenceInboxId
@@ -96,7 +96,7 @@ public struct ReactionCodec: ContentCodec {
 			action: ReactionAction(rawValue: content.parameters["action"] ?? ""),
 			content: String(data: content.content, encoding: .utf8) ?? "",
 			schema: ReactionSchema(rawValue: content.parameters["schema"] ?? ""),
-			referenceInboxId: "",
+			referenceInboxId: ""
 		)
 		// swiftlint:enable no_optional_try
 	}

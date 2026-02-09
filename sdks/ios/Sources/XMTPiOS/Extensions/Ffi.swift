@@ -22,14 +22,14 @@ extension FfiConversationListItem {
 	func groupFromFFI(client: Client) -> Group {
 		Group(
 			ffiGroup: conversation(), ffiLastMessage: lastMessage(),
-			ffiCommitLogForkStatus: isCommitLogForked(), client: client,
+			ffiCommitLogForkStatus: isCommitLogForked(), client: client
 		)
 	}
 
 	func dmFromFFI(client: Client) -> Dm {
 		Dm(
 			ffiConversation: conversation(), ffiLastMessage: lastMessage(),
-			ffiCommitLogForkStatus: isCommitLogForked(), client: client,
+			ffiCommitLogForkStatus: isCommitLogForked(), client: client
 		)
 	}
 
@@ -95,7 +95,7 @@ extension EntryType {
 extension ConsentRecord {
 	var toFFI: FfiConsent {
 		FfiConsent(
-			entityType: entryType.toFFI, state: consentType.toFFI, entity: value,
+			entityType: entryType.toFFI, state: consentType.toFFI, entity: value
 		)
 	}
 }
@@ -104,7 +104,7 @@ extension FfiConsent {
 	var fromFfi: ConsentRecord {
 		ConsentRecord(
 			value: entity, entryType: entityType.fromFFI,
-			consentType: state.fromFFI,
+			consentType: state.fromFFI
 		)
 	}
 }

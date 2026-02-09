@@ -15,7 +15,7 @@ struct NumberCodec: ContentCodec {
 	var contentType: XMTPiOS.ContentTypeID {
 		ContentTypeID(
 			authorityID: "example.com", typeID: "number", versionMajor: 1,
-			versionMinor: 1,
+			versionMinor: 1
 		)
 	}
 
@@ -26,7 +26,7 @@ struct NumberCodec: ContentCodec {
 
 		encodedContent.type = ContentTypeID(
 			authorityID: "example.com", typeID: "number", versionMajor: 1,
-			versionMinor: 1,
+			versionMinor: 1
 		)
 		encodedContent.content = try JSONEncoder().encode(content)
 
@@ -60,7 +60,7 @@ class CodecTests: XCTestCase {
 
 		try await alixConversation.send(
 			content: expectedContent,
-			options: .init(contentType: NumberCodec().contentType),
+			options: .init(contentType: NumberCodec().contentType)
 		)
 
 		let messages = try await alixConversation.messages()
@@ -90,7 +90,7 @@ class CodecTests: XCTestCase {
 
 		try await alixConversation.send(
 			content: 3.14,
-			options: .init(contentType: NumberCodec().contentType),
+			options: .init(contentType: NumberCodec().contentType)
 		)
 
 		// Remove number codec from registry
@@ -123,7 +123,7 @@ class CodecTests: XCTestCase {
 			reference: "messageId",
 			action: .added,
 			content: "👍",
-			schema: .unicode,
+			schema: .unicode
 		)
 		let shouldPush = try reactionCodec.shouldPush(content: reaction)
 		XCTAssertFalse(shouldPush, "ReactionCodec should have shouldPush = false")
@@ -153,7 +153,7 @@ class CodecTests: XCTestCase {
 		let visibilityOptionsNoPush = MessageVisibilityOptions(shouldPush: false)
 		let ffiOptsNoPush = visibilityOptionsNoPush.toFfi()
 		XCTAssertFalse(
-			ffiOptsNoPush.shouldPush, "FfiSendMessageOpts should have shouldPush = false",
+			ffiOptsNoPush.shouldPush, "FfiSendMessageOpts should have shouldPush = false"
 		)
 	}
 }

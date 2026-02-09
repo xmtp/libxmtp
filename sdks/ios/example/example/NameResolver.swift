@@ -15,7 +15,7 @@ class NameResolver {
 
 	/// Note: replace this with your own RPC provider URL.
 	private let ensResolver = EnsResolver(
-		rpcUrlString: "https://eth-mainnet.g.alchemy.com/v2/WV-bLot1hKjjCfpPq603Ro-jViFzwYX8",
+		rpcUrlString: "https://eth-mainnet.g.alchemy.com/v2/WV-bLot1hKjjCfpPq603Ro-jViFzwYX8"
 	)
 
 	init() {
@@ -33,7 +33,7 @@ class NameResolver {
 		// For unknown identifier types, just show the abbreviated edition.
 		return ObservableItem(
 			identifier: ident.identifier,
-			defaultValue: ident.abbreviated,
+			defaultValue: ident.abbreviated
 		)
 	}
 

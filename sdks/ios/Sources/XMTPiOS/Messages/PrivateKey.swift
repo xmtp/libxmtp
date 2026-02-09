@@ -37,7 +37,7 @@ extension PrivateKey: SigningKey {
 			rawData: signatureData,
 			publicKey: publicKey.secp256K1Uncompressed.bytes,
 			authenticatorData: nil,
-			clientDataJson: nil,
+			clientDataJson: nil
 		)
 	}
 }

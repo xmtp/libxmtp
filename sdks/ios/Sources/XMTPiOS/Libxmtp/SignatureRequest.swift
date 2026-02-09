@@ -18,19 +18,19 @@ public struct SignatureRequest {
 		signatureBytes: Data,
 		address: String,
 		chainId: UInt64,
-		blockNumber: UInt64? = nil,
+		blockNumber: UInt64? = nil
 	) async throws {
 		try await ffiSignatureRequest.addScwSignature(
 			signatureBytes: signatureBytes,
 			address: address,
 			chainId: chainId,
-			blockNumber: blockNumber,
+			blockNumber: blockNumber
 		)
 	}
 
 	public func addEcdsaSignature(signatureBytes: Data) async throws {
 		try await ffiSignatureRequest.addEcdsaSignature(
-			signatureBytes: signatureBytes,
+			signatureBytes: signatureBytes
 		)
 	}
 
