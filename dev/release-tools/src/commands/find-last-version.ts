@@ -1,8 +1,8 @@
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { GlobalArgs } from "../types.js";
-import { getSdkConfig } from "../lib/sdk-config.js";
-import { filterAndSortTags } from "../lib/version.js";
-import { listTags } from "../lib/git.js";
+import type { GlobalArgs } from "../types";
+import { getSdkConfig } from "../lib/sdk-config";
+import { filterAndSortTags } from "../lib/version";
+import { listTags } from "../lib/git";
 
 export function findLastVersion(
   sdk: string,
