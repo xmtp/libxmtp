@@ -363,7 +363,7 @@ async fn test_stream_consent() {
         .unwrap();
 
     alix_b
-        .send_full_sync_request(
+        .send_sync_request(
             FfiArchiveOptions::default(),
             DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
         )

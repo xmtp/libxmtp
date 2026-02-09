@@ -163,7 +163,7 @@ impl DeviceSync {
     self
       .inner_client
       .device_sync_client()
-      .send_full_sync_request(options.into(), server_url)
+      .send_sync_request(options.into(), server_url)
       .await
       .map_err(ErrorWrapper::from)?;
 

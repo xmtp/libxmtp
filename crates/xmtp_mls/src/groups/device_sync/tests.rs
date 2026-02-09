@@ -22,7 +22,7 @@ async fn basic_sync() {
 
     alix2
         .device_sync_client()
-        .send_full_sync_request(
+        .send_sync_request(
             BackupOptions::msgs_and_consent(),
             DeviceSyncUrls::LOCAL_ADDRESS,
         )
@@ -57,7 +57,7 @@ async fn basic_sync() {
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg(not(target_arch = "wasm32"))]
-async fn test_full_sync_request() {
+async fn test_sync_request() {
     tester!(alix1, sync_worker, with_name: "alix1");
     tester!(alix2, from: alix1, with_name: "alix2");
     tester!(alix3, from: alix1, with_name: "alix3");
@@ -72,7 +72,7 @@ async fn test_full_sync_request() {
 
     alix3
         .device_sync_client()
-        .send_full_sync_request(
+        .send_sync_request(
             BackupOptions::msgs_and_consent(),
             DeviceSyncUrls::LOCAL_ADDRESS,
         )
@@ -128,6 +128,13 @@ async fn test_double_sync_works_fine() {
     alix1.test_talk_in_dm_with(&bo).await?;
 
     tester!(alix2, from: alix1);
+    alix2
+        .device_sync_client()
+        .send_sync_request(
+            BackupOptions::msgs_and_consent(),
+            DeviceSyncUrls::LOCAL_ADDRESS,
+        )
+        .await?;
 
     // Pull down the new sync group, triggering a payload to be sent
     alix1.sync_welcomes().await?;
@@ -153,7 +160,7 @@ async fn test_double_sync_works_fine() {
     alix2
         .context
         .device_sync_client()
-        .send_full_sync_request(
+        .send_sync_request(
             BackupOptions {
                 elements: vec![
                     BackupElementSelection::Messages,
@@ -208,7 +215,7 @@ async fn test_hmac_and_consent_preference_sync() {
     alix1.test_has_same_sync_group_as(&alix2).await?;
     alix2
         .device_sync_client()
-        .send_full_sync_request(
+        .send_sync_request(
             BackupOptions::msgs_and_consent(),
             DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
         )

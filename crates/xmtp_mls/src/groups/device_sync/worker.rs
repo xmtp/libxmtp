@@ -474,7 +474,7 @@ where
         Ok(())
     }
 
-    pub async fn send_full_sync_request(
+    pub async fn send_sync_request(
         &self,
         options: BackupOptions,
         server_url: impl ToString,

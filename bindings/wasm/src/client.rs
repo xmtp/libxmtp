@@ -13,7 +13,7 @@ use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::Client as MlsClient;
-use xmtp_mls::builder::SyncWorkerMode;
+use xmtp_mls::builder::DeviceSyncMode as XmtpDeviceSyncMode;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
@@ -74,7 +74,7 @@ pub enum DeviceSyncMode {
   Disabled = 1,
 }
 
-impl From<DeviceSyncMode> for SyncWorkerMode {
+impl From<DeviceSyncMode> for XmtpDeviceSyncMode {
   fn from(value: DeviceSyncMode) -> Self {
     match value {
       DeviceSyncMode::Enabled => Self::Enabled,
@@ -177,7 +177,6 @@ pub async fn create_client(
   #[wasm_bindgen(js_name = accountIdentifier)] account_identifier: Identifier,
   #[wasm_bindgen(js_name = dbPath)] db_path: Option<String>,
   #[wasm_bindgen(js_name = encryptionKey)] encryption_key: Option<Uint8Array>,
-  #[wasm_bindgen(js_name = deviceSyncServerUrl)] device_sync_server_url: Option<String>,
   #[wasm_bindgen(js_name = DeviceSyncMode)] device_sync_worker_mode: Option<DeviceSyncMode>,
   #[wasm_bindgen(js_name = logOptions)] log_options: Option<LogOptions>,
   #[wasm_bindgen(js_name = allowOffline)] allow_offline: Option<bool>,
@@ -251,10 +250,6 @@ pub async fn create_client(
     .with_remote_verifier()?
     .with_allow_offline(allow_offline)
     .store(store);
-
-  if let Some(u) = device_sync_server_url {
-    builder = builder.device_sync_server_url(&u);
-  };
 
   if let Some(device_sync_worker_mode) = device_sync_worker_mode {
     builder = builder.device_sync_worker_mode(device_sync_worker_mode.into());

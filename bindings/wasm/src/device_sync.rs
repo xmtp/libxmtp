@@ -179,11 +179,15 @@ impl DeviceSync {
 impl DeviceSync {
   /// Manually trigger a device sync request to sync records from another active device on this account.
   #[wasm_bindgen(js_name = sendSyncRequest)]
-  pub async fn send_sync_request(&self) -> Result<(), JsError> {
+  pub async fn send_sync_request(
+    &self,
+    options: ArchiveOptions,
+    #[wasm_bindgen(js_name = serverUrl)] server_url: String,
+  ) -> Result<(), JsError> {
     self
       .inner_client
       .device_sync_client()
-      .send_sync_request()
+      .send_sync_request(options.into(), server_url)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
