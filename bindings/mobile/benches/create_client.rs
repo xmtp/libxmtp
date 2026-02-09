@@ -10,7 +10,6 @@ use xmtp_common::{
     bench::{BENCH_ROOT_SPAN, bench_async_setup},
     tmp_path,
 };
-use xmtp_configuration::DeviceSyncUrls;
 use xmtp_id::associations::test_utils::WalletTestExt;
 use xmtpv3::{DbOptions, identity::FfiIdentifier};
 
@@ -137,11 +136,10 @@ fn cached_create_ffi_client(c: &mut Criterion) {
                     address.clone(),
                     nonce,
                     path.clone(),
-                    DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
                     span.clone(),
                 )
             },
-            |(api, inbox_id, ident, nonce, path, history_sync, span)| async move {
+            |(api, inbox_id, ident, nonce, path, span)| async move {
                 let ffi_ident: FfiIdentifier = ident.into();
                 xmtpv3::mls::create_client(
                     api.clone(),
@@ -156,7 +154,6 @@ fn cached_create_ffi_client(c: &mut Criterion) {
                     ffi_ident,
                     nonce,
                     None,
-                    Some(history_sync),
                     None,
                     None,
                     None,

@@ -33,9 +33,7 @@ use valuable::Valuable;
 use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_common::time::now_ns;
-use xmtp_configuration::{
-    DeviceSyncUrls, GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsProduction, GrpcUrlsStaging,
-};
+use xmtp_configuration::{GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsProduction, GrpcUrlsStaging};
 use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::signature::SignatureError;
