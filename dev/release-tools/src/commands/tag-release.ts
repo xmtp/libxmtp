@@ -33,16 +33,27 @@ export function builder(yargs: Argv<GlobalArgs>) {
       type: "boolean",
       default: false,
       describe: "Also push the current branch (HEAD) along with the tag",
+    })
+    .option("ignoreIfExists", {
+      type: "boolean",
+      default: false,
+      describe:
+        "Skip tag creation/push if the tag already exists (useful for retries)",
     });
 }
 
 export function handler(
   argv: ArgumentsCamelCase<
-    GlobalArgs & { sdk: string; version: string; pushBranch: boolean }
+    GlobalArgs & {
+      sdk: string;
+      version: string;
+      pushBranch: boolean;
+      ignoreIfExists: boolean;
+    }
   >,
 ) {
   const tag = buildTag(argv.sdk, argv.version);
-  createTag(argv.repoRoot, tag);
-  pushTag(argv.repoRoot, tag, argv.pushBranch);
+  createTag(argv.repoRoot, tag, argv.ignoreIfExists);
+  pushTag(argv.repoRoot, tag, argv.pushBranch, argv.ignoreIfExists);
   console.log(tag);
 }

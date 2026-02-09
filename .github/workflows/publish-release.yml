@@ -28,6 +28,16 @@ on:
         required: false
         type: boolean
         default: false
+      node:
+        description: "Release Node Bindings"
+        required: false
+        type: boolean
+        default: false
+      wasm:
+        description: "Release WASM Bindings"
+        required: false
+        type: boolean
+        default: false
       no-merge:
         description: "Skip merging the release PR to main"
         required: false
@@ -53,9 +63,27 @@ jobs:
       ref: ${{ inputs.release-branch }}
     secrets: inherit
 
+  release-node:
+    if: inputs.node
+    uses: ./.github/workflows/release-node.yml
+    with:
+      release-type: ${{ inputs.release-type }}
+      rc-number: ${{ inputs.rc-number }}
+      ref: ${{ inputs.release-branch }}
+    secrets: inherit
+
+  release-wasm:
+    if: inputs.wasm
+    uses: ./.github/workflows/release-wasm.yml
+    with:
+      release-type: ${{ inputs.release-type }}
+      rc-number: ${{ inputs.rc-number }}
+      ref: ${{ inputs.release-branch }}
+    secrets: inherit
+
   merge-pr:
-    if: inputs.release-type == 'final' && !inputs.no-merge && !cancelled() && needs.release-ios.result != 'failure' && needs.release-android.result != 'failure'
-    needs: [release-ios, release-android]
+    if: inputs.release-type == 'final' && !inputs.no-merge && !cancelled() && needs.release-ios.result != 'failure' && needs.release-android.result != 'failure' && needs.release-node.result != 'failure' && needs.release-wasm.result != 'failure'
+    needs: [release-ios, release-android, release-node, release-wasm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -77,7 +105,7 @@ jobs:
           gh pr merge "$PR_NUMBER" --merge --delete-branch
 
   notify:
-    needs: [release-ios, release-android, merge-pr]
+    needs: [release-ios, release-android, release-node, release-wasm, merge-pr]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -88,6 +116,10 @@ jobs:
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
           ANDROID_RESULT: ${{ needs.release-android.result }}
           ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
+          NODE_RESULT: ${{ needs.release-node.result }}
+          NODE_VERSION: ${{ needs.release-node.outputs.version }}
+          WASM_RESULT: ${{ needs.release-wasm.result }}
+          WASM_VERSION: ${{ needs.release-wasm.outputs.version }}
           RELEASE_TYPE: ${{ inputs.release-type }}
         run: |
           MSG="${RELEASE_TYPE^} Release:"
@@ -96,6 +128,12 @@ jobs:
           fi
           if [ -n "$ANDROID_VERSION" ] || [ "$ANDROID_RESULT" != "skipped" ]; then
             MSG="$MSG Android ${ANDROID_VERSION:-failed} (${ANDROID_RESULT})"
+          fi
+          if [ -n "$NODE_VERSION" ] || [ "$NODE_RESULT" != "skipped" ]; then
+            MSG="$MSG Node ${NODE_VERSION:-failed} (${NODE_RESULT})"
+          fi
+          if [ -n "$WASM_VERSION" ] || [ "$WASM_RESULT" != "skipped" ]; then
+            MSG="$MSG WASM ${WASM_VERSION:-failed} (${WASM_RESULT})"
           fi
           echo "message=$MSG" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/slack-notify
