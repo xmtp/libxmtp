@@ -420,7 +420,7 @@ where
         );
 
         // Generate a random encryption key
-        let key = xmtp_common::rand_vec::<32>();
+        let key = xmtp_common::rand_vec::<ENC_KEY_SIZE>();
 
         tracing::info!("Building the exporter.");
         // Now we want to create an encrypted stream from our database to the history server.
