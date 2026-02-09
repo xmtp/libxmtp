@@ -25,7 +25,7 @@ fn setup_runtime() -> Runtime {
 
 /// Shared setup for all benchmarks - creates client and groups once per GROUP_COUNT
 async fn setup_benchmark(total_groups: usize) -> Arc<GroupBenchSetup> {
-    let client = new_client(false).await;
+    let client = new_client().await;
     let setup = setup_groups_with_messages(client, total_groups, TARGET_GROUPS).await;
     Arc::new(setup)
 }

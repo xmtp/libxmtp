@@ -187,8 +187,7 @@ where
             let conn = self.client.context.db();
             log_event!(
                 Event::DeviceSyncInitializing,
-                self.client.context.installation_id(),
-                server_url = client.context.device_sync().server_url
+                self.client.context.installation_id()
             );
 
             // The only thing that sync init really does right now is ensures that there's a sync group.
@@ -203,11 +202,6 @@ where
                     self.client.context.installation_id(),
                     group_id = sync_group.group_id.short_hex()
                 );
-
-                // Ask the sync group for a sync payload if the url is present.
-                if self.client.context.device_sync_server_url().is_some() {
-                    self.client.send_sync_request().await?;
-                }
             }
 
             log_event!(
@@ -341,15 +335,6 @@ where
                     return Ok(());
                 }
 
-                let Some(server_url) = self.context.device_sync_server_url() else {
-                    log_event!(
-                        Event::DeviceSyncNoServerUrl,
-                        self.context.installation_id(),
-                        request_id = request.request_id
-                    );
-                    return Ok(());
-                };
-
                 self.context.task_channels().send(
                     NewTask::builder()
                         .originating_message_originator_id(msg.originator_id as i32)
@@ -361,7 +346,8 @@ where
                                         options: request.options,
                                         request_id: Some(request.request_id),
                                         sync_group_id: msg.group_id.clone(),
-                                        server_url: server_url.to_string(),
+                                        // TODO: this
+                                        server_url: Default::default(),
                                     },
                                 ),
                             ),
@@ -489,25 +475,25 @@ where
         Ok(())
     }
 
-    pub async fn send_sync_request(&self) -> Result<(), ClientError> {
+    pub async fn send_full_sync_request(
+        &self,
+        options: BackupOptions,
+        server_url: String,
+    ) -> Result<(), ClientError> {
         let sync_group = self.get_sync_group().await?;
         sync_group
             .sync_with_conn()
             .await
             .map_err(GroupError::from)?;
 
+        #[allow(deprecated)]
         let request = DeviceSyncRequestProto {
             request_id: xmtp_common::rand_string::<ENC_KEY_SIZE>(),
-            options: Some(BackupOptions {
-                elements: vec![
-                    BackupElementSelection::Messages as i32,
-                    BackupElementSelection::Consent as i32,
-                ],
-                ..Default::default()
-            }),
+            options: Some(options),
 
             // Deprecated fields
-            ..Default::default()
+            kind: 0,
+            pin_code: Default::default(),
         };
 
         self.send_device_sync_message(ContentProto::Request(request))

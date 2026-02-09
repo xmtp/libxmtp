@@ -12,8 +12,8 @@ use crate::subscriptions::process_message::{
 };
 use crate::worker::{MetricsCasting, WorkerKind};
 use crate::{
-    builder::SyncWorkerMode, client::DeviceSync, context::XmtpMlsLocalContext, identity::Identity,
-    mutex_registry::MutexRegistry, utils::VersionInfo,
+    context::XmtpMlsLocalContext, identity::Identity, mutex_registry::MutexRegistry,
+    utils::VersionInfo,
 };
 use alloy::signers::local::PrivateKeySigner;
 use mockall::mock;
@@ -84,7 +84,6 @@ impl Clone for NewMockContext {
             local_events: self.local_events.clone(),
             worker_events: self.worker_events.clone(),
             scw_verifier: self.scw_verifier.clone(),
-            device_sync: self.device_sync.clone(),
             fork_recovery_opts: self.fork_recovery_opts.clone(),
             task_channels: self.task_channels.clone(),
             worker_metrics: self.worker_metrics.clone(),
@@ -114,10 +113,6 @@ impl XmtpSharedContext for NewMockContext {
 
     fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>> {
         self.scw_verifier.clone()
-    }
-
-    fn device_sync(&self) -> &DeviceSync {
-        &self.device_sync
     }
 
     fn fork_recovery_opts(&self) -> &ForkRecoveryOpts {

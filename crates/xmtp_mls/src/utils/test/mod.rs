@@ -13,7 +13,7 @@ use crate::XmtpApi;
 use crate::cursor_store::SqliteCursorStore;
 use crate::{
     Client, InboxOwner,
-    builder::{ClientBuilder, SyncWorkerMode},
+    builder::ClientBuilder,
     context::{XmtpMlsLocalContext, XmtpSharedContext},
     identity::IdentityStrategy,
 };
@@ -79,7 +79,6 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
             .temp_store()
             .await
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-            .device_sync_server_url(xmtp_configuration::DeviceSyncUrls::LOCAL_ADDRESS)
             .enable_sqlite_triggers()
             .default_mls_store()
             .unwrap()
@@ -96,7 +95,7 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
     pub async fn new_test_client_vanilla(owner: &impl InboxOwner) -> FullXmtpClient {
         let client = Self::new_test_builder(owner)
             .await
-            .device_sync_worker_mode(SyncWorkerMode::Disabled)
+            .with_sync_worker(false)
             .build()
             .await
             .unwrap();
@@ -111,23 +110,8 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
         let client = Self::new_test_builder(owner)
             .await
             .local()
-            .device_sync_worker_mode(SyncWorkerMode::Disabled)
+            .with_sync_worker(false)
             .version(version)
-            .build()
-            .await
-            .unwrap();
-
-        register_client(&client, owner).await;
-        client
-    }
-
-    pub async fn new_test_client_with_history(
-        owner: &impl InboxOwner,
-        history_sync_url: &str,
-    ) -> FullXmtpClient {
-        let client = Self::new_test_builder(owner)
-            .await
-            .device_sync_server_url(history_sync_url)
             .build()
             .await
             .unwrap();

@@ -393,7 +393,7 @@ mod tests {
         use diesel::QueryDsl;
         use xmtp_db::group::{ConversationType, GroupQueryArgs};
 
-        tester!(alix, sync_worker, sync_server, triggers);
+        tester!(alix, sync_worker, triggers);
         tester!(bo);
 
         let alix_group = alix.create_group(None, None)?;
@@ -454,7 +454,7 @@ mod tests {
         let _ = tokio::fs::remove_file(path).await;
         exporter.write_to_file(path).await?;
 
-        tester!(alix2, sync_worker, sync_server);
+        tester!(alix2, sync_worker);
         alix2.device_sync_client().wait_for_sync_worker_init().await;
 
         // No consent before

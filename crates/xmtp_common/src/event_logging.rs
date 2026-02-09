@@ -84,7 +84,6 @@ pub enum Event {
 
     // ===================== Device Sync =====================
     /// Device Sync worker initializing.
-    #[context(server_url)]
     DeviceSyncInitializing,
     /// Device sync initialized.
     DeviceSyncInitializingFinished,

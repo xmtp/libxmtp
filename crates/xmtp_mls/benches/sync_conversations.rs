@@ -62,8 +62,8 @@ async fn setup_sync_conversations_bench(
     groups_with_messages: usize,
     expected_synced_count: usize,
 ) -> Arc<SyncConversationsBenchSetup> {
-    let client = new_client(false).await;
-    let other_client = new_client(false).await;
+    let client = new_client().await;
+    let other_client = new_client().await;
 
     let style =
         ProgressStyle::with_template("{bar} {pos}/{len} elapsed {elapsed} remaining {eta_precise}");

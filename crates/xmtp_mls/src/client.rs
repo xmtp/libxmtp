@@ -1,16 +1,4 @@
 use crate::{
-    groups::welcome_sync::GroupSyncSummary,
-    identity_updates::{batch_get_association_state_with_verifier, get_creation_signature_kind},
-    messages::{
-        decoded_message::DecodedMessage,
-        enrichment::{EnrichMessageError, enrich_messages},
-    },
-};
-use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
-use xmtp_macro::log_event;
-
-use crate::{
-    builder::SyncWorkerMode,
     context::XmtpSharedContext,
     groups::{
         ConversationListItem, GroupError, MlsGroup,
@@ -26,12 +14,21 @@ use crate::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     worker::{WorkerRunner, metrics::WorkerMetrics},
 };
+use crate::{
+    groups::welcome_sync::GroupSyncSummary,
+    identity_updates::{batch_get_association_state_with_verifier, get_creation_signature_kind},
+    messages::{
+        decoded_message::DecodedMessage,
+        enrichment::{EnrichMessageError, enrich_messages},
+    },
+};
 use openmls::prelude::tls_codec::Error as TlsCodecError;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::{ErrorCode, Event, Retry, fmt::ShortHex, retry_async, retryable};
+use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::{
     ConnectionExt, NotFound, StorageError, XmtpDb,
@@ -51,6 +48,7 @@ use xmtp_id::{
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
+use xmtp_macro::log_event;
 use xmtp_mls_common::{
     group::{DMMetadataOptions, GroupMetadataOptions},
     group_metadata::DmMembers,
@@ -166,12 +164,6 @@ pub struct Client<Context> {
     pub(crate) workers: Arc<WorkerRunner>,
 }
 
-#[derive(Clone)]
-pub struct DeviceSync {
-    pub(crate) server_url: Option<String>,
-    pub(crate) mode: SyncWorkerMode,
-}
-
 // most of these things are `Arc`'s
 impl<Context: Clone> Clone for Client<Context> {
     fn clone(&self) -> Self {
@@ -278,14 +270,6 @@ where
     /// higher-level queries are defined
     pub fn db(&self) -> <Context::Db as XmtpDb>::DbQuery {
         self.context.db()
-    }
-
-    pub fn device_sync_server_url(&self) -> Option<&String> {
-        self.context.device_sync_server_url()
-    }
-
-    pub fn device_sync_worker_enabled(&self) -> bool {
-        self.context.device_sync_worker_enabled()
     }
 
     pub fn device_sync_client(&self) -> DeviceSyncClient<Context> {

@@ -4,7 +4,6 @@ use crate::utils::test::{
 };
 use crate::{client::Client, identity::IdentityStrategy};
 use alloy::signers::local::PrivateKeySigner;
-use xmtp_configuration::DeviceSyncUrls;
 use xmtp_id::associations::test_utils::WalletTestExt;
 use xmtp_id::{InboxOwner, associations::builder::SignatureRequest};
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
@@ -12,7 +11,7 @@ use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 pub type BenchClient = Client<TestXmtpMlsContext>;
 
 /// Create a new, yet-unregistered client
-pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, PrivateKeySigner) {
+pub async fn new_unregistered_client() -> (BenchClient, PrivateKeySigner) {
     let _ = fdlimit::raise_fd_limit();
 
     let nonce = 1;
@@ -46,7 +45,7 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, Privat
         None,
     ));
 
-    let mut client = client
+    let client = client
         .temp_store()
         .await
         .api_clients(api_client, sync_api_client)
@@ -55,9 +54,6 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, Privat
         .default_mls_store()
         .unwrap();
 
-    if history_sync {
-        client = client.device_sync_server_url(DeviceSyncUrls::LOCAL_ADDRESS);
-    }
     let client = client.build().await.unwrap();
 
     (client, wallet)
@@ -77,8 +73,8 @@ pub async fn ecdsa_signature(client: &BenchClient, owner: impl InboxOwner) -> Si
 }
 
 /// Create a new registered client with an EOA
-pub async fn new_client(history_sync: bool) -> BenchClient {
-    let (client, wallet) = new_unregistered_client(history_sync).await;
+pub async fn new_client() -> BenchClient {
+    let (client, wallet) = new_unregistered_client().await;
     let signature_request = ecdsa_signature(&client, wallet).await;
     client.register_identity(signature_request).await.unwrap();
     client

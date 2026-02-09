@@ -13,7 +13,7 @@ use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn basic_sync() {
-    tester!(alix1, sync_server, sync_worker);
+    tester!(alix1, sync_worker);
     tester!(bo);
     // Talk with bo
     let (dm, dm_msg) = alix1.test_talk_in_dm_with(&bo).await?;
@@ -50,7 +50,7 @@ async fn basic_sync() {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg(not(target_arch = "wasm32"))]
 async fn only_one_payload_sent() {
-    tester!(alix1, sync_server, sync_worker, with_name: "alix1");
+    tester!(alix1, sync_worker, with_name: "alix1");
     tester!(alix2, from: alix1, with_name: "alix2");
     tester!(alix3, from: alix1, with_name: "alix3");
 
@@ -92,7 +92,7 @@ async fn only_one_payload_sent() {
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_double_sync_works_fine() {
-    tester!(alix1, sync_worker, sync_server);
+    tester!(alix1, sync_worker);
     tester!(bo);
 
     alix1.test_talk_in_dm_with(&bo).await?;
@@ -123,7 +123,16 @@ async fn test_double_sync_works_fine() {
     alix2
         .context
         .device_sync_client()
-        .send_sync_request()
+        .send_full_sync_request(
+            BackupOptions {
+                elements: vec![
+                    BackupElementSelection::Messages as i32,
+                    BackupElementSelection::Consent as i32,
+                ],
+                ..Default::default()
+            },
+            DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
+        )
         .await?;
     alix1
         .context
@@ -159,7 +168,7 @@ async fn test_double_sync_works_fine() {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_hmac_and_consent_preference_sync() {
-    tester!(alix1, sync_worker, sync_server, stream);
+    tester!(alix1, sync_worker, stream);
     tester!(bo);
 
     let (dm, _) = alix1.test_talk_in_dm_with(&bo).await?;

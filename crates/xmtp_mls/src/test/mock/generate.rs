@@ -26,10 +26,6 @@ pub fn context() -> NewMockContext {
         local_events,
         worker_events,
         scw_verifier: Arc::new(Box::new(MockSmartContractSignatureVerifier::new(true))),
-        device_sync: DeviceSync {
-            server_url: None,
-            mode: SyncWorkerMode::Disabled,
-        },
         fork_recovery_opts: Default::default(),
         mls_storage: SqlKeyStore::new(MemoryStorage::new()),
         sync_api_client: ApiClientWrapper::new(MockApiClient::new(), Default::default()),

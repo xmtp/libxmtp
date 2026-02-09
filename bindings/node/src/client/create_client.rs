@@ -183,10 +183,6 @@ pub async fn create_client(
     .with_allow_offline(allow_offline)
     .store(store);
 
-  if let Some(u) = device_sync_server_url {
-    builder = builder.device_sync_server_url(&u);
-  };
-
   if let Some(device_sync_worker_mode) = device_sync_worker_mode {
     builder = builder.device_sync_worker_mode(device_sync_worker_mode.into());
   };
