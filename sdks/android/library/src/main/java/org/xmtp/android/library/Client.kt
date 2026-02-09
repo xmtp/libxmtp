@@ -16,6 +16,7 @@ import org.xmtp.android.library.libxmtp.InboxState
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.libxmtp.SignatureRequest
 import org.xmtp.android.library.libxmtp.toFfi
+import uniffi.xmtpv3.DbOptions
 import uniffi.xmtpv3.FfiClientMode
 import uniffi.xmtpv3.FfiForkRecoveryOpts
 import uniffi.xmtpv3.FfiForkRecoveryPolicy
@@ -54,6 +55,8 @@ data class ClientOptions(
     val dbDirectory: String? = null,
     val deviceSyncEnabled: Boolean = true,
     val forkRecoveryOptions: ForkRecoveryOptions? = null,
+    val maxDbPoolSize: UInt? = null,
+    val minDbPoolSize: UInt? = null,
 ) {
     data class Api(
         val env: XMTPEnvironment = XMTPEnvironment.DEV,
@@ -322,8 +325,13 @@ class Client(
                     createClient(
                         api = connectToApiBackend(api),
                         syncApi = connectToApiBackend(api),
-                        db = null,
-                        encryptionKey = null,
+                        db =
+                            DbOptions(
+                                db = null,
+                                encryptionKey = null,
+                                maxDbPoolSize = null,
+                                minDbPoolSize = null,
+                            ),
                         accountIdentifier = publicIdentity.ffiPrivate,
                         inboxId = inboxId,
                         nonce = 0.toULong(),
@@ -505,8 +513,13 @@ class Client(
                     createClient(
                         api = connectToApiBackend(options.api),
                         syncApi = connectToSyncApiBackend(options.api),
-                        db = dbPath,
-                        encryptionKey = options.dbEncryptionKey,
+                        db =
+                            DbOptions(
+                                db = dbPath,
+                                encryptionKey = options.dbEncryptionKey,
+                                maxDbPoolSize = options.maxDbPoolSize,
+                                minDbPoolSize = options.minDbPoolSize,
+                            ),
                         accountIdentifier = publicIdentity.ffiPrivate,
                         inboxId = inboxId,
                         nonce = 0.toULong(),

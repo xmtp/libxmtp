@@ -1,48 +1,59 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<issues format="6" by="lint 8.0.0" type="baseline" client="gradle" dependencies="false" name="AGP (8.0.0)" variant="all" version="8.0.0">
+<issues format="6" by="lint 8.9.1" type="baseline" client="gradle" dependencies="false" name="AGP (8.9.1)" variant="all" version="8.9.1">
 
     <issue
-        id="NewApi"
-        message="Call requires API level 33 (current min is 23): `java.lang.ref.Cleaner#create`"
-        errorLine1="    val cleaner = java.lang.ref.Cleaner.create()"
-        errorLine2="                                        ~~~~~~">
+        id="GradleDependency"
+        message="A newer version of org.web3j:crypto than 4.9.4 is available: 5.0.0"
+        errorLine1="    implementation &apos;org.web3j:crypto:4.9.4&apos;"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/xmtpv3.kt"
-            line="2270"
-            column="41"/>
+            file="build.gradle"
+            line="91"
+            column="20"/>
     </issue>
 
     <issue
-        id="NewApi"
-        message="Call requires API level 33 (current min is 23): `java.lang.ref.Cleaner#register`"
-        errorLine1="        JavaLangRefCleanable(cleaner.register(value, cleanUpTask))"
-        errorLine2="                                     ~~~~~~~~">
+        id="GradleDependency"
+        message="A newer version of androidx.test:monitor than 1.7.2 is available: 1.8.0"
+        errorLine1="    testImplementation &apos;androidx.test:monitor:1.7.2&apos;"
+        errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/xmtpv3.kt"
-            line="2273"
-            column="38"/>
+            file="build.gradle"
+            line="97"
+            column="24"/>
     </issue>
 
     <issue
-        id="NewApi"
-        message="Call requires API level 33 (current min is 23): `java.lang.ref.Cleaner.Cleanable#clean`"
-        errorLine1="    override fun clean() = cleanable.clean()"
-        errorLine2="                                     ~~~~~">
+        id="GradleDependency"
+        message="A newer version of androidx.test.ext:junit than 1.1.5 is available: 1.3.0"
+        errorLine1="    androidTestImplementation &apos;androidx.test.ext:junit:1.1.5&apos;"
+        errorLine2="                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/xmtpv3.kt"
-            line="2279"
-            column="38"/>
+            file="build.gradle"
+            line="100"
+            column="31"/>
     </issue>
 
     <issue
-        id="SimpleDateFormat"
-        message="To get local formatting use `getDateInstance()`, `getDateTimeInstance()`, or `getTimeInstance()`, or use `new SimpleDateFormat(String template, Locale locale)` with for example `Locale.US` for ASCII dates."
-        errorLine1="    val formatter = SimpleDateFormat(&quot;EEE, dd MMM yyyy HH:mm:ss &apos;GMT&apos;&quot;)"
-        errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        id="GradleDependency"
+        message="A newer version of androidx.test.espresso:espresso-core than 3.5.1 is available: 3.7.0"
+        errorLine1="    androidTestImplementation &apos;androidx.test.espresso:espresso-core:3.5.1&apos;"
+        errorLine2="                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/org/xmtp/android/library/messages/Signature.kt"
-            line="53"
-            column="21"/>
+            file="build.gradle"
+            line="101"
+            column="31"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of org.web3j:core than 4.9.4 is available: 5.0.1"
+        errorLine1="    androidTestImplementation &apos;org.web3j:core:4.9.4&apos;"
+        errorLine2="                              ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle"
+            line="102"
+            column="31"/>
     </issue>
 
 </issues>
