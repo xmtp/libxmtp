@@ -176,7 +176,22 @@ async fn test_hmac_and_consent_preference_sync() {
     tester!(alix2, from: alix1);
 
     alix1.test_has_same_sync_group_as(&alix2).await?;
-    // alix1.device_sync_client().send_full_sync_request(BackupOptions, server_url)
+    alix2
+        .device_sync_client()
+        .send_full_sync_request(
+            BackupOptions::msgs_and_consent(),
+            DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
+        )
+        .await?;
+    alix1.sync_all_device_sync_groups().await?;
+
+    alix1
+        .worker()
+        .register_interest(SyncMetric::PayloadSent, 1)
+        .wait()
+        .await?;
+
+    alix2.sync_all_device_sync_groups().await?;
 
     alix2
         .worker()
@@ -209,7 +224,15 @@ async fn test_hmac_and_consent_preference_sync() {
     assert_eq!(dm.consent_state()?, alix2_dm.consent_state()?);
 
     // Stream consent
+    alix1.worker().clear_metric(SyncMetric::ConsentSent);
     dm.update_consent_state(ConsentState::Denied)?;
+    alix1
+        .worker()
+        .register_interest(SyncMetric::ConsentSent, 1)
+        .wait()
+        .await?;
+
+    alix2.sync_all_device_sync_groups().await?;
     alix2
         .worker()
         .register_interest(SyncMetric::ConsentReceived, 1)

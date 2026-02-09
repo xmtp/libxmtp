@@ -49,6 +49,21 @@ pub struct BackupOptions {
     pub exclude_disappearing_messages: bool,
 }
 
+impl BackupOptions {
+    #[cfg(test)]
+    pub fn msgs_and_consent() -> Self {
+        Self {
+            elements: vec![
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
+            ],
+            start_ns: None,
+            end_ns: None,
+            exclude_disappearing_messages: false,
+        }
+    }
+}
+
 impl From<BackupOptionsProto> for BackupOptions {
     fn from(proto: BackupOptionsProto) -> Self {
         Self {
