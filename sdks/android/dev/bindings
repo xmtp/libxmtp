@@ -1,0 +1,28 @@
+#!/bin/bash
+# Build Android bindings (.so libraries + Kotlin bindings) via Nix
+source "$(dirname "$0")/.setup"
+
+echo "Building Android bindings via Nix..."
+
+# Build .so libs + Kotlin bindings via Nix (cached in Cachix)
+nix build "${ROOT}#android-libs" --out-link "${SDK_ROOT}/.build/nix"
+
+# Set up the bindings directory structure for Gradle
+BINDINGS_DIR="${SDK_ROOT}/.build/bindings"
+rm -rf "${BINDINGS_DIR}"
+mkdir -p "${BINDINGS_DIR}/java"
+mkdir -p "${BINDINGS_DIR}/jniLibs"
+
+# Copy Kotlin bindings
+cp "${SDK_ROOT}/.build/nix/kotlin/xmtpv3.kt" "${BINDINGS_DIR}/java/"
+cp "${SDK_ROOT}/.build/nix/kotlin/libxmtp-version.txt" "${BINDINGS_DIR}/"
+
+# Copy JNI libraries for each ABI
+for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+    mkdir -p "${BINDINGS_DIR}/jniLibs/${abi}"
+    cp "${SDK_ROOT}/.build/nix/jniLibs/${abi}/libuniffi_xmtpv3.so" "${BINDINGS_DIR}/jniLibs/${abi}/"
+done
+
+echo "Android bindings built successfully:"
+echo "  Kotlin: ${BINDINGS_DIR}/java/xmtpv3.kt"
+echo "  JNI libs: ${BINDINGS_DIR}/jniLibs/"
