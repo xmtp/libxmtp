@@ -1,0 +1,425 @@
+import {
+    ScrollView,
+    HorizontalBox,
+    VerticalBox,
+} from "std-widgets.slint";
+
+// ─── Shared Data Structures ───
+
+export struct UIContextEntry {
+    key: string,
+    value: string,
+}
+
+// ─── Epoch View Data Structures ───
+
+export struct UIGroupState {
+    installation-id: string,
+    installation-name: string,
+    msg: string,
+    epoch: int,
+    previous-epoch: int,
+    has-previous-epoch: bool,
+    problem-count: int,
+    context: [UIContextEntry],
+}
+
+export struct UIInstallationCell {
+    states: [UIGroupState],
+    state-count: int,
+}
+
+export struct UIEpochHeader {
+    epoch-number: int,
+    max-states: int,
+}
+
+export struct UIInstallationRow {
+    installation-id: string,
+    installation-name: string,
+    installation-color: color,
+    cells: [UIInstallationCell],
+}
+
+export struct UIGroupRow {
+    group-id: string,
+    group-id-short: string,
+    group-color: color,
+    epoch-headers: [UIEpochHeader],
+    installation-rows: [UIInstallationRow],
+}
+
+// ─── Constants ───
+
+global EpochConstants {
+    out property <length> state-card-width: 200px;
+    out property <length> state-card-gap: 6px;
+    out property <length> column-padding: 12px;
+    out property <length> label-column-width: 170px;
+    out property <length> row-height-per-state: 72px;
+    out property <length> row-vertical-padding: 8px;
+    out property <length> header-height: 32px;
+}
+
+// ─── State Card ───
+
+component GroupStateCard inherits Rectangle {
+    in property <UIGroupState> state;
+
+    width: EpochConstants.state-card-width;
+    min-height: card-layout.preferred-height;
+    background: #ffffff;
+    border-width: 1px;
+    border-color: root.state.problem-count > 0 ? #e07070 : #d0d0d0;
+    border-radius: 4px;
+
+    drop-shadow-blur: 2px;
+    drop-shadow-offset-y: 1px;
+    drop-shadow-color: #00000010;
+
+    card-layout := VerticalLayout {
+        alignment: start;
+        padding: 6px;
+        spacing: 3px;
+
+        // Title (msg)
+        Text {
+            text: root.state.msg;
+            font-size: 10px;
+            font-weight: 700;
+            color: #333333;
+            overflow: elide;
+        }
+
+        // Metadata badges
+        HorizontalLayout {
+            alignment: start;
+            spacing: 4px;
+
+            if root.state.has-previous-epoch: Rectangle {
+                width: prev-label.preferred-width + 10px;
+                height: prev-label.preferred-height + 4px;
+                background: #f0f0f0;
+                border-radius: 3px;
+
+                prev-label := Text {
+                    text: "← e" + root.state.previous-epoch;
+                    font-size: 9px;
+                    font-weight: 500;
+                    color: #888888;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            if root.state.problem-count > 0: Rectangle {
+                width: problem-label.preferred-width + 10px;
+                height: problem-label.preferred-height + 4px;
+                background: #fff0f0;
+                border-radius: 3px;
+
+                problem-label := Text {
+                    text: "⚠ " + root.state.problem-count;
+                    font-size: 9px;
+                    font-weight: 600;
+                    color: #cc4444;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Context entries (same style as events tab)
+        VerticalLayout {
+            alignment: start;
+            spacing: 2px;
+
+            for ctx in root.state.context: VerticalLayout {
+                alignment: start;
+                spacing: 0px;
+
+                Text {
+                    text: ctx.key + ":";
+                    font-size: 9px;
+                    color: #888888;
+                    font-weight: 500;
+                }
+
+                Text {
+                    text: ctx.value;
+                    font-size: 9px;
+                    color: #555555;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+}
+
+// ─── Epoch Column Header ───
+
+component EpochColumnHeader inherits Rectangle {
+    in property <UIEpochHeader> header;
+
+    width: header.max-states * (EpochConstants.state-card-width + EpochConstants.state-card-gap) - EpochConstants.state-card-gap + EpochConstants.column-padding * 2;
+    height: EpochConstants.header-height;
+    background: #e0e4f0;
+    border-width: 1px;
+    border-color: #c0c4d0;
+
+    HorizontalLayout {
+        alignment: center;
+
+        Text {
+            text: "Epoch " + root.header.epoch-number;
+            font-size: 12px;
+            font-weight: 700;
+            color: #3a3a66;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// ─── Installation Cell (one epoch's states for one installation) ───
+
+component InstallationCell inherits Rectangle {
+    in property <UIInstallationCell> cell;
+    in property <int> column-max-states;
+
+    width: column-max-states * (EpochConstants.state-card-width + EpochConstants.state-card-gap) - EpochConstants.state-card-gap + EpochConstants.column-padding * 2;
+    background: transparent;
+    border-width: 0px;
+
+    HorizontalLayout {
+        padding-left: EpochConstants.column-padding;
+        padding-right: EpochConstants.column-padding;
+        spacing: EpochConstants.state-card-gap;
+        alignment: start;
+
+        for state in root.cell.states: GroupStateCard {
+            state: state;
+        }
+    }
+}
+
+// ─── Installation Label ───
+
+component InstallationLabel inherits Rectangle {
+    in property <string> name;
+    in property <color> inst-color;
+
+    width: EpochConstants.label-column-width;
+    background: transparent;
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 6px;
+        alignment: start;
+
+        // Color pip
+        Rectangle {
+            width: 8px;
+            height: 8px;
+            background: root.inst-color;
+            border-radius: 4px;
+            y: (parent.height - self.height) / 2;
+        }
+
+        Text {
+            text: root.name;
+            font-size: 11px;
+            font-weight: 600;
+            color: #444444;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// ─── Group Container ───
+
+component GroupContainer inherits Rectangle {
+    in property <UIGroupRow> group-row;
+
+    min-height: group-layout.preferred-height;
+    border-width: 1px;
+    border-color: #d8d8d8;
+    border-radius: 8px;
+    background: #fafafa;
+    clip: true;
+
+    group-layout := VerticalLayout {
+        spacing: 0px;
+
+        // ─── Group Header Bar ───
+        Rectangle {
+            height: 40px;
+            background: #eeeeee;
+
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+                spacing: 10px;
+                alignment: start;
+
+                // Group color dot
+                Rectangle {
+                    width: 14px;
+                    height: 14px;
+                    background: root.group-row.group-color;
+                    border-radius: 7px;
+                    y: (parent.height - self.height) / 2;
+                }
+
+                Text {
+                    text: "Group: " + root.group-row.group-id-short;
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: #333333;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                Text {
+                    text: root.group-row.epoch-headers.length + " epoch(s)  ·  " + root.group-row.installation-rows.length + " installation(s)";
+                    font-size: 11px;
+                    color: #777777;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // ─── Table with sticky labels ───
+        HorizontalLayout {
+            spacing: 0px;
+
+            // ─── Fixed Left Column (sticky labels) ───
+            VerticalLayout {
+                width: EpochConstants.label-column-width;
+                alignment: start;
+                spacing: 0px;
+
+                // Corner header
+                Rectangle {
+                    width: EpochConstants.label-column-width;
+                    height: EpochConstants.header-height;
+                    background: #f0f0f0;
+                    border-width: 1px;
+                    border-color: #d0d0d0;
+
+                    Text {
+                        text: "Installation";
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: #666666;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Installation labels — heights match the data rows via preferred-height
+                for inst-row in root.group-row.installation-rows: Rectangle {
+                    min-height: label-inner.preferred-height;
+                    background: mod(self.absolute-position.y / 1px, 2) >= 1.0 ? #f5f5fa : #fafafe;
+
+                    // Row separator
+                    Rectangle {
+                        height: 1px;
+                        background: #e8e8e8;
+                        y: parent.height - 1px;
+                        width: parent.width;
+                    }
+
+                    label-inner := VerticalLayout {
+                        padding-top: EpochConstants.row-vertical-padding;
+                        padding-bottom: EpochConstants.row-vertical-padding;
+                        alignment: start;
+
+                        InstallationLabel {
+                            name: inst-row.installation-name;
+                            inst-color: inst-row.installation-color;
+                        }
+                    }
+                }
+            }
+
+            // ─── Scrollable Epoch Data (horizontal only) ───
+            Flickable {
+                VerticalLayout {
+                    alignment: start;
+                    spacing: 0px;
+
+                    // ─── Column Headers Row ───
+                    HorizontalLayout {
+                        spacing: 0px;
+                        alignment: start;
+
+                        for hdr in root.group-row.epoch-headers: EpochColumnHeader {
+                            header: hdr;
+                        }
+                    }
+
+                    // ─── Data Rows ───
+                    for inst-row in root.group-row.installation-rows: Rectangle {
+                        min-height: row-inner.preferred-height;
+                        background: mod(self.absolute-position.y / 1px, 2) >= 1.0 ? #f5f5fa : #fafafe;
+                        border-width: 0px;
+
+                        // Subtle row separator
+                        Rectangle {
+                            height: 1px;
+                            background: #e8e8e8;
+                            y: parent.height - 1px;
+                            width: parent.width;
+                        }
+
+                        row-inner := HorizontalLayout {
+                            spacing: 0px;
+                            alignment: start;
+                            padding-top: EpochConstants.row-vertical-padding;
+                            padding-bottom: EpochConstants.row-vertical-padding;
+
+                            // Cells for each epoch
+                            for cell[idx] in inst-row.cells: InstallationCell {
+                                cell: cell;
+                                column-max-states: root.group-row.epoch-headers[idx].max-states;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ─── Epoch Tab (top-level content for the Epochs tab) ───
+
+export component EpochTab inherits Rectangle {
+    in property <[UIGroupRow]> epoch-groups: [];
+
+    if root.epoch-groups.length == 0: Rectangle {
+        background: #f5f5f5;
+        border-radius: 8px;
+
+        Text {
+            text: "No epoch data available. Load a log file and build the log first.";
+            color: #888888;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    if root.epoch-groups.length > 0: ScrollView {
+        VerticalLayout {
+            padding: 12px;
+            spacing: 16px;
+            alignment: start;
+
+            for group-row in root.epoch-groups: GroupContainer {
+                group-row: group-row;
+            }
+        }
+    }
+}
