@@ -631,7 +631,7 @@ where
     }
 
     pub fn sync_worker(mut self) -> Self {
-        self.sync_mode = DeviceSyncMode::EnabledSyncOnInit;
+        self.sync_mode = DeviceSyncMode::Enabled;
         self
     }
 

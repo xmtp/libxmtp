@@ -17,7 +17,6 @@ pub enum LogLevel {
 pub enum SyncWorkerMode {
   Enabled,
   Disabled,
-  EnabledSyncOnInit,
 }
 
 #[napi(string_enum)]
@@ -33,7 +32,6 @@ impl From<SyncWorkerMode> for XmtpSyncWorkerMode {
     match value {
       SyncWorkerMode::Enabled => Self::Enabled,
       SyncWorkerMode::Disabled => Self::Disabled,
-      SyncWorkerMode::EnabledSyncOnInit => Self::EnabledSyncOnInit,
     }
   }
 }

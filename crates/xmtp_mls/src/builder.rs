@@ -88,7 +88,6 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
 pub enum DeviceSyncMode {
     Disabled,
     Enabled,
-    EnabledSyncOnInit,
 }
 
 #[derive(Clone, Debug, PartialEq)]

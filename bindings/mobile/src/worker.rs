@@ -62,7 +62,6 @@ use xmtp_mls::{
 pub enum FfiDeviceSyncMode {
     Enabled,
     Disabled,
-    EnabledSyncOnInit,
 }
 
 impl From<DeviceSyncMode> for FfiDeviceSyncMode {
@@ -70,7 +69,6 @@ impl From<DeviceSyncMode> for FfiDeviceSyncMode {
         match value {
             DeviceSyncMode::Enabled => Self::Enabled,
             DeviceSyncMode::Disabled => Self::Disabled,
-            DeviceSyncMode::EnabledSyncOnInit => Self::EnabledSyncOnInit,
         }
     }
 }
@@ -80,7 +78,6 @@ impl From<FfiDeviceSyncMode> for DeviceSyncMode {
         match value {
             FfiDeviceSyncMode::Enabled => Self::Enabled,
             FfiDeviceSyncMode::Disabled => Self::Disabled,
-            FfiDeviceSyncMode::EnabledSyncOnInit => Self::EnabledSyncOnInit,
         }
     }
 }
