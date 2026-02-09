@@ -7,8 +7,12 @@ on:
         description: 'Path to the npm package directory'
         required: true
         type: string
-      tag-prefix:
-        description: 'Prefix for git tags (e.g., node-bindings, wasm-bindings)'
+      sdk:
+        description: 'SDK name for release tools (e.g. node-bindings, wasm-bindings)'
+        required: true
+        type: string
+      version:
+        description: 'The version to publish'
         required: true
         type: string
       artifact-pattern:
@@ -19,6 +23,15 @@ on:
         description: 'Path to download artifacts to (required if artifact-pattern is set)'
         required: false
         type: string
+      ignore-scripts:
+        description: 'Skip npm lifecycle scripts during publish (e.g. prepublishOnly)'
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      version:
+        description: "The published version"
+        value: ${{ jobs.publish.outputs.version }}
 
 jobs:
   publish:
@@ -26,6 +39,8 @@ jobs:
       id-token: write
       contents: write
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ inputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -43,67 +58,30 @@ jobs:
         with:
           cache-dependency-path: "${{ inputs.package-dir }}/yarn.lock"
 
+      - uses: ./.github/actions/setup-release-tools
+
       - name: Install dependencies
         working-directory: ${{ inputs.package-dir }}
         run: yarn
 
-      - name: Update version for dev releases
-        working-directory: ${{ inputs.package-dir }}
-        run: |
-          # Read the current version from package.json
-          PACKAGE_VERSION=$(node -p "require('./package.json').version")
-
-          # Check if this is a dev version
-          if [[ "$PACKAGE_VERSION" == *"dev"* ]]; then
-            GIT_HASH=$(git log -1 --pretty=format:"%h")
-
-            # Create a new version string with the git hash
-            NEW_VERSION="${PACKAGE_VERSION}.${GIT_HASH}"
-
-            # Update package.json with the new version
-            npm version "$NEW_VERSION" --no-git-tag-version
-
-            echo "Updated version to $NEW_VERSION for publishing"
-          else
-            echo "Not a dev version, keeping original version: $PACKAGE_VERSION"
-          fi
+      - name: Set version
+        run: xmtp-release set-manifest-version --sdk "${{ inputs.sdk }}" --version "${{ inputs.version }}"
 
       - name: Determine NPM tag
         id: npm-tag
-        working-directory: ${{ inputs.package-dir }}
         run: |
-          # Read the current version from package.json
-          PACKAGE_VERSION=$(node -p "require('./package.json').version")
-
-          # Set the tag based on whether it's a dev version
-          if [[ "$PACKAGE_VERSION" == *"dev"* ]]; then
+          if [[ "${{ inputs.version }}" == *"dev"* || "${{ inputs.version }}" == *"rc"* ]]; then
             echo "tag=prerelease" >> $GITHUB_OUTPUT
           else
             echo "tag=latest" >> $GITHUB_OUTPUT
           fi
 
-      - name: Create Git Tag for Dev Releases
-        if: contains(steps.npm-tag.outputs.tag, 'prerelease')
-        run: |
-          # Read the current version from package.json
-          PACKAGE_VERSION=$(node -p "require('./${{ inputs.package-dir }}/package.json').version")
-
-          # Create and push the tag
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git tag -a "${{ inputs.tag-prefix }}-${PACKAGE_VERSION}" -m "${{ inputs.tag-prefix }} version ${PACKAGE_VERSION}"
-          git push origin "${{ inputs.tag-prefix }}-${PACKAGE_VERSION}"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Update npm to latest
         run: npm install -g npm@latest
 
       - name: Publish to NPM
-        uses: JS-DevTools/npm-publish@v4
-        with:
-          package: ${{ inputs.package-dir }}
-          tag: ${{ steps.npm-tag.outputs.tag }}
-          dry-run: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: ${{ inputs.package-dir }}
+        run: npm publish --provenance ${{ inputs.ignore-scripts && '--ignore-scripts' || '' }} --tag ${{ steps.npm-tag.outputs.tag }}
+
+      - name: Tag release
+        run: xmtp-release tag-release --sdk "${{ inputs.sdk }}" --version "${{ inputs.version }}" --ignore-if-exists
