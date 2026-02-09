@@ -45,8 +45,11 @@ use xmtp_proto::xmtp::{
 };
 
 pub mod archive;
+mod backup_options;
 pub mod preference_sync;
 pub mod worker;
+
+pub use backup_options::{BackupElementSelection, BackupOptions};
 
 #[cfg(test)]
 mod tests;

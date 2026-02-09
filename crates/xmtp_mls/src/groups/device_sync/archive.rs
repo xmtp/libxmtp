@@ -166,6 +166,7 @@ fn insert(
 mod tests {
     #![allow(unused)]
     use super::*;
+    use crate::groups::device_sync::{BackupElementSelection, BackupOptions};
     use crate::groups::send_message_opts::SendMessageOpts;
     use crate::tester;
     use crate::utils::{LocalTester, Tester};
@@ -185,7 +186,6 @@ mod tests {
         group_message::StoredGroupMessage,
         schema::{consent_records, group_messages, groups},
     };
-    use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_archive_timestamps() {
@@ -217,14 +217,14 @@ mod tests {
             start_ns: None,
             end_ns: None,
             elements: vec![
-                BackupElementSelection::Messages as i32,
-                BackupElementSelection::Consent as i32,
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
             ],
             exclude_disappearing_messages: false,
         };
         let export = {
             let mut file = vec![];
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
+            let mut exporter = ArchiveExporter::new(opts.into(), alix.db(), &key);
             exporter.read_to_end(&mut file).await?;
             file
         };
@@ -280,15 +280,15 @@ mod tests {
             start_ns: None,
             end_ns: None,
             elements: vec![
-                BackupElementSelection::Messages as i32,
-                BackupElementSelection::Consent as i32,
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
             ],
             exclude_disappearing_messages: false,
         };
         let export = {
             let mut file = vec![];
 
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
+            let mut exporter = ArchiveExporter::new(opts.into(), alix.db(), &key);
             exporter.read_to_end(&mut file).await?;
             file
         };
@@ -344,8 +344,8 @@ mod tests {
             start_ns: None,
             end_ns: None,
             elements: vec![
-                BackupElementSelection::Messages as i32,
-                BackupElementSelection::Consent as i32,
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
             ],
             exclude_disappearing_messages: false,
         };
@@ -354,7 +354,7 @@ mod tests {
 
         let file = {
             let mut file = Vec::new();
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
+            let mut exporter = ArchiveExporter::new(opts.into(), alix.db(), &key);
             exporter.read_to_end(&mut file).await.unwrap();
             file
         };
@@ -442,14 +442,14 @@ mod tests {
             start_ns: None,
             end_ns: None,
             elements: vec![
-                BackupElementSelection::Messages.into(),
-                BackupElementSelection::Consent.into(),
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
             ],
             exclude_disappearing_messages: false,
         };
 
         let key = xmtp_common::rand_vec::<32>();
-        let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
+        let mut exporter = ArchiveExporter::new(opts.into(), alix.db(), &key);
         let path = Path::new("archive.xmtp");
         let _ = tokio::fs::remove_file(path).await;
         exporter.write_to_file(path).await?;

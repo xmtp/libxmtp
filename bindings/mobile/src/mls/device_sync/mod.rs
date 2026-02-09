@@ -4,13 +4,13 @@ mod tests;
 use crate::{FfiError, FfiGroupSyncSummary, FfiXmtpClient};
 use xmtp_id::associations::DeserializationError;
 use xmtp_mls::groups::device_sync::{
-    AvailableArchive, DeviceSyncError,
+    AvailableArchive, BackupElementSelection, BackupOptions, DeviceSyncError,
     archive::{
         ArchiveImporter, BACKUP_VERSION, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter,
         insert_importer,
     },
 };
-use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
+use xmtp_proto::xmtp::device_sync::BackupElementSelection as BackupElementSelectionProto;
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
@@ -76,7 +76,7 @@ impl FfiXmtpClient {
     ) -> Result<FfiBackupMetadata, FfiError> {
         let db = self.inner_client.context.db();
         let options: BackupOptions = opts.into();
-        let metadata = ArchiveExporter::export_to_file(options, db, path, &check_key(key)?)
+        let metadata = ArchiveExporter::export_to_file(options.into(), db, path, &check_key(key)?)
             .await
             .map_err(DeviceSyncError::Archive)?;
 
@@ -139,14 +139,7 @@ impl From<FfiArchiveOptions> for BackupOptions {
         Self {
             start_ns: value.start_ns,
             end_ns: value.end_ns,
-            elements: value
-                .elements
-                .into_iter()
-                .map(|el| {
-                    let element: BackupElementSelection = el.into();
-                    element.into()
-                })
-                .collect(),
+            elements: value.elements.into_iter().map(|el| el.into()).collect(),
             exclude_disappearing_messages: value.exclude_disappearing_messages,
         }
     }
@@ -166,12 +159,37 @@ impl From<FfiBackupElementSelection> for BackupElementSelection {
     }
 }
 
+impl From<FfiBackupElementSelection> for BackupElementSelectionProto {
+    fn from(value: FfiBackupElementSelection) -> Self {
+        match value {
+            FfiBackupElementSelection::Consent => Self::Consent,
+            FfiBackupElementSelection::Messages => Self::Messages,
+        }
+    }
+}
+
 impl TryFrom<BackupElementSelection> for FfiBackupElementSelection {
     type Error = DeserializationError;
     fn try_from(value: BackupElementSelection) -> Result<Self, Self::Error> {
         let v = match value {
             BackupElementSelection::Consent => Self::Consent,
             BackupElementSelection::Messages => Self::Messages,
+            _ => {
+                return Err(DeserializationError::Unspecified(
+                    "Backup Element Selection",
+                ));
+            }
+        };
+        Ok(v)
+    }
+}
+
+impl TryFrom<BackupElementSelectionProto> for FfiBackupElementSelection {
+    type Error = DeserializationError;
+    fn try_from(value: BackupElementSelectionProto) -> Result<Self, Self::Error> {
+        let v = match value {
+            BackupElementSelectionProto::Consent => Self::Consent,
+            BackupElementSelectionProto::Messages => Self::Messages,
             _ => {
                 return Err(DeserializationError::Unspecified(
                     "Backup Element Selection",
@@ -308,6 +326,24 @@ mod unit_tests {
     }
 
     #[test]
+    fn test_proto_backup_element_selection_to_ffi_backup_element_selection() {
+        let messages = BackupElementSelectionProto::Messages;
+        let converted: FfiBackupElementSelection = messages.try_into().unwrap();
+        assert!(matches!(converted, FfiBackupElementSelection::Messages));
+
+        let consent = BackupElementSelectionProto::Consent;
+        let converted: FfiBackupElementSelection = consent.try_into().unwrap();
+        assert!(matches!(converted, FfiBackupElementSelection::Consent));
+    }
+
+    #[test]
+    fn test_proto_backup_element_selection_unspecified_fails() {
+        let unspecified = BackupElementSelectionProto::Unspecified;
+        let result: Result<FfiBackupElementSelection, _> = unspecified.try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_ffi_archive_options_to_backup_options() {
         let ffi_options = FfiArchiveOptions {
             start_ns: Some(1000),
@@ -347,8 +383,8 @@ mod unit_tests {
         let metadata = BackupMetadata {
             backup_version: 1,
             elements: vec![
-                BackupElementSelection::Messages,
-                BackupElementSelection::Consent,
+                BackupElementSelectionProto::Messages,
+                BackupElementSelectionProto::Consent,
             ],
             exported_at_ns: 12345,
             start_ns: Some(100),
@@ -368,9 +404,9 @@ mod unit_tests {
         let metadata = BackupMetadata {
             backup_version: 1,
             elements: vec![
-                BackupElementSelection::Messages,
-                BackupElementSelection::Unspecified,
-                BackupElementSelection::Consent,
+                BackupElementSelectionProto::Messages,
+                BackupElementSelectionProto::Unspecified,
+                BackupElementSelectionProto::Consent,
             ],
             exported_at_ns: 12345,
             start_ns: None,
@@ -388,7 +424,7 @@ mod unit_tests {
             pin: "1234".to_string(),
             metadata: BackupMetadata {
                 backup_version: 1,
-                elements: vec![BackupElementSelection::Messages],
+                elements: vec![BackupElementSelectionProto::Messages],
                 exported_at_ns: 12345,
                 start_ns: None,
                 end_ns: None,

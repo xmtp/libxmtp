@@ -1,6 +1,6 @@
 use crate::{
     context::XmtpSharedContext,
-    groups::device_sync::{DeviceSyncClient, DeviceSyncError},
+    groups::device_sync::{BackupOptions, DeviceSyncClient, DeviceSyncError},
     worker::{NeedsDbReconnect, Worker, WorkerFactory, WorkerKind},
 };
 use prost::Message;
@@ -229,12 +229,13 @@ where
                 let Some(metrics) = context.sync_metrics().clone() else {
                     return Err(TaskWorkerError::MissingMetrics);
                 };
-                let Some(options) = &send_sync_archive.options else {
+                let Some(proto_options) = send_sync_archive.options.clone() else {
                     tracing::warn!(
                         "SendSyncArchive task has no archive options. Unable to process."
                     );
                     return Ok(());
                 };
+                let options: BackupOptions = proto_options.into();
 
                 let client = DeviceSyncClient::new(context.clone(), metrics);
 
@@ -245,7 +246,7 @@ where
 
                 client
                     .send_archive(
-                        options,
+                        &options,
                         &send_sync_archive.sync_group_id,
                         &pin,
                         &send_sync_archive.server_url,

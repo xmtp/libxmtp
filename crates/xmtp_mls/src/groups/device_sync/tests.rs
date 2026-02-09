@@ -1,4 +1,5 @@
 use super::*;
+use super::{BackupElementSelection, BackupOptions};
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::tester;
 use xmtp_configuration::DeviceSyncUrls;
@@ -7,7 +8,6 @@ use xmtp_db::{
     group::{ConversationType, StoredGroup},
     group_message::MsgQueryArgs,
 };
-use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
@@ -126,8 +126,8 @@ async fn test_double_sync_works_fine() {
         .send_full_sync_request(
             BackupOptions {
                 elements: vec![
-                    BackupElementSelection::Messages as i32,
-                    BackupElementSelection::Consent as i32,
+                    BackupElementSelection::Messages,
+                    BackupElementSelection::Consent,
                 ],
                 ..Default::default()
             },
@@ -168,7 +168,7 @@ async fn test_double_sync_works_fine() {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_hmac_and_consent_preference_sync() {
-    tester!(alix1, sync_worker, stream);
+    tester!(alix1, sync_worker);
     tester!(bo);
 
     let (dm, _) = alix1.test_talk_in_dm_with(&bo).await?;
@@ -176,6 +176,7 @@ async fn test_hmac_and_consent_preference_sync() {
     tester!(alix2, from: alix1);
 
     alix1.test_has_same_sync_group_as(&alix2).await?;
+    // alix1.device_sync_client().send_full_sync_request(BackupOptions, server_url)
 
     alix2
         .worker()
@@ -366,7 +367,7 @@ async fn test_manual_sync_flow() {
     alix2.test_has_same_sync_group_as(&alix).await?;
 
     let opts = BackupOptions {
-        elements: vec![BackupElementSelection::Consent.into()],
+        elements: vec![BackupElementSelection::Consent],
         ..Default::default()
     };
 

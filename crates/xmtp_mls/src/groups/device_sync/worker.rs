@@ -1,3 +1,4 @@
+use super::{BackupElementSelection, BackupOptions};
 use super::{
     DeviceSyncClient, DeviceSyncError, IterWithContent,
     preference_sync::{PreferenceUpdate, store_preference_updates},
@@ -29,7 +30,8 @@ use xmtp_proto::{
     ConversionError,
     xmtp::{
         device_sync::{
-            BackupElementSelection, BackupOptions,
+            BackupElementSelection as BackupElementSelectionProto,
+            BackupOptions as BackupOptionsProto,
             content::{
                 DeviceSyncAcknowledge, DeviceSyncKeyType, DeviceSyncReply as DeviceSyncReplyProto,
                 DeviceSyncRequest as DeviceSyncRequestProto,
@@ -422,7 +424,8 @@ where
         //
         // 1. Build the exporter
         let db = self.context.db();
-        let exporter = ArchiveExporter::new(options.clone(), db, &key);
+        let proto_options: BackupOptionsProto = options.into();
+        let exporter = ArchiveExporter::new(proto_options, db, &key);
         let metadata = exporter.metadata().clone();
 
         tracing::info!("Uploading the archive.");
@@ -449,17 +452,11 @@ where
             .await?;
 
         // Update metrics.
-        if options
-            .elements
-            .contains(&(BackupElementSelection::Consent as i32))
-        {
+        if options.elements.contains(&BackupElementSelection::Consent) {
             self.metrics
                 .increment_metric(SyncMetric::ConsentPayloadSent);
         }
-        if options
-            .elements
-            .contains(&(BackupElementSelection::Messages as i32))
-        {
+        if options.elements.contains(&BackupElementSelection::Messages) {
             self.metrics
                 .increment_metric(SyncMetric::MessagesPayloadSent);
         }
@@ -487,7 +484,7 @@ where
 
         let request = DeviceSyncRequestProto {
             pin: xmtp_common::rand_string::<ENC_KEY_SIZE>(),
-            options: Some(options),
+            options: Some(options.into()),
             server_url,
 
             // Deprecated fields
@@ -612,7 +609,7 @@ where
             msg_id = msg.id.short_hex(),
             group_id = msg.group_id.short_hex()
         );
-        if reply.kind() != BackupElementSelection::Unspecified {
+        if reply.kind() != BackupElementSelectionProto::Unspecified {
             log_event!(Event::DeviceSyncV1Archive, self.context.installation_id());
             // This is a legacy payload, the legacy function will process it.
             return Ok(());

@@ -1,6 +1,7 @@
 #![allow(unused)]
 
 use super::FullXmtpClient;
+use crate::groups::device_sync::{BackupElementSelection, BackupOptions};
 use crate::{
     Client, MlsContext,
     builder::{ClientBuilder, DeviceSyncMode, ForkRecoveryOpts, ForkRecoveryPolicy},
@@ -80,6 +81,7 @@ use xmtp_id::{
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
+use xmtp_proto::api_client::ToxicTestClient;
 use xmtp_proto::{
     api::ApiClientError,
     api_client::ApiBuilder,
@@ -89,10 +91,6 @@ use xmtp_proto::{
     },
 };
 use xmtp_proto::{api_client::ToxicProxies, prelude::XmtpTestClient};
-use xmtp_proto::{
-    api_client::ToxicTestClient,
-    xmtp::device_sync::{BackupElementSelection, BackupOptions},
-};
 
 type XmtpMlsProvider = XmtpOpenMlsProvider<Arc<TestMlsStorage>>;
 
