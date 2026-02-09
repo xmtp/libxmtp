@@ -23,7 +23,7 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use xmtp_archive::{ArchiveImporter, BackupMetadata, exporter::ArchiveExporter};
 use xmtp_common::{Event, NS_IN_DAY, fmt::ShortHex, time::now_ns};
-use xmtp_db::group_message::StoredGroupMessage;
+use xmtp_db::group_message::{MsgQueryArgs, StoredGroupMessage};
 use xmtp_db::{prelude::*, tasks::NewTask};
 use xmtp_macro::log_event;
 use xmtp_proto::{
@@ -364,9 +364,16 @@ where
                     return Ok(());
                 }
 
-                self.process_archive(msg, reply).await.inspect_err(
-                    |err| log_event!(Event::DeviceSyncArchiveImportFailure, self.context.installation_id(), err = %err),
-                )?;
+                if self.is_reply_requested_by_installation(&reply).await? {
+                    self.process_archive(msg, reply).await.inspect_err(
+                                        |err| log_event!(Event::DeviceSyncArchiveImportFailure, self.context.installation_id(), err = %err),
+                                    )?;
+                } else {
+                    log_event!(
+                        Event::DeviceSyncArchiveNotRequested,
+                        self.context.installation_id()
+                    );
+                }
 
                 handle.increment_metric(SyncMetric::PayloadProcessed);
             }
@@ -521,6 +528,24 @@ where
             .map_err(|e| GroupError::DeviceSync(Box::new(e)))?;
 
         Ok(())
+    }
+
+    async fn is_reply_requested_by_installation(
+        &self,
+        reply: &DeviceSyncReplyProto,
+    ) -> Result<bool, DeviceSyncError> {
+        let sync_group = self.get_sync_group().await?;
+        let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
+
+        for (msg, content) in messages.iter_with_content() {
+            if let ContentProto::Request(DeviceSyncRequestProto { pin, .. }) = content
+                && *pin == reply.request_id
+                && msg.sender_installation_id == self.installation_id()
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Processes sync archive with a matching pin. If no pin is provided, will process latest archive.

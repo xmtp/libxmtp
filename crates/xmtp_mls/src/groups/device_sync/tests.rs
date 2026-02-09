@@ -68,6 +68,8 @@ async fn test_full_sync_request() {
     let (_, m2) = alix2.test_talk_in_dm_with(&bo).await?;
     let (_, m3) = alix3.test_talk_in_dm_with(&bo).await?;
 
+    let (g1, gm3) = alix1.test_talk_in_new_group_with(&bo).await?;
+
     alix3
         .device_sync_client()
         .send_full_sync_request(
@@ -105,6 +107,15 @@ async fn test_full_sync_request() {
                 .any(|m| m.decrypted_message_bytes.windows(b.len()).any(|m| m == b))
         );
     }
+
+    // Check the group's messages and it's consent too.
+    let g3 = alix3.group(&g1.group_id)?;
+    assert_eq!(g3.consent_state()?, ConsentState::Allowed);
+    assert!(g1.find_messages(&Default::default())?.iter().any(|m| {
+        m.decrypted_message_bytes
+            .windows(gm3.len())
+            .any(|m| m == gm3.as_bytes())
+    }));
 }
 
 #[cfg_attr(target_arch = "wasm32", ignore)]
