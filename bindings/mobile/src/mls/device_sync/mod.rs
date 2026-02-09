@@ -15,7 +15,11 @@ use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
     /// Manually trigger a device sync request to sync records from another active device on this account.
-    pub async fn send_sync_request(&self) -> Result<(), FfiError> {
+    pub async fn send_sync_request(
+        &self,
+        options: FfiArchiveOptions,
+        server_url: String,
+    ) -> Result<(), FfiError> {
         self.inner_client
             .device_sync_client()
             .send_sync_request()

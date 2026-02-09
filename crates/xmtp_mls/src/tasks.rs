@@ -249,7 +249,6 @@ where
                         &send_sync_archive.sync_group_id,
                         &request_id,
                         &send_sync_archive.server_url,
-                        true,
                     )
                     .await
                     .inspect_err(|e| {
