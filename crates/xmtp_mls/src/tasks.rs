@@ -240,7 +240,7 @@ where
                 let client = DeviceSyncClient::new(context.clone(), metrics);
 
                 let pin = send_sync_archive.pin.clone().unwrap_or_else(|| {
-                    let pin = xmtp_common::rand_string::<6>();
+                    let pin = xmtp_common::rand_string::<5>();
                     format!("{pin:04}")
                 });
 

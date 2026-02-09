@@ -486,7 +486,7 @@ where
             .map_err(GroupError::from)?;
 
         let request = DeviceSyncRequestProto {
-            pin: xmtp_common::rand_string::<ENC_KEY_SIZE>(),
+            pin: xmtp_common::rand_string::<5>(),
             options: Some(options.into()),
             server_url: server_url.to_string(),
 
