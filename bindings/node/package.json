@@ -3,7 +3,7 @@
   "version": "1.10.0-dev",
   "repository": {
     "type": "git",
-    "url": "git+https://git@github.com/xmtp/libxmtp.git",
+    "url": "git+https://github.com/xmtp/libxmtp.git",
     "directory": "bindings/node"
   },
   "license": "MIT",
