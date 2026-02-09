@@ -92,15 +92,9 @@ async fn test_static_revoke_fails_with_non_recovery_identity() {
 #[tokio::test]
 async fn test_can_get_inbox_state_statically() {
     let alix_wallet = PrivateKeySigner::random();
-    let alix = new_test_client_no_panic(alix_wallet.clone(), None)
-        .await
-        .unwrap();
-    let _alix2 = new_test_client_no_panic(alix_wallet.clone(), None)
-        .await
-        .unwrap();
-    let _alix3 = new_test_client_no_panic(alix_wallet.clone(), None)
-        .await
-        .unwrap();
+    let alix = new_test_client_no_panic(alix_wallet.clone()).await.unwrap();
+    let _alix2 = new_test_client_no_panic(alix_wallet.clone()).await.unwrap();
+    let _alix3 = new_test_client_no_panic(alix_wallet.clone()).await.unwrap();
 
     let api_backend = connect_to_backend_test().await;
 

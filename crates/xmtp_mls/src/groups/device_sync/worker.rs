@@ -344,10 +344,9 @@ where
                                 xmtp_proto::xmtp::mls::database::task::Task::SendSyncArchive(
                                     SendSyncArchive {
                                         options: request.options,
-                                        request_id: Some(request.request_id),
+                                        pin: Some(request.pin),
                                         sync_group_id: msg.group_id.clone(),
-                                        // TODO: this
-                                        server_url: Default::default(),
+                                        server_url: request.server_url,
                                     },
                                 ),
                             ),
@@ -486,14 +485,14 @@ where
             .await
             .map_err(GroupError::from)?;
 
-        #[allow(deprecated)]
         let request = DeviceSyncRequestProto {
-            request_id: xmtp_common::rand_string::<ENC_KEY_SIZE>(),
+            pin: xmtp_common::rand_string::<ENC_KEY_SIZE>(),
             options: Some(options),
+            server_url,
 
             // Deprecated fields
-            kind: 0,
-            pin_code: Default::default(),
+            #[allow(deprecated)]
+            deprecated_kind: 0,
         };
 
         self.send_device_sync_message(ContentProto::Request(request))

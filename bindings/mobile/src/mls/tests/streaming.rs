@@ -346,7 +346,7 @@ async fn test_stream_groups_gets_callback_when_streaming_messages() {
 #[cfg_attr(feature = "d14n", ignore)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn test_stream_consent() {
-    let alix_a = Tester::builder().sync_worker().sync_server().build().await;
+    let alix_a = Tester::builder().sync_worker().build().await;
 
     let alix_b = alix_a.builder.build().await;
 

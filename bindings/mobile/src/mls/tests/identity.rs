@@ -1,5 +1,3 @@
-use xmtp_configuration::DeviceSyncUrls;
-
 use super::*;
 
 #[tokio::test]
@@ -37,7 +35,6 @@ async fn test_can_add_wallet_to_inbox() {
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
-        None,
         None,
         None,
         None,
@@ -140,7 +137,6 @@ async fn test_can_revoke_wallet() {
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -234,7 +230,6 @@ async fn test_invalid_external_signature() {
         inbox_owner.identifier(),
         nonce,
         None, // v2_signed_private_key_proto
-        None,
         None,
         None,
         None,
@@ -428,7 +423,6 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
         ffi_ident,
         1,
         None,
-        Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
         None,
         None,
         None,
@@ -473,7 +467,6 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
         ffi_ident,
         nonce,
         None,
-        Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
         None,
         None,
         None,
@@ -562,7 +555,6 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
         ffi_ident,
         nonce,
         None,
-        Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
         None,
         None,
         None,
@@ -602,7 +594,6 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
         ffi_ident,
         1,
         None,
-        Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
         None,
         None,
         None,
@@ -630,7 +621,6 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
         ffi_ident,
         1,
         None,
-        Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
         None,
         None,
         None,
@@ -655,7 +645,6 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
         ffi_ident,
         1,
         None,
-        Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
         None,
         None,
         None,
@@ -691,7 +680,6 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
         ffi_ident,
         1,
         None,
-        Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
         None,
         None,
         None,
@@ -716,16 +704,12 @@ async fn test_cannot_create_more_than_max_installations() {
     // Create a base tester
     let alix_wallet = PrivateKeySigner::random();
     let bo = Tester::new().await;
-    let alix = new_test_client_no_panic(alix_wallet.clone(), None)
-        .await
-        .unwrap();
+    let alix = new_test_client_no_panic(alix_wallet.clone()).await.unwrap();
 
     // Create (MAX_INSTALLATIONS_PER_INBOX - 1) additional installations (total MAX_INSTALLATIONS_PER_INBOX)
     let mut installations = vec![];
     for _ in 0..(MAX_INSTALLATIONS_PER_INBOX - 1) {
-        let new_client_installation = new_test_client_no_panic(alix_wallet.clone(), None)
-            .await
-            .unwrap();
+        let new_client_installation = new_test_client_no_panic(alix_wallet.clone()).await.unwrap();
         installations.push(new_client_installation);
     }
 
@@ -734,7 +718,7 @@ async fn test_cannot_create_more_than_max_installations() {
     assert_eq!(state.installations.len(), MAX_INSTALLATIONS_PER_INBOX);
 
     // Attempt to create an additional installation, expect failure
-    let alix_max_plus_one_result = new_test_client_no_panic(alix_wallet.clone(), None).await;
+    let alix_max_plus_one_result = new_test_client_no_panic(alix_wallet.clone()).await;
     assert!(
         alix_max_plus_one_result.is_err(),
         "Expected failure when creating MAX_INSTALLATIONS_PER_INBOX + 1 installation, but got Ok"
@@ -779,9 +763,7 @@ async fn test_cannot_create_more_than_max_installations() {
     );
 
     // Now try building alix6 again – should succeed
-    let _new_client_installation = new_test_client_no_panic(alix_wallet.clone(), None)
-        .await
-        .unwrap();
+    let _new_client_installation = new_test_client_no_panic(alix_wallet.clone()).await.unwrap();
     let updated_state = alix.inbox_state(true).await.unwrap();
     assert_eq!(
         updated_state.installations.len(),
@@ -808,7 +790,6 @@ async fn test_sorts_members_by_created_at_using_ffi_identifiers() {
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
-        None,
         None,
         None,
         None,

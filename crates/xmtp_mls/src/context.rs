@@ -1,5 +1,6 @@
 use crate::GroupCommitLock;
-use crate::builder::ForkRecoveryOpts;
+use crate::builder::{DeviceSyncMode, ForkRecoveryOpts};
+use crate::client::DeviceSync;
 use crate::groups::device_sync::worker::SyncMetric;
 use crate::subscriptions::{LocalEvents, SyncWorkerEvent};
 use crate::tasks::TaskWorkerChannels;
@@ -45,6 +46,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     pub(crate) worker_events: broadcast::Sender<SyncWorkerEvent>,
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
+    pub(crate) device_sync: DeviceSync,
     pub(crate) fork_recovery_opts: ForkRecoveryOpts,
     // pub(crate) workers: Arc<WorkerRunner>,
     pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
@@ -74,6 +76,10 @@ where
 
     pub fn scw_verifier(&self) -> &Arc<Box<dyn SmartContractSignatureVerifier>> {
         &self.scw_verifier
+    }
+
+    pub fn device_sync_worker_enabled(&self) -> bool {
+        !matches!(self.device_sync.mode, DeviceSyncMode::Disabled)
     }
 
     /// Reconstructs the DeviceSyncClient from the context
@@ -107,6 +113,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             local_events: self.local_events,
             worker_events: self.worker_events,
             scw_verifier: self.scw_verifier,
+            device_sync: self.device_sync,
             fork_recovery_opts: self.fork_recovery_opts,
             worker_metrics: self.worker_metrics,
             task_channels: self.task_channels,
@@ -170,6 +177,12 @@ where
     fn sync_api(&self) -> &ApiClientWrapper<Self::ApiClient>;
     fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>>;
 
+    fn device_sync(&self) -> &DeviceSync;
+
+    fn device_sync_worker_enabled(&self) -> bool {
+        !matches!(self.device_sync().mode, DeviceSyncMode::Disabled)
+    }
+
     fn fork_recovery_opts(&self) -> &ForkRecoveryOpts;
 
     /// Creates a new MLS Provider
@@ -230,6 +243,10 @@ where
 
     fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>> {
         self.scw_verifier.clone()
+    }
+
+    fn device_sync(&self) -> &DeviceSync {
+        &self.device_sync
     }
 
     fn fork_recovery_opts(&self) -> &ForkRecoveryOpts {
@@ -305,6 +322,14 @@ where
 
     fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>> {
         <T as XmtpSharedContext>::scw_verifier(self)
+    }
+
+    fn device_sync(&self) -> &DeviceSync {
+        <T as XmtpSharedContext>::device_sync(self)
+    }
+
+    fn device_sync_worker_enabled(&self) -> bool {
+        <T as XmtpSharedContext>::device_sync_worker_enabled(self)
     }
 
     fn fork_recovery_opts(&self) -> &ForkRecoveryOpts {

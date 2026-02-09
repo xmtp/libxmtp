@@ -1,6 +1,6 @@
 use crate::{
     GroupCommitLock, StorageError, XmtpApi,
-    client::Client,
+    client::{Client, DeviceSync},
     context::{XmtpMlsLocalContext, XmtpSharedContext},
     groups::{
         device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker,
@@ -73,15 +73,22 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) store: Option<Db>,
     pub(crate) identity_strategy: IdentityStrategy,
     pub(crate) scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
+    pub(crate) device_sync_worker_mode: DeviceSyncMode,
     pub(crate) fork_recovery_opts: Option<ForkRecoveryOpts>,
     pub(crate) version_info: VersionInfo,
     pub(crate) allow_offline: bool,
     pub(crate) disable_commit_log_worker: bool,
-    pub(crate) disable_sync_worker: bool,
     pub(crate) mls_storage: Option<S>,
     pub(crate) sync_api_client: Option<ApiClient>,
     pub(crate) cursor_store: Option<Arc<dyn CursorStore>>,
     pub(crate) disable_workers: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeviceSyncMode {
+    Disabled,
+    Enabled,
+    EnabledSyncOnInit,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -126,11 +133,11 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity: None,
             store: None,
             scw_verifier: None,
+            device_sync_worker_mode: DeviceSyncMode::Enabled,
             fork_recovery_opts: None,
             version_info: VersionInfo::default(),
             allow_offline: false,
             disable_commit_log_worker: false,
-            disable_sync_worker: false,
             mls_storage: None,
             sync_api_client: None,
             cursor_store: None,
@@ -157,11 +164,11 @@ where
             store: Some(client.context.store.clone()),
             identity_strategy: IdentityStrategy::CachedOnly,
             scw_verifier: Some(Box::new(client.context.scw_verifier.clone())),
+            device_sync_worker_mode: client.context.device_sync.mode,
             fork_recovery_opts: Some(client.context.fork_recovery_opts.clone()),
             version_info: client.context.version_info.clone(),
             allow_offline: false,
             disable_commit_log_worker: false,
-            disable_sync_worker: false,
             mls_storage: Some(client.context.mls_storage.clone()),
             sync_api_client: Some(cloned_sync_api),
             cursor_store: None,
@@ -199,11 +206,12 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mut store,
             identity_strategy,
             mut scw_verifier,
+
+            device_sync_worker_mode,
             fork_recovery_opts,
             version_info,
             allow_offline,
             disable_commit_log_worker,
-            disable_sync_worker,
             mut mls_storage,
             mut sync_api_client,
             // cursor_store,
@@ -280,6 +288,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mls_commit_lock: Arc::new(GroupCommitLock::new()),
             local_events: local_events.clone(),
             worker_events: worker_tx.clone(),
+            device_sync: DeviceSync {
+                mode: device_sync_worker_mode,
+            },
             fork_recovery_opts: fork_recovery_opts.unwrap_or_default(),
 
             sync_api_client,
@@ -289,7 +300,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         // register workers
         if !disable_workers {
-            if !disable_sync_worker {
+            if context.device_sync_worker_enabled() {
                 workers.register_new_worker::<SyncWorker<ContextParts<ApiClient, S, Db>>, _>(
                     context.clone(),
                 );
@@ -330,7 +341,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             context.installation_id(),
             inbox_id = context.inbox_id(),
             full_installation_id = hex::encode(context.installation_id()),
-            device_sync_enabled = !disable_sync_worker,
+            device_sync_enabled = context.device_sync_worker_enabled(),
             disabled_workers = disable_workers
         );
 
@@ -361,11 +372,11 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity: self.identity,
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
+            device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
-            disable_sync_worker: self.disable_sync_worker,
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
@@ -388,11 +399,11 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity: self.identity,
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
+            device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
-            disable_sync_worker: self.disable_sync_worker,
             mls_storage: Some(SqlKeyStore::new(
                 self.store
                     .as_ref()
@@ -415,11 +426,11 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity: self.identity,
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
+            device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
-            disable_sync_worker: self.disable_sync_worker,
             mls_storage: Some(mls_storage),
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
@@ -430,6 +441,20 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     pub fn with_disable_workers(mut self, disable_workers: bool) -> Self {
         self.disable_workers = disable_workers;
         self
+    }
+
+    pub fn with_device_sync_worker_mode(self, mode: Option<DeviceSyncMode>) -> Self {
+        Self {
+            device_sync_worker_mode: mode.unwrap_or(DeviceSyncMode::Enabled),
+            ..self
+        }
+    }
+
+    pub fn device_sync_worker_mode(self, mode: DeviceSyncMode) -> Self {
+        Self {
+            device_sync_worker_mode: mode,
+            ..self
+        }
     }
 
     pub fn fork_recovery_opts(self, opts: ForkRecoveryOpts) -> Self {
@@ -449,11 +474,11 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
             store: self.store,
+            device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
-            disable_sync_worker: self.disable_sync_worker,
             mls_storage: self.mls_storage,
             sync_api_client: Some(sync_api_client),
             cursor_store: self.cursor_store,
@@ -509,15 +534,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
-    /// Control whether the DeviceSync background task is enabled.
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn with_sync_worker(self, enabled: bool) -> Self {
-        Self {
-            disable_sync_worker: !enabled,
-            ..self
-        }
-    }
-
     #[cfg(any(test, feature = "test-utils"))]
     pub fn enable_sqlite_triggers(self) -> Self
     where
@@ -549,11 +565,12 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
             store: self.store,
+
+            device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
-            disable_sync_worker: self.disable_sync_worker,
             mls_storage: self.mls_storage,
             sync_api_client: Some(ApiDebugWrapper::new(
                 self.sync_api_client.expect("checked for none"),
@@ -580,12 +597,12 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
             store: self.store,
+
+            device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
-            disable_sync_worker: self.disable_sync_worker,
-
             mls_storage: self.mls_storage,
             sync_api_client: Some(TrackedStatsClient::new(
                 self.sync_api_client.expect("checked for none"),
@@ -605,11 +622,12 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity_strategy: self.identity_strategy,
             scw_verifier: Some(Box::new(verifier)),
             store: self.store,
+
+            device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
-            disable_sync_worker: self.disable_sync_worker,
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
@@ -637,11 +655,11 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: Some(Box::new(ApiClientWrapper::new(api, Retry::default()))
                 as Box<dyn SmartContractSignatureVerifier>),
             store: self.store,
+            device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
-            disable_sync_worker: self.disable_sync_worker,
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,

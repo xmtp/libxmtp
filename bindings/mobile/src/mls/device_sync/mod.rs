@@ -22,7 +22,7 @@ impl FfiXmtpClient {
     ) -> Result<(), FfiError> {
         self.inner_client
             .device_sync_client()
-            .send_sync_request()
+            .send_full_sync_request(options.into(), server_url)
             .await?;
         Ok(())
     }

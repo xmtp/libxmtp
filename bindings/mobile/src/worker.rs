@@ -54,30 +54,33 @@ impl From<FfiSyncMetric> for SyncMetric {
     }
 }
 use xmtp_mls::{
-    builder::SyncWorkerMode, groups::device_sync::worker::SyncMetric,
+    builder::DeviceSyncMode, groups::device_sync::worker::SyncMetric,
     worker::metrics::WorkerMetrics,
 };
 
 #[derive(uniffi::Enum)]
-pub enum FfiSyncWorkerMode {
+pub enum FfiDeviceSyncMode {
     Enabled,
     Disabled,
+    EnabledSyncOnInit,
 }
 
-impl From<FfiSyncWorkerMode> for SyncWorkerMode {
-    fn from(value: FfiSyncWorkerMode) -> Self {
+impl From<DeviceSyncMode> for FfiDeviceSyncMode {
+    fn from(value: DeviceSyncMode) -> Self {
         match value {
-            FfiSyncWorkerMode::Enabled => Self::Enabled,
-            FfiSyncWorkerMode::Disabled => Self::Disabled,
+            DeviceSyncMode::Enabled => Self::Enabled,
+            DeviceSyncMode::Disabled => Self::Disabled,
+            DeviceSyncMode::EnabledSyncOnInit => Self::EnabledSyncOnInit,
         }
     }
 }
 
-impl From<SyncWorkerMode> for FfiSyncWorkerMode {
-    fn from(value: SyncWorkerMode) -> Self {
+impl From<FfiDeviceSyncMode> for DeviceSyncMode {
+    fn from(value: FfiDeviceSyncMode) -> Self {
         match value {
-            SyncWorkerMode::Enabled => Self::Enabled,
-            SyncWorkerMode::Disabled => Self::Disabled,
+            FfiDeviceSyncMode::Enabled => Self::Enabled,
+            FfiDeviceSyncMode::Disabled => Self::Disabled,
+            FfiDeviceSyncMode::EnabledSyncOnInit => Self::EnabledSyncOnInit,
         }
     }
 }

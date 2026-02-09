@@ -4,12 +4,7 @@ use super::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn radio_silence() {
-    let alex = TesterBuilder::new()
-        .sync_worker()
-        .sync_server()
-        .stream()
-        .build()
-        .await;
+    let alex = TesterBuilder::new().sync_worker().stream().build().await;
 
     let convo_callback = Arc::new(RustStreamCallback::default());
     let _convo_stream_handle = alex.conversations().stream_groups(convo_callback).await;
@@ -80,7 +75,6 @@ async fn create_client_does_not_hit_network() {
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -116,7 +110,6 @@ async fn create_client_does_not_hit_network() {
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
-        None,
         None,
         None,
         Some(true),

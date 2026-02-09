@@ -1,5 +1,5 @@
 use napi_derive::napi;
-use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
+use xmtp_mls::builder::DeviceSyncMode as XmtpSyncWorkerMode;
 
 #[napi(string_enum)]
 #[derive(Debug)]
@@ -17,6 +17,7 @@ pub enum LogLevel {
 pub enum SyncWorkerMode {
   Enabled,
   Disabled,
+  EnabledSyncOnInit,
 }
 
 #[napi(string_enum)]
@@ -32,6 +33,7 @@ impl From<SyncWorkerMode> for XmtpSyncWorkerMode {
     match value {
       SyncWorkerMode::Enabled => Self::Enabled,
       SyncWorkerMode::Disabled => Self::Disabled,
+      SyncWorkerMode::EnabledSyncOnInit => Self::EnabledSyncOnInit,
     }
   }
 }

@@ -141,11 +141,11 @@ impl DeviceSync {
 
   /// Manually trigger a device sync request to sync records from another active device on this account.
   #[napi]
-  pub async fn send_sync_request(&self) -> Result<()> {
+  pub async fn send_sync_request(&self, options: ArchiveOptions, server_url: String) -> Result<()> {
     self
       .inner_client
       .device_sync_client()
-      .send_sync_request()
+      .send_full_sync_request(options.into(), server_url)
       .await
       .map_err(ErrorWrapper::from)?;
 

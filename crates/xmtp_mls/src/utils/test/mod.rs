@@ -13,7 +13,7 @@ use crate::XmtpApi;
 use crate::cursor_store::SqliteCursorStore;
 use crate::{
     Client, InboxOwner,
-    builder::ClientBuilder,
+    builder::{ClientBuilder, DeviceSyncMode},
     context::{XmtpMlsLocalContext, XmtpSharedContext},
     identity::IdentityStrategy,
 };
@@ -95,7 +95,7 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
     pub async fn new_test_client_vanilla(owner: &impl InboxOwner) -> FullXmtpClient {
         let client = Self::new_test_builder(owner)
             .await
-            .with_sync_worker(false)
+            .device_sync_worker_mode(DeviceSyncMode::Disabled)
             .build()
             .await
             .unwrap();
@@ -110,7 +110,7 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
         let client = Self::new_test_builder(owner)
             .await
             .local()
-            .with_sync_worker(false)
+            .device_sync_worker_mode(DeviceSyncMode::Disabled)
             .version(version)
             .build()
             .await

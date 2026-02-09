@@ -238,7 +238,7 @@ where
 
                 let client = DeviceSyncClient::new(context.clone(), metrics);
 
-                let request_id = send_sync_archive.request_id.clone().unwrap_or_else(|| {
+                let pin = send_sync_archive.pin.clone().unwrap_or_else(|| {
                     let pin = xmtp_common::rand_string::<6>();
                     format!("{pin:04}")
                 });
@@ -247,7 +247,7 @@ where
                     .send_archive(
                         options,
                         &send_sync_archive.sync_group_id,
-                        &request_id,
+                        &pin,
                         &send_sync_archive.server_url,
                     )
                     .await
@@ -256,7 +256,7 @@ where
                             Event::DeviceSyncArchiveUploadFailure,
                             context.installation_id(),
                             group_id = send_sync_archive.sync_group_id.short_hex(),
-                            request_id = send_sync_archive.request_id(),
+                            pin = send_sync_archive.pin(),
                             err = %e
                         )
                     })?;

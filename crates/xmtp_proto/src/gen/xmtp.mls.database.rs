@@ -623,7 +623,7 @@ pub struct SendSyncArchive {
     #[prost(bytes = "vec", tag = "2")]
     pub sync_group_id: ::prost::alloc::vec::Vec<u8>,
     #[prost(string, optional, tag = "3")]
-    pub request_id: ::core::option::Option<::prost::alloc::string::String>,
+    pub pin: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, tag = "4")]
     pub server_url: ::prost::alloc::string::String,
 }

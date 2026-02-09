@@ -85,7 +85,6 @@ pub async fn create_client(
   db: DbOptions,
   inbox_id: String,
   account_identifier: Identifier,
-  device_sync_server_url: Option<String>,
   device_sync_worker_mode: Option<SyncWorkerMode>,
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,

@@ -14,6 +14,7 @@ use tokio::sync::Mutex;
 use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_db::prelude::Pragmas;
 use xmtp_db::{NativeDb, XmtpDb};
+use xmtp_mls::builder::DeviceSyncMode;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 
 pub async fn new_unregistered_client(
@@ -106,7 +107,7 @@ async fn new_client_inner(
     .store(db)
     .default_mls_store()?
     .with_remote_verifier()?
-    .with_device_sync_worker_mode(Some(SyncWorkerMode::Disabled))
+    .with_device_sync_worker_mode(Some(DeviceSyncMode::Disabled))
     .build()
     .await?;
 
@@ -168,7 +169,7 @@ fn existing_client_inner(
         .with_remote_verifier()?
         .store(store)
         .default_mls_store()?
-        .with_device_sync_worker_mode(Some(SyncWorkerMode::Disabled))
+        .with_device_sync_worker_mode(Some(DeviceSyncMode::Disabled))
         .with_allow_offline(Some(true))
         .build_offline()?;
 

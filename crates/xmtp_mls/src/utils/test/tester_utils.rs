@@ -3,7 +3,7 @@
 use super::FullXmtpClient;
 use crate::{
     Client, MlsContext,
-    builder::{ClientBuilder, ForkRecoveryOpts, ForkRecoveryPolicy},
+    builder::{ClientBuilder, DeviceSyncMode, ForkRecoveryOpts, ForkRecoveryPolicy},
     client::ClientError,
     context::XmtpSharedContext,
     cursor_store::SqliteCursorStore,
@@ -53,7 +53,7 @@ use xmtp_api_d14n::{
 use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
 use xmtp_common::StreamHandle;
 use xmtp_common::TestLogReplace;
-use xmtp_configuration::{DeviceSyncUrls, DockerUrls};
+use xmtp_configuration::DockerUrls;
 use xmtp_configuration::{KEY_PACKAGE_ROTATION_INTERVAL_NS, LOCALHOST};
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
 #[cfg(not(target_arch = "wasm32"))]
@@ -240,7 +240,7 @@ where
             .api_clients(api_client, sync_api_client)
             .with_disable_workers(self.disable_workers)
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-            .with_sync_worker(!self.sync_disabled)
+            .with_device_sync_worker_mode(Some(self.sync_mode))
             .maybe_version(self.version.clone())
             .with_commit_log_worker(self.commit_log_worker)
             .fork_recovery_opts(self.fork_recovery_opts.clone().unwrap_or_default());
@@ -267,7 +267,7 @@ where
             replace.add(client.inbox_id(), name);
         }
         let mut worker = None;
-        if self.wait_for_init && !self.sync_disabled {
+        if self.wait_for_init && self.sync_mode != DeviceSyncMode::Disabled {
             while worker.is_none() {
                 xmtp_common::task::yield_now().await;
                 worker = client.context.sync_metrics();
@@ -425,7 +425,7 @@ where
     Owner: InboxOwner,
 {
     pub owner: Owner,
-    pub sync_disabled: bool,
+    pub sync_mode: DeviceSyncMode,
     pub fork_recovery_opts: Option<ForkRecoveryOpts>,
     pub wait_for_init: bool,
     pub stream: bool,
@@ -461,7 +461,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
     fn default() -> Self {
         Self {
             owner: generate_local_wallet(),
-            sync_disabled: true,
+            sync_mode: DeviceSyncMode::Disabled,
             fork_recovery_opts: None,
             wait_for_init: true,
             stream: false,
@@ -492,7 +492,7 @@ where
     {
         TesterBuilder {
             owner,
-            sync_disabled: self.sync_disabled,
+            sync_mode: self.sync_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             wait_for_init: self.wait_for_init,
             stream: self.stream,
@@ -631,8 +631,12 @@ where
     }
 
     pub fn sync_worker(mut self) -> Self {
-        self.sync_disabled = false;
+        self.sync_mode = DeviceSyncMode::EnabledSyncOnInit;
         self
+    }
+
+    pub fn sync_mode(self, sync_mode: DeviceSyncMode) -> Self {
+        Self { sync_mode, ..self }
     }
 
     pub fn persistent_db(mut self) -> Self {

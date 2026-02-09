@@ -122,24 +122,24 @@ pub enum Event {
     DeviceSyncArchiveImportFailure,
     /// Attempted to acknowledge a sync request, but it was already acknowledged
     /// by another installation.
-    #[context(request_id, acknowledged_by)]
+    #[context(pin, acknowledged_by)]
     DeviceSyncRequestAlreadyAcknowledged,
     /// Acknowledged sync request.
-    #[context(request_id)]
+    #[context(pin)]
     DeviceSyncRequestAcknowledged,
     /// Scheduled task to respond to sync request.
-    #[context(request_id)]
+    #[context(pin)]
     DeviceSyncResponseTaskScheduled,
     /// Sending sync archive.
     #[context(group_id, server_url)]
     DeviceSyncArchiveUploadStart,
     /// Failed to send sync archive.
-    #[context(group_id, request_id, err)]
+    #[context(group_id, pin, err)]
     DeviceSyncArchiveUploadFailure,
     /// Archive upload complete.
     #[context(group_id)]
     DeviceSyncArchiveUploadComplete,
     /// Cannot send sync archive. No server_url present.
-    #[context(request_id)]
+    #[context(pin)]
     DeviceSyncNoServerUrl,
 }

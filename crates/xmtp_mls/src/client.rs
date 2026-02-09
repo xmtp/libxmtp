@@ -1,4 +1,5 @@
 use crate::{
+    builder::DeviceSyncMode,
     context::XmtpSharedContext,
     groups::{
         ConversationListItem, GroupError, MlsGroup,
@@ -164,6 +165,11 @@ pub struct Client<Context> {
     pub(crate) workers: Arc<WorkerRunner>,
 }
 
+#[derive(Clone)]
+pub struct DeviceSync {
+    pub(crate) mode: DeviceSyncMode,
+}
+
 // most of these things are `Arc`'s
 impl<Context: Clone> Clone for Client<Context> {
     fn clone(&self) -> Self {
@@ -270,6 +276,10 @@ where
     /// higher-level queries are defined
     pub fn db(&self) -> <Context::Db as XmtpDb>::DbQuery {
         self.context.db()
+    }
+
+    pub fn device_sync_worker_enabled(&self) -> bool {
+        self.context.device_sync_worker_enabled()
     }
 
     pub fn device_sync_client(&self) -> DeviceSyncClient<Context> {
