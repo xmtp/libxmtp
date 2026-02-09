@@ -18,7 +18,7 @@ plugins {
 }
 
 group = "org.xmtp"
-version = System.getenv("RELEASE_VERSION")
+// version is read from gradle.properties
 
 // Configure Spotless for all subprojects
 subprojects {
