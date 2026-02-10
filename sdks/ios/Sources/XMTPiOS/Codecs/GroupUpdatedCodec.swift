@@ -13,7 +13,7 @@ public let ContentTypeGroupUpdated = ContentTypeID(
 	authorityID: "xmtp.org",
 	typeID: "group_updated",
 	versionMajor: 1,
-	versionMinor: 0,
+	versionMinor: 0
 )
 
 public struct GroupUpdatedCodec: ContentCodec {

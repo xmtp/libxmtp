@@ -5,7 +5,7 @@ import os from "node:os";
 import {
   readPodspecVersion,
   writePodspecVersion,
-} from "../src/lib/manifest.js";
+} from "../../src/lib/manifest";
 
 const SAMPLE_PODSPEC = `Pod::Spec.new do |spec|
   spec.name         = "XMTP"

@@ -70,7 +70,7 @@ class DeleteMessageCodecTests: XCTestCase {
 
 		try await alixConversation.send(
 			content: deleteRequest,
-			options: .init(contentType: ContentTypeDeleteMessageRequest),
+			options: .init(contentType: ContentTypeDeleteMessageRequest)
 		)
 
 		let messages = try await alixConversation.messages()
@@ -127,7 +127,7 @@ class DeleteMessageCodecTests: XCTestCase {
 
 		try await alixGroup.send(
 			content: deleteRequest,
-			options: .init(contentType: ContentTypeDeleteMessageRequest),
+			options: .init(contentType: ContentTypeDeleteMessageRequest)
 		)
 
 		try await alixGroup.sync()
@@ -161,7 +161,7 @@ class DeleteMessageCodecTests: XCTestCase {
 
 		try await alixConversation.send(
 			content: deleteRequest,
-			options: .init(contentType: ContentTypeDeleteMessageRequest),
+			options: .init(contentType: ContentTypeDeleteMessageRequest)
 		)
 
 		// Using messages() API to verify content type is preserved

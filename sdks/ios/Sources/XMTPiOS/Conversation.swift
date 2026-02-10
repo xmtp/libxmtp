@@ -98,16 +98,16 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 	}
 
 	public func updateDisappearingMessageSettings(
-		_ disappearingMessageSettings: DisappearingMessageSettings?,
+		_ disappearingMessageSettings: DisappearingMessageSettings?
 	) async throws {
 		switch self {
 		case let .group(group):
 			try await group.updateDisappearingMessageSettings(
-				disappearingMessageSettings,
+				disappearingMessageSettings
 			)
 		case let .dm(dm):
 			try await dm.updateDisappearingMessageSettings(
-				disappearingMessageSettings,
+				disappearingMessageSettings
 			)
 		}
 	}
@@ -142,7 +142,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 	public func prepareMessage(
 		encodedContent: EncodedContent,
 		visibilityOptions: MessageVisibilityOptions? = nil,
-		noSend: Bool = false,
+		noSend: Bool = false
 	) async throws
 		-> String
 	{
@@ -151,13 +151,13 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			try await group.prepareMessage(
 				encodedContent: encodedContent,
 				visibilityOptions: visibilityOptions,
-				noSend: noSend,
+				noSend: noSend
 			)
 		case let .dm(dm):
 			try await dm.prepareMessage(
 				encodedContent: encodedContent,
 				visibilityOptions: visibilityOptions,
-				noSend: noSend,
+				noSend: noSend
 			)
 		}
 	}
@@ -168,11 +168,11 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		switch self {
 		case let .group(group):
 			try await group.prepareMessage(
-				content: content, options: options, noSend: noSend,
+				content: content, options: options, noSend: noSend
 			)
 		case let .dm(dm):
 			try await dm.prepareMessage(
-				content: content, options: options, noSend: noSend,
+				content: content, options: options, noSend: noSend
 			)
 		}
 	}
@@ -232,7 +232,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 	}
 
 	@discardableResult public func send(
-		content: some Any, options: SendOptions? = nil, fallback _: String? = nil,
+		content: some Any, options: SendOptions? = nil, fallback _: String? = nil
 	) async throws -> String {
 		switch self {
 		case let .group(group):
@@ -243,16 +243,16 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 	}
 
 	@discardableResult public func send(
-		encodedContent: EncodedContent, visibilityOptions: MessageVisibilityOptions? = nil,
+		encodedContent: EncodedContent, visibilityOptions: MessageVisibilityOptions? = nil
 	) async throws -> String {
 		switch self {
 		case let .group(group):
 			try await group.send(
-				encodedContent: encodedContent, visibilityOptions: visibilityOptions,
+				encodedContent: encodedContent, visibilityOptions: visibilityOptions
 			)
 		case let .dm(dm):
 			try await dm.send(
-				encodedContent: encodedContent, visibilityOptions: visibilityOptions,
+				encodedContent: encodedContent, visibilityOptions: visibilityOptions
 			)
 		}
 	}
@@ -309,7 +309,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		excludeSenderInboxIds: [String]? = nil,
 		sortBy: MessageSortBy? = nil,
 		insertedAfterNs: Int64? = nil,
-		insertedBeforeNs: Int64? = nil,
+		insertedBeforeNs: Int64? = nil
 	) async throws -> [DecodedMessage] {
 		switch self {
 		case let .group(group):
@@ -320,7 +320,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				sortBy: sortBy,
 				insertedAfterNs: insertedAfterNs,
-				insertedBeforeNs: insertedBeforeNs,
+				insertedBeforeNs: insertedBeforeNs
 			)
 		case let .dm(dm):
 			try await dm.messages(
@@ -330,7 +330,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				sortBy: sortBy,
 				insertedAfterNs: insertedAfterNs,
-				insertedBeforeNs: insertedBeforeNs,
+				insertedBeforeNs: insertedBeforeNs
 			)
 		}
 	}
@@ -364,7 +364,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		excludeSenderInboxIds: [String]? = nil,
 		sortBy: MessageSortBy? = nil,
 		insertedAfterNs: Int64? = nil,
-		insertedBeforeNs: Int64? = nil,
+		insertedBeforeNs: Int64? = nil
 	) async throws -> [DecodedMessage] {
 		switch self {
 		case let .group(group):
@@ -375,7 +375,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				sortBy: sortBy,
 				insertedAfterNs: insertedAfterNs,
-				insertedBeforeNs: insertedBeforeNs,
+				insertedBeforeNs: insertedBeforeNs
 			)
 		case let .dm(dm):
 			try await dm.messagesWithReactions(
@@ -385,7 +385,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				sortBy: sortBy,
 				insertedAfterNs: insertedAfterNs,
-				insertedBeforeNs: insertedBeforeNs,
+				insertedBeforeNs: insertedBeforeNs
 			)
 		}
 	}
@@ -415,7 +415,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		excludeSenderInboxIds: [String]? = nil,
 		sortBy: MessageSortBy? = nil,
 		insertedAfterNs: Int64? = nil,
-		insertedBeforeNs: Int64? = nil,
+		insertedBeforeNs: Int64? = nil
 	) async throws -> [DecodedMessageV2] {
 		switch self {
 		case let .group(group):
@@ -426,7 +426,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				sortBy: sortBy,
 				insertedAfterNs: insertedAfterNs,
-				insertedBeforeNs: insertedBeforeNs,
+				insertedBeforeNs: insertedBeforeNs
 			)
 		case let .dm(dm):
 			try await dm.enrichedMessages(
@@ -436,7 +436,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				sortBy: sortBy,
 				insertedAfterNs: insertedAfterNs,
-				insertedBeforeNs: insertedBeforeNs,
+				insertedBeforeNs: insertedBeforeNs
 			)
 		}
 	}
@@ -448,7 +448,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		excludeContentTypes: [StandardContentType]? = nil,
 		excludeSenderInboxIds: [String]? = nil,
 		insertedAfterNs: Int64? = nil,
-		insertedBeforeNs: Int64? = nil,
+		insertedBeforeNs: Int64? = nil
 	) throws -> Int64 {
 		switch self {
 		case let .group(group):
@@ -457,7 +457,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 				excludeContentTypes: excludeContentTypes,
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				insertedAfterNs: insertedAfterNs,
-				insertedBeforeNs: insertedBeforeNs,
+				insertedBeforeNs: insertedBeforeNs
 			)
 		case let .dm(dm):
 			try dm.countMessages(
@@ -465,7 +465,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 				excludeContentTypes: excludeContentTypes,
 				excludeSenderInboxIds: excludeSenderInboxIds,
 				insertedAfterNs: insertedAfterNs,
-				insertedBeforeNs: insertedBeforeNs,
+				insertedBeforeNs: insertedBeforeNs
 			)
 		}
 	}

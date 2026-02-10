@@ -23,7 +23,7 @@ class ReactionTests: XCTestCase {
 				  "reference": "abc123",
 				  "schema": "shortcode"
 				}
-				""".utf8,
+				""".utf8
 			)
 		}
 
@@ -41,10 +41,10 @@ class ReactionTests: XCTestCase {
 
 		let fixtures = try await fixtures()
 		let canonical = try codec.decode(
-			content: canonicalEncoded,
+			content: canonicalEncoded
 		)
 		let legacy = try codec.decode(
-			content: legacyEncoded,
+			content: legacyEncoded
 		)
 
 		XCTAssertEqual(ReactionAction.added, canonical.action)
@@ -72,12 +72,12 @@ class ReactionTests: XCTestCase {
 			reference: messageToReact.id,
 			action: .added,
 			content: "U+1F603",
-			schema: .unicode,
+			schema: .unicode
 		)
 
 		try await conversation.send(
 			content: reaction,
-			options: .init(contentType: ContentTypeReaction),
+			options: .init(contentType: ContentTypeReaction)
 		)
 
 		_ = try await conversation.messages()
@@ -104,7 +104,7 @@ class ReactionTests: XCTestCase {
 				  "reference": "",
 				  "schema": ""
 				}
-				""".utf8,
+				""".utf8
 			)
 		}
 
@@ -123,10 +123,10 @@ class ReactionTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let canonical = try codec.decode(
-			content: canonicalEncoded,
+			content: canonicalEncoded
 		)
 		let legacy = try codec.decode(
-			content: legacyEncoded,
+			content: legacyEncoded
 		)
 
 		XCTAssertEqual(ReactionAction.unknown, canonical.action)
@@ -154,12 +154,12 @@ class ReactionTests: XCTestCase {
 			reference: messageToReact.id,
 			action: .added,
 			content: "U+1F603",
-			schema: .unicode,
+			schema: .unicode
 		)
 
 		try await conversation.send(
 			content: reaction,
-			options: .init(contentType: ContentTypeReactionV2),
+			options: .init(contentType: ContentTypeReactionV2)
 		)
 
 		let messages = try await conversation.messages()
@@ -197,11 +197,11 @@ class ReactionTests: XCTestCase {
 			reference: messageToReact.id,
 			action: .added,
 			content: "U+1F603",
-			schema: .unicode,
+			schema: .unicode
 		)
 		try await conversation.send(
 			content: reactionV2,
-			options: .init(contentType: ContentTypeReactionV2),
+			options: .init(contentType: ContentTypeReactionV2)
 		)
 
 		// Send V1 reaction
@@ -209,11 +209,11 @@ class ReactionTests: XCTestCase {
 			reference: messageToReact.id,
 			action: .added,
 			content: "U+1F604", // Different emoji to distinguish
-			schema: .unicode,
+			schema: .unicode
 		)
 		try await conversation.send(
 			content: reactionV1,
-			options: .init(contentType: ContentTypeReaction),
+			options: .init(contentType: ContentTypeReaction)
 		)
 
 		// Verify both reactions appear in messagesWithReactions

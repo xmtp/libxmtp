@@ -67,7 +67,7 @@ public struct DecodedMessageV2: Identifiable {
 		let decodedContent = try mapContent(ffiMessage.content())
 		guard let result = decodedContent as? T else {
 			throw DecodedMessageError.decodeError(
-				"Decoded content could not be cast to the expected type \(T.self).",
+				"Decoded content could not be cast to the expected type \(T.self)."
 			)
 		}
 		return result
@@ -107,7 +107,7 @@ public struct DecodedMessageV2: Identifiable {
 			authorityID: ffiContentType.authorityId,
 			typeID: ffiContentType.typeId,
 			versionMajor: Int(ffiContentType.versionMajor),
-			versionMinor: Int(ffiContentType.versionMinor),
+			versionMinor: Int(ffiContentType.versionMinor)
 		)
 	}
 
@@ -198,7 +198,7 @@ public struct DecodedMessageV2: Identifiable {
 		var reply = Reply(
 			reference: enrichedReply.inReplyTo?.id().toHex ?? "",
 			content: content,
-			contentType: contentType,
+			contentType: contentType
 		)
 
 		if let inReplyToMessage = enrichedReply.inReplyTo {
@@ -254,7 +254,7 @@ public struct DecodedMessageV2: Identifiable {
 				authorityID: "xmtp.org",
 				typeID: "markdown",
 				versionMajor: 1,
-				versionMinor: 0,
+				versionMinor: 0
 			)
 		case .reaction:
 			ContentTypeReaction
@@ -277,7 +277,7 @@ public struct DecodedMessageV2: Identifiable {
 				authorityID: "xmtp.org",
 				typeID: "walletSendCalls",
 				versionMajor: 1,
-				versionMinor: 0,
+				versionMinor: 0
 			)
 		case let .custom(ffiEncodedContent):
 			if let typeId = ffiEncodedContent.typeId {
@@ -285,7 +285,7 @@ public struct DecodedMessageV2: Identifiable {
 					authorityID: typeId.authorityId,
 					typeID: typeId.typeId,
 					versionMajor: Int(typeId.versionMajor),
-					versionMinor: Int(typeId.versionMinor),
+					versionMinor: Int(typeId.versionMinor)
 				)
 			} else {
 				// Return a default content type if none is specified
@@ -296,14 +296,14 @@ public struct DecodedMessageV2: Identifiable {
 				authorityID: "coinbase.com",
 				typeID: "intent",
 				versionMajor: 1,
-				versionMinor: 0,
+				versionMinor: 0
 			)
 		case .actions:
 			ContentTypeID(
 				authorityID: "coinbase.com",
 				typeID: "actions",
 				versionMajor: 1,
-				versionMinor: 0,
+				versionMinor: 0
 			)
 		case .deletedMessage:
 			ContentTypeDeletedMessage
@@ -316,7 +316,7 @@ public struct DecodedMessageV2: Identifiable {
 			action: reactionPayload.action == .added ? .added : .removed,
 			content: reactionPayload.content,
 			schema: mapReactionSchema(reactionPayload.schema),
-			referenceInboxId: reactionPayload.referenceInboxId,
+			referenceInboxId: reactionPayload.referenceInboxId
 		)
 	}
 
@@ -341,7 +341,7 @@ public struct DecodedMessageV2: Identifiable {
 		Attachment(
 			filename: ffiAttachment.filename ?? "",
 			mimeType: ffiAttachment.mimeType,
-			data: ffiAttachment.content,
+			data: ffiAttachment.content
 		)
 	}
 
@@ -354,7 +354,7 @@ public struct DecodedMessageV2: Identifiable {
 			nonce: ffiAttachment.nonce,
 			scheme: mapRemoteAttachmentScheme(ffiAttachment.scheme),
 			contentLength: ffiAttachment.contentLength.map { Int($0) },
-			filename: ffiAttachment.filename,
+			filename: ffiAttachment.filename
 		)
 	}
 
@@ -369,9 +369,9 @@ public struct DecodedMessageV2: Identifiable {
 					nonce: info.nonce,
 					scheme: info.scheme,
 					salt: info.salt,
-					secret: info.secret,
+					secret: info.secret
 				)
-			},
+			}
 		)
 	}
 
@@ -387,9 +387,9 @@ public struct DecodedMessageV2: Identifiable {
 					amount: metadata.amount,
 					decimals: metadata.decimals,
 					fromAddress: metadata.fromAddress,
-					toAddress: metadata.toAddress,
+					toAddress: metadata.toAddress
 				)
-			},
+			}
 		)
 	}
 
@@ -428,7 +428,7 @@ public struct DecodedMessageV2: Identifiable {
 				authorityID: typeId.authorityId,
 				typeID: typeId.typeId,
 				versionMajor: Int(typeId.versionMajor),
-				versionMinor: Int(typeId.versionMinor),
+				versionMinor: Int(typeId.versionMinor)
 			)
 		}
 		encoded.parameters = ffiContent.parameters

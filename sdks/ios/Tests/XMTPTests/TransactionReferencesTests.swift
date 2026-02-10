@@ -29,13 +29,13 @@ final class TransactionReferenceTests: XCTestCase {
 				amount: 0.05,
 				decimals: 18,
 				fromAddress: "0xAlice",
-				toAddress: "0xBob",
-			),
+				toAddress: "0xBob"
+			)
 		)
 
 		try await alixConversation.send(
 			content: txRef,
-			options: .init(contentType: ContentTypeTransactionReference),
+			options: .init(contentType: ContentTypeTransactionReference)
 		)
 
 		let messages = try await alixConversation.messages()

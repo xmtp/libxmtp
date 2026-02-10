@@ -1,5 +1,7 @@
 export enum Sdk {
   Ios = "ios",
+  Android = "android",
+  Libxmtp = "libxmtp",
 }
 
 export interface ManifestProvider {
@@ -25,6 +27,11 @@ export interface SdkConfig {
 export type ReleaseType = "dev" | "rc" | "final";
 
 export type BumpType = "major" | "minor" | "patch";
+
+export type BumpOption = BumpType | "none";
+
+/** Valid bump options for CLI commands */
+export const BUMP_OPTIONS = ["major", "minor", "patch", "none"] as const;
 
 /** Shape of the global CLI options (defined in cli.ts) */
 export interface GlobalArgs {

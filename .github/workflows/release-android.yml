@@ -1,0 +1,72 @@
+name: Release Android SDK
+
+on:
+  workflow_call:
+    inputs:
+      release-type:
+        required: true
+        type: string
+        description: "dev, rc, or final"
+      rc-number:
+        required: false
+        type: number
+        description: "RC number (required for rc releases)"
+      ref:
+        required: true
+        type: string
+        description: "Git ref to build from"
+    outputs:
+      version:
+        description: "The published version string"
+        value: ${{ jobs.publish.outputs.version }}
+
+jobs:
+  publish:
+    runs-on: warp-ubuntu-latest-x64-16x
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/setup-release-tools
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Compute version
+        id: version
+        run: |
+          if [ "${{ inputs.release-type }}" = "rc" ]; then
+            VERSION=$(xmtp-release compute-version --sdk android --release-type rc --rc-number ${{ inputs.rc-number }})
+          elif [ "${{ inputs.release-type }}" = "dev" ]; then
+            VERSION=$(xmtp-release compute-version --sdk android --release-type dev)
+          else
+            VERSION=$(xmtp-release compute-version --sdk android --release-type final)
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Computed version: $VERSION"
+
+      - name: Set version in gradle.properties
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: xmtp-release set-manifest-version --sdk android --version "$VERSION"
+
+      - name: Build Android bindings
+        run: ./sdks/android/dev/bindings
+
+      - name: Build and publish
+        working-directory: sdks/android
+        env:
+          MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
+          SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
+          SIGN_PASSWORD: ${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}
+          MAVEN_PROFILE_ID: ${{ secrets.MAVEN_PROFILE_ID }}
+        run: nix develop .#android --command ./gradlew :library:build publishToSonatype closeAndReleaseSonatypeStagingRepository
+
+      - name: Tag release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: xmtp-release tag-release --sdk android --version "$VERSION"

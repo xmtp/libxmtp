@@ -82,16 +82,16 @@ use xmtp_id::{
 };
 use xmtp_proto::{
     api::ApiClientError,
-    api_client::ApiBuilder,
+    api_client::{ApiBuilder, ToxicProxies, ToxicTestClient, XmtpIdentityClient},
+    identity_v1::PublishIdentityUpdateRequest,
+    prelude::XmtpTestClient,
     xmtp::{
-        device_sync::{BackupElement, backup_element::Element},
+        device_sync::{
+            BackupElement, BackupElementSelection, BackupOptions, backup_element::Element,
+        },
+        identity::associations::IdentityUpdate,
         message_contents::PrivateKey,
     },
-};
-use xmtp_proto::{api_client::ToxicProxies, prelude::XmtpTestClient};
-use xmtp_proto::{
-    api_client::ToxicTestClient,
-    xmtp::device_sync::{BackupElementSelection, BackupOptions},
 };
 
 type XmtpMlsProvider = XmtpOpenMlsProvider<Arc<TestMlsStorage>>;
@@ -324,12 +324,17 @@ where
             .unwrap();
         for update in updates {
             let update: UnverifiedIdentityUpdate = update.payload.try_into().unwrap();
+            let update: IdentityUpdate = update.into();
             let result = self
                 .context
                 .api_client
-                .publish_identity_update(update)
+                .api_client
+                .publish_identity_update(PublishIdentityUpdateRequest {
+                    identity_update: Some(update),
+                })
                 .await;
-            if let Err(ApiError::Api(err)) = result {
+
+            if let Err(err) = result {
                 tracing::warn!("{err:?}");
             }
         }

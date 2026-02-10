@@ -59,22 +59,10 @@ mkShell {
     # (The package derivation sets SDKROOT per-target; the shell leaves it to xcrun.)
     unset SDKROOT
 
-    # Export all cross-compilation env vars from ios-env.nix.
-    # Generated programmatically to avoid manual duplication.
-    # This includes DEVELOPER_DIR, CC/CXX overrides, linker settings, and bindgen args.
-    ${lib.concatStringsSep "\n    " (lib.mapAttrsToList (k: v: ''export ${k}="${v}"'') iosEnv.envVars)}
+    # Dynamically resolve Xcode path and set all cross-compilation env vars.
+    ${iosEnv.envSetupAll}
 
-    # --- Xcode detection ---
-    if [[ ! -d "${iosEnv.developerDir}" ]]; then
-      echo "ERROR: Xcode not found at ${iosEnv.developerDir}" >&2
-      echo "iOS builds require Xcode. Install from App Store or run:" >&2
-      echo "  xcode-select --install" >&2
-      echo "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer" >&2
-      return 1
-    fi
-
-    # IMPROVEMENT: Version validation — check that Xcode is recent enough for
-    # Swift 6.1 (Package Traits). Currently just warns; could be made stricter.
+    # Version validation — check that Xcode is recent enough for Swift 6.1 (Package Traits).
     XCODE_VERSION=$(xcodebuild -version 2>/dev/null | head -1 | awk '{print $2}')
     if [[ -n "$XCODE_VERSION" ]]; then
       MAJOR=$(echo "$XCODE_VERSION" | cut -d. -f1)
@@ -82,9 +70,5 @@ mkShell {
         echo "WARNING: Xcode $XCODE_VERSION detected. Xcode 16+ required for Swift 6.1 (Package Traits)." >&2
       fi
     fi
-
-    # Prepend Xcode's bin to PATH so system xcodebuild/xcrun are used
-    # instead of Nix's xcbuild wrappers (which don't support iOS SDKs).
-    export PATH="${iosEnv.developerDir}/usr/bin:$PATH"
   '';
 }
