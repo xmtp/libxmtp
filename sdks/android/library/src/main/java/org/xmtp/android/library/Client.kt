@@ -11,6 +11,7 @@ import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.libxmtp.ArchiveMetadata
 import org.xmtp.android.library.libxmtp.ArchiveOptions
+import org.xmtp.android.library.libxmtp.AvailableArchive
 import org.xmtp.android.library.libxmtp.IdentityKind
 import org.xmtp.android.library.libxmtp.InboxState
 import org.xmtp.android.library.libxmtp.PublicIdentity
@@ -25,7 +26,7 @@ import uniffi.xmtpv3.FfiLogLevel
 import uniffi.xmtpv3.FfiLogRotation
 import uniffi.xmtpv3.FfiMessageMetadata
 import uniffi.xmtpv3.FfiProcessType
-import uniffi.xmtpv3.FfiSyncWorkerMode
+import uniffi.xmtpv3.FfiDeviceSyncMode
 import uniffi.xmtpv3.FfiXmtpClient
 import uniffi.xmtpv3.XmtpApiClient
 import uniffi.xmtpv3.applySignatureRequest
@@ -336,7 +337,6 @@ class Client(
                         inboxId = inboxId,
                         nonce = 0.toULong(),
                         legacySignedPrivateKeyProto = null,
-                        deviceSyncServerUrl = null,
                         deviceSyncMode = null,
                         allowOffline = false,
                         forkRecoveryOpts = null,
@@ -524,12 +524,11 @@ class Client(
                         inboxId = inboxId,
                         nonce = 0.toULong(),
                         legacySignedPrivateKeyProto = null,
-                        deviceSyncServerUrl = options.historySyncUrl,
                         deviceSyncMode =
                             if (!options.deviceSyncEnabled) {
-                                FfiSyncWorkerMode.DISABLED
+                                FfiDeviceSyncMode.DISABLED
                             } else {
-                                FfiSyncWorkerMode.ENABLED
+                                FfiDeviceSyncMode.ENABLED
                             },
                         allowOffline = buildOffline,
                         forkRecoveryOpts = options.forkRecoveryOptions?.toFfi(),
@@ -705,9 +704,48 @@ class Client(
     /**
      * Manually trigger a device sync request to sync records from another active device on this account.
      */
-    suspend fun sendSyncRequest() =
+    suspend fun sendSyncRequest(
+        opts: ArchiveOptions = ArchiveOptions(),
+        serverUrl: String = environment.getHistorySyncUrl(),
+    ) = withContext(Dispatchers.IO) {
+            ffiClient.sendSyncRequest(opts.toFfi(), serverUrl)
+        }
+
+    /**
+     * Manually send a sync archive to the sync group.
+     * The pin will be later used as a reference when importing.
+     */
+    suspend fun sendSyncArchive(
+        opts: ArchiveOptions = ArchiveOptions(),
+        serverUrl: String = environment.getHistorySyncUrl(),
+        pin: String,
+    ) = withContext(Dispatchers.IO) {
+        ffiClient.sendSyncArchive(opts.toFfi(), serverUrl, pin)
+    }
+
+    /**
+     * Manually process a sync archive that matches the pin given.
+     * If no pin is given, then it will process the last archive sent.
+     */
+    suspend fun processSyncArchive(archivePin: String? = null) =
         withContext(Dispatchers.IO) {
-            ffiClient.sendSyncRequest()
+            ffiClient.processSyncArchive(archivePin)
+        }
+
+    /**
+     * List the archives available for import in the sync group.
+     * You may need to manually sync the sync group before calling
+     * this function to see recently uploaded archives.
+     */
+    fun listAvailableArchives(daysCutoff: Long): List<AvailableArchive> =
+        ffiClient.listAvailableArchives(daysCutoff).map { AvailableArchive(it) }
+
+    /**
+     * Manually sync all device sync groups.
+     */
+    suspend fun syncAllDeviceSyncGroups(): GroupSyncSummary =
+        withContext(Dispatchers.IO) {
+            GroupSyncSummary.fromFfi(ffiClient.syncAllDeviceSyncGroups())
         }
 
     suspend fun createArchive(

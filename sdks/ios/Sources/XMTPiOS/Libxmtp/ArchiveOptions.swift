@@ -5,6 +5,8 @@
 //  Created by Naomi Plasterer on 8/5/25.
 //
 
+import Foundation
+
 public struct ArchiveOptions {
 	public var startNs: Int64?
 	public var endNs: Int64?
@@ -83,5 +85,25 @@ public struct ArchiveMetadata {
 
 	public var endNs: Int64? {
 		ffi.endNs
+	}
+}
+
+public struct AvailableArchive {
+	private let ffi: FfiAvailableArchive
+
+	public init(_ ffi: FfiAvailableArchive) {
+		self.ffi = ffi
+	}
+
+	public var pin: String {
+		ffi.pin
+	}
+
+	public var metadata: ArchiveMetadata {
+		ArchiveMetadata(ffi.metadata)
+	}
+
+	public var sentByInstallation: Data {
+		ffi.sentByInstallation
 	}
 }

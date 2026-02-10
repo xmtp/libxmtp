@@ -389,7 +389,7 @@ public final class Client {
 			}
 		}
 
-		let deviceSyncMode: FfiSyncWorkerMode =
+		let deviceSyncMode: FfiDeviceSyncMode =
 			!options.deviceSyncEnabled ? .disabled : .enabled
 
 		let ffiClient = try await createClient(
@@ -400,7 +400,6 @@ public final class Client {
 			accountIdentifier: accountIdentifier.ffiPrivate,
 			nonce: 0,
 			legacySignedPrivateKeyProto: nil,
-			deviceSyncServerUrl: options.historySyncUrl,
 			deviceSyncMode: deviceSyncMode,
 			allowOffline: buildOffline,
 			forkRecoveryOpts: options.forkRecoveryOptions?.toFfi()
@@ -622,7 +621,6 @@ public final class Client {
 			accountIdentifier: identity.ffiPrivate,
 			nonce: 0,
 			legacySignedPrivateKeyProto: nil,
-			deviceSyncServerUrl: nil,
 			deviceSyncMode: nil,
 			allowOffline: false,
 			forkRecoveryOpts: nil
@@ -857,8 +855,12 @@ public final class Client {
 	}
 
 	/// Manually trigger a device sync request to sync records from another active device on this account.
-	public func sendSyncRequest() async throws {
-		try await ffiClient.sendSyncRequest()
+	public func sendSyncRequest(
+		opts: ArchiveOptions = ArchiveOptions(),
+		serverUrl: String? = nil
+	) async throws {
+		let resolvedUrl = serverUrl ?? environment.getHistorySyncUrl()
+		try await ffiClient.sendSyncRequest(options: opts.toFfi(), serverUrl: resolvedUrl)
 	}
 
 	public func signWithInstallationKey(message: String) throws -> Data {
@@ -904,6 +906,40 @@ public final class Client {
 		try await ffiClient.addressesFromInboxId(
 			refreshFromNetwork: refreshFromNetwork, inboxIds: inboxIds
 		).map { InboxState(ffiInboxState: $0) }
+	}
+
+	/// Manually send a sync archive to the sync group.
+	/// The pin will be later used as a reference when importing.
+	public func sendSyncArchive(
+		opts: ArchiveOptions = ArchiveOptions(),
+		serverUrl: String? = nil,
+		pin: String
+	) async throws {
+		let resolvedUrl = serverUrl ?? environment.getHistorySyncUrl()
+		try await ffiClient.sendSyncArchive(options: opts.toFfi(), serverUrl: resolvedUrl, pin: pin)
+	}
+
+	/// Manually process a sync archive that matches the pin given.
+	/// If no pin is given, then it will process the last archive sent.
+	public func processSyncArchive(archivePin: String? = nil) async throws {
+		try await ffiClient.processSyncArchive(archivePin: archivePin)
+	}
+
+	/// List the archives available for import in the sync group.
+	/// You may need to manually sync the sync group before calling
+	/// this function to see recently uploaded archives.
+	public func listAvailableArchives(daysCutoff: Int64) throws
+		-> [AvailableArchive]
+	{
+		try ffiClient.listAvailableArchives(daysCutoff: daysCutoff)
+			.map { AvailableArchive($0) }
+	}
+
+	/// Manually sync all device sync groups.
+	public func syncAllDeviceSyncGroups() async throws -> GroupSyncSummary {
+		GroupSyncSummary(
+			ffiGroupSyncSummary: try await ffiClient.syncAllDeviceSyncGroups()
+		)
 	}
 
 	public func createArchive(
