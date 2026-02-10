@@ -524,6 +524,7 @@ where
             let is_forked = self.check_conversation_fork_state(conn, &conversation_id)?;
             // Persist the fork status to the database
             conn.set_group_commit_log_forked_status(&conversation_id, is_forked)?;
+            tokio::task::yield_now().await;
         }
 
         Ok(())
