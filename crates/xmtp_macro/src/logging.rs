@@ -60,6 +60,9 @@ impl Parse for LogEventInput {
             } else if input.peek(Token![#]) {
                 input.parse::<Token![#]>()?;
                 Some('#')
+            } else if input.peek(Token![$]) {
+                input.parse::<Token![$]>()?;
+                Some('$')
             } else {
                 None
             };
@@ -78,6 +81,9 @@ impl Parse for LogEventInput {
                 } else if input.peek(Token![#]) {
                     input.parse::<Token![#]>()?;
                     Some('#')
+                } else if input.peek(Token![$]) {
+                    input.parse::<Token![$]>()?;
+                    Some('$')
                 } else {
                     None
                 };
@@ -126,7 +132,8 @@ impl Parse for LogEventInput {
 
             // Handle # sigil for short_hex transformation
             // Keep sigil as '#' so context formatting can quote the value
-            if sigil == Some('#') {
+            // Auto-apply # for known byte-like field names (e.g. group_id)
+            if sigil == Some('#') || (sigil.is_none() && name == "group_id") {
                 let value_expr = value.unwrap_or_else(|| {
                     let name_clone = name.clone();
                     syn::parse_quote!(#name_clone)
@@ -137,6 +144,23 @@ impl Parse for LogEventInput {
                 fields.push(Field {
                     name,
                     sigil: Some('#'),
+                    value: Some(transformed_value),
+                });
+                continue;
+            }
+
+            // Handle $ sigil for serde_json::to_string transformation
+            if sigil == Some('$') {
+                let value_expr = value.unwrap_or_else(|| {
+                    let name_clone = name.clone();
+                    syn::parse_quote!(#name_clone)
+                });
+                let transformed_value: Expr = syn::parse_quote! {
+                    ::serde_json::to_string(&(#value_expr)).unwrap_or_else(|e| format!("<json error: {e}>"))
+                };
+                fields.push(Field {
+                    name,
+                    sigil: Some('$'),
                     value: Some(transformed_value),
                 });
                 continue;
@@ -164,7 +188,7 @@ impl Field {
             .unwrap_or_else(|| name.to_token_stream());
 
         match self.sigil {
-            Some('%') | Some('#') => quote! { #name = %#value },
+            Some('%') | Some('#') | Some('$') => quote! { #name = %#value },
             Some('?') => quote! { #name = ?#value },
             _ => quote! { #name = #value },
         }

@@ -1,7 +1,6 @@
-use std::{sync::Arc, time::Duration};
-
 use anyhow::Result;
 use pest_derive::Parser;
+use std::time::Duration;
 use tokio::runtime::Runtime;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 use xmtp_common::TestWriter;

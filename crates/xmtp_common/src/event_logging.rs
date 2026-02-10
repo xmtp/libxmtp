@@ -30,7 +30,14 @@ pub enum Event {
     #[context(group_id, sender_inbox, msg_epoch, epoch)]
     MLSReceivedStagedCommit,
     /// Processed staged commit.
-    #[context(group_id, epoch)]
+    #[context(
+        group_id,
+        epoch,
+        added_inboxes,
+        removed_inboxes,
+        left_inboxes,
+        metadata_changes
+    )]
     MLSProcessedStagedCommit,
     /// Received application message.
     #[context(group_id, epoch, msg_epoch, sender_inbox)]

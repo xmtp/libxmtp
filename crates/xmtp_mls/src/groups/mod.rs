@@ -1047,7 +1047,7 @@ where
         log_event!(
             Event::AddedMembers,
             self.context.installation_id(),
-            group_id = #self.group_id,
+            group_id = self.group_id,
             members = ?ids,
             epoch
         );

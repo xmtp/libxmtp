@@ -256,7 +256,7 @@ where
                         log_event!(
                             Event::DeviceSyncArchiveUploadFailure,
                             context.installation_id(),
-                            group_id = #send_sync_archive.sync_group_id,
+                            group_id = send_sync_archive.sync_group_id,
                             request_id = send_sync_archive.request_id(),
                             err = %e
                         )

@@ -236,6 +236,11 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 quote! {
                     #name_str => Some(format!("{}: \"{}\"", #name_str, #value))
                 }
+            } else if matches!(f.sigil, Some('$')) {
+                // $ sigil (json): value is already a JSON string from serde_json::to_string
+                quote! {
+                    #name_str => Some(format!("{}: {}", #name_str, #value))
+                }
             } else if matches!(f.sigil, Some('%')) {
                 quote! {
                     #name_str => Some(format!("{}: {}", #name_str, #value))

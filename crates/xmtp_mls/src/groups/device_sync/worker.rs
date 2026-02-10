@@ -201,7 +201,7 @@ where
                 log_event!(
                     Event::DeviceSyncCreatedPrimarySyncGroup,
                     self.client.context.installation_id(),
-                    group_id = #sync_group.group_id
+                    group_id = sync_group.group_id
                 );
 
                 // Ask the sync group for a sync payload if the url is present.
@@ -298,7 +298,7 @@ where
                 msg_type,
                 external = is_external,
                 msg_id = #msg.id,
-                group_id = #msg.group_id
+                group_id = msg.group_id
             );
 
             if let Err(err) = self.process_message(handle, &msg, content).await {
@@ -484,7 +484,7 @@ where
         log_event!(
             Event::DeviceSyncArchiveUploadStart,
             self.context.installation_id(),
-            group_id = #sync_group_id,
+            group_id = sync_group_id,
             server_url
         );
 
@@ -557,7 +557,7 @@ where
         log_event!(
             Event::DeviceSyncArchiveUploadComplete,
             self.context.installation_id(),
-            group_id = #sync_group_id,
+            group_id = sync_group_id,
         );
 
         Ok(())
@@ -591,7 +591,7 @@ where
         log_event!(
             Event::DeviceSyncSentSyncRequest,
             self.context.installation_id(),
-            group_id = #sync_group.group_id
+            group_id = sync_group.group_id
         );
 
         Ok(())
@@ -717,7 +717,7 @@ where
             Event::DeviceSyncArchiveProcessingStart,
             self.context.installation_id(),
             msg_id = #msg.id,
-            group_id = #msg.group_id
+            group_id = msg.group_id
         );
         if reply.kind() != BackupElementSelection::Unspecified {
             log_event!(Event::DeviceSyncV1Archive, self.context.installation_id());

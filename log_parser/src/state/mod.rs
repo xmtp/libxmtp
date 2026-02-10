@@ -261,7 +261,7 @@ impl GroupStateExt for Arc<RwLock<GroupState>> {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, time::Duration};
+    use std::time::Duration;
 
     use crate::state::{LogEvent, LogState, Value};
     use tracing_subscriber::fmt;

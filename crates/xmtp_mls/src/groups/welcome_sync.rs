@@ -76,7 +76,7 @@ where
                     log_event!(
                         Event::ProcessedWelcome,
                         self.context.installation_id(),
-                        group_id = #mls_group.group_id.as_slice(),
+                        group_id = mls_group.group_id.as_slice(),
                         conversation_type = %mls_group.conversation_type,
                         epoch
                     );

@@ -551,7 +551,7 @@ where
         log_event!(
             Event::CreatedGroup,
             self.context.installation_id(),
-            group_id = #group.group_id
+            group_id = group.group_id
         );
 
         // notify streams of our new group
@@ -607,7 +607,7 @@ where
         log_event!(
             Event::CreatedDM,
             self.context.installation_id(),
-            group_id = #group.group_id,
+            group_id = group.group_id,
             target_inbox = target_inbox_id
         );
         group.add_members(&[target_inbox_id]).await?;
