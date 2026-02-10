@@ -47,20 +47,20 @@ public struct ReactionV2Codec: ContentCodec {
 	public func fallback(content: Reaction) throws -> String? {
 		switch content.action {
 		case .added:
-			return "Reacted \"\(content.content)\" to an earlier message"
+			"Reacted \"\(content.content)\" to an earlier message"
 		case .removed:
-			return "Removed \"\(content.content)\" from an earlier message"
+			"Removed \"\(content.content)\" from an earlier message"
 		case .unknown:
-			return nil
+			nil
 		}
 	}
 
 	public func shouldPush(content: Reaction) throws -> Bool {
 		switch content.action {
 		case .added:
-			return true
+			true
 		default:
-			return false
+			false
 		}
 	}
 }
@@ -71,22 +71,22 @@ extension ReactionAction {
 	func toFfiReactionAction() -> FfiReactionAction {
 		switch self {
 		case .added:
-			return .added
+			.added
 		case .removed:
-			return .removed
+			.removed
 		case .unknown:
-			return .unknown
+			.unknown
 		}
 	}
 
 	static func fromFfiReactionAction(_ action: FfiReactionAction) -> ReactionAction {
 		switch action {
 		case .added:
-			return .added
+			.added
 		case .removed:
-			return .removed
+			.removed
 		case .unknown:
-			return .unknown
+			.unknown
 		}
 	}
 }
@@ -95,26 +95,26 @@ extension ReactionSchema {
 	func toFfiReactionSchema() -> FfiReactionSchema {
 		switch self {
 		case .unicode:
-			return .unicode
+			.unicode
 		case .shortcode:
-			return .shortcode
+			.shortcode
 		case .custom:
-			return .custom
+			.custom
 		case .unknown:
-			return .unknown
+			.unknown
 		}
 	}
 
 	static func fromFfiReactionSchema(_ schema: FfiReactionSchema) -> ReactionSchema {
 		switch schema {
 		case .unicode:
-			return .unicode
+			.unicode
 		case .shortcode:
-			return .shortcode
+			.shortcode
 		case .custom:
-			return .custom
+			.custom
 		case .unknown:
-			return .unknown
+			.unknown
 		}
 	}
 }

@@ -8,19 +8,15 @@ public enum ConversationError: Error, CustomStringConvertible, LocalizedError {
 	public var description: String {
 		switch self {
 		case .memberCannotBeSelf:
-			return
-				"GroupError.memberCannotBeSelf you cannot add yourself to a group"
+			"GroupError.memberCannotBeSelf you cannot add yourself to a group"
 		case let .memberNotRegistered(array):
-			return
-				"GroupError.memberNotRegistered members not registered: \(array.joined(separator: ", "))"
+			"GroupError.memberNotRegistered members not registered: \(array.joined(separator: ", "))"
 		case .groupsRequireMessagePassed:
-			return
-				"GroupError.groupsRequireMessagePassed you cannot call this method without passing a message instead of an envelope"
+			"GroupError.groupsRequireMessagePassed you cannot call this method without passing a message instead of an envelope"
 		case .notSupportedByGroups:
-			return
-				"GroupError.notSupportedByGroups this method is not supported by groups"
+			"GroupError.notSupportedByGroups this method is not supported by groups"
 		case .streamingFailure:
-			return "GroupError.streamingFailure a stream has failed"
+			"GroupError.streamingFailure a stream has failed"
 		}
 	}
 
@@ -53,8 +49,8 @@ public enum ConversationsOrderBy {
 
 	fileprivate var ffiOrderBy: FfiGroupQueryOrderBy {
 		switch self {
-		case .createdAt: return .createdAt
-		case .lastActivity: return .lastActivity
+		case .createdAt: .createdAt
+		case .lastActivity: .lastActivity
 		}
 	}
 }
@@ -141,7 +137,7 @@ public class Conversations {
 	private func toFfiDisappearingMessageSettings(_ settings: DisappearingMessageSettings?)
 		-> FfiMessageDisappearingSettings?
 	{
-		guard let settings = settings else { return nil }
+		guard let settings else { return nil }
 		return FfiMessageDisappearingSettings(
 			fromNs: settings.disappearStartingAtNs,
 			inNs: settings.retentionDurationInNs
@@ -409,18 +405,17 @@ public class Conversations {
 			}
 
 			let task = Task {
-				let stream: FfiStreamCloser
-				switch type {
+				let stream: FfiStreamCloser = switch type {
 				case .groups:
-					stream = await ffiConversations.streamGroups(
+					await ffiConversations.streamGroups(
 						callback: conversationCallback
 					)
 				case .all:
-					stream = await ffiConversations.stream(
+					await ffiConversations.stream(
 						callback: conversationCallback
 					)
 				case .dms:
-					stream = await ffiConversations.streamDms(
+					await ffiConversations.streamDms(
 						callback: conversationCallback
 					)
 				}
@@ -712,20 +707,19 @@ public class Conversations {
 			}
 
 			let task = Task {
-				let stream: FfiStreamCloser
-				switch type {
+				let stream: FfiStreamCloser = switch type {
 				case .groups:
-					stream = await ffiConversations.streamAllGroupMessages(
+					await ffiConversations.streamAllGroupMessages(
 						messageCallback: messageCallback,
 						consentStates: consentStates?.toFFI
 					)
 				case .dms:
-					stream = await ffiConversations.streamAllDmMessages(
+					await ffiConversations.streamAllDmMessages(
 						messageCallback: messageCallback,
 						consentStates: consentStates?.toFFI
 					)
 				case .all:
-					stream = await ffiConversations.streamAllMessages(
+					await ffiConversations.streamAllMessages(
 						messageCallback: messageCallback,
 						consentStates: consentStates?.toFFI
 					)

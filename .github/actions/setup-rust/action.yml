@@ -1,0 +1,40 @@
+name: 'Setup Rust'
+description: 'Install Rust toolchain with caching'
+inputs:
+  targets:
+    description: 'Comma-separated additional targets (e.g., wasm32-unknown-unknown)'
+    required: false
+  workspaces:
+    description: 'Workspace paths for rust-cache (newline separated)'
+    required: false
+    default: '.'
+  warp:
+    description: 'Set to true on WarpBuilds runners to use WarpBuilds/rust-cache'
+    required: false
+    default: 'false'
+runs:
+  using: 'composite'
+  steps:
+    - name: Update Rust toolchain
+      run: rustup update
+      shell: bash
+    - name: Add targets
+      if: ${{ inputs.targets != '' }}
+      run: |
+        IFS=',' read -ra TARGETS <<< "${{ inputs.targets }}"
+        for target in "${TARGETS[@]}"; do
+          target="${target#"${target%%[![:space:]]*}"}"
+          target="${target%"${target##*[![:space:]]}"}"
+          rustup target add "$target"
+        done
+      shell: bash
+    - name: Rust cache (WarpBuilds)
+      if: ${{ inputs.warp == 'true' }}
+      uses: WarpBuilds/rust-cache@v2
+      with:
+        workspaces: ${{ inputs.workspaces }}
+    - name: Rust cache (Swatinem)
+      if: ${{ inputs.warp != 'true' }}
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: ${{ inputs.workspaces }}

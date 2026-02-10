@@ -11,9 +11,9 @@ extension FfiConversation {
 
 	func toConversation(client: Client) async throws -> Conversation {
 		if conversationType() == .dm {
-			return Conversation.dm(dmFromFFI(client: client))
+			Conversation.dm(dmFromFFI(client: client))
 		} else {
-			return Conversation.group(groupFromFFI(client: client))
+			Conversation.group(groupFromFFI(client: client))
 		}
 	}
 }
@@ -35,9 +35,9 @@ extension FfiConversationListItem {
 
 	func toConversation(client: Client) async throws -> Conversation {
 		if conversation().conversationType() == .dm {
-			return Conversation.dm(dmFromFFI(client: client))
+			Conversation.dm(dmFromFFI(client: client))
 		} else {
-			return Conversation.group(groupFromFFI(client: client))
+			Conversation.group(groupFromFFI(client: client))
 		}
 	}
 }
@@ -48,7 +48,7 @@ extension FfiConversationMember {
 	}
 }
 
-extension Array where Element == ConsentState {
+extension [ConsentState] {
 	var toFFI: [FfiConsentState] {
 		map(\.toFFI)
 	}
@@ -57,9 +57,9 @@ extension Array where Element == ConsentState {
 extension ConsentState {
 	var toFFI: FfiConsentState {
 		switch self {
-		case .allowed: return FfiConsentState.allowed
-		case .denied: return FfiConsentState.denied
-		default: return FfiConsentState.unknown
+		case .allowed: FfiConsentState.allowed
+		case .denied: FfiConsentState.denied
+		default: FfiConsentState.unknown
 		}
 	}
 }
@@ -67,9 +67,9 @@ extension ConsentState {
 extension FfiConsentState {
 	var fromFFI: ConsentState {
 		switch self {
-		case .allowed: return ConsentState.allowed
-		case .denied: return ConsentState.denied
-		default: return ConsentState.unknown
+		case .allowed: ConsentState.allowed
+		case .denied: ConsentState.denied
+		default: ConsentState.unknown
 		}
 	}
 }
@@ -77,8 +77,8 @@ extension FfiConsentState {
 extension FfiConsentEntityType {
 	var fromFFI: EntryType {
 		switch self {
-		case .inboxId: return EntryType.inbox_id
-		case .conversationId: return EntryType.conversation_id
+		case .inboxId: EntryType.inbox_id
+		case .conversationId: EntryType.conversation_id
 		}
 	}
 }
@@ -86,8 +86,8 @@ extension FfiConsentEntityType {
 extension EntryType {
 	var toFFI: FfiConsentEntityType {
 		switch self {
-		case .conversation_id: return FfiConsentEntityType.conversationId
-		case .inbox_id: return FfiConsentEntityType.inboxId
+		case .conversation_id: FfiConsentEntityType.conversationId
+		case .inbox_id: FfiConsentEntityType.inboxId
 		}
 	}
 }
@@ -112,11 +112,11 @@ extension FfiConsent {
 extension FfiGroupMembershipState {
 	var fromFFI: GroupMembershipState {
 		switch self {
-		case .allowed: return .allowed
-		case .rejected: return .rejected
-		case .pending: return .pending
-		case .restored: return .restored
-		case .pendingRemove: return .pendingRemove
+		case .allowed: .allowed
+		case .rejected: .rejected
+		case .pending: .pending
+		case .restored: .restored
+		case .pendingRemove: .pendingRemove
 		}
 	}
 }

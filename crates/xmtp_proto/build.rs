@@ -42,6 +42,10 @@ fn codegen_configure(builder: Builder) -> Builder {
             "xmtp.xmtpv4.metadata_api",
             r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
         )
+        .server_mod_attribute(
+            "xmtp.migration.api.v1",
+            r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#,
+        )
 }
 
 fn clone_proto_repos(out_dir: &PathBuf, git_ref: &str) -> Result<()> {

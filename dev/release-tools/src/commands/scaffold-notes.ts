@@ -1,8 +1,9 @@
 import path from "node:path";
 import fs from "node:fs";
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import { getSdkConfig } from "../lib/sdk-config.js";
-import { findLastVersion } from "./find-last-version.js";
+import type { GlobalArgs } from "../types";
+import { getSdkConfig } from "../lib/sdk-config";
+import { findLastVersion } from "./find-last-version";
 
 export function scaffoldNotes(
   sdk: string,
@@ -54,7 +55,7 @@ previous_release_tag: ${previousTag}
 export const command = "scaffold-notes";
 export const describe = "Generate a release notes template from git history";
 
-export function builder(yargs: Argv) {
+export function builder(yargs: Argv<GlobalArgs>) {
   return yargs
     .option("sdk", {
       type: "string",
@@ -64,16 +65,11 @@ export function builder(yargs: Argv) {
     .option("since", {
       type: "string",
       describe: "Tag to diff from (defaults to last stable release tag)",
-    })
-    .option("repoRoot", {
-      type: "string",
-      default: process.cwd(),
-      describe: "Repository root directory",
     });
 }
 
 export function handler(
-  argv: ArgumentsCamelCase<{ sdk: string; since?: string; repoRoot: string }>,
+  argv: ArgumentsCamelCase<GlobalArgs & { sdk: string; since?: string }>,
 ) {
   const sinceTag =
     argv.since ??

@@ -25,11 +25,11 @@ public struct Member {
 	public var permissionLevel: PermissionLevel {
 		switch ffiGroupMember.permissionLevel {
 		case .member:
-			return PermissionLevel.Member
+			PermissionLevel.Member
 		case .admin:
-			return PermissionLevel.Admin
+			PermissionLevel.Admin
 		case .superAdmin:
-			return PermissionLevel.SuperAdmin
+			PermissionLevel.SuperAdmin
 		}
 	}
 

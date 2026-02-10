@@ -13,9 +13,9 @@ on:
       - "dev/docker/**"
       - "rust-toolchain.toml"
       - ".cargo/**"
-env:
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   check-swift:
     runs-on: warp-macos-13-arm64-6x
@@ -31,13 +31,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - uses: nixbuild/nix-quick-install-action@v34
-      - run: nix build --version
-      - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          sccache: 'true'
       - name: Build target
         run: |
-          nix develop .#ios --accept-flake-config --command \
+          nix develop .#ios --command \
             cargo check --target ${{ matrix.target }} --manifest-path bindings/mobile/Cargo.toml
   check-android:
     runs-on: warp-ubuntu-latest-x64-16x
@@ -56,15 +57,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - uses: nixbuild/nix-quick-install-action@v34
-      - run: nix build --version
-      - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.9
-      - uses: cachix/cachix-action@v16
+      - uses: ./.github/actions/setup-nix
         with:
-          name: xmtp
-          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          sccache: 'true'
       - name: check target
         run: |
-          nix develop .#android --accept-flake-config --command \
+          nix develop .#android --command \
             cargo check --target ${{ matrix.target }} --manifest-path bindings/mobile/Cargo.toml

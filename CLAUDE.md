@@ -71,6 +71,14 @@ dev/check-android       # Check Android bindings
 dev/check-swift         # Check Swift bindings
 ```
 
+### Android SDK
+
+```bash
+nix develop .#android             # Enter Android development shell
+./sdks/android/dev/bindings       # Build Android bindings via Nix
+./sdks/android/dev/build          # Build the full Android SDK
+```
+
 ### Benchmarks
 
 ```bash

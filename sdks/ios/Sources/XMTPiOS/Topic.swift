@@ -12,9 +12,9 @@ public enum Topic {
 	var description: String {
 		switch self {
 		case let .groupMessage(groupId):
-			return wrapMls("g-\(groupId)")
+			wrapMls("g-\(groupId)")
 		case let .userWelcome(installationId):
-			return wrapMls("w-\(installationId)")
+			wrapMls("w-\(installationId)")
 		}
 	}
 
