@@ -1,0 +1,133 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      workspace: ${{ steps.filter.outputs.workspace }}
+      node: ${{ steps.filter.outputs.node }}
+      wasm: ${{ steps.filter.outputs.wasm }}
+      ios: ${{ steps.filter.outputs.ios }}
+      android: ${{ steps.filter.outputs.android }}
+      bindings-check: ${{ steps.filter.outputs.bindings-check }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            workspace:
+              - 'crates/**'
+              - 'bindings/**'
+              - 'apps/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - 'rust-toolchain.toml'
+              - 'dev/docker/**'
+              - 'dev/up'
+            node:
+              - 'crates/**'
+              - 'bindings/node/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'dev/docker/**'
+              - 'dev/up'
+              - '.node-version'
+            wasm:
+              - 'crates/**'
+              - 'bindings/wasm/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'nix/**'
+              - 'dev/docker/**'
+            ios:
+              - 'sdks/ios/**'
+              - 'bindings/mobile/**'
+              - 'crates/**'
+              - 'nix/**'
+              - 'Package.swift'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            android:
+              - 'sdks/android/**'
+              - 'bindings/mobile/**'
+              - 'crates/**'
+              - 'nix/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            bindings-check:
+              - 'bindings/mobile/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'dev/docker/**'
+              - 'dev/up'
+              - 'rust-toolchain.toml'
+              - '.cargo/**'
+
+  test-workspace:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.workspace == 'true'
+    uses: ./.github/workflows/test-workspace.yml
+    secrets: inherit
+
+  test-node:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.node == 'true'
+    uses: ./.github/workflows/test-node.yml
+    secrets: inherit
+
+  test-wasm:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.wasm == 'true'
+    uses: ./.github/workflows/test-wasm.yml
+    secrets: inherit
+
+  test-ios:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.ios == 'true'
+    uses: ./.github/workflows/test-ios.yml
+    secrets: inherit
+
+  test-android:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.android == 'true'
+    uses: ./.github/workflows/test-android.yml
+    secrets: inherit
+
+  test-bindings-check:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.bindings-check == 'true'
+    uses: ./.github/workflows/test-bindings-check.yml
+    secrets: inherit
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - test-workspace
+      - test-node
+      - test-wasm
+      - test-ios
+      - test-android
+      - test-bindings-check
+    steps:
+      - run: |
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || \
+                "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more test jobs failed or were cancelled"
+            exit 1
+          fi

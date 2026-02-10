@@ -1,26 +1,6 @@
-name: Test Workspace with WebAssembly
+name: Test WASM
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    # only run tests when related changes are made
-    paths:
-      - ".github/workflows/test-webassembly.yml"
-      - "crates/xmtp_mls/src/**"
-      - "crates/xmtp_id/src/**"
-      - "crates/xmtp_db/**"
-      - "crates/xmtp_api_d14n/**"
-      - "crates/xmtp_content_types/**"
-      - "crates/xmtp_proto/**"
-      - "bindings/wasm/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - ".cargo/**"
-      - "rust-toolchain.toml"
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  workflow_call:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
@@ -28,9 +8,6 @@ jobs:
   wasm-ci:
     name: WASM CI
     runs-on: warp-ubuntu-latest-x64-16x
-    permissions:
-      id-token: write
-      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -52,9 +29,6 @@ jobs:
   wasm-integration:
     name: WASM Integration Tests
     runs-on: warp-ubuntu-latest-x64-16x
-    permissions:
-      id-token: write
-      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v6
