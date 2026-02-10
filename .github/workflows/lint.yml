@@ -37,18 +37,25 @@ jobs:
               - '.cargo/**'
               - 'rust-toolchain.toml'
               - 'rustfmt.toml'
+              - '.github/workflows/lint.yml'
+              - '.github/workflows/lint-workspace*'
             node:
               - 'bindings/node/**'
+              - '.github/workflows/lint-node*'
             wasm:
               - 'bindings/wasm/**'
               - 'rust-toolchain.toml'
+              - '.github/workflows/lint-wasm*'
             ios:
               - 'sdks/ios/**'
+              - '.github/workflows/lint-ios*'
             android:
               - 'sdks/android/**'
               - 'bindings/mobile/**'
+              - '.github/workflows/lint-android*'
             toml:
               - '**/*.toml'
+              - '.github/workflows/lint-toml*'
 
   lint-workspace:
     needs: detect-changes

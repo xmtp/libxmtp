@@ -38,6 +38,8 @@ jobs:
               - 'rust-toolchain.toml'
               - 'dev/docker/**'
               - 'dev/up'
+              - '.github/workflows/test.yml'
+              - '.github/workflows/test-workspace*'
             node:
               - 'crates/**'
               - 'bindings/node/**'
@@ -46,6 +48,7 @@ jobs:
               - 'dev/docker/**'
               - 'dev/up'
               - '.node-version'
+              - '.github/workflows/test-node*'
             wasm:
               - 'crates/**'
               - 'bindings/wasm/**'
@@ -53,6 +56,7 @@ jobs:
               - 'Cargo.lock'
               - 'nix/**'
               - 'dev/docker/**'
+              - '.github/workflows/test-wasm*'
             ios:
               - 'sdks/ios/**'
               - 'bindings/mobile/**'
@@ -61,6 +65,7 @@ jobs:
               - 'Package.swift'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - '.github/workflows/test-ios*'
             android:
               - 'sdks/android/**'
               - 'bindings/mobile/**'
@@ -68,6 +73,7 @@ jobs:
               - 'nix/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - '.github/workflows/test-android*'
             bindings-check:
               - 'bindings/mobile/**'
               - 'Cargo.toml'
@@ -76,6 +82,7 @@ jobs:
               - 'dev/up'
               - 'rust-toolchain.toml'
               - '.cargo/**'
+              - '.github/workflows/test-bindings*'
 
   test-workspace:
     needs: detect-changes
