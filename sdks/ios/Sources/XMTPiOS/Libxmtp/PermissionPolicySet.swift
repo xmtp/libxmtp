@@ -12,15 +12,15 @@ public enum PermissionOption {
 	{
 		switch option {
 		case .allow:
-			return .allow
+			.allow
 		case .deny:
-			return .deny
+			.deny
 		case .admin:
-			return .admin
+			.admin
 		case .superAdmin:
-			return .superAdmin
+			.superAdmin
 		case .unknown:
-			return .other
+			.other
 		}
 	}
 
@@ -29,15 +29,15 @@ public enum PermissionOption {
 	{
 		switch ffiPolicy {
 		case .allow:
-			return .allow
+			.allow
 		case .deny:
-			return .deny
+			.deny
 		case .admin:
-			return .admin
+			.admin
 		case .superAdmin:
-			return .superAdmin
+			.superAdmin
 		case .doesNotExist, .other:
-			return .unknown
+			.unknown
 		}
 	}
 }
@@ -51,9 +51,9 @@ public enum GroupPermissionPreconfiguration {
 	) -> FfiGroupPermissionsOptions {
 		switch option {
 		case .allMembers:
-			return .default
+			.default
 		case .adminOnly:
-			return .adminOnly
+			.adminOnly
 		}
 	}
 }

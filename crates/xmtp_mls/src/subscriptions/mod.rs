@@ -439,27 +439,6 @@ where
         StreamAllMessages::new_owned(self.context.clone(), conversation_type, consent_state).await
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
-    #[cfg(any(test, feature = "test-utils"))]
-    pub async fn stream_all_messages_owned_with_stats(
-        &self,
-        conversation_type: Option<ConversationType>,
-        consent_state: Option<Vec<ConsentState>>,
-    ) -> Result<impl StreamWithStats<Item = Result<StoredGroupMessage>> + 'static> {
-        tracing::debug!(
-            inbox_id = self.inbox_id(),
-            installation_id = %self.context.installation_id(),
-            conversation_type = ?conversation_type,
-            "stream all messages"
-        );
-
-        let stream =
-            StreamAllMessages::new_owned(self.context.clone(), conversation_type, consent_state)
-                .await?;
-
-        Ok(StreamStatsWrapper::new(stream))
-    }
-
     pub fn stream_all_messages_with_callback(
         context: Context,
         conversation_type: Option<ConversationType>,
@@ -577,6 +556,36 @@ where
             on_close();
             Ok::<_, SubscribeError>(())
         })
+    }
+}
+
+impl<Context> Client<Context>
+where
+    Context: XmtpSharedContext + 'static,
+    Context::ApiClient: XmtpMlsStreams + 'static,
+    Context::MlsStorage: 'static,
+    <Context::ApiClient as XmtpMlsStreams>::GroupMessageStream: Unpin,
+    <Context::ApiClient as XmtpMlsStreams>::WelcomeMessageStream: Unpin,
+{
+    #[tracing::instrument(level = "trace", skip_all)]
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn stream_all_messages_owned_with_stats(
+        &self,
+        conversation_type: Option<ConversationType>,
+        consent_state: Option<Vec<ConsentState>>,
+    ) -> Result<impl StreamWithStats<Item = Result<StoredGroupMessage>> + 'static> {
+        tracing::debug!(
+            inbox_id = self.inbox_id(),
+            installation_id = %self.context.installation_id(),
+            conversation_type = ?conversation_type,
+            "stream all messages"
+        );
+
+        let stream =
+            StreamAllMessages::new_owned(self.context.clone(), conversation_type, consent_state)
+                .await?;
+
+        Ok(StreamStatsWrapper::new(stream))
     }
 }
 

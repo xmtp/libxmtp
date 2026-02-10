@@ -3,9 +3,24 @@ name: iOS Tests
 on:
   push:
     branches: ["main"]
-    paths: ["Package.swift", "sdks/ios/**", "bindings/mobile/**", "crates/**"]
+    paths:
+      [
+        "Package.swift",
+        "sdks/ios/**",
+        "bindings/mobile/**",
+        "crates/**",
+        "nix/**",
+      ]
   pull_request:
-    paths: ["Package.swift", "sdks/ios/**", "bindings/mobile/**", "crates/**"]
+    paths:
+      [
+        "Package.swift",
+        "sdks/ios/**",
+        "bindings/mobile/**",
+        "crates/**",
+        "nix/**",
+        ".github/workflows/*-ios.yml",
+      ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -15,6 +30,7 @@ jobs:
   deploy-backend:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    name: Deploy Backend
     outputs:
       node_url: ${{ steps.deploy.outputs.node_url }}
       history_url: ${{ steps.deploy.outputs.history_url }}
@@ -50,6 +66,7 @@ jobs:
   tests:
     runs-on: warp-macos-15-arm64-6x
     needs: deploy-backend
+    name: Tests (iOS)
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
@@ -58,9 +75,9 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "16.0"
+          xcode-version: "26"
       - name: Build
-        run: nix develop .#ios --command ./sdks/ios/dev/build
+        run: nix develop ".#ios" --command ./sdks/ios/dev/build
       - name: Run tests
         env:
           XMTP_NODE_ADDRESS: ${{ needs.deploy-backend.outputs.node_url }}

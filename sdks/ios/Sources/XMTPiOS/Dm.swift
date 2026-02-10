@@ -13,8 +13,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		public var description: String {
 			switch self {
 			case .missingPeerInboxId:
-				return
-					"ConversationError.missingPeerInboxId: The direct message is missing a peer inbox ID"
+				"ConversationError.missingPeerInboxId: The direct message is missing a peer inbox ID"
 			}
 		}
 
@@ -150,7 +149,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		return DecodedMessage.create(ffiMessage: firstMessage)
 	}
 
-	public func send<T>(content: T, options: SendOptions? = nil) async throws
+	public func send(content: some Any, options: SendOptions? = nil) async throws
 		-> String
 	{
 		let (encodeContent, visibilityOptions) = try await encodeContent(
@@ -246,7 +245,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		return messageId.toHex
 	}
 
-	public func prepareMessage<T>(content: T, options: SendOptions? = nil, noSend: Bool = false)
+	public func prepareMessage(content: some Any, options: SendOptions? = nil, noSend: Bool = false)
 		async throws -> String
 	{
 		let (encodeContent, visibilityOptions) = try await encodeContent(
@@ -306,17 +305,17 @@ public struct Dm: Identifiable, Equatable, Hashable {
 
 	public func lastMessage() async throws -> DecodedMessage? {
 		if let ffiMessage = ffiLastMessage {
-			return DecodedMessage.create(ffiMessage: ffiMessage)
+			DecodedMessage.create(ffiMessage: ffiMessage)
 		} else {
-			return try await messages(limit: 1).first
+			try await messages(limit: 1).first
 		}
 	}
 
 	public func commitLogForkStatus() -> CommitLogForkStatus {
 		switch ffiCommitLogForkStatus {
-		case true: return .forked
-		case false: return .notForked
-		default: return .unknown
+		case true: .forked
+		case false: .notForked
+		default: .unknown
 		}
 	}
 
@@ -369,29 +368,25 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			options.limit = Int64(limit)
 		}
 
-		let status: FfiDeliveryStatus? = {
-			switch deliveryStatus {
-			case .published:
-				return FfiDeliveryStatus.published
-			case .unpublished:
-				return FfiDeliveryStatus.unpublished
-			case .failed:
-				return FfiDeliveryStatus.failed
-			default:
-				return nil
-			}
-		}()
+		let status: FfiDeliveryStatus? = switch deliveryStatus {
+		case .published:
+			FfiDeliveryStatus.published
+		case .unpublished:
+			FfiDeliveryStatus.unpublished
+		case .failed:
+			FfiDeliveryStatus.failed
+		default:
+			nil
+		}
 
 		options.deliveryStatus = status
 
-		let direction: FfiDirection? = {
-			switch direction {
-			case .ascending:
-				return FfiDirection.ascending
-			default:
-				return FfiDirection.descending
-			}
-		}()
+		let direction: FfiDirection? = switch direction {
+		case .ascending:
+			FfiDirection.ascending
+		default:
+			FfiDirection.descending
+		}
 
 		options.direction = direction
 		options.excludeContentTypes = excludeContentTypes
@@ -446,14 +441,12 @@ public struct Dm: Identifiable, Equatable, Hashable {
 
 		options.deliveryStatus = deliveryStatus.toFfi()
 
-		let direction: FfiDirection? = {
-			switch direction {
-			case .ascending:
-				return FfiDirection.ascending
-			default:
-				return FfiDirection.descending
-			}
-		}()
+		let direction: FfiDirection? = switch direction {
+		case .ascending:
+			FfiDirection.ascending
+		default:
+			FfiDirection.descending
+		}
 
 		options.direction = direction
 		options.excludeContentTypes = excludeContentTypes
@@ -548,29 +541,25 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			options.limit = Int64(limit)
 		}
 
-		let status: FfiDeliveryStatus? = {
-			switch deliveryStatus {
-			case .published:
-				return FfiDeliveryStatus.published
-			case .unpublished:
-				return FfiDeliveryStatus.unpublished
-			case .failed:
-				return FfiDeliveryStatus.failed
-			default:
-				return nil
-			}
-		}()
+		let status: FfiDeliveryStatus? = switch deliveryStatus {
+		case .published:
+			FfiDeliveryStatus.published
+		case .unpublished:
+			FfiDeliveryStatus.unpublished
+		case .failed:
+			FfiDeliveryStatus.failed
+		default:
+			nil
+		}
 
 		options.deliveryStatus = status
 
-		let direction: FfiDirection? = {
-			switch direction {
-			case .ascending:
-				return FfiDirection.ascending
-			default:
-				return FfiDirection.descending
-			}
-		}()
+		let direction: FfiDirection? = switch direction {
+		case .ascending:
+			FfiDirection.ascending
+		default:
+			FfiDirection.descending
+		}
 
 		options.direction = direction
 		options.excludeContentTypes = excludeContentTypes

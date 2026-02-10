@@ -8,18 +8,18 @@ public enum EncodedContentCompression {
 	func compress(content: Data) -> Data? {
 		switch self {
 		case .deflate:
-			return compressData(content, using: COMPRESSION_ZLIB)
+			compressData(content, using: COMPRESSION_ZLIB)
 		case .gzip:
-			return compressData(content, using: COMPRESSION_LZFSE) // For GZIP, switch to COMPRESSION_ZLIB if needed.
+			compressData(content, using: COMPRESSION_LZFSE) // For GZIP, switch to COMPRESSION_ZLIB if needed.
 		}
 	}
 
 	func decompress(content: Data) -> Data? {
 		switch self {
 		case .deflate:
-			return decompressData(content, using: COMPRESSION_ZLIB)
+			decompressData(content, using: COMPRESSION_ZLIB)
 		case .gzip:
-			return decompressData(content, using: COMPRESSION_LZFSE) // For GZIP, switch to COMPRESSION_ZLIB if needed.
+			decompressData(content, using: COMPRESSION_LZFSE) // For GZIP, switch to COMPRESSION_ZLIB if needed.
 		}
 	}
 

@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { computeVersion, filterAndSortTags } from "../src/lib/version.js";
+import {
+  computeVersion,
+  filterAndSortTags,
+  normalizeVersion,
+} from "../src/lib/version";
 
 describe("filterAndSortTags", () => {
   it("filters tags by prefix and sorts descending", () => {
@@ -36,6 +40,22 @@ describe("filterAndSortTags", () => {
     const tags = ["ios-4.9.0", "ios-4.9.0-libxmtp", "ios-4.10.0-libxmtp"];
     const result = filterAndSortTags(tags, "ios-", "-libxmtp", true);
     expect(result).toEqual(["4.9.0"]);
+  });
+});
+
+describe("normalizeVersion", () => {
+  it.each([
+    ["4.9.0", "4.9.0"],
+    ["4.9.0-dev.abc1234", "4.9.0"],
+    ["4.9.0-rc1", "4.9.0"],
+    ["4.9.0+build.123", "4.9.0"],
+    ["4.9.0-rc1+build.123", "4.9.0"],
+  ])("normalizeVersion(%s) => %s", (input, expected) => {
+    expect(normalizeVersion(input)).toBe(expected);
+  });
+
+  it.each(["invalid", ""])("throws on invalid input: %s", (input) => {
+    expect(() => normalizeVersion(input)).toThrow("Invalid version format");
   });
 });
 

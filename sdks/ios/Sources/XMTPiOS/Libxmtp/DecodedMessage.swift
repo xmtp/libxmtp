@@ -13,24 +13,24 @@ public enum MessageDeliveryStatus: String, Sendable {
 	func toFfi() -> FfiDeliveryStatus? {
 		switch self {
 		case .all:
-			return nil
+			nil
 		case .published:
-			return .published
+			.published
 		case .unpublished:
-			return .unpublished
+			.unpublished
 		case .failed:
-			return .failed
+			.failed
 		}
 	}
 
 	static func fromFfi(_ ffiStatus: FfiDeliveryStatus) -> MessageDeliveryStatus {
 		switch ffiStatus {
 		case .published:
-			return .published
+			.published
 		case .unpublished:
-			return .unpublished
+			.unpublished
 		case .failed:
-			return .failed
+			.failed
 		}
 	}
 }
@@ -42,18 +42,18 @@ public enum SortDirection {
 	func toFfi() -> FfiDirection {
 		switch self {
 		case .ascending:
-			return .ascending
+			.ascending
 		case .descending:
-			return .descending
+			.descending
 		}
 	}
 
 	static func fromFfi(_ ffiDirection: FfiDirection) -> SortDirection {
 		switch ffiDirection {
 		case .ascending:
-			return .ascending
+			.ascending
 		case .descending:
-			return .descending
+			.descending
 		}
 	}
 }
@@ -65,18 +65,18 @@ public enum MessageSortBy {
 	func toFfi() -> FfiSortBy {
 		switch self {
 		case .sentAt:
-			return .sentAt
+			.sentAt
 		case .insertedAt:
-			return .insertedAt
+			.insertedAt
 		}
 	}
 
 	static func fromFfi(_ ffiSortBy: FfiSortBy) -> MessageSortBy {
 		switch ffiSortBy {
 		case .sentAt:
-			return .sentAt
+			.sentAt
 		case .insertedAt:
-			return .insertedAt
+			.insertedAt
 		}
 	}
 }
@@ -135,11 +135,11 @@ public struct DecodedMessage: Identifiable {
 	public var deliveryStatus: MessageDeliveryStatus {
 		switch ffiMessage.deliveryStatus {
 		case .unpublished:
-			return .unpublished
+			.unpublished
 		case .published:
-			return .published
+			.published
 		case .failed:
-			return .failed
+			.failed
 		}
 	}
 

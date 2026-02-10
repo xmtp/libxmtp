@@ -12,12 +12,11 @@ public enum ClientError: Error, CustomStringConvertible, LocalizedError {
 	public var description: String {
 		switch self {
 		case let .creationError(err):
-			return "ClientError.creationError: \(err)"
+			"ClientError.creationError: \(err)"
 		case .missingInboxId:
-			return "ClientError.missingInboxId"
+			"ClientError.missingInboxId"
 		case let .invalidInboxId(inboxId):
-			return
-				"Invalid inboxId: \(inboxId). Inbox IDs cannot start with '0x'."
+			"Invalid inboxId: \(inboxId). Inbox IDs cannot start with '0x'."
 		}
 	}
 
@@ -34,11 +33,11 @@ public enum ForkRecoveryPolicy {
 	func toFfi() -> FfiForkRecoveryPolicy {
 		switch self {
 		case .none:
-			return .none
+			.none
 		case .allowlistedGroups:
-			return .allowlistedGroups
+			.allowlistedGroups
 		case .all:
-			return .all
+			.all
 		}
 	}
 }
@@ -149,6 +148,7 @@ struct ApiCacheKey {
 	}
 }
 
+// To be removed in a future release
 actor ApiClientCache {
 	private var apiClientCache: [String: XmtpApiClient] = [:]
 	private var syncApiClientCache: [String: XmtpApiClient] = [:]
@@ -227,7 +227,7 @@ public final class Client {
 
 		try await options.preAuthenticateToInboxCallback?()
 		if let signatureRequest = client.ffiClient.signatureRequest() {
-			if let signingKey = signingKey {
+			if let signingKey {
 				do {
 					try await handleSignature(
 						for: signatureRequest, signingKey: signingKey
@@ -292,11 +292,10 @@ public final class Client {
 	)
 		async throws -> Client
 	{
-		let resolvedInboxId: String
-		if let existingInboxId = inboxId {
-			resolvedInboxId = existingInboxId
+		let resolvedInboxId: String = if let existingInboxId = inboxId {
+			existingInboxId
 		} else {
-			resolvedInboxId = try await getOrCreateInboxId(
+			try await getOrCreateInboxId(
 				api: options.api, publicIdentity: publicIdentity
 			)
 		}
@@ -350,7 +349,7 @@ public final class Client {
 	) async throws -> (FfiXmtpClient, String) {
 		let mlsDbDirectory = options.dbDirectory
 		var directoryURL: URL
-		if let mlsDbDirectory = mlsDbDirectory {
+		if let mlsDbDirectory {
 			let fileManager = FileManager.default
 			directoryURL = URL(
 				fileURLWithPath: mlsDbDirectory, isDirectory: true
@@ -1081,10 +1080,10 @@ public extension Client {
 
 		fileprivate var ffiLogLevel: FfiLogLevel {
 			switch self {
-			case .error: return .error
-			case .warn: return .warn
-			case .info: return .info
-			case .debug: return .debug
+			case .error: .error
+			case .warn: .warn
+			case .info: .info
+			case .debug: .debug
 			}
 		}
 	}
@@ -1281,7 +1280,7 @@ public extension Client {
 	}
 
 	private static func getNumberOfFilesInDirectory(directory: String?) -> Int {
-		guard let directory = directory else {
+		guard let directory else {
 			XMTPLogger.database.error("Directory is nil")
 			return 0
 		}

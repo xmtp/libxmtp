@@ -34,11 +34,11 @@ public struct ConversationDebugInfo {
 	public var commitLogForkStatus: CommitLogForkStatus {
 		switch ffiConversationDebugInfo.isCommitLogForked {
 		case true:
-			return .forked
+			.forked
 		case false:
-			return .notForked
+			.notForked
 		default:
-			return .unknown
+			.unknown
 		}
 	}
 }
