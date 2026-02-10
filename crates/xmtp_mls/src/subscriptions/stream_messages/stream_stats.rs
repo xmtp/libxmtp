@@ -18,9 +18,10 @@ use std::{
     },
 };
 use tokio::sync::{
-    Mutex,
+    Mutex, Notify,
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
 };
+use tokio_stream::StreamExt;
 use xmtp_common::{MaybeSend, MaybeSync, time::now_ns};
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::prelude::XmtpMlsStreams;
@@ -35,15 +36,34 @@ pin_project! {
 
 pub trait StreamWithStats: Stream<Item = Result<StoredGroupMessage>> {
     fn stats(&self) -> Arc<StreamStats>;
+    #[cfg(any(feature = "test-utils", test))]
+    fn spin(self) -> Arc<Notify>;
 }
 
-impl<'a, Context: Clone, Conversations, Messages> StreamWithStats
-    for StreamStatsWrapper<'a, Context, Conversations, Messages>
+impl<Context: Clone, Conversations, Messages> StreamWithStats
+    for StreamStatsWrapper<'static, Context, Conversations, Messages>
 where
     Self: Stream<Item = Result<StoredGroupMessage>>,
+    Conversations: Unpin + MaybeSend + 'static,
+    Messages: Unpin + MaybeSend + 'static,
+    Context: MaybeSend + MaybeSync,
 {
     fn stats(&self) -> Arc<StreamStats> {
         self.stats.stats()
+    }
+
+    #[cfg(any(feature = "test-utils", test))]
+    fn spin(mut self) -> Arc<Notify> {
+        let notify = Arc::new(Notify::new());
+        xmtp_common::spawn(None, {
+            let notify = notify.clone();
+            async move {
+                while self.next().await.is_some() {
+                    notify.notify_one();
+                }
+            }
+        });
+        notify
     }
 }
 
@@ -79,9 +99,7 @@ impl StatsInner {
         self.enabled.store(true, Ordering::SeqCst);
         self.stats.clone()
     }
-}
 
-impl StatsInner {
     fn new() -> Self {
         let (stats_tx, stats_rx) = unbounded_channel();
         Self {
