@@ -8,14 +8,14 @@ env:
   CARGO_PROFILE_TEST_DEBUG: 0
 jobs:
   lint:
-    name: Lint
+    name: Lint (Rust Workspace)
     runs-on: warp-ubuntu-latest-x64-16x
     steps:
       - name: Checkout
         uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
-          warp: 'true'
+          warp: "true"
       - name: Run clippy and fail on warnings
         # Exclude bindings_wasm since it only compiles for wasm32
         run: cargo clippy --locked --workspace --all-features --all-targets --no-deps --exclude bindings_wasm -- -D warnings

@@ -3,7 +3,7 @@ on:
   workflow_call:
 jobs:
   lint:
-    name: Lint
+    name: Lint (Node)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

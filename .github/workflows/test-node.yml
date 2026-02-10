@@ -3,7 +3,7 @@ on:
   workflow_call:
 jobs:
   test:
-    name: Test
+    name: Test (Node)
     runs-on: warp-ubuntu-latest-x64-16x
     steps:
       - name: Checkout
@@ -13,7 +13,7 @@ jobs:
           workspaces: |
             .
             bindings/node
-          warp: 'true'
+          warp: "true"
       - name: Start Docker containers
         run: dev/up
       - name: Setup node

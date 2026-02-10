@@ -7,7 +7,7 @@ env:
   CARGO_PROFILE_TEST_DEBUG: 0
 jobs:
   lint:
-    name: Lint
+    name: Lint (WASM)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

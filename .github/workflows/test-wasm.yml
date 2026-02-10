@@ -6,7 +6,7 @@ env:
   CARGO_INCREMENTAL: 0
 jobs:
   wasm-ci:
-    name: WASM CI
+    name: Test (WASM)
     runs-on: warp-ubuntu-latest-x64-16x
     steps:
       - name: Checkout
@@ -15,7 +15,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: 'true'
+          sccache: "true"
       - name: Install omnix
         run: nix profile install nixpkgs#omnix
 
@@ -36,7 +36,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: 'true'
+          sccache: "true"
       - name: Start Docker containers
         run: |
           nix build .#docker-mls_validation_service

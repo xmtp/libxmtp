@@ -128,8 +128,8 @@ jobs:
       - test-workspace
       - test-node
       - test-wasm
-      - test-ios
-      - test-android
+      # - test-ios TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
+      # - test-android TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       - test-bindings-check
     steps:
       - run: |

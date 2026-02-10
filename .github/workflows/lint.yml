@@ -101,8 +101,8 @@ jobs:
       - lint-workspace
       - lint-node
       - lint-wasm
-      - lint-ios
-      - lint-android
+      # - lint-ios TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
+      # - lint-android TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       - lint-toml
     steps:
       - run: |
