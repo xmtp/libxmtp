@@ -107,7 +107,6 @@ public struct ClientOptions {
 
 	public var dbEncryptionKey: Data
 	public var dbDirectory: String?
-	public var historySyncUrl: String?
 	public var deviceSyncEnabled: Bool
 	public var debugEventsEnabled: Bool
 	public var forkRecoveryOptions: ForkRecoveryOptions?
@@ -118,8 +117,6 @@ public struct ClientOptions {
 		preAuthenticateToInboxCallback: PreEventCallback? = nil,
 		dbEncryptionKey: Data,
 		dbDirectory: String? = nil,
-		historySyncUrl: String? = nil,
-		useDefaultHistorySyncUrl: Bool = true,
 		deviceSyncEnabled: Bool = true,
 		debugEventsEnabled: Bool = false,
 		forkRecoveryOptions: ForkRecoveryOptions? = nil
@@ -129,11 +126,6 @@ public struct ClientOptions {
 		self.preAuthenticateToInboxCallback = preAuthenticateToInboxCallback
 		self.dbEncryptionKey = dbEncryptionKey
 		self.dbDirectory = dbDirectory
-		if useDefaultHistorySyncUrl, historySyncUrl == nil {
-			self.historySyncUrl = api.env.getHistorySyncUrl()
-		} else {
-			self.historySyncUrl = historySyncUrl
-		}
 		self.deviceSyncEnabled = deviceSyncEnabled
 		self.debugEventsEnabled = debugEventsEnabled
 		self.forkRecoveryOptions = forkRecoveryOptions

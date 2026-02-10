@@ -52,7 +52,6 @@ data class ClientOptions(
     val preAuthenticateToInboxCallback: PreEventCallback? = null,
     val appContext: Context,
     val dbEncryptionKey: ByteArray,
-    val historySyncUrl: String? = api.env.getHistorySyncUrl(),
     val dbDirectory: String? = null,
     val deviceSyncEnabled: Boolean = true,
     val forkRecoveryOptions: ForkRecoveryOptions? = null,
