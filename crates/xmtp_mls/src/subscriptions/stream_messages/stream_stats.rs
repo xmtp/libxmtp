@@ -36,6 +36,7 @@ pin_project! {
 
 pub trait StreamWithStats: Stream<Item = Result<StoredGroupMessage>> {
     fn stats(&self) -> Arc<StreamStats>;
+    #[cfg(any(feature = "test-utils", test))]
     fn spin(self) -> Arc<Notify>;
 }
 
@@ -51,6 +52,7 @@ where
         self.stats.stats()
     }
 
+    #[cfg(any(feature = "test-utils", test))]
     fn spin(mut self) -> Arc<Notify> {
         let notify = Arc::new(Notify::new());
         xmtp_common::spawn(None, {
