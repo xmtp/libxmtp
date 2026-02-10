@@ -40,9 +40,9 @@ public enum ArchiveElement {
 	public func toFfi() -> FfiBackupElementSelection {
 		switch self {
 		case .messages:
-			return .messages
+			.messages
 		case .consent:
-			return .consent
+			.consent
 		}
 	}
 
@@ -51,9 +51,9 @@ public enum ArchiveElement {
 	{
 		switch element {
 		case .messages:
-			return .messages
+			.messages
 		case .consent:
-			return .consent
+			.consent
 		}
 	}
 }

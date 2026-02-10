@@ -16,17 +16,17 @@ public enum MultiRemoteAttachmentError: Error, CustomStringConvertible {
 	public var description: String {
 		switch self {
 		case .invalidURL:
-			return "MultiRemoteAttachmentError.invalidURL"
+			"MultiRemoteAttachmentError.invalidURL"
 		case .v1NotSupported:
-			return "MultiRemoteAttachmentError.v1NotSupported"
+			"MultiRemoteAttachmentError.v1NotSupported"
 		case let .invalidParameters(string):
-			return "MultiRemoteAttachmentError.invalidParameters: \(string)"
+			"MultiRemoteAttachmentError.invalidParameters: \(string)"
 		case let .invalidDigest(string):
-			return "MultiRemoteAttachmentError.invalidDigest: \(string)"
+			"MultiRemoteAttachmentError.invalidDigest: \(string)"
 		case let .invalidScheme(string):
-			return "MultiRemoteAttachmentError.invalidScheme: \(string)"
+			"MultiRemoteAttachmentError.invalidScheme: \(string)"
 		case .payloadNotFound:
-			return "MultiRemoteAttachmentError.payloadNotFound"
+			"MultiRemoteAttachmentError.payloadNotFound"
 		}
 	}
 }

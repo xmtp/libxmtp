@@ -2,8 +2,8 @@ import XCTest
 @testable import XMTPiOS
 import XMTPTestHelpers
 
-func assertThrowsAsyncError<T>(
-	_ expression: @autoclosure () async throws -> T,
+func assertThrowsAsyncError(
+	_ expression: @autoclosure () async throws -> some Any,
 	_ message: @autoclosure () -> String = "",
 	file: StaticString = #filePath,
 	line: UInt = #line,

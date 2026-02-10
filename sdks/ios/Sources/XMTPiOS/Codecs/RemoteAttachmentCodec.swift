@@ -16,17 +16,17 @@ public enum RemoteAttachmentError: Error, CustomStringConvertible {
 	public var description: String {
 		switch self {
 		case .invalidURL:
-			return "RemoteAttachmentError.invalidURL"
+			"RemoteAttachmentError.invalidURL"
 		case .v1NotSupported:
-			return "RemoteAttachmentError.v1NotSupported"
+			"RemoteAttachmentError.v1NotSupported"
 		case let .invalidParameters(string):
-			return "RemoteAttachmentError.invalidParameters: \(string)"
+			"RemoteAttachmentError.invalidParameters: \(string)"
 		case let .invalidDigest(string):
-			return "RemoteAttachmentError.invalidDigest: \(string)"
+			"RemoteAttachmentError.invalidDigest: \(string)"
 		case let .invalidScheme(string):
-			return "RemoteAttachmentError.invalidScheme: \(string)"
+			"RemoteAttachmentError.invalidScheme: \(string)"
 		case .payloadNotFound:
-			return "RemoteAttachmentError.payloadNotFound"
+			"RemoteAttachmentError.payloadNotFound"
 		}
 	}
 }

@@ -47,17 +47,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Update rust toolchains, add target
-        run: |
-          rustup update
-          rustup target add ${{ matrix.target }}
-
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-rust
         with:
+          targets: ${{ matrix.target }}
           workspaces: |
             .
             bindings/node
+          warp: 'true'
 
       - name: Configure aarch64 toolchain
         if: startsWith(matrix.target, 'aarch64')
@@ -78,16 +74,9 @@ jobs:
           sudo apt-get install -y musl-tools
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: ./.github/actions/setup-node
         with:
-          node-version-file: ".node-version"
           cache-dependency-path: "bindings/node/yarn.lock"
-          cache: "yarn"
-        env:
-          SKIP_YARN_COREPACK_CHECK: "1"
-
-      - name: Enable corepack
-        run: corepack enable
 
       - name: Install dependencies
         working-directory: bindings/node
@@ -145,29 +134,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Update rust toolchains, add target
-        run: |
-          rustup update
-          rustup target add ${{ matrix.target }}
-
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-rust
         with:
+          targets: ${{ matrix.target }}
           workspaces: |
             .
             bindings/node
+          warp: 'true'
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: ./.github/actions/setup-node
         with:
-          node-version-file: ".node-version"
           cache-dependency-path: "bindings/node/yarn.lock"
-          cache: "yarn"
-        env:
-          SKIP_YARN_COREPACK_CHECK: "1"
-
-      - name: Enable corepack
-        run: corepack enable
 
       - name: Install dependencies
         working-directory: bindings/node
@@ -206,17 +184,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Update rust toolchains
-        run: |
-          rustup update
-          rustup target add ${{ matrix.target }}
-
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-rust
         with:
+          targets: ${{ matrix.target }}
           workspaces: |
             .
             bindings/node
+          warp: 'true'
 
       - name: Disable usePackageExitCodes feature
         uses: crazy-max/ghaction-chocolatey@v3
@@ -240,16 +214,9 @@ jobs:
         shell: bash
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: ./.github/actions/setup-node
         with:
-          node-version-file: ".node-version"
           cache-dependency-path: "bindings/node/yarn.lock"
-          cache: "yarn"
-        env:
-          SKIP_YARN_COREPACK_CHECK: "1"
-
-      - name: Enable corepack
-        run: corepack enable
 
       - name: Install dependencies
         working-directory: bindings/node
@@ -269,95 +236,11 @@ jobs:
           retention-days: 1
 
   publish:
-    permissions:
-      id-token: write
-      contents: write
-    runs-on: ubuntu-latest
     needs: [build-linux, build-macos, build-windows]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v7
-        with:
-          pattern: bindings_node_*
-          merge-multiple: true
-          path: bindings/node/dist
-
-      - name: Setup node
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: ".node-version"
-          cache-dependency-path: "bindings/node/yarn.lock"
-          cache: "yarn"
-        env:
-          SKIP_YARN_COREPACK_CHECK: "1"
-
-      - name: Enable corepack
-        run: corepack enable
-
-      - name: Install dependencies
-        working-directory: bindings/node
-        run: yarn
-
-      - name: Update version for dev releases
-        working-directory: bindings/node
-        run: |
-          # Read the current version from package.json
-          PACKAGE_VERSION=$(node -p "require('./package.json').version")
-
-          # Check if this is a dev version
-          if [[ "$PACKAGE_VERSION" == *"dev"* ]]; then
-            GIT_HASH=$(git log -1 --pretty=format:"%h")
-
-            # Create a new version string with the git hash
-            NEW_VERSION="${PACKAGE_VERSION}.${GIT_HASH}"
-
-            # Update package.json with the new version
-            npm version "$NEW_VERSION" --no-git-tag-version
-
-            echo "Updated version to $NEW_VERSION for publishing"
-          else
-            echo "Not a dev version, keeping original version: $PACKAGE_VERSION"
-          fi
-
-      - name: Determine NPM tag
-        id: npm-tag
-        working-directory: bindings/node
-        run: |
-          # Read the current version from package.json
-          PACKAGE_VERSION=$(node -p "require('./package.json').version")
-
-          # Set the tag based on whether it's a dev version
-          if [[ "$PACKAGE_VERSION" == *"dev"* ]]; then
-            echo "tag=prerelease" >> $GITHUB_OUTPUT
-          else
-            echo "tag=latest" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create Git Tag for Dev Releases
-        if: contains(steps.npm-tag.outputs.tag, 'prerelease')
-        run: |
-          # Read the current version from package.json
-          PACKAGE_VERSION=$(node -p "require('./bindings/node/package.json').version")
-
-          # Create and push the tag
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git tag -a "node-bindings-${PACKAGE_VERSION}" -m "Node bindings version ${PACKAGE_VERSION}"
-          git push origin "node-bindings-${PACKAGE_VERSION}"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update npm to latest
-        run: npm install -g npm@latest
-
-      - name: Publish to NPM
-        uses: JS-DevTools/npm-publish@v4
-        with:
-          package: bindings/node
-          tag: ${{ steps.npm-tag.outputs.tag }}
-          dry-run: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    uses: ./.github/workflows/npm-publish.yml
+    with:
+      package-dir: bindings/node
+      tag-prefix: node-bindings
+      artifact-pattern: bindings_node_*
+      artifact-path: bindings/node/dist
+    secrets: inherit

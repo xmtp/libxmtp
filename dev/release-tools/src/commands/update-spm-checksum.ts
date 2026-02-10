@@ -1,13 +1,17 @@
 import path from "node:path";
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import { getSdkConfig } from "../lib/sdk-config.js";
-import { updateSpmChecksum as updateSpmChecksumFn } from "../lib/spm.js";
+import type { GlobalArgs } from "../types";
+import { getSdkConfig } from "../lib/sdk-config";
+import {
+  updateSpmChecksum as updateSpmChecksumFn,
+  updateSpmDynamicChecksum as updateSpmDynamicChecksumFn,
+} from "../lib/spm";
 
 export const command = "update-spm-checksum";
 export const describe =
   "Update the binary target URL and checksum in Package.swift";
 
-export function builder(yargs: Argv) {
+export function builder(yargs: Argv<GlobalArgs>) {
   return yargs
     .option("sdk", {
       type: "string",
@@ -23,21 +27,49 @@ export function builder(yargs: Argv) {
       type: "string",
       demandOption: true,
       describe: "SHA-256 checksum of the artifact",
+    })
+    .option("dynamic-url", {
+      type: "string",
+      describe: "Artifact download URL for dynamic variant",
+    })
+    .option("dynamic-checksum", {
+      type: "string",
+      describe: "SHA-256 checksum of the dynamic artifact",
     });
 }
 
 export function handler(
-  argv: ArgumentsCamelCase<{
-    sdk: string;
-    url: string;
-    checksum: string;
-  }>,
+  argv: ArgumentsCamelCase<
+    GlobalArgs & {
+      sdk: string;
+      url: string;
+      checksum: string;
+      dynamicUrl?: string;
+      dynamicChecksum?: string;
+    }
+  >,
 ) {
   const config = getSdkConfig(argv.sdk);
   if (!config.spmManifestPath) {
     throw new Error(`SDK ${argv.sdk} does not have an SPM manifest`);
   }
-  const spmPath = path.join(process.cwd(), config.spmManifestPath);
+
+  // Validate that dynamic parameters are provided together
+  if (
+    (argv.dynamicUrl && !argv.dynamicChecksum) ||
+    (!argv.dynamicUrl && argv.dynamicChecksum)
+  ) {
+    throw new Error(
+      "Both --dynamic-url and --dynamic-checksum must be provided together",
+    );
+  }
+
+  const spmPath = path.join(argv.repoRoot, config.spmManifestPath);
   updateSpmChecksumFn(spmPath, argv.url, argv.checksum);
   console.log(`Updated ${config.spmManifestPath}`);
+
+  if (argv.dynamicUrl && argv.dynamicChecksum) {
+    updateSpmDynamicChecksumFn(spmPath, argv.dynamicUrl, argv.dynamicChecksum);
+    console.log(`Updated dynamic target in ${config.spmManifestPath}`);
+  }
 }

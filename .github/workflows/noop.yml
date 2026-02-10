@@ -1,28 +1,36 @@
 name: No Op
 on:
   pull_request:
-    # ignore code and some workflow changes
+    # ignore code and workflow changes that trigger real CI jobs
     paths:
       - "**"
-      - "!.github/workflows/lint-ffi-bindings.yml"
-      - "!.github/workflows/lint-node-bindings.yml"
-      - "!.github/workflows/lint-workspace.yml"
-      - "!.github/workflows/test-ffi-bindings.yml"
-      - "!.github/workflows/test-node-bindings.yml"
+      # Workflow files that trigger on PRs
       - "!.github/workflows/test-workspace.yml"
-      - "!bindings/mobile/**"
-      - "!bindings/node/**"
+      - "!.github/workflows/test-node-bindings.yml"
+      - "!.github/workflows/test-webassembly.yml"
+      - "!.github/workflows/test-ios.yml"
+      - "!.github/workflows/lint-workspace.yml"
+      - "!.github/workflows/lint-node-bindings.yml"
+      - "!.github/workflows/lint-wasm-bindings.yml"
+      - "!.github/workflows/lint-ios.yml"
+      - "!.github/workflows/lint-toml.yml"
+      - "!.github/workflows/test-android.yml"
+      - "!.github/workflows/lint-android.yml"
+      - "!.github/workflows/check-ios-android-bindings.yml"
+      # Source paths that trigger real test/lint workflows
+      - "!bindings/**"
+      - "!crates/**"
       - "!apps/mls_validation_service/**"
-      - "!crates/xmtp_api_grpc/**"
-      - "!crates/xmtp_cryptography/**"
-      - "!crates/xmtp_id/**"
-      - "!crates/xmtp_mls/**"
-      - "!crates/xmtp_proto/**"
+      - "!sdks/ios/**"
+      - "!sdks/android/**"
+      - "!nix/**"
+      - "!dev/up"
+      - "!dev/docker/**"
+      - "!Package.swift"
       - "!.node-version"
-      - "!Cargo.toml"
       - "!Cargo.lock"
-      - "!rust-toolchain.toml"
-      - "!rustfmt.toml"
+      - "!.cargo/**"
+      - "!**/*.toml"
 # Test and Lint steps are required for pull requests, but some file changes
 # don't require them to run. These jobs define the required steps for these
 # cases, but don't actually do anything.

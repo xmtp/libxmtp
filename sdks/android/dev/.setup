@@ -1,0 +1,15 @@
+#!/bin/bash
+# Common setup for Android dev scripts
+# Source this file, don't execute it directly
+
+set -eou pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+SDK_ROOT="${ROOT}/sdks/android"
+
+# Re-exec in the android Nix shell if not already there
+ensure_nix_shell() {
+    if [[ "${XMTP_DEV_SHELL:-}" != "android" ]]; then
+        exec nix develop "${ROOT}#android" --command "$0" "$@"
+    fi
+}

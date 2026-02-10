@@ -86,8 +86,14 @@ impl Info {
 
     // Registers interest in the next time this event is fired.
     // Returns a future that resolves when this event resolves
-    fn register_interest(&self) -> impl Future<Output = ()> + 'static {
-        Notify::notified_owned(self.notify.clone())
+    fn register_interest(&self, count: usize) -> impl Future<Output = ()> + 'static {
+        let notify = self.notify.clone();
+        let info_count = self.count.clone();
+        async move {
+            while info_count.load(Ordering::SeqCst) < count {
+                notify.notified().await;
+            }
+        }
     }
 
     fn fire(&self) {
@@ -140,8 +146,20 @@ where
     pub fn register_interest(&self, metric_key: Metric, count: usize) -> MetricInterest<Metric> {
         tracing::info!("registering interest in {metric_key:?}");
         let info = self.info(metric_key);
+
+        let fut = if self
+            .metrics
+            .lock()
+            .get(&metric_key)
+            .is_some_and(|info| info.count() >= count)
+        {
+            futures::future::ready(()).boxed()
+        } else {
+            info.register_interest(count).boxed()
+        };
+
         MetricInterest {
-            fut: info.register_interest().boxed(),
+            fut,
             count,
             info: self.info(metric_key),
             metric: metric_key,

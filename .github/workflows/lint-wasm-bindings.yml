@@ -1,0 +1,46 @@
+name: Lint WASM Bindings
+on:
+  pull_request:
+    paths:
+      - "bindings/wasm/**"
+      - ".github/workflows/lint-wasm-bindings.yml"
+      - "rustfmt.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/**"
+      - "rust-toolchain.toml"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: wasm32-unknown-unknown
+          workspaces: bindings/wasm
+      - name: Install emscripten toolchains
+        run: |
+          git clone https://github.com/emscripten-core/emsdk.git
+          cd emsdk
+          ./emsdk install latest
+          ./emsdk activate latest
+      - name: Run clippy and fail on warnings
+        run: |
+          source ./emsdk/emsdk_env.sh
+          cargo clippy --locked --manifest-path bindings/wasm/Cargo.toml --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings
+      - name: Run format check
+        run: cargo fmt --manifest-path bindings/wasm/Cargo.toml --check
+      - name: Run format check on typescript files
+        working-directory: bindings/wasm
+        run: |
+          yarn
+          yarn format:check

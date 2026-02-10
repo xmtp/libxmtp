@@ -104,11 +104,11 @@ public struct ReactionCodec: ContentCodec {
 	public func fallback(content: Reaction) throws -> String? {
 		switch content.action {
 		case .added:
-			return "Reacted “\(content.content)” to an earlier message"
+			"Reacted “\(content.content)” to an earlier message"
 		case .removed:
-			return "Removed “\(content.content)” from an earlier message"
+			"Removed “\(content.content)” from an earlier message"
 		case .unknown:
-			return nil
+			nil
 		}
 	}
 
