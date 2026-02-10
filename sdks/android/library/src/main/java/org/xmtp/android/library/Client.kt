@@ -737,8 +737,10 @@ class Client(
      * You may need to manually sync the sync group before calling
      * this function to see recently uploaded archives.
      */
-    fun listAvailableArchives(daysCutoff: Long): List<AvailableArchive> =
-        ffiClient.listAvailableArchives(daysCutoff).map { AvailableArchive(it) }
+    suspend fun listAvailableArchives(daysCutoff: Long): List<AvailableArchive> =
+        withContext(Dispatchers.IO) {
+            ffiClient.listAvailableArchives(daysCutoff).map { AvailableArchive(it) }
+        }
 
     /**
      * Manually sync all device sync groups.
