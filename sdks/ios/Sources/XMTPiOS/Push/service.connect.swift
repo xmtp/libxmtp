@@ -12,7 +12,7 @@ public protocol Notifications_V1_NotificationsClientInterface: Sendable {
 	func registerInstallation(
 		request: Notifications_V1_RegisterInstallationRequest,
 		headers: Connect.Headers,
-		completion: @escaping @Sendable (ResponseMessage<Notifications_V1_RegisterInstallationResponse>) -> Void,
+		completion: @escaping @Sendable (ResponseMessage<Notifications_V1_RegisterInstallationResponse>) -> Void
 	) -> Connect.Cancelable
 
 	@available(iOS 13, *)
@@ -23,7 +23,7 @@ public protocol Notifications_V1_NotificationsClientInterface: Sendable {
 	func deleteInstallation(
 		request: Notifications_V1_DeleteInstallationRequest,
 		headers: Connect.Headers,
-		completion: @escaping @Sendable (ResponseMessage<SwiftProtobuf.Google_Protobuf_Empty>) -> Void,
+		completion: @escaping @Sendable (ResponseMessage<SwiftProtobuf.Google_Protobuf_Empty>) -> Void
 	) -> Connect.Cancelable
 
 	@available(iOS 13, *)
@@ -34,7 +34,7 @@ public protocol Notifications_V1_NotificationsClientInterface: Sendable {
 	func subscribe(
 		request: Notifications_V1_SubscribeRequest,
 		headers: Connect.Headers,
-		completion: @escaping @Sendable (ResponseMessage<SwiftProtobuf.Google_Protobuf_Empty>) -> Void,
+		completion: @escaping @Sendable (ResponseMessage<SwiftProtobuf.Google_Protobuf_Empty>) -> Void
 	) -> Connect.Cancelable
 
 	@available(iOS 13, *)
@@ -45,7 +45,7 @@ public protocol Notifications_V1_NotificationsClientInterface: Sendable {
 	func subscribeWithMetadata(
 		request: Notifications_V1_SubscribeWithMetadataRequest,
 		headers: Connect.Headers,
-		completion: @escaping @Sendable (ResponseMessage<SwiftProtobuf.Google_Protobuf_Empty>) -> Void,
+		completion: @escaping @Sendable (ResponseMessage<SwiftProtobuf.Google_Protobuf_Empty>) -> Void
 	) -> Connect.Cancelable
 
 	@available(iOS 13, *)
@@ -56,7 +56,7 @@ public protocol Notifications_V1_NotificationsClientInterface: Sendable {
 	func unsubscribe(
 		request: Notifications_V1_UnsubscribeRequest,
 		headers: Connect.Headers,
-		completion: @escaping @Sendable (ResponseMessage<SwiftProtobuf.Google_Protobuf_Empty>) -> Void,
+		completion: @escaping @Sendable (ResponseMessage<SwiftProtobuf.Google_Protobuf_Empty>) -> Void
 	) -> Connect.Cancelable
 
 	@available(iOS 13, *)
@@ -76,27 +76,27 @@ public final class Notifications_V1_NotificationsClient: Notifications_V1_Notifi
 	public func registerInstallation(
 		request: Notifications_V1_RegisterInstallationRequest,
 		headers: Connect.Headers = [:],
-		completion: @escaping @Sendable (ResponseMessage<Notifications_V1_RegisterInstallationResponse>) -> Void,
+		completion: @escaping @Sendable (ResponseMessage<Notifications_V1_RegisterInstallationResponse>) -> Void
 	) -> Connect.Cancelable {
 		client.unary(
 			path: "/notifications.v1.Notifications/RegisterInstallation",
 			idempotencyLevel: .unknown,
 			request: request,
 			headers: headers,
-			completion: completion,
+			completion: completion
 		)
 	}
 
 	@available(iOS 13, *)
 	public func registerInstallation(
 		request: Notifications_V1_RegisterInstallationRequest,
-		headers: Connect.Headers = [:],
+		headers: Connect.Headers = [:]
 	) async -> ResponseMessage<Notifications_V1_RegisterInstallationResponse> {
 		await client.unary(
 			path: "/notifications.v1.Notifications/RegisterInstallation",
 			idempotencyLevel: .unknown,
 			request: request,
-			headers: headers,
+			headers: headers
 		)
 	}
 
@@ -104,14 +104,14 @@ public final class Notifications_V1_NotificationsClient: Notifications_V1_Notifi
 	public func deleteInstallation(
 		request: Notifications_V1_DeleteInstallationRequest,
 		headers: Connect.Headers = [:],
-		completion: @escaping @Sendable (ResponseMessage<SwiftProtobuf.Google_Protobuf_Empty>) -> Void,
+		completion: @escaping @Sendable (ResponseMessage<SwiftProtobuf.Google_Protobuf_Empty>) -> Void
 	) -> Connect.Cancelable {
 		client.unary(
 			path: "/notifications.v1.Notifications/DeleteInstallation",
 			idempotencyLevel: .unknown,
 			request: request,
 			headers: headers,
-			completion: completion,
+			completion: completion
 		)
 	}
 
@@ -124,7 +124,7 @@ public final class Notifications_V1_NotificationsClient: Notifications_V1_Notifi
 			path: "/notifications.v1.Notifications/DeleteInstallation",
 			idempotencyLevel: .unknown,
 			request: request,
-			headers: headers,
+			headers: headers
 		)
 	}
 
@@ -132,14 +132,14 @@ public final class Notifications_V1_NotificationsClient: Notifications_V1_Notifi
 	public func subscribe(
 		request: Notifications_V1_SubscribeRequest,
 		headers: Connect.Headers = [:],
-		completion: @escaping @Sendable (ResponseMessage<SwiftProtobuf.Google_Protobuf_Empty>) -> Void,
+		completion: @escaping @Sendable (ResponseMessage<SwiftProtobuf.Google_Protobuf_Empty>) -> Void
 	) -> Connect.Cancelable {
 		client.unary(
 			path: "/notifications.v1.Notifications/Subscribe",
 			idempotencyLevel: .unknown,
 			request: request,
 			headers: headers,
-			completion: completion,
+			completion: completion
 		)
 	}
 
@@ -151,7 +151,7 @@ public final class Notifications_V1_NotificationsClient: Notifications_V1_Notifi
 			path: "/notifications.v1.Notifications/Subscribe",
 			idempotencyLevel: .unknown,
 			request: request,
-			headers: headers,
+			headers: headers
 		)
 	}
 
@@ -159,27 +159,27 @@ public final class Notifications_V1_NotificationsClient: Notifications_V1_Notifi
 	public func subscribeWithMetadata(
 		request: Notifications_V1_SubscribeWithMetadataRequest,
 		headers: Connect.Headers = [:],
-		completion: @escaping @Sendable (ResponseMessage<SwiftProtobuf.Google_Protobuf_Empty>) -> Void,
+		completion: @escaping @Sendable (ResponseMessage<SwiftProtobuf.Google_Protobuf_Empty>) -> Void
 	) -> Connect.Cancelable {
 		client.unary(
 			path: "/notifications.v1.Notifications/SubscribeWithMetadata",
 			idempotencyLevel: .unknown,
 			request: request,
 			headers: headers,
-			completion: completion,
+			completion: completion
 		)
 	}
 
 	@available(iOS 13, *)
 	public func subscribeWithMetadata(
 		request: Notifications_V1_SubscribeWithMetadataRequest,
-		headers: Connect.Headers = [:],
+		headers: Connect.Headers = [:]
 	) async -> ResponseMessage<SwiftProtobuf.Google_Protobuf_Empty> {
 		await client.unary(
 			path: "/notifications.v1.Notifications/SubscribeWithMetadata",
 			idempotencyLevel: .unknown,
 			request: request,
-			headers: headers,
+			headers: headers
 		)
 	}
 
@@ -187,14 +187,14 @@ public final class Notifications_V1_NotificationsClient: Notifications_V1_Notifi
 	public func unsubscribe(
 		request: Notifications_V1_UnsubscribeRequest,
 		headers: Connect.Headers = [:],
-		completion: @escaping @Sendable (ResponseMessage<SwiftProtobuf.Google_Protobuf_Empty>) -> Void,
+		completion: @escaping @Sendable (ResponseMessage<SwiftProtobuf.Google_Protobuf_Empty>) -> Void
 	) -> Connect.Cancelable {
 		client.unary(
 			path: "/notifications.v1.Notifications/Unsubscribe",
 			idempotencyLevel: .unknown,
 			request: request,
 			headers: headers,
-			completion: completion,
+			completion: completion
 		)
 	}
 
@@ -206,7 +206,7 @@ public final class Notifications_V1_NotificationsClient: Notifications_V1_Notifi
 			path: "/notifications.v1.Notifications/Unsubscribe",
 			idempotencyLevel: .unknown,
 			request: request,
-			headers: headers,
+			headers: headers
 		)
 	}
 
@@ -215,27 +215,27 @@ public final class Notifications_V1_NotificationsClient: Notifications_V1_Notifi
 			public static let registerInstallation = Connect.MethodSpec(
 				name: "RegisterInstallation",
 				service: "notifications.v1.Notifications",
-				type: .unary,
+				type: .unary
 			)
 			public static let deleteInstallation = Connect.MethodSpec(
 				name: "DeleteInstallation",
 				service: "notifications.v1.Notifications",
-				type: .unary,
+				type: .unary
 			)
 			public static let subscribe = Connect.MethodSpec(
 				name: "Subscribe",
 				service: "notifications.v1.Notifications",
-				type: .unary,
+				type: .unary
 			)
 			public static let subscribeWithMetadata = Connect.MethodSpec(
 				name: "SubscribeWithMetadata",
 				service: "notifications.v1.Notifications",
-				type: .unary,
+				type: .unary
 			)
 			public static let unsubscribe = Connect.MethodSpec(
 				name: "Unsubscribe",
 				service: "notifications.v1.Notifications",
-				type: .unary,
+				type: .unary
 			)
 		}
 	}

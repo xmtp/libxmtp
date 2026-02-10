@@ -47,7 +47,7 @@ public enum GroupPermissionPreconfiguration {
 	case adminOnly
 
 	static func toFfiGroupPermissionOptions(
-		option: GroupPermissionPreconfiguration,
+		option: GroupPermissionPreconfiguration
 	) -> FfiGroupPermissionsOptions {
 		switch option {
 		case .allMembers:
@@ -76,7 +76,7 @@ public class PermissionPolicySet {
 		updateGroupDescriptionPolicy: PermissionOption,
 		updateGroupImagePolicy: PermissionOption,
 		updateMessageDisappearingPolicy: PermissionOption,
-		updateAppDataPolicy: PermissionOption,
+		updateAppDataPolicy: PermissionOption
 	) {
 		self.addMemberPolicy = addMemberPolicy
 		self.removeMemberPolicy = removeMemberPolicy
@@ -90,80 +90,80 @@ public class PermissionPolicySet {
 	}
 
 	static func toFfiPermissionPolicySet(
-		_ permissionPolicySet: PermissionPolicySet,
+		_ permissionPolicySet: PermissionPolicySet
 	) -> FfiPermissionPolicySet {
 		FfiPermissionPolicySet(
 			addMemberPolicy: PermissionOption.toFfiPermissionPolicy(
-				option: permissionPolicySet.addMemberPolicy,
+				option: permissionPolicySet.addMemberPolicy
 			),
 			removeMemberPolicy: PermissionOption.toFfiPermissionPolicy(
-				option: permissionPolicySet.removeMemberPolicy,
+				option: permissionPolicySet.removeMemberPolicy
 			),
 			addAdminPolicy: PermissionOption.toFfiPermissionPolicy(
-				option: permissionPolicySet.addAdminPolicy,
+				option: permissionPolicySet.addAdminPolicy
 			),
 			removeAdminPolicy: PermissionOption.toFfiPermissionPolicy(
-				option: permissionPolicySet.removeAdminPolicy,
+				option: permissionPolicySet.removeAdminPolicy
 			),
 			updateGroupNamePolicy: PermissionOption.toFfiPermissionPolicy(
-				option: permissionPolicySet.updateGroupNamePolicy,
+				option: permissionPolicySet.updateGroupNamePolicy
 			),
 			updateGroupDescriptionPolicy:
 			PermissionOption.toFfiPermissionPolicy(
-				option: permissionPolicySet.updateGroupDescriptionPolicy,
+				option: permissionPolicySet.updateGroupDescriptionPolicy
 			),
 			updateGroupImageUrlSquarePolicy:
 			PermissionOption.toFfiPermissionPolicy(
-				option: permissionPolicySet.updateGroupImagePolicy,
+				option: permissionPolicySet.updateGroupImagePolicy
 			),
 			updateMessageDisappearingPolicy:
 			PermissionOption.toFfiPermissionPolicy(
-				option: permissionPolicySet.updateMessageDisappearingPolicy,
+				option: permissionPolicySet.updateMessageDisappearingPolicy
 			),
 			updateAppDataPolicy:
 			PermissionOption.toFfiPermissionPolicy(
-				option: permissionPolicySet.updateAppDataPolicy,
-			),
+				option: permissionPolicySet.updateAppDataPolicy
+			)
 		)
 	}
 
 	static func fromFfiPermissionPolicySet(
-		_ ffiPermissionPolicySet: FfiPermissionPolicySet,
+		_ ffiPermissionPolicySet: FfiPermissionPolicySet
 	) -> PermissionPolicySet {
 		PermissionPolicySet(
 			addMemberPolicy: PermissionOption.fromFfiPermissionPolicy(
-				ffiPolicy: ffiPermissionPolicySet.addMemberPolicy,
+				ffiPolicy: ffiPermissionPolicySet.addMemberPolicy
 			),
 			removeMemberPolicy: PermissionOption.fromFfiPermissionPolicy(
-				ffiPolicy: ffiPermissionPolicySet.removeMemberPolicy,
+				ffiPolicy: ffiPermissionPolicySet.removeMemberPolicy
 			),
 			addAdminPolicy: PermissionOption.fromFfiPermissionPolicy(
-				ffiPolicy: ffiPermissionPolicySet.addAdminPolicy,
+				ffiPolicy: ffiPermissionPolicySet.addAdminPolicy
 			),
 			removeAdminPolicy: PermissionOption.fromFfiPermissionPolicy(
-				ffiPolicy: ffiPermissionPolicySet.removeAdminPolicy,
+				ffiPolicy: ffiPermissionPolicySet.removeAdminPolicy
 			),
 			updateGroupNamePolicy: PermissionOption.fromFfiPermissionPolicy(
-				ffiPolicy: ffiPermissionPolicySet.updateGroupNamePolicy,
+				ffiPolicy: ffiPermissionPolicySet.updateGroupNamePolicy
 			),
 			updateGroupDescriptionPolicy:
 			PermissionOption.fromFfiPermissionPolicy(
 				ffiPolicy: ffiPermissionPolicySet
-					.updateGroupDescriptionPolicy,
+					.updateGroupDescriptionPolicy
 			),
 			updateGroupImagePolicy: PermissionOption.fromFfiPermissionPolicy(
 				ffiPolicy: ffiPermissionPolicySet
-					.updateGroupImageUrlSquarePolicy,
+					.updateGroupImageUrlSquarePolicy
 			),
 			updateMessageDisappearingPolicy:
 			PermissionOption.fromFfiPermissionPolicy(
 				ffiPolicy: ffiPermissionPolicySet
-					.updateMessageDisappearingPolicy,
+					.updateMessageDisappearingPolicy
 			),
 			updateAppDataPolicy:
 			PermissionOption.fromFfiPermissionPolicy(
-				ffiPolicy: ffiPermissionPolicySet.updateAppDataPolicy,
-			),
+				ffiPolicy: ffiPermissionPolicySet.updateAppDataPolicy
+			)
 		)
 	}
 }

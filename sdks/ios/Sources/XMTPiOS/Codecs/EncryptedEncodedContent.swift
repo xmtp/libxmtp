@@ -23,7 +23,7 @@ public struct EncryptedEncodedContent {
 		nonce: Data,
 		payload: Data,
 		filename: String? = nil,
-		contentLength: UInt32? = nil,
+		contentLength: UInt32? = nil
 	) {
 		self.secret = secret
 		self.digest = digest

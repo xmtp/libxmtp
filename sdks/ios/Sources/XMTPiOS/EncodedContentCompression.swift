@@ -25,10 +25,10 @@ public enum EncodedContentCompression {
 
 	/// Helper method to compress data using the Compression framework
 	private func compressData(
-		_ data: Data, using algorithm: compression_algorithm,
+		_ data: Data, using algorithm: compression_algorithm
 	) -> Data? {
 		let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(
-			capacity: data.count,
+			capacity: data.count
 		)
 		defer { destinationBuffer.deallocate() }
 
@@ -38,7 +38,7 @@ public enum EncodedContentCompression {
 			}
 			return compression_encode_buffer(
 				destinationBuffer, data.count,
-				sourcePointer, data.count, nil, algorithm,
+				sourcePointer, data.count, nil, algorithm
 			)
 		}
 
@@ -48,10 +48,10 @@ public enum EncodedContentCompression {
 
 	/// Helper method to decompress data using the Compression framework
 	private func decompressData(
-		_ data: Data, using algorithm: compression_algorithm,
+		_ data: Data, using algorithm: compression_algorithm
 	) -> Data? {
 		let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(
-			capacity: data.count * 4, // Allocate enough memory for decompressed data
+			capacity: data.count * 4 // Allocate enough memory for decompressed data
 		)
 		defer { destinationBuffer.deallocate() }
 
@@ -61,7 +61,7 @@ public enum EncodedContentCompression {
 			}
 			return compression_decode_buffer(
 				destinationBuffer, data.count * 4,
-				sourcePointer, data.count, nil, algorithm,
+				sourcePointer, data.count, nil, algorithm
 			)
 		}
 

@@ -1,5 +1,9 @@
-import { Sdk, type SdkConfig } from "../types.js";
-import { createPodspecManifestProvider } from "./manifest.js";
+import { Sdk, type SdkConfig } from "../types";
+import {
+  createPodspecManifestProvider,
+  createGradlePropertiesManifestProvider,
+  createCargoManifestProvider,
+} from "./manifest";
 
 export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
   [Sdk.Ios]: {
@@ -9,6 +13,22 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     tagPrefix: "ios-",
     artifactTagSuffix: "-libxmtp",
     manifest: createPodspecManifestProvider("sdks/ios/XMTP.podspec"),
+  },
+  [Sdk.Android]: {
+    name: "Android",
+    manifestPath: "sdks/android/gradle.properties",
+    tagPrefix: "android-",
+    artifactTagSuffix: "-libxmtp",
+    manifest: createGradlePropertiesManifestProvider(
+      "sdks/android/gradle.properties",
+    ),
+  },
+  [Sdk.Libxmtp]: {
+    name: "Libxmtp",
+    manifestPath: "Cargo.toml",
+    tagPrefix: "v",
+    artifactTagSuffix: "",
+    manifest: createCargoManifestProvider("Cargo.toml"),
   },
 };
 

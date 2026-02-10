@@ -50,6 +50,13 @@ android {
         checkTestSources = false
         ignoreTestSources = true
     }
+    // Include generated bindings from Nix build
+    sourceSets {
+        main {
+            java.srcDirs += ["${rootProject.projectDir}/.build/bindings/java"]
+            jniLibs.srcDirs += ["${rootProject.projectDir}/.build/bindings/jniLibs"]
+        }
+    }
 }
 
 protobuf {
@@ -102,7 +109,7 @@ afterEvaluate {
             release(MavenPublication) {
                 groupId = "org.xmtp"
                 artifactId = "android"
-                version = System.getenv("RELEASE_VERSION")
+                version = rootProject.version
 
                 from components.release
 

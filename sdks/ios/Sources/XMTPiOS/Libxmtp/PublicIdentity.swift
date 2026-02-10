@@ -18,7 +18,7 @@ public struct PublicIdentity {
 	public init(kind: IdentityKind, identifier: String) {
 		ffiPrivate = FfiIdentifier(
 			identifier: identifier,
-			identifierKind: kind.toFfiPublicIdentifierKind(),
+			identifierKind: kind.toFfiPublicIdentifierKind()
 		)
 	}
 

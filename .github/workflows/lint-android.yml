@@ -1,0 +1,28 @@
+name: Lint Android
+
+on:
+  push:
+    branches: ["main"]
+    paths: ["sdks/android/**"]
+  pull_request:
+    paths: ["sdks/android/**"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (Android)
+    runs-on: warp-ubuntu-latest-x64-16x
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+      - name: Build Android Bindings
+        run: ./sdks/android/dev/bindings
+      - name: Run Spotless Check
+        run: nix develop ".#android" --command ./sdks/android/gradlew -p sdks/android spotlessCheck --continue
+      - name: Run Android Lint
+        run: nix develop ".#android" --command ./sdks/android/gradlew -p sdks/android :library:lintDebug

@@ -33,7 +33,7 @@ class EnrichedMessagesTests: XCTestCase {
 		let attachment = Attachment(
 			filename: "test.txt",
 			mimeType: "text/plain",
-			data: Data("Test data".utf8),
+			data: Data("Test data".utf8)
 		)
 		try await group.send(content: attachment, options: .init(contentType: ContentTypeAttachment))
 		try await Task.sleep(nanoseconds: 100_000_000)
@@ -43,7 +43,7 @@ class EnrichedMessagesTests: XCTestCase {
 			reference: textId1,
 			action: .added,
 			content: "👍",
-			schema: .unicode,
+			schema: .unicode
 		)
 		try await group.send(content: reaction, options: .init(contentType: ContentTypeReaction))
 
@@ -217,14 +217,14 @@ class EnrichedMessagesTests: XCTestCase {
 		let attachment = Attachment(
 			filename: "test.txt",
 			mimeType: "text/plain",
-			data: Data("Test attachment".utf8),
+			data: Data("Test attachment".utf8)
 		)
 		let attachmentId = try await group.send(content: attachment, options: .init(contentType: ContentTypeAttachment))
 
 		let reply = Reply(
 			reference: textId,
 			content: "Reply content",
-			contentType: ContentTypeText,
+			contentType: ContentTypeText
 		)
 		try await group.send(content: reply, options: .init(contentType: ContentTypeReply))
 
@@ -347,7 +347,7 @@ class EnrichedMessagesTests: XCTestCase {
 		if let oldestInFirstPage = firstPage.last {
 			let secondPage = try await group.enrichedMessages(
 				beforeNs: oldestInFirstPage.sentAtNs,
-				limit: 10,
+				limit: 10
 			)
 
 			// Verify pagination works correctly
@@ -379,7 +379,7 @@ class EnrichedMessagesTests: XCTestCase {
 		let reply = Reply(
 			reference: originalId,
 			content: "Reply text",
-			contentType: ContentTypeText,
+			contentType: ContentTypeText
 		)
 		let replyId = try await group.send(content: reply, options: .init(contentType: ContentTypeReply))
 
@@ -392,11 +392,11 @@ class EnrichedMessagesTests: XCTestCase {
 			nonce: Data(repeating: 3, count: 12),
 			scheme: .https,
 			contentLength: 100,
-			filename: "remote.txt",
+			filename: "remote.txt"
 		)
 		let remoteId = try await group.send(
 			content: remoteAttachment,
-			options: .init(contentType: ContentTypeRemoteAttachment),
+			options: .init(contentType: ContentTypeRemoteAttachment)
 		)
 
 		// Retrieve messages using V2

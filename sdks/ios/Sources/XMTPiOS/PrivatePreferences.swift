@@ -20,11 +20,11 @@ public struct ConsentRecord: Codable, Hashable {
 	}
 
 	static func conversationId(
-		conversationId: String, type: ConsentState = ConsentState.unknown,
+		conversationId: String, type: ConsentState = ConsentState.unknown
 	) -> ConsentRecord {
 		ConsentRecord(
 			value: conversationId, entryType: .conversation_id,
-			consentType: type,
+			consentType: type
 		)
 	}
 
@@ -32,7 +32,7 @@ public struct ConsentRecord: Codable, Hashable {
 		-> ConsentRecord
 	{
 		ConsentRecord(
-			value: inboxId, entryType: .inbox_id, consentType: type,
+			value: inboxId, entryType: .inbox_id, consentType: type
 		)
 	}
 
@@ -64,14 +64,14 @@ public actor PrivatePreferences {
 	{
 		try await ffiClient.getConsentState(
 			entityType: .conversationId,
-			entity: conversationId,
+			entity: conversationId
 		).fromFFI
 	}
 
 	public func inboxIdState(inboxId: InboxId) async throws -> ConsentState {
 		try await ffiClient.getConsentState(
 			entityType: .inboxId,
-			entity: inboxId,
+			entity: inboxId
 		).fromFFI
 	}
 
@@ -112,7 +112,7 @@ public actor PrivatePreferences {
 
 			let task = Task {
 				let stream = await ffiClient.conversations().streamConsent(
-					callback: consentCallback,
+					callback: consentCallback
 				)
 				await ffiStreamActor.setFfiStream(stream)
 			}
@@ -153,7 +153,7 @@ public actor PrivatePreferences {
 
 			let task = Task {
 				let stream = await ffiClient.conversations().streamPreferences(
-					callback: preferenceCallback,
+					callback: preferenceCallback
 				)
 				await ffiStreamActor.setFfiStream(stream)
 			}
@@ -175,7 +175,7 @@ final class ConsentCallback: FfiConsentCallback {
 
 	init(
 		client: Client, _ callback: @escaping ([FfiConsent]) -> Void,
-		onClose: @escaping () -> Void,
+		onClose: @escaping () -> Void
 	) {
 		self.client = client
 		self.callback = callback
@@ -202,7 +202,7 @@ final class PreferenceCallback: FfiPreferenceCallback {
 
 	init(
 		client: Client, _ callback: @escaping ([FfiPreferenceUpdate]) -> Void,
-		onClose: @escaping () -> Void,
+		onClose: @escaping () -> Void
 	) {
 		self.client = client
 		self.callback = callback

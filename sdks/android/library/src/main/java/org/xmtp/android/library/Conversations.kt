@@ -23,6 +23,7 @@ import uniffi.xmtpv3.FfiConversations
 import uniffi.xmtpv3.FfiCreateDmOptions
 import uniffi.xmtpv3.FfiCreateGroupOptions
 import uniffi.xmtpv3.FfiDecodedMessage
+import uniffi.xmtpv3.FfiException
 import uniffi.xmtpv3.FfiGroupPermissionsOptions
 import uniffi.xmtpv3.FfiGroupQueryOrderBy
 import uniffi.xmtpv3.FfiGroupSyncSummary
@@ -32,7 +33,6 @@ import uniffi.xmtpv3.FfiMessageCallback
 import uniffi.xmtpv3.FfiMessageDeletionCallback
 import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiPermissionPolicySet
-import uniffi.xmtpv3.FfiSubscribeException
 import uniffi.xmtpv3.FfiXmtpClient
 
 data class GroupSyncSummary(
@@ -230,7 +230,7 @@ data class Conversations(
     ): Group =
         withContext(Dispatchers.IO) {
             val group =
-                ffiConversations.createGroup(
+                ffiConversations.createGroupByIdentity(
                     identities.map { it.ffiPrivate },
                     opts =
                         FfiCreateGroupOptions(
@@ -315,7 +315,7 @@ data class Conversations(
         withContext(Dispatchers.IO) {
             validateInboxIds(inboxIds)
             val group =
-                ffiConversations.createGroupWithInboxIds(
+                ffiConversations.createGroup(
                     inboxIds,
                     opts =
                         FfiCreateGroupOptions(
@@ -404,7 +404,7 @@ data class Conversations(
             }
 
             val dmConversation =
-                ffiConversations.findOrCreateDm(
+                ffiConversations.findOrCreateDmByIdentity(
                     peerPublicIdentity.ffiPrivate,
                     opts =
                         FfiCreateDmOptions(
@@ -438,7 +438,7 @@ data class Conversations(
                 throw XMTPException("Recipient is sender")
             }
             val dmConversation =
-                ffiConversations.findOrCreateDmByInboxId(
+                ffiConversations.findOrCreateDm(
                     peerInboxId,
                     opts =
                         FfiCreateDmOptions(
@@ -602,8 +602,8 @@ data class Conversations(
                         }
                     }
 
-                    override fun onError(error: FfiSubscribeException) {
-                        Log.e("XMTP Conversation stream", error.message.toString())
+                    override fun onError(error: FfiException) {
+                        Log.e("XMTP Conversation stream", error.toString())
                     }
 
                     override fun onClose() {
@@ -639,8 +639,8 @@ data class Conversations(
                         decodedMessage?.let { trySend(it) }
                     }
 
-                    override fun onError(error: FfiSubscribeException) {
-                        Log.e("XMTP all message stream", error.message.toString())
+                    override fun onError(error: FfiException) {
+                        Log.e("XMTP all message stream", error.toString())
                     }
 
                     override fun onClose() {

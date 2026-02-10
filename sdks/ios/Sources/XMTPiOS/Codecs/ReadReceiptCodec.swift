@@ -11,7 +11,7 @@ public let ContentTypeReadReceipt = ContentTypeID(
 	authorityID: "xmtp.org",
 	typeID: "readReceipt",
 	versionMajor: 1,
-	versionMinor: 0,
+	versionMinor: 0
 )
 
 public struct ReadReceipt {

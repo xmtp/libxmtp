@@ -6,15 +6,24 @@ on:
     inputs:
       base-ref:
         description: "Base ref (commit/branch) to create the release from"
-        required: true
+        required: false
         type: string
-        default: "main"
       version:
         description: "Release version number (e.g. 1.8.0)"
         required: true
         type: string
       ios-bump:
         description: "iOS SDK version bump"
+        required: false
+        type: choice
+        options:
+          - "none"
+          - "patch"
+          - "minor"
+          - "major"
+        default: "none"
+      android-bump:
+        description: "Android SDK version bump"
         required: false
         type: choice
         options:
@@ -33,34 +42,23 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.base-ref }}
+          ref: ${{ inputs.base-ref || github.ref_name }}
           fetch-depth: 0
-      - uses: ./.github/actions/setup-node
-      - name: Install release tools
-        working-directory: dev/release-tools
-        run: yarn install
+      - uses: ./.github/actions/setup-release-tools
       - name: Create release branch
         env:
           RELEASE_VERSION: ${{ inputs.version }}
+          BASE_REF: ${{ inputs.base-ref || github.ref_name }}
           IOS_BUMP: ${{ inputs.ios-bump }}
+          ANDROID_BUMP: ${{ inputs.android-bump }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          xmtp-release create-release-branch \
+            --version "$RELEASE_VERSION" \
+            --base "$BASE_REF" \
+            --ios "$IOS_BUMP" \
+            --android "$ANDROID_BUMP"
 
-          BRANCH="release/${RELEASE_VERSION}"
-          git checkout -b "$BRANCH"
-
-          if [ "$IOS_BUMP" != "none" ]; then
-            cd dev/release-tools
-            NEW_VERSION=$(yarn cli bump-version --sdk ios --type "$IOS_BUMP")
-            echo "iOS version bumped to: $NEW_VERSION"
-            yarn cli scaffold-notes --sdk ios
-            cd ../..
-          fi
-
-          git add -A
-          git commit -m "chore: create release ${RELEASE_VERSION}" || echo "No changes"
-          git push -u origin "$BRANCH"
+          git push -u origin "release/${RELEASE_VERSION}"
       - name: Create pull request
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -61,20 +61,20 @@
 			let key = Data((0 ..< 32).map { _ in UInt8.random(in: 0 ... 255) })
 			let clientOptions = ClientOptions(
 				api: clientOptions,
-				dbEncryptionKey: key,
+				dbEncryptionKey: key
 			)
 
 			alixClient = try await Client.create(
-				account: alix, options: clientOptions,
+				account: alix, options: clientOptions
 			)
 			boClient = try await Client.create(
-				account: bo, options: clientOptions,
+				account: bo, options: clientOptions
 			)
 			caroClient = try await Client.create(
-				account: caro, options: clientOptions,
+				account: caro, options: clientOptions
 			)
 			davonClient = try await Client.create(
-				account: davon, options: clientOptions,
+				account: davon, options: clientOptions
 			)
 		}
 
@@ -98,8 +98,8 @@
 		@available(iOS 15, *)
 		func fixtures(
 			clientOptions: ClientOptions.Api = ClientOptions.Api(
-				env: XMTPEnvironment.local, isSecure: XMTPEnvironment.local.isSecure,
-			),
+				env: XMTPEnvironment.local, isSecure: XMTPEnvironment.local.isSecure
+			)
 		) async throws -> Fixtures {
 			try await Fixtures(clientOptions: clientOptions)
 		}
@@ -114,10 +114,10 @@
 		func randomDbDirectory() -> String {
 			let tempDir = FileManager.default.temporaryDirectory
 			let randomDir = tempDir.appendingPathComponent(
-				"xmtp_test_\(UUID().uuidString)",
+				"xmtp_test_\(UUID().uuidString)"
 			)
 			try? FileManager.default.createDirectory(
-				at: randomDir, withIntermediateDirectories: true,
+				at: randomDir, withIntermediateDirectories: true
 			)
 			return randomDir.path
 		}
