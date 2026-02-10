@@ -929,8 +929,8 @@ public final class Client {
 
 	/// Manually sync all device sync groups.
 	public func syncAllDeviceSyncGroups() async throws -> GroupSyncSummary {
-		GroupSyncSummary(
-			ffiGroupSyncSummary: try await ffiClient.syncAllDeviceSyncGroups()
+		try await GroupSyncSummary(
+			ffiGroupSyncSummary: ffiClient.syncAllDeviceSyncGroups()
 		)
 	}
 
