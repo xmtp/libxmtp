@@ -13,3 +13,8 @@ export {
   writeCargoVersion,
   createCargoManifestProvider,
 } from "./cargo";
+export {
+  readPackageJsonVersion,
+  writePackageJsonVersion,
+  createPackageJsonManifestProvider,
+} from "./package-json";
