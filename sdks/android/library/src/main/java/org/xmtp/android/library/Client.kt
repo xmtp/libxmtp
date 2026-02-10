@@ -19,6 +19,7 @@ import org.xmtp.android.library.libxmtp.SignatureRequest
 import org.xmtp.android.library.libxmtp.toFfi
 import uniffi.xmtpv3.DbOptions
 import uniffi.xmtpv3.FfiClientMode
+import uniffi.xmtpv3.FfiDeviceSyncMode
 import uniffi.xmtpv3.FfiForkRecoveryOpts
 import uniffi.xmtpv3.FfiForkRecoveryPolicy
 import uniffi.xmtpv3.FfiKeyPackageStatus
@@ -26,7 +27,6 @@ import uniffi.xmtpv3.FfiLogLevel
 import uniffi.xmtpv3.FfiLogRotation
 import uniffi.xmtpv3.FfiMessageMetadata
 import uniffi.xmtpv3.FfiProcessType
-import uniffi.xmtpv3.FfiDeviceSyncMode
 import uniffi.xmtpv3.FfiXmtpClient
 import uniffi.xmtpv3.XmtpApiClient
 import uniffi.xmtpv3.applySignatureRequest
@@ -707,8 +707,8 @@ class Client(
         opts: ArchiveOptions = ArchiveOptions(),
         serverUrl: String = environment.getHistorySyncUrl(),
     ) = withContext(Dispatchers.IO) {
-            ffiClient.sendSyncRequest(opts.toFfi(), serverUrl)
-        }
+        ffiClient.sendSyncRequest(opts.toFfi(), serverUrl)
+    }
 
     /**
      * Manually send a sync archive to the sync group.
