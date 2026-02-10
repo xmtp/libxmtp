@@ -1,0 +1,106 @@
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      workspace: ${{ steps.filter.outputs.workspace }}
+      node: ${{ steps.filter.outputs.node }}
+      wasm: ${{ steps.filter.outputs.wasm }}
+      ios: ${{ steps.filter.outputs.ios }}
+      android: ${{ steps.filter.outputs.android }}
+      toml: ${{ steps.filter.outputs.toml }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            workspace:
+              - 'crates/**'
+              - 'bindings/**'
+              - 'apps/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - 'rust-toolchain.toml'
+              - 'rustfmt.toml'
+            node:
+              - 'bindings/node/**'
+            wasm:
+              - 'bindings/wasm/**'
+              - 'rust-toolchain.toml'
+            ios:
+              - 'sdks/ios/**'
+            android:
+              - 'sdks/android/**'
+              - 'bindings/mobile/**'
+            toml:
+              - '**/*.toml'
+
+  lint-workspace:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.workspace == 'true'
+    uses: ./.github/workflows/lint-workspace.yml
+    secrets: inherit
+
+  lint-node:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.node == 'true'
+    uses: ./.github/workflows/lint-node.yml
+    secrets: inherit
+
+  lint-wasm:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.wasm == 'true'
+    uses: ./.github/workflows/lint-wasm.yml
+    secrets: inherit
+
+  lint-ios:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.ios == 'true'
+    uses: ./.github/workflows/lint-ios.yml
+    secrets: inherit
+
+  lint-android:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.android == 'true'
+    uses: ./.github/workflows/lint-android.yml
+    secrets: inherit
+
+  lint-toml:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.toml == 'true'
+    uses: ./.github/workflows/lint-toml.yml
+    secrets: inherit
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - lint-workspace
+      - lint-node
+      - lint-wasm
+      - lint-ios
+      - lint-android
+      - lint-toml
+    steps:
+      - run: |
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || \
+                "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more lint jobs failed or were cancelled"
+            exit 1
+          fi

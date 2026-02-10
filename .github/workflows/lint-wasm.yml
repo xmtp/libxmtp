@@ -1,17 +1,6 @@
-name: Lint WASM Bindings
+name: Lint WASM
 on:
-  pull_request:
-    paths:
-      - "bindings/wasm/**"
-      - ".github/workflows/lint-wasm-bindings.yml"
-      - "rustfmt.toml"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - ".cargo/**"
-      - "rust-toolchain.toml"
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  workflow_call:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0

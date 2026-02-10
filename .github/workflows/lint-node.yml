@@ -1,17 +1,6 @@
-name: Lint Node Bindings
+name: Lint Node
 on:
-  pull_request:
-    paths:
-      - "bindings/node/**"
-      - ".github/workflows/lint-node-bindings.yml"
-      - "rustfmt.toml"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - ".cargo/**"
-      - "rust-toolchain.toml"
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  workflow_call:
 jobs:
   lint:
     name: Lint

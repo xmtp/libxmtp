@@ -1,14 +1,6 @@
 name: Lint TOML
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    paths:
-      - "**/*.toml"
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  workflow_call:
 jobs:
   lint:
     name: Lint
