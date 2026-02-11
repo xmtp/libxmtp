@@ -16,8 +16,49 @@ else
   echo "detected existing nix installation"
 fi
 
+# Ensure project binary caches are trusted substituters
+# Uses trusted-substituters (whitelist specific caches) instead of trusted-users
+# (which would grant broad Nix privileges to the user account)
+NIX_CUSTOM_CONF="/etc/nix/nix.custom.conf"
+XMTP_CACHE="https://xmtp.cachix.org"
+NIX_COMMUNITY_CACHE="https://nix-community.cachix.org"
+XMTP_KEY="xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0="
+NIX_COMMUNITY_KEY="nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
 
-
+if [[ -f /etc/nix/nix.conf ]]; then
+  # Check if our caches are already configured as trusted substituters
+  if ! grep -qF "xmtp.cachix.org" "$NIX_CUSTOM_CONF" 2>/dev/null; then
+    echo ""
+    echo "This project uses binary caches to avoid building dependencies from source:"
+    echo "  - $XMTP_CACHE (pre-built XMTP derivations)"
+    echo "  - $NIX_COMMUNITY_CACHE (pre-built Rust toolchains)"
+    echo ""
+    echo "These need to be added as trusted substituters in the Nix daemon config."
+    echo "Unlike 'trusted-users', this only whitelists these specific caches —"
+    echo "it does not grant broader Nix privileges to your user account."
+    echo ""
+    echo "Why sudo is required:"
+    echo "  The Nix config ($NIX_CUSTOM_CONF) is owned by root, and the"
+    echo "  Nix daemon must be restarted to pick up the changes."
+    echo ""
+    read -p "Add these caches as trusted substituters? (y/n) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      echo "Skipped. Dependencies will be built from source (slower)."
+      echo "You can re-run this script later to add them."
+    else
+      printf '\nextra-trusted-substituters = %s %s\n' "$XMTP_CACHE" "$NIX_COMMUNITY_CACHE" | sudo tee -a "$NIX_CUSTOM_CONF" > /dev/null
+      printf 'extra-trusted-public-keys = %s %s\n' "$XMTP_KEY" "$NIX_COMMUNITY_KEY" | sudo tee -a "$NIX_CUSTOM_CONF" > /dev/null
+      # Restart nix daemon to pick up the change
+      if [[ "$OSTYPE" == "darwin"* ]]; then
+        sudo launchctl kickstart -k system/systems.determinate.nix-daemon 2>/dev/null || true
+      else
+        sudo systemctl restart nix-daemon 2>/dev/null || true
+      fi
+      echo "Nix daemon restarted with updated trusted substituters."
+    fi
+  fi
+fi
 
 echo "direnv will automatically enter the default nix environment upon entering a configured directory"
 read -p "install direnv? (y/n) " -n 1 -r
@@ -58,3 +99,17 @@ use omnix
 EOF
   echo ".envrc created at $ENVRC_PATH"
 fi
+
+# Allow direnv (needed after nix-down which runs direnv deny)
+if which direnv &>/dev/null; then
+  echo "Allowing direnv environment..."
+  direnv allow "$REPO_ROOT"
+fi
+
+echo ""
+echo "=============================================="
+echo "Setup complete! Reload your shell to activate:"
+echo "=============================================="
+echo ""
+echo "  exec \$SHELL"
+echo ""
