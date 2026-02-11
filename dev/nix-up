@@ -16,44 +16,46 @@ else
   echo "detected existing nix installation"
 fi
 
-# Ensure current user is a trusted nix user (required for cachix substituters)
+# Ensure project binary caches are trusted substituters
+# Uses trusted-substituters (whitelist specific caches) instead of trusted-users
+# (which would grant broad Nix privileges to the user account)
 NIX_CUSTOM_CONF="/etc/nix/nix.custom.conf"
-CURRENT_USER="$(whoami)"
+XMTP_CACHE="https://xmtp.cachix.org"
+NIX_COMMUNITY_CACHE="https://nix-community.cachix.org"
+XMTP_KEY="xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0="
+NIX_COMMUNITY_KEY="nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+
 if [[ -f /etc/nix/nix.conf ]]; then
-  # Check if user is already trusted in either nix.conf or nix.custom.conf
-  if ! nix show-config 2>/dev/null | grep "trusted-users" | grep -qF "$CURRENT_USER" && \
-     ! grep -qF "$CURRENT_USER" "$NIX_CUSTOM_CONF" 2>/dev/null; then
+  # Check if our caches are already configured as trusted substituters
+  if ! grep -qF "xmtp.cachix.org" "$NIX_CUSTOM_CONF" 2>/dev/null; then
     echo ""
-    echo "Your user ($CURRENT_USER) is not currently listed as a trusted Nix user."
+    echo "This project uses binary caches to avoid building dependencies from source:"
+    echo "  - $XMTP_CACHE (pre-built XMTP derivations)"
+    echo "  - $NIX_COMMUNITY_CACHE (pre-built Rust toolchains)"
     echo ""
-    echo "Why this is needed:"
-    echo "  Trusted users can configure binary cache substituters (like cachix),"
-    echo "  which let Nix download pre-built dependencies instead of compiling"
-    echo "  them from source. Without this, builds will be significantly slower."
+    echo "These need to be added as trusted substituters in the Nix daemon config."
+    echo "Unlike 'trusted-users', this only whitelists these specific caches —"
+    echo "it does not grant broader Nix privileges to your user account."
     echo ""
     echo "Why sudo is required:"
-    echo "  The Nix configuration file ($NIX_CUSTOM_CONF) is owned by root."
-    echo "  Updating it and restarting the Nix daemon require elevated privileges."
+    echo "  The Nix config ($NIX_CUSTOM_CONF) is owned by root, and the"
+    echo "  Nix daemon must be restarted to pick up the changes."
     echo ""
-    read -p "Add $CURRENT_USER to trusted Nix users? (y/n) " -n 1 -r
+    read -p "Add these caches as trusted substituters? (y/n) " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-      echo "Skipped adding trusted user. Binary cache substituters may not work."
-      echo "You can re-run this script later to add yourself."
+      echo "Skipped. Dependencies will be built from source (slower)."
+      echo "You can re-run this script later to add them."
     else
-      if [[ -f "$NIX_CUSTOM_CONF" ]] && grep -q "trusted-users" "$NIX_CUSTOM_CONF"; then
-        # Append to existing trusted-users line
-        sudo sh -c "sed 's/trusted-users = /trusted-users = $CURRENT_USER /' \"$NIX_CUSTOM_CONF\" > \"$NIX_CUSTOM_CONF.tmp\" && mv \"$NIX_CUSTOM_CONF.tmp\" \"$NIX_CUSTOM_CONF\""
-      else
-        echo "trusted-users = root $CURRENT_USER" | sudo tee -a "$NIX_CUSTOM_CONF" > /dev/null
-      fi
+      printf '\nextra-trusted-substituters = %s %s\n' "$XMTP_CACHE" "$NIX_COMMUNITY_CACHE" | sudo tee -a "$NIX_CUSTOM_CONF" > /dev/null
+      printf 'extra-trusted-public-keys = %s %s\n' "$XMTP_KEY" "$NIX_COMMUNITY_KEY" | sudo tee -a "$NIX_CUSTOM_CONF" > /dev/null
       # Restart nix daemon to pick up the change
       if [[ "$OSTYPE" == "darwin"* ]]; then
         sudo launchctl kickstart -k system/systems.determinate.nix-daemon 2>/dev/null || true
       else
         sudo systemctl restart nix-daemon 2>/dev/null || true
       fi
-      echo "Nix daemon restarted with updated trusted-users."
+      echo "Nix daemon restarted with updated trusted substituters."
     fi
   fi
 fi
