@@ -127,7 +127,8 @@ let
     export PATH="$_XCODE_DEV/usr/bin:$PATH"
   '';
 
-in {
+in
+{
   inherit
     iosTargets
     defaultDeveloperDir

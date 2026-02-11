@@ -16,35 +16,23 @@
 #   - kotlinBindings: Kotlin bindings + version file
 #   - aggregate: Combined output with jniLibs/{ABI}/*.so and kotlin/*
 { lib
-, zstd
 , openssl
-, sqlite
-, pkg-config
-, perl
 , gnused
-, craneLib
 , xmtp
 , stdenv
-, androidenv
 , cargo-ndk
-, zlib
 , ...
 }:
 let
-  # Shared Android environment configuration
-  androidEnv = import ./../lib/android-env.nix { inherit lib androidenv stdenv; };
-
+  inherit (xmtp) craneLib androidEnv mobile;
   # Use build composition (minimal - no emulator needed for CI builds)
   androidComposition = androidEnv.composeBuildPackages;
   androidPaths = androidEnv.mkAndroidPaths androidComposition;
 
-  # Shared mobile build configuration (commonArgs, filesets, version)
-  mobile = import ./../lib/mobile-common.nix {
-    inherit lib craneLib xmtp zstd openssl sqlite pkg-config perl zlib;
-  };
+
 
   # Rust toolchain with Android cross-compilation targets
-  rust-toolchain = xmtp.mkToolchain androidEnv.androidTargets [];
+  rust-toolchain = xmtp.mkToolchain androidEnv.androidTargets [ ];
   rust = craneLib.overrideToolchain (p: rust-toolchain);
 
   # Extract version once for use throughout the file
@@ -193,7 +181,8 @@ let
           ln -s ${kotlinBindings}/kotlin/libxmtp-version.txt $out/libxmtp-version.txt
         '';
       };
-    in {
+    in
+    {
       targets = selectedTargets;
       inherit kotlinBindings;
       aggregate = selectedAggregate;
