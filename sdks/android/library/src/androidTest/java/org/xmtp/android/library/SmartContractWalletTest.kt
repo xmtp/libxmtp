@@ -15,7 +15,7 @@ import org.junit.runners.MethodSorters
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
-import uniffi.xmtpv3.GenericException
+import uniffi.xmtpv3.FfiException
 import java.io.File
 
 @RunWith(AndroidJUnit4::class)
@@ -325,7 +325,7 @@ class SmartContractWalletTest : BaseInstrumentedTest() {
         assertEquals(state.installations.size, 1)
 
         // Cannot remove the recovery address
-        Assert.assertThrows("Client error: Unknown Signer", GenericException::class.java) {
+        Assert.assertThrows("Client error: Unknown Signer", FfiException::class.java) {
             runBlocking { davonSCWClient.removeAccount(davonEOA, davonSCW.publicIdentity) }
         }
     }
