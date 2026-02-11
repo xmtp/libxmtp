@@ -58,10 +58,13 @@ class HistorySyncTest : BaseInstrumentedTest() {
             assertEquals(alixGroup2.consentState(), ConsentState.UNKNOWN)
 
             alixGroup.updateConsentState(ConsentState.DENIED)
-            alixClient.preferences.sync()
+            // Give the sync worker time to process the preference update event
+            delay(2000)
+            // Sync device sync groups on both clients to propagate consent
+            alixClient.syncAllDeviceSyncGroups()
             delay(1000)
-            alixClient2.preferences.sync()
-            delay(4000)
+            alixClient2.syncAllDeviceSyncGroups()
+            delay(2000)
 
             assertEquals(alixGroup2.consentState(), ConsentState.DENIED)
         }
@@ -171,10 +174,13 @@ class HistorySyncTest : BaseInstrumentedTest() {
             assertEquals(ConsentState.ALLOWED, client2Group.consentState())
 
             group.updateConsentState(ConsentState.DENIED)
-            client1.preferences.sync()
-            delay(3000)
-            client2.preferences.sync()
-            delay(3000)
+            // Give the sync worker time to process the preference update event
+            delay(2000)
+            // Sync device sync groups on both clients to propagate consent
+            client1.syncAllDeviceSyncGroups()
+            delay(1000)
+            client2.syncAllDeviceSyncGroups()
+            delay(2000)
 
             // Validate the updated consent is visible on second client
             assertEquals(ConsentState.DENIED, client2Group.consentState())
