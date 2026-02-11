@@ -166,8 +166,13 @@ class HistorySyncTest : BaseInstrumentedTest() {
             val client2 = createClient(wallet)
             val client3 = createClient(wallet)
 
+            delay(1000)
+
             val group = client1.conversations.newGroup(listOf(boClient.inboxId))
 
+            delay(1000)
+
+            client1.conversations.sync()
             client2.conversations.sync()
             client3.conversations.sync()
 
@@ -181,11 +186,13 @@ class HistorySyncTest : BaseInstrumentedTest() {
             delay(2000)
             // Sync device sync groups on both clients to propagate consent
             client1.syncAllDeviceSyncGroups()
-            delay(1000)
             client2.syncAllDeviceSyncGroups()
             delay(2000)
 
             // Validate the updated consent is visible on second client
+            val client2Group =
+                client2.conversations.findGroup(group.id)
+                    ?: throw AssertionError("Failed to find group with ID: ${group.id}")
             assertEquals(ConsentState.DENIED, client2Group.consentState())
         }
 

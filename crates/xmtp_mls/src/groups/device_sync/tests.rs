@@ -475,7 +475,6 @@ async fn test_manual_sync_flow() {
 async fn test_incremental_consent() {
     tester!(alix1, sync_worker);
     tester!(alix2, from: alix1);
-    alix1.sync_all_welcomes_and_groups(None).await?;
 
     tester!(bo);
     let (dm, _) = bo.test_talk_in_dm_with(&alix1).await?;
