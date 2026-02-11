@@ -1,15 +1,7 @@
 name: Lint Android
 
 on:
-  push:
-    branches: ["main"]
-    paths: ["sdks/android/**"]
-  pull_request:
-    paths: ["sdks/android/**"]
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  workflow_call:
 
 jobs:
   lint:
