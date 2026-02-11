@@ -24,21 +24,37 @@ if [[ -f /etc/nix/nix.conf ]]; then
   if ! nix show-config 2>/dev/null | grep "trusted-users" | grep -qF "$CURRENT_USER" && \
      ! grep -qF "$CURRENT_USER" "$NIX_CUSTOM_CONF" 2>/dev/null; then
     echo ""
-    echo "Adding $CURRENT_USER as a trusted nix user (required for binary cache substituters)."
-    echo "This avoids building dependencies from source."
-    if [[ -f "$NIX_CUSTOM_CONF" ]] && grep -q "trusted-users" "$NIX_CUSTOM_CONF"; then
-      # Append to existing trusted-users line
-      sudo sh -c "sed 's/trusted-users = /trusted-users = $CURRENT_USER /' \"$NIX_CUSTOM_CONF\" > \"$NIX_CUSTOM_CONF.tmp\" && mv \"$NIX_CUSTOM_CONF.tmp\" \"$NIX_CUSTOM_CONF\""
+    echo "Your user ($CURRENT_USER) is not currently listed as a trusted Nix user."
+    echo ""
+    echo "Why this is needed:"
+    echo "  Trusted users can configure binary cache substituters (like cachix),"
+    echo "  which let Nix download pre-built dependencies instead of compiling"
+    echo "  them from source. Without this, builds will be significantly slower."
+    echo ""
+    echo "Why sudo is required:"
+    echo "  The Nix configuration file ($NIX_CUSTOM_CONF) is owned by root."
+    echo "  Updating it and restarting the Nix daemon require elevated privileges."
+    echo ""
+    read -p "Add $CURRENT_USER to trusted Nix users? (y/n) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      echo "Skipped adding trusted user. Binary cache substituters may not work."
+      echo "You can re-run this script later to add yourself."
     else
-      echo "trusted-users = root $CURRENT_USER" | sudo tee -a "$NIX_CUSTOM_CONF" > /dev/null
+      if [[ -f "$NIX_CUSTOM_CONF" ]] && grep -q "trusted-users" "$NIX_CUSTOM_CONF"; then
+        # Append to existing trusted-users line
+        sudo sh -c "sed 's/trusted-users = /trusted-users = $CURRENT_USER /' \"$NIX_CUSTOM_CONF\" > \"$NIX_CUSTOM_CONF.tmp\" && mv \"$NIX_CUSTOM_CONF.tmp\" \"$NIX_CUSTOM_CONF\""
+      else
+        echo "trusted-users = root $CURRENT_USER" | sudo tee -a "$NIX_CUSTOM_CONF" > /dev/null
+      fi
+      # Restart nix daemon to pick up the change
+      if [[ "$OSTYPE" == "darwin"* ]]; then
+        sudo launchctl kickstart -k system/systems.determinate.nix-daemon 2>/dev/null || true
+      else
+        sudo systemctl restart nix-daemon 2>/dev/null || true
+      fi
+      echo "Nix daemon restarted with updated trusted-users."
     fi
-    # Restart nix daemon to pick up the change
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-      sudo launchctl kickstart -k system/systems.determinate.nix-daemon 2>/dev/null || true
-    else
-      sudo systemctl restart nix-daemon 2>/dev/null || true
-    fi
-    echo "Nix daemon restarted with updated trusted-users."
   fi
 fi
 
@@ -87,3 +103,11 @@ if which direnv &>/dev/null; then
   echo "Allowing direnv environment..."
   direnv allow "$REPO_ROOT"
 fi
+
+echo ""
+echo "=============================================="
+echo "Setup complete! Reload your shell to activate:"
+echo "=============================================="
+echo ""
+echo "  exec \$SHELL"
+echo ""
