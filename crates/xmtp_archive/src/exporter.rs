@@ -1,5 +1,4 @@
 use super::{BACKUP_VERSION, OptionsToSave, export_stream::BatchExportStream};
-#[cfg(not(target_arch = "wasm32"))]
 use crate::archive_options::ArchiveOptions;
 use crate::{NONCE_SIZE, util::GenericArrayExt};
 use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};

@@ -253,8 +253,7 @@ impl DeviceSync {
 
     let key = check_key(&key)?;
     let db = self.inner_client.context.db();
-    let options: ArchiveOptions = opts.into();
-    let mut exporter = ArchiveExporter::new(options.into(), db, &key);
+    let mut exporter = ArchiveExporter::new(opts.into(), db, &key);
 
     let mut buffer = Vec::new();
     exporter
