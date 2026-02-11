@@ -34,7 +34,7 @@ import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.mls.message.contents.TranscriptMessages
-import uniffi.xmtpv3.GenericException
+import uniffi.xmtpv3.FfiException
 
 @RunWith(AndroidJUnit4::class)
 class GroupTest : BaseInstrumentedTest() {
@@ -504,7 +504,7 @@ class GroupTest : BaseInstrumentedTest() {
         val chuxAccount = PrivateKeyBuilder()
         val chux: PrivateKey = chuxAccount.getPrivateKey()
 
-        assertThrows(GenericException::class.java) {
+        assertThrows(FfiException::class.java) {
             runBlocking {
                 boClient.conversations.newGroupWithIdentities(
                     listOf(

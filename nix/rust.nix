@@ -32,7 +32,7 @@
         # non-Cargo files like proto_descriptor.bin
         src = lib.fileset.toSource {
           root = ./..;
-          fileset = (pkgs.xmtp.filesets { inherit lib; craneLib = config.rust-project.crane-lib; }).workspace;
+          fileset = pkgs.xmtp.filesets.workspace;
         };
         defaults = {
           perCrate.crane.args = {

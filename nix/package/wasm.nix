@@ -5,7 +5,6 @@
 , binaryen
 , zstd
 , zlib
-, craneLib
 , mkShell
 , sqlite
 , llvmPackages
@@ -18,6 +17,7 @@
 , cargo-nextest
 }:
 let
+  inherit (xmtp) craneLib;
   # Pinned Rust Version
   rust-toolchain = fenix.combine [
     fenix.stable.cargo
@@ -28,12 +28,12 @@ let
 
   libraryFileset = lib.fileset.toSource {
     root = ./../..;
-    fileset = (xmtp.filesets { inherit lib craneLib; }).libraries;
+    fileset = xmtp.filesets.libraries;
   };
 
   bindingsFileset = lib.fileset.toSource {
     root = ./../..;
-    fileset = (xmtp.filesets { inherit lib craneLib; }).forCrate ./../../bindings/wasm;
+    fileset = xmtp.filesets.forCrate ./../../bindings/wasm;
   };
 
   commonArgs = {

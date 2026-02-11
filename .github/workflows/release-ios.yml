@@ -10,7 +10,7 @@ on:
         description: "dev, rc, or final"
       rc-number:
         required: false
-        type: number
+        type: string
         description: "RC number (required for rc releases)"
       ref:
         required: true

@@ -21,3 +21,11 @@ jobs:
         run: cargo clippy --locked --workspace --all-features --all-targets --no-deps --exclude bindings_wasm -- -D warnings
       - name: Run format check
         run: cargo fmt --check
+      - name: Install cargo-hakari
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hakari
+      - name: Check workspace-hack Cargo.toml is up-to-date
+        run: cargo hakari generate --diff
+      - name: Check all crates depend on workspace-hack
+        run: cargo hakari manage-deps --dry-run

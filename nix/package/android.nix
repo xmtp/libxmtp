@@ -16,35 +16,23 @@
 #   - kotlinBindings: Kotlin bindings + version file
 #   - aggregate: Combined output with jniLibs/{ABI}/*.so and kotlin/*
 { lib
-, zstd
 , openssl
-, sqlite
-, pkg-config
-, perl
 , gnused
-, craneLib
 , xmtp
 , stdenv
-, androidenv
 , cargo-ndk
-, zlib
 , ...
 }:
 let
-  # Shared Android environment configuration
-  androidEnv = import ./../lib/android-env.nix { inherit lib androidenv stdenv; };
-
+  inherit (xmtp) craneLib androidEnv mobile;
   # Use build composition (minimal - no emulator needed for CI builds)
   androidComposition = androidEnv.composeBuildPackages;
   androidPaths = androidEnv.mkAndroidPaths androidComposition;
+  ffi-uniffi-bindgen = "${xmtp.ffi-uniffi-bindgen}/bin/ffi-uniffi-bindgen";
 
-  # Shared mobile build configuration (commonArgs, filesets, version)
-  mobile = import ./../lib/mobile-common.nix {
-    inherit lib craneLib xmtp zstd openssl sqlite pkg-config perl zlib;
-  };
 
   # Rust toolchain with Android cross-compilation targets
-  rust-toolchain = xmtp.mkToolchain androidEnv.androidTargets [];
+  rust-toolchain = xmtp.mkToolchain androidEnv.androidTargets [ ];
   rust = craneLib.overrideToolchain (p: rust-toolchain);
 
   # Extract version once for use throughout the file
@@ -143,7 +131,7 @@ let
       mkdir -p $out/kotlin
 
       # Generate Kotlin bindings using uniffi-bindgen
-      cargo run -p xmtpv3 --bin ffi-uniffi-bindgen --release --features uniffi/cli generate \
+      ${ffi-uniffi-bindgen} generate \
         --library target/release/libxmtpv3.${if stdenv.isDarwin then "dylib" else "so"} \
         --out-dir $TMPDIR/kotlin-out \
         --language kotlin
@@ -193,7 +181,8 @@ let
           ln -s ${kotlinBindings}/kotlin/libxmtp-version.txt $out/libxmtp-version.txt
         '';
       };
-    in {
+    in
+    {
       targets = selectedTargets;
       inherit kotlinBindings;
       aggregate = selectedAggregate;

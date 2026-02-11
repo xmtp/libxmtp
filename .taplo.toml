@@ -1,4 +1,8 @@
-exclude = [".direnv/**", "crates/xmtp_proto/Cargo.toml"]
+exclude = [
+  ".direnv/**",
+  "crates/xmtp_proto/Cargo.toml",
+  "crates/xmtp-workspace-hack/Cargo.toml",
+]
 
 [formatting]
 reorder_keys = false

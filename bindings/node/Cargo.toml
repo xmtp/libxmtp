@@ -3,6 +3,7 @@ edition = "2024"
 name = "bindings_node"
 version.workspace = true
 description = "nodeJS bindings to the XMTP mls libraries"
+license.workspace = true
 
 [lints]
 workspace = true
@@ -44,6 +45,7 @@ xmtp_mls.workspace = true
 xmtp_proto.workspace = true
 
 # For some reason these don't work when added as dev-dependencies
+xmtp-workspace-hack = { version = "0.1", path = "../../crates/xmtp-workspace-hack" }
 xmtp_api_grpc = { workspace = true, optional = true }
 
 [build-dependencies]
