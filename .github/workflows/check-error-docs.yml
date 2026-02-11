@@ -25,12 +25,17 @@ jobs:
           BASE="${{ github.event.pull_request.base.sha }}"
           HEAD="${{ github.event.pull_request.head.sha }}"
 
-          # Get list of changed files in this PR
-          CHANGED_FILES=$(git diff --name-only "$BASE" "$HEAD")
-
           # Check if any Rust source files with ErrorCode definitions were changed
           ERROR_CODE_FILES_CHANGED=false
-          for file in $CHANGED_FILES; do
+          GLOSSARY_UPDATED=false
+
+          while IFS= read -r -d '' file; do
+            # Check if the glossary was updated
+            if [[ "$file" == "docs/error-glossary.md" ]]; then
+              GLOSSARY_UPDATED=true
+              continue
+            fi
+
             # Only look at Rust source files
             if [[ "$file" != *.rs ]]; then
               continue
@@ -46,23 +51,21 @@ jobs:
               echo "::notice::Error code change detected in $file"
               ERROR_CODE_FILES_CHANGED=true
             fi
-          done
-
-          # Check if the glossary was updated
-          GLOSSARY_UPDATED=false
-          if echo "$CHANGED_FILES" | grep -q "docs/error-glossary.md"; then
-            GLOSSARY_UPDATED=true
-          fi
+          done < <(git diff --name-only -z "$BASE" "$HEAD")
 
           # If error codes changed but glossary didn't, fail
           if [[ "$ERROR_CODE_FILES_CHANGED" == "true" && "$GLOSSARY_UPDATED" == "false" ]]; then
             echo ""
             echo "::error::Error code definitions were modified but docs/error-glossary.md was not updated."
             echo ""
-            echo "When adding, changing, or removing error codes (ErrorCode derive, error_code attributes),"
-            echo "please update docs/error-glossary.md to keep the error code reference in sync."
+            echo "When adding, changing, or removing error codes, please update docs/error-glossary.md"
+            echo "to keep the error code reference in sync."
             echo ""
-            echo "See docs/error-architecture.md for guidance on the error code system."
+            echo "Note: Variants with #[error_code(inherit)] delegate to their inner error's code"
+            echo "and do not need their own entry in the glossary. Only add entries for variants that"
+            echo "produce their own code (i.e., variants WITHOUT #[error_code(inherit)])."
+            echo ""
+            echo "See docs/error-architecture.md for full guidance on the error code system."
             exit 1
           fi
 

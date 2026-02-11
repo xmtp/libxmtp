@@ -316,6 +316,8 @@ This is a **struct** error wrapping a list of message processing errors. Its err
 | `SignatureRequestError::MissingSigner` | Missing signer | Required signature was not provided | No |
 | `SignatureRequestError::BlockNumber` | Unable to get block number | Failed to fetch blockchain block number | Yes |
 
+> A `SignatureRequestError` may also surface `SignatureError::*` codes via inheritance.
+
 ### `DeserializationError`
 
 | Code | Description | Common cause | Retryable? |
@@ -334,6 +336,8 @@ This is a **struct** error wrapping a list of message processing errors. Its err
 | `DeserializationError::Ed25519` | Ed25519 key error | Failed to create public key from bytes | No |
 | `DeserializationError::Bincode` | Unable to deserialize | Bincode deserialization failed | No |
 
+> A `DeserializationError` may also surface `SignatureError::*` or `IdentifierValidationError::*` codes via inheritance.
+
 ### `KeyPackageVerificationError`
 
 | Code | Description | Common cause | Retryable? |
@@ -341,6 +345,8 @@ This is a **struct** error wrapping a list of message processing errors. Its err
 | `KeyPackageVerificationError::TlsError` | TLS codec error | MLS TLS encoding/decoding failed | No |
 | `KeyPackageVerificationError::MlsValidation` | MLS validation error | Key package verification failed | No |
 | `KeyPackageVerificationError::WrongCredentialType` | Wrong credential type | Unexpected MLS credential type | No |
+
+> A `KeyPackageVerificationError` may also surface `ConversionError::*` codes via inheritance.
 
 ## Storage / database errors
 
@@ -651,6 +657,8 @@ This is a **struct** error wrapping a list of message processing errors. Its err
 | `VerifierError::NoVerifier` | No verifier | Verifier not configured | No |
 | `VerifierError::InvalidHash` | Invalid hash | Hash has invalid length or format | No |
 | `VerifierError::Other` | Other error | Unclassified verifier error | Depends |
+
+> A `VerifierError` may also surface `hex::FromHexError` codes via inheritance.
 
 ## Message enrichment errors
 
