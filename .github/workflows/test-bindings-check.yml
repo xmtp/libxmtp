@@ -1,21 +1,6 @@
-name: Check iOS & Android Bindings
+name: Test Bindings Check
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    paths:
-      - ".github/workflows/check-ios-android-bindings.yml"
-      - "bindings/mobile/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "dev/up"
-      - "dev/docker/**"
-      - "rust-toolchain.toml"
-      - ".cargo/**"
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  workflow_call:
 jobs:
   check-swift:
     runs-on: warp-macos-13-arm64-6x
@@ -25,9 +10,6 @@ jobs:
         target:
           - x86_64-apple-darwin
           - aarch64-apple-darwin
-    permissions:
-      id-token: write
-      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -42,9 +24,6 @@ jobs:
             cargo check --target ${{ matrix.target }} --manifest-path bindings/mobile/Cargo.toml
   check-android:
     runs-on: warp-ubuntu-latest-x64-16x
-    permissions:
-      id-token: write
-      contents: read
     strategy:
       fail-fast: false
       matrix:
