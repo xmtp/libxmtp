@@ -19,7 +19,6 @@ on:
         description: "RC number (required for RC releases)"
         required: false
         type: number
-        default: 0
       ios:
         description: "Release iOS SDK"
         required: false
@@ -55,7 +54,7 @@ jobs:
         env:
           RC_NUMBER: ${{ inputs.rc-number }}
         run: |
-          if [ "$RC_NUMBER" -gt 0 ] 2>/dev/null; then
+          if [ -n "$RC_NUMBER" ]; then
             echo "::error::Dev releases should not have an RC number set"
             exit 1
           fi
