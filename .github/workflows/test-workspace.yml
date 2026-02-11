@@ -1,24 +1,6 @@
 name: Test Workspace
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    # only run tests when related changes are made
-    paths:
-      - ".github/workflows/test-workspace.yml"
-      - "dev/up"
-      - "dev/docker/**"
-      - "apps/mls_validation_service/**"
-      - "crates/**"
-      - "bindings/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - ".cargo/**"
-      - "rust-toolchain.toml"
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  workflow_call:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
@@ -26,7 +8,7 @@ env:
   CARGO_PROFILE_TEST_DEBUG: 0
 jobs:
   test:
-    name: Test
+    name: Test (Rust Workspace)
     runs-on: warp-ubuntu-latest-x64-16x
     steps:
       - name: Checkout
@@ -35,7 +17,7 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
       - uses: ./.github/actions/setup-rust
         with:
-          warp: 'true'
+          warp: "true"
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
