@@ -34,7 +34,7 @@ let
   craneLib = xmtp.craneLib.overrideScope (_: _: {
     inherit stdenv;
   });
-
+  ffi-uniffi-bindgen = "${xmtp.ffi-uniffi-bindgen}/bin/ffi-uniffi-bindgen";
   # Rust toolchain with iOS/macOS cross-compilation targets.
   # No clippy/rustfmt — this is a build-only toolchain (the dev shell adds those).
   # overrideToolchain tells crane to use our custom fenix-based toolchain instead
@@ -143,7 +143,7 @@ let
       #   - xmtpv3.swift: Swift source with all public API types and functions
       #   - xmtpv3FFI.h: C header for the FFI layer
       #   - xmtpv3FFI.modulemap: Clang module map (renamed to module.modulemap)
-      cargo run -p xmtpv3 --bin ffi-uniffi-bindgen --release --features uniffi/cli generate \
+      ${ffi-uniffi-bindgen} generate \
         --library target/release/libxmtpv3.a \
         --out-dir $TMPDIR/swift-out \
         --language swift

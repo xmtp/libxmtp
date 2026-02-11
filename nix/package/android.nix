@@ -28,7 +28,7 @@ let
   # Use build composition (minimal - no emulator needed for CI builds)
   androidComposition = androidEnv.composeBuildPackages;
   androidPaths = androidEnv.mkAndroidPaths androidComposition;
-
+  ffi-uniffi-bindgen = "${xmtp.ffi-uniffi-bindgen}/bin/ffi-uniffi-bindgen";
 
 
   # Rust toolchain with Android cross-compilation targets
@@ -131,7 +131,7 @@ let
       mkdir -p $out/kotlin
 
       # Generate Kotlin bindings using uniffi-bindgen
-      cargo run -p xmtpv3 --bin ffi-uniffi-bindgen --release --features uniffi/cli generate \
+      ${ffi-uniffi-bindgen} generate \
         --library target/release/libxmtpv3.${if stdenv.isDarwin then "dylib" else "so"} \
         --out-dir $TMPDIR/kotlin-out \
         --language kotlin

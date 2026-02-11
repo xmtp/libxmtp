@@ -30,7 +30,7 @@
   };
 
   outputs =
-    inputs @ { flake-parts, self, crane, ... }:
+    inputs @ { flake-parts, self, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = [
         "aarch64-darwin"
@@ -65,13 +65,13 @@
               inherit (pkgs.xmtp) androidEnv;
             in
             {
+              inherit (pkgs.xmtp) ffi-uniffi-bindgen;
               wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { }).bin;
               wasm-bindgen-cli = pkgs.callPackage ./nix/lib/packages/wasm-bindgen-cli.nix { };
               # Android bindings (.so libraries + Kotlin bindings)
               android-libs = android.aggregate;
               # Android bindings - host-matching target only (fast dev/CI builds)
               android-libs-fast = (android.mkAndroid [ androidEnv.hostAndroidTarget ]).aggregate;
-
               docker-mls_validation_service = pkgs.dockerTools.buildLayeredImage {
                 name = "ghcr.io/xmtp/mls-validation-service"; # override ghcr images
                 tag = "main";

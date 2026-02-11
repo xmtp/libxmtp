@@ -16,6 +16,21 @@ messaging protocol, such as cryptography, networking, and language bindings.
 
 ## Development
 
+Adding Dependencies
+
+- adding dependencies will require re-generating the `workspace-hack` crate,
+  which can be done with:
+
+```bash
+nix develop --command cargo hakari generate
+```
+
+to verify correctness you can optionally run
+
+```bash
+nix develop --command cargo hakari verify
+```
+
 Start Docker Desktop.
 
 - To install other dependencies and start background services:
