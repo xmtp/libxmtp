@@ -1,7 +1,7 @@
 use std::{cmp::Ordering, collections::HashMap};
 
 use crate::state::{
-    GroupStateExt, LogState,
+    GroupStateExt, GroupStateProblem, LogState, Severity,
     assertions::{AssertionFailure, LogAssertion},
 };
 use anyhow::Result;
@@ -36,7 +36,19 @@ impl LogAssertion for EpochContinuityAssertion {
                 for state in group.traverse() {
                     let mut state = state.write();
                     if let Some(state_epoch) = state.epoch {
+                        if let Some(e) = epoch
+                            && e > state_epoch
+                        {
+                            state.problems.push(GroupStateProblem {
+                                description: format!(
+                                    "Epoch traveled backwards. From {e} to {state_epoch}"
+                                ),
+                                severity: Severity::Error,
+                            });
+                        }
+
                         epoch = Some(state_epoch);
+
                         continue;
                     }
 

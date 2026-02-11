@@ -301,11 +301,9 @@ where
         tracing::info!(
             inbox_id = self.context.inbox_id(),
             installation_id = %self.context.installation_id(),
-            group_id = hex::encode(&self.group_id),
-            epoch = epoch,
-            "[{}] syncing group, epoch = {}",
+            group_id = short_hex(&self.group_id),
+            "[{}] syncing group, epoch = {epoch}",
             self.context.inbox_id(),
-            epoch
         );
 
         // Also sync the "stitched DMs", if any...

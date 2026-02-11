@@ -162,12 +162,14 @@ pub struct GroupState {
 
 #[derive(Clone)]
 pub struct GroupStateProblem {
-    description: String,
-    severity: Severity,
+    pub description: String,
+    pub severity: Severity,
 }
 
 #[derive(Clone)]
-pub enum Severity {}
+pub enum Severity {
+    Error,
+}
 
 impl IntoIterator for &GroupState {
     type IntoIter = GroupStateIterator;
