@@ -31,7 +31,6 @@ use xmtp_proto::{
     xmtp::{
         device_sync::{
             BackupElementSelection as BackupElementSelectionProto,
-            ArchiveOptions as BackupOptionsProto,
             content::{
                 DeviceSyncAcknowledge, DeviceSyncKeyType, DeviceSyncReply as DeviceSyncReplyProto,
                 DeviceSyncRequest as DeviceSyncRequestProto,
@@ -427,8 +426,7 @@ where
         //
         // 1. Build the exporter
         let db = self.context.db();
-        let proto_options: BackupOptionsProto = options.into();
-        let exporter = ArchiveExporter::new(proto_options, db, &key);
+        let exporter = ArchiveExporter::new(options.clone(), db, &key);
         let metadata = exporter.metadata().clone();
 
         tracing::info!("Uploading the archive.");

@@ -1,5 +1,5 @@
 use xmtp_proto::xmtp::device_sync::{
-    BackupElementSelection as BackupElementSelectionProto, ArchiveOptions as BackupOptionsProto,
+    ArchiveOptions as BackupOptionsProto, BackupElementSelection as BackupElementSelectionProto,
 };
 
 /// Native representation of backup element selection with strongly-typed variants.
@@ -50,7 +50,7 @@ pub struct ArchiveOptions {
 }
 
 impl ArchiveOptions {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn msgs_and_consent() -> Self {
         Self {
             elements: vec![

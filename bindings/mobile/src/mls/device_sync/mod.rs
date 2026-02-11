@@ -383,8 +383,8 @@ mod unit_tests {
         let metadata = BackupMetadata {
             backup_version: 1,
             elements: vec![
-                BackupElementSelectionProto::Messages,
-                BackupElementSelectionProto::Consent,
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
             ],
             exported_at_ns: 12345,
             start_ns: Some(100),
@@ -404,9 +404,9 @@ mod unit_tests {
         let metadata = BackupMetadata {
             backup_version: 1,
             elements: vec![
-                BackupElementSelectionProto::Messages,
-                BackupElementSelectionProto::Unspecified,
-                BackupElementSelectionProto::Consent,
+                BackupElementSelection::Messages,
+                BackupElementSelection::Unspecified,
+                BackupElementSelection::Consent,
             ],
             exported_at_ns: 12345,
             start_ns: None,
@@ -424,7 +424,7 @@ mod unit_tests {
             pin: "1234".to_string(),
             metadata: BackupMetadata {
                 backup_version: 1,
-                elements: vec![BackupElementSelectionProto::Messages],
+                elements: vec![BackupElementSelection::Messages],
                 exported_at_ns: 12345,
                 start_ns: None,
                 end_ns: None,

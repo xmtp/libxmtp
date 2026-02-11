@@ -7,7 +7,7 @@ use tsify::Tsify;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_id::associations::DeserializationError;
 use xmtp_mls::groups::device_sync::{
-  AvailableArchive, BackupElementSelection, ArchiveOptions,
+  AvailableArchive, BackupElementSelection, ArchiveOptions as XmtpArchiveOptions,
   archive::{
     ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter, insert_importer,
   },
@@ -29,7 +29,7 @@ pub struct ArchiveOptions {
   pub exclude_disappearing_messages: bool,
 }
 
-impl From<ArchiveOptions> for ArchiveOptions {
+impl From<ArchiveOptions> for XmtpArchiveOptions {
   fn from(value: ArchiveOptions) -> Self {
     Self {
       start_ns: value.start_ns,

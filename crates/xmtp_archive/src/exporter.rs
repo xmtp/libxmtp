@@ -1,4 +1,6 @@
 use super::{BACKUP_VERSION, OptionsToSave, export_stream::BatchExportStream};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::archive_options::ArchiveOptions;
 use crate::{NONCE_SIZE, util::GenericArrayExt};
 use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
 use async_compression::futures::write::ZstdEncoder;
@@ -10,9 +12,7 @@ use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::{future::Future, io, pin::Pin, sync::Arc, task::Poll};
 use xmtp_db::prelude::*;
-use xmtp_proto::xmtp::device_sync::{
-    BackupElement, BackupMetadataSave, ArchiveOptions, backup_element::Element,
-};
+use xmtp_proto::xmtp::device_sync::{BackupElement, BackupMetadataSave, backup_element::Element};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file_export;

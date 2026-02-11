@@ -12,9 +12,11 @@ use std::{
 use xmtp_common::{MaybeSend, MaybeSendFuture, if_native, if_wasm};
 use xmtp_db::{StorageError, prelude::*};
 use xmtp_proto::xmtp::device_sync::{
-    BackupElement, BackupElementSelection, ArchiveOptions, consent_backup::ConsentSave,
-    group_backup::GroupSave, message_backup::GroupMessageSave,
+    BackupElement, consent_backup::ConsentSave, group_backup::GroupSave,
+    message_backup::GroupMessageSave,
 };
+
+use crate::archive_options::{ArchiveOptions, BackupElementSelection};
 
 pub(crate) mod consent_save;
 pub(crate) mod group_save;
@@ -41,7 +43,8 @@ impl BatchExportStream {
         D: DbQuery + 'static,
     {
         let input_streams = opts
-            .elements()
+            .elements
+            .iter()
             .flat_map(|e| match e {
                 BackupElementSelection::Consent => {
                     vec![BackupRecordStreamer::<ConsentSave, D>::new_stream(
