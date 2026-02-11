@@ -1,0 +1,73 @@
+name: Check Error Docs
+on:
+  pull_request:
+    paths:
+      - "crates/**/src/**/*.rs"
+      - "bindings/**/src/**/*.rs"
+      - "docs/error-glossary.md"
+      - "docs/error-architecture.md"
+      - ".github/workflows/check-error-docs.yml"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  check-error-docs:
+    name: Error docs up to date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check if error code changes require doc updates
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+
+          # Get list of changed files in this PR
+          CHANGED_FILES=$(git diff --name-only "$BASE" "$HEAD")
+
+          # Check if any Rust source files with ErrorCode definitions were changed
+          ERROR_CODE_FILES_CHANGED=false
+          for file in $CHANGED_FILES; do
+            # Only look at Rust source files
+            if [[ "$file" != *.rs ]]; then
+              continue
+            fi
+
+            # Skip if the file was deleted
+            if [[ ! -f "$file" ]]; then
+              continue
+            fi
+
+            # Check if this file contains ErrorCode-related definitions
+            if git diff "$BASE" "$HEAD" -- "$file" | grep -qE '(derive.*ErrorCode|error_code\(|impl.*ErrorCode)'; then
+              echo "::notice::Error code change detected in $file"
+              ERROR_CODE_FILES_CHANGED=true
+            fi
+          done
+
+          # Check if the glossary was updated
+          GLOSSARY_UPDATED=false
+          if echo "$CHANGED_FILES" | grep -q "docs/error-glossary.md"; then
+            GLOSSARY_UPDATED=true
+          fi
+
+          # If error codes changed but glossary didn't, fail
+          if [[ "$ERROR_CODE_FILES_CHANGED" == "true" && "$GLOSSARY_UPDATED" == "false" ]]; then
+            echo ""
+            echo "::error::Error code definitions were modified but docs/error-glossary.md was not updated."
+            echo ""
+            echo "When adding, changing, or removing error codes (ErrorCode derive, error_code attributes),"
+            echo "please update docs/error-glossary.md to keep the error code reference in sync."
+            echo ""
+            echo "See docs/error-architecture.md for guidance on the error code system."
+            exit 1
+          fi
+
+          if [[ "$ERROR_CODE_FILES_CHANGED" == "true" ]]; then
+            echo "Error code changes detected and docs/error-glossary.md was updated. ✓"
+          else
+            echo "No error code changes detected. ✓"
+          fi
