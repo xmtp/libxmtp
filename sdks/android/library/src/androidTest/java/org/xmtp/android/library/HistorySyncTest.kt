@@ -47,9 +47,12 @@ class HistorySyncTest : BaseInstrumentedTest() {
             val state = alixClient2.inboxState(true)
             assertEquals(state.installations.size, 2)
 
+            delay(1000)
+
             // Sync all of the first client's conversations to add Alix2
             alixGroup.sync()
 
+            alixClient.conversations.sync()
             alixClient2.conversations.sync()
 
             val alixGroup2 =

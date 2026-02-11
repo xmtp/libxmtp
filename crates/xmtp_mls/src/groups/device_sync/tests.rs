@@ -467,3 +467,32 @@ async fn test_manual_sync_flow() {
 
     assert!(alix2.group(&dm.group_id).is_ok());
 }
+
+#[rstest::rstest]
+#[xmtp_common::test(unwrap_try = true)]
+#[timeout(std::time::Duration::from_secs(60))]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn test_incremental_consent() {
+    tester!(alix1, sync_worker);
+    tester!(alix2, from: alix1);
+    alix1.sync_all_welcomes_and_groups(None).await?;
+
+    tester!(bo);
+    let (dm, _) = bo.test_talk_in_dm_with(&alix1).await?;
+    alix1
+        .worker()
+        .register_interest(SyncMetric::ConsentSent, 1)
+        .wait()
+        .await?;
+
+    alix2.sync_all_welcomes_and_groups(None).await?;
+
+    alix2
+        .worker()
+        .register_interest(SyncMetric::ConsentReceived, 1)
+        .wait()
+        .await?;
+
+    let dm2 = alix2.group(&dm.group_id)?;
+    assert_eq!(dm2.consent_state()?, ConsentState::Allowed);
+}
