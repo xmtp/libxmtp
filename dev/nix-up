@@ -21,14 +21,14 @@ NIX_CUSTOM_CONF="/etc/nix/nix.custom.conf"
 CURRENT_USER="$(whoami)"
 if [[ -f /etc/nix/nix.conf ]]; then
   # Check if user is already trusted in either nix.conf or nix.custom.conf
-  if ! nix show-config 2>/dev/null | grep -q "trusted-users.*$CURRENT_USER" && \
-     ! grep -q "trusted-users.*$CURRENT_USER" "$NIX_CUSTOM_CONF" 2>/dev/null; then
+  if ! nix show-config 2>/dev/null | grep "trusted-users" | grep -qF "$CURRENT_USER" && \
+     ! grep -qF "$CURRENT_USER" "$NIX_CUSTOM_CONF" 2>/dev/null; then
     echo ""
     echo "Adding $CURRENT_USER as a trusted nix user (required for binary cache substituters)."
     echo "This avoids building dependencies from source."
     if [[ -f "$NIX_CUSTOM_CONF" ]] && grep -q "trusted-users" "$NIX_CUSTOM_CONF"; then
       # Append to existing trusted-users line
-      sudo sed -i '' "s/trusted-users = /trusted-users = $CURRENT_USER /" "$NIX_CUSTOM_CONF"
+      sudo sh -c "sed 's/trusted-users = /trusted-users = $CURRENT_USER /' \"$NIX_CUSTOM_CONF\" > \"$NIX_CUSTOM_CONF.tmp\" && mv \"$NIX_CUSTOM_CONF.tmp\" \"$NIX_CUSTOM_CONF\""
     else
       echo "trusted-users = root $CURRENT_USER" | sudo tee -a "$NIX_CUSTOM_CONF" > /dev/null
     fi
