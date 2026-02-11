@@ -1,19 +1,11 @@
 name: Lint iOS
 
 on:
-  push:
-    branches: ["main"]
-    paths: ["sdks/ios/**"]
-  pull_request:
-    paths: ["sdks/ios/**"]
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_call:
 
 jobs:
   lint:
-    name: Lint
+    name: Lint (iOS)
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6

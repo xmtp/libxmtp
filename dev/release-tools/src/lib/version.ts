@@ -57,20 +57,21 @@ export function computeVersion(
   releaseType: ReleaseType,
   options: ComputeVersionOptions = {},
 ): string {
+  const normalized = normalizeVersion(baseVersion);
   switch (releaseType) {
     case "final":
-      return baseVersion;
+      return normalized;
     case "rc": {
       if (options.rcNumber == null) {
         throw new Error("rcNumber is required for rc releases");
       }
-      return `${baseVersion}-rc${options.rcNumber}`;
+      return `${normalized}-rc${options.rcNumber}`;
     }
     case "dev": {
       if (!options.shortSha) {
         throw new Error("shortSha is required for dev releases");
       }
-      return `${baseVersion}-dev.${options.shortSha}`;
+      return `${normalized}-dev.${options.shortSha}`;
     }
   }
 }

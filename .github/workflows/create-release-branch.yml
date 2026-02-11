@@ -32,6 +32,16 @@ on:
           - "minor"
           - "major"
         default: "none"
+      node:
+        description: "Include Node bindings in release"
+        required: false
+        type: boolean
+        default: false
+      wasm:
+        description: "Include WASM bindings in release"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   create-branch:
@@ -56,7 +66,9 @@ jobs:
             --version "$RELEASE_VERSION" \
             --base "$BASE_REF" \
             --ios "$IOS_BUMP" \
-            --android "$ANDROID_BUMP"
+            --android "$ANDROID_BUMP" \
+            ${{ inputs.node && '--node' || '' }} \
+            ${{ inputs.wasm && '--wasm' || '' }}
 
           git push -u origin "release/${RELEASE_VERSION}"
       - name: Create pull request
