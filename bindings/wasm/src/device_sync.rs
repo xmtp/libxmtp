@@ -7,7 +7,7 @@ use tsify::Tsify;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_id::associations::DeserializationError;
 use xmtp_mls::groups::device_sync::{
-  AvailableArchive, BackupElementSelection, ArchiveOptions as XmtpArchiveOptions,
+  ArchiveOptions as XmtpArchiveOptions, AvailableArchive, BackupElementSelection,
   archive::{
     ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter, insert_importer,
   },
