@@ -90,8 +90,8 @@ jobs:
           - [ ] Release notes reviewed and finalized
           - [ ] All SDK versions bumped
           - [ ] RC published and validated
-          - [ ] Final release published via Publish Release workflow
+          - [ ] Final release published via Release workflow
 
-          > **Note:** This PR will be merged automatically by the Publish Release workflow upon final release.
+          > **Note:** This PR will be merged automatically by the Release workflow upon final release.
           EOF
           )"

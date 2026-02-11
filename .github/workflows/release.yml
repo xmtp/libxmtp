@@ -1,19 +1,20 @@
-name: Publish Release
+name: Release
 
 on:
   workflow_dispatch:
     inputs:
-      release-branch:
-        description: "Release or hotfix branch to publish from"
-        required: true
-        type: string
       release-type:
         description: "Release type"
         required: true
         type: choice
         options:
+          - "dev"
           - "rc"
           - "final"
+      ref:
+        description: "Branch to release from (defaults to the branch the workflow is run from)"
+        required: false
+        type: string
       rc-number:
         description: "RC number (required for RC releases)"
         required: false
@@ -39,50 +40,77 @@ on:
         type: boolean
         default: false
       no-merge:
-        description: "Skip merging the release PR to main"
+        description: "Skip merging the release PR to main (only applies to final releases)"
         required: false
         type: boolean
         default: false
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate release branch
+        if: inputs.release-type != 'dev'
+        env:
+          REF: ${{ inputs.ref || github.ref }}
+        run: |
+          BRANCH="${REF#refs/heads/}"
+          if [[ ! "$BRANCH" =~ ^release/ ]]; then
+            echo "::error::RC and final releases must be run from a release/* branch, got: $BRANCH"
+            exit 1
+          fi
+      - name: Validate RC number
+        if: inputs.release-type == 'rc'
+        env:
+          RC_NUMBER: ${{ inputs.rc-number }}
+        run: |
+          if [ -z "$RC_NUMBER" ] || [ "$RC_NUMBER" -lt 1 ]; then
+            echo "::error::RC releases require rc-number to be set to a value greater than 0"
+            exit 1
+          fi
+
   release-ios:
+    needs: [validate]
     if: inputs.ios
     uses: ./.github/workflows/release-ios.yml
     with:
       release-type: ${{ inputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
-      ref: ${{ inputs.release-branch }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
   release-android:
+    needs: [validate]
     if: inputs.android
     uses: ./.github/workflows/release-android.yml
     with:
       release-type: ${{ inputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
-      ref: ${{ inputs.release-branch }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
   release-node:
+    needs: [validate]
     if: inputs.node
     uses: ./.github/workflows/release-node.yml
     with:
       release-type: ${{ inputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
-      ref: ${{ inputs.release-branch }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
   release-wasm:
+    needs: [validate]
     if: inputs.wasm
     uses: ./.github/workflows/release-wasm.yml
     with:
       release-type: ${{ inputs.release-type }}
       rc-number: ${{ inputs.rc-number }}
-      ref: ${{ inputs.release-branch }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
   merge-pr:
-    if: inputs.release-type == 'final' && !inputs.no-merge && !cancelled() && needs.release-ios.result != 'failure' && needs.release-android.result != 'failure' && needs.release-node.result != 'failure' && needs.release-wasm.result != 'failure'
+    if: inputs.release-type == 'final' && !inputs.no-merge && !cancelled() && !contains(needs.*.result, 'failure')
     needs: [release-ios, release-android, release-node, release-wasm]
     runs-on: ubuntu-latest
     permissions:
@@ -95,11 +123,12 @@ jobs:
       - name: Merge release PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_BRANCH: ${{ inputs.release-branch }}
+          RELEASE_BRANCH: ${{ inputs.ref || github.ref }}
         run: |
-          PR_NUMBER=$(gh pr list --head "$RELEASE_BRANCH" --base main --json number --jq '.[0].number')
+          BRANCH="${RELEASE_BRANCH#refs/heads/}"
+          PR_NUMBER=$(gh pr list --head "$BRANCH" --base main --json number --jq '.[0].number')
           if [ -z "$PR_NUMBER" ]; then
-            echo "No PR found for branch $RELEASE_BRANCH targeting main"
+            echo "No PR found for branch $BRANCH targeting main"
             exit 1
           fi
           gh pr merge "$PR_NUMBER" --merge --delete-branch
