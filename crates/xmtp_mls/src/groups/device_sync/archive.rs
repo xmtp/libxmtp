@@ -166,6 +166,7 @@ fn insert(
 mod tests {
     #![allow(unused)]
     use super::*;
+    use crate::groups::device_sync::{ArchiveOptions, BackupElementSelection};
     use crate::groups::send_message_opts::SendMessageOpts;
     use crate::tester;
     use crate::utils::{LocalTester, Tester};
@@ -185,7 +186,6 @@ mod tests {
         group_message::StoredGroupMessage,
         schema::{consent_records, group_messages, groups},
     };
-    use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_archive_timestamps() {
@@ -213,12 +213,12 @@ mod tests {
             .await?;
 
         let key = vec![7; 32];
-        let opts = BackupOptions {
+        let opts = ArchiveOptions {
             start_ns: None,
             end_ns: None,
             elements: vec![
-                BackupElementSelection::Messages as i32,
-                BackupElementSelection::Consent as i32,
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
             ],
             exclude_disappearing_messages: false,
         };
@@ -276,12 +276,12 @@ mod tests {
             .last_message_ns?;
 
         let key = vec![7; 32];
-        let opts = BackupOptions {
+        let opts = ArchiveOptions {
             start_ns: None,
             end_ns: None,
             elements: vec![
-                BackupElementSelection::Messages as i32,
-                BackupElementSelection::Consent as i32,
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
             ],
             exclude_disappearing_messages: false,
         };
@@ -340,12 +340,12 @@ mod tests {
             .await
             .unwrap();
 
-        let opts = BackupOptions {
+        let opts = ArchiveOptions {
             start_ns: None,
             end_ns: None,
             elements: vec![
-                BackupElementSelection::Messages as i32,
-                BackupElementSelection::Consent as i32,
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
             ],
             exclude_disappearing_messages: false,
         };
@@ -393,7 +393,7 @@ mod tests {
         use diesel::QueryDsl;
         use xmtp_db::group::{ConversationType, GroupQueryArgs};
 
-        tester!(alix, sync_worker, sync_server, triggers);
+        tester!(alix, sync_worker, triggers);
         tester!(bo);
 
         let alix_group = alix.create_group(None, None)?;
@@ -436,14 +436,14 @@ mod tests {
             .context
             .db()
             .raw_query_read(|conn| group_messages::table.load(conn))?;
-        assert_eq!(old_messages.len(), 5);
+        assert_eq!(old_messages.len(), 4);
 
-        let opts = BackupOptions {
+        let opts = ArchiveOptions {
             start_ns: None,
             end_ns: None,
             elements: vec![
-                BackupElementSelection::Messages.into(),
-                BackupElementSelection::Consent.into(),
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
             ],
             exclude_disappearing_messages: false,
         };
@@ -454,7 +454,7 @@ mod tests {
         let _ = tokio::fs::remove_file(path).await;
         exporter.write_to_file(path).await?;
 
-        tester!(alix2, sync_worker, sync_server);
+        tester!(alix2, sync_worker);
         alix2.device_sync_client().wait_for_sync_worker_init().await;
 
         // No consent before

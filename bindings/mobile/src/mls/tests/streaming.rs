@@ -1,5 +1,9 @@
 //! Tests for message and conversation streaming
 
+use xmtp_configuration::DeviceSyncUrls;
+
+use crate::device_sync::FfiArchiveOptions;
+
 use super::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -346,8 +350,7 @@ async fn test_stream_groups_gets_callback_when_streaming_messages() {
 #[cfg_attr(feature = "d14n", ignore)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn test_stream_consent() {
-    let alix_a = Tester::builder().sync_worker().sync_server().build().await;
-
+    let alix_a = Tester::builder().sync_worker().build().await;
     let alix_b = alix_a.builder.build().await;
 
     let bo = Tester::new().await;
@@ -358,6 +361,15 @@ async fn test_stream_consent() {
         .test_has_same_sync_group_as(&alix_b.inner_client)
         .await
         .unwrap();
+
+    alix_b
+        .send_sync_request(
+            FfiArchiveOptions::default(),
+            DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
+        )
+        .await
+        .unwrap();
+    alix_a.sync_all_device_sync_groups().await.unwrap();
 
     alix_a
         .worker()

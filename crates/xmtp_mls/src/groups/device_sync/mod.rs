@@ -2,7 +2,6 @@ use super::{
     GroupError, MlsGroup, PreconfiguredPolicies, send_message_opts, summary::SyncSummary,
     welcome_sync::WelcomeService,
 };
-
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
@@ -47,6 +46,8 @@ use xmtp_proto::xmtp::{
 pub mod archive;
 pub mod preference_sync;
 pub mod worker;
+
+pub use xmtp_archive::archive_options::{ArchiveOptions, BackupElementSelection};
 
 #[cfg(test)]
 mod tests;

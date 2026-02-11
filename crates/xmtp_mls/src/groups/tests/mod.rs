@@ -3623,7 +3623,7 @@ async fn skip_already_processed_intents() {
 
 #[xmtp_common::test(flavor = "multi_thread")]
 async fn test_parallel_syncs() {
-    tester!(alix1, sync_worker, sync_server);
+    tester!(alix1, sync_worker);
 
     let alix1_group = alix1.create_group(None, None).unwrap();
 

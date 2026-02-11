@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use crate::builder::ForkRecoveryOpts;
+use crate::client::DeviceSync;
 use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
 use crate::groups::summary::SyncSummary;
@@ -12,8 +13,8 @@ use crate::subscriptions::process_message::{
 };
 use crate::worker::{MetricsCasting, WorkerKind};
 use crate::{
-    builder::SyncWorkerMode, client::DeviceSync, context::XmtpMlsLocalContext, identity::Identity,
-    mutex_registry::MutexRegistry, utils::VersionInfo,
+    context::XmtpMlsLocalContext, identity::Identity, mutex_registry::MutexRegistry,
+    utils::VersionInfo,
 };
 use alloy::signers::local::PrivateKeySigner;
 use mockall::mock;

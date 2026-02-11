@@ -7,12 +7,12 @@ use tsify::Tsify;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_id::associations::DeserializationError;
 use xmtp_mls::groups::device_sync::{
-  AvailableArchive,
+  ArchiveOptions as XmtpArchiveOptions, AvailableArchive, BackupElementSelection,
   archive::{
     ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter, insert_importer,
   },
 };
-use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
+use xmtp_proto::xmtp::device_sync::BackupElementSelection as BackupElementSelectionProto;
 
 /// Options for creating or sending an archive
 #[derive(Clone, Serialize, Deserialize, Tsify)]
@@ -29,19 +29,12 @@ pub struct ArchiveOptions {
   pub exclude_disappearing_messages: bool,
 }
 
-impl From<ArchiveOptions> for BackupOptions {
+impl From<ArchiveOptions> for XmtpArchiveOptions {
   fn from(value: ArchiveOptions) -> Self {
     Self {
       start_ns: value.start_ns,
       end_ns: value.end_ns,
-      elements: value
-        .elements
-        .into_iter()
-        .map(|el| {
-          let element: BackupElementSelection = el.into();
-          element.into()
-        })
-        .collect(),
+      elements: value.elements.into_iter().map(|el| el.into()).collect(),
       exclude_disappearing_messages: value.exclude_disappearing_messages,
     }
   }
@@ -63,12 +56,37 @@ impl From<BackupElementSelectionOption> for BackupElementSelection {
   }
 }
 
+impl From<BackupElementSelectionOption> for BackupElementSelectionProto {
+  fn from(value: BackupElementSelectionOption) -> Self {
+    match value {
+      BackupElementSelectionOption::Consent => Self::Consent,
+      BackupElementSelectionOption::Messages => Self::Messages,
+    }
+  }
+}
+
 impl TryFrom<BackupElementSelection> for BackupElementSelectionOption {
   type Error = DeserializationError;
   fn try_from(value: BackupElementSelection) -> Result<Self, Self::Error> {
     let v = match value {
       BackupElementSelection::Consent => Self::Consent,
       BackupElementSelection::Messages => Self::Messages,
+      _ => {
+        return Err(DeserializationError::Unspecified(
+          "Backup Element Selection",
+        ));
+      }
+    };
+    Ok(v)
+  }
+}
+
+impl TryFrom<BackupElementSelectionProto> for BackupElementSelectionOption {
+  type Error = DeserializationError;
+  fn try_from(value: BackupElementSelectionProto) -> Result<Self, Self::Error> {
+    let v = match value {
+      BackupElementSelectionProto::Consent => Self::Consent,
+      BackupElementSelectionProto::Messages => Self::Messages,
       _ => {
         return Err(DeserializationError::Unspecified(
           "Backup Element Selection",
@@ -161,11 +179,15 @@ impl DeviceSync {
 impl DeviceSync {
   /// Manually trigger a device sync request to sync records from another active device on this account.
   #[wasm_bindgen(js_name = sendSyncRequest)]
-  pub async fn send_sync_request(&self) -> Result<(), JsError> {
+  pub async fn send_sync_request(
+    &self,
+    options: ArchiveOptions,
+    #[wasm_bindgen(js_name = serverUrl)] server_url: String,
+  ) -> Result<(), JsError> {
     self
       .inner_client
       .device_sync_client()
-      .send_sync_request()
+      .send_sync_request(options.into(), server_url)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
@@ -231,8 +253,7 @@ impl DeviceSync {
 
     let key = check_key(&key)?;
     let db = self.inner_client.context.db();
-    let options: BackupOptions = opts.into();
-    let mut exporter = ArchiveExporter::new(options, db, &key);
+    let mut exporter = ArchiveExporter::new(opts.into(), db, &key);
 
     let mut buffer = Vec::new();
     exporter

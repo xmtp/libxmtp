@@ -25,7 +25,7 @@ fn setup_runtime() -> Runtime {
 
 /// Creates n dm groups and associated consent records
 async fn setup_benchmark(total_consents: usize) -> Arc<ConsentBenchSetup> {
-    let client = new_client(false).await;
+    let client = new_client().await;
     create_dm_with_consent(client, total_consents).await
 }
 

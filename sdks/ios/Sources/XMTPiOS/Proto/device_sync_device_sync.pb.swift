@@ -392,7 +392,7 @@ extension Xmtp_DeviceSync_BackupMetadataSave: SwiftProtobuf.Message, SwiftProtob
 }
 
 extension Xmtp_DeviceSync_BackupOptions: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".BackupOptions"
+  public static let protoMessageName: String = _protobuf_package + ".ArchiveOptions"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "elements"),
     2: .standard(proto: "start_ns"),

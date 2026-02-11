@@ -85,7 +85,6 @@ pub async fn create_client(
   db: DbOptions,
   inbox_id: String,
   account_identifier: Identifier,
-  device_sync_server_url: Option<String>,
   device_sync_worker_mode: Option<SyncWorkerMode>,
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,
@@ -182,10 +181,6 @@ pub async fn create_client(
     .map_err(ErrorWrapper::from)?
     .with_allow_offline(allow_offline)
     .store(store);
-
-  if let Some(u) = device_sync_server_url {
-    builder = builder.device_sync_server_url(&u);
-  };
 
   if let Some(device_sync_worker_mode) = device_sync_worker_mode {
     builder = builder.device_sync_worker_mode(device_sync_worker_mode.into());

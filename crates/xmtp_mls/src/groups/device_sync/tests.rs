@@ -1,4 +1,5 @@
 use super::*;
+use super::{ArchiveOptions, BackupElementSelection};
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::tester;
 use xmtp_configuration::DeviceSyncUrls;
@@ -7,18 +8,25 @@ use xmtp_db::{
     group::{ConversationType, StoredGroup},
     group_message::MsgQueryArgs,
 };
-use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn basic_sync() {
-    tester!(alix1, sync_server, sync_worker);
+    tester!(alix1, sync_worker);
     tester!(bo);
     // Talk with bo
     let (dm, dm_msg) = alix1.test_talk_in_dm_with(&bo).await?;
     // Create a second client for alix
     tester!(alix2, from: alix1);
+
+    alix2
+        .device_sync_client()
+        .send_sync_request(
+            ArchiveOptions::msgs_and_consent(),
+            DeviceSyncUrls::LOCAL_ADDRESS,
+        )
+        .await?;
 
     alix1.sync_all_welcomes_and_groups(None).await?;
     alix1
@@ -49,55 +57,84 @@ async fn basic_sync() {
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg(not(target_arch = "wasm32"))]
-async fn only_one_payload_sent() {
-    tester!(alix1, sync_server, sync_worker, with_name: "alix1");
+async fn test_sync_request() {
+    tester!(alix1, sync_worker, with_name: "alix1");
     tester!(alix2, from: alix1, with_name: "alix2");
     tester!(alix3, from: alix1, with_name: "alix3");
 
+    tester!(bo, disable_workers);
+
+    let (_, m1) = alix1.test_talk_in_dm_with(&bo).await?;
+    let (_, m2) = alix2.test_talk_in_dm_with(&bo).await?;
+    let (_, m3) = alix3.test_talk_in_dm_with(&bo).await?;
+
+    let (g1, gm3) = alix1.test_talk_in_new_group_with(&bo).await?;
+
+    alix3
+        .device_sync_client()
+        .send_sync_request(
+            ArchiveOptions::msgs_and_consent(),
+            DeviceSyncUrls::LOCAL_ADDRESS,
+        )
+        .await?;
+
     // They should all have the same sync group
-    alix1.test_has_same_sync_group_as(&alix3).await?;
-    alix2.test_has_same_sync_group_as(&alix3).await?;
+    for client in &[&alix1, &alix2] {
+        client.test_has_same_sync_group_as(&alix3).await?;
+        client
+            .worker()
+            .register_interest(SyncMetric::PayloadSent, 1)
+            .wait()
+            .await?;
+    }
 
-    // Register interest for next PayloadSent events
-    let wait1 = alix1.worker().register_interest(SyncMetric::PayloadSent, 1);
-    let wait2 = alix2.worker().register_interest(SyncMetric::PayloadSent, 1);
+    alix3.sync_all_device_sync_groups().await?;
 
-    // Register interest for next PayloadSent events
-    let (wait1, wait2) = tokio::join!(wait1.wait(), wait2.wait());
-    assert_ne!(wait1.is_ok(), wait2.is_ok());
+    alix3
+        .worker()
+        .register_interest(SyncMetric::PayloadProcessed, 2)
+        .wait()
+        .await?;
 
-    // Check final counts - should be exactly 1 more total
-    let alix1_count = alix1.worker().get(SyncMetric::PayloadSent);
-    let alix2_count = alix2.worker().get(SyncMetric::PayloadSent);
-    let total_new_payloads = alix1_count + alix2_count;
+    let dm = alix3.find_or_create_dm(bo.inbox_id(), None).await?;
+    let msgs = dm.find_messages(&MsgQueryArgs::default())?;
 
-    // The core assertion: exactly 1 payload sent in response to our request
-    assert_eq!(
-        total_new_payloads, 1,
-        "Expected exactly 1 payload to be sent in response to sync request, got {} (alix1: {}, alix2: {})",
-        total_new_payloads, alix1_count, alix2_count
-    );
+    // Make sure all of the messages are on alix3's client
+    for msg in &[&m1, &m2, &m3] {
+        let b = msg.as_bytes();
+        assert!(
+            msgs.iter()
+                .any(|m| m.decrypted_message_bytes.windows(b.len()).any(|m| m == b))
+        );
+    }
 
-    // Verify mutual exclusion: exactly one client should have sent
-    let alix1_sent = alix1_count > 0;
-    let alix2_sent = alix2_count > 0;
-    assert_ne!(
-        alix1_sent, alix2_sent,
-        "Expected exactly one client to send payload, but alix1_sent={}, alix2_sent={}",
-        alix1_sent, alix2_sent
-    );
+    // Check the group's messages and it's consent too.
+    let g3 = alix3.group(&g1.group_id)?;
+    assert_eq!(g3.consent_state()?, ConsentState::Allowed);
+    assert!(g1.find_messages(&Default::default())?.iter().any(|m| {
+        m.decrypted_message_bytes
+            .windows(gm3.len())
+            .any(|m| m == gm3.as_bytes())
+    }));
 }
 
 #[cfg_attr(target_arch = "wasm32", ignore)]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_double_sync_works_fine() {
-    tester!(alix1, sync_worker, sync_server);
+    tester!(alix1, sync_worker);
     tester!(bo);
 
     alix1.test_talk_in_dm_with(&bo).await?;
 
     tester!(alix2, from: alix1);
+    alix2
+        .device_sync_client()
+        .send_sync_request(
+            ArchiveOptions::msgs_and_consent(),
+            DeviceSyncUrls::LOCAL_ADDRESS,
+        )
+        .await?;
 
     // Pull down the new sync group, triggering a payload to be sent
     alix1.sync_welcomes().await?;
@@ -123,7 +160,16 @@ async fn test_double_sync_works_fine() {
     alix2
         .context
         .device_sync_client()
-        .send_sync_request()
+        .send_sync_request(
+            ArchiveOptions {
+                elements: vec![
+                    BackupElementSelection::Messages,
+                    BackupElementSelection::Consent,
+                ],
+                ..Default::default()
+            },
+            DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
+        )
         .await?;
     alix1
         .context
@@ -159,7 +205,7 @@ async fn test_double_sync_works_fine() {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_hmac_and_consent_preference_sync() {
-    tester!(alix1, sync_worker, sync_server, stream);
+    tester!(alix1, sync_worker);
     tester!(bo);
 
     let (dm, _) = alix1.test_talk_in_dm_with(&bo).await?;
@@ -167,6 +213,22 @@ async fn test_hmac_and_consent_preference_sync() {
     tester!(alix2, from: alix1);
 
     alix1.test_has_same_sync_group_as(&alix2).await?;
+    alix2
+        .device_sync_client()
+        .send_sync_request(
+            ArchiveOptions::msgs_and_consent(),
+            DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
+        )
+        .await?;
+    alix1.sync_all_device_sync_groups().await?;
+
+    alix1
+        .worker()
+        .register_interest(SyncMetric::PayloadSent, 1)
+        .wait()
+        .await?;
+
+    alix2.sync_all_device_sync_groups().await?;
 
     alix2
         .worker()
@@ -199,7 +261,15 @@ async fn test_hmac_and_consent_preference_sync() {
     assert_eq!(dm.consent_state()?, alix2_dm.consent_state()?);
 
     // Stream consent
+    alix1.worker().clear_metric(SyncMetric::ConsentSent);
     dm.update_consent_state(ConsentState::Denied)?;
+    alix1
+        .worker()
+        .register_interest(SyncMetric::ConsentSent, 1)
+        .wait()
+        .await?;
+
+    alix2.sync_all_device_sync_groups().await?;
     alix2
         .worker()
         .register_interest(SyncMetric::ConsentReceived, 1)
@@ -356,8 +426,8 @@ async fn test_manual_sync_flow() {
     tester!(alix2, from: alix);
     alix2.test_has_same_sync_group_as(&alix).await?;
 
-    let opts = BackupOptions {
-        elements: vec![BackupElementSelection::Consent.into()],
+    let opts = ArchiveOptions {
+        elements: vec![BackupElementSelection::Consent],
         ..Default::default()
     };
 
@@ -396,4 +466,32 @@ async fn test_manual_sync_flow() {
         .await?;
 
     assert!(alix2.group(&dm.group_id).is_ok());
+}
+
+#[rstest::rstest]
+#[xmtp_common::test(unwrap_try = true)]
+#[timeout(std::time::Duration::from_secs(60))]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn test_incremental_consent() {
+    tester!(alix1, sync_worker);
+    tester!(alix2, from: alix1);
+
+    tester!(bo);
+    let (dm, _) = bo.test_talk_in_dm_with(&alix1).await?;
+    alix1
+        .worker()
+        .register_interest(SyncMetric::ConsentSent, 1)
+        .wait()
+        .await?;
+
+    alix2.sync_all_welcomes_and_groups(None).await?;
+
+    alix2
+        .worker()
+        .register_interest(SyncMetric::ConsentReceived, 1)
+        .wait()
+        .await?;
+
+    let dm2 = alix2.group(&dm.group_id)?;
+    assert_eq!(dm2.consent_state()?, ConsentState::Allowed);
 }

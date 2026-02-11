@@ -41,7 +41,7 @@ fn register_identity_eoa(c: &mut Criterion) {
         b.to_async(&runtime).iter_batched(
             || {
                 bench_async_setup(|| async {
-                    let (client, wallet) = clients::new_unregistered_client(false).await;
+                    let (client, wallet) = clients::new_unregistered_client().await;
                     let signature_request = ecdsa_signature(&client, wallet).await;
 
                     (client, signature_request, span.clone())
