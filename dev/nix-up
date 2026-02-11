@@ -44,7 +44,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   [[ -f /etc/arch-release ]] && sudo pacman -S direnv
   grep -q "ubuntu" /etc/os-release 2>/dev/null && sudo apt install direnv
   echo ""
-  echo "installing shell hook for bash/zsh"
+  echo "installing shell hooks for bash/zsh/fish"
   # Check if hook already exists before appending
   for shell_rc in ~/.bashrc ~/.zshrc; do
     if [[ -f "$shell_rc" ]] && ! grep -q "direnv hook" "$shell_rc"; then
@@ -54,6 +54,12 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
       esac
     fi
   done
+  # Handle fish shell config
+  FISH_CONFIG=~/.config/fish/config.fish
+  if [[ -f "$FISH_CONFIG" ]] && ! grep -q "direnv hook" "$FISH_CONFIG"; then
+    echo 'direnv hook fish | source' >> "$FISH_CONFIG"
+    echo "Added direnv hook to $FISH_CONFIG"
+  fi
 else
   echo "direnv not installed"
 fi

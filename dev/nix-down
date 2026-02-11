@@ -69,6 +69,12 @@ for shell_rc in ~/.bashrc ~/.zshrc; do
     echo "Removed direnv hook from $shell_rc"
   fi
 done
+# Handle fish shell config
+FISH_CONFIG=~/.config/fish/config.fish
+if [[ -f "$FISH_CONFIG" ]] && grep -q "direnv hook" "$FISH_CONFIG"; then
+  sed '/direnv hook/d' "$FISH_CONFIG" > "$FISH_CONFIG.tmp" && mv "$FISH_CONFIG.tmp" "$FISH_CONFIG"
+  echo "Removed direnv hook from $FISH_CONFIG"
+fi
 
 echo ""
 echo "=============================================="
