@@ -5,6 +5,7 @@
 - **Never manually edit manifest version fields** (`Cargo.toml`, `package.json`, `XMTP.podspec`). The release tooling handles versioning.
 - **Always review release notes** before publishing a final release. AI drafts them automatically, but a human must verify before shipping.
 - In `main` the version you see in manifests will always be the previously released version. In release branches, it will always be the upcoming version.
+- All releases (dev, rc, final) are published through a single workflow: **Actions > Release** (`release.yml`).
 
 ---
 
@@ -12,11 +13,12 @@
 
 Dev releases can be created from **any branch**. They append `-dev.<commit_hash>` to the manifest version automatically.
 
-1. Go to **Actions > Dev Release** (`dev-release.yml`)
+1. Go to **Actions > Release** (`release.yml`)
 2. Fill in the inputs:
    | Input | Description |
    |-------|-------------|
-   | `branch` | Branch to release from (defaults to the branch you trigger from) |
+   | `release-type` | `dev` |
+   | `ref` | Branch to release from (defaults to the branch you trigger from) |
    | `ios` | Check to release iOS SDK |
    | `android` | Check to release Android SDK |
    | `node` | Check to release Node bindings |
@@ -61,12 +63,12 @@ To manually edit notes, push changes directly to the release branch. The AI will
 
 ### 3. (Optional) Publish a Release Candidate
 
-1. Go to **Actions > Publish Release** (`publish-release.yml`)
+1. Go to **Actions > Release** (`release.yml`)
 2. Fill in the inputs:
    | Input | Description |
    |-------|-------------|
-   | `release-branch` | The `release/<version>` branch |
    | `release-type` | `rc` |
+   | `ref` | The `release/<version>` branch |
    | `rc-number` | RC number (e.g. `1`, `2`) |
    | `ios` | Check to release iOS SDK |
    | `android` | Check to release Android SDK |
@@ -80,12 +82,12 @@ RC versions are published as `<version>-rc<number>` (e.g. `4.9.0-rc1`).
 
 Once the RC is validated:
 
-1. Go to **Actions > Publish Release** (`publish-release.yml`)
+1. Go to **Actions > Release** (`release.yml`)
 2. Fill in the inputs:
    | Input | Description |
    |-------|-------------|
-   | `release-branch` | The `release/<version>` branch |
    | `release-type` | `final` |
+   | `ref` | The `release/<version>` branch |
    | `ios` | Check to release iOS SDK |
    | `android` | Check to release Android SDK |
    | `node` | Check to release Node bindings |
