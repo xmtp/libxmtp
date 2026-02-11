@@ -33,6 +33,7 @@
         inputs.rust-flake.flakeModules.nixpkgs
         ./nix/rust-defaults.nix
         ./nix/rust.nix
+        ./nix/musl.nix
       ];
       perSystem =
         { pkgs, lib, self', ... }: {

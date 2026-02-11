@@ -4,28 +4,14 @@
   perSystem =
     { inputs', self', pkgs, config, lib, ... }:
     let
-      fenix = inputs'.fenix.packages;
-      rust = fenix.fromManifestFile inputs.rust-manifest;
-      toolchain = fenix.combine [
-        (fenix.targets."x86_64-unknown-linux-musl".fromManifestFile
-          inputs.rust-manifest).rust-std
-        rust.defaultToolchain
-        rust."clippy"
-        rust."rust-docs"
-        rust."rustfmt-preview"
-        rust."clippy-preview"
-      ];
       src = ./..;
+      # Use mkToolchain for consistent toolchain creation across the project.
+      # Include musl target for cross-compilation support.
+      toolchain = pkgs.xmtp.mkToolchain
+        [ "x86_64-unknown-linux-musl" ]
+        [ "clippy" "rust-docs" "rustfmt-preview" "clippy-preview" ];
     in
     {
-      packages.musl-mls_validation_service =
-        config.rust-project.crates.mls_validation_service.crane.outputs.drv.crate.overrideAttrs
-          (old:
-            old // {
-              CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
-              CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
-            }
-          );
       rust-project = {
         inherit toolchain;
         # Override the default src to use our workspace fileset which includes
