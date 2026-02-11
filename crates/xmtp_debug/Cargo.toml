@@ -57,6 +57,7 @@ tracing-subscriber = { workspace = true, features = [
 ] }
 url.workspace = true
 valuable = { version = "0.1", features = ["derive"] }
+xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
 xmtp_api_d14n.workspace = true
 xmtp_api_grpc.workspace = true
 xmtp_configuration.workspace = true

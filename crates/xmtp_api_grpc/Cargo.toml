@@ -21,6 +21,7 @@ xmtp_configuration.workspace = true
 xmtp_proto = { workspace = true }
 
 toxiproxy_rust = { workspace = true, optional = true }
+xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
 
 
 # Anything but iOS, Android & WASM will use either webpki or native.
