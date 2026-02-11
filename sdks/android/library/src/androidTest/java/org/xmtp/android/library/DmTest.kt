@@ -29,7 +29,7 @@ import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
-import uniffi.xmtpv3.GenericException
+import uniffi.xmtpv3.FfiException
 
 @RunWith(AndroidJUnit4::class)
 class DmTest : BaseInstrumentedTest() {
@@ -221,7 +221,7 @@ class DmTest : BaseInstrumentedTest() {
         val chuxAccount = PrivateKeyBuilder()
         val chux: PrivateKey = chuxAccount.getPrivateKey()
 
-        assertThrows(GenericException::class.java) {
+        assertThrows(FfiException::class.java) {
             runBlocking {
                 fixtures.boClient.conversations.findOrCreateDmWithIdentity(
                     PublicIdentity(IdentityKind.ETHEREUM, chux.walletAddress),
