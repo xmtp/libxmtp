@@ -49,6 +49,13 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
+      - name: Validate dev release
+        if: inputs.release-type == 'dev'
+        run: |
+          if [ -n "${{ inputs.rc-number }}" ]; then
+            echo "::error::Dev releases should not have an RC number set"
+            exit 1
+          fi
       - name: Validate release branch
         if: inputs.release-type != 'dev'
         env:
