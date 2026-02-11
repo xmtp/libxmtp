@@ -166,7 +166,7 @@ fn insert(
 mod tests {
     #![allow(unused)]
     use super::*;
-    use crate::groups::device_sync::{BackupElementSelection, BackupOptions};
+    use crate::groups::device_sync::{ArchiveOptions, BackupElementSelection};
     use crate::groups::send_message_opts::SendMessageOpts;
     use crate::tester;
     use crate::utils::{LocalTester, Tester};
@@ -213,7 +213,7 @@ mod tests {
             .await?;
 
         let key = vec![7; 32];
-        let opts = BackupOptions {
+        let opts = ArchiveOptions {
             start_ns: None,
             end_ns: None,
             elements: vec![
@@ -276,7 +276,7 @@ mod tests {
             .last_message_ns?;
 
         let key = vec![7; 32];
-        let opts = BackupOptions {
+        let opts = ArchiveOptions {
             start_ns: None,
             end_ns: None,
             elements: vec![
@@ -340,7 +340,7 @@ mod tests {
             .await
             .unwrap();
 
-        let opts = BackupOptions {
+        let opts = ArchiveOptions {
             start_ns: None,
             end_ns: None,
             elements: vec![
@@ -438,7 +438,7 @@ mod tests {
             .raw_query_read(|conn| group_messages::table.load(conn))?;
         assert_eq!(old_messages.len(), 4);
 
-        let opts = BackupOptions {
+        let opts = ArchiveOptions {
             start_ns: None,
             end_ns: None,
             elements: vec![

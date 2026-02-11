@@ -619,7 +619,7 @@ impl ::prost::Name for Task {
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SendSyncArchive {
     #[prost(message, optional, tag = "1")]
-    pub options: ::core::option::Option<super::super::device_sync::BackupOptions>,
+    pub options: ::core::option::Option<super::super::device_sync::ArchiveOptions>,
     #[prost(bytes = "vec", tag = "2")]
     pub sync_group_id: ::prost::alloc::vec::Vec<u8>,
     #[prost(string, optional, tag = "3")]

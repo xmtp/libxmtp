@@ -1,6 +1,6 @@
 use crate::{
     context::XmtpSharedContext,
-    groups::device_sync::{BackupOptions, DeviceSyncClient, DeviceSyncError},
+    groups::device_sync::{ArchiveOptions, DeviceSyncClient, DeviceSyncError},
     worker::{NeedsDbReconnect, Worker, WorkerFactory, WorkerKind},
 };
 use prost::Message;
@@ -235,7 +235,7 @@ where
                     );
                     return Ok(());
                 };
-                let options: BackupOptions = proto_options.into();
+                let options: ArchiveOptions = proto_options.into();
 
                 let client = DeviceSyncClient::new(context.clone(), metrics);
 

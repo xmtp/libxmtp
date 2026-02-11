@@ -1,7 +1,7 @@
 pub use importer::ArchiveImporter;
 use thiserror::Error;
 use xmtp_common::time::now_ns;
-use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave, BackupOptions};
+use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave, ArchiveOptions};
 
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
 pub const NONCE_SIZE: usize = 12; // 96-bit nonce
@@ -54,10 +54,10 @@ impl BackupMetadata {
 }
 
 pub(crate) trait OptionsToSave {
-    fn from_options(options: BackupOptions) -> BackupMetadataSave;
+    fn from_options(options: ArchiveOptions) -> BackupMetadataSave;
 }
 impl OptionsToSave for BackupMetadataSave {
-    fn from_options(options: BackupOptions) -> BackupMetadataSave {
+    fn from_options(options: ArchiveOptions) -> BackupMetadataSave {
         Self {
             end_ns: options.end_ns,
             start_ns: options.start_ns,

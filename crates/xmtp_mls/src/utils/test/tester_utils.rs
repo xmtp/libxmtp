@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use super::FullXmtpClient;
-use crate::groups::device_sync::{BackupElementSelection, BackupOptions};
+use crate::groups::device_sync::{ArchiveOptions, BackupElementSelection};
 use crate::{
     Client, MlsContext,
     builder::{ClientBuilder, DeviceSyncMode, ForkRecoveryOpts, ForkRecoveryPolicy},

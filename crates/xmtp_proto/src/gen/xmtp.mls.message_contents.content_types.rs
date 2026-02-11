@@ -16,26 +16,6 @@ impl ::prost::Name for DeleteMessage {
         "/xmtp.mls.message_contents.content_types.DeleteMessage".into()
     }
 }
-/// EditMessage message type
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct EditMessage {
-    /// ID of the message to edit
-    #[prost(string, tag = "1")]
-    pub message_id: ::prost::alloc::string::String,
-    /// The new content for the message
-    #[prost(message, optional, tag = "2")]
-    pub edited_content: ::core::option::Option<super::EncodedContent>,
-}
-impl ::prost::Name for EditMessage {
-    const NAME: &'static str = "EditMessage";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents.content_types";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.content_types.EditMessage".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.content_types.EditMessage".into()
-    }
-}
 /// LeaveRequest message type
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct LeaveRequest {

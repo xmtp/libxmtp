@@ -49,7 +49,7 @@ mod backup_options;
 pub mod preference_sync;
 pub mod worker;
 
-pub use backup_options::{BackupElementSelection, BackupOptions};
+pub use backup_options::{ArchiveOptions, BackupElementSelection};
 
 #[cfg(test)]
 mod tests;

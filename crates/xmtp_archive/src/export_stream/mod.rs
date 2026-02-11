@@ -12,7 +12,7 @@ use std::{
 use xmtp_common::{MaybeSend, MaybeSendFuture, if_native, if_wasm};
 use xmtp_db::{StorageError, prelude::*};
 use xmtp_proto::xmtp::device_sync::{
-    BackupElement, BackupElementSelection, BackupOptions, consent_backup::ConsentSave,
+    BackupElement, BackupElementSelection, ArchiveOptions, consent_backup::ConsentSave,
     group_backup::GroupSave, message_backup::GroupMessageSave,
 };
 
@@ -36,7 +36,7 @@ pin_project! {
 }
 
 impl BatchExportStream {
-    pub(super) fn new<D>(opts: &BackupOptions, db: Arc<D>) -> Self
+    pub(super) fn new<D>(opts: &ArchiveOptions, db: Arc<D>) -> Self
     where
         D: DbQuery + 'static,
     {
@@ -127,7 +127,7 @@ pub(crate) trait BackupRecordProvider: MaybeSend + Sized + 'static {
 pub struct BackupProviderState<D> {
     db: Arc<D>,
     cursor: AtomicI64,
-    opts: BackupOptions,
+    opts: ArchiveOptions,
 }
 
 pin_project! {
@@ -143,7 +143,7 @@ where
     R: BackupRecordProvider + 'static,
     D: DbQuery + 'static,
 {
-    pub(super) fn new_stream(db: Arc<D>, opts: BackupOptions) -> BackupInputStream {
+    pub(super) fn new_stream(db: Arc<D>, opts: ArchiveOptions) -> BackupInputStream {
         Box::pin(Self {
             provider_state: Arc::new(BackupProviderState {
                 db,

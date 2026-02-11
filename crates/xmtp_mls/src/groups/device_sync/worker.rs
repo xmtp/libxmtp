@@ -1,4 +1,4 @@
-use super::{BackupElementSelection, BackupOptions};
+use super::{ArchiveOptions, BackupElementSelection};
 use super::{
     DeviceSyncClient, DeviceSyncError, IterWithContent,
     preference_sync::{PreferenceUpdate, store_preference_updates},
@@ -31,7 +31,7 @@ use xmtp_proto::{
     xmtp::{
         device_sync::{
             BackupElementSelection as BackupElementSelectionProto,
-            BackupOptions as BackupOptionsProto,
+            ArchiveOptions as BackupOptionsProto,
             content::{
                 DeviceSyncAcknowledge, DeviceSyncKeyType, DeviceSyncReply as DeviceSyncReplyProto,
                 DeviceSyncRequest as DeviceSyncRequestProto,
@@ -404,7 +404,7 @@ where
 
     pub(crate) async fn send_archive(
         &self,
-        options: &BackupOptions,
+        options: &ArchiveOptions,
         sync_group_id: &Vec<u8>,
         pin: &str,
         server_url: &str,
@@ -476,7 +476,7 @@ where
 
     pub async fn send_sync_request(
         &self,
-        options: BackupOptions,
+        options: ArchiveOptions,
         server_url: impl ToString,
     ) -> Result<(), ClientError> {
         let sync_group = self.get_sync_group().await?;
@@ -510,7 +510,7 @@ where
 
     pub async fn send_sync_archive(
         &self,
-        options: &BackupOptions,
+        options: &ArchiveOptions,
         server_url: &str,
         pin: &str,
     ) -> Result<(), ClientError>

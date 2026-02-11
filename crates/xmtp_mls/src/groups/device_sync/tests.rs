@@ -1,5 +1,5 @@
 use super::*;
-use super::{BackupElementSelection, BackupOptions};
+use super::{ArchiveOptions, BackupElementSelection};
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::tester;
 use xmtp_configuration::DeviceSyncUrls;
@@ -23,7 +23,7 @@ async fn basic_sync() {
     alix2
         .device_sync_client()
         .send_sync_request(
-            BackupOptions::msgs_and_consent(),
+            ArchiveOptions::msgs_and_consent(),
             DeviceSyncUrls::LOCAL_ADDRESS,
         )
         .await?;
@@ -73,7 +73,7 @@ async fn test_sync_request() {
     alix3
         .device_sync_client()
         .send_sync_request(
-            BackupOptions::msgs_and_consent(),
+            ArchiveOptions::msgs_and_consent(),
             DeviceSyncUrls::LOCAL_ADDRESS,
         )
         .await?;
@@ -131,7 +131,7 @@ async fn test_double_sync_works_fine() {
     alix2
         .device_sync_client()
         .send_sync_request(
-            BackupOptions::msgs_and_consent(),
+            ArchiveOptions::msgs_and_consent(),
             DeviceSyncUrls::LOCAL_ADDRESS,
         )
         .await?;
@@ -161,7 +161,7 @@ async fn test_double_sync_works_fine() {
         .context
         .device_sync_client()
         .send_sync_request(
-            BackupOptions {
+            ArchiveOptions {
                 elements: vec![
                     BackupElementSelection::Messages,
                     BackupElementSelection::Consent,
@@ -216,7 +216,7 @@ async fn test_hmac_and_consent_preference_sync() {
     alix2
         .device_sync_client()
         .send_sync_request(
-            BackupOptions::msgs_and_consent(),
+            ArchiveOptions::msgs_and_consent(),
             DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
         )
         .await?;
@@ -426,7 +426,7 @@ async fn test_manual_sync_flow() {
     tester!(alix2, from: alix);
     alix2.test_has_same_sync_group_as(&alix).await?;
 
-    let opts = BackupOptions {
+    let opts = ArchiveOptions {
         elements: vec![BackupElementSelection::Consent],
         ..Default::default()
     };

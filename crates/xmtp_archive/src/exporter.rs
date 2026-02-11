@@ -11,7 +11,7 @@ use sha2::digest::{generic_array::GenericArray, typenum};
 use std::{future::Future, io, pin::Pin, sync::Arc, task::Poll};
 use xmtp_db::prelude::*;
 use xmtp_proto::xmtp::device_sync::{
-    BackupElement, BackupMetadataSave, BackupOptions, backup_element::Element,
+    BackupElement, BackupMetadataSave, ArchiveOptions, backup_element::Element,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -46,7 +46,7 @@ pub(super) enum Stage {
 impl ArchiveExporter {
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn export_to_file<D>(
-        options: BackupOptions,
+        options: ArchiveOptions,
         db: D,
         path: impl AsRef<std::path::Path>,
         key: &[u8],
@@ -94,7 +94,7 @@ impl ArchiveExporter {
         Ok(response.text().await?)
     }
 
-    pub fn new<D>(options: BackupOptions, db: D, key: &[u8]) -> Self
+    pub fn new<D>(options: ArchiveOptions, db: D, key: &[u8]) -> Self
     where
         D: DbQuery + 'static,
     {

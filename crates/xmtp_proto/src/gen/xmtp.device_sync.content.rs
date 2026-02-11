@@ -131,7 +131,7 @@ pub struct DeviceSyncRequest {
     #[prost(enumeration = "super::BackupElementSelection", tag = "3")]
     pub deprecated_kind: i32,
     #[prost(message, optional, tag = "4")]
-    pub options: ::core::option::Option<super::BackupOptions>,
+    pub options: ::core::option::Option<super::ArchiveOptions>,
 }
 impl ::prost::Name for DeviceSyncRequest {
     const NAME: &'static str = "DeviceSyncRequest";

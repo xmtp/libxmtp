@@ -1,5 +1,5 @@
 use xmtp_proto::xmtp::device_sync::{
-    BackupElementSelection as BackupElementSelectionProto, BackupOptions as BackupOptionsProto,
+    BackupElementSelection as BackupElementSelectionProto, ArchiveOptions as BackupOptionsProto,
 };
 
 /// Native representation of backup element selection with strongly-typed variants.
@@ -39,17 +39,17 @@ impl From<BackupElementSelection> for BackupElementSelectionProto {
 
 /// Native representation of backup options with strongly-typed element selections.
 ///
-/// This wraps the proto `BackupOptions` to provide a more ergonomic API,
+/// This wraps the proto `ArchiveOptions` to provide a more ergonomic API,
 /// using `BackupElementSelection` enum values directly instead of raw `i32`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub struct BackupOptions {
+pub struct ArchiveOptions {
     pub elements: Vec<BackupElementSelection>,
     pub start_ns: Option<i64>,
     pub end_ns: Option<i64>,
     pub exclude_disappearing_messages: bool,
 }
 
-impl BackupOptions {
+impl ArchiveOptions {
     #[cfg(test)]
     pub fn msgs_and_consent() -> Self {
         Self {
@@ -64,7 +64,7 @@ impl BackupOptions {
     }
 }
 
-impl From<BackupOptionsProto> for BackupOptions {
+impl From<BackupOptionsProto> for ArchiveOptions {
     fn from(proto: BackupOptionsProto) -> Self {
         Self {
             elements: proto.elements().map(BackupElementSelection::from).collect(),
@@ -75,8 +75,8 @@ impl From<BackupOptionsProto> for BackupOptions {
     }
 }
 
-impl From<BackupOptions> for BackupOptionsProto {
-    fn from(opts: BackupOptions) -> Self {
+impl From<ArchiveOptions> for BackupOptionsProto {
+    fn from(opts: ArchiveOptions) -> Self {
         Self {
             elements: opts
                 .elements
@@ -90,8 +90,8 @@ impl From<BackupOptions> for BackupOptionsProto {
     }
 }
 
-impl From<&BackupOptions> for BackupOptionsProto {
-    fn from(opts: &BackupOptions) -> Self {
+impl From<&ArchiveOptions> for BackupOptionsProto {
+    fn from(opts: &ArchiveOptions) -> Self {
         Self {
             elements: opts
                 .elements
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn test_options_round_trip() {
-        let opts = BackupOptions {
+        let opts = ArchiveOptions {
             elements: vec![
                 BackupElementSelection::Messages,
                 BackupElementSelection::Consent,
@@ -138,7 +138,7 @@ mod tests {
         };
 
         let proto: BackupOptionsProto = opts.clone().into();
-        let round_tripped: BackupOptions = proto.into();
+        let round_tripped: ArchiveOptions = proto.into();
 
         assert_eq!(opts, round_tripped);
     }
@@ -148,7 +148,7 @@ mod tests {
         let selection = BackupElementSelection::default();
         assert_eq!(selection, BackupElementSelection::Unspecified);
 
-        let opts = BackupOptions::default();
+        let opts = ArchiveOptions::default();
         assert!(opts.elements.is_empty());
         assert_eq!(opts.start_ns, None);
         assert_eq!(opts.end_ns, None);
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_from_ref() {
-        let opts = BackupOptions {
+        let opts = ArchiveOptions {
             elements: vec![BackupElementSelection::Consent],
             start_ns: Some(500),
             end_ns: None,

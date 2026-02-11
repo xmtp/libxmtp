@@ -5,7 +5,7 @@ use napi_derive::napi;
 use std::sync::Arc;
 use xmtp_id::associations::DeserializationError;
 use xmtp_mls::groups::device_sync::{
-  AvailableArchive, BackupElementSelection, BackupOptions, DeviceSyncError,
+  ArchiveOptions, AvailableArchive, BackupElementSelection, DeviceSyncError,
   archive::{
     ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter, insert_importer,
   },
@@ -21,7 +21,7 @@ pub struct ArchiveOptions {
   pub exclude_disappearing_messages: bool,
 }
 
-impl From<ArchiveOptions> for BackupOptions {
+impl From<ArchiveOptions> for ArchiveOptions {
   fn from(value: ArchiveOptions) -> Self {
     Self {
       start_ns: value.start_ns.map(|n| n.get_i64().0),
@@ -225,7 +225,7 @@ impl DeviceSync {
   ) -> Result<()> {
     let key = check_key(&key)?;
     let db = self.inner_client.context.db();
-    let options: BackupOptions = opts.into();
+    let options: ArchiveOptions = opts.into();
     ArchiveExporter::export_to_file(options.into(), db, path, &key)
       .await
       .map_err(DeviceSyncError::Archive)

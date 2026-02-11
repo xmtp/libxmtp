@@ -14,7 +14,7 @@ import org.xmtp.android.library.libxmtp.PermissionOption
 import org.xmtp.android.library.libxmtp.PermissionPolicySet
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.messages.walletAddress
-import uniffi.xmtpv3.GenericException
+import uniffi.xmtpv3.FfiException
 
 @RunWith(AndroidJUnit4::class)
 class GroupPermissionsTest : BaseInstrumentedTest() {
@@ -368,7 +368,7 @@ class GroupPermissionsTest : BaseInstrumentedTest() {
                 updateAppDataPolicy = PermissionOption.Admin,
             )
 
-        assertThrows(GenericException.GroupMutablePermissions::class.java) {
+        assertThrows(FfiException::class.java) {
             val boGroup =
                 runBlocking {
                     boClient.conversations.newGroupCustomPermissions(

@@ -4,7 +4,7 @@ mod tests;
 use crate::{FfiError, FfiGroupSyncSummary, FfiXmtpClient};
 use xmtp_id::associations::DeserializationError;
 use xmtp_mls::groups::device_sync::{
-    AvailableArchive, BackupElementSelection, BackupOptions, DeviceSyncError,
+    ArchiveOptions, AvailableArchive, BackupElementSelection, DeviceSyncError,
     archive::{
         ArchiveImporter, BACKUP_VERSION, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter,
         insert_importer,
@@ -75,7 +75,7 @@ impl FfiXmtpClient {
         key: Vec<u8>,
     ) -> Result<FfiBackupMetadata, FfiError> {
         let db = self.inner_client.context.db();
-        let options: BackupOptions = opts.into();
+        let options: ArchiveOptions = opts.into();
         let metadata = ArchiveExporter::export_to_file(options.into(), db, path, &check_key(key)?)
             .await
             .map_err(DeviceSyncError::Archive)?;
@@ -134,7 +134,7 @@ impl Default for FfiArchiveOptions {
         }
     }
 }
-impl From<FfiArchiveOptions> for BackupOptions {
+impl From<FfiArchiveOptions> for ArchiveOptions {
     fn from(value: FfiArchiveOptions) -> Self {
         Self {
             start_ns: value.start_ns,
@@ -355,7 +355,7 @@ mod unit_tests {
             exclude_disappearing_messages: true,
         };
 
-        let backup_options: BackupOptions = ffi_options.into();
+        let backup_options: ArchiveOptions = ffi_options.into();
         assert_eq!(backup_options.start_ns, Some(1000));
         assert_eq!(backup_options.end_ns, Some(2000));
         assert_eq!(backup_options.elements.len(), 2);
@@ -371,7 +371,7 @@ mod unit_tests {
             exclude_disappearing_messages: false,
         };
 
-        let backup_options: BackupOptions = ffi_options.into();
+        let backup_options: ArchiveOptions = ffi_options.into();
         assert_eq!(backup_options.start_ns, None);
         assert_eq!(backup_options.end_ns, None);
         assert!(backup_options.elements.is_empty());
