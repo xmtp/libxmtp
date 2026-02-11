@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::process::Command;
-use vergen_git2::{BuildBuilder, Emitter, Git2Builder};
+use vergen_gix::{BuildBuilder, Emitter, GixBuilder};
 
 fn main() -> Result<(), Box<dyn Error>> {
     Command::new("make")
@@ -9,7 +9,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .expect("failed to make libxmtp-version");
 
     let build = BuildBuilder::all_build()?;
-    let git = Git2Builder::default()
+    let git = GixBuilder::default()
         .sha(true)
         .commit_timestamp(true)
         .build()?;
