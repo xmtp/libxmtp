@@ -1,6 +1,5 @@
 { mkShell
 , darwin
-, androidenv
 , stdenv
 , pkg-config
 , kotlin
@@ -16,9 +15,7 @@
 , writeShellScriptBin
 }:
 let
-  # Shared Android environment configuration
-  androidEnv = import ./lib/android-env.nix { inherit lib androidenv stdenv; };
-
+  inherit (xmtp) androidEnv;
   # Use dev composition (includes emulator)
   androidComposition = androidEnv.composeDevPackages;
   androidPaths = androidEnv.mkAndroidPaths androidComposition;
@@ -42,9 +39,7 @@ let
   #
   # Fix: Start scanning at port 5560, above all Docker service ports.
   androidSdk = "${androidComposition.androidsdk}/libexec/android-sdk";
-  platformVersion = androidEnv.emulatorConfig.platformVersion;
-  abiVersion = androidEnv.emulatorConfig.abiVersion;
-  systemImageType = androidEnv.emulatorConfig.systemImageType;
+  inherit (androidEnv.emulatorConfig) platformVersion abiVersion systemImageType;
 
   androidEmulator = writeShellScriptBin "run-test-emulator" ''
     set -e

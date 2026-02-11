@@ -54,49 +54,46 @@
             android = pkgs.callPackage ./nix/android.nix { };
             js = pkgs.callPackage ./nix/js.nix { };
             # the environment bindings_wasm is built in
-            wasm = (pkgs.callPackage ./nix/package/wasm.nix { craneLib = crane.mkLib pkgs; }).devShell;
+            wasm = (pkgs.callPackage ./nix/package/wasm.nix { }).devShell;
           } // lib.optionalAttrs pkgs.stdenv.isDarwin {
             # Shell for iOS builds
             ios = pkgs.callPackage ./nix/ios.nix { };
           };
-          packages = {
-            wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { craneLib = crane.mkLib pkgs; }).bin;
-            wasm-bindgen-cli = pkgs.callPackage ./nix/lib/packages/wasm-bindgen-cli.nix { };
-            # Android bindings (.so libraries + Kotlin bindings)
-            android-libs =
-              let android = pkgs.callPackage ./nix/package/android.nix { craneLib = crane.mkLib pkgs; };
-              in android.aggregate;
-            # Android bindings - host-matching target only (fast dev/CI builds)
-            android-libs-fast =
-              let
-                android = pkgs.callPackage ./nix/package/android.nix { craneLib = crane.mkLib pkgs; };
-                androidEnv = import ./nix/lib/android-env.nix {
-                  inherit lib;
-                  inherit (pkgs) androidenv stdenv;
+          packages =
+            let
+              android = pkgs.callPackage ./nix/package/android.nix { };
+              inherit (pkgs.xmtp) androidEnv;
+            in
+            {
+              wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { }).bin;
+              wasm-bindgen-cli = pkgs.callPackage ./nix/lib/packages/wasm-bindgen-cli.nix { };
+              # Android bindings (.so libraries + Kotlin bindings)
+              android-libs = android.aggregate;
+              # Android bindings - host-matching target only (fast dev/CI builds)
+              android-libs-fast = (android.mkAndroid [ androidEnv.hostAndroidTarget ]).aggregate;
+
+              docker-mls_validation_service = pkgs.dockerTools.buildLayeredImage {
+                name = "ghcr.io/xmtp/mls-validation-service"; # override ghcr images
+                tag = "main";
+                created = "now";
+                config = {
+                  Env = [
+                    "ANVIL_URL=http://anvil:8545"
+                  ];
+                  entrypoint = [ "${self'.packages.musl-mls_validation_service}/bin/mls-validation-service" ];
                 };
-              in (android.mkAndroid [ androidEnv.hostAndroidTarget ]).aggregate;
-            docker-mls_validation_service = pkgs.dockerTools.buildLayeredImage {
-              name = "ghcr.io/xmtp/mls-validation-service"; # override ghcr images
-              tag = "main";
-              created = "now";
-              config = {
-                Env = [
-                  "ANVIL_URL=http://anvil:8545"
-                ];
-                entrypoint = [ "${self'.packages.musl-mls_validation_service}/bin/mls-validation-service" ];
               };
+            } // lib.optionalAttrs pkgs.stdenv.isDarwin {
+              # stdenvNoCC is passed to both callPackage (for the aggregate derivation)
+              # and crane.mkLib (for the Rust build derivations). This avoids Nix's
+              # apple-sdk and cc-wrapper, which inject -mmacos-version-min flags that
+              # conflict with iOS cross-compilation. The builds are impure (__noChroot)
+              # and use the system Xcode SDK directly via ios-env.nix paths.
+              ios-libs = (pkgs.callPackage ./nix/package/ios.nix {
+                xmtp.craneLib = crane.mkLib (pkgs // { stdenv = pkgs.stdenvNoCC; });
+                stdenv = pkgs.stdenvNoCC;
+              }).aggregate;
             };
-          } // lib.optionalAttrs pkgs.stdenv.isDarwin {
-            # stdenvNoCC is passed to both callPackage (for the aggregate derivation)
-            # and crane.mkLib (for the Rust build derivations). This avoids Nix's
-            # apple-sdk and cc-wrapper, which inject -mmacos-version-min flags that
-            # conflict with iOS cross-compilation. The builds are impure (__noChroot)
-            # and use the system Xcode SDK directly via ios-env.nix paths.
-            ios-libs = (pkgs.callPackage ./nix/package/ios.nix {
-              craneLib = crane.mkLib (pkgs // { stdenv = pkgs.stdenvNoCC; });
-              stdenv = pkgs.stdenvNoCC;
-            }).aggregate;
-          };
         };
     };
 }

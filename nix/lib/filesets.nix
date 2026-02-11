@@ -1,8 +1,8 @@
 { lib
-, craneLib
+, xmtp
 }:
 let
-  inherit (craneLib.fileset) commonCargoSources;
+  inherit (xmtp.craneLib.fileset) commonCargoSources;
   src = ./../..;
 
   # Narrow fileset for buildDepsOnly — only includes files that affect
@@ -16,9 +16,11 @@ let
     (src + /Cargo.lock)
     (src + /.cargo/config.toml)
     # All Cargo.toml and build.rs files in the workspace
-    (lib.fileset.fileFilter (file:
-      file.name == "Cargo.toml" || file.name == "build.rs"
-    ) src)
+    (lib.fileset.fileFilter
+      (file:
+        file.name == "Cargo.toml" || file.name == "build.rs"
+      )
+      src)
     # Files referenced by build scripts (e.g., include_bytes!, include_str!).
     # These are needed at dep-compilation time because build.rs runs then.
     (src + /crates/xmtp_id/src/scw_verifier/chain_urls_default.json)
