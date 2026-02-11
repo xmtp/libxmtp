@@ -9167,6 +9167,7 @@ dependencies = [
  "xmtp_api",
  "xmtp_api_d14n",
  "xmtp_api_grpc",
+ "xmtp_archive",
  "xmtp_common",
  "xmtp_configuration",
  "xmtp_content_types",

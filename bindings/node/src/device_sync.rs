@@ -225,8 +225,7 @@ impl DeviceSync {
   ) -> Result<()> {
     let key = check_key(&key)?;
     let db = self.inner_client.context.db();
-    let options: ArchiveOptions = opts.into();
-    ArchiveExporter::export_to_file(options.into(), db, path, &key)
+    ArchiveExporter::export_to_file(opts.into(), db, path, &key)
       .await
       .map_err(DeviceSyncError::Archive)
       .map_err(ErrorWrapper::from)?;

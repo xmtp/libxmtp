@@ -76,7 +76,7 @@ impl FfiXmtpClient {
     ) -> Result<FfiBackupMetadata, FfiError> {
         let db = self.inner_client.context.db();
         let options: ArchiveOptions = opts.into();
-        let metadata = ArchiveExporter::export_to_file(options.into(), db, path, &check_key(key)?)
+        let metadata = ArchiveExporter::export_to_file(options, db, path, &check_key(key)?)
             .await
             .map_err(DeviceSyncError::Archive)?;
 
