@@ -10,6 +10,7 @@ on:
       rc-number:
         required: false
         type: number
+        default: 0
         description: "RC number (required for rc releases)"
       ref:
         required: true
