@@ -190,10 +190,10 @@ class HistorySyncTest : BaseInstrumentedTest() {
             delay(2000)
 
             // Validate the updated consent is visible on second client
-            val client2Group =
+            val client2GroupUpdated =
                 client2.conversations.findGroup(group.id)
                     ?: throw AssertionError("Failed to find group with ID: ${group.id}")
-            assertEquals(ConsentState.DENIED, client2Group.consentState())
+            assertEquals(ConsentState.DENIED, client2GroupUpdated.consentState())
         }
 
     @Test
