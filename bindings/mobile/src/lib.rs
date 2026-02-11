@@ -114,13 +114,33 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for GenericError {
     }
 }
 
-/// Wrapper that formats errors as `[error_code] message` for mobile SDKs.
-/// UniFFI uses Display to convert errors to strings, so this wrapper
-/// ensures mobile clients receive machine-readable error codes.
+/// Structured error for mobile SDKs with separate code and message fields.
+///
+/// Swift:
+/// ```swift
+/// do {
+///     try await client.doSomething()
+/// } catch let error as FfiError {
+///     switch error {
+///     case .Error(let code, let message):
+///         print(code)    // "StorageError::NotFound"
+///         print(message) // "Not found: ..."
+///     }
+/// }
+/// ```
+///
+/// Kotlin:
+/// ```kotlin
+/// try {
+///     client.doSomething()
+/// } catch (e: FfiError.Error) {
+///     println(e.code)    // "StorageError::NotFound"
+///     println(e.message) // "Not found: ..."
+/// }
+/// ```
 #[derive(Debug, uniffi::Error)]
-#[uniffi(flat_error)]
 pub enum FfiError {
-    Error(GenericError),
+    Error { code: String, message: String },
 }
 
 #[derive(uniffi::Record, Clone, Debug, PartialEq, Eq)]
@@ -132,29 +152,30 @@ pub struct FfiErrorInfo {
 impl std::fmt::Display for FfiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FfiError::Error(e) => write!(f, "[{}] {}", e.error_code(), e),
+            FfiError::Error { code, message } => write!(f, "[{code}] {message}"),
         }
     }
 }
 
-impl std::error::Error for FfiError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            FfiError::Error(e) => e.source(),
-        }
-    }
-}
+impl std::error::Error for FfiError {}
 
 impl<T: Into<GenericError>> From<T> for FfiError {
     fn from(err: T) -> Self {
-        Self::Error(err.into())
+        let generic: GenericError = err.into();
+        let code = generic.error_code().to_string();
+        let message = format!("[{code}] {generic}");
+        Self::Error { code, message }
     }
 }
 
 impl FfiError {
     /// Create a generic error with a message
     pub fn generic(err: impl Into<String>) -> Self {
-        FfiError::Error(GenericError::Generic { err: err.into() })
+        let msg = err.into();
+        FfiError::Error {
+            code: "GenericError::Generic".to_string(),
+            message: format!("[GenericError::Generic] {msg}"),
+        }
     }
 }
 
@@ -183,7 +204,10 @@ pub fn parse_xmtp_error(message: String) -> FfiErrorInfo {
 
 impl From<xmtp_common::time::Expired> for FfiError {
     fn from(_: xmtp_common::time::Expired) -> Self {
-        FfiError::Error(GenericError::Expired)
+        let generic = GenericError::Expired;
+        let code = generic.error_code().to_string();
+        let message = format!("[{code}] {generic}");
+        FfiError::Error { code, message }
     }
 }
 
@@ -372,6 +396,54 @@ mod lib_tests {
         let err = FfiError::generic("helper error");
         assert!(err.to_string().contains("[GenericError::Generic]"));
         assert!(err.to_string().contains("helper error"));
+    }
+
+    #[test]
+    fn test_ffi_error_structured_fields_generic() {
+        use crate::FfiError;
+
+        let err = FfiError::generic("something went wrong");
+        match &err {
+            FfiError::Error { code, message } => {
+                assert_eq!(code, "GenericError::Generic");
+                assert_eq!(message, "[GenericError::Generic] something went wrong");
+            }
+        }
+    }
+
+    #[test]
+    fn test_ffi_error_structured_fields_inherited() {
+        use crate::FfiError;
+
+        let storage_err =
+            xmtp_db::StorageError::NotFound(xmtp_db::NotFound::MessageById(vec![1, 2, 3]));
+        let err: FfiError = storage_err.into();
+        match &err {
+            FfiError::Error { code, message } => {
+                assert_eq!(code, "StorageError::NotFound");
+                assert!(
+                    message.starts_with("[StorageError::NotFound]"),
+                    "Expected message to start with [StorageError::NotFound]: {message}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_ffi_error_structured_fields_expired() {
+        use crate::FfiError;
+        use xmtp_common::time::Expired;
+
+        let err: FfiError = Expired.into();
+        match &err {
+            FfiError::Error { code, message } => {
+                assert_eq!(code, "GenericError::Expired");
+                assert!(
+                    message.starts_with("[GenericError::Expired]"),
+                    "Expected message to start with [GenericError::Expired]: {message}"
+                );
+            }
+        }
     }
 
     // Execute once before any tests are run
