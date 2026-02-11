@@ -1,9 +1,9 @@
 import path from "node:path";
 import fs from "node:fs";
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { GlobalArgs } from "../types.js";
-import { getSdkConfig } from "../lib/sdk-config.js";
-import { findLastVersion } from "./find-last-version.js";
+import type { GlobalArgs } from "../types";
+import { getSdkConfig } from "../lib/sdk-config";
+import { findLastVersion } from "./find-last-version";
 
 export function scaffoldNotes(
   sdk: string,

@@ -1,5 +1,17 @@
 import semver from "semver";
-import type { ReleaseType } from "../types.js";
+import type { ReleaseType } from "../types";
+
+/**
+ * Normalize a version string by stripping prerelease and build metadata.
+ * E.g., "4.9.0-dev.abc123" -> "4.9.0", "4.9.0-rc1" -> "4.9.0"
+ */
+export function normalizeVersion(version: string): string {
+  const parsed = semver.parse(version);
+  if (!parsed) {
+    throw new Error(`Invalid version format: ${version}`);
+  }
+  return `${parsed.major}.${parsed.minor}.${parsed.patch}`;
+}
 
 /**
  * Filter git tags by SDK prefix, exclude artifact tags, parse as semver,

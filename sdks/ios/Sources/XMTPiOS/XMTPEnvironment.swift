@@ -28,20 +28,20 @@ public enum XMTPEnvironment: String, Sendable {
 	var address: String {
 		switch self {
 		case .local:
-			return XMTPEnvironment.customLocalAddress ?? rawValue
+			XMTPEnvironment.customLocalAddress ?? rawValue
 		default:
-			return rawValue
+			rawValue
 		}
 	}
 
 	var legacyRawValue: String {
 		switch self {
 		case .local:
-			return "localhost:5556"
+			"localhost:5556"
 		case .dev:
-			return "grpc.dev.xmtp.network:443"
+			"grpc.dev.xmtp.network:443"
 		case .production:
-			return "grpc.production.xmtp.network:443"
+			"grpc.production.xmtp.network:443"
 		}
 	}
 
@@ -64,11 +64,11 @@ public enum XMTPEnvironment: String, Sendable {
 	public func getHistorySyncUrl() -> String {
 		switch self {
 		case .production:
-			return "https://message-history.production.ephemera.network"
+			"https://message-history.production.ephemera.network"
 		case .local:
-			return XMTPEnvironment.customHistorySyncUrl ?? "http://localhost:5558"
+			XMTPEnvironment.customHistorySyncUrl ?? "http://localhost:5558"
 		case .dev:
-			return "https://message-history.dev.ephemera.network"
+			"https://message-history.dev.ephemera.network"
 		}
 	}
 }

@@ -1,0 +1,56 @@
+package org.xmtp.android.example.conversation
+
+import androidx.recyclerview.widget.RecyclerView
+import org.xmtp.android.example.ClientManager
+import org.xmtp.android.example.MainViewModel
+import org.xmtp.android.example.R
+import org.xmtp.android.example.databinding.ListItemConversationBinding
+import org.xmtp.android.example.extension.truncatedAddress
+import org.xmtp.android.library.Conversation
+import org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated
+
+class ConversationViewHolder(
+    private val binding: ListItemConversationBinding,
+    clickListener: ConversationsClickListener,
+) : RecyclerView.ViewHolder(binding.root) {
+    private var conversation: Conversation? = null
+
+    init {
+        binding.root.setOnClickListener {
+            conversation?.let {
+                clickListener.onConversationClick(it)
+            }
+        }
+    }
+
+    fun bind(item: MainViewModel.MainListItem.ConversationItem) {
+        conversation = item.conversation
+        binding.peerAddress.text = item.conversation.id.truncatedAddress()
+
+        val messageBody: String =
+            if (item.mostRecentMessage?.content<Any>() is String) {
+                item.mostRecentMessage.body.orEmpty()
+            } else if (item.mostRecentMessage?.content<Any>() is GroupUpdated) {
+                val changes = item.mostRecentMessage.content() as? GroupUpdated
+                "Membership Changed ${
+                    changes?.addedInboxesList?.mapNotNull { it.inboxId }
+                }"
+            } else {
+                ""
+            }
+        val isMe = item.mostRecentMessage?.senderInboxId == ClientManager.client.inboxId
+        if (messageBody.isNotBlank()) {
+            binding.messageBody.text =
+                if (isMe) {
+                    binding.root.resources.getString(
+                        R.string.your_message_body,
+                        messageBody,
+                    )
+                } else {
+                    messageBody
+                }
+        } else {
+            binding.messageBody.text = binding.root.resources.getString(R.string.empty_message)
+        }
+    }
+}

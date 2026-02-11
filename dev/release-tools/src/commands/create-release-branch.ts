@@ -1,14 +1,22 @@
-import { execSync } from "node:child_process";
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { BumpType, GlobalArgs } from "../types.js";
-import { bumpVersion } from "./bump-version.js";
-import { scaffoldNotes } from "./scaffold-notes.js";
-import { findLastVersion } from "./find-last-version.js";
-import { getSdkConfig } from "../lib/sdk-config.js";
+import {
+  Sdk,
+  BUMP_OPTIONS,
+  type BumpOption,
+  type BumpType,
+  type GlobalArgs,
+} from "../types";
+import { bumpVersion } from "./bump-version";
+import { setManifestVersion } from "./set-manifest-version";
+import { scaffoldNotes } from "./scaffold-notes";
+import { findLastVersion } from "./find-last-version";
+import { getSdkConfig } from "../lib/sdk-config";
+import { execInherit } from "../lib/exec";
 
-function exec(cmd: string, cwd: string): void {
-  execSync(cmd, { cwd, stdio: "inherit" });
-}
+type SdkBump = {
+  sdk: Sdk;
+  bump: BumpType;
+};
 
 export const command = "create-release-branch";
 export const describe =
@@ -26,45 +34,76 @@ export function builder(yargs: Argv<GlobalArgs>) {
       default: "HEAD",
       describe: "Base ref to branch from",
     })
-    .option("sdk", {
+    .option("ios", {
       type: "string",
-      demandOption: true,
-      describe: "SDK to bump (e.g. ios)",
+      default: "none",
+      choices: BUMP_OPTIONS,
+      describe: "iOS SDK version bump type",
     })
-    .option("bump", {
+    .option("android", {
       type: "string",
-      demandOption: true,
-      choices: ["major", "minor", "patch"] as const,
-      describe: "Version bump type",
+      default: "none",
+      choices: BUMP_OPTIONS,
+      describe: "Android SDK version bump type",
     });
 }
 
-export function handler(
-  argv: ArgumentsCamelCase<
-    GlobalArgs & { version: string; base: string; sdk: string; bump: BumpType }
-  >,
-) {
+interface CreateReleaseBranchArgs extends GlobalArgs {
+  version: string;
+  base: string;
+  ios: string;
+  android: string;
+}
+
+export function handler(argv: ArgumentsCamelCase<CreateReleaseBranchArgs>) {
   const cwd = argv.repoRoot;
   const branchName = `release/${argv.version}`;
 
-  // Validate SDK before creating branch to fail fast on invalid SDK names
-  const config = getSdkConfig(argv.sdk);
+  // Collect SDK bumps to process
+  const sdkBumps: Array<SdkBump> = [];
+
+  if (argv.ios !== "none") {
+    sdkBumps.push({ sdk: Sdk.Ios, bump: argv.ios as BumpType });
+  }
+  if (argv.android !== "none") {
+    sdkBumps.push({ sdk: Sdk.Android, bump: argv.android as BumpType });
+  }
+
+  // Validate at least one SDK is being bumped
+  if (sdkBumps.length === 0) {
+    throw new Error(
+      "At least one SDK must be bumped (use --ios or --android with a bump type)",
+    );
+  }
 
   console.log(`Creating branch ${branchName} from ${argv.base}...`);
-  exec(`git checkout -b ${branchName} ${argv.base}`, cwd);
+  execInherit(`git checkout -b ${branchName} ${argv.base}`, cwd);
 
-  console.log(`Bumping ${argv.sdk} version (${argv.bump})...`);
-  const newVersion = bumpVersion(argv.sdk, argv.bump, cwd);
-  console.log(`New ${argv.sdk} version: ${newVersion}`);
-  const lastVersion = findLastVersion(argv.sdk, cwd);
-  const sinceTag = lastVersion ? `${config.tagPrefix}${lastVersion}` : null;
-  console.log(`Scaffolding release notes...`);
-  const notesPath = scaffoldNotes(argv.sdk, cwd, sinceTag);
-  console.log(`Release notes: ${notesPath}`);
+  // Process each SDK
+  const bumpedSdks: string[] = [];
+  for (const { sdk, bump } of sdkBumps) {
+    console.log(`Bumping ${sdk} version (${bump})...`);
+    const newVersion = bumpVersion(sdk, bump, cwd);
+    console.log(`New ${sdk} version: ${newVersion}`);
 
-  exec("git add -A", cwd);
-  exec(
-    `git commit -m "chore: create release ${argv.version} with ${argv.sdk} ${newVersion}"`,
+    const lastVersion = findLastVersion(sdk, cwd);
+    const config = getSdkConfig(sdk);
+    const sinceTag = lastVersion ? `${config.tagPrefix}${lastVersion}` : null;
+
+    console.log(`Scaffolding ${sdk} release notes...`);
+    const notesPath = scaffoldNotes(sdk, cwd, sinceTag);
+    console.log(`Release notes: ${notesPath}`);
+
+    bumpedSdks.push(`${sdk} ${newVersion}`);
+  }
+
+  // Always set the libxmtp (Cargo.toml) version to the release version
+  console.log(`Setting libxmtp version to ${argv.version}...`);
+  setManifestVersion("libxmtp", argv.version, cwd);
+
+  execInherit("git add -A", cwd);
+  execInherit(
+    `git commit -m "chore: create release ${argv.version} (${bumpedSdks.join(", ")})"`,
     cwd,
   );
 

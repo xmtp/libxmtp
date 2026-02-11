@@ -1,0 +1,150 @@
+plugins {
+    id 'signing'
+    id 'maven-publish'
+    id 'com.android.library'
+    id 'org.jetbrains.kotlin.android'
+    id 'com.google.protobuf' version '0.9.1'
+    id "org.jetbrains.dokka" version "1.8.10"
+}
+
+dokkaGfmPartial {
+    outputDirectory.set(file("build/docs/partial"))
+}
+
+android {
+    namespace 'org.xmtp.android.library'
+    compileSdk 35
+
+    defaultConfig {
+        minSdk 23
+        targetSdk 35
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        consumerProguardFiles "consumer-rules.pro"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    testOptions {
+        animationsDisabled = true
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+    publishing {
+        singleVariant("release") {
+            withSourcesJar()
+            withJavadocJar()
+        }
+    }
+    lint {
+        baseline = file("lint-baseline.xml")
+        checkTestSources = false
+        ignoreTestSources = true
+    }
+    // Include generated bindings from Nix build
+    sourceSets {
+        main {
+            java.srcDirs += ["${rootProject.projectDir}/.build/bindings/java"]
+            jniLibs.srcDirs += ["${rootProject.projectDir}/.build/bindings/jniLibs"]
+        }
+    }
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:3.21.9"
+    }
+    plugins {
+        grpc {
+            artifact = "io.grpc:protoc-gen-grpc-java:1.62.2"
+        }
+        grpckt {
+            artifact = "io.grpc:protoc-gen-grpc-kotlin:1.4.1:jdk8@jar"
+        }
+    }
+    generateProtoTasks {
+        all()*.plugins {
+            grpc {}
+            grpckt {}
+        }
+        all()*.builtins {
+            kotlin {}
+        }
+    }
+}
+
+dependencies {
+    implementation 'com.google.crypto.tink:tink-android:1.8.0'
+    implementation 'io.grpc:grpc-kotlin-stub:1.4.1'
+    implementation 'io.grpc:grpc-okhttp:1.62.2'
+    implementation 'io.grpc:grpc-protobuf-lite:1.62.2'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0'
+    implementation 'org.web3j:crypto:4.9.4'
+    implementation "net.java.dev.jna:jna:5.17.0@aar"
+    api 'com.google.protobuf:protobuf-kotlin-lite:3.22.3'
+    api 'org.xmtp:proto-kotlin:3.88.0'
+
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'androidx.test:monitor:1.7.2'
+    androidTestImplementation 'app.cash.turbine:turbine:1.1.0'
+    androidTestImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+    androidTestImplementation 'org.web3j:core:4.9.4'
+    androidTestImplementation 'org.web3j:contracts:4.9.4'
+}
+
+afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                groupId = "org.xmtp"
+                artifactId = "android"
+                version = rootProject.version
+
+                from components.release
+
+                pom {
+                    name = "XMTP"
+                    description = "XMTP Android Library"
+                    url = "https://github.com/xmtp/xmtp-android"
+
+                    licenses {
+                        license {
+                            name = "MIT License"
+                            url = "https://github.com/xmtp/xmtp-android/blob/main/LICENSE"
+                        }
+                    }
+                    developers {
+                        developer {
+
+                            id = "xmtp"
+                            name = "xmtp"
+                            email = "naomi@xmtp.com"
+                        }
+                    }
+                    scm {
+                        connection = "https://github.com/xmtp/xmtp-android.git"
+                        developerConnection = "https://github.com/xmtp/xmtp-android.git"
+                        url = "https://github.com/xmtp/xmtp-android/tree/main"
+                    }
+                }
+            }
+        }
+    }
+    signing {
+        def signingKey = System.getenv("SIGN_KEY")
+        def signingPassword = System.getenv("SIGN_PASSWORD")
+        useInMemoryPgpKeys(signingKey, signingPassword)
+        sign publishing.publications.release
+    }
+}

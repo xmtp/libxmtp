@@ -19,12 +19,10 @@ enum Crypto {
 			outputByteCount: 32
 		)
 
-		var payload: AES.GCM.SealedBox
-
-		if let additionalData {
-			payload = try AES.GCM.seal(message, using: resultKey, nonce: nonce, authenticating: additionalData)
+		var payload: AES.GCM.SealedBox = if let additionalData {
+			try AES.GCM.seal(message, using: resultKey, nonce: nonce, authenticating: additionalData)
 		} else {
-			payload = try AES.GCM.seal(message, using: resultKey, nonce: nonce)
+			try AES.GCM.seal(message, using: resultKey, nonce: nonce)
 		}
 
 		var ciphertext = CipherText()

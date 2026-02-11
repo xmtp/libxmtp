@@ -1,0 +1,11 @@
+#!/bin/bash
+# Build the Android SDK
+source "$(dirname "$0")/.setup"
+ensure_nix_shell "$@"
+
+# Ensure bindings are built
+"${SDK_ROOT}/dev/bindings"
+
+# Run Gradle build
+cd "${SDK_ROOT}"
+./gradlew :library:build

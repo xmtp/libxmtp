@@ -970,22 +970,18 @@ class ClientTests: XCTestCase {
 				continue
 			}
 
-			let notBeforeDate: String
-			if let notBefore = thisKPStatus.lifetime?.notBefore {
-				notBeforeDate =
-					Date(timeIntervalSince1970: TimeInterval(notBefore))
-						.description
+			let notBeforeDate: String = if let notBefore = thisKPStatus.lifetime?.notBefore {
+				Date(timeIntervalSince1970: TimeInterval(notBefore))
+					.description
 			} else {
-				notBeforeDate = "null"
+				"null"
 			}
 
-			let notAfterDate: String
-			if let notAfter = thisKPStatus.lifetime?.notAfter {
-				notAfterDate =
-					Date(timeIntervalSince1970: TimeInterval(notAfter))
-						.description
+			let notAfterDate: String = if let notAfter = thisKPStatus.lifetime?.notAfter {
+				Date(timeIntervalSince1970: TimeInterval(notAfter))
+					.description
 			} else {
-				notAfterDate = "null"
+				"null"
 			}
 			print(
 				"inst: \(installationId) - valid from: \(notBeforeDate) to: \(notAfterDate)"

@@ -67,7 +67,7 @@ struct ContentView: View {
 			}
 		}
 		.sheet(isPresented: $isShowingQRCode) {
-			if let qrCodeImage = qrCodeImage {
+			if let qrCodeImage {
 				QRCodeSheetView(image: qrCodeImage)
 			}
 		}
