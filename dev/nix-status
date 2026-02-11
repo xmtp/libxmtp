@@ -1,0 +1,73 @@
+#!/bin/bash
+set -eou pipefail
+
+# Report the status of the Nix development environment
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+ENVRC_PATH="$REPO_ROOT/.envrc"
+
+echo "Nix Environment Status"
+echo "======================"
+echo ""
+
+# Check if nix is installed
+if which nix &>/dev/null; then
+  echo "Nix installed:    yes ($(which nix))"
+else
+  echo "Nix installed:    no"
+  echo ""
+  echo "Run ./dev/nix-up to install Nix"
+  exit 0
+fi
+
+# Check if direnv is installed
+if which direnv &>/dev/null; then
+  echo "direnv installed: yes ($(which direnv))"
+else
+  echo "direnv installed: no"
+fi
+
+# Check if .envrc exists
+if [[ -f "$ENVRC_PATH" ]]; then
+  echo ".envrc exists:    yes"
+else
+  echo ".envrc exists:    no"
+fi
+
+echo ""
+
+# Check if environment is active
+if [[ -n "${IN_NIX_SHELL:-}" ]]; then
+  echo "Environment:      ACTIVE (IN_NIX_SHELL=$IN_NIX_SHELL)"
+
+  # Check if the environment is healthy (paths exist)
+  if [[ -n "${DEVELOPER_DIR:-}" ]]; then
+    if [[ -d "$DEVELOPER_DIR" ]]; then
+      echo "SDK path:         OK ($DEVELOPER_DIR)"
+    else
+      echo "SDK path:         BROKEN - path does not exist!"
+      echo ""
+      echo "The Nix store path was garbage collected but environment"
+      echo "variables persist. To fix this, either:"
+      echo ""
+      echo "  1. Start a new terminal and re-enter this directory, or"
+      echo ""
+      echo "  2. Run: direnv reload"
+      echo ""
+      echo "  3. Or manually unset stale variables:"
+      echo "     unset DEVELOPER_DIR SDKROOT NIX_LDFLAGS NIX_CFLAGS_COMPILE IN_NIX_SHELL"
+      exit 1
+    fi
+  fi
+elif [[ -n "${DIRENV_DIR:-}" ]]; then
+  echo "Environment:      PARTIAL (direnv loaded but not in Nix shell)"
+else
+  echo "Environment:      NOT ACTIVE"
+  echo ""
+  if [[ -f "$ENVRC_PATH" ]]; then
+    echo "To activate, run: direnv allow"
+  else
+    echo "Run ./dev/nix-up to set up the environment"
+  fi
+fi

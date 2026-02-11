@@ -1,17 +1,35 @@
 #!/bin/bash
 set -eou pipefail
 
-# Local script to release android jniLibs with same environment as CI
+# Local script to uninstall nix and direnv
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+ENVRC_PATH="$REPO_ROOT/.envrc"
+
 if [[ "${OSTYPE}" == "darwin"* ]]; then
+  # Deactivate direnv environment before uninstalling
+  if which direnv &> /dev/null; then
+    echo "Deactivating direnv environment..."
+    direnv deny "$REPO_ROOT" 2>/dev/null || true
+  fi
+
+  # Remove .envrc file created by nix-up
+  if [[ -f "$ENVRC_PATH" ]]; then
+    echo "Removing .envrc file..."
+    rm "$ENVRC_PATH"
+  fi
+
   if which nix &>/dev/null; then
     read -p "Are you sure you want to uninstall nix? (y/n) " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
       /nix/nix-installer uninstall
     else
-      echo "no nix installation detected"
+      echo "Nix uninstall cancelled."
       exit 1
     fi
+  else
+    echo "No nix installation detected"
   fi
 
   if which direnv &> /dev/null; then
@@ -19,4 +37,26 @@ if [[ "${OSTYPE}" == "darwin"* ]]; then
     [[ -f /etc/arch-release ]] && sudo pacman -Rns direnv
     grep -q "ubuntu" /etc/os-release 2>/dev/null && sudo apt remove direnv
   fi
+
+  # Remove direnv shell hooks from rc files
+  for shell_rc in ~/.bashrc ~/.zshrc; do
+    if [[ -f "$shell_rc" ]] && grep -q "direnv hook" "$shell_rc"; then
+      sed -i '' '/direnv hook/d' "$shell_rc"
+      echo "Removed direnv hook from $shell_rc"
+    fi
+  done
+
+  echo ""
+  echo "=============================================="
+  echo "IMPORTANT: Start a new terminal session!"
+  echo "=============================================="
+  echo ""
+  echo "Environment variables from the Nix shell (like DEVELOPER_DIR,"
+  echo "SDKROOT) persist in your current session. To clear them, either:"
+  echo ""
+  echo "  1. Open a new terminal window (recommended), or"
+  echo ""
+  echo "  2. Run this in your current shell:"
+  echo "     unset DEVELOPER_DIR SDKROOT NIX_LDFLAGS NIX_CFLAGS_COMPILE"
+  echo ""
 fi

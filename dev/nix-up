@@ -16,8 +16,31 @@ else
   echo "detected existing nix installation"
 fi
 
-
-
+# Ensure current user is a trusted nix user (required for cachix substituters)
+NIX_CUSTOM_CONF="/etc/nix/nix.custom.conf"
+CURRENT_USER="$(whoami)"
+if [[ -f /etc/nix/nix.conf ]]; then
+  # Check if user is already trusted in either nix.conf or nix.custom.conf
+  if ! nix show-config 2>/dev/null | grep -q "trusted-users.*$CURRENT_USER" && \
+     ! grep -q "trusted-users.*$CURRENT_USER" "$NIX_CUSTOM_CONF" 2>/dev/null; then
+    echo ""
+    echo "Adding $CURRENT_USER as a trusted nix user (required for binary cache substituters)."
+    echo "This avoids building dependencies from source."
+    if [[ -f "$NIX_CUSTOM_CONF" ]] && grep -q "trusted-users" "$NIX_CUSTOM_CONF"; then
+      # Append to existing trusted-users line
+      sudo sed -i '' "s/trusted-users = /trusted-users = $CURRENT_USER /" "$NIX_CUSTOM_CONF"
+    else
+      echo "trusted-users = root $CURRENT_USER" | sudo tee -a "$NIX_CUSTOM_CONF" > /dev/null
+    fi
+    # Restart nix daemon to pick up the change
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sudo launchctl kickstart -k system/systems.determinate.nix-daemon 2>/dev/null || true
+    else
+      sudo systemctl restart nix-daemon 2>/dev/null || true
+    fi
+    echo "Nix daemon restarted with updated trusted-users."
+  fi
+fi
 
 echo "direnv will automatically enter the default nix environment upon entering a configured directory"
 read -p "install direnv? (y/n) " -n 1 -r
@@ -57,4 +80,10 @@ watch_file om.yaml
 use omnix
 EOF
   echo ".envrc created at $ENVRC_PATH"
+fi
+
+# Allow direnv (needed after nix-down which runs direnv deny)
+if which direnv &>/dev/null; then
+  echo "Allowing direnv environment..."
+  direnv allow "$REPO_ROOT"
 fi
