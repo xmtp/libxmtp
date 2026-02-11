@@ -13,7 +13,11 @@
     overlayAttrs = {
       xmtp = {
         mkToolchain = pkgs.callPackage ./mkToolchain.nix { inherit inputs; };
-        filesets = import ./filesets.nix;
+        filesets = pkgs.callPackage ./filesets.nix { };
+        craneLib = inputs.crane.mkLib pkgs;
+        mobile = pkgs.callPackage ./mobile-common.nix { };
+        androidEnv = pkgs.callPackage ./android-env.nix { };
+        iosEnv = pkgs.callPackage ./ios-env.nix { };
       };
       wasm-bindgen-cli = pkgs.callPackage ./packages/wasm-bindgen-cli.nix { };
       swiftformat = pkgs.callPackage ./packages/swiftformat.nix { };

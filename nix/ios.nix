@@ -22,7 +22,7 @@
 
 let
   inherit (stdenv) isDarwin;
-  iosEnv = import ./lib/ios-env.nix { inherit lib; };
+  inherit (xmtp) iosEnv;
 
   # Rust toolchain with all iOS/macOS cross-compilation targets.
   # Includes clippy and rustfmt for dev use (the package derivation omits these
