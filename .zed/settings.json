@@ -1,51 +1,56 @@
 {
   "file_types": {
-    "Rust": ["**/*.rs"]
+    "Rust": ["**/*.rs"],
   },
   "languages": {
     "Rust": {
       "language_servers": ["rust-analyzer"],
-      "format_on_save": "on"
+      "format_on_save": "on",
     },
     "TypeScript": {
-      "formatter": "prettier"
+      "formatter": "prettier",
     },
     "JavaScript": {
-      "formatter": "prettier"
+      "formatter": "prettier",
     },
     "JSON": {
-      "formatter": "prettier"
-    }
+      "formatter": "prettier",
+    },
   },
   "lsp": {
+    "nixd": {
+      "binary": {
+        "path": "~/.nix-profile/bin/nixd",
+      },
+    },
     "rust-analyzer": {
       "initialization_options": {
         "cargo": {
           "sysroot": "discover",
           "allTargets": true,
           "buildScripts": {
-            "enable": true
+            "enable": true,
           },
-          "features": ["bench", "test-utils"]
+          "features": ["bench", "test-utils"],
         },
         "check": {
           "command": "check",
           "allTargets": true,
-          "features": ["bench", "test-utils"]
+          "features": ["bench", "test-utils"],
         },
         "linkedProjects": ["Cargo.toml"],
         "procMacro": {
           "enable": true,
           "attributes": {
-            "enable": true
+            "enable": true,
           },
           "ignored": {
             "tracing": ["instrument"],
             "async-recursion": ["async_recursion"],
             "ctor": ["ctor"],
             "tokio": ["test"],
-            "async-stream": ["stream", "try_stream"]
-          }
+            "async-stream": ["stream", "try_stream"],
+          },
         },
         "diagnostics": {
           "enable": true,
@@ -53,13 +58,13 @@
             "unlinked-file",
             "unresolved-macro-call",
             "unresolved-proc-macro",
-            "macro-error"
-          ]
+            "macro-error",
+          ],
         },
         "files": {
-          "exclude": ["bindings/wasm"]
-        }
-      }
-    }
-  }
+          "exclude": ["bindings/wasm"],
+        },
+      },
+    },
+  },
 }

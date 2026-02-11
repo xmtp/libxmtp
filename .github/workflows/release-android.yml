@@ -54,7 +54,7 @@ jobs:
         run: xmtp-release set-manifest-version --sdk android --version "$VERSION"
 
       - name: Build Android bindings
-        run: ./sdks/android/dev/bindings
+        run: ./sdks/android/dev/bindings --release
 
       - name: Build and publish
         working-directory: sdks/android
