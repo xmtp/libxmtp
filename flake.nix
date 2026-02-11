@@ -63,9 +63,18 @@
             wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { craneLib = crane.mkLib pkgs; }).bin;
             wasm-bindgen-cli = pkgs.callPackage ./nix/lib/packages/wasm-bindgen-cli.nix { };
             # Android bindings (.so libraries + Kotlin bindings)
-            android-libs = (pkgs.callPackage ./nix/package/android.nix {
-              craneLib = crane.mkLib pkgs;
-            }).aggregate;
+            android-libs =
+              let android = pkgs.callPackage ./nix/package/android.nix { craneLib = crane.mkLib pkgs; };
+              in android.aggregate;
+            # Android bindings - host-matching target only (fast dev/CI builds)
+            android-libs-fast =
+              let
+                android = pkgs.callPackage ./nix/package/android.nix { craneLib = crane.mkLib pkgs; };
+                androidEnv = import ./nix/lib/android-env.nix {
+                  inherit lib;
+                  inherit (pkgs) androidenv stdenv;
+                };
+              in (android.mkAndroid [ androidEnv.hostAndroidTarget ]).aggregate;
             docker-mls_validation_service = pkgs.dockerTools.buildLayeredImage {
               name = "ghcr.io/xmtp/mls-validation-service"; # override ghcr images
               tag = "main";
