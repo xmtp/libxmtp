@@ -172,10 +172,7 @@ impl FfiError {
     /// Create a generic error with a message
     pub fn generic(err: impl Into<String>) -> Self {
         let msg = err.into();
-        FfiError::Error {
-            code: "GenericError::Generic".to_string(),
-            message: format!("[GenericError::Generic] {msg}"),
-        }
+        GenericError::Generic { err: msg }.into()
     }
 }
 
