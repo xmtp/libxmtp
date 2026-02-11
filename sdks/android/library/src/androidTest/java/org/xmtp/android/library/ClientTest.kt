@@ -20,9 +20,9 @@ import org.xmtp.android.library.libxmtp.IdentityKind
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
+import uniffi.xmtpv3.FfiException
 import uniffi.xmtpv3.FfiLogLevel
 import uniffi.xmtpv3.FfiLogRotation
-import uniffi.xmtpv3.FfiException
 import java.io.File
 import java.security.SecureRandom
 import java.util.concurrent.CompletableFuture
