@@ -1,10 +1,31 @@
 #!/bin/bash
 set -eou pipefail
 
-# Local script to uninstall nix and direnv
+# Full uninstall of Nix and direnv — use only when you need a clean slate.
+# If you just want to stop direnv from auto-activating, use dev/direnv-down instead.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 ENVRC_PATH="$REPO_ROOT/.envrc"
+
+echo "=============================================="
+echo "WARNING: This fully uninstalls Nix and direnv."
+echo "=============================================="
+echo ""
+echo "Re-installing with dev/nix-up will require re-downloading"
+echo "all dependencies, which can take 5+ minutes depending on"
+echo "your connection speed."
+echo ""
+echo "If you just want to temporarily disable direnv (the shell"
+echo "hook that auto-activates the Nix environment), run instead:"
+echo ""
+echo "  dev/direnv-down"
+echo ""
+read -p "Continue with full Nix uninstall? (y/n) " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+  echo "Aborted. Consider using dev/direnv-down to disable direnv without uninstalling."
+  exit 0
+fi
 
 # Deactivate direnv environment before uninstalling
 if which direnv &> /dev/null; then

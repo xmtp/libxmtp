@@ -1,0 +1,26 @@
+#!/bin/bash
+set -eou pipefail
+
+# Temporarily disable direnv for this repo (does not uninstall anything)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
+if ! which direnv &>/dev/null; then
+  echo "direnv is not installed."
+  exit 0
+fi
+
+echo "Denying direnv environment for this repo..."
+direnv deny "$REPO_ROOT" 2>/dev/null || true
+
+# Remove direnv shell hook so it stops running in new shells
+for shell_rc in ~/.bashrc ~/.zshrc; do
+  if [[ -f "$shell_rc" ]] && grep -q "direnv hook" "$shell_rc"; then
+    sed '/direnv hook/d' "$shell_rc" > "$shell_rc.tmp" && mv "$shell_rc.tmp" "$shell_rc"
+    echo "Removed direnv hook from $shell_rc"
+  fi
+done
+
+echo ""
+echo "direnv disabled. Hook removed from shell config; new shells will not run direnv."
+echo "To re-enable: dev/direnv-up"

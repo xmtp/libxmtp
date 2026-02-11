@@ -133,12 +133,19 @@ reproducible development environments. Nix provides pinned toolchains for Rust,
 Android, iOS, WebAssembly, and Node.js builds.
 
 ```bash
-./dev/nix-up    # Install Determinate Nix + direnv
+./dev/nix-up    # One-time setup: install Determinate Nix + direnv + binary caches
 nix develop     # Enter the default dev shell
 ```
 
+To temporarily disable/enable direnv without uninstalling anything:
+
+```bash
+dev/direnv-down  # Disable direnv auto-activation
+dev/direnv-up    # Re-enable direnv
+```
+
 See [docs/nix-setup.md](docs/nix-setup.md) for the full setup guide, including
-cachix configuration, available dev shells, and direnv usage.
+binary cache configuration, available dev shells, and direnv usage.
 
 ## Structure
 
