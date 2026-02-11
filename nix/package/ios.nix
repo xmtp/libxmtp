@@ -23,37 +23,30 @@
 #   4. `make local` would break — devs who don't use nix build depend on the Makefile flow.
 #   5. Manually building xcframework (without xcodebuild) would be fragile.
 { lib
-, zstd
-, openssl
-, sqlite
-, pkg-config
-, perl
-, craneLib
 , xmtp
 , stdenv
-, zlib
 , ...
 }:
 let
-  iosEnv = import ./../lib/ios-env.nix { inherit lib; };
-
-  # Shared mobile build configuration (commonArgs, filesets, version)
-  mobile = import ./../lib/mobile-common.nix {
-    inherit lib craneLib xmtp zstd openssl sqlite pkg-config perl zlib;
-  };
+  inherit (xmtp) iosEnv mobile;
+  # override craneLib rust toolchain with given stdenv
+  # https://crane.dev/API.html#mklib
+  craneLib = xmtp.craneLib.overrideScope (_: _: {
+    inherit stdenv;
+  });
 
   # Rust toolchain with iOS/macOS cross-compilation targets.
   # No clippy/rustfmt — this is a build-only toolchain (the dev shell adds those).
   # overrideToolchain tells crane to use our custom fenix-based toolchain instead
   # of the default nixpkgs rustc.
-  rust-toolchain = xmtp.mkToolchain iosEnv.iosTargets [];
+  rust-toolchain = xmtp.mkToolchain iosEnv.iosTargets [ ];
   rust = craneLib.overrideToolchain (p: rust-toolchain);
 
   # Extract version once for use throughout the file
   version = mobile.mkVersion rust;
 
   # Inherit shared config
-  inherit (mobile) commonArgs depsFileset bindingsFileset;
+  inherit (mobile) commonArgs bindingsFileset;
 
   # Build static (.a) and dynamic (.dylib) libraries for a single cross-compilation target.
   #

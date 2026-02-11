@@ -368,7 +368,7 @@ class GroupPermissionsTest : BaseInstrumentedTest() {
                 updateAppDataPolicy = PermissionOption.Admin,
             )
 
-        assertThrows(FfiException::class.java) {
+        assertThrows(FfiException.Exception::class.java) {
             val boGroup =
                 runBlocking {
                     boClient.conversations.newGroupCustomPermissions(
