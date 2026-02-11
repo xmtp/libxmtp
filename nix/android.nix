@@ -10,6 +10,7 @@
 , gnused
 , xmtp
 , writeShellScriptBin
+, zlib
 }:
 let
   inherit (xmtp) androidEnv mobile;
@@ -113,6 +114,7 @@ mkShell {
   ANDROID_NDK_ROOT = androidPaths.ndkHome;
   NDK_HOME = androidPaths.ndkHome;
   EMULATOR = "${androidEmulator}";
+  LD_LIBRARY_PATH = lib.makeLibraryPath [ openssl zlib ];
 
   inherit (mobile.commonArgs) nativeBuildInputs;
 

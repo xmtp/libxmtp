@@ -43,6 +43,7 @@ xmtp_proto.workspace = true
 alloy = { workspace = true, optional = true }
 criterion = { workspace = true, optional = true }
 fdlimit = { version = "0.3", optional = true }
+xmtp-workspace-hack = { version = "0.1", path = "../../crates/xmtp-workspace-hack" }
 
 
 [target.'cfg(target_os = "android")'.dependencies]

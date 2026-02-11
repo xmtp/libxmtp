@@ -31,13 +31,12 @@ let
     cratePaths);
 in
 {
-  perSystem = { pkgs, config, lib, ... }:
+  perSystem = { pkgs, lib, ... }:
     let
       src = ./..;
-      craneLib = config.rust-project.crane-lib;
       workspaceFileset = crate: lib.fileset.toSource {
         root = ./..;
-        fileset = (pkgs.xmtp.filesets { inherit lib craneLib; }).forCrate crate;
+        fileset = pkgs.xmtp.filesets.forCrate crate;
       };
     in
     {

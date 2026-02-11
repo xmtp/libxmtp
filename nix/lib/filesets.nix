@@ -58,6 +58,7 @@ let
     (commonCargoSources (src + /crates/xmtp_archive))
     (commonCargoSources (src + /crates/xmtp_mls_common))
     (commonCargoSources (src + /crates/wasm_macros))
+    (commonCargoSources (src + /crates/xmtp-workspace-hack))
   ];
   binaries = lib.fileset.unions [
     (src + /bindings/mobile/Makefile)
