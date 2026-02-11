@@ -23,13 +23,17 @@
 #   4. `make local` would break — devs who don't use nix build depend on the Makefile flow.
 #   5. Manually building xcframework (without xcodebuild) would be fragile.
 { lib
-, craneLib
 , xmtp
 , stdenv
 , ...
 }:
 let
   inherit (xmtp) iosEnv mobile;
+  # override craneLib rust toolchain with given stdenv
+  # https://crane.dev/API.html#mklib
+  craneLib = xmtp.craneLib.overrideScope (_: _: {
+    inherit stdenv;
+  });
 
   # Rust toolchain with iOS/macOS cross-compilation targets.
   # No clippy/rustfmt — this is a build-only toolchain (the dev shell adds those).
