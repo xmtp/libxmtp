@@ -9,7 +9,7 @@ license.workspace = true
 workspace = true
 
 [build-dependencies]
-vergen-git2 = { workspace = true, features = ["build"] }
+vergen-gix = { workspace = true, features = ["build"] }
 
 [dependencies]
 alloy.workspace = true
