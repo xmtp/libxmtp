@@ -72,6 +72,23 @@ for APP_NAME in $APPS; do
     # Get machine info to find creation time (apps don't have creation time, but machines do)
     MACHINE_INFO=$(flyctl machines list --app "$APP_NAME" --json 2>/dev/null) || continue
 
+    # Check if the app has any machines
+    MACHINE_COUNT=$(echo "$MACHINE_INFO" | jq 'length')
+
+    if [ "$MACHINE_COUNT" -eq 0 ]; then
+        # Apps with no machines are orphaned (machine was auto-removed via --rm after test completed)
+        if [ "$DRY_RUN" = true ]; then
+            echo "[DRY RUN] Would delete: $APP_NAME (orphaned, no machines)"
+        else
+            echo "Deleting: $APP_NAME (orphaned, no machines)"
+            if ! flyctl apps destroy "$APP_NAME" --yes 2>&1; then
+                echo "  Warning: Failed to delete $APP_NAME, may require manual cleanup" >&2
+            fi
+            DELETED_COUNT=$((DELETED_COUNT + 1))
+        fi
+        continue
+    fi
+
     # Extract creation timestamp from the first machine (ISO 8601 format)
     CREATED_AT=$(echo "$MACHINE_INFO" | jq -r '.[0].created_at // empty')
 
