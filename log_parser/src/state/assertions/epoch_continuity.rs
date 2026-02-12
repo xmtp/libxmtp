@@ -52,7 +52,6 @@ impl LogAssertion for EpochContinuityAssertion {
                         continue;
                     }
 
-                    tracing::error!("This happens. {epoch:?}");
                     state.epoch = epoch;
                 }
             }

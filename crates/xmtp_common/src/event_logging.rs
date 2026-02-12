@@ -19,15 +19,15 @@ pub enum Event {
     #[context(group_id)]
     CreatedGroup,
     /// Added members to group.
-    #[context(group_id, members, epoch)]
+    #[context(group_id, members, epoch, icon = "➕")]
     AddedMembers,
     /// Received new group from welcome.
-    #[context(group_id, conversation_type, epoch)]
+    #[context(group_id, conversation_type, epoch, icon = "🤝")]
     ProcessedWelcome,
 
     // ===================== MLS Operations =====================
     /// Received staged commit. Merging and clearing any pending commits.
-    #[context(group_id, sender_installation_id, msg_epoch, epoch)]
+    #[context(group_id, sender_installation_id, msg_epoch, epoch, icon = "❗")]
     MLSReceivedStagedCommit,
     /// Processed staged commit.
     #[context(
@@ -36,7 +36,8 @@ pub enum Event {
         added_inboxes,
         removed_inboxes,
         left_inboxes,
-        metadata_changes
+        metadata_changes,
+        icon = "😮‍💨"
     )]
     MLSProcessedStagedCommit,
     /// Received application message.
