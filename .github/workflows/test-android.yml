@@ -8,7 +8,7 @@ jobs:
     name: Unit Tests (Android)
     runs-on: warp-ubuntu-latest-x64-16x
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
@@ -25,7 +25,7 @@ jobs:
     runs-on: warp-ubuntu-latest-x64-16x
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
