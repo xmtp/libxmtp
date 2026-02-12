@@ -1,10 +1,10 @@
 use super::{LocalEvents, Result, SubscribeError, process_welcome::ProcessWelcomeResult};
 use crate::subscriptions::StreamKind;
-use crate::subscriptions::stream_utils::{MultiplexedStream, multiplexed};
 use crate::{
     context::XmtpSharedContext, groups::MlsGroup,
     subscriptions::process_welcome::ProcessWelcomeFuture,
 };
+use xmtp_api_grpc::streams::{MultiplexedStream, multiplexed};
 use xmtp_common::task::JoinSet;
 use xmtp_db::{consent_record::ConsentState, group::ConversationType};
 
