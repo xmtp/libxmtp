@@ -124,7 +124,7 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for GenericError {
 ///     switch error {
 ///     case .Error(let code, let message):
 ///         print(code)    // "StorageError::NotFound"
-///         print(message) // "Not found: ..."
+///         print(message) // "[StorageError::NotFound] Not found: ..."
 ///     }
 /// }
 /// ```
@@ -135,7 +135,7 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for GenericError {
 ///     client.doSomething()
 /// } catch (e: FfiError.Error) {
 ///     println(e.code)    // "StorageError::NotFound"
-///     println(e.message) // "Not found: ..."
+///     println(e.message) // "[StorageError::NotFound] Not found: ..."
 /// }
 /// ```
 #[derive(Debug, uniffi::Error)]
