@@ -41,7 +41,7 @@ char          =  {
 }
 
 // Values
-value = _{ object | array | quoted_string | number | boolean | null | option_value | unquoted_string }
+value = _{ object | array | braced_array | quoted_string | number | boolean | null | option_value | unquoted_string }
 
 // Option values: Some(...) with balanced parens/braces, or None
 option_value =  { "Some" ~ "(" ~ option_inner ~ ")" | "None" ~ !("(" | ASCII_ALPHANUMERIC | "_") }
@@ -54,6 +54,12 @@ unquoted_string = @{ (ASCII_ALPHANUMERIC | "_" | "-" | ".")+ }
 array = {
     "[" ~ "]"
   | "[" ~ value ~ ("," ~ value)* ~ "]"
+}
+
+// Braced array - array wrapped in curly braces (treated as just an array)
+braced_array = {
+    "{" ~ "[" ~ "]" ~ "}"
+  | "{" ~ "[" ~ value ~ ("," ~ value)* ~ "]" ~ "}"
 }
 
 // Primitives

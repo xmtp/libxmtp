@@ -133,13 +133,23 @@ impl Parse for LogEventInput {
             // Handle # sigil for short_hex transformation
             // Keep sigil as '#' so context formatting can quote the value
             // Auto-apply # for known byte-like field names (e.g. group_id)
-            if sigil == Some('#') || (sigil.is_none() && name == "group_id") {
+            let name_str = name.to_string();
+            let short_hex_fields = &["group_id", "installation_id"];
+            if sigil == Some('#')
+                || (sigil.is_none()
+                    && short_hex_fields
+                        .iter()
+                        .any(|f| name_str.contains(f) && !name_str.contains("full")))
+            {
                 let value_expr = value.unwrap_or_else(|| {
                     let name_clone = name.clone();
                     syn::parse_quote!(#name_clone)
                 });
                 let transformed_value: Expr = syn::parse_quote! {
-                    xmtp_common::fmt::short_hex(&(#value_expr))
+                    {
+                        use xmtp_proto::ShortHex;
+                        #value_expr.short_hex()
+                    }
                 };
                 fields.push(Field {
                     name,

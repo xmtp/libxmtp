@@ -27,7 +27,7 @@ pub enum Event {
 
     // ===================== MLS Operations =====================
     /// Received staged commit. Merging and clearing any pending commits.
-    #[context(group_id, sender_inbox, msg_epoch, epoch)]
+    #[context(group_id, sender_installation_id, msg_epoch, epoch)]
     MLSReceivedStagedCommit,
     /// Processed staged commit.
     #[context(
@@ -40,7 +40,7 @@ pub enum Event {
     )]
     MLSProcessedStagedCommit,
     /// Received application message.
-    #[context(group_id, epoch, msg_epoch, sender_inbox)]
+    #[context(group_id, epoch, msg_epoch, sender_inbox_id)]
     MLSReceivedApplicationMessage,
     /// Group epoch updated.
     #[context(group_id, cursor, epoch, previous_epoch)]
@@ -82,12 +82,9 @@ pub enum Event {
     GroupCursorUpdate,
 
     // ===================== Group Membership =====================
-    /// Updating group membership. Calculating which installations need to be added / removed.
-    #[context(group_id, old_membership, new_membership)]
-    MembershipInstallationDiff,
-    /// Result: The following installations need to be added / removed.
-    #[context(group_id, added_installations, removed_installations)]
-    MembershipInstallationDiffComputed,
+    /// Updated group membership.
+    #[context(group_id, added_installations, removed_installations, icon = "🫂")]
+    UpdatedGroupMembership,
 
     // ===================== Device Sync =====================
     /// Device Sync worker initializing.

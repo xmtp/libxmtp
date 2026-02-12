@@ -66,8 +66,8 @@ use thiserror::Error;
 use tracing::debug;
 use update_group_membership::apply_update_group_membership_intent;
 use xmtp_common::{
-    Event, ExponentialBackoff, Retry, RetryableError, Strategy, fmt::short_hex, log_event,
-    retry_async, time::now_ns,
+    Event, ExponentialBackoff, Retry, RetryableError, Strategy, log_event, retry_async,
+    time::now_ns,
 };
 use xmtp_configuration::{
     GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_GROUP_SYNC_RETRIES,
@@ -95,7 +95,6 @@ use xmtp_db::{
 };
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -115,6 +114,7 @@ use xmtp_proto::{
     GroupUpdateDeduper,
     types::{Cursor, GroupMessage},
 };
+use xmtp_proto::{ShortHex, xmtp::mls::message_contents::EncodedContent};
 use zeroize::Zeroizing;
 
 pub mod update_group_membership;
@@ -301,7 +301,7 @@ where
         tracing::info!(
             inbox_id = self.context.inbox_id(),
             installation_id = %self.context.installation_id(),
-            group_id = short_hex(&self.group_id),
+            group_id = self.group_id.short_hex(),
             "[{}] syncing group, epoch = {epoch}",
             self.context.inbox_id(),
         );
@@ -1086,7 +1086,7 @@ where
         let GroupMessage { cursor, .. } = &message_envelope;
         let envelope_timestamp_ns = message_envelope.timestamp();
         let msg_epoch = processed_message.epoch().as_u64();
-        let msg_group_id = short_hex(processed_message.group_id().as_slice());
+        let msg_group_id = processed_message.group_id().as_slice().to_vec();
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns as u64)?;
 
@@ -1097,9 +1097,8 @@ where
                     Event::MLSReceivedApplicationMessage,
                     self.context.installation_id(),
                     inbox_id = self.context.inbox_id(),
-                    sender_inbox = sender_inbox_id,
-                    sender_installation_id = hex::encode(&sender_installation_id),
-                    installation_id = %self.context.installation_id(),
+                    sender_inbox_id,
+                    sender_installation_id,
                     group_id = self.group_id,
                     epoch = mls_group.epoch().as_u64(),
                     msg_epoch,
@@ -1198,8 +1197,7 @@ where
                     self.context.installation_id(),
                     inbox_id = self.context.inbox_id(),
                     sender_inbox = sender_inbox_id,
-                    installation_id = %self.context.installation_id(),
-                    sender_installation_id = hex::encode(&sender_installation_id),
+                    sender_installation_id,
                     group_id = self.group_id,
                     epoch = mls_group.epoch().as_u64(),
                     msg_epoch,

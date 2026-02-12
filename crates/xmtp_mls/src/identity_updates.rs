@@ -30,7 +30,10 @@ use xmtp_id::{
     scw_verifier::SmartContractSignatureVerifier,
 };
 use xmtp_macro::log_event;
-use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
+use xmtp_proto::{
+    ShortHex,
+    api_client::{XmtpIdentityClient, XmtpMlsClient},
+};
 
 use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
 use xmtp_id::InboxUpdate;
@@ -490,15 +493,7 @@ where
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
     ) -> Result<InstallationDiff, InstallationDiffError> {
-        if new_group_membership != old_group_membership {
-            log_event!(
-                Event::MembershipInstallationDiff,
-                self.context.installation_id(),
-                #group_id,
-                old_membership = ?old_group_membership,
-                new_membership = ?new_group_membership,
-            );
-        }
+        tracing::info!("Updating group membership...");
 
         let added_and_updated_members = membership_diff
             .added_inboxes
@@ -565,13 +560,25 @@ where
             removed_installations.extend(state_diff.new_installations());
         }
 
+        tracing::info!(
+            "{} {}",
+            added_installations.len(),
+            removed_installations.len()
+        );
+
         if !added_installations.is_empty() || !removed_installations.is_empty() {
+            let added_installations: Vec<_> =
+                added_installations.iter().map(|i| i.short_hex()).collect();
+            let removed_installations: Vec<_> = removed_installations
+                .iter()
+                .map(|i| i.short_hex())
+                .collect();
             log_event!(
-                Event::MembershipInstallationDiffComputed,
+                Event::UpdatedGroupMembership,
                 self.context.installation_id(),
                 #group_id,
-                added_installations = ?added_installations,
-                removed_installations = ?removed_installations
+                ?added_installations,
+                ?removed_installations
             );
         }
 

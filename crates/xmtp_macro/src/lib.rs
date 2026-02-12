@@ -284,7 +284,10 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             // Bind installation_id to a variable to extend its lifetime
             let __installation_id = #installation_id;
-            let __inst = xmtp_common::fmt::short_hex(__installation_id.as_ref());
+            let __inst = {
+                use xmtp_proto::ShortHex;
+                __installation_id.short_hex()
+            };
             let __now_ms = xmtp_common::time::now_ms();
 
             // Build message with context for non-structured logging

@@ -315,7 +315,7 @@ mod tests {
         let mut line = line.split('\n').peekable();
 
         let event = LogEvent::from(&mut line)?;
-        assert_eq!(event.event, Event::MembershipInstallationDiff);
+        assert_eq!(event.event, Event::UpdatedGroupMembership);
 
         let group_id = event.context("group_id");
         assert!(group_id.is_some());

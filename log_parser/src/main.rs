@@ -69,6 +69,8 @@ fn main() -> Result<()> {
             std::thread::sleep(Duration::from_millis(500));
 
             let file = writer.as_string();
+            std::fs::write("logs.txt", &file).unwrap();
+
             let lines = file.split('\n').peekable();
 
             let state = LogState::build(lines);

@@ -17,6 +17,7 @@ mod boxed_client;
 pub(super) mod combinators;
 mod error;
 mod query;
+pub mod short_hex;
 pub mod stream;
 mod vector_clock;
 pub use boxed_client::*;

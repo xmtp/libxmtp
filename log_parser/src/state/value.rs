@@ -59,7 +59,7 @@ impl Value {
         let val = match pair.as_rule() {
             Rule::quoted_string => Self::String(pair_str.replace("\"", "").to_string()),
             Rule::number => Self::Int(pair_str.parse()?),
-            Rule::array => {
+            Rule::array | Rule::braced_array => {
                 let mut array = Vec::new();
                 for item in pair.into_inner() {
                     if let Ok(item) = Value::from(item) {
