@@ -13,7 +13,6 @@ pub use crate::inbox_owner::SigningError;
 pub use logger::{enter_debug_writer, exit_debug_writer};
 pub use message::*;
 pub use mls::*;
-use std::error::Error;
 use xmtp_api_d14n::MessageBackendBuilderError;
 use xmtp_common::ErrorCode;
 use xmtp_cryptography::signature::IdentifierValidationError;
@@ -123,12 +122,6 @@ pub enum FfiError {
     Error(GenericError),
 }
 
-#[derive(uniffi::Record, Clone, Debug, PartialEq, Eq)]
-pub struct FfiErrorInfo {
-    pub code: String,
-    pub message: String,
-}
-
 impl std::fmt::Display for FfiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -158,29 +151,6 @@ impl FfiError {
     }
 }
 
-fn parse_error_message(message: &str) -> FfiErrorInfo {
-    if let Some(rest) = message.strip_prefix('[')
-        && let Some(end) = rest.find(']')
-    {
-        let code = rest[..end].to_string();
-        return FfiErrorInfo {
-            code,
-            message: message.to_string(),
-        };
-    }
-
-    FfiErrorInfo {
-        code: "Unknown".to_string(),
-        message: message.to_string(),
-    }
-}
-
-/// Parse an error string like `[ErrorCode] message` into a structured error info.
-#[uniffi::export]
-pub fn parse_xmtp_error(message: String) -> FfiErrorInfo {
-    parse_error_message(&message)
-}
-
 impl From<xmtp_common::time::Expired> for FfiError {
     fn from(_: xmtp_common::time::Expired) -> Self {
         FfiError::Error(GenericError::Expired)
@@ -191,27 +161,6 @@ impl From<String> for GenericError {
     fn from(err: String) -> Self {
         Self::Generic { err }
     }
-}
-
-impl GenericError {
-    pub fn from_error<T: Error>(err: T) -> Self {
-        Self::Generic {
-            err: stringify_error_chain(&err),
-        }
-    }
-}
-
-// TODO Use non-string errors across Uniffi interface
-fn stringify_error_chain<T: Error>(error: &T) -> String {
-    let mut result = format!("Error: {}\n", error);
-
-    let mut source = error.source();
-    while let Some(src) = source {
-        result += &format!("Caused by: {}\n", src);
-        source = src.source();
-    }
-
-    result
 }
 
 #[uniffi::export]
@@ -294,34 +243,6 @@ mod lib_tests {
     }
 
     #[test]
-    fn test_parse_xmtp_error_with_code() {
-        let parsed = crate::parse_xmtp_error("[GroupError::NotFound] Group not found".to_string());
-        assert_eq!(parsed.code, "GroupError::NotFound");
-        assert_eq!(parsed.message, "[GroupError::NotFound] Group not found");
-    }
-
-    #[test]
-    fn test_parse_xmtp_error_without_code() {
-        let parsed = crate::parse_xmtp_error("Some error".to_string());
-        assert_eq!(parsed.code, "Unknown");
-        assert_eq!(parsed.message, "Some error");
-    }
-
-    #[test]
-    fn test_parse_xmtp_error_empty_brackets() {
-        let parsed = crate::parse_xmtp_error("[] Empty brackets".to_string());
-        assert_eq!(parsed.code, "");
-        assert_eq!(parsed.message, "[] Empty brackets");
-    }
-
-    #[test]
-    fn test_parse_xmtp_error_nested_brackets() {
-        let parsed =
-            crate::parse_xmtp_error("[Outer::Error] Message with [nested] brackets".to_string());
-        assert_eq!(parsed.code, "Outer::Error");
-    }
-
-    #[test]
     fn test_ffi_error_source() {
         use crate::FfiError;
         use std::error::Error;
@@ -336,17 +257,6 @@ mod lib_tests {
         let err: GenericError = "string error".to_string().into();
         assert!(matches!(err, GenericError::Generic { .. }));
         assert_eq!(err.error_code(), "GenericError::Generic");
-    }
-
-    #[test]
-    fn test_generic_error_from_error() {
-        use std::io;
-
-        let io_err = io::Error::new(io::ErrorKind::NotFound, "file not found");
-        let err = GenericError::from_error(io_err);
-        assert!(matches!(err, GenericError::Generic { .. }));
-        let display = format!("{}", err);
-        assert!(display.contains("file not found"));
     }
 
     #[test]

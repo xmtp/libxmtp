@@ -462,7 +462,7 @@ pub async fn get_inbox_id_for_identifier(
     let results = api
         .get_inbox_ids(vec![api_identifier.clone()])
         .await
-        .map_err(GenericError::from_error)?;
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
 
     Ok(results.get(&api_identifier).cloned())
 }
