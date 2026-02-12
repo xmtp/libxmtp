@@ -16,38 +16,40 @@ let
   inherit (import "${inputs.rust-flake}/nix/crate-parser" { inherit lib; }) findCrates;
 
   cratePaths = findCrates cargoToml.workspace.members src;
-  getCrateName = path:
+  getCrateName =
+    path:
     let
       crateCargoToml = fromTOML (builtins.readFile "${src}/${path}/Cargo.toml");
     in
     crateCargoToml.package.name;
   allCrateNames = map getCrateName cratePaths;
   # Map from crate name to crate path
-  crateNameToPath = lib.listToAttrs (map
-    (path: {
+  crateNameToPath = lib.listToAttrs (
+    map (path: {
       name = getCrateName path;
       value = path;
-    })
-    cratePaths);
+    }) cratePaths
+  );
 in
 {
-  perSystem = { pkgs, lib, ... }:
+  perSystem =
+    { pkgs, lib, ... }:
     let
       src = ./..;
-      workspaceFileset = crate: lib.fileset.toSource {
-        root = ./..;
-        fileset = pkgs.xmtp.filesets.forCrate crate;
-      };
+      workspaceFileset =
+        crate:
+        lib.fileset.toSource {
+          root = ./..;
+          fileset = pkgs.xmtp.filesets.forCrate crate;
+        };
     in
     {
       # for each crate set the crate output and clippy output
       # also ensure fileset is correct
-      rust-project.crates = lib.genAttrs allCrateNames
-        (crate: {
-          crane.args.src = lib.mkDefault (workspaceFileset (src + "/${crateNameToPath.${crate}}"));
-          # Use mkDefault so rust.nix can override with normal priority
-          autoWire = lib.mkDefault [ ];
-        });
+      rust-project.crates = lib.genAttrs allCrateNames (crate: {
+        crane.args.src = lib.mkDefault (workspaceFileset (src + "/${crateNameToPath.${crate}}"));
+        # Use mkDefault so rust.nix can override with normal priority
+        autoWire = lib.mkDefault [ ];
+      });
     };
 }
-
