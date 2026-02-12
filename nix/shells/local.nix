@@ -3,37 +3,44 @@
 # the Android SDK/emulator, iOS env setup (Darwin), debugging/profiling tools,
 # and convenience packages.
 # This is the `default` devShell (what you get with `nix develop`).
-{ stdenv
-, darwin
-, lib
-, mkShell
-, mktemp
-, jdk21
-, kotlin
-, ktlint
-, jdk17
-, diesel-cli
-, foundry-bin
-, sqlcipher
-, corepack
-, cargo-ndk
-, gnused
-, swiftformat
-, swiftlint
-, xmtp
+{
+  stdenv,
+  darwin,
+  lib,
+  mkShell,
+  mktemp,
+  jdk21,
+  kotlin,
+  ktlint,
+  jdk17,
+  diesel-cli,
+  foundry-bin,
+  sqlcipher,
+  corepack,
+  cargo-ndk,
+  gnused,
+  swiftformat,
+  swiftlint,
+  xmtp,
 }:
 let
   inherit (stdenv) isDarwin;
   inherit (xmtp) shellCommon androidEnv iosEnv;
 
   # Combined Rust toolchain with ALL targets: wasm + linux + android + iOS (Darwin)
-  allTargets =
-    [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ]
-    ++ androidEnv.androidTargets
-    ++ lib.optionals isDarwin iosEnv.iosTargets;
+  allTargets = [
+    "wasm32-unknown-unknown"
+    "x86_64-unknown-linux-gnu"
+  ]
+  ++ androidEnv.androidTargets
+  ++ lib.optionals isDarwin iosEnv.iosTargets;
 
   rust-toolchain = xmtp.mkToolchain allTargets [
-    "rust-src" "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview"
+    "rust-src"
+    "clippy-preview"
+    "rust-docs"
+    "rustfmt-preview"
+    "llvm-tools-preview"
   ];
 
 in
@@ -44,8 +51,18 @@ mkShell {
 
   # --- Rust base ---
   inherit (shellCommon.rustBase) hardeningDisable nativeBuildInputs LD_LIBRARY_PATH;
-  inherit (shellCommon.rustBase.env) OPENSSL_DIR OPENSSL_LIB_DIR OPENSSL_NO_VENDOR STACK_OVERFLOW_CHECK XMTP_NIX_ENV;
-  inherit (shellCommon.wasmEnv) CC_wasm32_unknown_unknown AR_wasm32_unknown_unknown CFLAGS_wasm32_unknown_unknown;
+  inherit (shellCommon.rustBase.env)
+    OPENSSL_DIR
+    OPENSSL_LIB_DIR
+    OPENSSL_NO_VENDOR
+    STACK_OVERFLOW_CHECK
+    XMTP_NIX_ENV
+    ;
+  inherit (shellCommon.wasmEnv)
+    CC_wasm32_unknown_unknown
+    AR_wasm32_unknown_unknown
+    CFLAGS_wasm32_unknown_unknown
+    ;
 
   # --- Android env vars ---
   ANDROID_HOME = androidEnv.devPaths.home;
