@@ -12,9 +12,7 @@
   lib,
   mkShell,
 }:
-let
-  inherit (darwin.apple_sdk) frameworks;
-in
+
 mkShell {
   meta.description = "Javascript/BrowserSDK Development Environment";
   PLAYWRIGHT_BROWSERS_PATH = "${playwright-driver.browsers}";

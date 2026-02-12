@@ -21,6 +21,7 @@
   gnused,
   swiftformat,
   swiftlint,
+  kotlin-language-server,
   xmtp,
 }:
 let
@@ -92,6 +93,7 @@ mkShell {
       kotlin
       ktlint
       jdk17
+      kotlin-language-server
 
       # Misc dev
       mktemp

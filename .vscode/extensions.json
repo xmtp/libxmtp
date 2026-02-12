@@ -5,6 +5,8 @@
     "esbenp.prettier-vscode",
     "ryanluker.vscode-coverage-gutters",
     "ms-vscode.live-server",
-    "jnoortheen.nix-ide"
+    "jnoortheen.nix-ide",
+    "swiftlang.swift-vscode",
+    "fwcd.kotlin"
   ]
 }
