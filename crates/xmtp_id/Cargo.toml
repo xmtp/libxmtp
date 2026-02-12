@@ -16,7 +16,7 @@ targets = [
 ]
 
 [dependencies]
-alloy = { workspace = true, features = ["sol-types", "reqwest"] }
+alloy = { workspace = true, features = ["sol-types", "reqwest-rustls-tls"] }
 async-trait.workspace = true
 base64.workspace = true
 chrono.workspace = true
@@ -55,7 +55,7 @@ openmls.workspace = true
 alloy = { workspace = true, features = [
   "sol-types",
   "providers",
-  "reqwest",
+  "reqwest-rustls-tls",
   "rpc",
   "rpc-types",
   "network",
