@@ -43,6 +43,7 @@
 , lldb
 , wasm-tools
 , rr
+, cargo-hakari
 , ...
 }:
 let
@@ -93,6 +94,7 @@ mkShell {
       cargo-flamegraph
       cargo-nextest
       cargo-machete
+      cargo-hakari
       inferno
       jq
       curl

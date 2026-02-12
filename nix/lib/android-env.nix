@@ -1,6 +1,6 @@
 # Shared Android cross-compilation environment configuration.
 # Used by both nix/android.nix (dev shell) and nix/package/android.nix (build derivation).
-{ lib, androidenv }:
+{ lib, androidenv, stdenv }:
 let
   # Android targets for Rust cross-compilation
   androidTargets = [
@@ -9,6 +9,13 @@ let
     "x86_64-linux-android"
     "i686-linux-android"
   ];
+
+  # Host architecture -> matching Android target (for fast single-target builds)
+  hostArch = stdenv.hostPlatform.parsed.cpu.name;
+  hostAndroidTarget = {
+    "aarch64" = "aarch64-linux-android";
+    "x86_64" = "x86_64-linux-android";
+  }.${hostArch} or (throw "Unsupported host architecture for Android: ${hostArch}");
 
   # SDK configuration - keep in sync with sdks/android/library/build.gradle
   # Library: compileSdk 35, Example: compileSdk 34
@@ -27,18 +34,28 @@ let
     includeNDK = true;
   };
 
+  # Emulator configuration — used by both composeDevPackages and run-test-emulator
+  # Version >= 35.3.11 required: earlier versions lack arch metadata in nixpkgs'
+  # repo.json, so aarch64-darwin gets an x86_64 binary that can't run arm64 guests.
+  # With 35.3.11+, nixpkgs selects the correct native binary per architecture.
+  emulatorConfig = {
+    platformVersion = "34";
+    systemImageType = "default";
+    abiVersion = if hostArch == "aarch64" then "arm64-v8a" else "x86_64";
+    emulatorVersion = "35.3.11";
+  };
+
   # Compose Android packages for dev shell (includes emulator)
   composeDevPackages = androidenv.composeAndroidPackages {
     platformVersions = sdkConfig.platforms;
     platformToolsVersion = sdkConfig.platformTools;
     buildToolsVersions = sdkConfig.buildTools;
     includeNDK = true;
-    # Emulator config - optional for dev shell
-    emulatorVersion = "34.1.19";
+    inherit (emulatorConfig) emulatorVersion;
     includeEmulator = true;
     includeSystemImages = true;
-    systemImageTypes = [ "default" ];
-    abiVersions = [ "x86_64" ];
+    systemImageTypes = [ emulatorConfig.systemImageType ];
+    abiVersions = [ emulatorConfig.abiVersion ];
   };
 
   # Helper to extract paths from an android composition
@@ -50,5 +67,5 @@ let
   };
 
 in {
-  inherit androidTargets sdkConfig composeBuildPackages composeDevPackages mkAndroidPaths;
+  inherit androidTargets hostAndroidTarget sdkConfig emulatorConfig composeBuildPackages composeDevPackages mkAndroidPaths;
 }

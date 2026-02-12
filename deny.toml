@@ -29,20 +29,7 @@ allow = [
 ]
 confidence-threshold = 1.0
 
-exceptions = [
-  { allow = [
-    "OpenSSL",
-  ], name = "ring", version = "*" },
-  { allow = [
-    "Unlicense",
-  ], name = "pharos", version = "0.5.3" },
-  { allow = [
-    "Unlicense",
-  ], name = "async_io_stream", version = "0.3.3" },
-  { allow = [
-    "Unlicense",
-  ], name = "ws_stream_wasm", version = "0.7.4" },
-]
+exceptions = []
 
 [[licenses.clarify]]
 expression = "MIT AND ISC AND OpenSSL"

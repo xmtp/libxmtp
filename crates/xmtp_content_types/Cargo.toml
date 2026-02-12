@@ -22,6 +22,7 @@ thiserror.workspace = true
 tracing.workspace = true
 
 # XMTP/Local
+xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
 xmtp_common.workspace = true
 xmtp_proto.workspace = true
 

@@ -16,8 +16,26 @@ else
   echo "detected existing nix installation"
 fi
 
-
-
+# Configure the XMTP binary cache via cachix
+# cachix automatically chooses the right config approach based on trusted-user status
+if which nix &>/dev/null; then
+  if ! grep -qF "xmtp.cachix.org" /etc/nix/nix.conf /etc/nix/nix.custom.conf ~/.config/nix/nix.conf 2>/dev/null; then
+    echo ""
+    echo "Configuring XMTP binary cache (avoids building dependencies from source)..."
+    CURRENT_USER="$(whoami)"
+    TRUSTED_USERS="$(nix config show trusted-users 2>/dev/null || true)"
+    if echo "$TRUSTED_USERS" | grep -qwF "$CURRENT_USER"; then
+      echo "User '$CURRENT_USER' is a trusted Nix user — configuring cache without sudo."
+      nix run nixpkgs#cachix -- use xmtp
+    else
+      echo "User '$CURRENT_USER' is not a trusted Nix user — sudo required to configure cache."
+      sudo nix run nixpkgs#cachix -- use xmtp
+    fi
+    echo "XMTP binary cache configured."
+  else
+    echo "XMTP binary cache already configured."
+  fi
+fi
 
 echo "direnv will automatically enter the default nix environment upon entering a configured directory"
 read -p "install direnv? (y/n) " -n 1 -r
@@ -26,7 +44,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   [[ -f /etc/arch-release ]] && sudo pacman -S direnv
   grep -q "ubuntu" /etc/os-release 2>/dev/null && sudo apt install direnv
   echo ""
-  echo "installing shell hook for bash/zsh"
+  echo "installing shell hooks for bash/zsh/fish"
   # Check if hook already exists before appending
   for shell_rc in ~/.bashrc ~/.zshrc; do
     if [[ -f "$shell_rc" ]] && ! grep -q "direnv hook" "$shell_rc"; then
@@ -36,6 +54,12 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
       esac
     fi
   done
+  # Handle fish shell config
+  FISH_CONFIG=~/.config/fish/config.fish
+  if [[ -f "$FISH_CONFIG" ]] && ! grep -q "direnv hook" "$FISH_CONFIG"; then
+    echo 'direnv hook fish | source' >> "$FISH_CONFIG"
+    echo "Added direnv hook to $FISH_CONFIG"
+  fi
 else
   echo "direnv not installed"
 fi
@@ -58,3 +82,17 @@ use omnix
 EOF
   echo ".envrc created at $ENVRC_PATH"
 fi
+
+# Allow direnv (needed after nix-down which runs direnv deny)
+if which direnv &>/dev/null; then
+  echo "Allowing direnv environment..."
+  direnv allow "$REPO_ROOT"
+fi
+
+echo ""
+echo "=============================================="
+echo "Setup complete! Reload your shell to activate:"
+echo "=============================================="
+echo ""
+echo "  exec \$SHELL"
+echo ""
