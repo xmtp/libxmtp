@@ -119,6 +119,15 @@ describe("create-release-branch", () => {
       false,
     );
 
+    // No matching git tag exists, so previous_release_tag should be omitted
+    // but previous_release_version should be the pre-bump version
+    const iosNotes = fs.readFileSync(
+      path.join(tmpDir, "docs/release-notes/ios/1.0.1.md"),
+      "utf-8",
+    );
+    expect(iosNotes).toContain('previous_release_version = "1.0.0"');
+    expect(iosNotes).not.toContain("previous_release_tag");
+
     // Check commit message
     const commitMsg = execSync("git log -1 --pretty=%B", { cwd: tmpDir })
       .toString()
@@ -412,5 +421,32 @@ describe("create-release-branch", () => {
         $0: "",
       }),
     ).toThrow("At least one SDK must be bumped");
+  });
+
+  it("includes previous_release_tag when matching git tag exists", async () => {
+    // Create a git tag matching the current iOS manifest version
+    execSync("git -c tag.gpgSign=false tag ios-1.0.0", { cwd: tmpDir });
+
+    const { handler } =
+      await import("../../src/commands/create-release-branch");
+
+    handler({
+      repoRoot: tmpDir,
+      version: "1.1.0",
+      base: "HEAD",
+      ios: "patch",
+      android: "none",
+      node: false,
+      wasm: false,
+      _: [],
+      $0: "",
+    });
+
+    const iosNotes = fs.readFileSync(
+      path.join(tmpDir, "docs/release-notes/ios/1.0.1.md"),
+      "utf-8",
+    );
+    expect(iosNotes).toContain('previous_release_version = "1.0.0"');
+    expect(iosNotes).toContain('previous_release_tag = "ios-1.0.0"');
   });
 });
