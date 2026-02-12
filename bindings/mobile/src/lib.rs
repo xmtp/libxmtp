@@ -152,7 +152,7 @@ pub struct FfiErrorInfo {
 impl std::fmt::Display for FfiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FfiError::Error { code, message } => write!(f, "[{code}] {message}"),
+            FfiError::Error { message, .. } => write!(f, "{message}"),
         }
     }
 }
