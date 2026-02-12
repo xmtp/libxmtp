@@ -17,12 +17,24 @@
       "formatter": "prettier",
     },
     "Nix": {
-      "language_servers": ["nixd"],
+      "language_servers": ["nixd", "nil"],
       "formatter": "language_server",
+    },
+    "Kotlin": {
+      "language_servers": ["kotlin-language-server", "!kotlin-lsp"],
       "format_on_save": "on",
     },
   },
   "lsp": {
+    "kotlin-language-server": {
+      "settings": {
+        "compiler": {
+          "jvm": {
+            "target": "17",
+          },
+        },
+      },
+    },
     "nixd": {
       "binary": {
         "path": "~/.nix-profile/bin/nixd",
