@@ -15,7 +15,6 @@ pub struct EventMetadata {
     pub context_fields: &'static [&'static str],
 
     pub icon: &'static str,
-    pub msg: &'static str,
 }
 
 impl EventMetadata {

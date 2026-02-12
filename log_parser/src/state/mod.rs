@@ -26,7 +26,7 @@ pub struct LogState {
 }
 
 #[derive(Default)]
-struct Epoch {
+pub struct Epoch {
     pub states: HashMap<InstallationId, Vec<Arc<RwLock<GroupState>>>>,
 }
 
@@ -300,7 +300,7 @@ mod tests {
 
         let state = LogState::build(lines);
 
-        let welcome_found = state.clients.read().iter().any(|(inst_id, c)| {
+        let welcome_found = state.clients.read().iter().any(|(_inst_id, c)| {
             c.read()
                 .events
                 .iter()

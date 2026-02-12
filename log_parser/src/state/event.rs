@@ -116,7 +116,7 @@ impl LogEvent {
         Ok(Self {
             event: event_meta.event,
             icon: event_meta.icon,
-            msg: event_meta.msg,
+            msg: event_meta.doc,
             installation,
             context,
             intermediate,

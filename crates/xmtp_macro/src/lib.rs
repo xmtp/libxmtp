@@ -169,7 +169,6 @@ pub fn build_logging_metadata(
                 doc: #doc_comment,
                 context_fields: &[#(#context_fields_tokens),*],
                 icon: #icon,
-                msg: #doc_comment
             }
         });
 

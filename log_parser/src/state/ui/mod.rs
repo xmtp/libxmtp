@@ -39,7 +39,8 @@ impl LogState {
                     for event in &client.events {
                         let color = event.ui_group_color();
                         stream.push(UIEvent {
-                            event: SharedString::from(&event.msg),
+                            event: SharedString::from(event.msg),
+                            icon: SharedString::from(event.icon),
                             inst: SharedString::from(&event.installation),
                             context: ModelRc::new(VecModel::from(event.ui_context_entries())),
                             has_group: color.is_some(),
@@ -167,7 +168,7 @@ impl LogState {
                                         UIGroupState {
                                             installation_id: SharedString::from(inst_id.as_str()),
                                             installation_name: SharedString::from(&inst_name),
-                                            msg: SharedString::from(&state.event.msg),
+                                            msg: SharedString::from(state.event.msg),
                                             epoch: state.epoch.unwrap_or(*epoch_number) as i32,
                                             previous_epoch: state.previous_epoch.unwrap_or(0)
                                                 as i32,
