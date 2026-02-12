@@ -22,7 +22,7 @@
     },
     "Kotlin": {
       "language_servers": ["kotlin-language-server", "!kotlin-lsp"],
-      "format_on_save": "on",
+      "format_on_save": "off",
     },
   },
   "lsp": {
@@ -36,9 +36,6 @@
       },
     },
     "nixd": {
-      "binary": {
-        "path": "~/.nix-profile/bin/nixd",
-      },
       "settings": {
         "nixd": {
           "formatting": {
