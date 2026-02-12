@@ -1,15 +1,11 @@
 # Rust Binaries to expose in nix flake
-{ inputs, ... }:
+_:
 {
   perSystem =
-    { inputs', self', pkgs, config, lib, ... }:
+    { self', pkgs, lib, ... }:
     let
+      toolchain = pkgs.xmtp.mkToolchain [ "x86_64-unknown-linux-musl" ] [ ];
       src = ./..;
-      # Use mkToolchain for consistent toolchain creation across the project.
-      # Include musl target for cross-compilation support.
-      toolchain = pkgs.xmtp.mkToolchain
-        [ "x86_64-unknown-linux-musl" ]
-        [ "clippy" "rust-docs" "rustfmt-preview" "clippy-preview" ];
     in
     {
       rust-project = {
@@ -26,8 +22,8 @@
             nativeBuildInputs = with pkgs;
               [
                 pkg-config
-                perl
                 openssl
+                perl
                 sqlite
                 sqlcipher
               ];

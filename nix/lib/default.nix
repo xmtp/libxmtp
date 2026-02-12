@@ -2,7 +2,17 @@
   flake.lib = {
     pkgConfig = {
       # Rust Overlay
-      overlays = [ inputs.fenix.overlays.default inputs.foundry.overlay self.overlays.default ];
+      overlays = [
+        inputs.fenix.overlays.default
+        inputs.foundry.overlay
+        self.overlays.default
+        # mold is significantly faster on linux for local dev
+        (final: prev: prev.lib.optionalAttrs prev.stdenv.isLinux {
+          mkShell = prev.mkShell.override {
+            stdenv = prev.stdenvAdapters.useMoldLinker prev.clangStdenv;
+          };
+        })
+      ];
       config = {
         android_sdk.accept_license = true;
         allowUnfree = true;

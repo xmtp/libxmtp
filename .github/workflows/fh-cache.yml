@@ -33,7 +33,7 @@ jobs:
       - name: build all flake outputs
         run: om ci run --include-all-dependencies --results=om.json -- --accept-flake-config
       - name: push to cachix
-        # if: env.BRANCH_NAME == 'main'
+        if: env.BRANCH_NAME == 'main'
         run: nix run github:juspay/cachix-push -- --cache xmtp --subflake omnix --prefix "$BRANCH_NAME" < om.json
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}

@@ -33,10 +33,10 @@
         inputs.rust-flake.flakeModules.nixpkgs
         ./nix/rust-defaults.nix
         ./nix/rust.nix
-        ./nix/musl.nix
+        ./nix/musl-docker.nix
       ];
       perSystem =
-        { pkgs, lib, self', ... }: {
+        { pkgs, lib, ... }: {
           nixpkgs = self.lib.pkgConfig;
           devShells = {
             # shell for general xmtp rust dev
@@ -63,17 +63,6 @@
               android-libs = android.aggregate;
               # Android bindings - host-matching target only (fast dev/CI builds)
               android-libs-fast = (android.mkAndroid [ androidEnv.hostAndroidTarget ]).aggregate;
-              docker-mls_validation_service = pkgs.dockerTools.buildLayeredImage {
-                name = "ghcr.io/xmtp/mls-validation-service"; # override ghcr images
-                tag = "main";
-                created = "now";
-                config = {
-                  Env = [
-                    "ANVIL_URL=http://anvil:8545"
-                  ];
-                  entrypoint = [ "${self'.packages.musl-mls_validation_service}/bin/mls-validation-service" ];
-                };
-              };
             } // lib.optionalAttrs pkgs.stdenv.isDarwin {
               # stdenvNoCC is passed to both callPackage (for the aggregate derivation)
               # This avoids Nix's apple-sdk and cc-wrapper,
