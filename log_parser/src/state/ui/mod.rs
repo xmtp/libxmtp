@@ -161,6 +161,7 @@ impl LogState {
                                             installation_id: SharedString::from(inst_id.as_str()),
                                             installation_name: SharedString::from(&inst_name),
                                             msg: SharedString::from(state.event.msg),
+                                            icon: SharedString::from(state.event.icon),
                                             epoch: state.epoch.unwrap_or(*epoch_number) as i32,
                                             previous_epoch: state.previous_epoch.unwrap_or(0)
                                                 as i32,

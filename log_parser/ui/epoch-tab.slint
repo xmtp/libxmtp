@@ -17,6 +17,7 @@ export struct UIGroupState {
     installation-id: string,
     installation-name: string,
     msg: string,
+    icon: string,
     epoch: int,
     previous-epoch: int,
     has-previous-epoch: bool,
@@ -83,12 +84,26 @@ component GroupStateCard inherits Rectangle {
         spacing: 3px;
 
         // Title (msg)
-        Text {
-            text: root.state.msg;
-            font-size: 10px;
-            font-weight: 700;
-            color: #333333;
-            overflow: elide;
+        HorizontalLayout {
+            alignment: start;
+            spacing: 4px;
+
+            if root.state.icon != "": Text {
+                text: root.state.icon;
+                font-size: 14px;
+                font-weight: 700;
+                color: #333333;
+                overflow: elide;
+            }
+
+            Text {
+                text: root.state.msg;
+                font-size: 10px;
+                font-weight: 700;
+                color: #333333;
+                overflow: elide;
+                horizontal-alignment: left;
+            }
         }
 
         // Metadata badges

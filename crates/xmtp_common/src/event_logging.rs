@@ -48,37 +48,37 @@ pub enum Event {
 
     // ===================== Group Syncing =====================
     /// Begin syncing group.
-    #[context(group_id)]
+    #[context(group_id, icon = "🔄")]
     GroupSyncStart,
     /// Syncing group.
-    #[context(group_id, attempt, backoff)]
+    #[context(group_id, attempt, backoff, icon = "🔃")]
     GroupSyncAttempt,
     /// Group sync complete.
-    #[context(group_id, summary, success)]
+    #[context(group_id, summary, success, icon = "✅")]
     GroupSyncFinished,
     /// Attempted to sync on an inactive group.
-    #[context(group_id)]
+    #[context(group_id, icon = "⏸️")]
     GroupSyncGroupInactive,
     /// Intent failed to sync but did not error. This can happen for a variety of reasons.
-    #[context(group_id, intent_id, intent_kind, state)]
+    #[context(group_id, intent_id, intent_kind, state, icon = "🔁")]
     GroupSyncIntentRetry,
     /// Intent was found to be in error after attempting to sync.
-    #[context(group_id, intent_id, intent_kind, summary)]
+    #[context(group_id, intent_id, intent_kind, summary, icon = "⚠️")]
     GroupSyncIntentErrored,
     /// Attempt to publish intent failed.
     #[context(group_id, intent_id, intent_kind, err, icon = "❌")]
     GroupSyncPublishFailed,
     /// Application message published successfully.
-    #[context(group_id, intent_id)]
+    #[context(group_id, intent_id, icon = "📤")]
     GroupSyncApplicationMessagePublishSuccess,
     /// Commit published successfully.
-    #[context(group_id, intent_id, intent_kind, commit_hash)]
+    #[context(group_id, intent_id, intent_kind, commit_hash, icon = "✨")]
     GroupSyncCommitPublishSuccess,
     /// Commit sent. Staged commit is present. Stopping further publishes for this round.
-    #[context(group_id)]
+    #[context(group_id, icon = "🛑")]
     GroupSyncStagedCommitPresent,
     /// Updating group cursor.
-    #[context(group_id, cursor)]
+    #[context(group_id, cursor, icon = "📍")]
     GroupCursorUpdate,
 
     // ===================== Group Membership =====================
