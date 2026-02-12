@@ -95,3 +95,10 @@ jobs:
           > **Note:** This PR will be merged automatically by the Release workflow upon final release.
           EOF
           )"
+
+  release-notes:
+    needs: create-branch
+    uses: ./.github/workflows/release-notes.yml
+    with:
+      release-branch: release/${{ inputs.version }}
+    secrets: inherit
