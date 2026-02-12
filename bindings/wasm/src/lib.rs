@@ -63,7 +63,14 @@ where
 impl<T: ErrorCode> From<ErrorWrapper<T>> for JsError {
   fn from(e: ErrorWrapper<T>) -> JsError {
     let code = e.0.error_code();
-    JsError::new(&format!("[{}] {}", code, e.0))
+    let js_error = JsError::new(&format!("[{}] {}", code, e.0));
+    let js_value: JsValue = js_error.clone().into();
+    let _ = js_sys::Reflect::set(
+      &js_value,
+      &JsValue::from_str("code"),
+      &JsValue::from_str(code),
+    );
+    js_error
   }
 }
 
