@@ -1057,8 +1057,10 @@ where
                     Event::MLSGroupEpochUpdated,
                     self.context.installation_id(),
                     group_id = self.group_id,
-                    cursor = ?cursor,
+                    cursor = cursor.sequence_id,
+                    originator = cursor.originator_id,
                     epoch = new_epoch,
+                    epoch_auth = mls_group.epoch_authenticator().as_slice().short_hex(),
                     previous_epoch
                 );
             }
@@ -2143,7 +2145,8 @@ where
                 Event::GroupCursorUpdate,
                 self.context.installation_id(),
                 group_id = message.group_id.as_slice(),
-                cursor = ?message.cursor
+                cursor = message.cursor.sequence_id,
+                originator = message.cursor.originator_id
             );
         } else {
             tracing::debug!("no cursor update required");

@@ -44,7 +44,7 @@ pub enum Event {
     #[context(group_id, epoch, msg_epoch, sender_inbox_id)]
     MLSReceivedApplicationMessage,
     /// Group epoch updated.
-    #[context(group_id, cursor, epoch, previous_epoch)]
+    #[context(group_id, cursor, originator, epoch, epoch_auth, previous_epoch)]
     MLSGroupEpochUpdated,
 
     // ===================== Group Syncing =====================
@@ -79,7 +79,7 @@ pub enum Event {
     #[context(group_id, icon = "🛑")]
     GroupSyncStagedCommitPresent,
     /// Updating group cursor.
-    #[context(group_id, cursor, icon = "📍")]
+    #[context(group_id, cursor, originator, icon = "📍")]
     GroupCursorUpdate,
 
     // ===================== Group Membership =====================

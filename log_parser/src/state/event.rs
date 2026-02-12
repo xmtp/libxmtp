@@ -51,14 +51,12 @@ impl LogEvent {
     }
 
     pub fn from<'a>(lines: &mut Peekable<impl Iterator<Item = &'a str>>) -> Result<Self> {
-        let line = loop {
+        let (line, line_str) = loop {
             let line_str = lines.next().context("End of file")?;
             if let Ok(line) = LogParser::parse(Rule::line, line_str) {
-                break line;
+                break (line, line_str);
             }
         };
-
-        let line_str = lines.next().expect("We peeked and found a line.");
 
         // There should only ever be one event per line.
         let Some(line) = line.last() else {

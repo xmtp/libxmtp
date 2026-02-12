@@ -560,12 +560,6 @@ where
             removed_installations.extend(state_diff.new_installations());
         }
 
-        tracing::info!(
-            "{} {}",
-            added_installations.len(),
-            removed_installations.len()
-        );
-
         if !added_installations.is_empty() || !removed_installations.is_empty() {
             let added_installations: Vec<_> =
                 added_installations.iter().map(|i| i.short_hex()).collect();
