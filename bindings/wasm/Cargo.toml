@@ -31,7 +31,7 @@ tracing-web = "0.1"
 tsify = { version = "0.5", default-features = false, features = ["js"] }
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
-wasm-streams = { version = "0.4" }
+wasm-streams = { version = "0.5" }
 web-sys = { workspace = true, features = [
   "Window",
   "DomException",

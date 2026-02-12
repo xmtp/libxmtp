@@ -49,38 +49,37 @@ futures-io = { version = "0.3" }
 futures-timer = { version = "3", default-features = false, features = ["wasm-bindgen"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 hashbrown = { version = "0.16", features = ["serde"] }
-hpke-rs = { version = "0.4", features = ["hazmat", "libcrux", "serialization"] }
+hpke-rs = { version = "0.5", features = ["hazmat", "libcrux", "serialization"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
 itertools = { version = "0.14" }
 js-sys = { version = "0.3" }
 k256 = { version = "0.13", features = ["ecdh"] }
-libcrux-ed25519 = { version = "0.0.4", default-features = false, features = ["rand"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 nu-ansi-term = { version = "0.50" }
 num-traits = { version = "0.2", features = ["libm"] }
-openmls = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", default-features = false, features = ["test-utils"] }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", default-features = false, features = ["clonable", "test-utils"] }
-openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", default-features = false, features = ["test-utils"] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", default-features = false, features = ["test-utils"] }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", features = ["test-utils"] }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "6bdda2901b5b92cd6b5934f9dc5ea378d68e46af", default-features = false, features = ["test-utils"] }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "6bdda2901b5b92cd6b5934f9dc5ea378d68e46af", default-features = false, features = ["clonable", "test-utils"] }
+openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "6bdda2901b5b92cd6b5934f9dc5ea378d68e46af", default-features = false, features = ["test-utils"] }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "6bdda2901b5b92cd6b5934f9dc5ea378d68e46af", default-features = false, features = ["test-utils"] }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "6bdda2901b5b92cd6b5934f9dc5ea378d68e46af", features = ["test-utils"] }
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
-rand-274715c4dabd11b0 = { package = "rand", version = "0.9", features = ["serde"] }
-rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8", features = ["small_rng"] }
-rand_chacha = { version = "0.9" }
+rand = { version = "0.9", features = ["serde"] }
+rand_chacha-274715c4dabd11b0 = { package = "rand_chacha", version = "0.9" }
+rand_chacha-468e82937335b1c9 = { package = "rand_chacha", version = "0.3" }
 rand_core = { version = "0.9", default-features = false, features = ["os_rng", "serde", "std"] }
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8" }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 ruint = { version = "1", default-features = false, features = ["alloy-rlp", "rand-09", "serde", "std"] }
 sec1 = { version = "0.7", features = ["pem", "serde", "std", "subtle"] }
 semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value", "unbounded_depth"] }
+serde_spanned = { version = "1", default-features = false, features = ["serde", "std"] }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union", "write"] }
 sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
 time = { version = "0.3", features = ["formatting", "local-offset", "parsing"] }
@@ -138,39 +137,38 @@ futures-io = { version = "0.3" }
 futures-timer = { version = "3", default-features = false, features = ["wasm-bindgen"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 hashbrown = { version = "0.16", features = ["serde"] }
-hpke-rs = { version = "0.4", features = ["hazmat", "libcrux", "serialization"] }
+hpke-rs = { version = "0.5", features = ["hazmat", "libcrux", "serialization"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
 itertools = { version = "0.14" }
 js-sys = { version = "0.3" }
 k256 = { version = "0.13", features = ["ecdh"] }
-libcrux-ed25519 = { version = "0.0.4", default-features = false, features = ["rand"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 nu-ansi-term = { version = "0.50" }
 num-traits = { version = "0.2", features = ["libm"] }
-openmls = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", default-features = false, features = ["test-utils"] }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", default-features = false, features = ["clonable", "test-utils"] }
-openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", default-features = false, features = ["test-utils"] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", default-features = false, features = ["test-utils"] }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", features = ["test-utils"] }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "6bdda2901b5b92cd6b5934f9dc5ea378d68e46af", default-features = false, features = ["test-utils"] }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "6bdda2901b5b92cd6b5934f9dc5ea378d68e46af", default-features = false, features = ["clonable", "test-utils"] }
+openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "6bdda2901b5b92cd6b5934f9dc5ea378d68e46af", default-features = false, features = ["test-utils"] }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "6bdda2901b5b92cd6b5934f9dc5ea378d68e46af", default-features = false, features = ["test-utils"] }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "6bdda2901b5b92cd6b5934f9dc5ea378d68e46af", features = ["test-utils"] }
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
 proc-macro2 = { version = "1", features = ["span-locations"] }
-rand-274715c4dabd11b0 = { package = "rand", version = "0.9", features = ["serde"] }
-rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8", features = ["small_rng"] }
-rand_chacha = { version = "0.9" }
+rand = { version = "0.9", features = ["serde"] }
+rand_chacha-274715c4dabd11b0 = { package = "rand_chacha", version = "0.9" }
+rand_chacha-468e82937335b1c9 = { package = "rand_chacha", version = "0.3" }
 rand_core = { version = "0.9", default-features = false, features = ["os_rng", "serde", "std"] }
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8" }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 ruint = { version = "1", default-features = false, features = ["alloy-rlp", "rand-09", "serde", "std"] }
 sec1 = { version = "0.7", features = ["pem", "serde", "std", "subtle"] }
 semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value", "unbounded_depth"] }
+serde_spanned = { version = "1", default-features = false, features = ["serde", "std"] }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union", "write"] }
 syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
@@ -195,10 +193,11 @@ zerocopy = { version = "0.8", default-features = false, features = ["derive", "s
 [target.x86_64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
-hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["aws-lc-rs", "http1", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
-rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs", "logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-native-roots", "tls-ring", "tls-webpki-roots"] }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
@@ -208,10 +207,11 @@ web-sys = { version = "0.3", features = ["AbortSignal", "DomException", "Message
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
-hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["aws-lc-rs", "http1", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
-rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs", "logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-native-roots", "tls-ring", "tls-webpki-roots"] }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
@@ -220,10 +220,12 @@ web-sys = { version = "0.3", features = ["AbortSignal", "DomException", "Message
 [target.aarch64-apple-darwin.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
-hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["aws-lc-rs", "http1", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
-rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+security-framework-sys = { version = "2" }
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs", "logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-native-roots", "tls-ring", "tls-webpki-roots"] }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
@@ -233,10 +235,12 @@ web-sys = { version = "0.3", features = ["AbortSignal", "DomException", "Message
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
-hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["aws-lc-rs", "http1", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
-rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+security-framework-sys = { version = "2" }
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs", "logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-native-roots", "tls-ring", "tls-webpki-roots"] }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
@@ -245,10 +249,11 @@ web-sys = { version = "0.3", features = ["AbortSignal", "DomException", "Message
 [target.aarch64-linux-android.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
-hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["aws-lc-rs", "http1", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
-rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs", "logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-ring", "tls-webpki-roots"] }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
@@ -258,10 +263,11 @@ web-sys = { version = "0.3", features = ["AbortSignal", "DomException", "Message
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
-hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["aws-lc-rs", "http1", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
-rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs", "logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-ring", "tls-webpki-roots"] }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
@@ -270,10 +276,11 @@ web-sys = { version = "0.3", features = ["AbortSignal", "DomException", "Message
 [target.x86_64-linux-android.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
-hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["aws-lc-rs", "http1", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
-rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs", "logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-ring", "tls-webpki-roots"] }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
@@ -283,10 +290,11 @@ web-sys = { version = "0.3", features = ["AbortSignal", "DomException", "Message
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
-hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["aws-lc-rs", "http1", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
-rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs", "logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-ring", "tls-webpki-roots"] }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }

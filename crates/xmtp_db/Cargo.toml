@@ -41,8 +41,10 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
+xmtp_content_types.workspace = true
 xmtp_proto.workspace = true
 zeroize.workspace = true
 
@@ -57,28 +59,19 @@ tokio = { workspace = true, optional = true, features = [
   "rt-multi-thread",
   "sync",
 ] }
-toml = { version = "0.8.4", optional = true }
+toml = { version = "1", optional = true }
 
-
-# TODO: possibly separate these crates
-xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
-xmtp_content_types.workspace = true
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-libsqlite3-sys = { version = "0.35", features = [
-  "bundled-sqlcipher-vendored-openssl",
-] }
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
 diesel = { workspace = true, features = ["r2d2"] }
 dyn-clone.workspace = true
+rusqlite = { version = "0.37.0", features = [
+  "bundled-sqlcipher-vendored-openssl",
+] }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
-sqlite-wasm-rs = { version = "0.4", default-features = false, features = [
-  "precompiled",
-] }
 tokio.workspace = true
 web-sys = { workspace = true, features = ["DomException"] }
 wasm-bindgen = { workspace = true }
-
 
 [dev-dependencies]
 ascii_table = { version = "5", features = ["auto_table_width"] }
