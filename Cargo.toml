@@ -61,7 +61,7 @@ futures = { version = "0.3.30", default-features = false }
 futures-test = { version = "0.3" }
 futures-timer = { version = "3.0", features = ["wasm-bindgen"] }
 futures-util = { version = "0.3", default-features = false, features = ["io"] }
-getrandom = { version = "0.3", default-features = false }
+getrandom = { version = "0.4", default-features = false }
 gloo-timers = "0.3"
 hex = { package = "const-hex", version = "1.14" }
 hkdf = "0.12.3"
@@ -91,8 +91,8 @@ proptest = { version = "1.9", default-features = false }
 prost = { version = "0.14", default-features = false }
 prost-types = { version = "0.14", default-features = false }
 # updating crates are blocked on https://github.com/dalek-cryptography/curve25519-dalek/pull/729
-rand = "0.8.5"
-rand_chacha = "0.3.1"
+rand = "0.10.0"
+rand_chacha = "0.10.0"
 regex = "1.10.4"
 reqwest = { version = "0.12.12", default-features = false, features = [
   "rustls-tls",
