@@ -4,6 +4,7 @@ use xmtp_api_d14n::protocol::{CursorStore, CursorStoreError};
 use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_configuration::Originators;
 use xmtp_db::{
+    d14n_migration_cutover::QueryMigrationCutover,
     group_intent::IntentDependency,
     icebox::QueryIcebox,
     identity_update::QueryIdentityUpdates,
@@ -29,6 +30,7 @@ where
         + QueryIdentityUpdates
         + QueryGroupIntent
         + QueryIcebox
+        + QueryMigrationCutover
         + MaybeSend
         + MaybeSync,
 {
@@ -206,6 +208,46 @@ where
     ) -> Result<Vec<xmtp_proto::types::OrphanedEnvelope>, CursorStoreError> {
         self.db
             .future_dependents(cursors)
+            .map_err(CursorStoreError::other)
+    }
+
+    fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), CursorStoreError> {
+        self.db
+            .set_cutover_ns(cutover_ns)
+            .map_err(CursorStoreError::other)
+    }
+
+    fn get_cutover_ns(&self) -> Result<i64, CursorStoreError> {
+        let cutover = self
+            .db
+            .get_migration_cutover()
+            .map_err(CursorStoreError::other)?;
+        Ok(cutover.cutover_ns)
+    }
+
+    fn has_migrated(&self) -> Result<bool, CursorStoreError> {
+        let cutover = self
+            .db
+            .get_migration_cutover()
+            .map_err(CursorStoreError::other)?;
+        Ok(cutover.has_migrated)
+    }
+
+    fn set_has_migrated(&self, has_migrated: bool) -> Result<(), CursorStoreError> {
+        self.db
+            .set_has_migrated(has_migrated)
+            .map_err(CursorStoreError::other)
+    }
+
+    fn get_last_checked_ns(&self) -> Result<i64, CursorStoreError> {
+        self.db
+            .get_last_checked_ns()
+            .map_err(CursorStoreError::other)
+    }
+
+    fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), CursorStoreError> {
+        self.db
+            .set_last_checked_ns(last_checked_ns)
             .map_err(CursorStoreError::other)
     }
 }
