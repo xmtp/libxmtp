@@ -17,20 +17,6 @@ yarn install
 yarn cli <command> [flags]
 ```
 
-### `find-last-version`
-
-Find the latest published version for an SDK from git tags.
-
-| Flag            | Type    | Required | Description                                  |
-| --------------- | ------- | -------- | -------------------------------------------- |
-| `--sdk`         | string  | yes      | SDK name (e.g., `ios`)                       |
-| `--pre-release` | boolean | no       | Include prerelease versions (default: false) |
-
-```bash
-yarn cli find-last-version --sdk ios
-yarn cli find-last-version --sdk ios --pre-release
-```
-
 ### `bump-version`
 
 Bump the version in an SDK manifest (e.g., podspec).
@@ -76,42 +62,32 @@ yarn cli update-spm-checksum --sdk ios \
   --checksum "abc123..."
 ```
 
-### `scaffold-notes`
-
-Generate a release notes template from git history.
-
-| Flag      | Type   | Required | Description                                                |
-| --------- | ------ | -------- | ---------------------------------------------------------- |
-| `--sdk`   | string | yes      | SDK name                                                   |
-| `--since` | string | no       | Git tag to diff from (defaults to last stable release tag) |
-
-```bash
-yarn cli scaffold-notes --sdk ios
-yarn cli scaffold-notes --sdk ios --since "ios-1.0.0"
-```
-
 ### `create-release-branch`
 
-Orchestrate a full release branch — bumps the version, scaffolds release notes, and commits everything.
+Orchestrate a full release branch — bumps versions, scaffolds release notes, and commits everything.
 
-| Flag        | Type                          | Required | Description                               |
-| ----------- | ----------------------------- | -------- | ----------------------------------------- |
-| `--sdk`     | string                        | yes      | SDK to bump                               |
-| `--version` | string                        | yes      | Release version (used in branch name)     |
-| `--bump`    | `major` \| `minor` \| `patch` | yes      | Version bump type                         |
-| `--base`    | string                        | no       | Base ref to branch from (default: `HEAD`) |
+| Flag        | Type                                     | Required | Description                                 |
+| ----------- | ---------------------------------------- | -------- | ------------------------------------------- |
+| `--version` | string                                   | yes      | Release version (used in branch name)       |
+| `--ios`     | `major` \| `minor` \| `patch` \| `none` | no       | iOS SDK version bump type (default: `none`) |
+| `--android` | `major` \| `minor` \| `patch` \| `none` | no       | Android SDK version bump type (default: `none`) |
+| `--node`    | boolean                                  | no       | Include Node bindings in release            |
+| `--wasm`    | boolean                                  | no       | Include WASM bindings in release            |
+| `--base`    | string                                   | no       | Base ref to branch from (default: `HEAD`)   |
 
 ```bash
 yarn cli create-release-branch \
   --version "1.0.0" \
   --base main \
-  --sdk ios \
-  --bump minor
+  --ios minor \
+  --android patch \
+  --node \
+  --wasm
 ```
 
 ## Supported SDKs
 
-Only `ios` is currently configured. SDK definitions live in `src/lib/sdk-config.ts` — add new entries there to support additional SDKs.
+All five SDKs are configured: `ios`, `android`, `node-bindings`, `wasm-bindings`, and `libxmtp`. SDK definitions live in `src/lib/sdk-config.ts`.
 
 ## Development
 
