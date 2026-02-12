@@ -66,7 +66,7 @@ pub enum Event {
     #[context(group_id, intent_id, intent_kind, summary)]
     GroupSyncIntentErrored,
     /// Attempt to publish intent failed.
-    #[context(group_id, intent_id, intent_kind, err)]
+    #[context(group_id, intent_id, intent_kind, err, icon = "❌")]
     GroupSyncPublishFailed,
     /// Application message published successfully.
     #[context(group_id, intent_id)]

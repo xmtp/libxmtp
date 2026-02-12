@@ -48,18 +48,10 @@ impl LogState {
                         });
                     }
 
-                    let label = {
-                        let c = self.clients.read();
-                        if let Some(cl) = c.get(inst) {
-                            let cl = cl.read();
-                            if let Some(ref name) = cl.name {
-                                format!("{name} ({inst})")
-                            } else {
-                                inst.clone()
-                            }
-                        } else {
-                            inst.clone()
-                        }
+                    let label = if let Some(ref name) = client.name {
+                        format!("{name} ({inst})")
+                    } else {
+                        inst.clone()
                     };
 
                     streams.push(UIStream {
