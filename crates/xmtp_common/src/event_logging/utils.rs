@@ -13,6 +13,9 @@ pub struct EventMetadata {
     pub doc: &'static str,
     /// The required context fields for this event
     pub context_fields: &'static [&'static str],
+
+    pub icon: &'static str,
+    pub msg: &'static str,
 }
 
 impl EventMetadata {

@@ -8,7 +8,8 @@ use xmtp_common::Event;
 #[derive(Debug)]
 pub struct LogEvent {
     pub event: Event,
-    pub msg: String,
+    pub msg: &'static str,
+    pub icon: &'static str,
     pub installation: String,
     pub context: HashMap<String, Value>,
     pub intermediate: String,
@@ -114,7 +115,8 @@ impl LogEvent {
 
         Ok(Self {
             event: event_meta.event,
-            msg: event_str.to_string(),
+            icon: event_meta.icon,
+            msg: event_meta.msg,
             installation,
             context,
             intermediate,

@@ -168,7 +168,8 @@ pub fn build_logging_metadata(
                 event: #enum_name::#variant_name,
                 doc: #doc_comment,
                 context_fields: &[#(#context_fields_tokens),*],
-                icon: #icon
+                icon: #icon,
+                msg: #doc_comment
             }
         });
 
