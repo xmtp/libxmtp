@@ -3,9 +3,15 @@ name: Release Notes
 on:
   push:
     branches: ["release/**"]
+  workflow_call:
+    inputs:
+      release-branch:
+        description: "Release branch name (e.g. release/1.2.0)"
+        required: true
+        type: string
 
 concurrency:
-  group: release-notes-${{ github.ref }}
+  group: release-notes-${{ inputs.release-branch || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -17,22 +23,34 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.release-branch || github.ref_name }}
           fetch-depth: 0
+
+      - name: Validate branch name
+        env:
+          BRANCH: ${{ inputs.release-branch || github.ref_name }}
+        run: |
+          if ! echo "$BRANCH" | grep -qE '^release/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+            echo "::error::Invalid branch name format: $BRANCH (expected release/X.Y.Z)"
+            exit 1
+          fi
 
       - name: Extract version from branch name
         id: version
+        env:
+          BRANCH: ${{ inputs.release-branch || github.ref_name }}
         run: |
-          VERSION="${GITHUB_REF#refs/heads/release/}"
+          VERSION="${BRANCH#release/}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Detected release version: $VERSION"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "Detected release version: $VERSION from branch: $BRANCH"
 
       - uses: ./.github/actions/setup-release-tools
 
       - name: Find and classify release notes
         id: classify
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          RESULT=$(xmtp-release classify-notes --release-version "$VERSION")
+          RESULT=$(xmtp-release classify-notes)
 
           echo "has_empty=$(echo "$RESULT" | jq -r '.hasEmpty')" >> "$GITHUB_OUTPUT"
           echo "has_content=$(echo "$RESULT" | jq -r '.hasContent')" >> "$GITHUB_OUTPUT"
@@ -87,11 +105,13 @@ jobs:
 
       - name: Push draft release notes
         if: steps.classify.outputs.has_empty == 'true'
+        env:
+          RELEASE_BRANCH: ${{ steps.version.outputs.branch }}
         run: |
-          if git diff --quiet HEAD origin/${{ github.ref_name }}; then
+          if git diff --quiet HEAD "origin/${RELEASE_BRANCH}"; then
             echo "No new commits to push"
           else
-            git push origin HEAD:${{ github.ref_name }}
+            git push origin "HEAD:${RELEASE_BRANCH}"
           fi
 
       # --- Has content path: Claude suggests edits on a separate branch via PR ---
@@ -115,7 +135,7 @@ jobs:
           fi
 
           # Check if PR already exists
-          PR_URL=$(gh pr list --head "$BRANCH" --base "${{ github.ref_name }}" --json url --jq '.[0].url // empty')
+          PR_URL=$(gh pr list --head "$BRANCH" --base "${{ steps.version.outputs.branch }}" --json url --jq '.[0].url // empty')
           if [ -n "$PR_URL" ]; then
             echo "pr_exists=true" >> "$GITHUB_OUTPUT"
             echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
@@ -172,7 +192,7 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           BRANCH="${{ steps.suggestion-branch.outputs.branch }}"
-          RELEASE_BRANCH="${{ github.ref_name }}"
+          RELEASE_BRANCH="${{ steps.version.outputs.branch }}"
 
           # Check if Claude made any changes
           if git diff --quiet HEAD "origin/${RELEASE_BRANCH}" -- docs/release-notes/; then
