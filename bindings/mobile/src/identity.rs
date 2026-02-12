@@ -18,7 +18,10 @@ pub enum FfiIdentifierKind {
 
 impl FfiIdentifier {
     pub fn inbox_id(&self, nonce: u64) -> Result<String, FfiError> {
-        let ident: Identifier = self.clone().try_into().map_err(|e: IdentifierValidationError| GenericError::AddressValidation(e))?;
+        let ident: Identifier = self
+            .clone()
+            .try_into()
+            .map_err(|e: IdentifierValidationError| GenericError::AddressValidation(e))?;
         Ok(ident.inbox_id(nonce)?)
     }
 }

@@ -65,11 +65,19 @@ impl<T: ErrorCode> From<ErrorWrapper<T>> for JsError {
     let code = e.0.error_code();
     let js_error = JsError::new(&format!("[{}] {}", code, e.0));
     let js_value: JsValue = js_error.clone().into();
-    let _ = js_sys::Reflect::set(
+    // Best effort to set the code property. If it fails, the error message still contains the code.
+    if js_sys::Reflect::set(
       &js_value,
       &JsValue::from_str("code"),
       &JsValue::from_str(code),
-    );
+    )
+    .is_err()
+    {
+      // Log to console if setting the property fails, but don't fail the error conversion
+      web_sys::console::warn_1(&JsValue::from_str(
+        "Failed to set code property on error object",
+      ));
+    }
     js_error
   }
 }

@@ -803,7 +803,10 @@ impl TryFrom<Intent> for FfiIntent {
             action_id: intent.action_id,
             metadata: intent
                 .metadata
-                .map(|map| serde_json::to_string(&map).map_err(|e| GenericError::Generic { err: e.to_string() }))
+                .map(|map| {
+                    serde_json::to_string(&map)
+                        .map_err(|e| GenericError::Generic { err: e.to_string() })
+                })
                 .transpose()?,
         })
     }
@@ -818,7 +821,10 @@ impl TryFrom<FfiIntent> for Intent {
             action_id: ffi.action_id,
             metadata: ffi
                 .metadata
-                .map(|s| serde_json::from_str(&s).map_err(|e| GenericError::Generic { err: e.to_string() }))
+                .map(|s| {
+                    serde_json::from_str(&s)
+                        .map_err(|e| GenericError::Generic { err: e.to_string() })
+                })
                 .transpose()?,
         })
     }
