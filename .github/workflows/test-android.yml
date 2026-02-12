@@ -1,22 +1,14 @@
-name: Android Tests
+name: Test Android
 
 on:
-  push:
-    branches: ["main"]
-    paths: ["sdks/android/**", "bindings/mobile/**", "crates/**", "nix/**"]
-  pull_request:
-    paths: ["sdks/android/**", "bindings/mobile/**", "crates/**", "nix/**"]
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  workflow_call:
 
 jobs:
   unit-tests:
-    name: Unit Tests
+    name: Unit Tests (Android)
     runs-on: warp-ubuntu-latest-x64-16x
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
@@ -29,14 +21,17 @@ jobs:
         run: nix develop .#android --command ./sdks/android/gradlew -p sdks/android library:testDebug
 
   integration-tests:
-    name: Integration Tests
+    name: Integration Tests (Android)
     runs-on: warp-ubuntu-latest-x64-16x
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Start backend
+        run: ./dev/build_validation_service_local && ./dev/docker/up
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -44,13 +39,11 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - name: Build bindings
         run: nix develop .#android --command ./sdks/android/dev/bindings
-      - name: Start backend
-        run: ./dev/up
+      - name: Start emulator
+        timeout-minutes: 10
+        env:
+          NIX_ANDROID_EMULATOR_FLAGS: "-no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192"
+        run: nix develop .#android --command run-test-emulator
       - name: Run integration tests
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 34
-          arch: x86_64
-          disable-animations: true
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -memory 4096 -partition-size 8192
-          script: nix develop .#android --command ./sdks/android/gradlew -p sdks/android connectedCheck --continue
+        timeout-minutes: 20
+        run: nix develop .#android --command ./sdks/android/gradlew -p sdks/android connectedCheck --continue

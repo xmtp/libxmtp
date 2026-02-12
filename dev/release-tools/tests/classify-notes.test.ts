@@ -8,27 +8,45 @@ import {
 describe("parseFrontmatter", () => {
   it("parses valid frontmatter", () => {
     const text = `---
-sdk: ios
-previous_release_tag: ios-0.9.0
+sdk = "ios"
+previous_release_version = "0.9.0"
+previous_release_tag = "ios-0.9.0"
 ---
 
 # Some content`;
 
     expect(parseFrontmatter(text)).toEqual({
       sdk: "ios",
+      previousReleaseVersion: "0.9.0",
       previousReleaseTag: "ios-0.9.0",
+    });
+  });
+
+  it("parses frontmatter with version but no tag", () => {
+    const text = `---
+sdk = "ios"
+previous_release_version = "1.0.0"
+---
+
+# Some content`;
+
+    expect(parseFrontmatter(text)).toEqual({
+      sdk: "ios",
+      previousReleaseVersion: "1.0.0",
+      previousReleaseTag: null,
     });
   });
 
   it("returns nulls for missing fields", () => {
     const text = `---
-sdk: android
+sdk = "android"
 ---
 
 # Content`;
 
     expect(parseFrontmatter(text)).toEqual({
       sdk: "android",
+      previousReleaseVersion: null,
       previousReleaseTag: null,
     });
   });
@@ -40,20 +58,37 @@ Some content here.`;
 
     expect(parseFrontmatter(text)).toEqual({
       sdk: null,
+      previousReleaseVersion: null,
       previousReleaseTag: null,
     });
   });
 
-  it("treats null string values as null", () => {
+  it("returns nulls for invalid TOML", () => {
     const text = `---
-sdk: ios
-previous_release_tag: null
+this is not valid toml !!!
 ---
 
 # Content`;
 
     expect(parseFrontmatter(text)).toEqual({
-      sdk: "ios",
+      sdk: null,
+      previousReleaseVersion: null,
+      previousReleaseTag: null,
+    });
+  });
+
+  it("treats non-string values as null", () => {
+    const text = `---
+sdk = 123
+previous_release_version = true
+previous_release_tag = true
+---
+
+# Content`;
+
+    expect(parseFrontmatter(text)).toEqual({
+      sdk: null,
+      previousReleaseVersion: null,
       previousReleaseTag: null,
     });
   });
@@ -62,8 +97,9 @@ previous_release_tag: null
 describe("isEmptyScaffold", () => {
   it("returns true for scaffold with only HTML comments and headers", () => {
     const text = `---
-sdk: ios
-previous_release_tag: ios-0.9.0
+sdk = "ios"
+previous_release_version = "0.9.0"
+previous_release_tag = "ios-0.9.0"
 ---
 
 # iOS SDK 1.0.0
@@ -94,8 +130,9 @@ previous_release_tag: ios-0.9.0
 
   it("returns false for file with real content", () => {
     const text = `---
-sdk: ios
-previous_release_tag: ios-0.9.0
+sdk = "ios"
+previous_release_version = "0.9.0"
+previous_release_tag = "ios-0.9.0"
 ---
 
 # iOS SDK 1.0.0
@@ -115,8 +152,9 @@ This release adds group messaging support.
 
   it("returns false for file with content below comments", () => {
     const text = `---
-sdk: ios
-previous_release_tag: ios-0.9.0
+sdk = "ios"
+previous_release_version = "0.9.0"
+previous_release_tag = "ios-0.9.0"
 ---
 
 # iOS SDK 1.0.0
@@ -137,8 +175,9 @@ Some actual content here.
 
   it("returns true for file with only whitespace after stripping", () => {
     const text = `---
-sdk: ios
-previous_release_tag: ios-0.9.0
+sdk = "ios"
+previous_release_version = "0.9.0"
+previous_release_tag = "ios-0.9.0"
 ---
 
 # Header
@@ -151,8 +190,9 @@ previous_release_tag: ios-0.9.0
 
 describe("classifyNoteFiles", () => {
   const emptyScaffold = `---
-sdk: ios
-previous_release_tag: ios-0.9.0
+sdk = "ios"
+previous_release_version = "0.9.0"
+previous_release_tag = "ios-0.9.0"
 ---
 
 # iOS SDK 1.0.0
@@ -163,8 +203,9 @@ previous_release_tag: ios-0.9.0
 `;
 
   const contentFile = `---
-sdk: android
-previous_release_tag: android-0.8.0
+sdk = "android"
+previous_release_version = "0.8.0"
+previous_release_tag = "android-0.8.0"
 ---
 
 # Android SDK 1.0.0
@@ -174,19 +215,26 @@ previous_release_tag: android-0.8.0
 Added new encryption support.
 `;
 
-  const noTagFile = `---
-sdk: node
-previous_release_tag: null
+  const versionOnlyFile = `---
+sdk = "node"
+previous_release_version = "0.9.0"
 ---
 
 # Node SDK 1.0.0
 `;
 
   const noSdkFile = `---
-previous_release_tag: wasm-0.5.0
+previous_release_tag = "wasm-0.5.0"
 ---
 
 # Some SDK 1.0.0
+`;
+
+  const noVersionOrTagFile = `---
+sdk = "wasm"
+---
+
+# WASM SDK 1.0.0
 `;
 
   it("classifies a mixed set of files", () => {
@@ -202,6 +250,7 @@ previous_release_tag: wasm-0.5.0
       {
         sdk: "ios",
         filePath: "docs/release-notes/ios/1.0.0.md",
+        previousReleaseVersion: "0.9.0",
         previousReleaseTag: "ios-0.9.0",
       },
     ]);
@@ -209,20 +258,35 @@ previous_release_tag: wasm-0.5.0
       {
         sdk: "android",
         filePath: "docs/release-notes/android/1.0.0.md",
+        previousReleaseVersion: "0.8.0",
         previousReleaseTag: "android-0.8.0",
       },
     ]);
   });
 
-  it("skips files with missing previous_release_tag", () => {
+  it("classifies files with version but no tag", () => {
     const result = classifyNoteFiles([
-      { path: "docs/release-notes/node/1.0.0.md", content: noTagFile },
+      { path: "docs/release-notes/node/1.0.0.md", content: versionOnlyFile },
       { path: "docs/release-notes/ios/1.0.0.md", content: emptyScaffold },
     ]);
 
-    expect(result.empty).toHaveLength(1);
+    expect(result.empty).toHaveLength(2);
     expect(result.content).toHaveLength(0);
-    expect(result.empty[0].sdk).toBe("ios");
+    expect(result.empty[0]).toEqual({
+      sdk: "node",
+      filePath: "docs/release-notes/node/1.0.0.md",
+      previousReleaseVersion: "0.9.0",
+      previousReleaseTag: null,
+    });
+  });
+
+  it("skips files with neither version nor tag", () => {
+    const result = classifyNoteFiles([
+      { path: "docs/release-notes/wasm/1.0.0.md", content: noVersionOrTagFile },
+    ]);
+
+    expect(result.empty).toHaveLength(0);
+    expect(result.content).toHaveLength(0);
   });
 
   it("skips files with missing sdk", () => {

@@ -14,5 +14,6 @@ diesel.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
 tracing.workspace = true
+xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_db = { workspace = true, features = ["test-utils"] }

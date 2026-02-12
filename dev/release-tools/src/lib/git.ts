@@ -29,14 +29,53 @@ export function getCommitsBetween(
   return output.split("\n").filter(Boolean);
 }
 
-export function createTag(cwd: string, tag: string): void {
+export function tagExists(cwd: string, tag: string): boolean {
+  const existing = exec(`git tag --list ${tag}`, cwd);
+  return !!existing;
+}
+
+export function createTag(
+  cwd: string,
+  tag: string,
+  ignoreIfExists = false,
+): void {
+  const existing = exec(`git tag --list ${tag}`, cwd);
+  if (existing) {
+    if (ignoreIfExists) {
+      console.log(`Tag ${tag} already exists locally, skipping creation`);
+      return;
+    }
+    throw new Error(`Tag ${tag} already exists`);
+  }
   exec(`git tag ${tag}`, cwd);
 }
 
-export function pushTag(cwd: string, tag: string, pushBranch: boolean): void {
-  if (pushBranch) {
-    exec(`git push origin HEAD ${tag}`, cwd);
-  } else {
-    exec(`git push origin ${tag}`, cwd);
+export function pushTag(
+  cwd: string,
+  tag: string,
+  pushBranch: boolean,
+  ignoreIfExists = false,
+): void {
+  try {
+    if (pushBranch) {
+      exec(`git push origin HEAD ${tag}`, cwd);
+    } else {
+      exec(`git push origin ${tag}`, cwd);
+    }
+  } catch (err) {
+    if (ignoreIfExists) {
+      const remoteTag = exec(
+        `git ls-remote --tags origin refs/tags/${tag}`,
+        cwd,
+      );
+      if (remoteTag.includes(tag)) {
+        console.log(`Tag ${tag} already exists on remote, skipping push`);
+        if (pushBranch) {
+          exec(`git push origin HEAD`, cwd);
+        }
+        return;
+      }
+    }
+    throw err;
   }
 }

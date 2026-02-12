@@ -27,6 +27,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
+xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
 xmtp_common.workspace = true
 xmtp_db.workspace = true
 xmtp_mls_common.workspace = true

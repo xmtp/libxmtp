@@ -20,9 +20,9 @@ import org.xmtp.android.library.libxmtp.IdentityKind
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
+import uniffi.xmtpv3.FfiException
 import uniffi.xmtpv3.FfiLogLevel
 import uniffi.xmtpv3.FfiLogRotation
-import uniffi.xmtpv3.GenericException
 import java.io.File
 import java.security.SecureRandom
 import java.util.concurrent.CompletableFuture
@@ -341,7 +341,7 @@ class ClientTest : BaseInstrumentedTest() {
 
         assertThrows(
             "Client error: storage error: Pool needs to  reconnect before use",
-            GenericException::class.java,
+            FfiException::class.java,
         ) { runBlocking { boClient.conversations.listGroups() } }
 
         runBlocking { boClient.reconnectLocalDatabase() }
@@ -771,7 +771,7 @@ class ClientTest : BaseInstrumentedTest() {
         assertEquals(state.installations.size, 1)
 
         // Cannot remove the recovery address
-        assertThrows("Client error: Unknown Signer", GenericException::class.java) {
+        assertThrows("Client error: Unknown Signer", FfiException::class.java) {
             runBlocking {
                 fixtures.alixClient.removeAccount(alix3Wallet, fixtures.alixAccount.publicIdentity)
             }

@@ -16,42 +16,30 @@
 #   - kotlinBindings: Kotlin bindings + version file
 #   - aggregate: Combined output with jniLibs/{ABI}/*.so and kotlin/*
 { lib
-, zstd
 , openssl
-, sqlite
-, pkg-config
-, perl
 , gnused
-, craneLib
 , xmtp
 , stdenv
-, androidenv
 , cargo-ndk
-, zlib
 , ...
 }:
 let
-  # Shared Android environment configuration
-  androidEnv = import ./../lib/android-env.nix { inherit lib androidenv; };
-
+  inherit (xmtp) craneLib androidEnv mobile;
   # Use build composition (minimal - no emulator needed for CI builds)
   androidComposition = androidEnv.composeBuildPackages;
   androidPaths = androidEnv.mkAndroidPaths androidComposition;
+  ffi-uniffi-bindgen = "${xmtp.ffi-uniffi-bindgen}/bin/ffi-uniffi-bindgen";
 
-  # Shared mobile build configuration (commonArgs, filesets, version)
-  mobile = import ./../lib/mobile-common.nix {
-    inherit lib craneLib xmtp zstd openssl sqlite pkg-config perl zlib;
-  };
 
   # Rust toolchain with Android cross-compilation targets
-  rust-toolchain = xmtp.mkToolchain androidEnv.androidTargets [];
+  rust-toolchain = xmtp.mkToolchain androidEnv.androidTargets [ ];
   rust = craneLib.overrideToolchain (p: rust-toolchain);
 
   # Extract version once for use throughout the file
   version = mobile.mkVersion rust;
 
   # Inherit shared config
-  inherit (mobile) depsFileset bindingsFileset;
+  inherit (mobile) bindingsFileset;
 
   # Map Rust target triples to Android ABI names
   targetToAbi = {
@@ -117,9 +105,6 @@ let
       '';
     });
 
-  # Generate per-target derivations (built in parallel by Nix)
-  targets = lib.genAttrs androidEnv.androidTargets buildTarget;
-
   # Build dependencies for the native host (needed for uniffi-bindgen)
   hostCargoArtifacts = rust.buildDepsOnly (commonArgs // {
     pname = "xmtpv3-android-host-deps";
@@ -146,7 +131,7 @@ let
       mkdir -p $out/kotlin
 
       # Generate Kotlin bindings using uniffi-bindgen
-      cargo run -p xmtpv3 --bin ffi-uniffi-bindgen --release --features uniffi/cli generate \
+      ${ffi-uniffi-bindgen} generate \
         --library target/release/libxmtpv3.${if stdenv.isDarwin then "dylib" else "so"} \
         --out-dir $TMPDIR/kotlin-out \
         --language kotlin
@@ -170,32 +155,42 @@ let
     '';
   });
 
-  # Aggregate derivation that symlinks all outputs together
-  # This is a pure derivation - no compilation, just links
-  aggregate = stdenv.mkDerivation {
-    pname = "xmtpv3-android-libs";
-    inherit version;
+  # Function to build a specific set of targets
+  mkAndroid = targetList:
+    let
+      selectedTargets = lib.genAttrs targetList buildTarget;
 
-    # No source needed - we just symlink outputs
-    dontUnpack = true;
+      selectedAggregate = stdenv.mkDerivation {
+        pname = "xmtpv3-android-libs";
+        inherit version;
+        dontUnpack = true;
 
-    installPhase = ''
-      mkdir -p $out/jniLibs $out/kotlin
+        installPhase = ''
+          mkdir -p $out/jniLibs
+          mkdir -p $out/java/uniffi/xmtpv3
 
-      # Symlink JNI libraries from each target
-      ${lib.concatMapStringsSep "\n" (target:
-        let abi = targetToAbi.${target}; in ''
-          mkdir -p $out/jniLibs/${abi}
-          ln -s ${targets.${target}}/${abi}/libuniffi_xmtpv3.so $out/jniLibs/${abi}/libuniffi_xmtpv3.so
-        '') androidEnv.androidTargets}
+          # Symlink JNI libraries from each target
+          ${lib.concatMapStringsSep "\n" (target:
+            let abi = targetToAbi.${target}; in ''
+              mkdir -p $out/jniLibs/${abi}
+              ln -s ${selectedTargets.${target}}/${abi}/libuniffi_xmtpv3.so $out/jniLibs/${abi}/libuniffi_xmtpv3.so
+            '') targetList}
 
-      # Symlink Kotlin bindings
-      ln -s ${kotlinBindings}/kotlin/xmtpv3.kt $out/kotlin/xmtpv3.kt
-      ln -s ${kotlinBindings}/kotlin/libxmtp-version.txt $out/kotlin/libxmtp-version.txt
-    '';
-  };
+          # Symlink Kotlin bindings (Gradle-ready path)
+          ln -s ${kotlinBindings}/kotlin/xmtpv3.kt $out/java/uniffi/xmtpv3/xmtpv3.kt
+          ln -s ${kotlinBindings}/kotlin/libxmtp-version.txt $out/libxmtp-version.txt
+        '';
+      };
+    in
+    {
+      targets = selectedTargets;
+      inherit kotlinBindings;
+      aggregate = selectedAggregate;
+    };
 
 in
 {
-  inherit targets kotlinBindings aggregate;
+  inherit kotlinBindings mkAndroid;
+  # Default: all targets (for backward compat)
+  inherit (mkAndroid androidEnv.androidTargets) targets aggregate;
 }
