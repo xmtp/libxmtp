@@ -1,0 +1,6 @@
+builds:
+  exclude:
+    - "packages.aarch64-darwin.ios-libs"
+  include:
+    - "*.x86_64-linux.*"
+    - "*.aarch64-darwin.*"
