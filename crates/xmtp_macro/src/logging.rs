@@ -3,7 +3,7 @@ use std::fmt::Display;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{ToTokens, quote};
 use syn::{
-    Attribute, Expr, Ident, Meta, Path, Token, Variant,
+    Attribute, Expr, Ident, LitStr, Meta, Path, Token, Variant,
     parse::{Parse, ParseStream},
 };
 
@@ -229,11 +229,42 @@ pub(crate) fn get_context_fields(attrs: &[Attribute]) -> Vec<String> {
             let mut fields = Vec::new();
             let _ = attr.parse_nested_meta(|meta| {
                 if let Some(ident) = meta.path.get_ident() {
-                    fields.push(ident.to_string());
+                    let ident = ident.to_string();
+
+                    if ident == "icon" {
+                        return Ok(());
+                    }
+
+                    fields.push(ident);
                 }
                 Ok(())
             });
             Some(fields)
         })
         .unwrap_or_default()
+}
+
+pub(crate) fn get_icon(attrs: &[Attribute]) -> Option<String> {
+    let mut icon = None;
+    for attr in attrs {
+        if !attr.path().is_ident("context") {
+            continue;
+        }
+
+        let _ = attr.parse_nested_meta(|meta| {
+            let Some(ident) = meta.path.get_ident() else {
+                return Ok(());
+            };
+            if ident.to_string() != "icon" {
+                return Ok(());
+            }
+
+            let value: LitStr = meta.value()?.parse()?;
+            icon = Some(value.value());
+
+            Ok(())
+        });
+    }
+
+    icon
 }

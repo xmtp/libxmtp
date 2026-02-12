@@ -6,7 +6,7 @@ use proc_macro2::*;
 use quote::{quote, quote_spanned};
 use syn::{Data, DeriveInput, Fields, Path, parse_macro_input};
 
-use crate::logging::{LogEventInput, get_context_fields, get_doc_comment};
+use crate::logging::{LogEventInput, get_context_fields, get_doc_comment, get_icon};
 
 /// A proc macro attribute that wraps the input in an `async_trait` implementation,
 /// delegating to the appropriate `async_trait` implementation based on the target architecture.
@@ -133,6 +133,7 @@ pub fn build_logging_metadata(
             Ok(dc) => dc,
             Err(err) => return err.to_compile_error().into(),
         };
+        let icon = get_icon(&variant.attrs).unwrap_or_default();
         let context_fields = get_context_fields(&variant.attrs);
 
         // Filter out #[context(...)] attributes for the output enum
@@ -167,6 +168,7 @@ pub fn build_logging_metadata(
                 event: #enum_name::#variant_name,
                 doc: #doc_comment,
                 context_fields: &[#(#context_fields_tokens),*],
+                icon: #icon
             }
         });
 
