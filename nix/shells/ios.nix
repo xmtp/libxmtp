@@ -6,18 +6,19 @@
 #   - This file: interactive dev shell (`nix develop .#ios`)
 #   - package/ios.nix: CI/release build derivation (`nix build .#ios-libs`)
 # Both use ios-env.nix for shared cross-compilation config.
-{ stdenv
-, darwin
-, lib
-, pkg-config
-, mkShell
-, openssl
-, sqlite
-, zstd
-, xmtp
-, swiftformat
-, swiftlint
-, ...
+{
+  stdenv,
+  darwin,
+  lib,
+  pkg-config,
+  mkShell,
+  openssl,
+  sqlite,
+  zstd,
+  xmtp,
+  swiftformat,
+  swiftlint,
+  ...
 }:
 
 let
@@ -27,7 +28,10 @@ let
   # Rust toolchain with all iOS/macOS cross-compilation targets.
   # Includes clippy and rustfmt for dev use (the package derivation omits these
   # since it only needs to compile, not lint).
-  rust-ios-toolchain = xmtp.mkToolchain iosEnv.iosTargets [ "clippy-preview" "rustfmt-preview" ];
+  rust-ios-toolchain = xmtp.mkToolchain iosEnv.iosTargets [
+    "clippy-preview"
+    "rustfmt-preview"
+  ];
 in
 mkShell {
   # zerocallusedregs is a hardening flag that Nix enables by default.
@@ -36,21 +40,20 @@ mkShell {
   hardeningDisable = [ "zerocallusedregs" ];
 
   nativeBuildInputs = [ pkg-config ];
-  buildInputs =
-    [
-      rust-ios-toolchain
-      zstd
-      openssl
-      sqlite
-      # Swift code formatting/linting tools for the iOS SDK development
-      swiftformat
-      swiftlint
-    ]
-    ++ lib.optionals isDarwin [
-      # cctools provides lipo for combining multi-arch static libraries
-      # into universal (fat) binaries in the Makefile's `lipo` target.
-      darwin.cctools
-    ];
+  buildInputs = [
+    rust-ios-toolchain
+    zstd
+    openssl
+    sqlite
+    # Swift code formatting/linting tools for the iOS SDK development
+    swiftformat
+    swiftlint
+  ]
+  ++ lib.optionals isDarwin [
+    # cctools provides lipo for combining multi-arch static libraries
+    # into universal (fat) binaries in the Makefile's `lipo` target.
+    darwin.cctools
+  ];
 
   shellHook = ''
     export XMTP_DEV_SHELL="ios"

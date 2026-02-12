@@ -1,6 +1,11 @@
 # Shared Android cross-compilation environment configuration.
 # Used by both nix/shells/android.nix (dev shell) and nix/package/android.nix (build derivation).
-{ lib, androidenv, stdenv, writeShellScriptBin }:
+{
+  lib,
+  androidenv,
+  stdenv,
+  writeShellScriptBin,
+}:
 let
   # Android targets for Rust cross-compilation
   androidTargets = [
@@ -12,18 +17,26 @@ let
 
   # Host architecture -> matching Android target (for fast single-target builds)
   hostArch = stdenv.hostPlatform.parsed.cpu.name;
-  hostAndroidTarget = {
-    "aarch64" = "aarch64-linux-android";
-    "x86_64" = "x86_64-linux-android";
-  }.${hostArch} or (throw "Unsupported host architecture for Android: ${hostArch}");
+  hostAndroidTarget =
+    {
+      "aarch64" = "aarch64-linux-android";
+      "x86_64" = "x86_64-linux-android";
+    }
+    .${hostArch} or (throw "Unsupported host architecture for Android: ${hostArch}");
 
   # SDK configuration - keep in sync with sdks/android/library/build.gradle
   # Library: compileSdk 35, Example: compileSdk 34
   # Gradle auto-selects buildTools matching compileSdk when not specified.
   sdkConfig = {
-    platforms = [ "34" "35" ];
+    platforms = [
+      "34"
+      "35"
+    ];
     platformTools = "35.0.2";
-    buildTools = [ "34.0.0" "35.0.0" ];
+    buildTools = [
+      "34.0.0"
+      "35.0.0"
+    ];
   };
 
   # Compose Android packages for builds (minimal - no emulator)
@@ -150,8 +163,18 @@ let
     echo "Emulator ready (emulator-$port)" >&2
   '';
 
-in {
-  inherit androidTargets hostAndroidTarget sdkConfig emulatorConfig
-    composeBuildPackages composeDevPackages mkAndroidPaths
-    devComposition devPaths emulator;
+in
+{
+  inherit
+    androidTargets
+    hostAndroidTarget
+    sdkConfig
+    emulatorConfig
+    composeBuildPackages
+    composeDevPackages
+    mkAndroidPaths
+    devComposition
+    devPaths
+    emulator
+    ;
 }
