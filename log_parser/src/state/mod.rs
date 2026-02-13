@@ -3,7 +3,7 @@ pub mod event;
 pub mod ui;
 pub mod value;
 
-use crate::state::assertions::{LogAssertion, epoch_continuity::EpochContinuityAssertion};
+use crate::state::assertions::{epoch_continuity::EpochContinuityAssertion, LogAssertion};
 use anyhow::{Context, Result};
 pub use event::LogEvent;
 use parking_lot::{RwLock, RwLockWriteGuard};
@@ -99,7 +99,6 @@ impl LogState {
                 match raw_event {
                     Event::CreatedDM => {
                         group.dm_target = Some(ctx("target_inbox")?.as_str()?.to_string());
-                        group.created_at = Some(event.time);
                     }
                     Event::MLSGroupEpochUpdated => {
                         group.previous_epoch = Some(ctx("previous_epoch")?.as_int()?);
@@ -158,7 +157,6 @@ pub struct GroupState {
     pub installation_id: String,
     pub event: Arc<LogEvent>,
     pub dm_target: Option<InstallationId>,
-    pub created_at: Option<i64>,
     pub previous_epoch: Option<i64>,
     pub epoch: Option<i64>,
     // Group states from other clients in the same epoch

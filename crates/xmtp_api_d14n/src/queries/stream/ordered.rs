@@ -5,7 +5,7 @@ use crate::protocol::{
     TypedNoopResolver,
 };
 use futures::{Stream, TryStream};
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use std::{
     error::Error,
     marker::PhantomData,
@@ -14,13 +14,13 @@ use std::{
 use xmtp_common::RetryableError;
 use xmtp_proto::{api::ApiClientError, types::TopicCursor};
 
-pin_project! {
-    pub struct OrderedStream<S, Store, T> {
-        #[pin] inner: S,
-        cursor_store: Store,
-        topic_cursor: TopicCursor,
-        _marker: PhantomData<T>
-    }
+#[pin_project]
+pub struct OrderedStream<S, Store, T> {
+    #[pin]
+    inner: S,
+    cursor_store: Store,
+    topic_cursor: TopicCursor,
+    _marker: PhantomData<T>,
 }
 
 // this is an error which should never occur,

@@ -18,7 +18,7 @@ use crate::{
     context::XmtpSharedContext, groups::MlsGroup, subscriptions::process_message::ProcessedMessage,
 };
 use futures::Stream;
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use std::{
     borrow::Cow,
     collections::VecDeque,
@@ -41,37 +41,43 @@ impl xmtp_common::RetryableError for MessageStreamError {
     }
 }
 
-pin_project! {
-    pub struct StreamGroupMessages<'a, Context: Clone, Subscription, Factory = ProcessMessageFuture<Context>> {
-        #[pin] inner: Subscription,
-        #[pin] state: State<'a, Subscription>,
-        factory: Factory,
-        context: Cow<'a, Context>,
-        groups: GroupList,
-        add_queue: VecDeque<MlsGroup<Context>>,
-        returned: Vec<Cursor>,
-        got: Vec<Cursor>,
-    }
+#[pin_project]
+pub struct StreamGroupMessages<
+    'a,
+    Context: Clone,
+    Subscription,
+    Factory = ProcessMessageFuture<Context>,
+> {
+    #[pin]
+    inner: Subscription,
+    #[pin]
+    state: State<'a, Subscription>,
+    factory: Factory,
+    context: Cow<'a, Context>,
+    groups: GroupList,
+    add_queue: VecDeque<MlsGroup<Context>>,
+    returned: Vec<Cursor>,
+    got: Vec<Cursor>,
 }
 
-pin_project! {
-    #[project = ProjectState]
-    #[derive(Default)]
-    enum State<'a, Out> {
-        /// State that indicates the stream is waiting on the next message from the network
-        #[default]
-        Waiting,
-        /// State that indicates the stream is waiting on a IO/Network future to finish processing
-        /// the current message before moving on to the next one
-        Processing {
-            #[pin] future: BoxDynFuture<'a, Result<ProcessedMessage>>,
-            message: Cursor
-        },
-        // State that indicates that the stream is adding a new group to the stream.
-        Adding {
-            #[pin] future: BoxDynFuture<'a, Result<(Out, Vec<u8>, Option<Cursor>)>>
-        }
-    }
+#[pin_project(project = ProjectState)]
+#[derive(Default)]
+enum State<'a, Out> {
+    /// State that indicates the stream is waiting on the next message from the network
+    #[default]
+    Waiting,
+    /// State that indicates the stream is waiting on a IO/Network future to finish processing
+    /// the current message before moving on to the next one
+    Processing {
+        #[pin]
+        future: BoxDynFuture<'a, Result<ProcessedMessage>>,
+        message: Cursor,
+    },
+    // State that indicates that the stream is adding a new group to the stream.
+    Adding {
+        #[pin]
+        future: BoxDynFuture<'a, Result<(Out, Vec<u8>, Option<Cursor>)>>,
+    },
 }
 
 pub(super) type MessagesApiSubscription<'a, ApiClient> =

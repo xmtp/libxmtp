@@ -4,7 +4,7 @@ use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
 use async_compression::futures::write::ZstdEncoder;
 use futures::{Stream, pin_mut, ready, task::Context};
 use futures_util::{AsyncRead, AsyncWriteExt};
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use prost::Message;
 #[allow(deprecated)]
 use sha2::digest::{generic_array::GenericArray, typenum};
@@ -17,22 +17,21 @@ use xmtp_proto::xmtp::device_sync::{
 #[cfg(not(target_arch = "wasm32"))]
 mod file_export;
 
-pin_project! {
-    pub struct ArchiveExporter {
-        stage: Stage,
-        metadata: BackupMetadataSave,
-        #[pin] stream: BatchExportStream,
-        position: usize,
-        zstd_encoder: ZstdEncoder<Vec<u8>>,
-        encoder_finished: bool,
+#[pin_project]
+pub struct ArchiveExporter {
+    stage: Stage,
+    metadata: BackupMetadataSave,
+    #[pin]
+    stream: BatchExportStream,
+    position: usize,
+    zstd_encoder: ZstdEncoder<Vec<u8>>,
+    encoder_finished: bool,
 
-        cipher: AesGcm<Aes256, typenum::U12, typenum::U16>,
-        nonce: GenericArray<u8, typenum::U12>,
+    cipher: AesGcm<Aes256, typenum::U12, typenum::U16>,
+    nonce: GenericArray<u8, typenum::U12>,
 
-        // Used to write the nonce, contains the same data as nonce.
-        nonce_buffer: Vec<u8>,
-    }
-
+    // Used to write the nonce, contains the same data as nonce.
+    nonce_buffer: Vec<u8>,
 }
 
 #[derive(Default)]
