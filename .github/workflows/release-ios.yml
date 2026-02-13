@@ -226,3 +226,12 @@ jobs:
           else
             pod trunk push XMTP.podspec --allow-warnings --skip-tests
           fi
+
+  docs:
+    needs: [publish]
+    uses: ./.github/workflows/docs-ios.yml
+    with:
+      version: ${{ needs.publish.outputs.version }}
+      release-type: ${{ inputs.release-type }}
+      ref: ${{ inputs.ref }}
+    secrets: inherit

@@ -1,10 +1,31 @@
 name: iOS Docs
 
 on:
-  push:
-    branches: ["main"]
-    paths: ["sdks/ios/**", "Package.swift"]
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+        description: "Version string (e.g., 4.9.0, 4.9.1-rc.1)"
+      release-type:
+        required: true
+        type: string
+        description: "dev, rc, or final"
+      ref:
+        required: true
+        type: string
+        description: "Git ref to build from"
   workflow_dispatch:
+    inputs:
+      version:
+        required: true
+        type: string
+        description: "Version string (e.g., 4.9.0)"
+      release-type:
+        required: true
+        type: string
+        default: "final"
+        description: "dev, rc, or final"
 
 permissions:
   contents: write
@@ -18,6 +39,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
@@ -37,10 +60,30 @@ jobs:
             --target XMTPiOS \
             --output-path ./.build/docs \
             --transform-for-static-hosting \
-            --hosting-base-path libxmtp/ios
-      - name: Deploy to GitHub Pages
+            --hosting-base-path libxmtp/ios/${{ inputs.version }}
+      - name: Deploy versioned docs
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./.build/docs
-          destination_dir: ios
+          destination_dir: ios/${{ inputs.version }}
+          keep_files: true
+      - name: Generate latest docs
+        if: inputs.release-type == 'final'
+        run: |
+          rm -rf ./.build/docs-latest
+          swift package \
+            --allow-writing-to-package-directory \
+            generate-documentation \
+            --target XMTPiOS \
+            --output-path ./.build/docs-latest \
+            --transform-for-static-hosting \
+            --hosting-base-path libxmtp/ios/latest
+      - name: Deploy latest docs
+        if: inputs.release-type == 'final'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./.build/docs-latest
+          destination_dir: ios/latest
+          keep_files: true
