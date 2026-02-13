@@ -67,6 +67,22 @@
               # Android bindings - host-matching target only (fast dev/CI builds)
               android-libs-fast = (android.mkAndroid [ androidEnv.hostAndroidTarget ]).aggregate;
             }
+            // (
+              let
+                node = pkgs.callPackage ./nix/package/node.nix { };
+                inherit (pkgs.xmtp) nodeEnv;
+              in
+              # Expose per-target packages with NAPI platform names
+              lib.mapAttrs' (
+                triple: drv: lib.nameValuePair "node-bindings-${nodeEnv.targetToNapi.${triple}}" drv
+              ) node.targets
+              // {
+                # Fast: host-matching target only
+                node-bindings-fast = node.buildTarget nodeEnv.hostTarget;
+                # JS/TS bindings (index.js + index.d.ts)
+                node-bindings-js = node.jsBindings;
+              }
+            )
             // lib.optionalAttrs pkgs.stdenv.isDarwin {
               # stdenvNoCC is passed to callPackage (for the aggregate derivation).
               # This avoids Nix's apple-sdk and cc-wrapper,
