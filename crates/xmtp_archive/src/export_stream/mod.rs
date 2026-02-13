@@ -38,6 +38,7 @@ pub(super) struct BatchExportStream {
 }
 
 impl BatchExportStream {
+    #[allow(deprecated)]
     pub(super) fn new<D>(opts: &BackupOptions, db: Arc<D>) -> Self
     where
         D: DbQuery + 'static,
