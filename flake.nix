@@ -79,9 +79,15 @@
                 }).aggregate;
               # iOS bindings - simulator + host macOS only (fast dev/CI builds)
               ios-libs-fast =
-                ((pkgs.callPackage ./nix/package/ios.nix {
-                  stdenv = pkgs.stdenvNoCC;
-                }).mkIos [ "aarch64-apple-darwin" "aarch64-apple-ios-sim" ]).aggregate;
+                (
+                  (pkgs.callPackage ./nix/package/ios.nix {
+                    stdenv = pkgs.stdenvNoCC;
+                  }).mkIos
+                  [
+                    "aarch64-apple-darwin"
+                    "aarch64-apple-ios-sim"
+                  ]
+                ).aggregate;
             };
         };
     };
