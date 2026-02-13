@@ -44,19 +44,23 @@ let
       targetUpper = builtins.replaceStrings [ "-" ] [ "_" ] (lib.toUpper target);
       isMusl = lib.hasInfix "musl" target;
     in
-    (if cc == null then
-      { }
-    else
-      {
-        "CC_${builtins.replaceStrings [ "-" ] [ "_" ] target}" = "${cc.targetPrefix}cc";
-        "CARGO_TARGET_${targetUpper}_LINKER" = "${cc.targetPrefix}cc";
-      })
-    // (if isMusl then
-      {
-        "CARGO_TARGET_${targetUpper}_RUSTFLAGS" = "-C target-feature=-crt-static";
-      }
-    else
-      { });
+    (
+      if cc == null then
+        { }
+      else
+        {
+          "CC_${builtins.replaceStrings [ "-" ] [ "_" ] target}" = "${cc.targetPrefix}cc";
+          "CARGO_TARGET_${targetUpper}_LINKER" = "${cc.targetPrefix}cc";
+        }
+    )
+    // (
+      if isMusl then
+        {
+          "CARGO_TARGET_${targetUpper}_RUSTFLAGS" = "-C target-feature=-crt-static";
+        }
+      else
+        { }
+    );
 
   # Per-target nativeBuildInputs (cross-compilation toolchains).
   crossPkgsFor =
