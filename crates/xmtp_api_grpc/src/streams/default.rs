@@ -9,19 +9,19 @@ use std::{
 
 use crate::error::GrpcError;
 use futures::{Stream, TryStream};
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use xmtp_proto::{
     ApiEndpoint,
     api::{ApiClientError, Client},
 };
 
-pin_project! {
-    /// A stream which maps the tonic error to ApiClientError, and attaches endpoint metadata
-    pub struct XmtpTonicStream<S, T> {
-        #[pin] inner: S,
-        endpoint: ApiEndpoint,
-        _marker: PhantomData<T>,
-    }
+#[pin_project]
+/// A stream which maps the tonic error to ApiClientError, and attaches endpoint metadata
+pub struct XmtpTonicStream<S, T> {
+    #[pin]
+    inner: S,
+    endpoint: ApiEndpoint,
+    _marker: PhantomData<T>,
 }
 
 impl<S, T> XmtpTonicStream<S, T> {

@@ -6,7 +6,7 @@ use proc_macro2::*;
 use quote::{quote, quote_spanned};
 use syn::{Data, DeriveInput, Fields, Path, parse_macro_input};
 
-use crate::logging::{LogEventInput, get_context_fields, get_doc_comment};
+use crate::logging::{LogEventInput, get_context_fields, get_doc_comment, get_icon};
 
 /// A proc macro attribute that wraps the input in an `async_trait` implementation,
 /// delegating to the appropriate `async_trait` implementation based on the target architecture.
@@ -133,6 +133,7 @@ pub fn build_logging_metadata(
             Ok(dc) => dc,
             Err(err) => return err.to_compile_error().into(),
         };
+        let icon = get_icon(&variant.attrs).unwrap_or_default();
         let context_fields = get_context_fields(&variant.attrs);
 
         // Filter out #[context(...)] attributes for the output enum
@@ -167,6 +168,7 @@ pub fn build_logging_metadata(
                 event: #enum_name::#variant_name,
                 doc: #doc_comment,
                 context_fields: &[#(#context_fields_tokens),*],
+                icon: #icon,
             }
         });
 
@@ -230,7 +232,18 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         .map(|(i, f)| {
             let name_str = &provided_names[i];
             let value = f.value_tokens();
-            if matches!(f.sigil, Some('%')) {
+            if matches!(f.sigil, Some('#')) {
+                // # sigil (short_hex): always quote the value so hex strings
+                // like "1713e608" aren't misinterpreted as scientific notation
+                quote! {
+                    #name_str => Some(format!("{}: \"{}\"", #name_str, #value))
+                }
+            } else if matches!(f.sigil, Some('$')) {
+                // $ sigil (json): value is already a JSON string from serde_json::to_string
+                quote! {
+                    #name_str => Some(format!("{}: {}", #name_str, #value))
+                }
+            } else if matches!(f.sigil, Some('%')) {
                 quote! {
                     #name_str => Some(format!("{}: {}", #name_str, #value))
                 }
@@ -271,19 +284,19 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             // Bind installation_id to a variable to extend its lifetime
             let __installation_id = #installation_id;
-            // Hex encode last 4 bytes of installation_id
-            let __installation_bytes: &[u8] = __installation_id.as_ref();
-            let __installation_len = __installation_bytes.len();
-            let __installation_last_4 = if __installation_len >= 4 { &__installation_bytes[__installation_len - 4..] } else { __installation_bytes };
-            let __installation_truncated = hex::encode(__installation_last_4);
+            let __inst = {
+                use xmtp_proto::ShortHex;
+                __installation_id.short_hex()
+            };
+            let __now_ms = xmtp_common::time::now_ms();
 
             // Build message with context for non-structured logging
             let __message = if ::xmtp_common::is_structured_logging() {
                 // Structured logging: include installation_id and timestamp in message
-                format!("➣ {} {{installation_id: {}, timestamp: {}}}", __meta.doc, __installation_truncated, xmtp_common::time::now_ns())
+                format!("➣ {} {{time_ms: {__now_ms}, inst: \"{__inst}\"}}", __meta.doc)
             } else {
                 // Non-structured logging: embed context in message for readability
-                let __context_parts: ::std::vec::Vec<String> = __meta.context_fields
+                let mut __context_parts: ::std::vec::Vec<String> = __meta.context_fields
                     .iter()
                     .filter_map(|&field_name| {
                         match field_name {
@@ -293,12 +306,11 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     })
                     .collect();
 
-                let __context_str = __context_parts.join(", ");
-                if __context_str.is_empty() {
-                    format!("➣ {} {{installation_id: {}, timestamp: {}}}", __meta.doc, __installation_truncated, xmtp_common::time::now_ns())
-                } else {
-                    format!("➣ {} {{{__context_str}, installation_id: {}, timestamp: {}}}", __meta.doc, __installation_truncated, xmtp_common::time::now_ns())
-                }
+                __context_parts.push(format!("time_ms: {__now_ms}"));
+                __context_parts.push(format!("inst: \"{__inst}\""));
+                let __context_str = __context_parts.join(", ").replace('\n', " ");
+
+                format!("➣ {} {{{__context_str}}}", __meta.doc)
             };
 
             #tracing_call

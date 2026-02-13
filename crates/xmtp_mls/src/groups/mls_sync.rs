@@ -66,8 +66,8 @@ use thiserror::Error;
 use tracing::debug;
 use update_group_membership::apply_update_group_membership_intent;
 use xmtp_common::{
-    Event, ExponentialBackoff, Retry, RetryableError, Strategy, fmt::ShortHex, log_event,
-    retry_async, time::now_ns,
+    Event, ExponentialBackoff, Retry, RetryableError, Strategy, log_event, retry_async,
+    time::now_ns,
 };
 use xmtp_configuration::{
     GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_GROUP_SYNC_RETRIES,
@@ -95,7 +95,6 @@ use xmtp_db::{
 };
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -115,6 +114,7 @@ use xmtp_proto::{
     GroupUpdateDeduper,
     types::{Cursor, GroupMessage},
 };
+use xmtp_proto::{ShortHex, xmtp::mls::message_contents::EncodedContent};
 use zeroize::Zeroizing;
 
 pub mod update_group_membership;
@@ -301,11 +301,9 @@ where
         tracing::info!(
             inbox_id = self.context.inbox_id(),
             installation_id = %self.context.installation_id(),
-            group_id = hex::encode(&self.group_id),
-            epoch = epoch,
-            "[{}] syncing group, epoch = {}",
+            group_id = self.group_id.short_hex(),
+            "[{}] syncing group, epoch = {epoch}",
             self.context.inbox_id(),
-            epoch
         );
 
         // Also sync the "stitched DMs", if any...
@@ -377,7 +375,7 @@ where
             log_event!(
                 Event::GroupSyncGroupInactive,
                 self.context.installation_id(),
-                group_id = self.group_id.short_hex()
+                group_id = self.group_id
             );
             return Err(SyncSummary::other(GroupError::GroupInactive));
         }
@@ -462,7 +460,7 @@ where
         log_event!(
             Event::GroupSyncStart,
             self.context.installation_id(),
-            group_id = self.group_id.short_hex()
+            group_id = self.group_id
         );
 
         let result = self.sync_until_intent_resolved_inner(intent_id).await;
@@ -476,7 +474,7 @@ where
         log_event!(
             Event::GroupSyncFinished,
             self.context.installation_id(),
-            group_id = self.group_id.short_hex(),
+            group_id = self.group_id,
             summary = ?summary,
             success = result.is_ok()
         );
@@ -512,7 +510,7 @@ where
             log_event!(
                 Event::GroupSyncAttempt,
                 self.context.installation_id(),
-                group_id = self.group_id.short_hex(),
+                group_id = self.group_id,
                 attempt,
                 backoff = ?wait_for
             );
@@ -550,7 +548,7 @@ where
                         Event::GroupSyncIntentErrored,
                         self.context.installation_id(),
                         level = warn,
-                        group_id = self.group_id.short_hex(), intent_id = intent_id,
+                        group_id = self.group_id, intent_id = intent_id,
                         summary = ?summary, intent_kind = ?kind
                     );
                     return Err(GroupError::from(summary));
@@ -559,7 +557,7 @@ where
                     log_event!(
                         Event::GroupSyncIntentRetry,
                         self.context.installation_id(),
-                        level = warn, group_id = self.group_id.short_hex(),
+                        level = warn, group_id = self.group_id,
                         intent_id = intent_id, state = ?state, intent_kind = ?kind
                     );
                 }
@@ -872,7 +870,21 @@ where
                 &validated_commit.metadata_validation_info,
             );
 
-            return Ok(msg.map(|m| m.id));
+            if let Some((_, payload)) = &msg {
+                log_event!(
+                    Event::MLSProcessedStagedCommit,
+                    self.context.installation_id(),
+                    group_id = self.group_id,
+                    epoch = mls_group.epoch().as_u64(),
+                    actor_installation_id = validated_commit.actor.installation_id,
+                    added_inboxes = $payload.added_inboxes,
+                    removed_inboxes = $payload.removed_inboxes,
+                    left_inboxes = $payload.left_inboxes,
+                    metadata_changes = $payload.metadata_field_changes
+                );
+            }
+
+            return Ok(msg.map(|(m, _)| m.id));
         }
 
         let id: Option<Vec<u8>> = calculate_message_id_for_intent(intent)
@@ -1058,9 +1070,11 @@ where
                 log_event!(
                     Event::MLSGroupEpochUpdated,
                     self.context.installation_id(),
-                    group_id = self.group_id.short_hex(),
-                    cursor = ?cursor,
+                    group_id = self.group_id,
+                    cursor = cursor.sequence_id,
+                    originator = cursor.originator_id,
                     epoch = new_epoch,
+                    epoch_auth = mls_group.epoch_authenticator().as_slice().short_hex(),
                     previous_epoch
                 );
             }
@@ -1088,8 +1102,7 @@ where
         let GroupMessage { cursor, .. } = &message_envelope;
         let envelope_timestamp_ns = message_envelope.timestamp();
         let msg_epoch = processed_message.epoch().as_u64();
-        let msg_group_id = hex::encode(processed_message.group_id().as_slice());
-        let msg_group_id_short_hex = processed_message.group_id().as_slice().short_hex();
+        let msg_group_id = processed_message.group_id().as_slice().to_vec();
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns as u64)?;
 
@@ -1100,12 +1113,12 @@ where
                     Event::MLSReceivedApplicationMessage,
                     self.context.installation_id(),
                     inbox_id = self.context.inbox_id(),
-                    sender_inbox_id = sender_inbox_id,
-                    sender_installation_id = hex::encode(&sender_installation_id),
-                    installation_id = %self.context.installation_id(),group_id = hex::encode(&self.group_id),
-                    current_epoch = mls_group.epoch().as_u64(),
+                    sender_inbox_id,
+                    sender_installation_id,
+                    group_id = self.group_id,
+                    epoch = mls_group.epoch().as_u64(),
                     msg_epoch,
-                    group_id = msg_group_id_short_hex,
+                    msg_group_id,
                     cursor = %cursor,
                 );
                 let message_bytes = application_message.into_bytes();
@@ -1166,12 +1179,6 @@ where
                             self.process_leave_request_message(mls_group, storage, &message)?;
                         }
 
-                        log_event!(
-                            Event::MLSProcessedApplicationMessage,
-                            self.context.installation_id(),
-                            group_id = msg_group_id,
-                        );
-
                         if message.content_type == ContentType::DeleteMessage {
                             self.process_delete_message(mls_group, storage, &message)?;
                         }
@@ -1205,11 +1212,10 @@ where
                     Event::MLSReceivedStagedCommit,
                     self.context.installation_id(),
                     inbox_id = self.context.inbox_id(),
-                    sender_inbox_id = sender_inbox_id,
-                    installation_id = %self.context.installation_id(),
-                    sender_installation_id = hex::encode(&sender_installation_id),
-                    group_id = self.group_id.short_hex(),
-                    current_epoch = mls_group.epoch().as_u64(),
+                    sender_inbox = sender_inbox_id,
+                    sender_installation_id,
+                    group_id = self.group_id,
+                    epoch = mls_group.epoch().as_u64(),
                     msg_epoch,
                     msg_group_id,
                     cursor = %cursor,
@@ -1231,7 +1237,7 @@ where
                     cursor.sequence_id as i64,
                 )?;
 
-                let msg = self.save_transcript_message(
+                let transcript = self.save_transcript_message(
                     validated_commit.clone(),
                     envelope_timestamp_ns as u64,
                     *cursor,
@@ -1250,14 +1256,21 @@ where
                     &validated_commit.metadata_validation_info,
                 );
 
-                identifier.internal_id(msg.as_ref().map(|m| m.id.clone()));
+                if let Some((msg, payload)) = transcript {
+                    identifier.internal_id(msg.id);
 
-                log_event!(
-                    Event::MLSProcessedStagedCommit,
-                    self.context.installation_id(),
-                    group_id = self.group_id.short_hex(),
-                    current_epoch = mls_group.epoch().as_u64(),
-                );
+                    log_event!(
+                        Event::MLSProcessedStagedCommit,
+                        self.context.installation_id(),
+                        group_id = self.group_id,
+                        epoch = mls_group.epoch().as_u64(),
+                        actor_installation_id = validated_commit.actor.installation_id,
+                        added_inboxes = $payload.added_inboxes,
+                        removed_inboxes = $payload.removed_inboxes,
+                        left_inboxes = $payload.left_inboxes,
+                        metadata_changes = $payload.metadata_field_changes
+                    );
+                }
 
                 Ok(())
             }
@@ -2146,8 +2159,9 @@ where
             log_event!(
                 Event::GroupCursorUpdate,
                 self.context.installation_id(),
-                group_id = message.group_id.as_slice().short_hex(),
-                cursor = ?message.cursor
+                group_id = message.group_id.as_slice(),
+                cursor = message.cursor.sequence_id,
+                originator = message.cursor.originator_id
             );
         } else {
             tracing::debug!("no cursor update required");
@@ -2161,7 +2175,7 @@ where
         timestamp_ns: u64,
         cursor: Cursor,
         storage: &impl XmtpMlsStorageProvider,
-    ) -> Result<Option<StoredGroupMessage>, GroupMessageProcessingError> {
+    ) -> Result<Option<(StoredGroupMessage, GroupUpdated)>, GroupMessageProcessingError> {
         if validated_commit.is_empty() {
             return Ok(None);
         }
@@ -2170,16 +2184,9 @@ where
 
         let pending_remove_users = &storage
             .db()
-            .get_pending_remove_users(&self.group_id.to_vec())?;
+            .get_pending_remove_users(self.group_id.as_slice())?;
         let payload: GroupUpdated = validated_commit.into_with(pending_remove_users);
-        tracing::info!(
-            "[{}]: Storing a transcript message with {} members added and {} members removed and {} members left and {} metadata changes",
-            self.context.inbox_id(),
-            payload.added_inboxes.len(),
-            payload.removed_inboxes.len(),
-            payload.left_inboxes.len(),
-            payload.metadata_field_changes.len(),
-        );
+        tracing::info!("Storing transcript message");
         let encoded_payload = GroupUpdatedCodec::encode(payload.clone())?;
         let mut encoded_payload_bytes = Vec::new();
         encoded_payload.encode(&mut encoded_payload_bytes)?;
@@ -2229,7 +2236,7 @@ where
         };
 
         msg.store_or_ignore(&storage.db())?;
-        Ok(Some(msg))
+        Ok(Some((msg, payload)))
     }
 
     fn update_already_exists(
@@ -2406,7 +2413,7 @@ where
                                 log_event!(
                                     Event::GroupSyncApplicationMessagePublishSuccess,
                                     self.context.installation_id(),
-                                    group_id = intent.group_id.short_hex(),
+                                    group_id = intent.group_id,
                                     intent_id = intent.id
                                 );
                             }
@@ -2414,7 +2421,7 @@ where
                                 log_event!(
                                     Event::GroupSyncPublishFailed,
                                     self.context.installation_id(),
-                                    group_id = intent.group_id.short_hex(),
+                                    group_id = intent.group_id,
                                     intent_id = intent.id,
                                     intent_kind = ?kind,
                                     err = ?err
@@ -2425,7 +2432,7 @@ where
                                 log_event!(
                                     Event::GroupSyncCommitPublishSuccess,
                                     self.context.installation_id(),
-                                    group_id = intent.group_id.short_hex(),
+                                    group_id = intent.group_id,
                                     intent_id = intent.id,
                                     intent_kind = ?kind,
                                     commit_hash = hex::encode(sha256(payload_slice))
@@ -2434,7 +2441,7 @@ where
                         }
 
                         if has_staged_commit {
-                            log_event!(Event::GroupSyncStagedCommitPresent, self.context.installation_id(), group_id = intent.group_id.short_hex());
+                            log_event!(Event::GroupSyncStagedCommitPresent, self.context.installation_id(), group_id = intent.group_id);
                             return Ok(());
                         }
                     }
