@@ -45,9 +45,9 @@ jobs:
               - 'bindings/node/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - 'nix/**'
               - 'dev/docker/**'
               - 'dev/up'
-              - '.node-version'
               - '.github/workflows/test-node*'
             wasm:
               - 'crates/**'

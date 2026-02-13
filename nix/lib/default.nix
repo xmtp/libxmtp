@@ -34,6 +34,7 @@
           mobile = pkgs.callPackage ./mobile-common.nix { };
           androidEnv = pkgs.callPackage ./android-env.nix { };
           iosEnv = pkgs.callPackage ./ios-env.nix { };
+          nodeEnv = pkgs.callPackage ./node-env.nix { };
           ffi-uniffi-bindgen = pkgs.callPackage ./packages/uniffi-bindgen.nix { };
           shellCommon = pkgs.callPackage ./shell-common.nix { };
         };

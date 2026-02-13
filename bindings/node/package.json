@@ -21,7 +21,6 @@
   ],
   "scripts": {
     "artifacts": "napi artifacts",
-    "build": "yarn build:clean && yarn build:release && yarn build:finish",
     "build:clean": "rm -rf dist",
     "build:debug": "napi build --platform --esm",
     "build:finish": "mkdir dist && mv index.js dist && mv index.d.ts dist && mv *.node dist",

@@ -5,8 +5,6 @@ description: Use when working with Nix flakes, selecting devShells, debugging en
 
 # Working with Nix in libxmtp
 
-This skill helps with Nix development environments in the libxmtp repository.
-
 ## Quick Shell Selection
 
 | Task | Shell | Command |
@@ -20,64 +18,43 @@ This skill helps with Nix development environments in the libxmtp repository.
 
 ## Environment Detection
 
-Check if you're in a Nix shell:
 ```bash
-# Set by the rust and local (default) shells
-echo $XMTP_NIX_ENV  # "yes" if in rust or default shell
-
-# Check which specific shell you're in
-echo $XMTP_DEV_SHELL  # "local", "android", "ios", or unset (rust shell)
-
-# Works for any Nix shell
-[[ -n "$IN_NIX_SHELL" ]] && echo "In Nix shell"
+echo $XMTP_NIX_ENV     # "yes" if in any Rust-based Nix shell
+echo $XMTP_DEV_SHELL   # "local", "android", "ios", or unset
 ```
 
 ## Critical Constraints
 
-### Rust Version is Pinned - Do Not Change
+### Rust Version is Pinned — Do Not Change
 
-The project uses **Rust 1.92.0** pinned via static manifest:
-```nix
-# flake.nix
-rust-manifest = {
-  url = "https://static.rust-lang.org/dist/channel-rust-1.92.0.toml";
-  flake = false;
-};
-```
-
-All shells use `xmtp.mkToolchain` which reads from this manifest. Never modify this URL without project-wide coordination.
+**Rust 1.92.0** via `flake.nix` → `rust-manifest`. All shells use `xmtp.mkToolchain`. Never modify without project-wide coordination.
 
 ### iOS Shell is macOS Only
 
-The `.#ios` shell only works on macOS (Darwin). It requires:
-- `xcbuild`
-- `darwin.cctools`
-- Apple-specific LLVM toolchains
-
-Attempting to use it on Linux will fail.
+The `.#ios` shell only works on Darwin. Requires Xcode 16+ for Swift 6.1.
 
 ### Untracked Files are Invisible to Flakes
 
-Nix flakes only see files tracked by git. If a new file isn't building:
 ```bash
-git add <new-file>  # Then rebuild
+git add <new-file>  # Then rebuild — flakes only see git-tracked files
 ```
 
-### Cachix is Essential for Build Times
+### Cachix
 
-First-time builds without Cachix can exceed 30 minutes. Configure once:
-```bash
-# The flake already has extra-substituters configured
-# Just ensure you can access xmtp.cachix.org
+Verify the binary cache is active: `nix config show | grep substituters` — should include `https://xmtp.cachix.org`.
 
-# If builds are slow, verify with:
-nix config show | grep substituters
+## Shell Architecture
+
+Shells are independent — they compose from shared building blocks, not from each other:
+
 ```
-
-The flake's `nixConfig` already includes:
-```nix
-extra-trusted-public-keys = "xmtp.cachix.org-1:...";
-extra-substituters = "https://xmtp.cachix.org";
+shell-common.nix   → shared building blocks (rustBase, wasmEnv, tool groups)
+  ├── rust.nix     → focused Rust shell (crates/bindings, lint, test)
+  ├── local.nix    → full local dev (default) = all targets + debug + misc
+  ├── android.nix  → Android cross-compilation
+  └── ios.nix      → iOS cross-compilation (macOS only)
+js.nix             → JavaScript/browser testing (no Rust)
+package/wasm.nix   → WASM shell + package build
 ```
 
 ## Essential Commands
@@ -85,44 +62,27 @@ extra-substituters = "https://xmtp.cachix.org";
 ```bash
 # Enter shells
 nix develop              # Default shell
+nix develop .#rust       # Focused Rust shell
 nix develop .#android    # Android shell
 nix develop .#ios        # iOS shell (macOS only)
 nix develop .#js         # JavaScript shell
 nix develop .#wasm       # WASM shell
 
-# Check what's available
+# Build packages
+nix build .#wasm-bindings                    # WASM compiled bindings
+nix build .#node-bindings-fast               # Host-matching .node binary
+nix build .#node-bindings-js                 # Generated JS/TS bindings
+nix build .#node-bindings-linux-x64-gnu      # Per-target .node (example)
+nix build .#android-libs                     # All Android targets
+nix build .#ios-libs                         # All iOS targets (macOS only)
+
+# Explore
 nix flake show           # List all outputs
-nix flake metadata       # Show inputs and their versions
-
-# Update dependencies
-nix flake update         # Update all inputs
-nix flake lock --update-input nixpkgs  # Update specific input
-
-# Build WASM bindings as a package
-nix build .#wasm-bindings
+nix flake metadata       # Show inputs and versions
 
 # Debug
 nix develop --show-trace  # Verbose error output
-nix repl .                # Interactive exploration
 ```
-
-## Shell Architecture
-
-The shells are composable — `local` (default) builds on `rust`:
-
-```
-shell-common.nix   → shared building blocks (rustBase, wasmEnv, tool groups)
-  ├── rust.nix     → focused Rust shell (crates/bindings, lint, test)
-  │   └── local.nix → full local dev (default) = rust + debug + misc tools
-  ├── android.nix  → Android cross-compilation
-  └── ios.nix      → iOS cross-compilation (macOS only)
-```
-
-## When NOT to Invoke This Skill
-
-- Simple `cargo` commands that work fine in the current environment
-- Reading/editing Nix files when the syntax is straightforward
-- General Rust questions unrelated to Nix tooling
 
 ## Platform Support
 
@@ -131,22 +91,37 @@ shell-common.nix   → shared building blocks (rustBase, wasmEnv, tool groups)
 | macOS (aarch64-darwin) | rust, default, android, ios, js, wasm |
 | Linux (x86_64-linux) | rust, default, android, js, wasm |
 
-The flake defines `systems = ["aarch64-darwin" "x86_64-linux"]`.
-
 ## Key Files
 
-- `flake.nix` - DevShell definitions, input pinning, cachix config
-- `nix/lib/shell-common.nix` - Shared building blocks (rustBase, wasmEnv, tool groups)
-- `nix/shells/rust.nix` - Focused Rust shell (crates, bindings, lint, test)
-- `nix/shells/local.nix` - Full local dev shell (default) = rust + debug + misc
-- `nix/shells/android.nix` - Android shell with NDK
-- `nix/shells/ios.nix` - iOS shell (macOS only)
-- `nix/js.nix` - JavaScript shell with Playwright
-- `nix/package/wasm.nix` - WASM shell and package build
-- `nix/lib/mkToolchain.nix` - Rust version pinning logic
-- `dev/nix-up` - Installation script for Nix and direnv
+| File | Purpose |
+|------|---------|
+| `flake.nix` | DevShell + package definitions, input pinning, cachix |
+| `nix/lib/default.nix` | Overlay wiring — exposes `xmtp.*` to all Nix files |
+| `nix/lib/shell-common.nix` | Shared building blocks (rustBase, wasmEnv, tool groups) |
+| `nix/lib/mkToolchain.nix` | Rust version pinning logic |
+| `nix/lib/filesets.nix` | Source file filtering for hermetic builds |
+| `nix/lib/mobile-common.nix` | Shared mobile (iOS/Android) build args |
+| `nix/lib/android-env.nix` | Android SDK config, targets, emulator script |
+| `nix/lib/ios-env.nix` | iOS targets, dynamic Xcode resolution |
+| `nix/lib/node-env.nix` | Node targets, NAPI name mapping, cross-compilation |
+| `nix/shells/rust.nix` | Focused Rust dev shell |
+| `nix/shells/local.nix` | Full local dev shell (default) |
+| `nix/shells/android.nix` | Android dev shell |
+| `nix/shells/ios.nix` | iOS dev shell (macOS only) |
+| `nix/js.nix` | JavaScript shell |
+| `nix/package/wasm.nix` | WASM shell + package build |
+| `nix/package/node.nix` | Node.js per-target builds + JS/TS generation |
+| `nix/package/android.nix` | Android release build derivation |
+| `nix/package/ios.nix` | iOS release build derivation |
+| `dev/nix-up` | Installation script for Nix and direnv |
 
 ## Further Reference
 
-- [Shell Reference](shell-reference.md) - Detailed tool inventories for each shell
-- [Troubleshooting](troubleshooting.md) - Common issues and solutions
+- [Shell: Default](shells/default.md) — Full local dev shell reference
+- [Shell: Rust](shells/rust.md) — Focused Rust shell reference
+- [Shell: Android](shells/android.md) — Android shell reference
+- [Shell: iOS](shells/ios.md) — iOS shell reference
+- [Shell: JavaScript](shells/js.md) — JavaScript shell reference
+- [Shell: WASM](shells/wasm.md) — WASM shell reference
+- [Nix Build Packages](packages.md) — All `nix build .#<package>` outputs
+- [Troubleshooting](troubleshooting.md) — Common issues and solutions
