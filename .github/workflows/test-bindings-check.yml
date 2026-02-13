@@ -17,7 +17,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: 'true'
+          sccache: "true"
       - name: Build target
         run: |
           nix develop .#ios --command \
@@ -40,7 +40,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: 'true'
+          sccache: "true"
       - name: check target
         run: |
           nix develop .#android --command \
