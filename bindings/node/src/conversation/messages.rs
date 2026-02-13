@@ -150,4 +150,27 @@ impl Conversation {
       .map_err(ErrorWrapper::from)?;
     Ok(())
   }
+
+  /// Delete a message by its ID. Returns the ID of the deletion message.
+  #[napi]
+  pub fn delete_message(&self, message_id: String) -> Result<String> {
+    let message_id_bytes = hex::decode(&message_id).map_err(ErrorWrapper::from)?;
+    let group = self.create_mls_group();
+    let deletion_id = group
+      .delete_message(message_id_bytes)
+      .map_err(ErrorWrapper::from)?;
+    Ok(hex::encode(deletion_id))
+  }
+
+  /// Edit a message by its ID. Returns the ID of the edit message.
+  #[napi]
+  pub fn edit_message(&self, message_id: String, new_content: EncodedContent) -> Result<String> {
+    let message_id_bytes = hex::decode(&message_id).map_err(ErrorWrapper::from)?;
+    let new_content: XmtpEncodedContent = new_content.into();
+    let group = self.create_mls_group();
+    let edit_id = group
+      .edit_message(message_id_bytes, new_content.encode_to_vec())
+      .map_err(ErrorWrapper::from)?;
+    Ok(hex::encode(edit_id))
+  }
 }

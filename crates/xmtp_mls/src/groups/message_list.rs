@@ -41,6 +41,7 @@ fn filter_out_hidden_message_types_from_query(query: &MsgQueryArgs) -> MsgQueryA
         DbContentType::Reaction,
         DbContentType::ReadReceipt,
         DbContentType::DeleteMessage,
+        DbContentType::EditMessage,
     ];
 
     let excluded_content_types = match &query.exclude_content_types {
@@ -652,18 +653,31 @@ mod tests {
             "deleter1",
         );
 
-        // Store another text message
+        // Store an edit message (should be hidden)
         create_and_store_message(
             &conn,
             &group.group_id,
             vec![5],
-            TestContentGenerator::text_content("Second message"),
+            TestContentGenerator::edit_message_content(
+                &msg_id_hex,
+                TestContentGenerator::text_content("Edited content"),
+            ),
             4000,
+            "editor1",
+        );
+
+        // Store another text message
+        create_and_store_message(
+            &conn,
+            &group.group_id,
+            vec![6],
+            TestContentGenerator::text_content("Second message"),
+            5000,
             "sender2",
         );
 
         // Query messages - should only return the 2 text messages
-        // Reactions, ReadReceipt, and DeleteMessage should be filtered out
+        // Reactions, ReadReceipt, DeleteMessage, and EditMessage should be filtered out
         let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
 
         // We expect only 2 messages (the text messages)

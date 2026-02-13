@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use prost::Message;
 use xmtp_content_types::{
     actions::{Action, ActionStyle, Actions},
     attachment::Attachment,
@@ -1201,6 +1202,8 @@ pub struct FfiDecodedMessage {
     num_replies: u64,
     inserted_at_ns: i64,
     expires_at_ns: Option<i64>,
+    // Edit metadata - None if message has not been edited
+    edited_at_ns: Option<i64>,
 }
 
 #[uniffi::export]
@@ -1270,6 +1273,16 @@ impl FfiDecodedMessage {
     pub fn expires_at_ns(&self) -> Option<i64> {
         self.expires_at_ns
     }
+
+    /// Returns the timestamp (in nanoseconds) when the message was edited, if it has been edited
+    pub fn edited_at_ns(&self) -> Option<i64> {
+        self.edited_at_ns
+    }
+
+    /// Returns true if this message has been edited
+    pub fn is_edited(&self) -> bool {
+        self.edited_at_ns.is_some()
+    }
 }
 
 impl From<DecodedMessage> for FfiDecodedMessage {
@@ -1277,6 +1290,52 @@ impl From<DecodedMessage> for FfiDecodedMessage {
         let delivery_status = item.metadata.delivery_status.into();
         // Extract metadata fields directly, consuming the metadata
         let metadata: FfiDecodedMessageMetadata = item.metadata.into();
+
+        // Capture the edited_at_ns before we move item.edited
+        let edited_at_ns = item.edited.as_ref().map(|e| e.edited_at_ns);
+
+        // If the message has been edited, use the edited content instead of the original
+        let (content, content_type) = if let Some(edited) = item.edited {
+            // Try to decode the edited content
+            match EncodedContent::decode(&mut edited.content.as_slice()) {
+                Ok(encoded_content) => {
+                    let edited_content_type = encoded_content
+                        .r#type
+                        .clone()
+                        .map(|ct| ct.into())
+                        .unwrap_or(metadata.content_type.clone());
+                    // First convert to MessageBody, then to FfiDecodedMessageContent
+                    match MessageBody::try_from(encoded_content) {
+                        Ok(mut edited_body) => {
+                            let mut final_content_type = edited_content_type;
+
+                            // If both original and edited content are Replies, preserve in_reply_to
+                            if let (
+                                MessageBody::Reply(original_reply),
+                                MessageBody::Reply(edited_reply),
+                            ) = (&item.content, &mut edited_body)
+                            {
+                                edited_reply.in_reply_to = original_reply.in_reply_to.clone();
+                            }
+                            // If original is a Reply but edited content is not, wrap in Reply
+                            else if let MessageBody::Reply(original_reply) = &item.content {
+                                edited_body = MessageBody::Reply(ProcessedReply {
+                                    in_reply_to: original_reply.in_reply_to.clone(),
+                                    content: Box::new(edited_body),
+                                    reference_id: original_reply.reference_id.clone(),
+                                });
+                                final_content_type = metadata.content_type.clone();
+                            }
+                            (edited_body.into(), final_content_type)
+                        }
+                        Err(_) => (item.content.into(), metadata.content_type.clone()),
+                    }
+                }
+                Err(_) => (item.content.into(), metadata.content_type.clone()),
+            }
+        } else {
+            (item.content.into(), metadata.content_type.clone())
+        };
 
         FfiDecodedMessage {
             // Take ownership of all the data - no clones!
@@ -1287,8 +1346,8 @@ impl From<DecodedMessage> for FfiDecodedMessage {
             sender_installation_id: metadata.sender_installation_id,
             sender_inbox_id: metadata.sender_inbox_id,
             delivery_status,
-            content_type: metadata.content_type,
-            content: item.content.into(),
+            content_type,
+            content,
             fallback_text: item.fallback_text,
             reactions: item
                 .reactions
@@ -1299,6 +1358,7 @@ impl From<DecodedMessage> for FfiDecodedMessage {
             num_replies: item.num_replies as u64,
             inserted_at_ns: metadata.inserted_at_ns,
             expires_at_ns: metadata.expires_at_ns,
+            edited_at_ns,
         }
     }
 }
