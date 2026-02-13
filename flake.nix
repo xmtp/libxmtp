@@ -85,6 +85,18 @@
                 node-bindings-js = node.jsBindings;
               }
             )
+            // (
+              let
+                vs = pkgs.callPackage ./nix/package/validation-service.nix { };
+              in
+              {
+                # Docker images for the MLS validation service
+                validation-service-image-amd64 = vs.buildImage "x86_64-unknown-linux-gnu";
+                validation-service-image-arm64 = vs.buildImage "aarch64-unknown-linux-gnu";
+                # Fast path: host Docker architecture (no QEMU overhead)
+                validation-service-image = vs.buildImage vs.hostDockerTarget;
+              }
+            )
             // lib.optionalAttrs pkgs.stdenv.isDarwin {
               # stdenvNoCC is passed to callPackage (for the aggregate derivation).
               # This avoids Nix's apple-sdk and cc-wrapper,
