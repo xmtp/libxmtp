@@ -27,27 +27,36 @@ let
   };
 
   # Cross-compilation toolchains. Native targets (matching host) are absent.
-  # Musl cdylib rustflags (-C target-feature=-crt-static) are in .cargo/config.toml.
   crossCcFor = {
     "aarch64-unknown-linux-gnu" = pkgsCross.aarch64-multiplatform.stdenv.cc;
     "aarch64-unknown-linux-musl" = pkgsCross.aarch64-multiplatform-musl.stdenv.cc;
     "x86_64-unknown-linux-musl" = pkgsCross.musl64.stdenv.cc;
   };
 
-  # Per-target CC and linker env vars for cargo cross-compilation.
+  # Per-target CC, linker, and rustflags env vars for cargo cross-compilation.
+  # Musl targets need -crt-static to allow cdylib (.node shared library) builds.
+  # This is set here (not .cargo/config.toml) to avoid conflicts with other musl
+  # builds (e.g. musl-docker.nix) that need the opposite (+crt-static).
   crossEnvFor =
     target:
     let
       cc = crossCcFor.${target} or null;
       targetUpper = builtins.replaceStrings [ "-" ] [ "_" ] (lib.toUpper target);
+      isMusl = lib.hasInfix "musl" target;
     in
-    if cc == null then
+    (if cc == null then
       { }
     else
       {
         "CC_${builtins.replaceStrings [ "-" ] [ "_" ] target}" = "${cc.targetPrefix}cc";
         "CARGO_TARGET_${targetUpper}_LINKER" = "${cc.targetPrefix}cc";
-      };
+      })
+    // (if isMusl then
+      {
+        "CARGO_TARGET_${targetUpper}_RUSTFLAGS" = "-C target-feature=-crt-static";
+      }
+    else
+      { });
 
   # Per-target nativeBuildInputs (cross-compilation toolchains).
   crossPkgsFor =
