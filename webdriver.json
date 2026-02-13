@@ -19,8 +19,7 @@
       "--js-flags=--max-old-space-size=512",
       "--memory-pressure-off",
       "--disable-ipc-flooding-protection",
-      "--renderer-process-limit=1",
-      "--single-process"
+      "--renderer-process-limit=1"
     ]
   }
 }

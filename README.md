@@ -1,11 +1,23 @@
-# LibXMTP
-
-[![Lint](https://github.com/xmtp/libxmtp/actions/workflows/lint-workspace.yaml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/lint-workspace.yaml)
-[![Test](https://github.com/xmtp/libxmtp/actions/workflows/test-workspace.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/test-workspace.yml)
+[![Lint](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml)
+[![Test](https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/test.yml)
+[![built with garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2Fxmtp%2Flibxmtp%3Fbranch%3Dmain)](https://garnix.io/repo/xmtp/libxmtp)
 ![Status](https://img.shields.io/badge/Project_status-Alpha-orange)
 
-LibXMTP is a shared library encapsulating the core functionality of the XMTP
-messaging protocol, such as cryptography, networking, and language bindings.
+<!-- LOGO -->
+<h1>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/xmtp/brand/1bf5822708c9ce7e06964b85121093d69b3a4ff2/assets/postmark-outlined-color.svg" alt="Logo" width="128">
+  <br>libXMTP
+</h1>
+  <p align="center">
+    shared library encapsulating the core functionality of the XMTP messaging
+    protocol, such as cryptography, networking, and language bindings.
+    <br />
+    <a href="https://docs.xmtp.org/">Documentation</a>
+    ·
+    <a href="CONTRIBUTING.md">Contributing</a>
+  </p>
+</p>
 
 ## Requirements
 
