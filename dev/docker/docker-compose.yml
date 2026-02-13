@@ -40,11 +40,7 @@ services:
       dockerfile: ./dev/docker/envoy/Dockerfile
   validation:
     image: ghcr.io/xmtp/mls-validation-service:main
-    platform: linux/amd64
     pull_policy: never
-    build:
-      context: ../..
-      dockerfile: ./dev/validation_service/local.Dockerfile
     environment:
       ANVIL_URL: "http://anvil:8545"
     networks:

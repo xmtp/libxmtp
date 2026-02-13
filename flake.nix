@@ -36,7 +36,6 @@
         inputs.rust-flake.flakeModules.nixpkgs
         ./nix/rust-defaults.nix
         ./nix/rust.nix
-        ./nix/musl-docker.nix
       ];
       perSystem =
         { pkgs, lib, ... }:
@@ -81,6 +80,18 @@
                 node-bindings-fast = node.buildTarget nodeEnv.hostTarget;
                 # JS/TS bindings (index.js + index.d.ts)
                 node-bindings-js = node.jsBindings;
+              }
+            )
+            // (
+              let
+                vs = pkgs.callPackage ./nix/package/validation-service.nix { };
+              in
+              {
+                # Docker images for the MLS validation service
+                validation-service-image-amd64 = vs.buildImage "x86_64-unknown-linux-gnu";
+                validation-service-image-arm64 = vs.buildImage "aarch64-unknown-linux-gnu";
+                # Fast path: host Docker architecture (no QEMU overhead)
+                validation-service-image = vs.buildImage vs.hostDockerTarget;
               }
             )
             // lib.optionalAttrs pkgs.stdenv.isDarwin {
