@@ -75,14 +75,30 @@ impl LogAssertion for EpochContinuityAssertion {
 
             for state_iterator in group_state_iters {
                 for state in state_iterator {
-                    let state_write = state.read();
+                    let mut state_write = state.write();
                     let epoch = state_write.epoch.expect("This is filtered out above.");
-                    let group_epoch = group_epochs.entry(epoch).or_default();
-                    let installation_group_epoch = group_epoch
-                        .states
+
+                    let installation_epochs = group_epochs
                         .entry(state_write.installation_id.clone())
                         .or_default();
-                    installation_group_epoch.push(state.clone());
+                    let installation_epoch = installation_epochs.entry(epoch).or_default();
+
+                    match (&installation_epoch.auth, &state_write.epoch_auth) {
+                        (None, Some(auth)) => {
+                            installation_epoch.auth = Some(auth.clone());
+                        }
+                        (Some(a), Some(b)) if a != b => {
+                            let description =
+                                format!("Epoch auth changed mid-epoch. old: {a}, new: {b}");
+                            state_write.problems.push(GroupStateProblem {
+                                description,
+                                severity: Severity::Error,
+                            });
+                        }
+                        _ => {}
+                    }
+
+                    installation_epoch.states.push(state.clone());
                 }
             }
         }

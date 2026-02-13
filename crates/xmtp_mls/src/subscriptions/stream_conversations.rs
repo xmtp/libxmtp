@@ -195,10 +195,7 @@ enum ProcessState<'a, Context> {
     Waiting,
     /// State that indicates the stream is waiting on a IO/Network future to finish processing the current message
     /// before moving on to the next one
-<<<<<<< HEAD
-=======
     #[allow(unused)]
->>>>>>> origin/main
     Processing {
         #[pin]
         future: BoxDynFuture<'a, Result<ProcessWelcomeResult<Context>>>,

@@ -3,13 +3,12 @@ pub mod event;
 pub mod ui;
 pub mod value;
 
-use crate::state::assertions::{epoch_continuity::EpochContinuityAssertion, LogAssertion};
+use crate::state::assertions::{LogAssertion, epoch_continuity::EpochContinuityAssertion};
 use anyhow::{Context, Result};
 pub use event::LogEvent;
 use parking_lot::{RwLock, RwLockWriteGuard};
 use std::{
-    collections::{HashMap, HashSet},
-    hash::Hash,
+    collections::HashMap,
     iter::Peekable,
     sync::{Arc, Weak},
 };
@@ -19,23 +18,19 @@ use xmtp_common::Event;
 type InstallationId = String;
 type GroupId = String;
 type EpochNumber = i64;
+type EpochAuth = String;
 
 #[derive(Default)]
 pub struct LogState {
-    pub grouped_epochs: RwLock<HashMap<GroupId, HashMap<EpochNumber, HashSet<Epoch>>>>,
+    pub grouped_epochs:
+        RwLock<HashMap<GroupId, HashMap<InstallationId, HashMap<EpochNumber, Epoch>>>>,
     pub clients: RwLock<HashMap<InstallationId, Arc<RwLock<ClientState>>>>,
 }
 
 #[derive(Default)]
 pub struct Epoch {
-    pub auth: String,
-    pub states: HashMap<InstallationId, Vec<Arc<RwLock<GroupState>>>>,
-}
-
-impl Hash for Epoch {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.auth.hash(state);
-    }
+    pub auth: Option<EpochAuth>,
+    pub states: Vec<Arc<RwLock<GroupState>>>,
 }
 
 impl LogState {
@@ -94,6 +89,15 @@ impl LogState {
 
                 if let Ok(epoch) = ctx("epoch").and_then(|e| e.as_int()) {
                     group.epoch = Some(epoch);
+                }
+                if let Ok(auth) = ctx("epoch_auth").and_then(|e| e.as_str()) {
+                    group.epoch_auth = Some(auth.to_string());
+                }
+                if let Ok(cursor) = ctx("cursor").and_then(|e| e.as_int()) {
+                    group.cursor = Some(cursor);
+                }
+                if let Ok(originator) = ctx("originator").and_then(|e| e.as_int()) {
+                    group.originator = Some(originator);
                 }
 
                 match raw_event {
@@ -159,9 +163,9 @@ pub struct GroupState {
     pub dm_target: Option<InstallationId>,
     pub previous_epoch: Option<i64>,
     pub epoch: Option<i64>,
-    // Group states from other clients in the same epoch
-    pub correlations: Vec<Arc<RwLock<Self>>>,
+    pub epoch_auth: Option<String>,
     pub cursor: Option<i64>,
+    pub originator: Option<i64>,
     pub members: HashMap<InstallationId, Weak<RwLock<ClientState>>>,
     pub problems: Vec<GroupStateProblem>,
 }
@@ -220,11 +224,11 @@ impl GroupState {
             prev: None,
             next: None,
             dm_target: None,
-            created_at: None,
             previous_epoch: None,
             epoch: None,
-            correlations: Vec::new(),
+            epoch_auth: None,
             cursor: None,
+            originator: None,
             members: HashMap::new(),
             problems: Vec::new(),
         }))
@@ -271,7 +275,7 @@ impl GroupStateExt for Arc<RwLock<GroupState>> {
 mod tests {
     use std::time::Duration;
 
-    use crate::state::{LogEvent, LogState, Value};
+    use crate::state::{LogEvent, LogState};
     use tracing_subscriber::fmt;
     use xmtp_common::{Event, TestWriter};
     use xmtp_mls::tester;
