@@ -16,27 +16,7 @@ else
   echo "detected existing nix installation"
 fi
 
-# Configure the XMTP binary cache via cachix
-# cachix automatically chooses the right config approach based on trusted-user status
-if which nix &>/dev/null; then
-  if ! grep -qF "xmtp.cachix.org" /etc/nix/nix.conf /etc/nix/nix.custom.conf ~/.config/nix/nix.conf 2>/dev/null; then
-    echo ""
-    echo "Configuring XMTP binary cache (avoids building dependencies from source)..."
-    CURRENT_USER="$(whoami)"
-    TRUSTED_USERS="$(nix config show trusted-users 2>/dev/null || true)"
-    if echo "$TRUSTED_USERS" | grep -qwF "$CURRENT_USER"; then
-      echo "User '$CURRENT_USER' is a trusted Nix user — configuring cache without sudo."
-      nix run nixpkgs#cachix -- use xmtp
-    else
-      echo "User '$CURRENT_USER' is not a trusted Nix user — sudo required to configure cache."
-      sudo nix run nixpkgs#cachix -- use xmtp
-    fi
-    echo "XMTP binary cache configured."
-  else
-    echo "XMTP binary cache already configured."
-  fi
-fi
-
+./dev/nix-cache-up
 echo "direnv will automatically enter the default nix environment upon entering a configured directory"
 read -p "install direnv? (y/n) " -n 1 -r
 if [[ $REPLY =~ ^[Yy]$ ]]; then
