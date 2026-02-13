@@ -25,8 +25,7 @@ services:
     depends_on:
       - db
   node-web:
-    image: ghcr.io/xmtp/grpc-web
-    pull_policy: never
+    image: envoyproxy/envoy:v1.35.0
     platform: linux/amd64
     depends_on:
       - node
@@ -35,9 +34,12 @@ services:
       - 9901:9901
     networks:
       - proxynet
-    build:
-      context: ../..
-      dockerfile: ./dev/docker/envoy/Dockerfile
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
+    command:
+      - "-c /etc/envoy/envoy.yaml"
+      - "-l trace"
+      - "--log-path /tmp/envoy_info.log"
   validation:
     image: ghcr.io/xmtp/mls-validation-service:main
     pull_policy: never
@@ -46,9 +48,10 @@ services:
     networks:
       - proxynet
   anvil:
-    build:
-      dockerfile: ./anvil.Dockerfile
+    image: ghcr.io/foundry-rs/foundry
     platform: linux/amd64
+    working_dir: /anvil
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--base-fee", "100"]
     networks:
       - proxynet
     ports:
@@ -90,6 +93,6 @@ services:
       - xmtpd
       - anvil
       - history-server
-    build:
-      context: ../..
-      dockerfile: ./dev/docker/toxiproxy/Dockerfile
+    volumes:
+      - ./toxiproxy/config.json:/etc/toxiproxy/config.json:ro
+    command: ["-host=0.0.0.0", "-config=/etc/toxiproxy/config.json"]
