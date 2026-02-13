@@ -83,40 +83,29 @@ impl LogState {
                 group_ids.sort();
 
                 for group_id in group_ids {
-                    let epochs_map = &grouped_epochs[group_id];
+                    let inst_epochs_map = &grouped_epochs[group_id];
 
                     // Sort epochs by epoch number
-                    let mut epoch_numbers: Vec<i64> = epochs_map.keys().copied().collect();
-                    epoch_numbers.sort();
+                    let mut epoch_numbers = BTreeSet::new();
+                    for (_inst, epochs) in inst_epochs_map {
+                        epoch_numbers.extend(epochs.keys());
+                    }
 
                     // 1. Collect the union of all installation IDs across every epoch
-                    let mut all_installation_ids = BTreeSet::new();
-                    for epoch_number in &epoch_numbers {
-                        let epoch = &epochs_map[epoch_number];
-                        for inst_id in epoch.states.keys() {
-                            all_installation_ids.insert(inst_id.clone());
-                        }
-                    }
-                    let all_installation_ids: Vec<String> =
-                        all_installation_ids.into_iter().collect();
+                    let inst_ids: Vec<_> = inst_epochs_map.keys().cloned().collect();
 
                     // 2. Build epoch headers with max_states per epoch
                     let mut epoch_headers: Vec<UIEpochHeader> = Vec::new();
                     let mut max_states_per_epoch: Vec<i32> = Vec::new();
 
                     for epoch_number in &epoch_numbers {
-                        let epoch = &epochs_map[epoch_number];
-                        let max_states = epoch
-                            .states
+                        let max_states = inst_epochs_map
                             .values()
-                            .map(|states| states.len())
+                            .filter_map(|epochs| epochs.get(epoch_number).map(|e| e.states.len()))
                             .max()
                             .unwrap_or(1) as i32;
 
-                        // Ensure at least 1 so the column has some width
-                        let max_states = max_states.max(1);
                         max_states_per_epoch.push(max_states);
-
                         epoch_headers.push(UIEpochHeader {
                             epoch_number: *epoch_number as i32,
                             max_states,
@@ -127,7 +116,7 @@ impl LogState {
                     //    one cell per epoch (in the same order as epoch_headers)
                     let mut installation_rows: Vec<UIInstallationRow> = Vec::new();
 
-                    for inst_id in &all_installation_ids {
+                    for inst_id in &inst_ids {
                         let inst_name = self.installation_name(inst_id);
                         let inst_color = color_from_string(inst_id);
 
@@ -140,12 +129,12 @@ impl LogState {
                         let mut cells: Vec<UIInstallationCell> = Vec::new();
 
                         for epoch_number in &epoch_numbers {
-                            let epoch = &epochs_map[epoch_number];
-
-                            let ui_states: Vec<UIGroupState> = if let Some(states) =
-                                epoch.states.get(inst_id)
+                            let ui_states: Vec<UIGroupState> = if let Some(epoch) = inst_epochs_map
+                                .get(inst_id)
+                                .and_then(|epochs| epochs.get(epoch_number))
                             {
-                                states
+                                epoch
+                                    .states
                                     .iter()
                                     .map(|state_arc| {
                                         let state = state_arc.read();
@@ -157,8 +146,14 @@ impl LogState {
                                             .filter(|e| e.key != "group_id")
                                             .collect();
 
+                                        let problem_strings: Vec<SharedString> = state
+                                            .problems
+                                            .iter()
+                                            .map(|p| SharedString::from(&p.description))
+                                            .collect();
+
                                         UIGroupState {
-                                            installation_id: SharedString::from(inst_id.as_str()),
+                                            installation_id: SharedString::from(inst_id),
                                             installation_name: SharedString::from(&inst_name),
                                             msg: SharedString::from(state.event.msg),
                                             icon: SharedString::from(state.event.icon),
@@ -167,6 +162,7 @@ impl LogState {
                                                 as i32,
                                             has_previous_epoch: state.previous_epoch.is_some(),
                                             problem_count: state.problems.len() as i32,
+                                            problems: ModelRc::new(VecModel::from(problem_strings)),
                                             context: ModelRc::new(VecModel::from(context_entries)),
                                         }
                                     })

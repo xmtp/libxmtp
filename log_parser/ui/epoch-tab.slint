@@ -2,6 +2,7 @@ import {
     ScrollView,
     HorizontalBox,
     VerticalBox,
+    Button,
 } from "std-widgets.slint";
 
 // ─── Shared Data Structures ───
@@ -22,6 +23,7 @@ export struct UIGroupState {
     previous-epoch: int,
     has-previous-epoch: bool,
     problem-count: int,
+    problems: [string],
     context: [UIContextEntry],
 }
 
@@ -66,17 +68,22 @@ global EpochConstants {
 
 component GroupStateCard inherits Rectangle {
     in property <UIGroupState> state;
+    in property <bool> group-focused;
+
+    callback warning-clicked();
+
+    property <bool> show-problems: root.group-focused && root.state.problem-count > 0;
 
     width: EpochConstants.state-card-width;
     min-height: card-layout.preferred-height;
     background: #ffffff;
-    border-width: 1px;
-    border-color: root.state.problem-count > 0 ? #e07070 : #d0d0d0;
+    border-width: root.show-problems ? 2px : 1px;
+    border-color: root.show-problems ? #cc4444 : (root.state.problem-count > 0 ? #e07070 : #d0d0d0);
     border-radius: 4px;
 
-    drop-shadow-blur: 2px;
-    drop-shadow-offset-y: 1px;
-    drop-shadow-color: #00000010;
+    drop-shadow-blur: root.show-problems ? 4px : 2px;
+    drop-shadow-offset-y: root.show-problems ? 2px : 1px;
+    drop-shadow-color: root.show-problems ? #cc444420 : #00000010;
 
     card-layout := VerticalLayout {
         alignment: start;
@@ -130,7 +137,7 @@ component GroupStateCard inherits Rectangle {
             if root.state.problem-count > 0: Rectangle {
                 width: problem-label.preferred-width + 10px;
                 height: problem-label.preferred-height + 4px;
-                background: #fff0f0;
+                background: warning-touch.has-hover ? #ffe0e0 : #fff0f0;
                 border-radius: 3px;
 
                 problem-label := Text {
@@ -141,10 +148,17 @@ component GroupStateCard inherits Rectangle {
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
+
+                warning-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.warning-clicked();
+                    }
+                }
             }
         }
 
-        // Context entries (same style as events tab)
+        // Context entries
         VerticalLayout {
             alignment: start;
             spacing: 2px;
@@ -165,6 +179,53 @@ component GroupStateCard inherits Rectangle {
                     font-size: 9px;
                     color: #555555;
                     wrap: word-wrap;
+                }
+            }
+        }
+
+        // ─── Expanded Problems Section (shown when group is focused) ───
+        if root.show-problems: Rectangle {
+            background: #fff5f5;
+            border-radius: 3px;
+            border-width: 1px;
+            border-color: #f0d0d0;
+            min-height: problems-inner.preferred-height;
+
+            problems-inner := VerticalLayout {
+                padding: 5px;
+                spacing: 3px;
+
+                Rectangle {
+                    height: problems-header.preferred-height + 2px;
+                    background: #ffe8e8;
+                    border-radius: 2px;
+
+                    problems-header := Text {
+                        text: "⚠ Problems (" + root.state.problem-count + ")";
+                        font-size: 9px;
+                        font-weight: 700;
+                        color: #cc3333;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                for problem in root.state.problems: Rectangle {
+                    min-height: problem-text.preferred-height + 6px;
+                    background: #ffffff;
+                    border-radius: 2px;
+                    border-width: 1px;
+                    border-color: #f0d0d0;
+
+                    problem-text := Text {
+                        text: "• " + problem;
+                        font-size: 9px;
+                        color: #993333;
+                        wrap: word-wrap;
+                        x: 4px;
+                        y: 3px;
+                        width: parent.width - 8px;
+                    }
                 }
             }
         }
@@ -201,6 +262,9 @@ component EpochColumnHeader inherits Rectangle {
 component InstallationCell inherits Rectangle {
     in property <UIInstallationCell> cell;
     in property <int> column-max-states;
+    in property <bool> group-focused;
+
+    callback warning-clicked();
 
     width: column-max-states * (EpochConstants.state-card-width + EpochConstants.state-card-gap) - EpochConstants.state-card-gap + EpochConstants.column-padding * 2;
     background: transparent;
@@ -214,6 +278,10 @@ component InstallationCell inherits Rectangle {
 
         for state in root.cell.states: GroupStateCard {
             state: state;
+            group-focused: root.group-focused;
+            warning-clicked => {
+                root.warning-clicked();
+            }
         }
     }
 }
@@ -257,10 +325,13 @@ component InstallationLabel inherits Rectangle {
 
 component GroupContainer inherits Rectangle {
     in property <UIGroupRow> group-row;
+    in property <bool> group-focused;
+
+    callback focus-group(string);
 
     min-height: group-layout.preferred-height;
-    border-width: 1px;
-    border-color: #d8d8d8;
+    border-width: root.group-focused ? 2px : 1px;
+    border-color: root.group-focused ? root.group-row.group-color : #d8d8d8;
     border-radius: 8px;
     background: #fafafa;
     clip: true;
@@ -400,6 +471,10 @@ component GroupContainer inherits Rectangle {
                             for cell[idx] in inst-row.cells: InstallationCell {
                                 cell: cell;
                                 column-max-states: root.group-row.epoch-headers[idx].max-states;
+                                group-focused: root.group-focused;
+                                warning-clicked => {
+                                    root.focus-group(root.group-row.group-id);
+                                }
                             }
                         }
                     }
@@ -413,6 +488,10 @@ component GroupContainer inherits Rectangle {
 
 export component EpochTab inherits Rectangle {
     in property <[UIGroupRow]> epoch-groups: [];
+
+    // When non-empty, only the group with this id is shown, with problems expanded.
+    property <string> focused-group-id: "";
+    property <bool> has-focus: root.focused-group-id != "";
 
     if root.epoch-groups.length == 0: Rectangle {
         background: #f5f5f5;
@@ -432,8 +511,68 @@ export component EpochTab inherits Rectangle {
             spacing: 16px;
             alignment: start;
 
+            // ─── Focus Banner ───
+            if root.has-focus: Rectangle {
+                height: 36px;
+                background: #eef2ff;
+                border-radius: 6px;
+                border-width: 1px;
+                border-color: #c0ccee;
+
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 8px;
+                    spacing: 8px;
+                    alignment: start;
+
+                    Text {
+                        text: "🔍 Focused on group — showing problems";
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: #4a5588;
+                        vertical-alignment: center;
+                    }
+
+                    // Spacer
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+
+                    // Back button
+                    Rectangle {
+                        width: back-text.preferred-width + 20px;
+                        height: 26px;
+                        background: back-touch.has-hover ? #4a72c4 : #5a82d4;
+                        border-radius: 4px;
+                        y: (parent.height - self.height) / 2;
+
+                        back-text := Text {
+                            text: "← Show All Groups";
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: #ffffff;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        back-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.focused-group-id = "";
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ─── Group Containers ───
             for group-row in root.epoch-groups: GroupContainer {
+                visible: !root.has-focus || group-row.group-id == root.focused-group-id;
                 group-row: group-row;
+                group-focused: root.has-focus && group-row.group-id == root.focused-group-id;
+                focus-group(gid) => {
+                    root.focused-group-id = gid;
+                }
             }
         }
     }

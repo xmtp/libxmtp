@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 pub use event::LogEvent;
 use parking_lot::{RwLock, RwLockWriteGuard};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     iter::Peekable,
     sync::{Arc, Weak},
 };
@@ -23,7 +23,7 @@ type EpochAuth = String;
 #[derive(Default)]
 pub struct LogState {
     pub grouped_epochs:
-        RwLock<HashMap<GroupId, HashMap<InstallationId, HashMap<EpochNumber, Epoch>>>>,
+        RwLock<HashMap<GroupId, HashMap<InstallationId, BTreeMap<EpochNumber, Epoch>>>>,
     pub clients: RwLock<HashMap<InstallationId, Arc<RwLock<ClientState>>>>,
 }
 
