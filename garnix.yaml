@@ -1,6 +1,23 @@
 builds:
-  exclude:
-    - "packages.aarch64-darwin.ios-libs"
-  include:
-    - "*.x86_64-linux.*"
-    - "*.aarch64-darwin.*"
+  - exclude:
+      - "packages.aarch64-darwin.ios-libs"
+      - "packages.aarch64-darwin.mls-validation-service-aarch64-multiplatform"
+      - "packages.aarch64-darwin.validation-service-image-aarch64-multiplatform"
+      - "packages.x86_64-linux.validation-service-image-aarch64-multiplatform"
+      - "packages.x86_64-linux.mls-validation-service-aarch64-multiplatform"
+      - "packages.aarch64-darwin.validation-service-image-musl64"
+      - "packages.aarch64-darwin.mls-validation-service-musl64"
+      - "packages.aarch64-linux.validation-service-image-musl64"
+      - "packages.aarch64-linux.mls-validation-service-musl64"
+    include:
+      - "*.x86_64-linux.*"
+      - "*.aarch64-darwin.*"
+      - "packages.aarch64-linux.validation-service-image-aarch64-multiplatform"
+      - "packages.x86_64-linux.validation-service-image-musl64"
+    branch: main
+    # default includes for every PR and everything other than main
+  - include:
+      - "checks.x86_64-linux.*"
+      - "checks.aarch64-darwin.*"
+      - "packages.aarch64-linux.validation-service-image-aarch64-multiplatform"
+      - "packages.x86_64-linux.validation-service-image-musl64"

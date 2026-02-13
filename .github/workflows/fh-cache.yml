@@ -13,7 +13,12 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [warp-ubuntu-latest-x64-16x, warp-macos-15-arm64-6x]
+        os:
+          [
+            warp-ubuntu-latest-x64-16x,
+            warp-macos-15-arm64-6x,
+            warp-ubuntu-latest-arm64-16x,
+          ]
     runs-on: ${{ matrix.os }}
     permissions:
       id-token: write
@@ -23,19 +28,13 @@ jobs:
       - uses: nixbuild/nix-quick-install-action@v34
         with:
           nix_conf: |
-            extra-substituters = https://cache.garnix.io
-            extra-trusted-public-keys = cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=
+            extra-substituters = https://cache.garnix.io https://xmtp.cachix.org
+            extra-trusted-public-keys = cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g= xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0=
       - run: nix build --version
-      - name: Setup Cachix
-        uses: cachix/cachix-action@v16
-        with:
-          name: xmtp
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          skipPush: true
       - name: Install omnix
         run: nix profile install nixpkgs#omnix
       - name: build all flake outputs
-        run: om ci run --include-all-dependencies --results=om.json -- --accept-flake-config
+        run: om ci run --include-all-dependencies --results=om.json
       - name: push to cachix
         if: env.BRANCH_NAME == 'main'
         run: nix run github:juspay/cachix-push -- --cache xmtp --subflake omnix --prefix "$BRANCH_NAME" < om.json

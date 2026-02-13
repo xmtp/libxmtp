@@ -28,6 +28,7 @@
       systems = [
         "aarch64-darwin"
         "x86_64-linux"
+        "aarch64-linux"
       ];
       imports = [
         ./nix/lib
@@ -37,6 +38,7 @@
         ./nix/rust-defaults.nix
         ./nix/rust.nix
         ./nix/musl-docker.nix
+        ./nix/ci-checks.nix
       ];
       perSystem =
         { pkgs, lib, ... }:
