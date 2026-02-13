@@ -44,6 +44,8 @@ impl xmtp_common::RetryableError for MessageStreamError {
     }
 }
 
+type AddingResult<Out> = (Out, Vec<u8>, Option<Cursor>);
+
 #[pin_project(PinnedDrop)]
 pub struct StreamGroupMessages<
     'a,
@@ -94,7 +96,7 @@ enum State<'a, Out> {
     // State that indicates that the stream is adding a new group to the stream.
     Adding {
         #[pin]
-        future: BoxDynFuture<'a, Result<(Out, Vec<u8>, Option<Cursor>)>>,
+        future: BoxDynFuture<'a, Result<AddingResult<Out>>>,
     },
 }
 
