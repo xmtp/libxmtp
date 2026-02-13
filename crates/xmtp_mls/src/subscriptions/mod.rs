@@ -445,21 +445,10 @@ where
             futures::pin_mut!(stream);
             let _ = tx.send(());
 
-            log_event!(
-                Event::StreamOpened,
-                context.installation_id(),
-                kind = ?StreamKind::All
-            );
-
             while let Some(message) = stream.next().await {
                 callback(message)
             }
             tracing::debug!("`stream_all_messages` stream ended, dropping stream");
-            log_event!(
-                Event::StreamClosed,
-                context.installation_id(),
-                kind = ?StreamKind::All
-            );
             on_close();
             Ok::<_, SubscribeError>(())
         })
