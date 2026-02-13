@@ -70,7 +70,7 @@ openmls_rust_crypto = { workspace = true }
 openmls_traits = { workspace = true }
 owo-colors.workspace = true
 parking_lot.workspace = true
-pin-project-lite.workspace = true
+pin-project.workspace = true
 prost = { workspace = true, features = ["derive"] }
 rand = { workspace = true }
 reqwest = { workspace = true }

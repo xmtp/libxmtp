@@ -18,7 +18,7 @@ async-trait.workspace = true
 futures = { workspace = true, features = ["alloc", "std"] }
 futures-util.workspace = true
 openmls.workspace = true
-pin-project-lite.workspace = true
+pin-project.workspace = true
 prost.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 serde_json.workspace = true

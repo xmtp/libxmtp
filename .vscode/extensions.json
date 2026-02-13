@@ -4,6 +4,9 @@
     "tamasfe.even-better-toml",
     "esbenp.prettier-vscode",
     "ryanluker.vscode-coverage-gutters",
-    "ms-vscode.live-server"
+    "ms-vscode.live-server",
+    "jnoortheen.nix-ide",
+    "swiftlang.swift-vscode",
+    "fwcd.kotlin"
   ]
 }

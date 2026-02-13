@@ -188,7 +188,6 @@ impl MultiSmartContractSignatureVerifier {
             };
         }
 
-        #[cfg(feature = "test-utils")]
         if let Ok(url) = std::env::var("ANVIL_URL") {
             info!("Adding anvil from env to the verifiers: {url}");
             self.add_anvil(url)?;

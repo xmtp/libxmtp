@@ -11,7 +11,8 @@ This skill helps with Nix development environments in the libxmtp repository.
 
 | Task | Shell | Command |
 |------|-------|---------|
-| General Rust development | default | `nix develop` |
+| Focused Rust crates/bindings work | rust | `nix develop .#rust` |
+| Full local development (default) | local | `nix develop` |
 | Android builds/testing | android | `nix develop .#android` |
 | iOS builds/testing | ios | `nix develop .#ios` |
 | JavaScript/Node.js | js | `nix develop .#js` |
@@ -21,8 +22,11 @@ This skill helps with Nix development environments in the libxmtp repository.
 
 Check if you're in a Nix shell:
 ```bash
-# Set by the default shell
-echo $XMTP_NIX_ENV  # "yes" if in default shell
+# Set by the rust and local (default) shells
+echo $XMTP_NIX_ENV  # "yes" if in rust or default shell
+
+# Check which specific shell you're in
+echo $XMTP_DEV_SHELL  # "local", "android", "ios", or unset (rust shell)
 
 # Works for any Nix shell
 [[ -n "$IN_NIX_SHELL" ]] && echo "In Nix shell"
@@ -102,22 +106,17 @@ nix develop --show-trace  # Verbose error output
 nix repl .                # Interactive exploration
 ```
 
-## Using with direnv
+## Shell Architecture
 
-The project includes `.envrc` with `use flake .` which auto-loads the default shell.
+The shells are composable — `local` (default) builds on `rust`:
 
-```bash
-# First time setup
-direnv allow
-
-# If direnv isn't loading
-direnv reload
-
-# Check status
-direnv status
 ```
-
-Note: direnv only loads the default shell. For platform-specific work (Android, iOS, WASM), manually enter that shell with `nix develop .#<shell>`.
+shell-common.nix   → shared building blocks (rustBase, wasmEnv, tool groups)
+  ├── rust.nix     → focused Rust shell (crates/bindings, lint, test)
+  │   └── local.nix → full local dev (default) = rust + debug + misc tools
+  ├── android.nix  → Android cross-compilation
+  └── ios.nix      → iOS cross-compilation (macOS only)
+```
 
 ## When NOT to Invoke This Skill
 
@@ -129,17 +128,19 @@ Note: direnv only loads the default shell. For platform-specific work (Android, 
 
 | Platform | Shells Available |
 |----------|------------------|
-| macOS (aarch64-darwin) | default, android, ios, js, wasm |
-| Linux (x86_64-linux) | default, android, js, wasm |
+| macOS (aarch64-darwin) | rust, default, android, ios, js, wasm |
+| Linux (x86_64-linux) | rust, default, android, js, wasm |
 
 The flake defines `systems = ["aarch64-darwin" "x86_64-linux"]`.
 
 ## Key Files
 
 - `flake.nix` - DevShell definitions, input pinning, cachix config
-- `nix/libxmtp.nix` - Default shell tools
-- `nix/android.nix` - Android shell with NDK
-- `nix/ios.nix` - iOS shell (macOS only)
+- `nix/lib/shell-common.nix` - Shared building blocks (rustBase, wasmEnv, tool groups)
+- `nix/shells/rust.nix` - Focused Rust shell (crates, bindings, lint, test)
+- `nix/shells/local.nix` - Full local dev shell (default) = rust + debug + misc
+- `nix/shells/android.nix` - Android shell with NDK
+- `nix/shells/ios.nix` - iOS shell (macOS only)
 - `nix/js.nix` - JavaScript shell with Playwright
 - `nix/package/wasm.nix` - WASM shell and package build
 - `nix/lib/mkToolchain.nix` - Rust version pinning logic

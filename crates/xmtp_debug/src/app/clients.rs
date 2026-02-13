@@ -209,7 +209,7 @@ pub fn load_n_identities(
     network: &args::BackendOpts,
     n: usize,
 ) -> Result<Arc<HashMap<InboxId, Arc<Mutex<crate::DbgClient>>>>> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let now = std::time::Instant::now();
     let identities = store.random_n(u64::from(network), &mut rng, n)?;
     tracing::info!("loaded {} identities in {:?}", n, now.elapsed());

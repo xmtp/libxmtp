@@ -1,7 +1,10 @@
 use derive_builder::Builder;
 use diesel::SqliteConnection;
 use parking_lot::Mutex;
-use rand::{Rng, distributions::Standard, prelude::Distribution};
+use rand::{
+    RngExt,
+    distr::{Distribution, StandardUniform},
+};
 use std::{collections::HashMap, sync::Arc};
 use xmtp_common::{MaybeSend, MaybeSync, if_native, if_wasm};
 use xmtp_db::ConnectionExt;
@@ -231,13 +234,13 @@ impl<C> ChaosConnection<C> {
     /// Error return chance is decided by `error_frequency`.
     pub fn maybe_random_error<T>(&self) -> Result<(), T>
     where
-        Standard: Distribution<T>,
+        StandardUniform: Distribution<T>,
         T: std::error::Error + xmtp_common::RetryableError,
     {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // Generate a random float between 0 and 1
-        if rng.gen_range::<f64, _>(0.0..1.0) < self.error_frequency {
+        if rng.random_range::<f64, _>(0.0..1.0) < self.error_frequency {
             Err(rand::random())
         } else {
             Ok(())
