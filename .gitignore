@@ -188,3 +188,4 @@ om.json
 /.build
 /.swiftpm
 **/.direnv/**
+.netlify/

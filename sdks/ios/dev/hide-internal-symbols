@@ -1,0 +1,100 @@
+#!/bin/bash
+# Annotate generated Swift files so DocC hides proto/FFI internals.
+# Runs in CI before DocC generation — does NOT modify committed files.
+source "$(dirname "$0")/.setup"
+
+PROTO_DIR="${IOS_SDK_DIR}/Sources/XMTPiOS/Proto"
+PUSH_DIR="${IOS_SDK_DIR}/Sources/XMTPiOS/Push"
+FFI_FILE="${IOS_SDK_DIR}/Sources/XMTPiOS/Libxmtp/xmtpv3.swift"
+
+# ── Proto files ──────────────────────────────────────────────────
+# Annotate every public struct/enum except whitelisted types that
+# the SDK re-exports via typealiases.
+
+PROTO_WHITELIST='Xmtp_MessageContents_EncodedContent|Xmtp_MessageContents_ContentTypeId|Xmtp_Mls_MessageContents_GroupUpdated|Xmtp_MessageContents_Ciphertext|Xmtp_MessageContents_PrivateKey|Notifications_V1_Subscription'
+
+proto_files=(
+    "${PROTO_DIR}"/*.pb.swift
+    "${PUSH_DIR}/service.pb.swift"
+    "${PUSH_DIR}/service.connect.swift"
+)
+
+for f in "${proto_files[@]}"; do
+    [[ -f "$f" ]] || continue
+    perl -i -0777 -pe '
+        my $wl = qr/'"${PROTO_WHITELIST}"'/;
+        s{
+            (?<!\#endif\n)^(public \s+ (?:struct|enum|protocol|final\s+class) \s+ (\S+) [^\n]*)
+        }{
+            my ($line, $name) = ($1, $2);
+            if ($name =~ /^(?:$wl)\b/) {
+                $line;
+            } else {
+                "#if swift(>=5.8)\n\@_documentation(visibility: internal)\n#endif\n$line";
+            }
+        }xmge;
+    ' "$f"
+done
+
+echo "Annotated $(echo "${proto_files[@]}" | wc -w | tr -d ' ') proto/push files"
+
+# ── FFI file (xmtpv3.swift) ─────────────────────────────────────
+# Annotate public protocols, open classes, public structs (non-Converter),
+# public enums, and public top-level funcs. Use visibility: private to
+# match existing uniffi convention. Skip already-annotated lines,
+# FfiConverterType* structs, and whitelisted types.
+
+FFI_WHITELIST='FfiMessageMetadata|FfiContentType|FfiIntent|FfiActions|FfiSignatureKind'
+
+perl -i -ne '
+    BEGIN {
+        @buf = ();
+        $wl = qr/'"${FFI_WHITELIST}"'/;
+    }
+
+    # Track last 3 lines for already-annotated check
+    push @buf, $_;
+    shift @buf if @buf > 4;  # keep current + 3 preceding
+
+    my $need_annotate = 0;
+    my $name;
+
+    if (/^public\s+protocol\s+(\S+)/)    { $name = $1; $need_annotate = 1; }
+    elsif (/^open\s+class\s+(\S+)/)       { $name = $1; $need_annotate = 1; }
+    elsif (/^public\s+struct\s+(\S+)/)    { $name = $1; $need_annotate = 1; }
+    elsif (/^public\s+enum\s+(\S+)/)      { $name = $1; $need_annotate = 1; }
+    elsif (/^public\s+func\s+([a-z]\S*)/) { $name = $1; $need_annotate = 1; }
+
+    if ($need_annotate) {
+        # Skip whitelisted types
+        if (defined $name && $name =~ /^(?:$wl)\b/) {
+            print;
+            next;
+        }
+        # Skip FfiConverterType* structs (already annotated by uniffi)
+        if (defined $name && $name =~ /^FfiConverterType/) {
+            print;
+            next;
+        }
+        # Skip if already annotated (check preceding lines for @_documentation)
+        my $already = 0;
+        for my $i (0 .. $#buf - 1) {
+            if ($buf[$i] =~ /\@_documentation\(visibility:/) {
+                $already = 1;
+                last;
+            }
+        }
+        if ($already) {
+            print;
+            next;
+        }
+        # Insert annotation
+        print "#if swift(>=5.8)\n";
+        print "\@_documentation(visibility: private)\n";
+        print "#endif\n";
+    }
+
+    print;
+' "$FFI_FILE"
+
+echo "Annotated FFI file: $FFI_FILE"

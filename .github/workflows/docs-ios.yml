@@ -27,6 +27,8 @@ jobs:
           xcode-version: "16.0"
       - name: Build bindings
         run: nix develop .#ios --command ./sdks/ios/dev/bindings
+      - name: Hide internal symbols from docs
+        run: ./sdks/ios/dev/hide-internal-symbols
       - name: Generate DocC documentation
         run: |
           swift package \
