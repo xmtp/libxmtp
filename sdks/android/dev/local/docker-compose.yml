@@ -21,7 +21,6 @@ services:
 
   validation:
     image: ghcr.io/xmtp/mls-validation-service:main
-    platform: linux/amd64
     environment:
       ANVIL_URL: "http://anvil:8545"
 

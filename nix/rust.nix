@@ -8,7 +8,7 @@ _: {
       ...
     }:
     let
-      toolchain = pkgs.xmtp.mkToolchain [ "x86_64-unknown-linux-musl" ] [ ];
+      toolchain = pkgs.xmtp.mkToolchain [ ] [ ];
       src = ./..;
     in
     {
@@ -35,7 +35,7 @@ _: {
         crates = {
           "mls_validation_service" = {
             path = src + /apps/mls_validation_service;
-            autoWire = [ "crate" ];
+            autoWire = [ ];
           };
           "xmtp_debug" = {
             autoWire = [ "crate" ];

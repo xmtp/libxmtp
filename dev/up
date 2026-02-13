@@ -46,5 +46,4 @@ else
     echo "✓ $WASM_TARGET is already installed"
 fi
 
-dev/build_validation_service_local
 dev/docker/up

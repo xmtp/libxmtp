@@ -21,7 +21,7 @@ jobs:
 
       - name: Start Docker containers
         run: |
-          nix build .#docker-mls_validation_service
+          nix build .#validation-service-image
           dev/docker/up
       - name: run tests
         run: om ci run .#wasm
@@ -39,7 +39,7 @@ jobs:
           sccache: "true"
       - name: Start Docker containers
         run: |
-          nix build .#docker-mls_validation_service
+          nix build .#validation-service-image
           dev/docker/up
       - name: webassembly integration tests
         working-directory: bindings/wasm
