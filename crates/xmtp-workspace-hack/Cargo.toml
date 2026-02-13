@@ -37,6 +37,7 @@ clap_builder = { version = "4", default-features = false, features = ["color", "
 const-hex = { version = "1", features = ["core-error", "serde"] }
 crypto-common = { version = "0.1", default-features = false, features = ["getrandom", "std"] }
 derive_more = { version = "2", default-features = false, features = ["add", "add_assign", "as_ref", "deref", "deref_mut", "display", "from", "from_str", "index", "index_mut", "into", "into_iterator", "not", "std"] }
+digest = { version = "0.10", features = ["mac", "oid", "std"] }
 ecdsa = { version = "0.16", features = ["pem", "signing", "std", "verifying"] }
 ed25519-dalek = { version = "2", features = ["digest", "rand_core"] }
 either = { version = "1", features = ["serde", "use_std"] }
@@ -48,7 +49,9 @@ futures-executor = { version = "0.3" }
 futures-io = { version = "0.3" }
 futures-timer = { version = "3", default-features = false, features = ["wasm-bindgen"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
-hashbrown = { version = "0.16", features = ["serde"] }
+generic-array = { version = "0.14", default-features = false, features = ["more_lengths", "zeroize"] }
+hashbrown-3575ec1268b04181 = { package = "hashbrown", version = "0.15" }
+hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16", features = ["serde"] }
 hpke-rs = { version = "0.4", features = ["hazmat", "libcrux", "serialization"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
@@ -81,6 +84,7 @@ semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value", "unbounded_depth"] }
+sha1 = { version = "0.10", features = ["compress"] }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union", "write"] }
 sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
 time = { version = "0.3", features = ["formatting", "local-offset", "parsing"] }
@@ -98,7 +102,7 @@ uniffi_bindgen = { version = "0.29", features = ["bindgen-tests"] }
 uniffi_core = { version = "0.29", features = ["tokio"] }
 wasm-bindgen = { version = "0.2" }
 wasm-bindgen-futures = { version = "0.4" }
-winnow = { version = "0.7" }
+winnow = { version = "0.7", features = ["simd"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 
 [build-dependencies]
@@ -126,6 +130,7 @@ clap_builder = { version = "4", default-features = false, features = ["color", "
 const-hex = { version = "1", features = ["core-error", "serde"] }
 crypto-common = { version = "0.1", default-features = false, features = ["getrandom", "std"] }
 derive_more = { version = "2", default-features = false, features = ["add", "add_assign", "as_ref", "deref", "deref_mut", "display", "from", "from_str", "index", "index_mut", "into", "into_iterator", "not", "std"] }
+digest = { version = "0.10", features = ["mac", "oid", "std"] }
 ecdsa = { version = "0.16", features = ["pem", "signing", "std", "verifying"] }
 ed25519-dalek = { version = "2", features = ["digest", "rand_core"] }
 either = { version = "1", features = ["serde", "use_std"] }
@@ -137,7 +142,9 @@ futures-executor = { version = "0.3" }
 futures-io = { version = "0.3" }
 futures-timer = { version = "3", default-features = false, features = ["wasm-bindgen"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
-hashbrown = { version = "0.16", features = ["serde"] }
+generic-array = { version = "0.14", default-features = false, features = ["more_lengths", "zeroize"] }
+hashbrown-3575ec1268b04181 = { package = "hashbrown", version = "0.15" }
+hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16", features = ["serde"] }
 hpke-rs = { version = "0.4", features = ["hazmat", "libcrux", "serialization"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
@@ -171,6 +178,7 @@ semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value", "unbounded_depth"] }
+sha1 = { version = "0.10", features = ["compress"] }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union", "write"] }
 syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
@@ -189,11 +197,12 @@ uniffi_bindgen = { version = "0.29", features = ["bindgen-tests"] }
 uniffi_core = { version = "0.29", features = ["tokio"] }
 wasm-bindgen = { version = "0.2" }
 wasm-bindgen-futures = { version = "0.4" }
-winnow = { version = "0.7" }
+winnow = { version = "0.7", features = ["simd"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
+byteorder = { version = "1" }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
@@ -206,6 +215,7 @@ web-sys = { version = "0.3", features = ["AbortSignal", "DomException", "Message
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
+byteorder = { version = "1" }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
@@ -219,6 +229,8 @@ web-sys = { version = "0.3", features = ["AbortSignal", "DomException", "Message
 
 [target.aarch64-apple-darwin.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
+byteorder = { version = "1" }
+errno = { version = "0.3" }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
@@ -231,7 +243,9 @@ web-sys = { version = "0.3", features = ["AbortSignal", "DomException", "Message
 
 [target.aarch64-apple-darwin.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
+byteorder = { version = "1" }
 cc = { version = "1", default-features = false, features = ["parallel"] }
+errno = { version = "0.3" }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
@@ -244,6 +258,8 @@ web-sys = { version = "0.3", features = ["AbortSignal", "DomException", "Message
 
 [target.aarch64-linux-android.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
+byteorder = { version = "1" }
+errno = { version = "0.3" }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
@@ -256,7 +272,9 @@ web-sys = { version = "0.3", features = ["AbortSignal", "DomException", "Message
 
 [target.aarch64-linux-android.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
+byteorder = { version = "1" }
 cc = { version = "1", default-features = false, features = ["parallel"] }
+errno = { version = "0.3" }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
@@ -269,6 +287,8 @@ web-sys = { version = "0.3", features = ["AbortSignal", "DomException", "Message
 
 [target.x86_64-linux-android.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
+byteorder = { version = "1" }
+errno = { version = "0.3" }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
@@ -281,7 +301,9 @@ web-sys = { version = "0.3", features = ["AbortSignal", "DomException", "Message
 
 [target.x86_64-linux-android.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
+byteorder = { version = "1" }
 cc = { version = "1", default-features = false, features = ["parallel"] }
+errno = { version = "0.3" }
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
 hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
