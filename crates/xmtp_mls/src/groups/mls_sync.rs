@@ -870,6 +870,20 @@ where
                 &validated_commit.metadata_validation_info,
             );
 
+            if let Some((_, payload)) = &msg {
+                log_event!(
+                    Event::MLSProcessedStagedCommit,
+                    self.context.installation_id(),
+                    group_id = self.group_id,
+                    epoch = mls_group.epoch().as_u64(),
+                    actor_installation_id = validated_commit.actor.installation_id,
+                    added_inboxes = $payload.added_inboxes,
+                    removed_inboxes = $payload.removed_inboxes,
+                    left_inboxes = $payload.left_inboxes,
+                    metadata_changes = $payload.metadata_field_changes
+                );
+            }
+
             return Ok(msg.map(|(m, _)| m.id));
         }
 
@@ -1250,6 +1264,7 @@ where
                         self.context.installation_id(),
                         group_id = self.group_id,
                         epoch = mls_group.epoch().as_u64(),
+                        actor_installation_id = validated_commit.actor.installation_id,
                         added_inboxes = $payload.added_inboxes,
                         removed_inboxes = $payload.removed_inboxes,
                         left_inboxes = $payload.left_inboxes,

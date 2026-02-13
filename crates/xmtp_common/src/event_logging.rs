@@ -32,6 +32,7 @@ pub enum Event {
     /// Processed staged commit.
     #[context(
         group_id,
+        actor_installation_id,
         epoch,
         added_inboxes,
         removed_inboxes,
