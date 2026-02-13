@@ -8,7 +8,8 @@ use anyhow::{Context, Result};
 pub use event::LogEvent;
 use parking_lot::{RwLock, RwLockWriteGuard};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
+    hash::Hash,
     iter::Peekable,
     sync::{Arc, Weak},
 };
@@ -21,13 +22,20 @@ type EpochNumber = i64;
 
 #[derive(Default)]
 pub struct LogState {
-    pub grouped_epochs: RwLock<HashMap<GroupId, HashMap<EpochNumber, Epoch>>>,
+    pub grouped_epochs: RwLock<HashMap<GroupId, HashMap<EpochNumber, HashSet<Epoch>>>>,
     pub clients: RwLock<HashMap<InstallationId, Arc<RwLock<ClientState>>>>,
 }
 
 #[derive(Default)]
 pub struct Epoch {
+    pub auth: String,
     pub states: HashMap<InstallationId, Vec<Arc<RwLock<GroupState>>>>,
+}
+
+impl Hash for Epoch {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.auth.hash(state);
+    }
 }
 
 impl LogState {

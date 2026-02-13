@@ -47,6 +47,14 @@ pub enum Event {
     #[context(group_id, cursor, originator, epoch, epoch_auth, previous_epoch)]
     MLSGroupEpochUpdated,
 
+    // ===================== Network =====================
+    /// Stream started.
+    #[context(kind)]
+    StreamOpened,
+    /// Stream closed.
+    #[context(kind)]
+    StreamClosed,
+
     // ===================== Group Syncing =====================
     /// Begin syncing group.
     #[context(group_id, icon = "🔄")]

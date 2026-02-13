@@ -13242,7 +13242,7 @@ dependencies = [
  "owo-colors",
  "parking_lot 0.12.5",
  "passkey",
- "pin-project-lite",
+ "pin-project",
  "prost",
  "public-suffix",
  "rand 0.8.5",
