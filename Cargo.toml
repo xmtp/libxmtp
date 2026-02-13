@@ -123,7 +123,7 @@ tracing-subscriber = { version = "0.3", default-features = false }
 toxiproxy_rust = { git = "https://github.com/ephemeraHQ/toxiproxy_rust.git" }
 url = "2.5.0"
 uuid = "1.12"
-vergen-git2 = "9.1"
+vergen-gix = "9.1"
 # zstd = { default-features = false, version = "0.13" } # needed to enable wasm feature for async-compression
 
 # Any changes here need to be made with corresponding changes in .github/workflows

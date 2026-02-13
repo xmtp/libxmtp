@@ -265,7 +265,7 @@ pub(crate) fn get_icon(attrs: &[Attribute]) -> Option<String> {
             let Some(ident) = meta.path.get_ident() else {
                 return Ok(());
             };
-            if ident.to_string() != "icon" {
+            if ident != "icon" {
                 return Ok(());
             }
 

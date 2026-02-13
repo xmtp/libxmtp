@@ -123,7 +123,8 @@ impl StreamCloser {
 // JS-Compatible Conversation stream
 #[pin_project]
 pub struct ConversationStream<'a> {
-  #[pin] stream: LocalBoxStream<'a, Result<RustMlsGroup, XmtpSubscribeError>>,
+  #[pin]
+  stream: LocalBoxStream<'a, Result<RustMlsGroup, XmtpSubscribeError>>,
 }
 
 impl<'a> ConversationStream<'a> {

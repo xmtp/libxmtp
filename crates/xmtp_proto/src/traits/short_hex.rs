@@ -23,7 +23,8 @@ impl ShortHex for Vec<u8> {
 }
 
 fn short_hex(bytes: &[u8]) -> String {
-    hex::encode(&bytes[..(SHORT_LEN.min(bytes.len()))])
+    let len = SHORT_LEN.min(bytes.len());
+    hex::encode(&bytes[..len])
 }
 
 #[cfg(test)]

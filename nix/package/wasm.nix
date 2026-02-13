@@ -10,8 +10,8 @@
 , llvmPackages
 , wasm-bindgen-cli
 , xmtp
-, geckodriver
-, firefox
+, chromedriver
+, google-chrome
 , corepack
 , pkg-config
 , cargo-nextest
@@ -97,11 +97,11 @@ let
 
   devShell = mkShell (commonEnv // {
     inputsFrom = [ commonArgs ];
-    buildInputs = [ rust-toolchain firefox geckodriver corepack cargo-nextest ];
+    buildInputs = [ rust-toolchain google-chrome chromedriver corepack cargo-nextest ];
 
     SQLITE = "${sqlite.dev}";
     SQLITE_OUT = "${sqlite.out}";
-    GECKODRIVER = "${lib.getBin geckodriver}/bin/geckodriver";
+    CHROMEDRIVER = "${lib.getBin chromedriver}/bin/chromedriver";
     WASM_BINDGEN_TEST_TIMEOUT = 1024;
     WASM_BINDGEN_TEST_ONLY_WEB = 1;
     RSTEST_TIMEOUT = 90;

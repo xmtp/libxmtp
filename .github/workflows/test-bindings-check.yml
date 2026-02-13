@@ -44,4 +44,6 @@ jobs:
       - name: check target
         run: |
           nix develop .#android --command \
-            cargo check --target ${{ matrix.target }} --manifest-path bindings/mobile/Cargo.toml
+            cargo ndk --platform 23 -t ${{ matrix.target }} \
+              --manifest-path bindings/mobile/Cargo.toml \
+              -- check
