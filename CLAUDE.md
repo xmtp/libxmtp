@@ -77,6 +77,15 @@ dev/check-swift         # Check Swift bindings
 nix develop .#android             # Enter Android development shell
 ./sdks/android/dev/bindings       # Build Android bindings via Nix
 ./sdks/android/dev/build          # Build the full Android SDK
+nix build .#android-libs          # Build all Android targets via Nix
+nix build .#android-libs-fast     # Build host-matching target only
+```
+
+### Node.js Bindings
+
+```bash
+nix build .#node-bindings-fast    # Build host-matching .node binary
+nix build .#node-bindings-js      # Generate JS/TS bindings (index.js + index.d.ts)
 ```
 
 ### Benchmarks
