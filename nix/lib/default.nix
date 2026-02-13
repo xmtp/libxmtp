@@ -29,6 +29,7 @@
         androidEnv = pkgs.callPackage ./android-env.nix { };
         iosEnv = pkgs.callPackage ./ios-env.nix { };
         ffi-uniffi-bindgen = pkgs.callPackage ./packages/uniffi-bindgen.nix { };
+        shellCommon = pkgs.callPackage ./shell-common.nix { };
       };
       wasm-bindgen-cli = pkgs.callPackage ./packages/wasm-bindgen-cli.nix { };
       swiftformat = pkgs.callPackage ./packages/swiftformat.nix { };
