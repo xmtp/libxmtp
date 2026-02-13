@@ -1,4 +1,5 @@
 use super::{LocalEvents, Result, SubscribeError, process_welcome::ProcessWelcomeResult};
+use crate::subscriptions::StreamKind;
 use crate::subscriptions::stream_utils::{MultiplexedStream, multiplexed};
 use crate::{
     context::XmtpSharedContext, groups::MlsGroup,
@@ -8,7 +9,7 @@ use xmtp_common::task::JoinSet;
 use xmtp_db::{consent_record::ConsentState, group::ConversationType};
 
 use futures::Stream;
-use pin_project::pin_project;
+use pin_project::{pin_project, pinned_drop};
 use std::{
     borrow::Cow,
     collections::HashSet,
@@ -16,8 +17,9 @@ use std::{
     task::{Poll, ready},
 };
 use tokio_stream::wrappers::BroadcastStream;
-use xmtp_common::{BoxDynFuture, MaybeSend};
+use xmtp_common::{BoxDynFuture, Event, MaybeSend};
 use xmtp_db::prelude::*;
+use xmtp_macro::log_event;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::{Cursor, OriginatorId, SequenceId, WelcomeMessage};
 
@@ -139,7 +141,6 @@ where
     }
 }
 
-#[pin_project]
 /// The stream for conversations.
 /// Handles the state machine that processes welcome messages and groups. It handles
 /// two main states:
@@ -159,7 +160,8 @@ where
 ///   - `Ready(Some(Err(e)))` when an error occurs
 ///   - `Pending` when waiting for more data or for future completion
 ///   - `Ready(None)` when the stream has ended
-pub struct StreamConversations<'a, Context: Clone, Subscription> {
+#[pin_project(PinnedDrop)]
+pub struct StreamConversations<'a, Context: Clone + XmtpSharedContext, Subscription> {
     #[pin]
     inner: Subscription,
     context: Cow<'a, Context>,
@@ -169,6 +171,20 @@ pub struct StreamConversations<'a, Context: Clone, Subscription> {
     known_welcome_ids: HashSet<Cursor>,
     include_duplicated_dms: bool,
     consent_states: Option<Vec<ConsentState>>,
+}
+
+#[pinned_drop]
+impl<'a, Context, Subscription> PinnedDrop for StreamConversations<'a, Context, Subscription>
+where
+    Context: Clone + XmtpSharedContext,
+{
+    fn drop(self: Pin<&mut Self>) {
+        log_event!(
+            Event::StreamClosed,
+            self.context.installation_id(),
+            kind = ?StreamKind::Conversations
+        );
+    }
 }
 
 #[pin_project(project = ProcessProject)]
@@ -232,6 +248,11 @@ where
         include_duplicate_dms: bool,
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
+        log_event!(
+            Event::StreamOpened,
+            context.installation_id(),
+            kind = ?StreamKind::Conversations
+        );
         Self::from_cow(
             Cow::Borrowed(context),
             conversation_type,

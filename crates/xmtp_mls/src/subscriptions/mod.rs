@@ -448,7 +448,7 @@ where
             log_event!(
                 Event::StreamOpened,
                 context.installation_id(),
-                kind = ?StreamKind::StreamAllMsgs
+                kind = ?StreamKind::All
             );
 
             while let Some(message) = stream.next().await {
@@ -458,7 +458,7 @@ where
             log_event!(
                 Event::StreamClosed,
                 context.installation_id(),
-                kind = ?StreamKind::StreamAllMsgs
+                kind = ?StreamKind::All
             );
             on_close();
             Ok::<_, SubscribeError>(())
@@ -562,7 +562,9 @@ where
 
 #[derive(Debug, Clone, Copy)]
 pub enum StreamKind {
-    StreamAllMsgs,
+    All,
+    Conversations,
+    Messages,
 }
 
 #[cfg(test)]
