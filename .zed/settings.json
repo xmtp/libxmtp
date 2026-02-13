@@ -16,11 +16,23 @@
     "JSON": {
       "formatter": "prettier",
     },
+    "Nix": {
+      "language_servers": ["nixd"],
+      "formatter": "language_server",
+      "format_on_save": "on",
+    },
   },
   "lsp": {
     "nixd": {
       "binary": {
         "path": "~/.nix-profile/bin/nixd",
+      },
+      "settings": {
+        "nixd": {
+          "formatting": {
+            "command": ["nixfmt"],
+          },
+        },
       },
     },
     "rust-analyzer": {
