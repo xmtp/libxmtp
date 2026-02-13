@@ -68,7 +68,7 @@
               android-libs-fast = (android.mkAndroid [ androidEnv.hostAndroidTarget ]).aggregate;
             }
             // lib.optionalAttrs pkgs.stdenv.isDarwin {
-              # stdenvNoCC is passed to both callPackage (for the aggregate derivation)
+              # stdenvNoCC is passed to callPackage (for the aggregate derivation).
               # This avoids Nix's apple-sdk and cc-wrapper,
               # which inject -mmacos-version-min flags that
               # conflict with iOS cross-compilation. The builds are impure (__noChroot)
@@ -77,6 +77,11 @@
                 (pkgs.callPackage ./nix/package/ios.nix {
                   stdenv = pkgs.stdenvNoCC;
                 }).aggregate;
+              # iOS bindings - simulator + host macOS only (fast dev/CI builds)
+              ios-libs-fast =
+                ((pkgs.callPackage ./nix/package/ios.nix {
+                  stdenv = pkgs.stdenvNoCC;
+                }).mkIos [ "aarch64-apple-darwin" "aarch64-apple-ios-sim" ]).aggregate;
             };
         };
     };
