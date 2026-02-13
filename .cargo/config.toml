@@ -19,6 +19,17 @@ rustflags = [
   'target-feature=+bulk-memory,+mutable-globals',
 ]
 
+# Musl targets default to crt-static, but crt_static_allows_dylibs is false
+# in the target spec. Disabling crt-static allows cdylib (.node shared libraries)
+# to be built. The resulting .node files dynamically link musl libc, which is
+# correct for musl environments (Alpine Linux, etc.).
+# These merge with the cfg(all()) rustflags above.
+[target.x86_64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=-crt-static"]
+
+[target.aarch64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=-crt-static"]
+
 [target.aarch64-linux-android]
 rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384"]
 
