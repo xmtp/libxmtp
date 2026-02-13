@@ -8,23 +8,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/setup-nix
         with:
-          workspaces: |
-            .
-            bindings/node
-          warp: "true"
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          sccache: "true"
       - name: Start Docker containers
         run: dev/up
-      - name: Setup node
-        uses: ./.github/actions/setup-node
-        with:
-          cache-dependency-path: "bindings/node/yarn.lock"
-      - name: Install dependencies
-        working-directory: bindings/node
-        run: |
-          yarn
       - name: Run tests
-        working-directory: bindings/node
-        run: |
-          yarn test
+        run: nix develop .#rust --command bash -c 'cd bindings/node && yarn && yarn test'
