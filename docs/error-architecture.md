@@ -149,15 +149,6 @@ impl std::fmt::Display for FfiError {
 }
 ```
 
-The `parse_xmtp_error` function is exported to mobile SDKs:
-
-```rust
-#[uniffi::export]
-pub fn parse_xmtp_error(message: String) -> FfiErrorInfo {
-    parse_error_message(&message)
-}
-```
-
 ### Node.js (NAPI)
 
 In `bindings/node/src/lib.rs`:
