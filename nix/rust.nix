@@ -8,7 +8,13 @@ _: {
       ...
     }:
     let
-      toolchain = pkgs.xmtp.mkToolchain [ "x86_64-unknown-linux-musl" ] [ ];
+      toolchain =
+        pkgs.xmtp.mkToolchain
+          [
+            "x86_64-unknown-linux-musl"
+            "aarch64-unknown-linux-musl"
+          ]
+          [ ];
       src = ./..;
     in
     {

@@ -26,7 +26,7 @@ ci:
 develop:
   default:
     readme: |
-      🍾 Welcome to **libxmtp** devshell
+      Welcome to **libxmtp** devshell
 
       refer to ./dev/ for development scripts
 
@@ -34,4 +34,4 @@ develop:
 
       🦀 ./dev/lint-rust to lint rust
 
-      🕸️ om ci run .#wasm -- --accept-flake-config for webassembly ci tests
+      🕸️ om ci run .#wasm for webassembly ci tests
