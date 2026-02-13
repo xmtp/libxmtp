@@ -64,15 +64,46 @@ This is a fundamental property of Nix flakes for reproducibility. The flake's so
 
 **Solution:**
 
-There is no workaround. The iOS shell requires:
-- Darwin-specific toolchains
-- Xcode build tools
-- Apple's cctools
+There is no workaround. The iOS shell requires Darwin-specific toolchains and Xcode. For iOS development, you must use macOS.
 
-For iOS development, you must use macOS. Consider:
-- Using a macOS CI runner
-- Remote development on a Mac
-- For testing only: use the simulator on a Mac
+---
+
+## Issue: Xcode Version Too Old for iOS
+
+**Symptoms:**
+- Warning on shell entry: "Xcode X.X detected. Xcode 16+ required for Swift 6.1"
+- Swift Package Manager fails with Package Traits errors
+
+**Cause:** Xcode < 16 doesn't support Swift 6.1 Package Traits.
+
+**Solution:**
+```bash
+# Check current version
+xcodebuild -version
+
+# Install Xcode 16+ from App Store, then:
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+```
+
+---
+
+## Issue: iOS Build Uses Wrong Compiler
+
+**Symptoms:**
+- iOS cross-compilation fails with `-mmacos-version-min` errors
+- Linker errors mentioning macOS flags during iOS builds
+- Nix's cc-wrapper injecting wrong flags
+
+**Cause:** Nix's stdenv overrides `DEVELOPER_DIR` to its own apple-sdk. The `/usr/bin/clang` shim reads this and dispatches to Nix's cc-wrapper, which injects macOS-specific flags that break iOS compilation.
+
+**Solution:**
+
+The iOS shell (`ios.nix`) and default shell (`local.nix`) handle this automatically by:
+1. Resolving the real Xcode path via `/usr/bin/xcode-select`
+2. Setting `CC_aarch64_apple_ios` (etc.) to the full Xcode toolchain clang path
+3. Unsetting `SDKROOT` so xcrun discovers per-target SDKs
+
+If you encounter this outside the Nix shells, ensure you're using `nix develop .#ios` or `nix develop`.
 
 ---
 
@@ -93,11 +124,6 @@ nix develop
 # Now rustc --version shows 1.92.0
 ```
 
-If you need to use system Rust for other projects, consider:
-- Using direnv to auto-switch
-- Running `nix develop` explicitly for this project
-- Using `nix develop --command cargo build` for one-off commands
-
 **Do not** modify the Rust version in `flake.nix` without project coordination.
 
 ---
@@ -111,27 +137,10 @@ If you need to use system Rust for other projects, consider:
 
 **Causes & Solutions:**
 
-1. **direnv not installed:**
-   ```bash
-   # Run the setup script
-   ./dev/nix-up
-   ```
-
-2. **direnv not allowed for this directory:**
-   ```bash
-   direnv allow
-   ```
-
-3. **Shell hook not configured:**
-   ```bash
-   # Add to ~/.bashrc or ~/.zshrc
-   eval "$(direnv hook bash)"  # or zsh
-   ```
-
-4. **direnv cache stale:**
-   ```bash
-   direnv reload
-   ```
+1. **direnv not installed:** Run `./dev/nix-up`
+2. **direnv not allowed:** Run `direnv allow`
+3. **Shell hook not configured:** Add `eval "$(direnv hook bash)"` (or zsh) to shell rc
+4. **Cache stale:** Run `direnv reload`
 
 ---
 
@@ -152,10 +161,7 @@ nix develop .#wasm
 wasm-pack build --target web bindings/wasm
 ```
 
-The default shell has WASM tooling but the `.#wasm` shell is specifically configured for WASM builds with:
-- Correct environment variables
-- WASM-specific Rust toolchain
-- Pre-configured build targets
+The WASM shell uses Chrome/ChromeDriver for testing (not Firefox). It has a separate `fenix.stable` Rust toolchain with the WASM target pre-configured.
 
 ---
 
@@ -193,11 +199,11 @@ The default shell has WASM tooling but the `.#wasm` shell is specifically config
 ## Issue: Android Emulator Won't Start
 
 **Symptoms:**
-- `$EMULATOR` command fails
+- `run-test-emulator` fails or hangs
 - "ANDROID_HOME not set"
-- AVD manager errors
+- Port binding errors
 
-**Cause:** Not in Android shell or virtualization issues.
+**Cause:** Not in Android shell, virtualization issues, or port conflicts.
 
 **Solution:**
 
@@ -206,19 +212,34 @@ The default shell has WASM tooling but the `.#wasm` shell is specifically config
    nix develop .#android
    ```
 
-2. Verify environment:
+2. Launch the emulator:
    ```bash
-   echo $ANDROID_HOME
-   echo $NDK_HOME
+   run-test-emulator  # Custom script, scans ports 5560-5584
    ```
 
-3. Check virtualization (Linux):
+3. The custom `run-test-emulator` script avoids ports 5554-5558 which conflict with Docker services started by `dev/docker/up`. If the emulator still hangs, check:
    ```bash
-   # KVM must be available
-   ls /dev/kvm
+   # Ensure Docker services aren't using ports in 5560+ range
+   lsof -i :5560-5584
    ```
 
-4. On macOS, ensure virtualization extensions are enabled.
+4. Check virtualization (Linux): `ls /dev/kvm`
+
+---
+
+## Issue: Node Build Fails with Sandbox Error
+
+**Symptoms:**
+- `nix build .#node-bindings-js` fails with network errors
+- Sandbox violation during `yarn install`
+
+**Cause:** The `node-bindings-js` package uses `__noChroot = true` because it needs network access for `yarn install`. Linux enforces `sandbox=true` by default.
+
+**Solution:**
+
+Run `node-bindings-js` builds on macOS, which doesn't enforce the Nix sandbox. For Linux, you would need to set `sandbox = false` in `nix.conf` (not recommended for general use).
+
+The per-target `.node` builds (`node-bindings-*`) do NOT require network access and work on both platforms.
 
 ---
 
@@ -227,19 +248,14 @@ The default shell has WASM tooling but the `.#wasm` shell is specifically config
 ### Verbose Nix Output
 
 ```bash
-# Show full trace on errors
-nix develop --show-trace
-
-# Very verbose
-nix develop -vvv
+nix develop --show-trace   # Show full trace on errors
+nix develop -vvv           # Very verbose
 ```
 
 ### Interactive Exploration
 
 ```bash
-# REPL for exploring the flake
 nix repl .
-
 # In REPL:
 :lf .                           # Load flake
 devShells.aarch64-darwin.default  # Inspect shell
@@ -248,31 +264,14 @@ devShells.aarch64-darwin.default  # Inspect shell
 ### Check Flake Health
 
 ```bash
-# Show all outputs
-nix flake show
-
-# Check for issues
-nix flake check
-
-# View input versions
-nix flake metadata
+nix flake show      # Show all outputs
+nix flake check     # Check for issues
+nix flake metadata  # View input versions
 ```
 
 ### Garbage Collection
 
 ```bash
-# Remove old generations (free disk space)
-nix-collect-garbage -d
-
-# Remove specific age
-nix-collect-garbage --delete-older-than 7d
+nix-collect-garbage -d              # Remove old generations
+nix-collect-garbage --delete-older-than 7d  # Remove specific age
 ```
-
----
-
-## Getting Help
-
-1. **Check Nix documentation:** https://nixos.org/manual/nix/stable/
-2. **Flake-parts docs:** https://flake.parts/
-3. **Fenix (Rust):** https://github.com/nix-community/fenix
-4. **Ask in team chat** with your error output and `nix flake metadata` results
