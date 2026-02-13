@@ -11,7 +11,4 @@ if [ ! -f result ] || ! tar -xOf result manifest.json 2>/dev/null | grep -q "mls
 fi
 docker load -i result
 
-# Build remaining services (envoy proxy, toxiproxy, anvil)
-"${script_dir}"/compose build --parallel $("${script_dir}"/compose config --services | grep -v "^validation$")
-
 "${script_dir}"/compose up -d --remove-orphans --wait --timeout 500
