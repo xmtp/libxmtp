@@ -40,7 +40,7 @@ impl Send {
             .ok_or(eyre!("No group with id {}", group_id))?;
         let member = group
             .members
-            .choose(&mut rand::thread_rng())
+            .choose(&mut rand::rng())
             .ok_or(eyre!("Empty group, no members to send message!"))?;
         let key = (u64::from(network), *member);
         let identity = identity_store
