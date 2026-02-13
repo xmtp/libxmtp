@@ -1,6 +1,6 @@
 use color_eyre::eyre::{Result, bail, eyre};
 use futures::stream::StreamExt;
-use rand::{SeedableRng as _, rngs::SmallRng, seq::IteratorRandom};
+use rand::{SeedableRng, rngs::SmallRng, seq::IteratorRandom};
 use serde::Serialize;
 use std::{
     fs,
@@ -38,7 +38,7 @@ impl Stream {
             out,
             format,
         } = opts;
-        let rng = &mut SmallRng::from_entropy();
+        let rng = &mut SmallRng::from_rng(&mut rand::rng());
         let identity = if let Some(inbox_id) = inbox {
             let key = (u64::from(&network), *inbox_id);
             let identity = identity_store.get(key.into())?;

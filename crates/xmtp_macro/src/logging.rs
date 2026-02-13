@@ -3,7 +3,7 @@ use std::fmt::Display;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{ToTokens, quote};
 use syn::{
-    Attribute, Expr, Ident, Meta, Path, Token, Variant,
+    Attribute, Expr, Ident, LitStr, Meta, Path, Token, Variant,
     parse::{Parse, ParseStream},
 };
 
@@ -57,6 +57,12 @@ impl Parse for LogEventInput {
             } else if input.peek(Token![?]) {
                 input.parse::<Token![?]>()?;
                 Some('?')
+            } else if input.peek(Token![#]) {
+                input.parse::<Token![#]>()?;
+                Some('#')
+            } else if input.peek(Token![$]) {
+                input.parse::<Token![$]>()?;
+                Some('$')
             } else {
                 None
             };
@@ -72,6 +78,12 @@ impl Parse for LogEventInput {
                 } else if input.peek(Token![?]) {
                     input.parse::<Token![?]>()?;
                     Some('?')
+                } else if input.peek(Token![#]) {
+                    input.parse::<Token![#]>()?;
+                    Some('#')
+                } else if input.peek(Token![$]) {
+                    input.parse::<Token![$]>()?;
+                    Some('$')
                 } else {
                     None
                 };
@@ -118,23 +130,54 @@ impl Parse for LogEventInput {
                 continue;
             }
 
+            // Handle # sigil for short_hex transformation
+            // Keep sigil as '#' so context formatting can quote the value
+            // Auto-apply # for known byte-like field names (e.g. group_id)
+            let name_str = name.to_string();
+            let short_hex_fields = &["group_id", "installation_id"];
+            if sigil == Some('#')
+                || (sigil.is_none()
+                    && short_hex_fields
+                        .iter()
+                        .any(|f| name_str.contains(f) && !name_str.contains("full")))
+            {
+                let value_expr = value.unwrap_or_else(|| {
+                    let name_clone = name.clone();
+                    syn::parse_quote!(#name_clone)
+                });
+                let transformed_value: Expr = syn::parse_quote! {
+                    {
+                        use xmtp_proto::ShortHex;
+                        #value_expr.short_hex()
+                    }
+                };
+                fields.push(Field {
+                    name,
+                    sigil: Some('#'),
+                    value: Some(transformed_value),
+                });
+                continue;
+            }
+
+            // Handle $ sigil for serde_json::to_string transformation
+            if sigil == Some('$') {
+                let value_expr = value.unwrap_or_else(|| {
+                    let name_clone = name.clone();
+                    syn::parse_quote!(#name_clone)
+                });
+                let transformed_value: Expr = syn::parse_quote! {
+                    ::serde_json::to_string(&(#value_expr)).unwrap_or_else(|e| format!("<json error: {e}>"))
+                };
+                fields.push(Field {
+                    name,
+                    sigil: Some('$'),
+                    value: Some(transformed_value),
+                });
+                continue;
+            }
+
             fields.push(Field { name, sigil, value });
         }
-
-        // Create a field for installation_id that hex encodes the last 4 bytes
-        let installation_id_field = Field {
-            name: syn::Ident::new("installation_id", proc_macro2::Span::call_site()),
-            sigil: Some('%'),
-            value: Some(syn::parse_quote! {
-                {
-                    let bytes: &[u8] = __installation_id.as_ref();
-                    let len = bytes.len();
-                    let last_4 = if len >= 4 { &bytes[len - 4..] } else { bytes };
-                    hex::encode(last_4)
-                }
-            }),
-        };
-        fields.push(installation_id_field);
 
         Ok(LogEventInput {
             event,
@@ -155,7 +198,7 @@ impl Field {
             .unwrap_or_else(|| name.to_token_stream());
 
         match self.sigil {
-            Some('%') => quote! { #name = %#value },
+            Some('%') | Some('#') | Some('$') => quote! { #name = %#value },
             Some('?') => quote! { #name = ?#value },
             _ => quote! { #name = #value },
         }
@@ -196,11 +239,42 @@ pub(crate) fn get_context_fields(attrs: &[Attribute]) -> Vec<String> {
             let mut fields = Vec::new();
             let _ = attr.parse_nested_meta(|meta| {
                 if let Some(ident) = meta.path.get_ident() {
-                    fields.push(ident.to_string());
+                    let ident = ident.to_string();
+
+                    if ident == "icon" {
+                        return Ok(());
+                    }
+
+                    fields.push(ident);
                 }
                 Ok(())
             });
             Some(fields)
         })
         .unwrap_or_default()
+}
+
+pub(crate) fn get_icon(attrs: &[Attribute]) -> Option<String> {
+    let mut icon = None;
+    for attr in attrs {
+        if !attr.path().is_ident("context") {
+            continue;
+        }
+
+        let _ = attr.parse_nested_meta(|meta| {
+            let Some(ident) = meta.path.get_ident() else {
+                return Ok(());
+            };
+            if ident != "icon" {
+                return Ok(());
+            }
+
+            let value: LitStr = meta.value()?.parse()?;
+            icon = Some(value.value());
+
+            Ok(())
+        });
+    }
+
+    icon
 }

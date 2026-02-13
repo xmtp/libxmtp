@@ -11,7 +11,7 @@ futures = { workspace = true, features = ["alloc"] }
 h2 = "0.4"
 http = "1.2"
 http-body-util.workspace = true
-pin-project-lite = "0.2.15"
+pin-project.workspace = true
 prost = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 tracing.workspace = true
