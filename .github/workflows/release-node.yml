@@ -51,101 +51,27 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - x86_64-unknown-linux-gnu
-          - x86_64-unknown-linux-musl
-          - aarch64-unknown-linux-gnu
-          - aarch64-unknown-linux-musl
-        include:
-          - target: x86_64-unknown-linux-gnu
-            output_target: linux-x64-gnu
-          - target: x86_64-unknown-linux-musl
-            output_target: linux-x64-musl
-          - target: aarch64-unknown-linux-gnu
-            output_target: linux-arm64-gnu
-          - target: aarch64-unknown-linux-musl
-            output_target: linux-arm64-musl
+          - linux-x64-gnu
+          - linux-x64-musl
+          - linux-arm64-gnu
+          - linux-arm64-musl
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
-
-      - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/setup-nix
         with:
-          targets: ${{ matrix.target }}
-          workspaces: |
-            .
-            bindings/node
-          warp: 'true'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-      - uses: ./.github/actions/setup-release-tools
-
-      - name: Set version in package.json
-        env:
-          VERSION: ${{ needs.setup.outputs.version }}
-        run: xmtp-release set-manifest-version --sdk node-bindings --version "$VERSION"
-
-      - name: Configure aarch64 toolchain
-        if: startsWith(matrix.target, 'aarch64')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -qq crossbuild-essential-arm64 crossbuild-essential-armhf
-          cat >>~/.cargo/config <<EOF
-          [target.aarch64-unknown-linux-gnu]
-          linker = "aarch64-linux-gnu-gcc"
-          [target.aarch64-unknown-linux-musl]
-          linker = "aarch64-linux-gnu-gcc"
-          EOF
-
-      - name: Configure x86_64-unknown-linux-musl toolchain
-        if: ${{ matrix.target == 'x86_64-unknown-linux-musl' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-
-      - name: Setup node
-        uses: ./.github/actions/setup-node
-        with:
-          cache-dependency-path: "bindings/node/yarn.lock"
-
-      - name: Install dependencies
-        working-directory: bindings/node
-        run: |
-          yarn
-
-      - name: Build target
-        if: ${{ ! startsWith(matrix.target, 'aarch64') }}
-        working-directory: bindings/node
-        run: |
-          yarn build:release --target ${{ matrix.target }}
-
-      - name: Build target (aarch64)
-        if: startsWith(matrix.target, 'aarch64')
-        env:
-          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
-          CC_aarch64_unknown_linux_musl: aarch64-linux-gnu-gcc
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
-        working-directory: bindings/node
-        run: |
-          yarn build:release --target ${{ matrix.target }}
-
-      - name: Upload JS
-        # only upload the JS files once, target doesn't matter
-        if: ${{ matrix.target == 'x86_64-unknown-linux-gnu' }}
-        uses: actions/upload-artifact@v6
-        with:
-          name: bindings_node_js
-          path: |
-            bindings/node/index.js
-            bindings/node/index.d.ts
-          retention-days: 1
+      - name: Build ${{ matrix.target }}
+        run: nix build .#node-bindings-${{ matrix.target }} -L
 
       - name: Upload binding
         uses: actions/upload-artifact@v6
         with:
-          name: bindings_node_${{ matrix.output_target }}
-          path: bindings/node/bindings_node.${{ matrix.output_target }}.node
+          name: bindings_node_${{ matrix.target }}
+          path: result/bindings_node.${{ matrix.target }}.node
           retention-days: 1
 
   build-macos:
@@ -155,54 +81,51 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - x86_64-apple-darwin
-          - aarch64-apple-darwin
-        include:
-          - target: x86_64-apple-darwin
-            output_target: darwin-x64
-          - target: aarch64-apple-darwin
-            output_target: darwin-arm64
+          - darwin-x64
+          - darwin-arm64
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
-
-      - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/setup-nix
         with:
-          targets: ${{ matrix.target }}
-          workspaces: |
-            .
-            bindings/node
-          warp: 'true'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-      - uses: ./.github/actions/setup-release-tools
-
-      - name: Set version in package.json
-        env:
-          VERSION: ${{ needs.setup.outputs.version }}
-        run: xmtp-release set-manifest-version --sdk node-bindings --version "$VERSION"
-
-      - name: Setup node
-        uses: ./.github/actions/setup-node
-        with:
-          cache-dependency-path: "bindings/node/yarn.lock"
-
-      - name: Install dependencies
-        working-directory: bindings/node
-        run: |
-          yarn
-
-      - name: Build target
-        working-directory: bindings/node
-        run: |
-          yarn build:release --target ${{ matrix.target }}
+      - name: Build ${{ matrix.target }}
+        run: nix build .#node-bindings-${{ matrix.target }} -L
 
       - name: Upload binding
         uses: actions/upload-artifact@v6
         with:
-          name: bindings_node_${{ matrix.output_target }}
-          path: bindings/node/bindings_node.${{ matrix.output_target }}.node
+          name: bindings_node_${{ matrix.target }}
+          path: result/bindings_node.${{ matrix.target }}.node
+          retention-days: 1
+
+  build-js:
+    needs: setup
+    # Must run on macOS: __noChroot (needed for yarn install) is only
+    # supported on macOS. Linux enforces sandbox=true.
+    runs-on: warp-macos-latest-arm64-6x
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Build JS/TS bindings
+        run: nix build .#node-bindings-js -L
+
+      - name: Upload JS
+        uses: actions/upload-artifact@v6
+        with:
+          name: bindings_node_js
+          path: |
+            result/index.js
+            result/index.d.ts
           retention-days: 1
 
   build-windows:
@@ -286,7 +209,7 @@ jobs:
           retention-days: 1
 
   publish:
-    needs: [setup, build-linux, build-macos, build-windows]
+    needs: [setup, build-linux, build-macos, build-js, build-windows]
     uses: ./.github/workflows/npm-publish.yml
     with:
       package-dir: bindings/node
