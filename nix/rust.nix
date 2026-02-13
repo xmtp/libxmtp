@@ -1,8 +1,12 @@
 # Rust Binaries to expose in nix flake
-_:
-{
+_: {
   perSystem =
-    { self', pkgs, lib, ... }:
+    {
+      self',
+      pkgs,
+      lib,
+      ...
+    }:
     let
       toolchain = pkgs.xmtp.mkToolchain [ "x86_64-unknown-linux-musl" ] [ ];
       src = ./..;
@@ -19,14 +23,13 @@ _:
         defaults = {
           perCrate.crane.args = {
             doCheck = false;
-            nativeBuildInputs = with pkgs;
-              [
-                pkg-config
-                openssl
-                perl
-                sqlite
-                sqlcipher
-              ];
+            nativeBuildInputs = with pkgs; [
+              pkg-config
+              openssl
+              perl
+              sqlite
+              sqlcipher
+            ];
           };
         };
         crates = {

@@ -1,5 +1,6 @@
-{ lib
-, xmtp
+{
+  lib,
+  xmtp,
 }:
 let
   inherit (xmtp.craneLib.fileset) commonCargoSources;
@@ -16,11 +17,7 @@ let
     (src + /Cargo.lock)
     (src + /.cargo/config.toml)
     # All Cargo.toml and build.rs files in the workspace
-    (lib.fileset.fileFilter
-      (file:
-        file.name == "Cargo.toml" || file.name == "build.rs"
-      )
-      src)
+    (lib.fileset.fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") src)
     # Files referenced by build scripts (e.g., include_bytes!, include_str!).
     # These are needed at dep-compilation time because build.rs runs then.
     (src + /crates/xmtp_id/src/scw_verifier/chain_urls_default.json)
@@ -71,15 +68,23 @@ let
     (commonCargoSources (src + /crates/xmtp_debug))
     (commonCargoSources (src + /crates/db_tools))
   ];
-  forCrate = crate: lib.fileset.unions [
-    libraries
-    crate
-  ];
+  forCrate =
+    crate:
+    lib.fileset.unions [
+      libraries
+      crate
+    ];
   workspace = lib.fileset.unions [
     binaries
     libraries
   ];
 in
 {
-  inherit depsOnly libraries binaries forCrate workspace;
+  inherit
+    depsOnly
+    libraries
+    binaries
+    forCrate
+    workspace
+    ;
 }
