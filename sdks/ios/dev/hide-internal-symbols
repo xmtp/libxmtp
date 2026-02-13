@@ -1,7 +1,10 @@
 #!/bin/bash
 # Annotate generated Swift files so DocC hides proto/FFI internals.
 # Runs in CI before DocC generation — does NOT modify committed files.
-source "$(dirname "$0")/.setup"
+# Requires: Perl (standard on macOS, used for multiline regex transforms)
+SETUP_FILE="$(dirname "$0")/.setup"
+[[ -f "$SETUP_FILE" ]] || { echo "Error: .setup file not found at $SETUP_FILE" >&2; exit 1; }
+source "$SETUP_FILE"
 
 PROTO_DIR="${IOS_SDK_DIR}/Sources/XMTPiOS/Proto"
 PUSH_DIR="${IOS_SDK_DIR}/Sources/XMTPiOS/Push"
@@ -19,8 +22,13 @@ proto_files=(
     "${PUSH_DIR}/service.connect.swift"
 )
 
+found=0
 for f in "${proto_files[@]}"; do
-    [[ -f "$f" ]] || continue
+    if [[ ! -f "$f" ]]; then
+        echo "Warning: expected proto file not found: $f" >&2
+        continue
+    fi
+    found=$((found + 1))
     perl -i -0777 -pe '
         my $wl = qr/'"${PROTO_WHITELIST}"'/;
         s{
@@ -36,7 +44,11 @@ for f in "${proto_files[@]}"; do
     ' "$f"
 done
 
-echo "Annotated $(echo "${proto_files[@]}" | wc -w | tr -d ' ') proto/push files"
+if [[ $found -eq 0 ]]; then
+    echo "Error: no proto files found — was the build step run first?" >&2
+    exit 1
+fi
+echo "Annotated $found proto/push files"
 
 # ── FFI file (xmtpv3.swift) ─────────────────────────────────────
 # Annotate public protocols, open classes, public structs (non-Converter),
