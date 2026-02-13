@@ -112,9 +112,6 @@ let
       }
     );
 
-  # Per-target derivations (genAttrs creates { "x86_64-apple-darwin" = <drv>; ... })
-  targets = lib.genAttrs iosEnv.iosTargets buildTarget;
-
   # Native host env setup for Swift bindings (builds for macOS host, not iOS).
   nativeEnvSetup = iosEnv.envSetup "aarch64-apple-darwin";
 
@@ -172,29 +169,37 @@ let
     }
   );
 
-  # Aggregate derivation: combines all per-target static+dynamic libraries + Swift bindings
-  # into a single output directory.
-  # Uses symlinks instead of copies to avoid ~100MB duplication in the Nix store
-  # (each .a file is 20-30MB). The Makefile's lipo/framework targets follow symlinks.
-  # dontUnpack = true because there's no source to extract — this derivation only
-  # creates symlinks to other Nix store paths.
-  aggregate = stdenv.mkDerivation {
-    pname = "xmtpv3-ios-libs";
-    inherit version;
-    dontUnpack = true;
-    installPhase = ''
-      mkdir -p $out/swift
-      ${lib.concatMapStringsSep "\n" (target: ''
-        mkdir -p $out/${target}
-        ln -s ${targets.${target}}/${target}/libxmtpv3.a $out/${target}/libxmtpv3.a
-        ln -s ${targets.${target}}/${target}/libxmtpv3.dylib $out/${target}/libxmtpv3.dylib
-      '') iosEnv.iosTargets}
-      ln -s ${swiftBindings}/swift/xmtpv3.swift $out/swift/xmtpv3.swift
-      ln -s ${swiftBindings}/swift/include $out/swift/include
-    '';
-  };
+  # Function to build a specific set of targets (mirrors mkAndroid in android.nix)
+  mkIos =
+    targetList:
+    let
+      selectedTargets = lib.genAttrs targetList buildTarget;
+
+      selectedAggregate = stdenv.mkDerivation {
+        pname = "xmtpv3-ios-libs";
+        inherit version;
+        dontUnpack = true;
+        installPhase = ''
+          mkdir -p $out/swift
+          ${lib.concatMapStringsSep "\n" (target: ''
+            mkdir -p $out/${target}
+            ln -s ${selectedTargets.${target}}/${target}/libxmtpv3.a $out/${target}/libxmtpv3.a
+            ln -s ${selectedTargets.${target}}/${target}/libxmtpv3.dylib $out/${target}/libxmtpv3.dylib
+          '') targetList}
+          ln -s ${swiftBindings}/swift/xmtpv3.swift $out/swift/xmtpv3.swift
+          ln -s ${swiftBindings}/swift/include $out/swift/include
+        '';
+      };
+    in
+    {
+      targets = selectedTargets;
+      inherit swiftBindings;
+      aggregate = selectedAggregate;
+    };
 
 in
 {
-  inherit targets swiftBindings aggregate;
+  inherit swiftBindings mkIos;
+  # Default: all targets (for backward compat)
+  inherit (mkIos iosEnv.iosTargets) targets aggregate;
 }
