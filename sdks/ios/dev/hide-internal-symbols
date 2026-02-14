@@ -4,7 +4,7 @@
 # Requires: Perl (standard on macOS, used for multiline regex transforms)
 SETUP_FILE="$(dirname "$0")/.setup"
 [[ -f "$SETUP_FILE" ]] || { echo "Error: .setup file not found at $SETUP_FILE" >&2; exit 1; }
-source "$SETUP_FILE"
+source "$SETUP_FILE" || { echo "Error: failed to source .setup" >&2; exit 1; }
 
 PROTO_DIR="${IOS_SDK_DIR}/Sources/XMTPiOS/Proto"
 PUSH_DIR="${IOS_SDK_DIR}/Sources/XMTPiOS/Push"

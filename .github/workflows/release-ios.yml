@@ -232,6 +232,6 @@ jobs:
     uses: ./.github/workflows/docs-ios.yml
     with:
       version: ${{ needs.publish.outputs.version }}
-      release-type: ${{ inputs.release-type }}
+      update-latest: ${{ inputs.release-type == 'final' }}
       ref: ${{ inputs.ref }}
     secrets: inherit

@@ -7,10 +7,10 @@ on:
         required: true
         type: string
         description: "Version string (e.g., 4.9.0, 4.9.1-rc.1)"
-      release-type:
+      update-latest:
         required: true
-        type: string
-        description: "dev, rc, or final"
+        type: boolean
+        description: "Also update ios/latest/"
       ref:
         required: true
         type: string
@@ -18,14 +18,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        required: true
+        required: false
         type: string
-        description: "Version string (e.g., 4.9.0)"
-      release-type:
-        required: true
-        type: string
-        default: "final"
-        description: "dev, rc, or final"
+        description: "Version string (e.g., 4.9.0). Leave empty to only update latest."
+      update-latest:
+        required: false
+        type: boolean
+        default: true
+        description: "Also update ios/latest/"
 
 permissions:
   contents: write
@@ -52,7 +52,10 @@ jobs:
         run: nix develop .#ios --command ./sdks/ios/dev/bindings
       - name: Hide internal symbols from docs
         run: ./sdks/ios/dev/hide-internal-symbols
-      - name: Generate DocC documentation
+
+      # Versioned deploy (only when called with an explicit version)
+      - name: Generate versioned docs
+        if: inputs.version
         run: |
           swift package \
             --allow-writing-to-package-directory \
@@ -62,14 +65,17 @@ jobs:
             --transform-for-static-hosting \
             --hosting-base-path libxmtp/ios/${{ inputs.version }}
       - name: Deploy versioned docs
+        if: inputs.version
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./.build/docs
           destination_dir: ios/${{ inputs.version }}
           keep_files: true
+
+      # Latest deploy
       - name: Generate latest docs
-        if: inputs.release-type == 'final'
+        if: inputs.update-latest
         run: |
           rm -rf ./.build/docs-latest
           swift package \
@@ -80,7 +86,7 @@ jobs:
             --transform-for-static-hosting \
             --hosting-base-path libxmtp/ios/latest
       - name: Deploy latest docs
-        if: inputs.release-type == 'final'
+        if: inputs.update-latest
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
