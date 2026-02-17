@@ -29,6 +29,11 @@ export function getCommitsBetween(
   return output.split("\n").filter(Boolean);
 }
 
+export function tagExists(cwd: string, tag: string): boolean {
+  const existing = exec(`git tag --list ${tag}`, cwd);
+  return !!existing;
+}
+
 export function createTag(
   cwd: string,
   tag: string,

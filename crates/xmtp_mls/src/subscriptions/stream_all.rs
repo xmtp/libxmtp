@@ -6,17 +6,18 @@ use super::{
     stream_conversations::{StreamConversations, WelcomesApiSubscription},
     stream_messages::StreamGroupMessages,
 };
-use crate::groups::MlsGroup;
 use crate::groups::welcome_sync::WelcomeService;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::{context::XmtpSharedContext, subscriptions::stream_messages::MessagesApiSubscription};
+use crate::{groups::MlsGroup, subscriptions::StreamKind};
 use futures::stream::Stream;
-use pin_project_lite::pin_project;
+use pin_project::{pin_project, pinned_drop};
 use std::{
     borrow::Cow,
     pin::Pin,
     task::{Poll, ready},
 };
+use xmtp_common::Event;
 use xmtp_db::{
     consent_record::ConsentState,
     group::StoredGroup,
@@ -24,16 +25,36 @@ use xmtp_db::{
     group_message::StoredGroupMessage,
     prelude::*,
 };
+use xmtp_macro::log_event;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::GroupId;
 
-pin_project! {
-    pub struct StreamAllMessages<'a, Context: Clone, Conversations, Messages> {
-        #[pin] pub(super) conversations: Conversations,
-        #[pin] pub(super) messages: Messages,
-        pub(super) context: Cow<'a, Context>,
-        pub(super) sync_groups: Vec<Vec<u8>>,
-        pub(super) conversation_type: Option<ConversationType>,
+#[pin_project(PinnedDrop)]
+pub struct StreamAllMessages<'a, Context, Conversations, Messages>
+where
+    Context: Clone + XmtpSharedContext,
+{
+    #[pin]
+    pub(super) conversations: Conversations,
+    #[pin]
+    pub(super) messages: Messages,
+    pub(super) context: Cow<'a, Context>,
+    pub(super) sync_groups: Vec<Vec<u8>>,
+    pub(super) conversation_type: Option<ConversationType>,
+}
+
+#[pinned_drop]
+impl<'a, Context, Conversations, Messages> PinnedDrop
+    for StreamAllMessages<'a, Context, Conversations, Messages>
+where
+    Context: Clone + XmtpSharedContext,
+{
+    fn drop(self: Pin<&mut Self>) {
+        log_event!(
+            Event::StreamClosed,
+            self.context.installation_id(),
+            kind = ?StreamKind::All
+        );
     }
 }
 
@@ -53,6 +74,11 @@ where
         conversation_type: Option<ConversationType>,
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
+        log_event!(
+            Event::StreamOpened,
+            context.installation_id(),
+            kind = ?StreamKind::All
+        );
         Self::from_cow(Cow::Owned(context), conversation_type, consent_states).await
     }
 }
@@ -73,6 +99,11 @@ where
         conversation_type: Option<ConversationType>,
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
+        log_event!(
+            Event::StreamOpened,
+            context.installation_id(),
+            kind = ?StreamKind::All
+        );
         Self::from_cow(Cow::Borrowed(context), conversation_type, consent_states).await
     }
 

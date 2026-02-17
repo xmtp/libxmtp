@@ -31,15 +31,23 @@ let
   # which injects macOS-specific flags (e.g., -mmacos-version-min) that break
   # iOS compilation. macOS targets don't need this — Nix's cc-wrapper is
   # compatible with macOS builds.
-  isIosTarget = target: builtins.elem target [ "aarch64-apple-ios" "aarch64-apple-ios-sim" ];
+  isIosTarget =
+    target:
+    builtins.elem target [
+      "aarch64-apple-ios"
+      "aarch64-apple-ios-sim"
+    ];
 
   # SDK path suffix for a given target (relative to DEVELOPER_DIR).
-  sdkSuffixForTarget = target: {
-    "aarch64-apple-ios" = "Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk";
-    "aarch64-apple-ios-sim" = "Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk";
-    "x86_64-apple-darwin" = "Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk";
-    "aarch64-apple-darwin" = "Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk";
-  }.${target};
+  sdkSuffixForTarget =
+    target:
+    {
+      "aarch64-apple-ios" = "Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk";
+      "aarch64-apple-ios-sim" = "Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk";
+      "x86_64-apple-darwin" = "Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk";
+      "aarch64-apple-darwin" = "Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk";
+    }
+    .${target};
 
   # Shell snippet that resolves the active Xcode installation path.
   # Prefers /usr/bin/xcode-select (respects setup-xcode on CI), falls back to default.
@@ -75,27 +83,33 @@ let
   #
   # In buildDepsOnly: inline in buildPhaseCargoCommand (preBuild is stripped by crane).
   # In buildPackage: use as preBuild hook.
-  envSetup = target: resolveXcode + ''
-    export DEVELOPER_DIR="$_XCODE_DEV"
-    export SDKROOT="$_XCODE_DEV/${sdkSuffixForTarget target}"
-    export IPHONEOS_DEPLOYMENT_TARGET="14"
-    export PATH="$_XCODE_DEV/usr/bin:$PATH"
-  '' + lib.optionalString (isIosTarget target) ''
-    _XCODE_CLANG="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
-    _XCODE_CLANGXX="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"
-    export CC="$_XCODE_CLANG"
-    export CXX="$_XCODE_CLANGXX"
-  '' + lib.optionalString (target == "aarch64-apple-ios") ''
-    export CC_aarch64_apple_ios="$_XCODE_CLANG"
-    export CXX_aarch64_apple_ios="$_XCODE_CLANGXX"
-    export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER="$_XCODE_CLANG"
-    export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios="--target=arm64-apple-ios --sysroot=$SDKROOT"
-  '' + lib.optionalString (target == "aarch64-apple-ios-sim") ''
-    export CC_aarch64_apple_ios_sim="$_XCODE_CLANG"
-    export CXX_aarch64_apple_ios_sim="$_XCODE_CLANGXX"
-    export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER="$_XCODE_CLANG"
-    export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios_sim="--target=arm64-apple-ios-simulator --sysroot=$SDKROOT"
-  '';
+  envSetup =
+    target:
+    resolveXcode
+    + ''
+      export DEVELOPER_DIR="$_XCODE_DEV"
+      export SDKROOT="$_XCODE_DEV/${sdkSuffixForTarget target}"
+      export IPHONEOS_DEPLOYMENT_TARGET="14"
+      export PATH="$_XCODE_DEV/usr/bin:$PATH"
+    ''
+    + lib.optionalString (isIosTarget target) ''
+      _XCODE_CLANG="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
+      _XCODE_CLANGXX="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"
+      export CC="$_XCODE_CLANG"
+      export CXX="$_XCODE_CLANGXX"
+    ''
+    + lib.optionalString (target == "aarch64-apple-ios") ''
+      export CC_aarch64_apple_ios="$_XCODE_CLANG"
+      export CXX_aarch64_apple_ios="$_XCODE_CLANGXX"
+      export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER="$_XCODE_CLANG"
+      export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios="--target=arm64-apple-ios --sysroot=$SDKROOT"
+    ''
+    + lib.optionalString (target == "aarch64-apple-ios-sim") ''
+      export CC_aarch64_apple_ios_sim="$_XCODE_CLANG"
+      export CXX_aarch64_apple_ios_sim="$_XCODE_CLANGXX"
+      export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER="$_XCODE_CLANG"
+      export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios_sim="--target=arm64-apple-ios-simulator --sysroot=$SDKROOT"
+    '';
 
   # Shell snippet that sets all cross-compilation env vars for the dev shell.
   # Unlike envSetup (which targets a single platform), this configures env vars
@@ -127,11 +141,13 @@ let
     export PATH="$_XCODE_DEV/usr/bin:$PATH"
   '';
 
-in {
+in
+{
   inherit
     iosTargets
     defaultDeveloperDir
     isIosTarget
     envSetup
-    envSetupAll;
+    envSetupAll
+    ;
 }

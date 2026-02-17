@@ -9,10 +9,10 @@ license.workspace = true
 workspace = true
 
 [build-dependencies]
-vergen-git2 = { workspace = true, features = ["build"] }
+vergen-gix = { workspace = true, features = ["build"] }
 
 [dependencies]
-alloy.workspace = true
+alloy = { workspace = true, features = ["reqwest-rustls-tls"] }
 chrono.workspace = true
 clap.workspace = true
 clap-verbosity-flag = { version = "3.0", features = ["tracing"] }
@@ -35,7 +35,7 @@ openmls.workspace = true
 openmls_rust_crypto.workspace = true
 owo-colors.workspace = true
 prost.workspace = true
-rand = { workspace = true, features = ["small_rng"] }
+rand.workspace = true
 redb = { version = "3.1", features = ["logging"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = "1.0"
@@ -57,6 +57,7 @@ tracing-subscriber = { workspace = true, features = [
 ] }
 url.workspace = true
 valuable = { version = "0.1", features = ["derive"] }
+xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
 xmtp_api_d14n.workspace = true
 xmtp_api_grpc.workspace = true
 xmtp_configuration.workspace = true

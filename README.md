@@ -1,11 +1,23 @@
-# LibXMTP
-
-[![Lint](https://github.com/xmtp/libxmtp/actions/workflows/lint-workspace.yaml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/lint-workspace.yaml)
-[![Test](https://github.com/xmtp/libxmtp/actions/workflows/test-workspace.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/test-workspace.yml)
+[![Lint](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml)
+[![Test](https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/test.yml)
+[![built with garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2Fxmtp%2Flibxmtp%3Fbranch%3Dmain)](https://garnix.io/repo/xmtp/libxmtp)
 ![Status](https://img.shields.io/badge/Project_status-Alpha-orange)
 
-LibXMTP is a shared library encapsulating the core functionality of the XMTP
-messaging protocol, such as cryptography, networking, and language bindings.
+<!-- LOGO -->
+<h1>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/xmtp/brand/1bf5822708c9ce7e06964b85121093d69b3a4ff2/assets/postmark-outlined-color.svg" alt="Logo" width="128">
+  <br>libXMTP
+</h1>
+  <p align="center">
+    shared library encapsulating the core functionality of the XMTP messaging
+    protocol, such as cryptography, networking, and language bindings.
+    <br />
+    <a href="https://docs.xmtp.org/">Documentation</a>
+    ·
+    <a href="CONTRIBUTING.md">Contributing</a>
+  </p>
+</p>
 
 ## Requirements
 
@@ -15,6 +27,21 @@ messaging protocol, such as cryptography, networking, and language bindings.
   [Foundry](https://book.getfoundry.sh/getting-started/installation#using-foundryup)
 
 ## Development
+
+Adding Dependencies
+
+- adding dependencies will require re-generating the `workspace-hack` crate,
+  which can be done with:
+
+```bash
+nix develop --command cargo hakari generate
+```
+
+to verify correctness you can optionally run
+
+```bash
+nix develop --command cargo hakari verify
+```
 
 Start Docker Desktop.
 
@@ -133,12 +160,19 @@ reproducible development environments. Nix provides pinned toolchains for Rust,
 Android, iOS, WebAssembly, and Node.js builds.
 
 ```bash
-./dev/nix-up    # Install Determinate Nix + direnv
+./dev/nix-up    # One-time setup: install Determinate Nix + direnv + binary caches
 nix develop     # Enter the default dev shell
 ```
 
+To temporarily disable/enable direnv without uninstalling anything:
+
+```bash
+dev/direnv-down  # Disable direnv auto-activation
+dev/direnv-up    # Re-enable direnv
+```
+
 See [docs/nix-setup.md](docs/nix-setup.md) for the full setup guide, including
-cachix configuration, available dev shells, and direnv usage.
+binary cache configuration, available dev shells, and direnv usage.
 
 ## Structure
 

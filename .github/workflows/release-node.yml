@@ -9,7 +9,7 @@ on:
         description: "dev, rc, or final"
       rc-number:
         required: false
-        type: number
+        type: string
         description: "RC number (required for rc releases)"
       ref:
         required: true
@@ -122,8 +122,10 @@ jobs:
       - name: Build target (aarch64)
         if: startsWith(matrix.target, 'aarch64')
         env:
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          CC_aarch64_unknown_linux_musl: aarch64-linux-gnu-gcc
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
-          CC: aarch64-linux-gnu-gcc
         working-directory: bindings/node
         run: |
           yarn build:release --target ${{ matrix.target }}
