@@ -55,7 +55,7 @@ tracing-oslog = "0.2"
 
 [build-dependencies]
 uniffi = { version = "0.29.0", features = ["build"] }
-vergen-git2 = { workspace = true, features = ["build"] }
+vergen-gix = { workspace = true, features = ["build"] }
 
 [[bin]]
 name = "ffi-uniffi-bindgen"

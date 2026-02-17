@@ -61,7 +61,7 @@ use prost::Message;
 use std::collections::HashMap;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
-use xmtp_common::{Event, fmt::ShortHex, log_event, time::now_ns};
+use xmtp_common::{Event, log_event, time::now_ns};
 use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
     MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, Originators,
@@ -1042,12 +1042,14 @@ where
             .queue(self)?;
 
         self.sync_until_intent_resolved(intent.id).await?;
+        let epoch = self.epoch().await?;
 
         log_event!(
             Event::AddedMembers,
             self.context.installation_id(),
-            group_id = self.group_id.short_hex(),
-            members = ?ids
+            group_id = self.group_id,
+            members = ?ids,
+            epoch
         );
 
         ok_result

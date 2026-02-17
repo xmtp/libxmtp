@@ -11,7 +11,7 @@ name = "mls-validation-service"
 path = "src/main.rs"
 
 [build-dependencies]
-vergen-git2 = { workspace = true, features = ["build"] }
+vergen-gix = { workspace = true, features = ["build"] }
 
 [dependencies]
 alloy.workspace = true

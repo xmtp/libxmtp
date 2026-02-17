@@ -2,4 +2,6 @@
 set -eou pipefail
 
 nix develop .#android --command \
-    cargo check --target x86_64-linux-android --manifest-path bindings/mobile/Cargo.toml
+    cargo ndk --platform 23 -t x86_64-linux-android \
+        --manifest-path bindings/mobile/Cargo.toml \
+        -- check

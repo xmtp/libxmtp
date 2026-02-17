@@ -9,7 +9,7 @@ use crate::{
 use futures::{StreamExt, future::try_join_all, stream::FuturesUnordered};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use xmtp_common::{Event, Retry, RetryableError, fmt::ShortHex, retry_async, retryable};
+use xmtp_common::{Event, Retry, RetryableError, retry_async, retryable};
 use xmtp_configuration::Originators;
 use xmtp_cryptography::CredentialSign;
 use xmtp_db::StorageError;
@@ -30,7 +30,10 @@ use xmtp_id::{
     scw_verifier::SmartContractSignatureVerifier,
 };
 use xmtp_macro::log_event;
-use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
+use xmtp_proto::{
+    ShortHex,
+    api_client::{XmtpIdentityClient, XmtpMlsClient},
+};
 
 use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
 use xmtp_id::InboxUpdate;
@@ -490,13 +493,7 @@ where
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
     ) -> Result<InstallationDiff, InstallationDiffError> {
-        log_event!(
-            Event::MembershipInstallationDiff,
-            self.context.installation_id(),
-            group_id = group_id.short_hex(),
-            old_membership = ?old_group_membership,
-            new_membership = ?new_group_membership
-        );
+        tracing::info!("Updating group membership...");
 
         let added_and_updated_members = membership_diff
             .added_inboxes
@@ -563,13 +560,21 @@ where
             removed_installations.extend(state_diff.new_installations());
         }
 
-        log_event!(
-            Event::MembershipInstallationDiffComputed,
-            self.context.installation_id(),
-            group_id = group_id.short_hex(),
-            added_installations = ?added_installations,
-            removed_installations = ?removed_installations
-        );
+        if !added_installations.is_empty() || !removed_installations.is_empty() {
+            let added_installations: Vec<_> =
+                added_installations.iter().map(|i| i.short_hex()).collect();
+            let removed_installations: Vec<_> = removed_installations
+                .iter()
+                .map(|i| i.short_hex())
+                .collect();
+            log_event!(
+                Event::UpdatedGroupMembership,
+                self.context.installation_id(),
+                #group_id,
+                ?added_installations,
+                ?removed_installations
+            );
+        }
 
         Ok(InstallationDiff {
             added_installations,
