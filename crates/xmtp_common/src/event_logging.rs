@@ -5,9 +5,16 @@ pub use utils::*;
 pub enum Event {
     // ===================== General Client =====================
     /// Client created.
-    #[context(device_sync_enabled, disabled_workers, inbox_id, full_installation_id)]
+    #[context(
+        device_sync_enabled,
+        disabled_workers,
+        inbox_id,
+        full_installation_id,
+        icon = "⬆️"
+    )]
     ClientCreated,
     /// Client dropped.
+    #[context(icon = "⬇️")]
     ClientDropped,
     /// Associating name with installation.
     #[context(name)]
@@ -52,10 +59,10 @@ pub enum Event {
 
     // ===================== Network =====================
     /// Stream started.
-    #[context(kind)]
+    #[context(kind, icon = "🌊")]
     StreamOpened,
     /// Stream closed.
-    #[context(kind)]
+    #[context(kind, icon = "🏜️")]
     StreamClosed,
 
     // ===================== Group Syncing =====================

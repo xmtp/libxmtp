@@ -22,16 +22,20 @@ type EpochAuth = String;
 
 #[derive(Default)]
 pub struct LogState {
-    pub grouped_epochs:
-        RwLock<HashMap<GroupId, HashMap<InstallationId, BTreeMap<EpochNumber, Epoch>>>>,
+    pub grouped_epochs: RwLock<HashMap<GroupId, HashMap<InstallationId, Epochs>>>,
     pub clients: RwLock<HashMap<InstallationId, Arc<RwLock<ClientState>>>>,
 }
 
 #[derive(Default)]
+pub struct Epochs {
+    pub outer_events: Arc<RwLock<Vec<Arc<LogEvent>>>>,
+    pub epochs: BTreeMap<EpochNumber, Epoch>,
+}
+
+#[derive(Default)]
 pub struct Epoch {
-    start: i64,
     pub auth: Option<EpochAuth>,
-    pub states: Vec<Arc<RwLock<GroupState>>>,
+    pub states: Vec<GroupState>,
 }
 
 impl LogState {
@@ -165,14 +169,12 @@ impl ClientState {
 
 pub struct Group {
     pub installation_id: String,
-    pub states: Vec<Arc<RwLock<GroupState>>>,
+    pub states: Vec<GroupState>,
 }
 
 impl Group {
     fn sort(&mut self) {
-        // TODO: this involves a lot of locks
-        self.states
-            .sort_by(|a, b| a.read().event.time.cmp(&b.read().event.time));
+        self.states.sort_by(|a, b| a.event.time.cmp(&b.event.time));
     }
 }
 
@@ -210,8 +212,8 @@ impl Group {
 }
 
 impl GroupState {
-    fn new(event: &Arc<LogEvent>) -> Arc<RwLock<Self>> {
-        let state = Self {
+    fn new(event: &Arc<LogEvent>) -> Self {
+        Self {
             event: event.clone(),
             dm_target: None,
             previous_epoch: None,
@@ -221,24 +223,22 @@ impl GroupState {
             originator: None,
             members: HashMap::new(),
             problems: Vec::new(),
-        };
-        Arc::new(RwLock::new(state))
+        }
     }
 }
 
 impl Group {
-    fn new_event(&mut self, event: &Arc<LogEvent>) -> RwLockWriteGuard<'_, GroupState> {
+    fn new_event(&mut self, event: &Arc<LogEvent>) -> &mut GroupState {
         let last = self.states.last().expect("There should always be one");
 
         let new_state = GroupState {
             problems: vec![],
             event: event.clone(),
-            ..last.read().clone()
+            ..last.clone()
         };
-        let new_state = Arc::new(RwLock::new(new_state));
 
         self.states.push(new_state);
-        self.states.last().expect("Just pushed").write()
+        self.states.last_mut().expect("Just pushed")
     }
 }
 

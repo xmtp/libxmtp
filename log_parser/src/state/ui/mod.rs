@@ -1,6 +1,7 @@
 use crate::{
-    AppWindow, UIContextEntry, UIEpochHeader, UIEvent, UIGroupRow, UIGroupState,
-    UIInstallationCell, UIInstallationRow, UIStream, state::LogState,
+    AppWindow, UIEpochHeader, UIEvent, UIGroupRow, UIGroupState, UIInstallationCell,
+    UIInstallationRow, UIStream,
+    state::{GroupState, LogEvent, LogState},
     ui::file_open::color_from_string,
 };
 use slint::{ModelRc, SharedString, VecModel, Weak};
@@ -88,7 +89,7 @@ impl LogState {
                     // Sort epochs by epoch number
                     let mut epoch_numbers = BTreeSet::new();
                     for (_inst, epochs) in inst_epochs_map {
-                        epoch_numbers.extend(epochs.keys());
+                        epoch_numbers.extend(epochs.epochs.keys());
                     }
 
                     // 1. Collect the union of all installation IDs across every epoch
@@ -96,19 +97,11 @@ impl LogState {
 
                     // 2. Build epoch headers with max_states per epoch
                     let mut epoch_headers: Vec<UIEpochHeader> = Vec::new();
-                    let mut max_states_per_epoch: Vec<i32> = Vec::new();
 
                     for epoch_number in &epoch_numbers {
-                        let max_states = inst_epochs_map
-                            .values()
-                            .filter_map(|epochs| epochs.get(epoch_number).map(|e| e.states.len()))
-                            .max()
-                            .unwrap_or(1) as i32;
-
-                        max_states_per_epoch.push(max_states);
                         epoch_headers.push(UIEpochHeader {
                             epoch_number: *epoch_number as i32,
-                            max_states,
+                            max_states: 0, // this is set later
                         });
                     }
 
@@ -126,65 +119,63 @@ impl LogState {
                             format!("{inst_name} ({})", short_id(inst_id))
                         };
 
-                        let mut cells: Vec<UIInstallationCell> = Vec::new();
+                        let mut installation_cells: Vec<UIInstallationCell> = Vec::new();
+                        let Some(epochs) = inst_epochs_map.get(inst_id) else {
+                            installation_rows.push(UIInstallationRow {
+                                installation_id: SharedString::from(inst_id.as_str()),
+                                installation_name: SharedString::from(&display_name),
+                                installation_color: inst_color,
+                                cells: ModelRc::new(VecModel::from(vec![])),
+                            });
+                            continue;
+                        };
 
-                        for epoch_number in &epoch_numbers {
-                            let ui_states: Vec<UIGroupState> = if let Some(epoch) = inst_epochs_map
-                                .get(inst_id)
-                                .and_then(|epochs| epochs.get(epoch_number))
-                            {
-                                epoch
-                                    .states
-                                    .iter()
-                                    .map(|state_arc| {
-                                        let state = state_arc.read();
+                        let outer_events_guard = epochs.outer_events.read();
+                        let mut outer_events = outer_events_guard.iter().peekable();
 
-                                        let context_entries: Vec<UIContextEntry> = state
-                                            .event
-                                            .ui_context_entries()
-                                            .into_iter()
-                                            .filter(|e| e.key != "group_id")
-                                            .collect();
-
-                                        let problem_strings: Vec<SharedString> = state
-                                            .problems
-                                            .iter()
-                                            .map(|p| SharedString::from(&p.description))
-                                            .collect();
-
-                                        UIGroupState {
-                                            installation_id: SharedString::from(inst_id),
-                                            installation_name: SharedString::from(&inst_name),
-                                            msg: SharedString::from(state.event.msg),
-                                            icon: SharedString::from(state.event.icon),
-                                            epoch: state.epoch.unwrap_or(*epoch_number) as i32,
-                                            previous_epoch: state.previous_epoch.unwrap_or(0)
-                                                as i32,
-                                            has_previous_epoch: state.previous_epoch.is_some(),
-                                            problem_count: state.problems.len() as i32,
-                                            problems: ModelRc::new(VecModel::from(problem_strings)),
-                                            context: ModelRc::new(VecModel::from(context_entries)),
-                                        }
-                                    })
-                                    .collect()
-                            } else {
-                                // This installation has no states in this epoch — empty cell
-                                Vec::new()
+                        for (i, epoch_number) in epoch_numbers.iter().enumerate() {
+                            let Some(epoch) = epochs.epochs.get(epoch_number) else {
+                                continue;
                             };
 
-                            let state_count = ui_states.len() as i32;
+                            let mut ui_states = vec![];
+                            let mut states = epoch.states.iter().peekable();
 
-                            cells.push(UIInstallationCell {
-                                states: ModelRc::new(VecModel::from(ui_states)),
+                            loop {
+                                let cell = match (states.peek(), outer_events.peek()) {
+                                    (Some(state), Some(event)) if event.time < state.event.time => {
+                                        let event = outer_events.next().unwrap();
+                                        event.ui_group_state()
+                                    }
+                                    (Some(_state), _) => {
+                                        let state = states.next().unwrap();
+                                        state.ui_group_state()
+                                    }
+                                    // Drain the outer events if we're in the last epoch
+                                    (None, Some(_event)) if i + 1 == epoch_numbers.len() => {
+                                        let event = outer_events.next().unwrap();
+                                        event.ui_group_state()
+                                    }
+                                    _ => break,
+                                };
+                                ui_states.push(cell);
+                            }
+
+                            let state_count = ui_states.len() as i32;
+                            installation_cells.push(UIInstallationCell {
                                 state_count,
+                                states: ModelRc::new(VecModel::from(ui_states)),
                             });
+
+                            epoch_headers[i].max_states =
+                                epoch_headers[i].max_states.max(state_count);
                         }
 
                         installation_rows.push(UIInstallationRow {
                             installation_id: SharedString::from(inst_id.as_str()),
                             installation_name: SharedString::from(&display_name),
                             installation_color: inst_color,
-                            cells: ModelRc::new(VecModel::from(cells)),
+                            cells: ModelRc::new(VecModel::from(installation_cells)),
                         });
                     }
 
@@ -203,5 +194,41 @@ impl LogState {
                 ui.set_epoch_groups(epoch_groups);
             })
             .inspect_err(|e| tracing::error!("{e:?}"));
+    }
+}
+
+impl LogEvent {
+    fn ui_group_state(&self) -> UIGroupState {
+        UIGroupState {
+            msg: SharedString::from(self.msg),
+            icon: SharedString::from(self.icon),
+            context: ModelRc::new(VecModel::from(self.ui_context_entries())),
+            intermediate: SharedString::from(&self.intermediate),
+            problem_count: 0,
+            epoch: -1,
+            previous_epoch: -1,
+            problems: ModelRc::default(),
+        }
+    }
+}
+
+impl GroupState {
+    fn ui_group_state(&self) -> UIGroupState {
+        let problem_strings: Vec<SharedString> = self
+            .problems
+            .iter()
+            .map(|p| SharedString::from(&p.description))
+            .collect();
+
+        UIGroupState {
+            msg: SharedString::from(self.event.msg),
+            icon: SharedString::from(self.event.icon),
+            epoch: self.epoch.unwrap_or(-1) as i32,
+            previous_epoch: self.previous_epoch.unwrap_or(-1) as i32,
+            problem_count: self.problems.len() as i32,
+            problems: ModelRc::new(VecModel::from(problem_strings)),
+            context: ModelRc::new(VecModel::from(self.event.ui_context_entries())),
+            intermediate: SharedString::from(&self.event.intermediate),
+        }
     }
 }

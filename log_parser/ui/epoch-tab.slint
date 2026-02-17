@@ -15,16 +15,14 @@ export struct UIContextEntry {
 // ─── Epoch View Data Structures ───
 
 export struct UIGroupState {
-    installation-id: string,
-    installation-name: string,
     msg: string,
     icon: string,
     epoch: int,
     previous-epoch: int,
-    has-previous-epoch: bool,
     problem-count: int,
     problems: [string],
     context: [UIContextEntry],
+    intermediate: string,
 }
 
 export struct UIInstallationCell {
@@ -71,6 +69,7 @@ component GroupStateCard inherits Rectangle {
     in property <bool> group-focused;
 
     callback warning-clicked();
+    callback logs-clicked(string);
 
     property <bool> show-problems: root.group-focused && root.state.problem-count > 0;
 
@@ -118,7 +117,7 @@ component GroupStateCard inherits Rectangle {
             alignment: start;
             spacing: 4px;
 
-            if root.state.has-previous-epoch: Rectangle {
+            if root.state.previous-epoch != -1: Rectangle {
                 width: prev-label.preferred-width + 10px;
                 height: prev-label.preferred-height + 4px;
                 background: #f0f0f0;
@@ -156,6 +155,29 @@ component GroupStateCard inherits Rectangle {
                     }
                 }
             }
+
+            if root.state.intermediate != "": Rectangle {
+                width: logs-label.preferred-width + 10px;
+                height: logs-label.preferred-height + 4px;
+                background: logs-touch.has-hover ? #d8e8ff : #e8f0ff;
+                border-radius: 3px;
+
+                logs-label := Text {
+                    text: "📋 Logs";
+                    font-size: 9px;
+                    font-weight: 600;
+                    color: #4466aa;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                logs-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.logs-clicked(root.state.intermediate);
+                    }
+                }
+            }
         }
 
         // Context entries
@@ -183,7 +205,7 @@ component GroupStateCard inherits Rectangle {
             }
         }
 
-        // ─── Expanded Problems Section (shown when group is focused) ───
+        // ─── Expanded Problems Section (shown when group is focused in problems mode) ───
         if root.show-problems: Rectangle {
             background: #fff5f5;
             border-radius: 3px;
@@ -265,6 +287,7 @@ component InstallationCell inherits Rectangle {
     in property <bool> group-focused;
 
     callback warning-clicked();
+    callback logs-clicked(string);
 
     width: column-max-states * (EpochConstants.state-card-width + EpochConstants.state-card-gap) - EpochConstants.state-card-gap + EpochConstants.column-padding * 2;
     background: transparent;
@@ -281,6 +304,9 @@ component InstallationCell inherits Rectangle {
             group-focused: root.group-focused;
             warning-clicked => {
                 root.warning-clicked();
+            }
+            logs-clicked(intermediate) => {
+                root.logs-clicked(intermediate);
             }
         }
     }
@@ -326,8 +352,11 @@ component InstallationLabel inherits Rectangle {
 component GroupContainer inherits Rectangle {
     in property <UIGroupRow> group-row;
     in property <bool> group-focused;
+    in property <string> focused-intermediate;
+    in property <bool> show-intermediate: root.focused-intermediate != "";
 
     callback focus-group(string);
+    callback focus-group-logs(string, string);
 
     min-height: group-layout.preferred-height;
     border-width: root.group-focused ? 2px : 1px;
@@ -475,8 +504,58 @@ component GroupContainer inherits Rectangle {
                                 warning-clicked => {
                                     root.focus-group(root.group-row.group-id);
                                 }
+                                logs-clicked(intermediate) => {
+                                    root.focus-group-logs(root.group-row.group-id, intermediate);
+                                }
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        // ─── Intermediate Logs Panel (shown inside group when in logs mode) ───
+        if root.show-intermediate: Rectangle {
+            background: #f5f8ff;
+            border-width: 1px;
+            border-color: #d0d8f0;
+            min-height: logs-panel-layout.preferred-height;
+
+            logs-panel-layout := VerticalLayout {
+                padding: 12px;
+                spacing: 8px;
+
+                Rectangle {
+                    height: logs-panel-header.preferred-height + 8px;
+                    background: #e0e8ff;
+                    border-radius: 4px;
+
+                    logs-panel-header := Text {
+                        text: "📋 Intermediate Logs";
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: #3355aa;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Rectangle {
+                    min-height: logs-panel-text.preferred-height + 12px;
+                    background: #ffffff;
+                    border-radius: 4px;
+                    border-width: 1px;
+                    border-color: #d0d8f0;
+
+                    logs-panel-text := Text {
+                        text: root.focused-intermediate;
+                        font-size: 10px;
+                        font-family: "monospace";
+                        color: #444444;
+                        wrap: word-wrap;
+                        x: 8px;
+                        y: 6px;
+                        width: parent.width - 16px;
                     }
                 }
             }
@@ -489,8 +568,12 @@ component GroupContainer inherits Rectangle {
 export component EpochTab inherits Rectangle {
     in property <[UIGroupRow]> epoch-groups: [];
 
-    // When non-empty, only the group with this id is shown, with problems expanded.
+    // When non-empty, only the group with this id is shown, with detail expanded.
     property <string> focused-group-id: "";
+    // "problems" or "logs" — determines which detail section to expand
+    property <string> focus-mode: "";
+    // The intermediate log text to display below the group when focus-mode == "logs"
+    property <string> focused-intermediate: "";
     property <bool> has-focus: root.focused-group-id != "";
 
     if root.epoch-groups.length == 0: Rectangle {
@@ -514,10 +597,10 @@ export component EpochTab inherits Rectangle {
             // ─── Focus Banner ───
             if root.has-focus: Rectangle {
                 height: 36px;
-                background: #eef2ff;
+                background: root.focus-mode == "logs" ? #f0f5ff : #eef2ff;
                 border-radius: 6px;
                 border-width: 1px;
-                border-color: #c0ccee;
+                border-color: root.focus-mode == "logs" ? #b0c8ee : #c0ccee;
 
                 HorizontalLayout {
                     padding-left: 12px;
@@ -526,10 +609,10 @@ export component EpochTab inherits Rectangle {
                     alignment: start;
 
                     Text {
-                        text: "🔍 Focused on group — showing problems";
+                        text: root.focus-mode == "logs" ? "📋 Focused on group — showing intermediate logs" : "🔍 Focused on group — showing problems";
                         font-size: 12px;
                         font-weight: 600;
-                        color: #4a5588;
+                        color: root.focus-mode == "logs" ? #3a5588 : #4a5588;
                         vertical-alignment: center;
                     }
 
@@ -559,6 +642,8 @@ export component EpochTab inherits Rectangle {
                             mouse-cursor: pointer;
                             clicked => {
                                 root.focused-group-id = "";
+                                root.focus-mode = "";
+                                root.focused-intermediate = "";
                             }
                         }
                     }
@@ -567,11 +652,22 @@ export component EpochTab inherits Rectangle {
 
             // ─── Group Containers ───
             for group-row in root.epoch-groups: GroupContainer {
-                visible: !root.has-focus || group-row.group-id == root.focused-group-id;
+                property <bool> is-visible: !root.has-focus || group-row.group-id == root.focused-group-id;
+                vertical-stretch: 0;
+                visible: is-visible;
+                height: is-visible ? self.preferred-height : 0;
                 group-row: group-row;
-                group-focused: root.has-focus && group-row.group-id == root.focused-group-id;
+                group-focused: root.has-focus && group-row.group-id == root.focused-group-id && root.focus-mode == "problems";
+                focused-intermediate: (root.has-focus && group-row.group-id == root.focused-group-id && root.focus-mode == "logs") ? root.focused-intermediate : "";
                 focus-group(gid) => {
                     root.focused-group-id = gid;
+                    root.focus-mode = "problems";
+                    root.focused-intermediate = "";
+                }
+                focus-group-logs(gid, intermediate) => {
+                    root.focused-group-id = gid;
+                    root.focus-mode = "logs";
+                    root.focused-intermediate = intermediate;
                 }
             }
         }

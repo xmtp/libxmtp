@@ -1,15 +1,17 @@
-use std::collections::HashMap;
-
 use crate::state::{
     GroupStateProblem, LogState, Severity,
     assertions::{AssertionFailure, LogAssertion},
 };
 use anyhow::Result;
+use parking_lot::RwLock;
+use std::{collections::HashMap, sync::Arc};
+use xmtp_common::Event;
 
 pub struct EpochContinuityAssertion;
 
 impl LogAssertion for EpochContinuityAssertion {
     fn assert(state: &LogState) -> Result<Option<AssertionFailure>> {
+        // The value is groups from multiple installations
         let mut group_collection = HashMap::new();
         for (_inst, state) in &*state.clients.read() {
             for (group_id, group) in &state.read().groups {
@@ -23,8 +25,7 @@ impl LogAssertion for EpochContinuityAssertion {
         for (group_id, groups) in group_collection {
             for group in &groups {
                 let mut epoch = None;
-                for state in &group.read().states {
-                    let mut state = state.write();
+                for state in &mut group.write().states {
                     if let Some(state_epoch) = state.epoch {
                         if let Some(e) = epoch
                             && e > state_epoch
@@ -46,54 +47,87 @@ impl LogAssertion for EpochContinuityAssertion {
                 }
             }
 
-            // Check for continuity
-            let group_state_iters = groups
-                .into_iter()
-                .map(|g| {
-                    let states = g.read().states.clone();
-                    states
-                        .into_iter()
-                        .filter_map(|g| {
-                            {
-                                let g_read = g.read();
-                                g_read.epoch?;
-                            }
-                            Some(g.clone())
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .collect::<Vec<_>>();
-
+            // Group the events into epochs
             let mut all_group_epochs = state.grouped_epochs.write();
             let group_epochs = all_group_epochs.entry(group_id.clone()).or_default();
 
-            for state_iterator in group_state_iters {
-                for state in state_iterator {
-                    let mut state_write = state.write();
-                    let epoch = state_write.epoch.expect("This is filtered out above.");
-
-                    let installation_epochs = group_epochs
-                        .entry(state_write.event.installation.clone())
-                        .or_default();
-                    let installation_epoch = installation_epochs.entry(epoch).or_default();
-
-                    match (&installation_epoch.auth, &state_write.epoch_auth) {
-                        (None, Some(auth)) => {
-                            installation_epoch.auth = Some(auth.clone());
+            // Massage the epoch # and auth forward through group states.
+            for group in &groups {
+                let mut epoch = None;
+                let mut auth: Option<String> = None;
+                let mut group = group.write();
+                for state in &mut group.states {
+                    match (epoch, state.epoch) {
+                        (Some(e), None) => {
+                            state.epoch = Some(e);
+                            state.epoch_auth = None;
                         }
+                        (None, Some(e)) => {
+                            epoch = Some(e);
+                        }
+                        (Some(a), Some(b)) if b < a => state.problems.push(GroupStateProblem {
+                            description: format!("Epoch went backwards. Was {a}, is now {b}."),
+                            severity: Severity::Error,
+                        }),
+                        (_, Some(e)) => epoch = Some(e),
+                        _ => {}
+                    }
+
+                    match (&auth, &state.epoch_auth) {
+                        (Some(a), None) => state.epoch_auth = Some(a.clone()),
+                        (None, Some(a)) => auth = Some(a.clone()),
                         (Some(a), Some(b)) if a != b => {
-                            let description =
-                                format!("Epoch auth changed mid-epoch. old: {a}, new: {b}");
-                            state_write.problems.push(GroupStateProblem {
-                                description,
+                            state.problems.push(GroupStateProblem {
+                                description: format!("Epoch auth changed mid-epoch."),
                                 severity: Severity::Error,
                             });
                         }
                         _ => {}
                     }
+                }
+            }
+
+            // Group the events into epochs.
+            for group in &groups {
+                let group = group.read();
+
+                let installation_epochs = group_epochs
+                    .entry(group.installation_id.clone())
+                    .or_default();
+                for state in &group.states {
+                    let Some(epoch) = state.epoch else {
+                        continue;
+                    };
+                    let installation_epoch = installation_epochs.epochs.entry(epoch).or_default();
 
                     installation_epoch.states.push(state.clone());
                 }
+            }
+        }
+
+        // Add the important non-group events.
+        let mut outer_events = HashMap::new();
+        for (_group_id, installation) in &mut *state.grouped_epochs.write() {
+            for (installation_id, epochs) in installation {
+                let outer_events = outer_events
+                    .entry(installation_id.to_string())
+                    .or_insert_with(|| {
+                        let mut events = vec![];
+                        if let Some(client) = state.clients.read().get(installation_id) {
+                            for event in &client.read().events {
+                                match event.event {
+                                    Event::ClientCreated
+                                    | Event::ClientDropped
+                                    | Event::StreamOpened
+                                    | Event::StreamClosed => events.push(event.clone()),
+                                    _ => {}
+                                }
+                            }
+                        }
+                        Arc::new(RwLock::new(events))
+                    });
+
+                epochs.outer_events = outer_events.clone();
             }
         }
 
