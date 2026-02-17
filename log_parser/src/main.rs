@@ -1,3 +1,7 @@
+use crate::{
+    state::LogState,
+    ui::file_open::{file_selected, open_file_dialog},
+};
 use anyhow::Result;
 use pest_derive::Parser;
 use std::time::Duration;
@@ -5,11 +9,6 @@ use tokio::runtime::Runtime;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 use xmtp_common::TestWriter;
 use xmtp_mls::tester;
-
-use crate::{
-    state::LogState,
-    ui::file_open::{file_selected, open_file_dialog},
-};
 
 mod state;
 mod ui;
@@ -73,7 +72,8 @@ fn main() -> Result<()> {
 
             let lines = file.split('\n').peekable();
 
-            let state = LogState::build(lines);
+            let state = LogState::new();
+            state.ingest_all(lines);
             state.update_ui(&ui_handle);
         }
     });

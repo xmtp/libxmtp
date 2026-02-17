@@ -1,7 +1,6 @@
 use crate::{AppWindow, state::LogState};
 use slint::{Color, Weak};
 use std::{
-    collections::HashMap,
     fs::read_to_string,
     hash::{Hash, Hasher},
     path::Path,
@@ -80,19 +79,6 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     )
 }
 
-/// Intermediate struct that is Send-safe for passing stream data to the UI thread
-struct StreamData {
-    installation: String,
-    entries: Vec<EntryData>,
-}
-
-struct EntryData {
-    event: String,
-    duration_to_next: String,
-    context: HashMap<String, String>,
-    group_id: Option<String>,
-}
-
 pub fn file_selected(handle: Weak<AppWindow>, path: impl AsRef<Path>) {
     let path = path.as_ref();
     tracing::info!("Selected logs file {path:?}");
@@ -107,6 +93,7 @@ pub fn file_selected(handle: Weak<AppWindow>, path: impl AsRef<Path>) {
     };
 
     let lines = log_file.split('\n').peekable();
-    let state = LogState::build(lines);
+    let state = LogState::new();
+    state.ingest_all(lines);
     state.update_ui(&handle);
 }

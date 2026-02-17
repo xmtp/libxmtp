@@ -29,30 +29,34 @@ pub struct LogState {
 
 #[derive(Default)]
 pub struct Epoch {
+    start: i64,
     pub auth: Option<EpochAuth>,
     pub states: Vec<Arc<RwLock<GroupState>>>,
 }
 
 impl LogState {
-    pub fn build<'a>(mut lines: Peekable<impl Iterator<Item = &'a str>>) -> Arc<Self> {
-        let mut state = Self::default();
+    pub fn new() -> Arc<Self> {
+        Arc::default()
+    }
 
+    pub fn ingest_all<'a>(&self, mut lines: Peekable<impl Iterator<Item = &'a str>>) {
         while let Ok(event) =
             LogEvent::from(&mut lines).inspect_err(|e| tracing::error!("Parsing err: {e:?}"))
         {
-            if let Err(err) = state.ingest(Arc::new(event)) {
+            if let Err(err) = self.ingest(Arc::new(event)) {
                 tracing::warn!("{err:?}");
             };
         }
 
-        if let Err(err) = EpochContinuityAssertion::assert(&state) {
+        if let Err(err) = EpochContinuityAssertion::assert(&self) {
             tracing::error!("Continuity error: {err}");
         };
 
-        Arc::new(state)
+        // sort everything by time
+        self.clients.write().values().for_each(|c| c.write().sort());
     }
 
-    fn ingest(&mut self, event: Arc<LogEvent>) -> Result<()> {
+    fn ingest(&self, event: Arc<LogEvent>) -> Result<()> {
         let ctx = |key: &str| -> Result<&Value> {
             event
                 .context(key)
@@ -85,28 +89,33 @@ impl LogState {
                     }
                 }
 
-                let mut group = client.update_group(group_id, &event);
+                let mut group = client.group(group_id, &event);
+                let mut group_state = group.new_event(&event);
 
                 if let Ok(epoch) = ctx("epoch").and_then(|e| e.as_int()) {
-                    group.epoch = Some(epoch);
+                    // Reset the auth.
+                    if group_state.epoch.is_some_and(|e| e != epoch) {
+                        group_state.epoch_auth = None;
+                    }
+                    group_state.epoch = Some(epoch);
                 }
                 if let Ok(auth) = ctx("epoch_auth").and_then(|e| e.as_str()) {
-                    group.epoch_auth = Some(auth.to_string());
+                    group_state.epoch_auth = Some(auth.to_string());
                 }
                 if let Ok(cursor) = ctx("cursor").and_then(|e| e.as_int()) {
-                    group.cursor = Some(cursor);
+                    group_state.cursor = Some(cursor);
                 }
                 if let Ok(originator) = ctx("originator").and_then(|e| e.as_int()) {
-                    group.originator = Some(originator);
+                    group_state.originator = Some(originator);
                 }
 
                 match raw_event {
                     Event::CreatedDM => {
-                        group.dm_target = Some(ctx("target_inbox")?.as_str()?.to_string());
+                        group_state.dm_target = Some(ctx("target_inbox")?.as_str()?.to_string());
                     }
                     Event::MLSGroupEpochUpdated => {
-                        group.previous_epoch = Some(ctx("previous_epoch")?.as_int()?);
-                        group.cursor = Some(ctx("cursor")?.as_int()?);
+                        group_state.previous_epoch = Some(ctx("previous_epoch")?.as_int()?);
+                        group_state.cursor = Some(ctx("cursor")?.as_int()?);
                     }
                     _ => {}
                 }
@@ -123,7 +132,7 @@ impl LogState {
 pub struct ClientState {
     pub name: Option<String>,
     pub events: Vec<Arc<LogEvent>>,
-    pub groups: HashMap<String, Arc<RwLock<GroupState>>>,
+    pub groups: HashMap<String, Arc<RwLock<Group>>>,
     pub inst: String,
     pub inbox_id: String,
 }
@@ -139,26 +148,36 @@ impl ClientState {
         }
     }
 
-    fn update_group(
-        &mut self,
-        group_id: &str,
-        event: &Arc<LogEvent>,
-    ) -> RwLockWriteGuard<'_, GroupState> {
+    fn group(&mut self, group_id: &str, event: &Arc<LogEvent>) -> RwLockWriteGuard<'_, Group> {
         if !self.groups.contains_key(group_id) {
-            let state = GroupState::new(&self.inst, event);
+            let state = Group::new(event);
             self.groups.insert(group_id.to_string(), state.clone());
             return self.groups[group_id].write();
         }
 
-        self.groups.get_mut(group_id).unwrap().update(event)
+        self.groups.get(group_id).unwrap().write()
+    }
+
+    fn sort(&self) {
+        self.groups.values().for_each(|g| g.write().sort());
+    }
+}
+
+pub struct Group {
+    pub installation_id: String,
+    pub states: Vec<Arc<RwLock<GroupState>>>,
+}
+
+impl Group {
+    fn sort(&mut self) {
+        // TODO: this involves a lot of locks
+        self.states
+            .sort_by(|a, b| a.read().event.time.cmp(&b.read().event.time));
     }
 }
 
 #[derive(Clone)]
 pub struct GroupState {
-    pub prev: Option<Arc<RwLock<Self>>>,
-    pub next: Option<Weak<RwLock<Self>>>,
-    pub installation_id: String,
     pub event: Arc<LogEvent>,
     pub dm_target: Option<InstallationId>,
     pub previous_epoch: Option<i64>,
@@ -181,48 +200,19 @@ pub enum Severity {
     Error,
 }
 
-impl IntoIterator for &GroupState {
-    type IntoIter = GroupStateIterator;
-    type Item = Arc<RwLock<GroupState>>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.clone().into_iter()
-    }
-}
-impl IntoIterator for GroupState {
-    type IntoIter = GroupStateIterator;
-    type Item = Arc<RwLock<GroupState>>;
-    fn into_iter(self) -> Self::IntoIter {
-        GroupStateIterator {
-            current: None,
-            staged: Some(Arc::new(RwLock::new(self))),
-        }
-    }
-}
-
-pub struct GroupStateIterator {
-    current: Option<Arc<RwLock<GroupState>>>,
-    staged: Option<Arc<RwLock<GroupState>>>,
-}
-
-impl Iterator for GroupStateIterator {
-    type Item = Arc<RwLock<GroupState>>;
-    fn next(&mut self) -> Option<Self::Item> {
-        let current = self.staged.take()?;
-        let staged = current.read().next.as_ref().and_then(Weak::upgrade);
-
-        self.staged = staged;
-        self.current = Some(current);
-        self.current.clone()
+impl Group {
+    fn new(event: &Arc<LogEvent>) -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self {
+            installation_id: event.installation.clone(),
+            states: vec![GroupState::new(event)],
+        }))
     }
 }
 
 impl GroupState {
-    fn new(inst: &str, event: &Arc<LogEvent>) -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(Self {
-            installation_id: inst.to_string(),
+    fn new(event: &Arc<LogEvent>) -> Arc<RwLock<Self>> {
+        let state = Self {
             event: event.clone(),
-            prev: None,
-            next: None,
             dm_target: None,
             previous_epoch: None,
             epoch: None,
@@ -231,43 +221,24 @@ impl GroupState {
             originator: None,
             members: HashMap::new(),
             problems: Vec::new(),
-        }))
+        };
+        Arc::new(RwLock::new(state))
     }
 }
 
-trait GroupStateExt {
-    fn update(&mut self, event: &Arc<LogEvent>) -> RwLockWriteGuard<'_, GroupState>;
-    fn beginning(&self) -> Result<Arc<RwLock<GroupState>>>;
-    fn traverse(&self) -> GroupStateIterator;
-}
-impl GroupStateExt for Arc<RwLock<GroupState>> {
-    fn update(&mut self, event: &Arc<LogEvent>) -> RwLockWriteGuard<'_, GroupState> {
-        let prev = self.clone();
-        let new_group = GroupState {
-            prev: Some(prev.clone()),
+impl Group {
+    fn new_event(&mut self, event: &Arc<LogEvent>) -> RwLockWriteGuard<'_, GroupState> {
+        let last = self.states.last().expect("There should always be one");
+
+        let new_state = GroupState {
             problems: vec![],
             event: event.clone(),
-            ..self.read().clone()
+            ..last.read().clone()
         };
-        *self = Arc::new(RwLock::new(new_group));
-        // Double-link the chain with a weak.
-        prev.write().next = Some(Arc::downgrade(self));
+        let new_state = Arc::new(RwLock::new(new_state));
 
-        self.write()
-    }
-    fn beginning(&self) -> Result<Self> {
-        let mut r = self.clone();
-        loop {
-            let Some(prev) = r.read().prev.clone() else {
-                break;
-            };
-            r = prev;
-        }
-
-        Ok(r.clone())
-    }
-    fn traverse(&self) -> GroupStateIterator {
-        self.read().clone().into_iter()
+        self.states.push(new_state);
+        self.states.last().expect("Just pushed").write()
     }
 }
 
@@ -308,7 +279,8 @@ mod tests {
         let log = writer.as_string();
         let lines = log.split("\n").peekable();
 
-        let state = LogState::build(lines);
+        let state = LogState::new();
+        state.ingest_all(lines);
 
         let welcome_found = state.clients.read().iter().any(|(_inst_id, c)| {
             c.read()
@@ -321,7 +293,7 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_log_parse() {
-        let line = r#"2026-02-12T21:04:02.542222Z  INFO sync_with_conn{self=Group { id: [0x52db...7067], created: [21:04:02], client: [dce8901bbeb060ab6eeb05fa52c27bd1232e9a68a2759cdab430d029854d225e], installation: [1919c3ba4b4ff946372cf004c718810bfb8747732397369c9ce67b40c0d8ca8e] } who=dce8901bbeb060ab6eeb05fa52c27bd1232e9a68a2759cdab430d029854d225e}:process_messages{who=dce8901bbeb060ab6eeb05fa52c27bd1232e9a68a2759cdab430d029854d225e}:process_message{trust_message_order=true envelope=GroupMessage { cursor [sid( 52773):oid(  0)], depends on                          , created at 21:04:02.492156, group 52dbb036fa67ad5b7c1f90f55f787067 }}: xmtp_mls::groups::mls_sync: ➣ Received staged commit. Merging and clearing any pending commits. {group_id: "52dbb036", sender_installation_id: "cbedac3e", msg_epoch: 1, epoch: 1, time_ms: 1770930242542, inst: "1919c3ba"} inbox_id="dce8901bbeb060ab6eeb05fa52c27bd1232e9a68a2759cdab430d029854d225e" sender_inbox="46c640424325059475531d54205ac3f635d75125d79dd8cfe37e303bcbb24cdc" sender_installation_id=cbedac3e group_id=52dbb036 epoch=1 msg_epoch=1 msg_group_id=52dbb036 cursor=[sid( 52773):oid(  0)]"#;
+        let line = r#"2026-02-12T21:04:02.542222Z  INFO sync_with_conn{self=Group { id: [0x52db...7067], created: [21:04:02], client: [dce8901bbeb060ab6eeb05fa52c27bd1232e9a68a2759cdab430d029854d225e], installation: [1919c3ba4b4ff946372cf004c718810bfb8747732397369c9ce67b40c0d8ca8e] } who=dce8901bbeb060ab6eeb05fa52c27bd1232e9a68a2759cdab430d029854d225e}:process_messages{who=dce8901bbeb060ab6eeb05fa52c27bd1232e9a68a2759cdab430d029854d225e}:process_message{trust_message_order=true envelope=GroupMessage { cursor [sid( 52773):oid(  0)], depends on                          , created at 21:04:02.492156, group 52dbb036fa67ad5b7c1f90f55f787067 }}: xmtp_mls::groups::mls_sync: ➣ Received staged commit. Merging and clearing any pending commits. {group_id: "52dbb036", sender_installation_id: "cbedac3e", msg_epoch: 1, epoch: 1, time: 1770930242542, inst: "1919c3ba"} inbox_id="dce8901bbeb060ab6eeb05fa52c27bd1232e9a68a2759cdab430d029854d225e" sender_inbox="46c640424325059475531d54205ac3f635d75125d79dd8cfe37e303bcbb24cdc" sender_installation_id=cbedac3e group_id=52dbb036 epoch=1 msg_epoch=1 msg_group_id=52dbb036 cursor=[sid( 52773):oid(  0)]"#;
         let mut line = line.split('\n').peekable();
 
         let event = LogEvent::from(&mut line)?;

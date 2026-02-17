@@ -16,7 +16,7 @@ pub struct LogEvent {
     pub time: i64,
 }
 
-pub(crate) const TIME_KEY: &str = "time_ms";
+pub(crate) const TIME_KEY: &str = "time";
 
 impl LogEvent {
     pub fn context(&self, key: &str) -> Option<&Value> {
@@ -100,7 +100,7 @@ impl LogEvent {
         let installation = installation.as_str()?.to_string();
         let time = context
             .remove(TIME_KEY)
-            .with_context(|| format!("{line_str} is missing time_ms field."))?;
+            .with_context(|| format!("{line_str} is missing time field."))?;
 
         // Collect up the intermediate lines that don't parse.
         let mut intermediate = String::new();

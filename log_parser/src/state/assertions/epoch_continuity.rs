@@ -1,7 +1,7 @@
-use std::{cmp::Ordering, collections::HashMap};
+use std::collections::HashMap;
 
 use crate::state::{
-    GroupStateExt, GroupStateProblem, LogState, Severity,
+    GroupStateProblem, LogState, Severity,
     assertions::{AssertionFailure, LogAssertion},
 };
 use anyhow::Result;
@@ -16,24 +16,14 @@ impl LogAssertion for EpochContinuityAssertion {
                 let g = group_collection
                     .entry(group_id.clone())
                     .or_insert_with(|| vec![]);
-                g.push(group.beginning()?);
+                g.push(group.clone());
             }
         }
 
-        for (group_id, mut groups) in group_collection {
-            groups.sort_by(|a, b| {
-                let Some(a_epoch) = a.read().epoch else {
-                    return Ordering::Less;
-                };
-                let Some(b_epoch) = b.read().epoch else {
-                    return Ordering::Greater;
-                };
-                a_epoch.cmp(&b_epoch)
-            });
-
+        for (group_id, groups) in group_collection {
             for group in &groups {
                 let mut epoch = None;
-                for state in group.traverse() {
+                for state in &group.read().states {
                     let mut state = state.write();
                     if let Some(state_epoch) = state.epoch {
                         if let Some(e) = epoch
@@ -60,13 +50,17 @@ impl LogAssertion for EpochContinuityAssertion {
             let group_state_iters = groups
                 .into_iter()
                 .map(|g| {
-                    g.traverse().filter_map(|g| {
-                        {
-                            let g_read = g.read();
-                            g_read.epoch?;
-                        }
-                        Some(g)
-                    })
+                    let states = g.read().states.clone();
+                    states
+                        .into_iter()
+                        .filter_map(|g| {
+                            {
+                                let g_read = g.read();
+                                g_read.epoch?;
+                            }
+                            Some(g.clone())
+                        })
+                        .collect::<Vec<_>>()
                 })
                 .collect::<Vec<_>>();
 
@@ -79,7 +73,7 @@ impl LogAssertion for EpochContinuityAssertion {
                     let epoch = state_write.epoch.expect("This is filtered out above.");
 
                     let installation_epochs = group_epochs
-                        .entry(state_write.installation_id.clone())
+                        .entry(state_write.event.installation.clone())
                         .or_default();
                     let installation_epoch = installation_epochs.entry(epoch).or_default();
 

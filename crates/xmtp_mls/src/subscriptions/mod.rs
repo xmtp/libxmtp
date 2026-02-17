@@ -5,7 +5,6 @@ use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 use xmtp_api_d14n::protocol::{EnvelopeError, V3WelcomeMessageExtractor, WelcomeMessageExtractor};
 use xmtp_api_d14n::stream;
-use xmtp_macro::log_event;
 use xmtp_proto::types::WelcomeMessage;
 
 use tracing::instrument;
@@ -38,7 +37,7 @@ use crate::{
     subscriptions::d14n_compat::{V3OrD14n, decode_welcome_message},
 };
 use thiserror::Error;
-use xmtp_common::{ErrorCode, Event, MaybeSend, RetryableError, StreamHandle, retryable};
+use xmtp_common::{ErrorCode, MaybeSend, RetryableError, StreamHandle, retryable};
 use xmtp_db::{
     NotFound, StorageError,
     consent_record::{ConsentState, StoredConsentRecord},

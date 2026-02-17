@@ -162,8 +162,15 @@ impl From<&str> for ClientError {
 /// Clients manage access to the network, identity, and data store
 pub struct Client<Context> {
     pub context: Context,
+    pub installation_id: InstallationId,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     pub(crate) workers: Arc<WorkerRunner>,
+}
+
+impl<Context> Drop for Client<Context> {
+    fn drop(&mut self) {
+        log_event!(Event::ClientDropped, self.installation_id);
+    }
 }
 
 #[derive(Clone)]
@@ -177,6 +184,7 @@ impl<Context: Clone> Clone for Client<Context> {
     fn clone(&self) -> Self {
         Self {
             context: self.context.clone(),
+            installation_id: self.installation_id.clone(),
             local_events: self.local_events.clone(),
             workers: self.workers.clone(),
         }

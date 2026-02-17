@@ -7,6 +7,8 @@ pub enum Event {
     /// Client created.
     #[context(device_sync_enabled, disabled_workers, inbox_id, full_installation_id)]
     ClientCreated,
+    /// Client dropped.
+    ClientDropped,
     /// Associating name with installation.
     #[context(name)]
     AssociateName,

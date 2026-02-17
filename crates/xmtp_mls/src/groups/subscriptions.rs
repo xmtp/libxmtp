@@ -348,8 +348,10 @@ pub(crate) mod tests {
 
         let local_events = context.local_events.clone();
         let workers = Arc::new(WorkerRunner::default());
+        let installation_id = context.installation_id().clone();
         let client = Client {
             context: Arc::new(context),
+            installation_id,
             local_events,
             workers,
         };
@@ -434,8 +436,10 @@ pub(crate) mod tests {
 
         let local_events = context.local_events.clone();
         let workers = Arc::new(WorkerRunner::default());
+        let installation_id = context.installation_id().clone();
         let client = Client {
             context: Arc::new(context),
+            installation_id,
             local_events,
             workers,
         };
