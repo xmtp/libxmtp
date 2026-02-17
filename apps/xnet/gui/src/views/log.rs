@@ -3,6 +3,8 @@
 use std::sync::Arc;
 
 use gpui::{ScrollHandle, SharedString, div, prelude::*, px};
+use gpui_component::Sizable;
+use gpui_component::alert::Alert;
 
 use crate::{theme, ui};
 
@@ -74,18 +76,13 @@ fn render_log_line(line: &Arc<str>) -> impl IntoElement {
 }
 
 /// Renders an error bar if an error message is present.
-pub fn render_error_bar(last_error: &Option<String>) -> impl IntoElement {
+pub fn render_error_bar(last_error: &Option<String>) -> gpui::AnyElement {
     if let Some(err) = last_error {
-        let msg: SharedString = err.clone().into();
-        div()
-            .w_full()
-            .px(px(20.0))
-            .py(px(6.0))
-            .bg(theme::accent_red())
-            .text_color(theme::btn_text())
-            .text_xs()
-            .child(msg)
+        Alert::error("error-bar", err.clone())
+            .banner()
+            .small()
+            .into_any_element()
     } else {
-        div()
+        div().into_any_element()
     }
 }

@@ -8,8 +8,8 @@ use crate::{
     constants::Xmtpd as XmtpdConst,
     network::Network,
     services::{
-        self, CoreDns, Gateway, NodeGo, Otterscan, ReplicationDb, Service, ToxiProxy, Traefik,
-        TraefikConfig, Xmtpd, allocate_xmtpd_port,
+        self, CoreDns, Gateway, Grafana, NodeGo, Otterscan, Prometheus, ReplicationDb, Service,
+        ToxiProxy, Traefik, TraefikConfig, Xmtpd, allocate_xmtpd_port,
     },
     types::XmtpdNode,
     xmtpd_cli::XmtpdCli,
@@ -28,6 +28,8 @@ pub struct ServiceManager {
     pub node_go: NodeGo,
     services: Vec<Box<dyn Service>>,
     otterscan: Otterscan,
+    prometheus: Prometheus,
+    grafana: Grafana,
     nodes: Vec<Xmtpd>,
 }
 
@@ -53,6 +55,15 @@ impl ServiceManager {
         // Create Traefik config manager (loads existing routes from file)
         let traefik_config = TraefikConfig::new(traefik.dynamic_config_path())?;
 
+        // Start monitoring services (Prometheus + Grafana) in parallel
+        let mut prometheus = Prometheus::builder().build();
+        let mut grafana = Grafana::builder().build();
+        let launch = vec![
+            prometheus.start(&proxy).boxed(),
+            grafana.start(&proxy).boxed(),
+        ];
+        futures::future::try_join_all(launch).await?;
+
         let mut services = Vec::new();
         info!("starting v3");
         let (node_go, svcs) = start_v3(&proxy).await?;
@@ -74,6 +85,8 @@ impl ServiceManager {
             gateway,
             services,
             otterscan,
+            prometheus,
+            grafana,
             nodes: Vec::new(),
         };
 
@@ -141,6 +154,8 @@ impl ServiceManager {
         self.gateway.stop().await?;
         self.node_go.stop().await?;
         self.otterscan.stop().await?;
+        self.grafana.stop().await?;
+        self.prometheus.stop().await?;
         self.coredns.stop().await?;
         self.traefik.stop().await?;
         self.proxy.stop().await?;
@@ -164,6 +179,10 @@ impl ServiceManager {
         self.internal_add_xmtpd(xmtpd).await
     }
 
+    pub async fn reload_node_go(&mut self, d14n_cutover_ns: i64) -> Result<()> {
+        self.node_go.reload(d14n_cutover_ns, &self.proxy).await
+    }
+
     async fn internal_add_xmtpd(&mut self, mut xmtpd: Xmtpd) -> Result<()> {
         xmtpd.start(&self.proxy).await?;
 
@@ -175,6 +194,10 @@ impl ServiceManager {
         }
 
         self.nodes.push(xmtpd);
+
+        // Update Prometheus scrape targets with the new node
+        self.prometheus.update_targets(&self.nodes)?;
+
         Ok(())
     }
 }

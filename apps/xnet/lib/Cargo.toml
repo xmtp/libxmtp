@@ -13,11 +13,13 @@ alloy = { workspace = true, features = ["signer-local"] }
 async-trait = "0.1"
 bollard = "0.20.0"
 bon = "3.8"
+chrono.workspace = true
 clap.workspace = true
 clap-verbosity-flag.workspace = true
 color-eyre.workspace = true
 dotenvy = "0.15"
 futures.workspace = true
+humantime = "2.3"
 itertools.workspace = true
 map-macro = "0.3"
 serde = { version = "1.0", features = ["derive"] }

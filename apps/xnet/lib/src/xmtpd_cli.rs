@@ -13,12 +13,14 @@ use crate::{
 };
 use alloy::hex;
 use alloy::signers::local::PrivateKeySigner;
+use bollard::query_parameters::WaitContainerOptionsBuilder;
 use bollard::{Docker, config::ContainerCreateBody, models::HostConfig};
 use bon::Builder;
 use color_eyre::eyre::Context;
 use color_eyre::eyre::{OptionExt, Result};
 use futures::StreamExt;
 use futures::TryStreamExt;
+use itertools::Itertools;
 use std::io::{Read, Write, stdout};
 use std::net::Ipv4Addr;
 use std::net::TcpListener;
@@ -36,7 +38,7 @@ pub struct XmtpdCli {
     /// The version tag for the xmtpd-cli image (e.g., "main", "v1.0.0")
     #[builder(default = XmtpdConst::VERSION.to_string())]
     version: String,
-    #[builder(default = XmtpdConst::IMAGE.to_string())]
+    #[builder(default = XmtpdConst::CLI_IMAGE.to_string())]
     image: String,
     /// ToxiProxy instance for network access
     toxiproxy: ToxiProxy,
@@ -114,12 +116,12 @@ impl XmtpdCli {
         let image = format!("{}:{}", self.image, self.version);
         ensure_image_exists(&docker, &image).await?;
 
+        info!("running xmtpd_cli {}", cmd.iter().join(" "));
         let config = ContainerCreateBody {
             image: Some(image.clone()),
             cmd: Some(cmd),
             env,
             host_config: Some(HostConfig {
-                auto_remove: Some(true),
                 network_mode: Some(XNET_NETWORK_NAME.to_string()),
                 ..Default::default()
             }),
@@ -132,8 +134,10 @@ impl XmtpdCli {
             .await?
             .id;
 
+        info!("starting container");
         docker.start_container(&id, None).await?;
 
+        info!("Attaching to container");
         let bollard::container::AttachContainerResults { mut output, .. } = docker
             .attach_container(
                 &id,
@@ -152,12 +156,21 @@ impl XmtpdCli {
             write.write_all(output.into_bytes().as_ref())?;
             write.flush()?;
         }
+        let opts = WaitContainerOptionsBuilder::default()
+            .condition("not-running")
+            .build();
         // Wait for the container to finish
         let _: Vec<_> = docker
-            .wait_container(&id, None::<bollard::query_parameters::WaitContainerOptions>)
+            .wait_container(&id, Some(opts))
             .try_collect()
             .await
             .wrap_err("failed to wait for xmtpd_cli to finish")?;
+
+        // Clean up the container
+        docker
+            .remove_container(&id, None)
+            .await
+            .wrap_err("failed to remove xmtpd_cli container")?;
 
         Ok(())
     }

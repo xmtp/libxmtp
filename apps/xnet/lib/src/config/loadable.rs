@@ -56,6 +56,12 @@ pub struct Config {
     /// History server image overrides
     #[builder(default)]
     pub history: ImageConfig,
+    /// Prometheus image overrides
+    #[builder(default)]
+    pub prometheus: ImageConfig,
+    /// Grafana image overrides
+    #[builder(default)]
+    pub grafana: ImageConfig,
 }
 
 impl Config {
@@ -86,6 +92,8 @@ impl Config {
                 .history(toml.history)
                 .toxiproxy(toml.toxiproxy)
                 .maybe_toxiproxy_port(toml.xnet.toxiproxy_port)
+                .prometheus(toml.prometheus)
+                .grafana(toml.grafana)
                 .build();
             CONF.set(c)
                 .map_err(|_| eyre!("Config already initialized"))?;

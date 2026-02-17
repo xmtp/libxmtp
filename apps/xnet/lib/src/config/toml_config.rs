@@ -14,6 +14,8 @@ pub(crate) struct TomlConfig {
     pub contracts: ImageConfig,
     pub history: ImageConfig,
     pub toxiproxy: ImageConfig,
+    pub prometheus: ImageConfig,
+    pub grafana: ImageConfig,
 }
 
 /// Reusable image+version pair for any Docker service

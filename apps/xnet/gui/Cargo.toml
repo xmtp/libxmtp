@@ -6,9 +6,11 @@ version.workspace = true
 description = "test orchestrator for xmtpd"
 
 [dependencies]
+chrono.workspace = true
 color-eyre.workspace = true
 futures.workspace = true
 gpui = { version = "0.2" }
+gpui-component = "0.5"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-stream.workspace = true
 toxiproxy_rust = { workspace = true }

@@ -8,10 +8,13 @@ use crate::{
     types::XmtpdNode,
     xmtpd_cli::XmtpdCli,
 };
+use chrono::{DateTime, Local, TimeZone};
 use clap::Parser;
-use color_eyre::eyre::{OptionExt, Result};
+use color_eyre::eyre::{OptionExt, Result, eyre};
 use futures::FutureExt;
 use tokio::{runtime::EnterGuard, sync::Mutex};
+use xmtp_api_d14n::d14n::FetchD14nCutover;
+use xmtp_proto::{prelude::Query, xmtp::migration::api::v1::FetchD14nCutoverResponse};
 
 pub use crate::config::Config;
 
@@ -115,7 +118,37 @@ impl App {
                 _ => todo!(),
             },
             crate::config::Commands::Info(info) => self.info().await?,
-            crate::config::Commands::Migrate(migrate) => todo!(),
+            crate::config::Commands::Migrate(migrate) => {
+                let cutover_ns = migrate.cutover_ns()?;
+                info!("Setting d14n cutover to {} ns", cutover_ns);
+                let mut mgr = ServiceManager::start().await?;
+                mgr.reload_node_go(cutover_ns).await?;
+            }
+            crate::config::Commands::Cutover => {
+                let mgr = ServiceManager::start().await?;
+                let url = mgr
+                    .node_go
+                    .external_grpc_url()
+                    .ok_or_eyre("node-go not running")?;
+                let client = xmtp_api_grpc::GrpcClient::create(url.as_str(), false)
+                    .map_err(|e| eyre!("{}", e))?;
+                let response: FetchD14nCutoverResponse = FetchD14nCutover
+                    .query(&client)
+                    .await
+                    .map_err(|e| eyre!("{}", e))?;
+                let ts_ns = response.timestamp_ns;
+                let secs = (ts_ns / 1_000_000_000) as i64;
+                let nanos = (ts_ns % 1_000_000_000) as u32;
+                let dt: DateTime<Local> = Local
+                    .timestamp_opt(secs, nanos)
+                    .single()
+                    .ok_or_eyre("invalid timestamp")?;
+                println!(
+                    "d14n cutover: {} ({} ns)",
+                    dt.format("%Y-%m-%d %H:%M:%S %Z"),
+                    ts_ns
+                );
+            }
         }
         Ok(())
     }

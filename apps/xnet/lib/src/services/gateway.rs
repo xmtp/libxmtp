@@ -121,6 +121,12 @@ impl Gateway {
             format!("XMTPD_APP_CHAIN_WSS_URL=ws://{anvil_host}"),
             format!("XMTPD_SETTLEMENT_CHAIN_RPC_URL=http://{anvil_host}"),
             format!("XMTPD_SETTLEMENT_CHAIN_WSS_URL=ws://{anvil_host}"),
+            "XMTPD_METRICS_ENABLE=true".to_string(),
+            "XMTPD_METRICS_METRICS_ADDRESS=0.0.0.0".to_string(),
+            format!(
+                "XMTPD_METRICS_METRICS_PORT={}",
+                crate::constants::Prometheus::METRICS_PORT
+            ),
         ];
 
         let config = ContainerCreateBody {

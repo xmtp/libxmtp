@@ -134,6 +134,7 @@ pub struct AppState {
     pub last_error: Option<String>,
     pub log_lines: Vec<Arc<str>>,
     pub page: Page,
+    pub cutover_ns: Option<u64>,
 }
 
 impl AppState {
@@ -145,6 +146,7 @@ impl AppState {
             last_error: None,
             log_lines: Vec::new(),
             page: Page::Dashboard,
+            cutover_ns: None,
         }
     }
 

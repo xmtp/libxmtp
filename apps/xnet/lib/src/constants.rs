@@ -27,6 +27,7 @@ impl Anvil {
 pub struct Xmtpd;
 impl Xmtpd {
     pub const IMAGE: &str = "ghcr.io/xmtp/xmtpd";
+    pub const CLI_IMAGE: &str = "ghcr.io/xmtp/xmtpd-cli";
     pub const VERSION: &str = "sha-695b07e";
     pub const GRPC_PORT: u16 = 5050;
     pub const NODE_ID_INCREMENT: u32 = 100;
@@ -134,6 +135,30 @@ impl Otterscan {
     pub const PORT: u16 = 80;
     pub const EXTERNAL_PORT: u16 = 5100;
     pub const CONTAINER_NAME: &str = "xnet-otterscan";
+}
+
+// --- Prometheus ---
+
+pub struct Prometheus;
+impl Prometheus {
+    pub const IMAGE: &str = "prom/prometheus";
+    pub const VERSION: &str = "latest";
+    pub const PORT: u16 = 9090;
+    pub const EXTERNAL_PORT: u16 = 9090;
+    pub const CONTAINER_NAME: &str = "xnet-prometheus";
+    /// Default xmtpd metrics port (used for scrape targets)
+    pub const METRICS_PORT: u16 = 8008;
+}
+
+// --- Grafana ---
+
+pub struct Grafana;
+impl Grafana {
+    pub const IMAGE: &str = "ghcr.io/xmtp/grafana-xmtpd";
+    pub const VERSION: &str = "latest";
+    pub const PORT: u16 = 3000;
+    pub const EXTERNAL_PORT: u16 = 3000;
+    pub const CONTAINER_NAME: &str = "xnet-grafana";
 }
 
 // --- CoreDNS ---

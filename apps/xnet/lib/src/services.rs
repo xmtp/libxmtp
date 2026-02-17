@@ -6,10 +6,12 @@
 mod anvil;
 mod coredns;
 mod gateway;
+mod grafana;
 mod history;
 mod mlsdb;
 mod node_go;
 mod otterscan;
+mod prometheus;
 mod redis;
 mod replication_db;
 mod toxiproxy;
@@ -24,11 +26,13 @@ use std::time::Duration;
 pub use anvil::Anvil;
 pub use coredns::CoreDns;
 pub use gateway::Gateway;
+pub use grafana::Grafana;
 pub use history::HistoryServer;
 use map_macro::hash_map;
 pub use mlsdb::MlsDb;
 pub use node_go::NodeGo;
 pub use otterscan::Otterscan;
+pub use prometheus::Prometheus;
 pub use redis::Redis;
 pub use replication_db::ReplicationDb;
 pub use toxiproxy::{ProxyConfig, ToxiProxy, allocate_xmtpd_port};
@@ -46,7 +50,7 @@ use bollard::{
     models::ContainerCreateBody,
     query_parameters::{
         CreateContainerOptionsBuilder, CreateImageOptionsBuilder, EventsOptions,
-        StopContainerOptionsBuilder,
+        RemoveContainerOptionsBuilder, StopContainerOptionsBuilder,
     },
     secret::PortBinding,
 };
@@ -331,6 +335,19 @@ impl ManagedContainer {
         if let (Some(docker), Some(id)) = (&self.docker, &self.container_id) {
             stop_container(docker, id, container_name).await?;
         }
+        Ok(())
+    }
+
+    /// Stop and remove the managed container.
+    ///
+    /// After removal, the next call to `start_container` will create a fresh container.
+    pub async fn remove_container(&mut self, container_name: &str) -> Result<()> {
+        if let (Some(docker), Some(id)) = (&self.docker, &self.container_id) {
+            stop_container(docker, id, container_name).await?;
+            let remove_opts = RemoveContainerOptionsBuilder::default().force(true).build();
+            docker.remove_container(id, Some(remove_opts)).await?;
+        }
+        self.container_id = None;
         Ok(())
     }
 

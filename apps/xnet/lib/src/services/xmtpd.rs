@@ -172,6 +172,12 @@ impl Xmtpd {
             format!("XMTPD_SETTLEMENT_CHAIN_WSS_URL=ws://{anvil_host}"),
             format!("XMTPD_LOG_LEVEL={log_level}"),
             format!("XMTPD_REFLECTION_ENABLE={reflection_enable}"),
+            "XMTPD_METRICS_ENABLE=true".to_string(),
+            "XMTPD_METRICS_METRICS_ADDRESS=0.0.0.0".to_string(),
+            format!(
+                "XMTPD_METRICS_METRICS_PORT={}",
+                crate::constants::Prometheus::METRICS_PORT
+            ),
         ];
         if self.migrator {
             let node_go = self

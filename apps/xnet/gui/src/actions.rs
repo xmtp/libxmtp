@@ -6,11 +6,12 @@
 use crate::state::{NetworkStatus, NodeInfo, ServiceInfo, ToxicInfo};
 use color_eyre::eyre::Result;
 use tokio::sync::mpsc;
-use xmtp_api_d14n::d14n::GetNodes;
+use tokio::task::AbortHandle;
+use xmtp_api_d14n::d14n::{FetchD14nCutover, GetNodes};
 use xmtp_api_grpc::GrpcClient;
 use xmtp_proto::api::Query;
-use xnet::app::App;
-use xnet::config::AddNode;
+use xnet::app::{App, ServiceManager};
+use xnet::config::{AddNode, Migrate};
 
 /// Check if Docker is installed and the daemon is responding.
 pub async fn check_docker() -> Result<()> {
@@ -37,62 +38,70 @@ fn make_toxi_client() -> Result<toxiproxy_rust::client::Client> {
 }
 
 /// Starts a background tokio task that polls the ToxiProxy API for registered
-/// proxies every 2 seconds. Returns a receiver that yields updated service lists.
-pub async fn start_service_poller() -> Result<mpsc::Receiver<Vec<ServiceInfo>>> {
+/// proxies every 2 seconds. Returns a receiver and an abort handle to stop the task.
+pub async fn start_service_poller() -> Result<(mpsc::Receiver<Vec<ServiceInfo>>, AbortHandle)> {
     let (tx, rx) = mpsc::channel(4);
     let client = make_toxi_client()?;
 
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            match client.all().await {
-                Ok(proxies) => {
-                    let mut services: Vec<ServiceInfo> = proxies
-                        .into_iter()
-                        .map(|(name, proxy)| {
-                            let port = proxy
-                                .proxy_pack
-                                .listen
-                                .rsplit(':')
-                                .next()
-                                .and_then(|p| p.parse::<u16>().ok());
-                            let url = port.map(|p| format!("http://localhost:{}", p));
-                            let status = if proxy.proxy_pack.enabled {
-                                "running"
-                            } else {
-                                "disabled"
-                            };
-                            ServiceInfo {
-                                name,
-                                status,
-                                external_url: url,
-                            }
-                        })
-                        .collect();
-                    services.sort_by(|a, b| a.name.cmp(&b.name));
-                    // Add non-ToxiProxy services with fixed localhost ports
-                    services.push(ServiceInfo {
-                        name: "otterscan".into(),
-                        status: "running",
-                        external_url: Some("http://localhost:5100".into()),
-                    });
-                    services.push(ServiceInfo {
-                        name: "traefik".into(),
-                        status: "running",
-                        external_url: Some("http://localhost:8080".into()),
-                    });
-                    if tx.send(services).await.is_err() {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("ToxiProxy poll failed: {e}");
+            if tx.is_closed() {
+                break;
+            }
+            if let Ok(proxies) = client.all().await {
+                let mut services: Vec<ServiceInfo> = proxies
+                    .into_iter()
+                    .map(|(name, proxy)| {
+                        let port = proxy
+                            .proxy_pack
+                            .listen
+                            .rsplit(':')
+                            .next()
+                            .and_then(|p| p.parse::<u16>().ok());
+                        let url = port.map(|p| format!("http://localhost:{}", p));
+                        let status = if proxy.proxy_pack.enabled {
+                            "running"
+                        } else {
+                            "disabled"
+                        };
+                        ServiceInfo {
+                            name,
+                            status,
+                            external_url: url,
+                        }
+                    })
+                    .collect();
+                services.sort_by(|a, b| a.name.cmp(&b.name));
+                // Add non-ToxiProxy services with fixed localhost ports
+                services.push(ServiceInfo {
+                    name: "grafana".into(),
+                    status: "running",
+                    external_url: Some("http://localhost:3000".into()),
+                });
+                services.push(ServiceInfo {
+                    name: "otterscan".into(),
+                    status: "running",
+                    external_url: Some("http://localhost:5100".into()),
+                });
+                services.push(ServiceInfo {
+                    name: "prometheus".into(),
+                    status: "running",
+                    external_url: Some("http://localhost:9090".into()),
+                });
+                services.push(ServiceInfo {
+                    name: "traefik".into(),
+                    status: "running",
+                    external_url: Some("http://localhost:8080".into()),
+                });
+                if tx.send(services).await.is_err() {
+                    break;
                 }
             }
         }
     });
 
-    Ok(rx)
+    Ok((rx, handle.abort_handle()))
 }
 
 pub async fn execute_up() -> Result<()> {
@@ -138,49 +147,47 @@ pub fn can_add_node(status: NetworkStatus) -> bool {
 // -- Toxics Management --------------------------------------------------------
 
 /// Starts a background tokio task that polls toxics from all proxies every 2
-/// seconds. Returns a receiver that yields updated toxic lists.
-pub async fn start_toxics_poller() -> Result<mpsc::Receiver<Vec<ToxicInfo>>> {
+/// seconds. Returns a receiver and an abort handle to stop the task.
+pub async fn start_toxics_poller() -> Result<(mpsc::Receiver<Vec<ToxicInfo>>, AbortHandle)> {
     let (tx, rx) = mpsc::channel(4);
     let client = make_toxi_client()?;
 
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            match client.all().await {
-                Ok(proxies) => {
-                    let mut all_toxics = Vec::new();
-                    for (name, proxy) in &proxies {
-                        match proxy.toxics().await {
-                            Ok(toxics) => {
-                                for t in toxics {
-                                    all_toxics.push(ToxicInfo {
-                                        proxy_name: name.clone(),
-                                        toxic_type: t.r#type.clone(),
-                                        stream: t.stream.clone(),
-                                        toxicity: t.toxicity,
-                                        latency: t.attributes.get("latency").copied(),
-                                        jitter: t.attributes.get("jitter").copied(),
-                                    });
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to get toxics for {}: {}", name, e);
+            if tx.is_closed() {
+                break;
+            }
+            if let Ok(proxies) = client.all().await {
+                let mut all_toxics = Vec::new();
+                for (name, proxy) in &proxies {
+                    match proxy.toxics().await {
+                        Ok(toxics) => {
+                            for t in toxics {
+                                all_toxics.push(ToxicInfo {
+                                    proxy_name: name.clone(),
+                                    toxic_type: t.r#type.clone(),
+                                    stream: t.stream.clone(),
+                                    toxicity: t.toxicity,
+                                    latency: t.attributes.get("latency").copied(),
+                                    jitter: t.attributes.get("jitter").copied(),
+                                });
                             }
                         }
-                    }
-                    all_toxics.sort_by(|a, b| a.proxy_name.cmp(&b.proxy_name));
-                    if tx.send(all_toxics).await.is_err() {
-                        break;
+                        Err(e) => {
+                            tracing::warn!("Failed to get toxics for {}: {}", name, e);
+                        }
                     }
                 }
-                Err(e) => {
-                    tracing::warn!("Toxics poller failed: {e}");
+                all_toxics.sort_by(|a, b| a.proxy_name.cmp(&b.proxy_name));
+                if tx.send(all_toxics).await.is_err() {
+                    break;
                 }
             }
         }
     });
 
-    Ok(rx)
+    Ok((rx, handle.abort_handle()))
 }
 
 /// Add a latency toxic to the named proxy (downstream, 100% toxicity).
@@ -217,38 +224,79 @@ pub async fn reset_all_toxics() -> Result<()> {
 }
 
 /// Starts a background tokio task that polls the gateway's GetNodes endpoint
-/// every 2 seconds. Returns a receiver that yields updated node lists.
-pub async fn start_node_poller() -> Result<mpsc::Receiver<Vec<NodeInfo>>> {
+/// every 2 seconds. Returns a receiver and an abort handle to stop the task.
+pub async fn start_node_poller() -> Result<(mpsc::Receiver<Vec<NodeInfo>>, AbortHandle)> {
     let (tx, rx) = mpsc::channel(4);
 
     let gateway_url = App::parse()?.gateway_url().await?;
     let grpc = GrpcClient::create(gateway_url.as_str(), false)?;
 
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            match GetNodes::builder().build().unwrap().query(&grpc).await {
-                Ok(response) => {
-                    let mut infos: Vec<NodeInfo> = response
-                        .nodes
-                        .into_iter()
-                        .map(|(id, url)| NodeInfo {
-                            id,
-                            container_name: format!("xnet-{}", id),
-                            url,
-                        })
-                        .collect();
-                    infos.sort_by_key(|n| n.id);
-                    if tx.send(infos).await.is_err() {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("GetNodes poll failed: {e}");
+            if tx.is_closed() {
+                break;
+            }
+            if let Ok(response) = GetNodes::builder().build().unwrap().query(&grpc).await {
+                let mut infos: Vec<NodeInfo> = response
+                    .nodes
+                    .into_iter()
+                    .map(|(id, url)| NodeInfo {
+                        id,
+                        container_name: format!("xnet-{}", id),
+                        url,
+                    })
+                    .collect();
+                infos.sort_by_key(|n| n.id);
+                if tx.send(infos).await.is_err() {
+                    break;
                 }
             }
         }
     });
 
-    Ok(rx)
+    Ok((rx, handle.abort_handle()))
+}
+
+/// Starts a background tokio task that polls the node-go FetchD14nCutover
+/// endpoint every 5 seconds. Returns a receiver and an abort handle to stop the task.
+pub async fn start_cutover_poller() -> Result<(mpsc::Receiver<u64>, AbortHandle)> {
+    let (tx, rx) = mpsc::channel(4);
+
+    let mgr = ServiceManager::start().await?;
+    let url = mgr
+        .node_go
+        .external_grpc_url()
+        .ok_or_else(|| color_eyre::eyre::eyre!("node-go gRPC URL not available"))?;
+    let grpc =
+        GrpcClient::create(url.as_str(), false).map_err(|e| color_eyre::eyre::eyre!("{}", e))?;
+
+    let handle = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            if tx.is_closed() {
+                break;
+            }
+            if let Ok(response) = FetchD14nCutover.query(&grpc).await
+                && tx.send(response.timestamp_ns).await.is_err()
+            {
+                break;
+            }
+        }
+    });
+
+    Ok((rx, handle.abort_handle()))
+}
+
+/// Executes a migration by reloading node-go with the given cutover timestamp.
+/// `cutover_offset` is either `None` (means "now") or a duration string like "30s", "5m".
+pub async fn execute_migrate(cutover_offset: Option<String>) -> Result<()> {
+    let migrate = Migrate {
+        cutover: cutover_offset,
+    };
+    let cutover_ns = migrate.cutover_ns()?;
+    tracing::info!("Setting d14n cutover to {} ns", cutover_ns);
+    let mut mgr = ServiceManager::start().await?;
+    mgr.reload_node_go(cutover_ns).await?;
+    Ok(())
 }

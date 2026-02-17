@@ -49,6 +49,10 @@ pub struct NodeGo {
     #[builder(default = default_mls_validation_address())]
     mls_validation_address: String,
 
+    /// d14n cutover timestamp in nanoseconds
+    #[builder(default = i64::MAX)]
+    d14n_cutover_ns: i64,
+
     /// Wait for database timeout
     #[builder(default = "30s".to_string())]
     wait_for_db: String,
@@ -76,6 +80,9 @@ impl<S: node_go_builder::IsComplete> NodeGoBuilder<S> {
         }
         if let Some(image) = config.v3.image {
             this.image = image;
+        }
+        if let Some(ts) = config.migration.migration_timestamp {
+            this.d14n_cutover_ns = ts as i64;
         }
         if let Some(port) = config.v3_port
             && !config.use_standard_ports
@@ -132,6 +139,8 @@ impl NodeGo {
             format!("--store.reader-db-connection-string={db_connection_str}",),
             format!("--mls-store.db-connection-string={mls_db_connection_str}",),
             format!("--mls-validation.grpc-address={mls_validation_address}",),
+            format!("--api.enable-migration"),
+            format!("--api.d14n-cutover-ns={}", self.d14n_cutover_ns),
             "--api.enable-mls".to_string(),
             format!("--wait-for-db={wait_for_db}"),
         ];
@@ -169,6 +178,18 @@ impl NodeGo {
         self.http_proxy_port = Some(http_port);
 
         Ok(())
+    }
+
+    /// Reload the node-go container with a new d14n cutover timestamp.
+    ///
+    /// Stops and removes the existing container, then starts a fresh one
+    /// with the updated `--d14n-cutover-ns` flag.
+    pub async fn reload(&mut self, d14n_cutover_ns: i64, toxiproxy: &ToxiProxy) -> Result<()> {
+        self.d14n_cutover_ns = d14n_cutover_ns;
+        self.container
+            .remove_container(NodeGoConst::CONTAINER_NAME)
+            .await?;
+        self.start(toxiproxy).await
     }
 
     pub fn mls_db_reader(&self) -> Url {

@@ -69,9 +69,8 @@ impl Validation {
     /// Registers itself with ToxiProxy for external access.
     /// If a container with the same name already exists, it will be reused.
     pub async fn start(&mut self, toxiproxy: &ToxiProxy) -> Result<()> {
-        let options = CreateContainerOptionsBuilder::default()
-            .name(ValidationConst::CONTAINER_NAME)
-            .platform("linux/amd64");
+        let options =
+            CreateContainerOptionsBuilder::default().name(ValidationConst::CONTAINER_NAME);
 
         let image = format!("{}:{}", self.image, self.version);
         let config = ContainerCreateBody {

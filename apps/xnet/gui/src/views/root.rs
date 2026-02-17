@@ -6,12 +6,18 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::{Local, TimeZone, Utc};
 use futures::StreamExt;
 use gpui::{
-    AsyncApp, Context, ScrollHandle, Timer, WeakEntity, Window, deferred, div, hsla, prelude::*, px,
+    AsyncApp, ClickEvent, Context, Entity, ScrollHandle, SharedString, Timer, WeakEntity, Window,
+    deferred, div, hsla, prelude::*, px, rgb,
 };
+use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariant, ButtonVariants};
+use gpui_component::input::InputState;
+use gpui_component::{Disableable, Sizable};
 use gpui_tokio_bridge::Tokio;
 use tokio::sync::mpsc;
+use tokio::task::AbortHandle;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{error, info, warn};
 
@@ -36,16 +42,27 @@ pub struct RootView {
     setup: SetupChecks,
     /// Toxics management page state.
     toxics: ToxicsState,
+    /// Text input for custom migration offset (e.g. "2h30m").
+    migrate_input: Entity<InputState>,
+    /// Text input for custom latency value (in ms) on the Toxics page.
+    latency_input: Entity<InputState>,
+    /// Abort handles for background poller tasks — aborted on down/delete.
+    poller_handles: Vec<AbortHandle>,
 }
 
 impl RootView {
-    pub fn new() -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let migrate_input = cx.new(|cx| InputState::new(window, cx).placeholder("e.g. 2h30m"));
+        let latency_input = cx.new(|cx| InputState::new(window, cx).placeholder("ms"));
         Self {
             state: AppState::new(),
             busy: false,
             log_scroll: ScrollHandle::new(),
             setup: SetupChecks::new(),
             toxics: ToxicsState::new(),
+            migrate_input,
+            latency_input,
+            poller_handles: Vec::new(),
         }
     }
 
@@ -161,32 +178,38 @@ impl RootView {
         }
     }
 
-    /// Starts a background timer that advances the spinner animation while any
-    /// check is in the `Checking` state.  Stops automatically when no check is
-    /// active.
+    /// Starts a repeating timer that advances the spinner animation frame.
     fn start_spinner(&mut self, cx: &mut Context<Self>) {
         cx.spawn(async |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             loop {
                 Timer::after(Duration::from_millis(200)).await;
-                let should_stop = cx.update(|cx| {
+                let should_continue = cx.update(|cx| {
                     this.update(cx, |view, cx| {
-                        let active = view.setup.docker == CheckStatus::Checking
-                            || view.setup.dns == CheckStatus::Checking;
-                        if active {
-                            view.setup.spinner_tick = view.setup.spinner_tick.wrapping_add(1);
-                            cx.notify();
+                        if !view.setup.rechecking {
+                            return false;
                         }
-                        Ok::<bool, Error>(!active)
+                        view.setup.spinner_tick = view.setup.spinner_tick.wrapping_add(1);
+                        cx.notify();
+                        true
                     })
                 });
-                match should_stop {
-                    Ok(Ok(Ok(true))) | Err(_) => break,
-                    _ => {}
+                match should_continue {
+                    Ok(Ok(true)) => {}
+                    _ => break,
                 }
             }
             Ok::<_, Error>(())
         })
         .detach();
+    }
+
+    // -- Poller Lifecycle -----------------------------------------------------
+
+    /// Abort all running poller tasks (service, node, cutover, toxics).
+    fn stop_pollers(&mut self) {
+        for handle in self.poller_handles.drain(..) {
+            handle.abort();
+        }
     }
 
     // -- Action Handlers -----------------------------------------------------
@@ -214,6 +237,7 @@ impl RootView {
                             // Start polling for services and nodes
                             view.start_service_poller(cx);
                             view.start_node_poller(cx);
+                            view.start_cutover_poller(cx);
                             // Check DNS now that CoreDNS is running
                             view.run_dns_check(cx);
                         }
@@ -236,6 +260,7 @@ impl RootView {
         if self.busy {
             return;
         }
+        self.stop_pollers();
         self.busy = true;
         self.state.network_status = NetworkStatus::Stopping;
         info!("Stopping services…");
@@ -253,6 +278,7 @@ impl RootView {
                             view.state.network_status = NetworkStatus::Stopped;
                             view.state.services.clear();
                             view.state.xmtpd_nodes.clear();
+                            view.state.cutover_ns = None;
                             info!("Services stopped.");
                         }
                         Err(msg) => {
@@ -273,6 +299,7 @@ impl RootView {
         if self.busy {
             return;
         }
+        self.stop_pollers();
         self.busy = true;
         self.state.network_status = NetworkStatus::Deleting;
         info!("Deleting all resources…");
@@ -291,6 +318,7 @@ impl RootView {
                             view.state.network_status = NetworkStatus::Stopped;
                             view.state.services.clear();
                             view.state.xmtpd_nodes.clear();
+                            view.state.cutover_ns = None;
                             view.state.last_error = None;
                             info!("All resources deleted.");
                         }
@@ -386,6 +414,40 @@ impl RootView {
         .detach();
     }
 
+    // -- Migration Action -----------------------------------------------------
+
+    fn action_migrate(&mut self, cutover_offset: Option<String>, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.busy = true;
+        let label = cutover_offset.as_deref().unwrap_or("now").to_string();
+        info!("Setting d14n cutover to {}…", label);
+        cx.notify();
+
+        let result = Tokio::spawn(cx, actions::execute_migrate(cutover_offset));
+
+        cx.spawn(async |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = result.await?;
+            cx.update(|cx| {
+                this.update(cx, |view, cx| {
+                    view.busy = false;
+                    match result {
+                        Ok(()) => info!("Migration cutover set."),
+                        Err(e) => {
+                            let msg = e.to_string();
+                            error!("{}", msg);
+                            view.state.last_error = Some(msg);
+                        }
+                    }
+                    cx.notify();
+                    Ok::<_, Error>(())
+                })
+            })
+        })
+        .detach();
+    }
+
     // -- Node Poller ----------------------------------------------------------
 
     /// Spawns a background task that polls GetNodes and streams updates to the UI.
@@ -393,13 +455,18 @@ impl RootView {
         let poller = Tokio::spawn(cx, actions::start_node_poller());
 
         cx.spawn(async |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-            let mut rx = match poller.await? {
-                Ok(rx) => rx,
+            let (mut rx, abort_handle) = match poller.await? {
+                Ok(pair) => pair,
                 Err(e) => {
                     error!("Failed to start node poller: {e}");
                     return Ok(());
                 }
             };
+            let _ = cx.update(|cx| {
+                let _ = this.update(cx, |view, _cx| {
+                    view.poller_handles.push(abort_handle);
+                });
+            });
             while let Some(nodes) = rx.recv().await {
                 let should_stop = cx.update(|cx| {
                     this.update(cx, |view, cx| {
@@ -432,13 +499,18 @@ impl RootView {
         let poller = Tokio::spawn(cx, actions::start_service_poller());
 
         cx.spawn(async |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-            let mut rx = match poller.await? {
-                Ok(rx) => rx,
+            let (mut rx, abort_handle) = match poller.await? {
+                Ok(pair) => pair,
                 Err(e) => {
                     error!("Failed to start service poller: {e}");
                     return Ok(());
                 }
             };
+            let _ = cx.update(|cx| {
+                let _ = this.update(cx, |view, _cx| {
+                    view.poller_handles.push(abort_handle);
+                });
+            });
             while let Some(services) = rx.recv().await {
                 let should_stop = cx.update(|cx| {
                     this.update(cx, |view, cx| {
@@ -446,6 +518,50 @@ impl RootView {
                             return Ok::<_, Error>(true);
                         }
                         view.state.services = services;
+                        cx.notify();
+                        Ok(false)
+                    })
+                });
+                if should_stop
+                    .ok()
+                    .and_then(|r| r.ok())
+                    .and_then(|r| r.ok())
+                    .unwrap_or(true)
+                {
+                    break;
+                }
+            }
+            Ok::<_, Error>(())
+        })
+        .detach();
+    }
+
+    // -- Cutover Poller -------------------------------------------------------
+
+    /// Spawns a background task that polls FetchD14nCutover and streams updates to the UI.
+    fn start_cutover_poller(&mut self, cx: &mut Context<Self>) {
+        let poller = Tokio::spawn(cx, actions::start_cutover_poller());
+
+        cx.spawn(async |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let (mut rx, abort_handle) = match poller.await? {
+                Ok(pair) => pair,
+                Err(e) => {
+                    error!("Failed to start cutover poller: {e}");
+                    return Ok(());
+                }
+            };
+            let _ = cx.update(|cx| {
+                let _ = this.update(cx, |view, _cx| {
+                    view.poller_handles.push(abort_handle);
+                });
+            });
+            while let Some(cutover_ns) = rx.recv().await {
+                let should_stop = cx.update(|cx| {
+                    this.update(cx, |view, cx| {
+                        if view.state.network_status != NetworkStatus::Running {
+                            return Ok::<_, Error>(true);
+                        }
+                        view.state.cutover_ns = Some(cutover_ns);
                         cx.notify();
                         Ok(false)
                     })
@@ -473,6 +589,14 @@ impl RootView {
         let disabled = self.busy;
         let can_add_node = !disabled && self.state.network_status == NetworkStatus::Running;
 
+        let mauve_variant = ButtonVariant::Custom(
+            ButtonCustomVariant::new(cx)
+                .color(theme::accent_mauve())
+                .foreground(theme::btn_text())
+                .hover(rgb(0xD4B8F9).into())
+                .active(rgb(0xBE94F5).into()),
+        );
+
         div()
             .flex()
             .flex_row()
@@ -483,7 +607,7 @@ impl RootView {
             .child(self.make_clickable_button(
                 "btn-up",
                 "Up",
-                theme::btn_success(),
+                ButtonVariant::Success,
                 disabled,
                 cx,
                 |view, _, _, cx| view.action_up(cx),
@@ -491,7 +615,7 @@ impl RootView {
             .child(self.make_clickable_button(
                 "btn-down",
                 "Down",
-                theme::btn_warning(),
+                ButtonVariant::Warning,
                 disabled,
                 cx,
                 |view, _, _, cx| view.action_down(cx),
@@ -499,7 +623,7 @@ impl RootView {
             .child(self.make_clickable_button(
                 "btn-delete",
                 "Delete",
-                theme::btn_danger(),
+                ButtonVariant::Danger,
                 disabled,
                 cx,
                 |view, _, _, cx| view.action_delete(cx),
@@ -507,7 +631,7 @@ impl RootView {
             .child(self.make_clickable_button(
                 "btn-add-node",
                 "Add Node",
-                theme::btn_primary(),
+                ButtonVariant::Primary,
                 !can_add_node,
                 cx,
                 |view, _, _, cx| view.action_add_node(cx),
@@ -515,7 +639,7 @@ impl RootView {
             .child(self.make_clickable_button(
                 "btn-add-migrator",
                 "Add XMTPD Migrator",
-                theme::btn_primary(),
+                ButtonVariant::Primary,
                 !can_add_node,
                 cx,
                 |view, _, _, cx| view.action_add_migrator(cx),
@@ -523,7 +647,7 @@ impl RootView {
             .child(self.make_clickable_button(
                 "btn-toxics",
                 "Toxics",
-                theme::accent_mauve(),
+                mauve_variant,
                 !can_add_node,
                 cx,
                 |view, _, _, cx| view.action_navigate_toxics(cx),
@@ -535,27 +659,18 @@ impl RootView {
         &self,
         id: &'static str,
         label: &'static str,
-        color: gpui::Hsla,
+        variant: ButtonVariant,
         disabled: bool,
         cx: &mut Context<Self>,
-        on_click: impl Fn(&mut Self, &gpui::ClickEvent, &mut Window, &mut Context<Self>) + 'static,
+        on_click: impl Fn(&mut Self, &ClickEvent, &mut Window, &mut Context<Self>) + 'static,
     ) -> impl IntoElement {
-        let bg = if disabled { theme::text_muted() } else { color };
-
-        div()
-            .id(id)
-            .px(px(16.0))
-            .py(px(6.0))
-            .bg(bg)
-            .rounded(px(6.0))
-            .when(!disabled, |this| this.cursor_pointer())
-            .text_color(theme::btn_text())
-            .text_sm()
-            .child(label)
+        Button::new(id)
+            .label(label)
+            .small()
+            .with_variant(variant)
+            .disabled(disabled)
             .on_click(cx.listener(move |view, event, window, cx| {
-                if !disabled {
-                    on_click(view, event, window, cx);
-                }
+                on_click(view, event, window, cx);
             }))
     }
 
@@ -574,6 +689,130 @@ impl RootView {
             .child(views::panels::render_nodes_panel(&self.state.xmtpd_nodes))
     }
 
+    // -- Cutover Section Rendering --------------------------------------------
+
+    /// Renders the D14N cutover display and migration preset buttons.
+    fn render_cutover_section(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let can_migrate = !self.busy && self.state.network_status == NetworkStatus::Running;
+
+        let mut container = ui::panel_container()
+            .w_full()
+            .child(ui::panel_title("D14N Cutover", theme::accent_yellow()));
+
+        // -- Cutover time display --
+        match self.state.cutover_ns {
+            Some(ts_ns) => {
+                let secs = (ts_ns / 1_000_000_000) as i64;
+                let nanos = (ts_ns % 1_000_000_000) as u32;
+
+                let local_str: SharedString = Local
+                    .timestamp_opt(secs, nanos)
+                    .single()
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S %Z").to_string())
+                    .unwrap_or_else(|| "invalid timestamp".to_string())
+                    .into();
+
+                let utc_str: SharedString = Utc
+                    .timestamp_opt(secs, nanos)
+                    .single()
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+                    .unwrap_or_else(|| "invalid timestamp".to_string())
+                    .into();
+
+                let ns_str: SharedString = format!("{} ns", ts_ns).into();
+
+                container = container
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(8.0))
+                            .child(
+                                div()
+                                    .text_color(theme::text_primary())
+                                    .text_xs()
+                                    .child(local_str),
+                            )
+                            .child(
+                                div()
+                                    .text_color(theme::text_secondary())
+                                    .text_xs()
+                                    .child(utc_str),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_color(theme::text_muted())
+                            .text_xs()
+                            .child(ns_str),
+                    );
+            }
+            None => {
+                container = container.child(ui::empty_state("Cutover time not available"));
+            }
+        }
+
+        // -- Migration preset buttons + custom input --
+        let presets: &[(&str, Option<&str>)] = &[
+            ("Now", None),
+            ("30s", Some("30s")),
+            ("5m", Some("5m")),
+            ("1h", Some("1h")),
+        ];
+
+        let mut button_row = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(6.0))
+            .pt(px(4.0))
+            .child(
+                div()
+                    .text_color(theme::text_secondary())
+                    .text_xs()
+                    .child("Set cutover:"),
+            );
+
+        for &(label, offset) in presets {
+            let offset_owned: Option<String> = offset.map(|s| s.to_string());
+            let id: SharedString = format!("btn-migrate-{}", label.to_lowercase()).into();
+            button_row = button_row.child(self.make_dynamic_button(
+                id,
+                label,
+                ButtonVariant::Warning,
+                !can_migrate,
+                cx,
+                move |view, _, _, cx| {
+                    view.action_migrate(offset_owned.clone(), cx);
+                },
+            ));
+        }
+
+        // Custom offset input
+        let input = gpui_component::input::Input::new(&self.migrate_input)
+            .small()
+            .w(px(120.0));
+        button_row = button_row.child(input);
+
+        // "Set" button that reads the custom input value
+        button_row = button_row.child(self.make_dynamic_button(
+            SharedString::from("btn-migrate-custom"),
+            "Set",
+            ButtonVariant::Primary,
+            !can_migrate,
+            cx,
+            |view, _, _, cx| {
+                let value = view.migrate_input.read(cx).value().to_string();
+                if !value.is_empty() {
+                    view.action_migrate(Some(value), cx);
+                }
+            },
+        ));
+
+        container.child(button_row)
+    }
+
     // -- Dynamic Button Helper ------------------------------------------------
 
     /// Like `make_clickable_button` but accepts dynamic (non-static) id and label.
@@ -581,28 +820,18 @@ impl RootView {
         &self,
         id: impl Into<gpui::ElementId>,
         label: impl Into<gpui::SharedString>,
-        color: gpui::Hsla,
+        variant: ButtonVariant,
         disabled: bool,
         cx: &mut Context<Self>,
-        on_click: impl Fn(&mut Self, &gpui::ClickEvent, &mut Window, &mut Context<Self>) + 'static,
+        on_click: impl Fn(&mut Self, &ClickEvent, &mut Window, &mut Context<Self>) + 'static,
     ) -> impl IntoElement {
-        let bg = if disabled { theme::text_muted() } else { color };
-        let label = label.into();
-
-        div()
-            .id(id.into())
-            .px(px(10.0))
-            .py(px(4.0))
-            .bg(bg)
-            .rounded(px(6.0))
-            .when(!disabled, |this| this.cursor_pointer())
-            .text_color(theme::btn_text())
-            .text_xs()
-            .child(label)
+        Button::new(id)
+            .label(label)
+            .xsmall()
+            .with_variant(variant)
+            .disabled(disabled)
             .on_click(cx.listener(move |view, event, window, cx| {
-                if !disabled {
-                    on_click(view, event, window, cx);
-                }
+                on_click(view, event, window, cx);
             }))
     }
 
@@ -634,7 +863,7 @@ impl RootView {
             .child(self.make_clickable_button(
                 "btn-back",
                 "< Dashboard",
-                theme::btn_primary(),
+                ButtonVariant::Primary,
                 false,
                 cx,
                 |view, _, _, cx| view.action_navigate_dashboard(cx),
@@ -642,7 +871,7 @@ impl RootView {
             .child(self.make_clickable_button(
                 "btn-reset-all",
                 "Reset All Toxics",
-                theme::btn_danger(),
+                ButtonVariant::Danger,
                 self.busy,
                 cx,
                 |view, _, _, cx| view.action_reset_all_toxics(cx),
@@ -750,12 +979,34 @@ impl RootView {
             row = row.child(self.make_dynamic_button(
                 id,
                 label,
-                theme::btn_primary(),
+                ButtonVariant::Primary,
                 self.busy,
                 cx,
                 move |view, _, _, cx| view.action_add_latency(proxy.clone(), ms, cx),
             ));
         }
+
+        // Custom latency input + Set button
+        let input = gpui_component::input::Input::new(&self.latency_input)
+            .xsmall()
+            .w(px(60.0));
+        row = row.child(input);
+
+        let proxy_for_custom = proxy_name.to_string();
+        let custom_id: gpui::SharedString = format!("btn-{}-custom", proxy_name).into();
+        row = row.child(self.make_dynamic_button(
+            custom_id,
+            "Set",
+            ButtonVariant::Primary,
+            self.busy,
+            cx,
+            move |view, _, _, cx| {
+                let value = view.latency_input.read(cx).value().to_string();
+                if let Ok(ms) = value.trim().parse::<u32>() {
+                    view.action_add_latency(proxy_for_custom.clone(), ms, cx);
+                }
+            },
+        ));
 
         // Reset button for this proxy
         let proxy_for_reset = proxy_name.to_string();
@@ -763,7 +1014,7 @@ impl RootView {
         row = row.child(self.make_dynamic_button(
             reset_id,
             "Reset",
-            theme::btn_warning(),
+            ButtonVariant::Warning,
             self.busy,
             cx,
             move |view, _, _, cx| {
@@ -875,13 +1126,18 @@ impl RootView {
         let poller = Tokio::spawn(cx, actions::start_toxics_poller());
 
         cx.spawn(async |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-            let mut rx = match poller.await? {
-                Ok(rx) => rx,
+            let (mut rx, abort_handle) = match poller.await? {
+                Ok(pair) => pair,
                 Err(e) => {
                     error!("Failed to start toxics poller: {e}");
                     return Ok(());
                 }
             };
+            let _ = cx.update(|cx| {
+                let _ = this.update(cx, |view, _cx| {
+                    view.poller_handles.push(abort_handle);
+                });
+            });
             while let Some(toxics) = rx.recv().await {
                 let should_stop = cx.update(|cx| {
                     this.update(cx, |view, cx| {
@@ -936,7 +1192,7 @@ impl RootView {
                 .child(self.make_clickable_button(
                     "btn-recheck",
                     label,
-                    theme::btn_primary(),
+                    ButtonVariant::Primary,
                     recheck_disabled,
                     cx,
                     |view, _, _, cx| view.action_recheck(cx),
@@ -960,6 +1216,12 @@ impl Render for RootView {
                 root = root
                     .child(views::log::render_error_bar(&self.state.last_error))
                     .child(self.render_toolbar(cx))
+                    .child(
+                        div()
+                            .px(px(20.0))
+                            .py(px(4.0))
+                            .child(self.render_cutover_section(cx)),
+                    )
                     .child(self.render_panels())
                     .child(
                         div()
