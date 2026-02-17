@@ -18,8 +18,8 @@ export struct UIGroupState {
     msg: string,
     icon: string,
     epoch: int,
+    background: color,
     previous-epoch: int,
-    problem-count: int,
     problems: [string],
     context: [UIContextEntry],
     intermediate: string,
@@ -71,13 +71,13 @@ component GroupStateCard inherits Rectangle {
     callback warning-clicked();
     callback logs-clicked(string);
 
-    property <bool> show-problems: root.group-focused && root.state.problem-count > 0;
+    property <bool> show-problems: root.state.problems.length > 0;
 
     width: EpochConstants.state-card-width;
     min-height: card-layout.preferred-height;
-    background: #ffffff;
+    background: root.state.background;
     border-width: root.show-problems ? 2px : 1px;
-    border-color: root.show-problems ? #cc4444 : (root.state.problem-count > 0 ? #e07070 : #d0d0d0);
+    border-color: root.show-problems ? #cc4444 : (root.state.problems.length > 0 ? #e07070 : #d0d0d0);
     border-radius: 4px;
 
     drop-shadow-blur: root.show-problems ? 4px : 2px;
@@ -133,14 +133,14 @@ component GroupStateCard inherits Rectangle {
                 }
             }
 
-            if root.state.problem-count > 0: Rectangle {
+            if root.state.problems.length > 0: Rectangle {
                 width: problem-label.preferred-width + 10px;
                 height: problem-label.preferred-height + 4px;
                 background: warning-touch.has-hover ? #ffe0e0 : #fff0f0;
                 border-radius: 3px;
 
                 problem-label := Text {
-                    text: "⚠ " + root.state.problem-count;
+                    text: "⚠ " + root.state.problems.length;
                     font-size: 9px;
                     font-weight: 600;
                     color: #cc4444;
@@ -223,7 +223,7 @@ component GroupStateCard inherits Rectangle {
                     border-radius: 2px;
 
                     problems-header := Text {
-                        text: "⚠ Problems (" + root.state.problem-count + ")";
+                        text: "⚠ Problems (" + root.state.problems.length + ")";
                         font-size: 9px;
                         font-weight: 700;
                         color: #cc3333;

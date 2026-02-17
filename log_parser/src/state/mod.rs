@@ -6,7 +6,7 @@ pub mod value;
 use crate::state::assertions::{LogAssertion, epoch_continuity::EpochContinuityAssertion};
 use anyhow::{Context, Result};
 pub use event::LogEvent;
-use parking_lot::{RwLock, RwLockWriteGuard};
+use parking_lot::{Mutex, MutexGuard, RwLock, RwLockWriteGuard};
 use std::{
     collections::{BTreeMap, HashMap},
     iter::Peekable,
@@ -35,7 +35,7 @@ pub struct Epochs {
 #[derive(Default)]
 pub struct Epoch {
     pub auth: Option<EpochAuth>,
-    pub states: Vec<GroupState>,
+    pub states: Vec<Arc<Mutex<GroupState>>>,
 }
 
 impl LogState {
@@ -84,6 +84,19 @@ impl LogState {
         match (group_id, event.event) {
             (_, Event::AssociateName) => {
                 client.name = Some(ctx("name")?.as_str()?.to_string());
+            }
+            (_, Event::ClientCreated) => {
+                client.num_clients += 1;
+
+                if client.num_clients > 1 {
+                    event.problems.lock().push(format!(
+                        "More than one client connected to an installation. count: {}",
+                        client.num_clients
+                    ));
+                }
+            }
+            (_, Event::ClientDropped) => {
+                client.num_clients -= 1;
             }
             (Some(group_id), raw_event) => {
                 {
@@ -137,6 +150,7 @@ pub struct ClientState {
     pub name: Option<String>,
     pub events: Vec<Arc<LogEvent>>,
     pub groups: HashMap<String, Arc<RwLock<Group>>>,
+    pub num_clients: isize,
     pub inst: String,
     pub inbox_id: String,
 }
@@ -149,6 +163,7 @@ impl ClientState {
             groups: HashMap::default(),
             inst: inst.to_string(),
             inbox_id: inbox_id.to_string(),
+            num_clients: 0,
         }
     }
 
@@ -169,12 +184,13 @@ impl ClientState {
 
 pub struct Group {
     pub installation_id: String,
-    pub states: Vec<GroupState>,
+    pub states: Vec<Arc<Mutex<GroupState>>>,
 }
 
 impl Group {
     fn sort(&mut self) {
-        self.states.sort_by(|a, b| a.event.time.cmp(&b.event.time));
+        self.states
+            .sort_by(|a, b| a.lock().event.time.cmp(&b.lock().event.time));
     }
 }
 
@@ -206,7 +222,7 @@ impl Group {
     fn new(event: &Arc<LogEvent>) -> Arc<RwLock<Self>> {
         Arc::new(RwLock::new(Self {
             installation_id: event.installation.clone(),
-            states: vec![GroupState::new(event)],
+            states: vec![Arc::new(Mutex::new(GroupState::new(event)))],
         }))
     }
 }
@@ -228,17 +244,17 @@ impl GroupState {
 }
 
 impl Group {
-    fn new_event(&mut self, event: &Arc<LogEvent>) -> &mut GroupState {
+    fn new_event(&mut self, event: &Arc<LogEvent>) -> MutexGuard<'_, GroupState> {
         let last = self.states.last().expect("There should always be one");
 
         let new_state = GroupState {
             problems: vec![],
             event: event.clone(),
-            ..last.clone()
+            ..last.lock().clone()
         };
 
-        self.states.push(new_state);
-        self.states.last_mut().expect("Just pushed")
+        self.states.push(Arc::new(Mutex::new(new_state)));
+        self.states.last().expect("Just pushed").lock()
     }
 }
 

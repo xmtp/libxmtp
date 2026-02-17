@@ -57,6 +57,10 @@ fn main() -> Result<()> {
                     bo.test_talk_in_dm_with(&alix).await?;
                     let (group, _) = bo.test_talk_in_new_group_with(&alix).await?;
                     group.add_members(&[caro.inbox_id()]).await?;
+
+                    alix.save_snapshot_to_file("alix.db3");
+                    tester!(alix2, snapshot_file: "alix.db3", stream);
+
                     group.update_group_name("Fellows".into()).await?;
                     caro.sync_all_welcomes_and_groups(None).await?;
                     bo.sync_all_welcomes_and_groups(None).await?;

@@ -4,7 +4,7 @@ use crate::{
     state::{GroupState, LogEvent, LogState},
     ui::file_open::color_from_string,
 };
-use slint::{ModelRc, SharedString, VecModel, Weak};
+use slint::{Color, ModelRc, SharedString, VecModel, Weak};
 use std::{collections::BTreeSet, sync::Arc};
 
 fn short_id(id: &str) -> String {
@@ -143,13 +143,15 @@ impl LogState {
 
                             loop {
                                 let cell = match (states.peek(), outer_events.peek()) {
-                                    (Some(state), Some(event)) if event.time < state.event.time => {
+                                    (Some(state), Some(event))
+                                        if event.time < state.lock().event.time =>
+                                    {
                                         let event = outer_events.next().unwrap();
                                         event.ui_group_state()
                                     }
                                     (Some(_state), _) => {
                                         let state = states.next().unwrap();
-                                        state.ui_group_state()
+                                        state.lock().ui_group_state()
                                     }
                                     // Drain the outer events if we're in the last epoch
                                     (None, Some(_event)) if i + 1 == epoch_numbers.len() => {
@@ -199,15 +201,22 @@ impl LogState {
 
 impl LogEvent {
     fn ui_group_state(&self) -> UIGroupState {
+        let problem_strings: Vec<SharedString> = self
+            .problems
+            .lock()
+            .iter()
+            .map(|p| SharedString::from(p))
+            .collect();
+
         UIGroupState {
             msg: SharedString::from(self.msg),
             icon: SharedString::from(self.icon),
             context: ModelRc::new(VecModel::from(self.ui_context_entries())),
             intermediate: SharedString::from(&self.intermediate),
-            problem_count: 0,
             epoch: -1,
             previous_epoch: -1,
-            problems: ModelRc::default(),
+            problems: ModelRc::new(VecModel::from(problem_strings)),
+            background: Color::from_rgb_u8(211, 211, 211),
         }
     }
 }
@@ -225,10 +234,10 @@ impl GroupState {
             icon: SharedString::from(self.event.icon),
             epoch: self.epoch.unwrap_or(-1) as i32,
             previous_epoch: self.previous_epoch.unwrap_or(-1) as i32,
-            problem_count: self.problems.len() as i32,
             problems: ModelRc::new(VecModel::from(problem_strings)),
             context: ModelRc::new(VecModel::from(self.event.ui_context_entries())),
             intermediate: SharedString::from(&self.event.intermediate),
+            background: Color::from_rgb_u8(255, 255, 255),
         }
     }
 }

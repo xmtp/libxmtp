@@ -23,30 +23,6 @@ impl LogAssertion for EpochContinuityAssertion {
         }
 
         for (group_id, groups) in group_collection {
-            for group in &groups {
-                let mut epoch = None;
-                for state in &mut group.write().states {
-                    if let Some(state_epoch) = state.epoch {
-                        if let Some(e) = epoch
-                            && e > state_epoch
-                        {
-                            state.problems.push(GroupStateProblem {
-                                description: format!(
-                                    "Epoch traveled backwards. From {e} to {state_epoch}"
-                                ),
-                                severity: Severity::Error,
-                            });
-                        }
-
-                        epoch = Some(state_epoch);
-
-                        continue;
-                    }
-
-                    state.epoch = epoch;
-                }
-            }
-
             // Group the events into epochs
             let mut all_group_epochs = state.grouped_epochs.write();
             let group_epochs = all_group_epochs.entry(group_id.clone()).or_default();
@@ -57,6 +33,7 @@ impl LogAssertion for EpochContinuityAssertion {
                 let mut auth: Option<String> = None;
                 let mut group = group.write();
                 for state in &mut group.states {
+                    let mut state = state.lock();
                     match (epoch, state.epoch) {
                         (Some(e), None) => {
                             state.epoch = Some(e);
@@ -95,7 +72,7 @@ impl LogAssertion for EpochContinuityAssertion {
                     .entry(group.installation_id.clone())
                     .or_default();
                 for state in &group.states {
-                    let Some(epoch) = state.epoch else {
+                    let Some(epoch) = state.lock().epoch else {
                         continue;
                     };
                     let installation_epoch = installation_epochs.epochs.entry(epoch).or_default();

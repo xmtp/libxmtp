@@ -1,5 +1,6 @@
 use crate::{LogParser, Rule, UIContextEntry, state::Value, ui::file_open::color_from_string};
 use anyhow::{Context, Result, bail};
+use parking_lot::Mutex;
 use pest::Parser;
 use slint::{Color, SharedString};
 use std::{collections::HashMap, iter::Peekable};
@@ -14,6 +15,7 @@ pub struct LogEvent {
     pub context: HashMap<String, Value>,
     pub intermediate: String,
     pub time: i64,
+    pub problems: Mutex<Vec<String>>,
 }
 
 pub(crate) const TIME_KEY: &str = "time";
@@ -119,6 +121,7 @@ impl LogEvent {
             context,
             intermediate,
             time: time.as_int()?,
+            problems: Mutex::default(),
         })
     }
 }
