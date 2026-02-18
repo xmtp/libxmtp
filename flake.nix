@@ -20,6 +20,7 @@
       url = "https://static.rust-lang.org/dist/channel-rust-1.92.0.toml";
       flake = false;
     };
+    treefmt-nix.url = "github:numtide/treefmt-nix";
   };
 
   outputs =
@@ -35,10 +36,12 @@
         flake-parts.flakeModules.easyOverlay
         inputs.rust-flake.flakeModules.default
         inputs.rust-flake.flakeModules.nixpkgs
+        inputs.treefmt-nix.flakeModule
         ./nix/rust-defaults.nix
         ./nix/rust.nix
         ./nix/musl-docker.nix
         ./nix/ci-checks.nix
+        ./nix/fmt.nix
       ];
       perSystem =
         { pkgs, lib, ... }:

@@ -5,7 +5,6 @@ _: {
     {
       checks.all-packages = pkgs.linkFarm "all-packages" {
         inherit (self'.packages)
-          android-libs
           android-libs-fast
           wasm-bindings
           wasm-bindgen-cli

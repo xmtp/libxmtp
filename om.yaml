@@ -28,10 +28,6 @@ develop:
     readme: |
       Welcome to **libxmtp** devshell
 
-      refer to ./dev/ for development scripts
-
       🌐 ./dev/docker/up to get a network environment setup
 
-      🦀 ./dev/lint-rust to lint rust
-
-      🕸️ om ci run .#wasm for webassembly ci tests
+      🦀 run `just` to see all recipes

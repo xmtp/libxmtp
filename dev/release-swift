@@ -4,9 +4,10 @@ set -eou pipefail
 # Local script to release android jniLibs with same environment as CI
 
 WORKSPACE_MANIFEST="$(cargo locate-project --workspace --message-format=plain)"
-WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
+WORKSPACE_PATH="$(dirname "$WORKSPACE_MANIFEST")"
 BINDINGS_MANIFEST="$WORKSPACE_PATH/bindings/mobile/Cargo.toml"
-BINDINGS_PATH="$(dirname $BINDINGS_MANIFEST)"
+BINDINGS_PATH="$(dirname "$BINDINGS_MANIFEST")"
+# shellcheck disable=SC2034 # TARGET_DIR may be used externally or in future
 TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | jq -r '.target_directory')"
 XMTP_SWIFT="${1:-$(realpath ../../libxmtp-swift)}"
 
@@ -25,7 +26,7 @@ if [[ "${OSTYPE}" == "darwin"* ]]; then
   fi
 fi
 # Maybe set IPHONEOS_DEPLOYMENT_TARGET to 10?
-cd $BINDINGS_PATH
+cd "$BINDINGS_PATH"
 nix develop ../.. --command make swift
 for file in "build/swift/xmtpv3.swift" "build/swift/libxmtp-version.txt"; do
   if [ -f "$file" ]; then
