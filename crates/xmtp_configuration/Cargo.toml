@@ -1,9 +1,11 @@
 [package]
 name = "xmtp_configuration"
-edition = "2024"
+description = "global configuration for xmtp crates"
 license.workspace = true
 version.workspace = true
-description = "global configuration for xmtp crates"
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
 
 [dependencies]
 openmls.workspace = true

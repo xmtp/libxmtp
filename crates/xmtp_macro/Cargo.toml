@@ -1,25 +1,20 @@
 [package]
 name = "xmtp_macro"
-edition = "2024"
+description = "XMTP Utility Macros"
 license.workspace = true
 version.workspace = true
-description = "XMTP Utility Macros"
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
 
 [lints]
 workspace = true
 
 [dependencies]
 num_cpus = "1.17"
-proc-macro2 = "1.0"
-quote = "1.0"
-syn = { version = "2.0", default-features = false, features = [
-  "parsing",
-  "proc-macro",
-  "derive",
-  "printing",
-  "full",
-  "clone-impls",
-] }
+proc-macro2.workspace = true
+quote.workspace = true
+syn.workspace = true
 xmtp-workspace-hack.workspace = true
 
 [lib]

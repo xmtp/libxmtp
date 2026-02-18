@@ -1,9 +1,11 @@
 [package]
-edition = "2024"
 name = "bindings_node"
-version.workspace = true
 description = "nodeJS bindings to the XMTP mls libraries"
 license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
 
 [lints]
 workspace = true
