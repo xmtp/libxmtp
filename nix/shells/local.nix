@@ -23,6 +23,7 @@
   swiftlint,
   kotlin-language-server,
   xmtp,
+  rust-analyzer,
 }:
 let
   inherit (stdenv) isDarwin;
@@ -78,6 +79,7 @@ mkShell {
     ++ [
       # Combined toolchain (wasm + android + iOS targets)
       rust-toolchain
+      rust-analyzer
       foundry-bin
       sqlcipher
       corepack
