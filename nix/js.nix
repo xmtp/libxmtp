@@ -25,6 +25,7 @@ mkShell {
     buf
     curl
     geckodriver
+    # playwright version here must match that in package.json EXACTLY for integration tests to work
     playwright
     playwright-driver.browsers
     corepack
@@ -32,5 +33,6 @@ mkShell {
   ++ lib.optionals stdenv.isDarwin [
     darwin.cctools
   ];
+
   VITE_PROJECT_ID = "2ca676e2e5e9322c40c68f10dca637e5";
 }

@@ -24,6 +24,7 @@
   kotlin-language-server,
   xmtp,
   rust-analyzer,
+  just,
 }:
 let
   inherit (stdenv) isDarwin;
@@ -77,6 +78,7 @@ mkShell {
   buildInputs =
     shellCommon.rustBase.buildInputs
     ++ [
+      just
       # Combined toolchain (wasm + android + iOS targets)
       rust-toolchain
       rust-analyzer

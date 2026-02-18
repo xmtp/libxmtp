@@ -1,3 +1,5 @@
+#!/bin/bash
+
 PROJECT_NAME="xmtpv3"
 
 RED='\033[0;31m'
@@ -17,7 +19,6 @@ if [ ! -d $XMTP_ANDROID ]; then
 fi
 echo "Android Directory: $XMTP_ANDROID"
 
-LIBFILE=$([ "$(uname)" == "Darwin" ] && echo "lib${PROJECT_NAME}.dylib" || echo "lib${PROJECT_NAME}.so")
 cd $WORKSPACE_PATH
 cargo build --release -p xmtpv3
 rm -rf $BINDINGS_PATH/src/uniffi

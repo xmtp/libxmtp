@@ -53,6 +53,16 @@ Start Docker Desktop.
 
   Specifically, this command creates and runs an XMTP node in Docker Desktop.
 
+- This project uses [`just`](https://github.com/casey/just) as a command
+  runner. Run `just` to list all available recipes, including submodules for
+  Android, iOS, Node.js, and WASM:
+
+  ```bash
+  just          # List all recipes
+  just format   # Format code
+  just lint     # Run all linting
+  ```
+
 - To run tests:
 
   ```bash
