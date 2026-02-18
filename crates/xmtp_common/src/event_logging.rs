@@ -43,6 +43,7 @@ pub enum Event {
         group_id,
         actor_installation_id,
         epoch,
+        epoch_auth,
         added_inboxes,
         removed_inboxes,
         left_inboxes,

@@ -407,36 +407,54 @@ component GroupContainer inherits Rectangle {
         }
 
         // ─── Table with sticky labels ───
-        HorizontalLayout {
-            spacing: 0px;
-
-            // ─── Fixed Left Column (sticky labels) ───
+        data-flickable := Flickable {
             VerticalLayout {
-                width: EpochConstants.label-column-width;
                 alignment: start;
                 spacing: 0px;
 
-                // Corner header
+                // ─── Header Row ───
                 Rectangle {
-                    width: EpochConstants.label-column-width;
                     height: EpochConstants.header-height;
-                    background: #f0f0f0;
-                    border-width: 1px;
-                    border-color: #d0d0d0;
 
-                    Text {
-                        text: "Installation";
-                        font-size: 11px;
-                        font-weight: 600;
-                        color: #666666;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
+                    // Scrollable epoch column headers (with spacer for label column)
+                    HorizontalLayout {
+                        spacing: 0px;
+                        alignment: start;
+
+                        // Spacer so epoch headers start after label column
+                        Rectangle {
+                            width: EpochConstants.label-column-width;
+                            height: EpochConstants.header-height;
+                        }
+
+                        for hdr in root.group-row.epoch-headers: EpochColumnHeader {
+                            header: hdr;
+                        }
+                    }
+
+                    // Sticky corner header overlay (stays fixed horizontally)
+                    Rectangle {
+                        x: -data-flickable.viewport-x;
+                        width: EpochConstants.label-column-width;
+                        height: EpochConstants.header-height;
+                        background: #f0f0f0;
+                        border-width: 1px;
+                        border-color: #d0d0d0;
+
+                        Text {
+                            text: "Installation";
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: #666666;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
                     }
                 }
 
-                // Installation labels — heights match the data rows via preferred-height
+                // ─── Data Rows (label + cells share the same row Rectangle = same height) ───
                 for inst-row in root.group-row.installation-rows: Rectangle {
-                    min-height: label-inner.preferred-height;
+                    min-height: row-inner.preferred-height;
                     background: mod(self.absolute-position.y / 1px, 2) >= 1.0 ? #f5f5fa : #fafafe;
 
                     // Row separator
@@ -447,42 +465,41 @@ component GroupContainer inherits Rectangle {
                         width: parent.width;
                     }
 
-                    label-inner := VerticalLayout {
-                        padding-top: EpochConstants.row-vertical-padding;
-                        padding-bottom: EpochConstants.row-vertical-padding;
-                        alignment: start;
-
-                        InstallationLabel {
-                            name: inst-row.installation-name;
-                            inst-color: inst-row.installation-color;
-                        }
-                    }
-                }
-            }
-
-            // ─── Scrollable Epoch Data (horizontal only) ───
-            Flickable {
-                VerticalLayout {
-                    alignment: start;
-                    spacing: 0px;
-
-                    // ─── Column Headers Row ───
-                    HorizontalLayout {
+                    // Scrollable data cells (with spacer for label column)
+                    row-inner := HorizontalLayout {
                         spacing: 0px;
                         alignment: start;
+                        padding-top: EpochConstants.row-vertical-padding;
+                        padding-bottom: EpochConstants.row-vertical-padding;
 
-                        for hdr in root.group-row.epoch-headers: EpochColumnHeader {
-                            header: hdr;
+                        // Spacer so cells start after label column
+                        Rectangle {
+                            width: EpochConstants.label-column-width;
+                        }
+
+                        // Cells for each epoch
+                        for cell[idx] in inst-row.cells: InstallationCell {
+                            cell: cell;
+                            column-max-states: root.group-row.epoch-headers[idx].max-states;
+                            group-focused: root.group-focused;
+                            warning-clicked => {
+                                root.focus-group(root.group-row.group-id);
+                            }
+                            logs-clicked(intermediate) => {
+                                root.focus-group-logs(root.group-row.group-id, intermediate);
+                            }
                         }
                     }
 
-                    // ─── Data Rows ───
-                    for inst-row in root.group-row.installation-rows: Rectangle {
-                        min-height: row-inner.preferred-height;
-                        background: mod(self.absolute-position.y / 1px, 2) >= 1.0 ? #f5f5fa : #fafafe;
-                        border-width: 0px;
+                    // Sticky label overlay (stays fixed horizontally)
+                    Rectangle {
+                        x: -data-flickable.viewport-x;
+                        y: 0;
+                        width: EpochConstants.label-column-width;
+                        height: parent.height;
+                        background: parent.background;
 
-                        // Subtle row separator
+                        // Row separator (on overlay too)
                         Rectangle {
                             height: 1px;
                             background: #e8e8e8;
@@ -490,24 +507,10 @@ component GroupContainer inherits Rectangle {
                             width: parent.width;
                         }
 
-                        row-inner := HorizontalLayout {
-                            spacing: 0px;
-                            alignment: start;
-                            padding-top: EpochConstants.row-vertical-padding;
-                            padding-bottom: EpochConstants.row-vertical-padding;
-
-                            // Cells for each epoch
-                            for cell[idx] in inst-row.cells: InstallationCell {
-                                cell: cell;
-                                column-max-states: root.group-row.epoch-headers[idx].max-states;
-                                group-focused: root.group-focused;
-                                warning-clicked => {
-                                    root.focus-group(root.group-row.group-id);
-                                }
-                                logs-clicked(intermediate) => {
-                                    root.focus-group-logs(root.group-row.group-id, intermediate);
-                                }
-                            }
+                        InstallationLabel {
+                            name: inst-row.installation-name;
+                            inst-color: inst-row.installation-color;
+                            y: (parent.height - self.height) / 2;
                         }
                     }
                 }

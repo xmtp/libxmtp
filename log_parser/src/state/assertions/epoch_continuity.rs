@@ -1,5 +1,5 @@
 use crate::state::{
-    GroupStateProblem, LogState, Severity,
+    LogState,
     assertions::{AssertionFailure, LogAssertion},
 };
 use anyhow::Result;
@@ -37,16 +37,16 @@ impl LogAssertion for EpochContinuityAssertion {
                     match (epoch, state.epoch) {
                         (Some(e), None) => {
                             state.epoch = Some(e);
+                        }
+                        (Some(a), Some(b)) if b < a => state
+                            .event
+                            .problems
+                            .lock()
+                            .push(format!("Epoch went backwards. Was {a}, is now {b}.")),
+                        (_, Some(e)) => {
+                            epoch = Some(e);
                             state.epoch_auth = None;
                         }
-                        (None, Some(e)) => {
-                            epoch = Some(e);
-                        }
-                        (Some(a), Some(b)) if b < a => state.problems.push(GroupStateProblem {
-                            description: format!("Epoch went backwards. Was {a}, is now {b}."),
-                            severity: Severity::Error,
-                        }),
-                        (_, Some(e)) => epoch = Some(e),
                         _ => {}
                     }
 
@@ -54,10 +54,10 @@ impl LogAssertion for EpochContinuityAssertion {
                         (Some(a), None) => state.epoch_auth = Some(a.clone()),
                         (None, Some(a)) => auth = Some(a.clone()),
                         (Some(a), Some(b)) if a != b => {
-                            state.problems.push(GroupStateProblem {
-                                description: format!("Epoch auth changed mid-epoch."),
-                                severity: Severity::Error,
-                            });
+                            let description =
+                                format!("Epoch auth changed mid-epoch. From {b} to {a}");
+                            auth = Some(b.clone());
+                            state.event.problems.lock().push(description);
                         }
                         _ => {}
                     }

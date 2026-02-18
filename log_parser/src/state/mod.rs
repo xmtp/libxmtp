@@ -204,18 +204,6 @@ pub struct GroupState {
     pub cursor: Option<i64>,
     pub originator: Option<i64>,
     pub members: HashMap<InstallationId, Weak<RwLock<ClientState>>>,
-    pub problems: Vec<GroupStateProblem>,
-}
-
-#[derive(Clone)]
-pub struct GroupStateProblem {
-    pub description: String,
-    pub severity: Severity,
-}
-
-#[derive(Clone)]
-pub enum Severity {
-    Error,
 }
 
 impl Group {
@@ -238,7 +226,6 @@ impl GroupState {
             cursor: None,
             originator: None,
             members: HashMap::new(),
-            problems: Vec::new(),
         }
     }
 }
@@ -248,7 +235,6 @@ impl Group {
         let last = self.states.last().expect("There should always be one");
 
         let new_state = GroupState {
-            problems: vec![],
             event: event.clone(),
             ..last.lock().clone()
         };

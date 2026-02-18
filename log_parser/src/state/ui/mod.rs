@@ -134,33 +134,40 @@ impl LogState {
                         let mut outer_events = outer_events_guard.iter().peekable();
 
                         for (i, epoch_number) in epoch_numbers.iter().enumerate() {
-                            let Some(epoch) = epochs.epochs.get(epoch_number) else {
-                                continue;
-                            };
-
                             let mut ui_states = vec![];
-                            let mut states = epoch.states.iter().peekable();
 
-                            loop {
-                                let cell = match (states.peek(), outer_events.peek()) {
-                                    (Some(state), Some(event))
-                                        if event.time < state.lock().event.time =>
-                                    {
-                                        let event = outer_events.next().unwrap();
-                                        event.ui_group_state()
+                            // First, drain any outer_events that come before this epoch
+                            if let Some(epoch) = epochs.epochs.get(epoch_number) {
+                                let mut states = epoch.states.iter().peekable();
+
+                                loop {
+                                    let cell = match (states.peek(), outer_events.peek()) {
+                                        (Some(state), Some(event))
+                                            if event.time < state.lock().event.time =>
+                                        {
+                                            let event = outer_events.next().unwrap();
+                                            event.ui_group_state()
+                                        }
+                                        (Some(_state), _) => {
+                                            let state = states.next().unwrap();
+                                            state.lock().ui_group_state()
+                                        }
+                                        // Drain the outer events if we're in the last epoch
+                                        (None, Some(_event)) if i + 1 == epoch_numbers.len() => {
+                                            let event = outer_events.next().unwrap();
+                                            event.ui_group_state()
+                                        }
+                                        _ => break,
+                                    };
+                                    ui_states.push(cell);
+                                }
+                            } else {
+                                // No epoch data, but still drain outer events if this is the last epoch
+                                if i + 1 == epoch_numbers.len() {
+                                    while let Some(event) = outer_events.next() {
+                                        ui_states.push(event.ui_group_state());
                                     }
-                                    (Some(_state), _) => {
-                                        let state = states.next().unwrap();
-                                        state.lock().ui_group_state()
-                                    }
-                                    // Drain the outer events if we're in the last epoch
-                                    (None, Some(_event)) if i + 1 == epoch_numbers.len() => {
-                                        let event = outer_events.next().unwrap();
-                                        event.ui_group_state()
-                                    }
-                                    _ => break,
-                                };
-                                ui_states.push(cell);
+                                }
                             }
 
                             let state_count = ui_states.len() as i32;
@@ -224,9 +231,11 @@ impl LogEvent {
 impl GroupState {
     fn ui_group_state(&self) -> UIGroupState {
         let problem_strings: Vec<SharedString> = self
+            .event
             .problems
+            .lock()
             .iter()
-            .map(|p| SharedString::from(&p.description))
+            .map(|p| SharedString::from(p))
             .collect();
 
         UIGroupState {
