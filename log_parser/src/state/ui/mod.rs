@@ -224,6 +224,7 @@ impl LogEvent {
             previous_epoch: -1,
             problems: ModelRc::new(VecModel::from(problem_strings)),
             background: Color::from_rgb_u8(211, 211, 211),
+            line_number: self.line_number as i32,
         }
     }
 }
@@ -247,6 +248,7 @@ impl GroupState {
             context: ModelRc::new(VecModel::from(self.event.ui_context_entries())),
             intermediate: SharedString::from(&self.event.intermediate),
             background: Color::from_rgb_u8(255, 255, 255),
+            line_number: self.event.line_number as i32,
         }
     }
 }

@@ -44,8 +44,9 @@ impl LogState {
     }
 
     pub fn ingest_all<'a>(&self, mut lines: Peekable<impl Iterator<Item = &'a str>>) {
-        while let Ok(event) =
-            LogEvent::from(&mut lines).inspect_err(|e| tracing::error!("Parsing err: {e:?}"))
+        let mut line_count: usize = 0;
+        while let Ok(event) = LogEvent::from(&mut lines, &mut line_count)
+            .inspect_err(|e| tracing::error!("Parsing err: {e:?}"))
         {
             if let Err(err) = self.ingest(Arc::new(event)) {
                 tracing::warn!("{err:?}");
@@ -298,7 +299,8 @@ mod tests {
         let line = r#"2026-02-12T21:04:02.542222Z  INFO sync_with_conn{self=Group { id: [0x52db...7067], created: [21:04:02], client: [dce8901bbeb060ab6eeb05fa52c27bd1232e9a68a2759cdab430d029854d225e], installation: [1919c3ba4b4ff946372cf004c718810bfb8747732397369c9ce67b40c0d8ca8e] } who=dce8901bbeb060ab6eeb05fa52c27bd1232e9a68a2759cdab430d029854d225e}:process_messages{who=dce8901bbeb060ab6eeb05fa52c27bd1232e9a68a2759cdab430d029854d225e}:process_message{trust_message_order=true envelope=GroupMessage { cursor [sid( 52773):oid(  0)], depends on                          , created at 21:04:02.492156, group 52dbb036fa67ad5b7c1f90f55f787067 }}: xmtp_mls::groups::mls_sync: ➣ Received staged commit. Merging and clearing any pending commits. {group_id: "52dbb036", sender_installation_id: "cbedac3e", msg_epoch: 1, epoch: 1, time: 1770930242542, inst: "1919c3ba"} inbox_id="dce8901bbeb060ab6eeb05fa52c27bd1232e9a68a2759cdab430d029854d225e" sender_inbox="46c640424325059475531d54205ac3f635d75125d79dd8cfe37e303bcbb24cdc" sender_installation_id=cbedac3e group_id=52dbb036 epoch=1 msg_epoch=1 msg_group_id=52dbb036 cursor=[sid( 52773):oid(  0)]"#;
         let mut line = line.split('\n').peekable();
 
-        let event = LogEvent::from(&mut line)?;
+        let mut line_count: usize = 0;
+        let event = LogEvent::from(&mut line, &mut line_count)?;
         assert_eq!(event.event, Event::MLSReceivedStagedCommit);
 
         let group_id = event.context("group_id");
@@ -309,7 +311,8 @@ mod tests {
     async fn test_dm_created_with_unquoted_group_id() {
         let line = r#"2026-01-13T16:01:32.795843Z  INFO xmtp_mls::client: ➣ DM created. {group_id: 6dbafe8fc16699dfe3b59d60944150b3, target_inbox: "ab23790529e1fa52ed453e69d0d342f02bc8db8e2317f6229672dd0ca4f6d527", inbox: "2857d", timestamp: 1768320092795839419} group_id=6dbafe8fc16699dfe3b59d60944150b3 target_inbox="ab23790529e1fa52ed453e69d0d342f02bc8db8e2317f6229672dd0ca4f6d527" inbox=2857d"#;
 
-        let event = LogEvent::from(&mut line.split('\n').peekable())?;
+        let mut line_count: usize = 0;
+        let event = LogEvent::from(&mut line.split('\n').peekable(), &mut line_count)?;
         assert_eq!(event.event, Event::CreatedDM);
 
         let group_id = event.context("group_id");

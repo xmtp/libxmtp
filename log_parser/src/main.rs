@@ -110,8 +110,9 @@ mod tests {
         let mut lines = log.split("\n").peekable();
 
         let mut count = 0;
+        let mut line_count: usize = 0;
 
-        while let Ok(_event) = LogEvent::from(&mut lines) {
+        while let Ok(_event) = LogEvent::from(&mut lines, &mut line_count) {
             count += 1;
         }
 

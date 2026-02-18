@@ -37,11 +37,10 @@ export struct UIStream {
 
 component LogEntryRow inherits Rectangle {
     in property <UIEvent> entry;
-    in property <length> available-width;
 
     min-height: layout.preferred-height;
     preferred-height: layout.preferred-height;
-    width: available-width;
+    horizontal-stretch: 1;
     border-width: 1px;
     border-color: #e0e0e0;
     border-radius: 4px;
@@ -58,7 +57,7 @@ component LogEntryRow inherits Rectangle {
         VerticalBox {
             padding: 8px;
             spacing: 2px;
-            min-height: ctx-text.preferred-height + min(ctx-scroll.preferred-height, ctx-scroll.max-height) + 2px;
+            min-height: ctx-text.preferred-height + min(ctx-flickable.preferred-height, ctx-flickable.max-height) + 2px;
 
             ctx-text := Text {
                 text: root.entry.event;
@@ -67,14 +66,15 @@ component LogEntryRow inherits Rectangle {
                 color: #333333;
             }
 
-            ctx-scroll := ScrollView {
-                min-height: min(120px, ctx-layout.preferred-height + 10px);
-                max-height: 150px;
-                preferred-height: ctx-layout.preferred-height + 10px;
+            ctx-flickable := Flickable {
+                vertical-stretch: 1;
+                viewport-height: ctx-layout.preferred-height;
+                viewport-width: self.width;
 
                 ctx-layout := VerticalLayout {
                     alignment: start;
                     spacing: 2px;
+                    width: ctx-flickable.viewport-width;
 
                     for ctx in root.entry.context: VerticalBox {
                         alignment: LayoutAlignment.start;
@@ -136,15 +136,16 @@ component LogColumn inherits Rectangle {
             }
         }
 
-        scroll := ScrollView {
-            VerticalLayout {
+        scroll := Flickable {
+            viewport-height: scroll-layout.preferred-height;
+
+            scroll-layout := VerticalLayout {
                 alignment: start;
                 padding: 4px;
                 spacing: 4px;
 
                 for entry in root.log-stream.entries: LogEntryRow {
                     entry: entry;
-                    available-width: scroll.visible-width - 8px;
                 }
             }
         }

@@ -23,6 +23,7 @@ export struct UIGroupState {
     problems: [string],
     context: [UIContextEntry],
     intermediate: string,
+    line-number: int,
 }
 
 export struct UIInstallationCell {
@@ -116,6 +117,22 @@ component GroupStateCard inherits Rectangle {
         HorizontalLayout {
             alignment: start;
             spacing: 4px;
+
+            if root.state.line-number > 0: Rectangle {
+                width: line-label.preferred-width + 10px;
+                height: line-label.preferred-height + 4px;
+                background: #f0f0f0;
+                border-radius: 3px;
+
+                line-label := Text {
+                    text: "L" + root.state.line-number;
+                    font-size: 9px;
+                    font-weight: 500;
+                    color: #888888;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
 
             if root.state.previous-epoch != -1: Rectangle {
                 width: prev-label.preferred-width + 10px;

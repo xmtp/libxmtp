@@ -6,6 +6,48 @@ use slint::{Color, SharedString};
 use std::{collections::HashMap, iter::Peekable};
 use xmtp_common::Event;
 
+/// Strip ANSI escape sequences (CSI sequences like color codes) from a string
+/// so that raw log output displays cleanly in the UI.
+fn strip_ansi_escapes(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            match chars.next() {
+                // CSI sequence: ESC [ <params> <final byte>
+                // Parameter bytes are in 0x30-0x3F, intermediate bytes in 0x20-0x2F,
+                // and the final byte is in 0x40-0x7E.
+                Some('[') => {
+                    for c in chars.by_ref() {
+                        let b = c as u32;
+                        if (0x40..=0x7E).contains(&b) {
+                            break;
+                        }
+                    }
+                }
+                // OSC sequence: ESC ] ... (terminated by BEL or ST)
+                Some(']') => {
+                    let mut prev = '\0';
+                    for c in chars.by_ref() {
+                        if c == '\x07' || (prev == '\x1b' && c == '\\') {
+                            break;
+                        }
+                        prev = c;
+                    }
+                }
+                // For other escape sequences (e.g. ESC followed by a single char),
+                // just skip the ESC and that character.
+                Some(_) => {}
+                // Trailing ESC at end of string
+                None => {}
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 #[derive(Debug)]
 pub struct LogEvent {
     pub event: Event,
@@ -14,6 +56,7 @@ pub struct LogEvent {
     pub installation: String,
     pub context: HashMap<String, Value>,
     pub intermediate: String,
+    pub line_number: usize,
     pub time: i64,
     pub problems: Mutex<Vec<String>>,
 }
@@ -52,11 +95,15 @@ impl LogEvent {
         self.context.get("group_id").and_then(|v| v.as_str().ok())
     }
 
-    pub fn from<'a>(lines: &mut Peekable<impl Iterator<Item = &'a str>>) -> Result<Self> {
-        let (line, line_str) = loop {
+    pub fn from<'a>(
+        lines: &mut Peekable<impl Iterator<Item = &'a str>>,
+        line_count: &mut usize,
+    ) -> Result<Self> {
+        let (line, line_str, line_number) = loop {
             let line_str = lines.next().context("End of file")?;
+            *line_count += 1;
             if let Ok(line) = LogParser::parse(Rule::line, line_str) {
-                break (line, line_str);
+                break (line, line_str, *line_count);
             }
         };
 
@@ -104,11 +151,13 @@ impl LogEvent {
             .remove(TIME_KEY)
             .with_context(|| format!("{line_str} is missing time field."))?;
 
-        // Collect up the intermediate lines that don't parse.
+        // Collect up the intermediate lines that don't parse,
+        // stripping ANSI escape codes so they display cleanly in the UI.
         let mut intermediate = String::new();
         while lines.peek().is_some_and(|l| !l.contains("➣")) {
             if let Some(line) = lines.next() {
-                intermediate.push_str(line);
+                *line_count += 1;
+                intermediate.push_str(&strip_ansi_escapes(line));
                 intermediate.push('\n');
             }
         }
@@ -120,6 +169,7 @@ impl LogEvent {
             installation,
             context,
             intermediate,
+            line_number,
             time: time.as_int()?,
             problems: Mutex::default(),
         })
