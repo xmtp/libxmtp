@@ -723,6 +723,9 @@ export component EpochTab inherits Rectangle {
                     root.focused-intermediate = intermediate;
                 }
                 state-clicked(group-id, installation-id, unique-id) => {
+                    root.focused-group-id = group-id;
+                    root.focus-mode = "";
+                    root.focused-intermediate = "";
                     root.state-clicked(group-id, installation-id, unique-id);
                 }
             }
