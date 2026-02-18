@@ -8,7 +8,7 @@ mod pretty;
 mod serializable;
 
 use crate::serializable::{SerializableGroup, SerializableMessage};
-use alloy::signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner};
+use alloy::signers::local::{MnemonicBuilder, PrivateKeySigner, coins_bip39::English};
 use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::eyre;
 use debug::DebugCommands;
@@ -21,40 +21,40 @@ use std::sync::Arc;
 use std::{fs, path::PathBuf, time::Duration};
 use thiserror::Error;
 use tracing::Dispatch;
-use tracing_subscriber::field::MakeExt;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::field::MakeExt;
 use tracing_subscriber::{
+    Registry,
     fmt::{format, time},
     layer::SubscriberExt,
     prelude::*,
-    Registry,
 };
 use valuable::Valuable;
-use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_api_d14n::MessageBackendBuilder;
+use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_common::time::now_ns;
 use xmtp_configuration::{
     DeviceSyncUrls, GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsProduction, GrpcUrlsStaging,
 };
-use xmtp_content_types::{text::TextCodec, ContentCodec};
+use xmtp_content_types::{ContentCodec, text::TextCodec};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::signature::SignatureError;
+use xmtp_db::NativeDb;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group_message::MsgQueryArgs;
-use xmtp_db::NativeDb;
 use xmtp_db::{
-    group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
+    EncryptedMessageStore, EncryptionKey, StorageError, group_message::StoredGroupMessage,
 };
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, AssociationState, Identifier, MemberKind};
-use xmtp_mls::context::XmtpMlsLocalContext;
-use xmtp_mls::context::XmtpSharedContext;
-use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
-use xmtp_mls::groups::GroupError;
 use xmtp_mls::XmtpApi;
 use xmtp_mls::XmtpApiClient;
+use xmtp_mls::context::XmtpMlsLocalContext;
+use xmtp_mls::context::XmtpSharedContext;
+use xmtp_mls::groups::GroupError;
+use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
+use xmtp_mls::{InboxOwner, identity::IdentityStrategy};
 use xmtp_mls::{builder::ClientBuilderError, client::ClientError};
-use xmtp_mls::{identity::IdentityStrategy, InboxOwner};
 use xmtp_proto::types::ApiIdentifier;
 
 #[macro_use]

@@ -2,6 +2,7 @@ exclude = [
   ".direnv/**",
   "crates/xmtp_proto/Cargo.toml",
   "crates/xmtp-workspace-hack/Cargo.toml",
+  "**/.direnv/**",
 ]
 
 [formatting]
@@ -9,7 +10,7 @@ reorder_keys = false
 
 [[rule]]
 include = ["**/Cargo.toml"]
-keys = ["dependencies", "dev-dependencies"]
+keys = ["dependencies", "dev-dependencies", "workspace.dependencies"]
 
 [rule.formatting]
 reorder_keys = true

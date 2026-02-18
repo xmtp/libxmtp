@@ -38,9 +38,11 @@
   toxiproxy,
   omnix,
   rr,
+  nixfmt-tree,
+  markdownlint-cli,
 }:
 let
-  inherit (stdenv) isDarwin isLinux;
+  inherit (stdenv) isLinux;
 in
 {
   # Core Rust build environment: env vars, hardening, native deps, LD_LIBRARY_PATH
@@ -108,6 +110,7 @@ in
     buf
     protobuf
     protolint
+    markdownlint-cli
   ];
 
   # Lint tools

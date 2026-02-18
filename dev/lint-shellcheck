@@ -6,10 +6,18 @@ while IFS= read -r file; do
     if [[ "${file}" == *".git/"* ]]; then
         continue
     fi
+    # Skip non-shell files (e.g. TypeScript with tsx shebang)
+    if [[ "${file}" == *.ts || "${file}" == *.js || "${file}" == *.py ]]; then
+        continue
+    fi
     if head "${file}" | grep -q "#!"; then
         files="${files} ${file}"
     fi
 done < <(printf '%s\n' "$(find dev -type f)")
 
 # shellcheck disable=SC2086 # Intended splitting of files
-shellcheck -e SC1091 ${files}
+# SC1091: Not following sourced files
+# SC2046: Quote to prevent word splitting on command substitution (intentional splitting for CLI args)
+# SC2086: Double quote to prevent globbing/word splitting (intentional splitting for CLI args)
+# SC2016: Single-quoted expressions don't expand (intentional when writing literal strings to rc files)
+shellcheck -e SC1091 -e SC2046 -e SC2086 -e SC2016 ${files}

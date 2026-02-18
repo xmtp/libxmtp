@@ -24,6 +24,8 @@
   kotlin-language-server,
   xmtp,
   rust-analyzer,
+  just,
+  omnix,
 }:
 let
   inherit (stdenv) isDarwin;
@@ -77,6 +79,8 @@ mkShell {
   buildInputs =
     shellCommon.rustBase.buildInputs
     ++ [
+      just
+      omnix
       # Combined toolchain (wasm + android + iOS targets)
       rust-toolchain
       rust-analyzer
