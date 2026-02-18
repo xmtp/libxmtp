@@ -5,6 +5,8 @@ on:
     paths:
       - 'crates/*/src/**/*.rs'
       - 'bindings/*/src/**/*.rs'
+      - 'apps/error_glossary/**'
+      - 'dev/gen-error-glossary'
   workflow_dispatch:
 
 jobs:
