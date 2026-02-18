@@ -19,5 +19,4 @@ builds:
   - include:
       - "checks.x86_64-linux.*"
       - "checks.aarch64-darwin.*"
-      - "packages.aarch64-linux.validation-service-image-aarch64-multiplatform"
       - "packages.x86_64-linux.validation-service-image-musl64"
