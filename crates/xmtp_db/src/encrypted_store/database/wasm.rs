@@ -15,10 +15,19 @@ use xmtp_common::ErrorCode;
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum PlatformStorageError {
+    /// OPFS error.
+    ///
+    /// Origin Private File System (OPFS) error. Retryable.
     #[error("OPFS {0}")]
     SAH(#[from] OpfsSAHError),
+    /// Connection error.
+    ///
+    /// Diesel connection error. Retryable.
     #[error(transparent)]
     Connection(#[from] diesel::ConnectionError),
+    /// Diesel result error.
+    ///
+    /// Database query error. Retryable.
     #[error(transparent)]
     DieselResult(#[from] diesel::result::Error),
 }

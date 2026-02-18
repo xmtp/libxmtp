@@ -25,8 +25,14 @@ pub enum EnrichMessageError {
     #[error("DB error: {0}")]
     #[error_code(inherit)]
     DbConnection(#[from] xmtp_db::ConnectionError),
+    /// Codec decode error.
+    ///
+    /// Content type codec failed. Not retryable.
     #[error("Decode error: {0}")]
     CodecError(#[from] xmtp_content_types::CodecError),
+    /// Decode error.
+    ///
+    /// Protobuf decoding failed. Not retryable.
     #[error("Decode error: {0}")]
     DecodeError(#[from] prost::DecodeError),
 }

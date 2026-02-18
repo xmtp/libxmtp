@@ -2697,6 +2697,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "error_glossary"
+version = "1.9.0"
+dependencies = [
+ "clap",
+ "syn 2.0.111",
+ "walkdir",
+]
+
+[[package]]
 name = "eyre"
 version = "0.6.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"

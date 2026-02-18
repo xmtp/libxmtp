@@ -8,38 +8,80 @@ use xmtp_common::ErrorCode;
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum AssociationError {
+    /// Generic association error.
+    ///
+    /// Unclassified association error. Not retryable.
     #[error("Error creating association {0}")]
     Generic(String),
+    /// Multiple create operations.
+    ///
+    /// Duplicate inbox creation detected. Not retryable.
     #[error("Multiple create operations detected")]
     MultipleCreate,
+    /// XID not yet created.
+    ///
+    /// Operating on inbox that doesn't exist yet. Not retryable.
     #[error("XID not yet created")]
     NotCreated,
     #[error("Signature validation failed {0}")]
     #[error_code(inherit)]
     Signature(#[from] SignatureError),
+    /// Member not allowed.
+    ///
+    /// Member kind cannot add the specified kind. Not retryable.
     #[error("Member of kind {0} not allowed to add {1}")]
     MemberNotAllowed(MemberKind, MemberKind),
+    /// Missing existing member.
+    ///
+    /// Expected member not found in association state. Not retryable.
     #[error("Missing existing member")]
     MissingExistingMember,
+    /// Legacy signature reuse.
+    ///
+    /// Legacy key used with non-zero nonce. Not retryable.
     #[error("Legacy key is only allowed to be associated using a legacy signature with nonce 0")]
     LegacySignatureReuse,
+    /// New member ID signature mismatch.
+    ///
+    /// Signer doesn't match new member identifier. Not retryable.
     #[error("The new member identifier does not match the signer")]
     NewMemberIdSignatureMismatch,
+    /// Wrong Inbox ID.
+    ///
+    /// Incorrect inbox_id in association. Not retryable.
     #[error("Wrong inbox_id specified on association")]
     WrongInboxId,
+    /// Signature not allowed.
+    ///
+    /// Signature type not permitted for this role. Not retryable.
     #[error("Signature not allowed for role {0:?} {1:?}")]
     SignatureNotAllowed(String, String),
+    /// Replay detected.
+    ///
+    /// Replayed identity update detected. Not retryable.
     #[error("Replay detected")]
     Replay,
     #[error("Deserialization error {0}")]
     #[error_code(inherit)]
     Deserialization(#[from] DeserializationError),
+    /// Missing identity update.
+    ///
+    /// Required identity update not provided. Not retryable.
     #[error("Missing identity update")]
     MissingIdentityUpdate,
+    /// Chain ID mismatch.
+    ///
+    /// Smart contract wallet chain ID changed. Not retryable.
     #[error("Wrong chain id. Initially added with {0} but now signing from {1}")]
     ChainIdMismatch(u64, u64),
+    /// Invalid account address.
+    ///
+    /// Address is not 42-char hex starting with 0x. Not retryable.
     #[error("Invalid account address: Must be 42 hex characters, starting with '0x'.")]
     InvalidAccountAddress,
+    /// Not an identifier.
+    ///
+    /// Value is not a valid public identifier. Not retryable.
     #[error("{0} are not a public identifier")]
     NotIdentifier(String),
     #[error(transparent)]

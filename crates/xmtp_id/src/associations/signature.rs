@@ -22,6 +22,9 @@ use alloy::signers::k256::ecdsa::Signature as K256Signature;
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum SignatureError {
+    /// Malformed legacy key.
+    ///
+    /// Legacy key format is invalid. Not retryable.
     #[error("Malformed legacy key: {0}")]
     MalformedLegacyKey(String),
     #[error(transparent)]
@@ -30,30 +33,60 @@ pub enum SignatureError {
     #[error(transparent)]
     #[error_code(inherit)]
     VerifierError(#[from] crate::scw_verifier::VerifierError),
+    /// Ed25519 signature failed.
+    ///
+    /// Ed25519 signature verification failed. Not retryable.
     #[error("ed25519 Signature failed {0}")]
     Ed25519Error(#[from] ed25519_dalek::SignatureError),
+    /// Slice conversion error.
+    ///
+    /// Byte slice conversion failed. Not retryable.
     #[error(transparent)]
     TryFromSliceError(#[from] TryFromSliceError),
+    /// Signature validation failed.
+    ///
+    /// Signature did not verify. Not retryable.
     #[error("Signature validation failed")]
     Invalid,
     #[error(transparent)]
     #[error_code(inherit)]
     AddressValidationError(#[from] xmtp_cryptography::signature::IdentifierValidationError),
+    /// URL parse error.
+    ///
+    /// CAIP-10 account ID URL is malformed. Not retryable.
     #[error(transparent)]
     UrlParseError(#[from] url::ParseError),
+    /// Decode error.
+    ///
+    /// Protobuf decoding failed. Not retryable.
     #[error(transparent)]
     DecodeError(#[from] prost::DecodeError),
     #[error(transparent)]
     #[error_code(inherit)]
     AccountIdError(#[from] AccountIdError),
+    /// Signer error.
+    ///
+    /// Cryptographic signer operation failed. Not retryable.
     #[error(transparent)]
     Signer(#[from] SignerError),
+    /// Invalid public key.
+    ///
+    /// Public key is not valid. Not retryable.
     #[error("Invalid public key")]
     InvalidPublicKey,
+    /// Invalid client data.
+    ///
+    /// Client data is malformed. Not retryable.
     #[error("client_data is invalid")]
     InvalidClientData,
+    /// Alloy signer error.
+    ///
+    /// Ethereum signer failed. Not retryable.
     #[error(transparent)]
     SignerError(#[from] alloy::signers::Error),
+    /// Alloy signature error.
+    ///
+    /// Ethereum signature parsing failed. Not retryable.
     #[error(transparent)]
     Signature(#[from] alloy::primitives::SignatureError),
 }
@@ -142,8 +175,14 @@ impl std::fmt::Display for SignatureKind {
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum AccountIdError {
+    /// Invalid chain ID.
+    ///
+    /// Chain ID is not a valid u64. Not retryable.
     #[error("Chain ID is not a valid u64")]
     InvalidChainId,
+    /// Missing EIP-155 prefix.
+    ///
+    /// Chain ID is not prefixed with `eip155:`. Not retryable.
     #[error("Chain ID is not prefixed with eip155:")]
     MissingEip155Prefix,
 }

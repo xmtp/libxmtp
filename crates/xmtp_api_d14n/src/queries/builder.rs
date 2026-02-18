@@ -27,22 +27,49 @@ pub struct MessageBackendBuilder {
 
 #[derive(Error, Debug, ErrorCode)]
 pub enum MessageBackendBuilderError {
+    /// Missing V3 host.
+    ///
+    /// V3 host URL not set on builder. Not retryable.
     #[error("V3 Host is required")]
     MissingV3Host,
+    /// gRPC builder error.
+    ///
+    /// gRPC client builder failed. Not retryable.
     #[error(transparent)]
     GrpcBuilder(#[from] GrpcBuilderError),
+    /// Multi-node error.
+    ///
+    /// Multi-node client builder failed. Not retryable.
     #[error(transparent)]
     MultiNode(#[from] MultiNodeClientBuilderError),
+    /// SCW verifier error.
+    ///
+    /// Smart contract wallet verifier error. Not retryable.
     #[error(transparent)]
     Scw(#[from] VerifierError),
+    /// Cursor store not replaced.
+    ///
+    /// Stateful client cursor store not set. Not retryable.
     #[error("failed to build stateful local client, cursor store not replaced, type {0}")]
     CursorStoreNotReplaced(&'static str),
+    /// Uninitialized field.
+    ///
+    /// Read/write client builder error. Not retryable.
     #[error("error while building read/write api client {0},")]
     UninitializedField(#[from] ReadWriteClientBuilderError),
+    /// Readonly builder error.
+    ///
+    /// Readonly client builder failed. Not retryable.
     #[error(transparent)]
     ReadonlyBuilder(#[from] ReadonlyClientBuilderError),
+    /// Builder error.
+    ///
+    /// Uninitialized field in builder. Not retryable.
     #[error(transparent)]
     Builder(#[from] UninitializedFieldError),
+    /// Unsupported client.
+    ///
+    /// Client kind is not supported. Not retryable.
     #[error("client kind {0} is currently unsupported")]
     UnsupportedClient(ClientKind),
 }

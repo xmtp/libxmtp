@@ -1,0 +1,9 @@
+#!/bin/bash
+set -eou pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+cargo run -p error_glossary -- \
+    --workspace "$WORKSPACE_ROOT" \
+    --output "$WORKSPACE_ROOT/docs/error_glossary.md"
