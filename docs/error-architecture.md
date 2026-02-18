@@ -2,7 +2,7 @@
 
 This document explains how the error code system works internally, how to add new error codes, and how codes propagate through FFI bindings.
 
-> **SDK consumers:** see [error-glossary.md](error-glossary.md) for the complete list of error codes and how to parse them on each platform.
+> **SDK consumers:** see [error-glossary.md](error_glossary.md) for the complete list of error codes and how to parse them on each platform.
 
 ## How it works
 
