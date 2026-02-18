@@ -8,7 +8,7 @@ use crate::{
     },
 };
 use futures::Stream;
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use std::{
     ops::Range,
     pin::Pin,
@@ -26,12 +26,13 @@ use xmtp_common::{MaybeSend, MaybeSync, time::now_ns};
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::prelude::XmtpMlsStreams;
 
-pin_project! {
-    pub struct StreamStatsWrapper<'a, Context: Clone, Conversations, Messages> {
-        #[pin] inner: StreamAllMessages<'a, Context, Conversations, Messages>,
-        #[pin] old_state: StreamState,
-        stats: StatsInner
-    }
+#[pin_project]
+pub struct StreamStatsWrapper<'a, Context: Clone + XmtpSharedContext, Conversations, Messages> {
+    #[pin]
+    inner: StreamAllMessages<'a, Context, Conversations, Messages>,
+    #[pin]
+    old_state: StreamState,
+    stats: StatsInner,
 }
 
 pub trait StreamWithStats: Stream<Item = Result<StoredGroupMessage>> {
@@ -40,7 +41,7 @@ pub trait StreamWithStats: Stream<Item = Result<StoredGroupMessage>> {
     fn spin(self) -> Arc<Notify>;
 }
 
-impl<Context: Clone, Conversations, Messages> StreamWithStats
+impl<Context: Clone + XmtpSharedContext, Conversations, Messages> StreamWithStats
     for StreamStatsWrapper<'static, Context, Conversations, Messages>
 where
     Self: Stream<Item = Result<StoredGroupMessage>>,

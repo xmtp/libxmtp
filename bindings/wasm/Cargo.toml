@@ -3,6 +3,7 @@ edition = "2024"
 name = "bindings_wasm"
 version.workspace = true
 description = "WebAssembly bindings to the XMTP mls libraries"
+license.workspace = true
 
 [lints]
 workspace = true
@@ -18,7 +19,7 @@ console_error_panic_hook.workspace = true
 futures.workspace = true
 hex.workspace = true
 js-sys.workspace = true
-pin-project-lite = { workspace = true }
+pin-project.workspace = true
 prost.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde-wasm-bindgen = "0.6.5"

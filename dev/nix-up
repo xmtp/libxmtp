@@ -16,50 +16,7 @@ else
   echo "detected existing nix installation"
 fi
 
-# Ensure project binary caches are trusted substituters
-# Uses trusted-substituters (whitelist specific caches) instead of trusted-users
-# (which would grant broad Nix privileges to the user account)
-NIX_CUSTOM_CONF="/etc/nix/nix.custom.conf"
-XMTP_CACHE="https://xmtp.cachix.org"
-NIX_COMMUNITY_CACHE="https://nix-community.cachix.org"
-XMTP_KEY="xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0="
-NIX_COMMUNITY_KEY="nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
-
-if [[ -f /etc/nix/nix.conf ]]; then
-  # Check if our caches are already configured as trusted substituters
-  if ! grep -qF "xmtp.cachix.org" "$NIX_CUSTOM_CONF" 2>/dev/null; then
-    echo ""
-    echo "This project uses binary caches to avoid building dependencies from source:"
-    echo "  - $XMTP_CACHE (pre-built XMTP derivations)"
-    echo "  - $NIX_COMMUNITY_CACHE (pre-built Rust toolchains)"
-    echo ""
-    echo "These need to be added as trusted substituters in the Nix daemon config."
-    echo "Unlike 'trusted-users', this only whitelists these specific caches —"
-    echo "it does not grant broader Nix privileges to your user account."
-    echo ""
-    echo "Why sudo is required:"
-    echo "  The Nix config ($NIX_CUSTOM_CONF) is owned by root, and the"
-    echo "  Nix daemon must be restarted to pick up the changes."
-    echo ""
-    read -p "Add these caches as trusted substituters? (y/n) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-      echo "Skipped. Dependencies will be built from source (slower)."
-      echo "You can re-run this script later to add them."
-    else
-      printf '\nextra-trusted-substituters = %s %s\n' "$XMTP_CACHE" "$NIX_COMMUNITY_CACHE" | sudo tee -a "$NIX_CUSTOM_CONF" > /dev/null
-      printf 'extra-trusted-public-keys = %s %s\n' "$XMTP_KEY" "$NIX_COMMUNITY_KEY" | sudo tee -a "$NIX_CUSTOM_CONF" > /dev/null
-      # Restart nix daemon to pick up the change
-      if [[ "$OSTYPE" == "darwin"* ]]; then
-        sudo launchctl kickstart -k system/systems.determinate.nix-daemon 2>/dev/null || true
-      else
-        sudo systemctl restart nix-daemon 2>/dev/null || true
-      fi
-      echo "Nix daemon restarted with updated trusted substituters."
-    fi
-  fi
-fi
-
+./dev/nix-cache-up
 echo "direnv will automatically enter the default nix environment upon entering a configured directory"
 read -p "install direnv? (y/n) " -n 1 -r
 if [[ $REPLY =~ ^[Yy]$ ]]; then
@@ -67,7 +24,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   [[ -f /etc/arch-release ]] && sudo pacman -S direnv
   grep -q "ubuntu" /etc/os-release 2>/dev/null && sudo apt install direnv
   echo ""
-  echo "installing shell hook for bash/zsh"
+  echo "installing shell hooks for bash/zsh/fish"
   # Check if hook already exists before appending
   for shell_rc in ~/.bashrc ~/.zshrc; do
     if [[ -f "$shell_rc" ]] && ! grep -q "direnv hook" "$shell_rc"; then
@@ -77,6 +34,12 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
       esac
     fi
   done
+  # Handle fish shell config
+  FISH_CONFIG=~/.config/fish/config.fish
+  if [[ -f "$FISH_CONFIG" ]] && ! grep -q "direnv hook" "$FISH_CONFIG"; then
+    echo 'direnv hook fish | source' >> "$FISH_CONFIG"
+    echo "Added direnv hook to $FISH_CONFIG"
+  fi
 else
   echo "direnv not installed"
 fi

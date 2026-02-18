@@ -303,6 +303,10 @@ where
             tester.stream();
         }
 
+        if let Some(name) = &self.name {
+            tester.set_name(name);
+        }
+
         tester
     }
 }
@@ -828,6 +832,7 @@ macro_rules! tester {
 
     ($name:ident $(, $k:ident $(: $v:expr)?)*) => {
         let builder = $crate::utils::TesterBuilder::new();
+        let builder = builder.with_name(stringify!($name));
         tester!(@process builder ; $name $(, $k $(: $v)?)*)
     };
 

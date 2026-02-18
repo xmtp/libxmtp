@@ -5,7 +5,7 @@ use crate::messages::Message;
 use crate::user_preferences::UserPreferenceUpdate;
 use futures::Stream;
 use futures::{StreamExt, stream::LocalBoxStream};
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use std::task::Poll;
 use std::task::ready;
 use std::{cell::RefCell, rc::Rc};
@@ -120,10 +120,10 @@ impl StreamCloser {
 }
 
 // JS-Compatible Conversation stream
-pin_project! {
-    pub struct ConversationStream<'a> {
-      #[pin] stream: LocalBoxStream<'a, Result<RustMlsGroup, XmtpSubscribeError>>,
-    }
+#[pin_project]
+pub struct ConversationStream<'a> {
+  #[pin]
+  stream: LocalBoxStream<'a, Result<RustMlsGroup, XmtpSubscribeError>>,
 }
 
 impl<'a> ConversationStream<'a> {

@@ -31,10 +31,15 @@ serde = { workspace = true }
 sha2.workspace = true
 thiserror = { workspace = true }
 tls_codec.workspace = true
+xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
 zeroize.workspace = true
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
+# Force getrandom 0.3 to enable wasm_js
+getrandom_03 = { package = "getrandom", version = "0.3", features = [
+  "wasm_js",
+] }
 openmls = { workspace = true, features = ["js"] }
 
 [features]
@@ -49,5 +54,3 @@ openmls_basic_credential = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 wasm-bindgen-test.workspace = true
-getrandom = { workspace = true, features = ["wasm_js"] }
-openmls = { workspace = true, features = ["js"] }

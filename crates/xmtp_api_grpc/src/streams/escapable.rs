@@ -5,26 +5,26 @@ use std::{
 };
 
 use futures::{Stream, TryStream, stream::FusedStream};
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use std::error::Error;
 use tonic::Status;
 
-pin_project! {
-    /// Wraps a tonic stream which exits once it encounters
-    /// an unrecoverable HTTP Error.
-    /// This wrapper does not try to differentiate between
-    /// transient HTTP Errors unrecoverable HTTP errors.
-    /// Once an error is encountered, the stream will yield the item
-    /// with the error, and then end the stream.
-    /// the stream is ended by returning Poll::Ready(None).
-    ///
-    /// These errors are treated as unrecoverable:
-    ///   - ErrorKind::BrokenPipe
-    ///     - BrokenPipe results from the HTTP/2 KeepAlive interval being exceeded
-    pub struct EscapableTonicStream<S> {
-        #[pin] inner: S,
-        is_broken: bool
-    }
+/// Wraps a tonic stream which exits once it encounters
+/// an unrecoverable HTTP Error.
+/// This wrapper does not try to differentiate between
+/// transient HTTP Errors unrecoverable HTTP errors.
+/// Once an error is encountered, the stream will yield the item
+/// with the error, and then end the stream.
+/// the stream is ended by returning Poll::Ready(None).
+///
+/// These errors are treated as unrecoverable:
+///   - ErrorKind::BrokenPipe
+///     - BrokenPipe results from the HTTP/2 KeepAlive interval being exceeded
+#[pin_project]
+pub struct EscapableTonicStream<S> {
+    #[pin]
+    inner: S,
+    is_broken: bool,
 }
 
 impl<S> EscapableTonicStream<S> {

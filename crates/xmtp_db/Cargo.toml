@@ -61,6 +61,7 @@ toml = { version = "0.8.4", optional = true }
 
 
 # TODO: possibly separate these crates
+xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
 xmtp_content_types.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

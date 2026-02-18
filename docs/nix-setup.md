@@ -27,7 +27,10 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 [Determinate Nix](https://docs.determinate.systems/) is a distribution of Nix
 designed for developer and CI workflows with built-in caching support.
 
-To uninstall Nix and direnv, run `./dev/nix-down`.
+To fully uninstall Nix and direnv, run `./dev/nix-down`. Note that
+re-installing requires re-downloading all dependencies (5+ minutes depending on
+connection speed). If you just want to temporarily disable direnv, see
+[Disabling direnv](#disabling-direnv) below.
 
 ## Install direnv
 
@@ -52,31 +55,41 @@ eval "$(direnv hook bash)"
 direnv automatically loads the default Nix dev shell when you `cd` into the
 repo. Run `direnv allow` to authorize it and `direnv deny` to revoke.
 
-## Enable Cachix
+## Disabling direnv
 
-The flake's `nixConfig` block declares two binary caches so builds can pull
-pre-built artifacts:
-
-- `xmtp.cachix.org` — project-specific cache
-- `nix-community.cachix.org` — community cache (fenix Rust toolchain, etc.)
-
-### Accept when prompted
-
-When you first run `nix develop`, Nix asks whether to trust the extra
-substituters. Accept, or pass `--accept-flake-config`:
+If direnv's shell integration is slowing down your terminal or you want to
+temporarily stop the auto-activation, use the lightweight toggle scripts:
 
 ```bash
-nix develop --accept-flake-config
+dev/direnv-down   # Disable direnv for this repo (runs direnv deny)
+dev/direnv-up     # Re-enable direnv for this repo (runs direnv allow)
 ```
 
-### Permanent configuration
+These do **not** uninstall anything — they just toggle whether direnv activates
+when you enter the repo. This is the recommended way to pause the Nix
+environment without losing your cached dependencies.
 
-To avoid the prompt on every invocation, add the caches to
-`~/.config/nix/nix.conf`:
+## Binary Caches
 
-```ini
-extra-trusted-substituters = https://xmtp.cachix.org https://nix-community.cachix.org
-extra-trusted-public-keys = xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=
+The `./dev/nix-up` script configures the XMTP binary cache via
+[Cachix](https://cachix.org) so builds can pull pre-built artifacts instead of
+compiling from source:
+
+- `xmtp.cachix.org` — project-specific cache (XMTP derivations, Android NDK, etc.)
+
+The script runs `cachix use xmtp` (via `nix run nixpkgs#cachix`), which
+automatically chooses the right Nix config approach based on whether you are a
+trusted user. If you installed Nix manually (without `dev/nix-up`), you can
+configure the cache yourself:
+
+```bash
+nix run nixpkgs#cachix -- use xmtp
+```
+
+If you are not a trusted Nix user, you may need sudo:
+
+```bash
+sudo nix run nixpkgs#cachix -- use xmtp
 ```
 
 ## Available Dev Shells
@@ -97,9 +110,6 @@ nix develop
 
 # Enter a specific dev shell
 nix develop .#android
-
-# Enter a shell and accept flake config in one step
-nix develop --accept-flake-config
 
 # Let direnv manage the shell automatically
 direnv allow

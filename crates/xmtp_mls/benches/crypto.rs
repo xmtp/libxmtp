@@ -1,7 +1,7 @@
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::{crypto::OpenMlsCrypto, random::OpenMlsRand};
-use rand::{RngCore, rngs::OsRng};
+use rand::{TryRng, rngs::SysRng};
 use xmtp_configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
 use xmtp_mls::utils::bench::re_export::{WrapperAlgorithm, wrap_welcome};
 
@@ -47,7 +47,7 @@ fn bench_encrypt_welcome_curve25519(c: &mut Criterion) {
                         .derive_hpke_keypair(CIPHERSUITE.hpke_config(), ikm.as_slice())
                         .unwrap();
                     let mut payload = vec![0; size];
-                    OsRng.fill_bytes(payload.as_mut_slice());
+                    SysRng.try_fill_bytes(payload.as_mut_slice()).unwrap();
                     (payload, keypair.public)
                 },
                 |(payload, key)| wrap_welcome(&payload, &[], &key, WrapperAlgorithm::Curve25519),
@@ -76,7 +76,7 @@ fn bench_encrypt_welcome_post_quantum(c: &mut Criterion) {
                         .derive_hpke_keypair(POST_QUANTUM_CIPHERSUITE.hpke_config(), ikm.as_slice())
                         .unwrap();
                     let mut payload = vec![0; size];
-                    OsRng.fill_bytes(payload.as_mut_slice());
+                    SysRng.try_fill_bytes(payload.as_mut_slice()).unwrap();
                     (payload, keypair.public)
                 },
                 |(payload, key)| {

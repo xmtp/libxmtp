@@ -1,20 +1,23 @@
-{ emscripten
-, lib
-, fenix
-, wasm-pack
-, binaryen
-, zstd
-, zlib
-, mkShell
-, sqlite
-, llvmPackages
-, wasm-bindgen-cli
-, xmtp
-, geckodriver
-, firefox
-, corepack
-, pkg-config
-, cargo-nextest
+{
+  emscripten,
+  lib,
+  fenix,
+  wasm-pack,
+  binaryen,
+  zstd,
+  zlib,
+  mkShell,
+  sqlite,
+  llvmPackages,
+  wasm-bindgen-cli,
+  xmtp,
+  chromedriver,
+  google-chrome,
+  chromium,
+  corepack,
+  pkg-config,
+  cargo-nextest,
+  stdenv,
 }:
 let
   inherit (xmtp) craneLib;
@@ -50,11 +53,23 @@ let
       # export EM_CACHE=$TMPDIR
       # export EMCC_DEBUG=2
     '';
-    nativeBuildInputs = [ zstd zlib pkg-config wasm-pack emscripten llvmPackages.lld binaryen wasm-bindgen-cli ];
+    nativeBuildInputs = [
+      zstd
+      zlib
+      pkg-config
+      wasm-pack
+      emscripten
+      llvmPackages.lld
+      binaryen
+      wasm-bindgen-cli
+    ];
     buildInputs = [ sqlite ];
     doCheck = false;
     cargoExtraArgs = "--workspace --exclude xmtpv3 --exclude bindings_node --exclude xmtp_cli --exclude xdbg --exclude mls_validation_service --exclude xmtp_api_grpc --exclude benches --exclude xmtp-db-tools";
-    hardeningDisable = [ "zerocallusedregs" "stackprotector" ];
+    hardeningDisable = [
+      "zerocallusedregs"
+      "stackprotector"
+    ];
   };
 
   commonEnv = {
@@ -70,17 +85,23 @@ let
   # enables caching all build time crates
   cargoArtifacts = rust.buildDepsOnly (commonEnv // commonArgs);
 
-  bin = rust.buildPackage
-    ((commonEnv // commonArgs) // {
+  bin = rust.buildPackage (
+    (commonEnv // commonArgs)
+    // {
       inherit cargoArtifacts;
       src = bindingsFileset;
-      inherit (rust.crateNameFromCargoToml {
-        cargoToml = ./../../bindings/wasm/Cargo.toml;
-      })
-        pname;
-      inherit (rust.crateNameFromCargoToml {
-        cargoToml = ./../../Cargo.toml;
-      }) version;
+      inherit
+        (rust.crateNameFromCargoToml {
+          cargoToml = ./../../bindings/wasm/Cargo.toml;
+        })
+        pname
+        ;
+      inherit
+        (rust.crateNameFromCargoToml {
+          cargoToml = ./../../Cargo.toml;
+        })
+        version
+        ;
       buildPhaseCargoCommand = ''
         mkdir -p $out/dist
         cargoBuildLog=$(mktemp cargoBuildLogXXXX.json)
@@ -88,33 +109,43 @@ let
         HOME=$(mktemp -d fake-homeXXXX) wasm-pack --verbose build --target web --out-dir $out/dist --no-pack --release ./bindings/wasm -- --message-format json-render-diagnostics > "$cargoBuildLog"
       '';
 
-    });
+    }
+  );
 
   # this allows re-using build artifacts
   # nextest-libs = nextest "-E 'kind(lib)'";
   # nextest-d14n = nextest "--features d14n -E 'kind(lib)'";
   # nextest-integration = nextest "-E 'package(bindings_wasm)'";
 
-  devShell = mkShell (commonEnv // {
-    inputsFrom = [ commonArgs ];
-    buildInputs = [ rust-toolchain firefox geckodriver corepack cargo-nextest ];
+  devShell = mkShell (
+    commonEnv
+    // {
+      inputsFrom = [ commonArgs ];
+      buildInputs = [
+        rust-toolchain
+        chromedriver
+        corepack
+        cargo-nextest
+      ]
+      # chromium unsupported on darwin
+      # google-chrome unsupported on aarch64-linux
+      # Firefox compiles from scratch on everything but x86_64 (unreliable build)
+      ++ lib.optionals stdenv.isDarwin [ google-chrome ]
+      ++ lib.optionals stdenv.isLinux [ chromium ];
 
-    SQLITE = "${sqlite.dev}";
-    SQLITE_OUT = "${sqlite.out}";
-    GECKODRIVER = "${lib.getBin geckodriver}/bin/geckodriver";
-    WASM_BINDGEN_TEST_TIMEOUT = 1024;
-    WASM_BINDGEN_TEST_ONLY_WEB = 1;
-    RSTEST_TIMEOUT = 90;
-    CARGO_PROFILE_TEST_DEBUG = 0;
-    WASM_BINDGEN_TEST_WEBDRIVER_JSON = ./../../webdriver.json;
-    CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
-    XMTP_NIX_ENV = 1;
-  });
+      SQLITE = "${sqlite.dev}";
+      SQLITE_OUT = "${sqlite.out}";
+      CHROMEDRIVER = "${lib.getBin chromedriver}/bin/chromedriver";
+      WASM_BINDGEN_TEST_TIMEOUT = 1024;
+      WASM_BINDGEN_TEST_ONLY_WEB = 1;
+      RSTEST_TIMEOUT = 90;
+      CARGO_PROFILE_TEST_DEBUG = 0;
+      WASM_BINDGEN_TEST_WEBDRIVER_JSON = ./../../webdriver.json;
+      CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
+      XMTP_NIX_ENV = 1;
+    }
+  );
 in
 {
   inherit bin devShell;
 }
-
-
-
-

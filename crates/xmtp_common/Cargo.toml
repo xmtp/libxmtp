@@ -30,6 +30,7 @@ tracing-subscriber = { workspace = true, features = [
   "json",
 ], optional = true }
 wasm-bindgen-test = { workspace = true, optional = true }
+xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
 xmtp_cryptography.workspace = true
 xmtp_macro.workspace = true
 

@@ -1,5 +1,5 @@
 use color_eyre::eyre::{Context, Result, bail, eyre};
-use rand::{SeedableRng as _, rngs::SmallRng, seq::IteratorRandom};
+use rand::{SeedableRng, rngs::SmallRng, seq::IteratorRandom};
 use std::sync::Arc;
 use xmtp_mls::groups::UpdateAdminListType;
 
@@ -65,7 +65,7 @@ impl Modify {
             }
             AddRandom => {
                 let members = &local_group.members;
-                let rng = &mut SmallRng::from_entropy();
+                let rng = &mut SmallRng::from_rng(&mut rand::rng());
                 let identity = identity_store
                     .load(&network)?
                     .ok_or(eyre!("No identities"))?

@@ -3,7 +3,7 @@
 //! This version shares the expensive setup between benchmark samples to reduce total runtime.
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use rand::Rng;
+use rand::RngExt;
 use std::{hint::black_box, sync::Arc, time::Duration};
 use tokio::runtime::{Builder, Runtime};
 use tracing::{Instrument, trace_span};
@@ -55,8 +55,7 @@ fn bench_find_consent_by_dm_id(c: &mut Criterion) {
                 b.iter(|| {
                     runtime.block_on(
                         async {
-                            let dm_id =
-                                &setup.dm_ids[rand::thread_rng().gen_range(0..total_consents)];
+                            let dm_id = &setup.dm_ids[rand::rng().random_range(0..total_consents)];
                             let consent = setup.client.db().find_consent_by_dm_id(dm_id).unwrap();
 
                             assert_eq!(

@@ -5,6 +5,7 @@ use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 use xmtp_api_d14n::protocol::{EnvelopeError, V3WelcomeMessageExtractor, WelcomeMessageExtractor};
 use xmtp_api_d14n::stream;
+use xmtp_macro::log_event;
 use xmtp_proto::types::WelcomeMessage;
 
 use tracing::instrument;
@@ -37,7 +38,7 @@ use crate::{
     subscriptions::d14n_compat::{V3OrD14n, decode_welcome_message},
 };
 use thiserror::Error;
-use xmtp_common::{ErrorCode, MaybeSend, RetryableError, StreamHandle, retryable};
+use xmtp_common::{ErrorCode, Event, MaybeSend, RetryableError, StreamHandle, retryable};
 use xmtp_db::{
     NotFound, StorageError,
     consent_record::{ConsentState, StoredConsentRecord},
@@ -444,10 +445,21 @@ where
             futures::pin_mut!(stream);
             let _ = tx.send(());
 
+            log_event!(
+                Event::StreamOpened,
+                context.installation_id(),
+                kind = ?StreamKind::All
+            );
+
             while let Some(message) = stream.next().await {
                 callback(message)
             }
             tracing::debug!("`stream_all_messages` stream ended, dropping stream");
+            log_event!(
+                Event::StreamClosed,
+                context.installation_id(),
+                kind = ?StreamKind::All
+            );
             on_close();
             Ok::<_, SubscribeError>(())
         })
@@ -546,6 +558,13 @@ where
 
         Ok(StreamStatsWrapper::new(stream))
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum StreamKind {
+    All,
+    Conversations,
+    Messages,
 }
 
 #[cfg(test)]

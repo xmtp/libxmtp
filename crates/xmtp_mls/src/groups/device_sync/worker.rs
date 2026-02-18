@@ -22,7 +22,7 @@ use tokio::sync::{OnceCell, broadcast};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use xmtp_archive::{ArchiveImporter, BackupMetadata, exporter::ArchiveExporter};
-use xmtp_common::{Event, NS_IN_DAY, fmt::ShortHex, time::now_ns};
+use xmtp_common::{Event, NS_IN_DAY, time::now_ns};
 use xmtp_db::group_message::{MsgQueryArgs, StoredGroupMessage};
 use xmtp_db::{prelude::*, tasks::NewTask};
 use xmtp_macro::log_event;
@@ -197,7 +197,7 @@ where
                 log_event!(
                     Event::DeviceSyncCreatedPrimarySyncGroup,
                     self.client.context.installation_id(),
-                    group_id = sync_group.group_id.short_hex()
+                    group_id = sync_group.group_id
                 );
             }
 
@@ -288,8 +288,8 @@ where
                 self.context.installation_id(),
                 msg_type,
                 external = is_external,
-                msg_id = msg.id.short_hex(),
-                group_id = msg.group_id.short_hex()
+                msg_id = #msg.id,
+                group_id = msg.group_id
             );
 
             if let Err(err) = self.process_message(handle, &msg, content).await {
@@ -297,7 +297,7 @@ where
                     Event::DeviceSyncMessageProcessingError,
                     self.context.installation_id(),
                     err = %err,
-                    msg_id = msg.id.short_hex()
+                    msg_id = #msg.id
                 );
                 self.context
                     .db()
@@ -414,7 +414,7 @@ where
         log_event!(
             Event::DeviceSyncArchiveUploadStart,
             self.context.installation_id(),
-            group_id = sync_group_id.short_hex(),
+            group_id = sync_group_id,
             server_url
         );
 
@@ -466,7 +466,7 @@ where
         log_event!(
             Event::DeviceSyncArchiveUploadComplete,
             self.context.installation_id(),
-            group_id = sync_group_id.short_hex(),
+            group_id = sync_group_id,
         );
 
         Ok(())
@@ -500,7 +500,7 @@ where
         log_event!(
             Event::DeviceSyncSentSyncRequest,
             self.context.installation_id(),
-            group_id = sync_group.group_id.short_hex()
+            group_id = sync_group.group_id
         );
 
         Ok(())
@@ -625,8 +625,8 @@ where
         log_event!(
             Event::DeviceSyncArchiveProcessingStart,
             self.context.installation_id(),
-            msg_id = msg.id.short_hex(),
-            group_id = msg.group_id.short_hex()
+            msg_id = #msg.id,
+            group_id = msg.group_id
         );
         if reply.kind() != BackupElementSelectionProto::Unspecified {
             log_event!(Event::DeviceSyncV1Archive, self.context.installation_id());

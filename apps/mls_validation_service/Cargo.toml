@@ -28,6 +28,7 @@ tonic = { workspace = true }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "ansi"] }
 warp = "0.3.6"
+xmtp-workspace-hack = { version = "0.1", path = "../../crates/xmtp-workspace-hack" }
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true

@@ -1,5 +1,5 @@
 use futures::{Stream, ready};
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use std::{
     marker::PhantomData,
     pin::Pin,
@@ -29,12 +29,14 @@ if_wasm! {
     type BackupInputStream = Pin<Box<dyn Stream<Item = Result<Vec<BackupElement>, StorageError>>>>;
 }
 
-pin_project! {
-    /// A stream that curates a collection of streams for backup.
-    pub(super) struct BatchExportStream {
-        pub(super) buffer: Vec<BackupElement>,
-        pub(super) input_streams: Vec<BackupInputStream>,
-    }
+type BackupRecordFuture =
+    Pin<Box<dyn MaybeSendFuture<Output = Result<Vec<BackupElement>, StorageError>>>>;
+
+#[pin_project]
+/// A stream that curates a collection of streams for backup.
+pub(super) struct BatchExportStream {
+    pub(super) buffer: Vec<BackupElement>,
+    pub(super) input_streams: Vec<BackupInputStream>,
 }
 
 impl BatchExportStream {
@@ -133,12 +135,12 @@ pub struct BackupProviderState<D> {
     opts: ArchiveOptions,
 }
 
-pin_project! {
-    pub(crate) struct BackupRecordStreamer<R, D> {
-        provider_state: Arc<BackupProviderState<D>>,
-        #[pin] current_future: Option<Pin<Box<dyn MaybeSendFuture<Output = Result<Vec<BackupElement>, StorageError>>>>>,
-        _phantom: PhantomData<R>,
-    }
+#[pin_project]
+pub(crate) struct BackupRecordStreamer<R, D> {
+    provider_state: Arc<BackupProviderState<D>>,
+    #[pin]
+    current_future: Option<BackupRecordFuture>,
+    _phantom: PhantomData<R>,
 }
 
 impl<R, D> BackupRecordStreamer<R, D>
