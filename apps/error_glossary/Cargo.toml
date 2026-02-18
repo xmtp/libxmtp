@@ -13,3 +13,4 @@ path = "src/main.rs"
 clap.workspace = true
 syn = { version = "2.0", features = ["full", "parsing"] }
 walkdir = "2"
+xmtp-workspace-hack = { version = "0.1", path = "../../crates/xmtp-workspace-hack" }
