@@ -102,9 +102,9 @@ pub enum DeserializationError {
     /// Hash must be 32 bytes. Not retryable.
     #[error("Invalid hash (needs to be 32 bytes)")]
     InvalidHash,
-    /// Unspecified field.
+    /// Unspecified value.
     ///
-    /// A required field is not set. Not retryable.
+    /// An unrecognized or unsupported value was encountered. Not retryable.
     #[error("A required field is unspecified: {0}")]
     Unspecified(&'static str),
     /// Deprecated field.

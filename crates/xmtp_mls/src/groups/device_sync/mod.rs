@@ -60,7 +60,7 @@ pub enum DeviceSyncError {
     IO(#[from] std::io::Error),
     /// Serialization error.
     ///
-    /// JSON serialization/deserialization failed. Not retryable.
+    /// JSON serialization/deserialization failed. Retryable.
     #[error("Serialization/Deserialization Error {0}")]
     Serde(#[from] serde_json::Error),
     #[error(transparent)]
@@ -68,7 +68,7 @@ pub enum DeviceSyncError {
     ProtoConversion(#[from] xmtp_proto::ConversionError),
     /// AES-GCM encryption error.
     ///
-    /// Encryption/decryption of sync payload failed. Not retryable.
+    /// Encryption/decryption of sync payload failed. Retryable.
     #[error("AES-GCM encryption error")]
     AesGcm(#[from] aes_gcm::Error),
     #[error("storage error: {0}")]
@@ -81,12 +81,12 @@ pub enum DeviceSyncError {
     Reqwest(#[from] reqwest::Error),
     /// Type conversion error.
     ///
-    /// Internal type conversion failed. Not retryable.
+    /// Internal type conversion failed. Retryable.
     #[error("type conversion error")]
     Conversion,
     /// UTF-8 error.
     ///
-    /// String is not valid UTF-8. Not retryable.
+    /// String is not valid UTF-8. Retryable.
     #[error("utf-8 error: {0}")]
     UTF8(#[from] std::str::Utf8Error),
     #[error("client error: {0}")]
@@ -97,12 +97,12 @@ pub enum DeviceSyncError {
     Group(#[from] GroupError),
     /// No pending request.
     ///
-    /// No pending sync request to reply to. Not retryable.
+    /// No pending sync request to reply to. Retryable.
     #[error("no pending request to reply to")]
     NoPendingRequest,
     /// Invalid payload.
     ///
-    /// Sync message payload is malformed. Not retryable.
+    /// Sync message payload is malformed. Retryable.
     #[error("invalid history message payload")]
     InvalidPayload,
     /// Unspecified sync kind.
@@ -112,7 +112,7 @@ pub enum DeviceSyncError {
     UnspecifiedDeviceSyncKind,
     /// Sync payload too old.
     ///
-    /// Sync reply is outdated. Not retryable.
+    /// Sync reply is outdated. Retryable.
     #[error("sync reply is too old")]
     SyncPayloadTooOld,
     #[error(transparent)]
@@ -120,17 +120,17 @@ pub enum DeviceSyncError {
     Subscribe(#[from] SubscribeError),
     /// Bincode error.
     ///
-    /// Binary serialization failed. Not retryable.
+    /// Binary serialization failed. Retryable.
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
     /// Archive error.
     ///
-    /// Sync archive operation failed. Not retryable.
+    /// Sync archive operation failed. Retryable.
     #[error(transparent)]
     Archive(#[from] ArchiveError),
     /// Decode error.
     ///
-    /// Protobuf decoding failed. Not retryable.
+    /// Protobuf decoding failed. Retryable.
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
@@ -143,7 +143,7 @@ pub enum DeviceSyncError {
     AlreadyAcknowledged,
     /// Missing options.
     ///
-    /// Sync request options not provided. Not retryable.
+    /// Sync request options not provided. Retryable.
     #[error("Sync request is missing options")]
     MissingOptions,
     /// Missing sync server URL.
@@ -166,22 +166,22 @@ pub enum DeviceSyncError {
     Sync(Box<SyncSummary>),
     /// MLS store error.
     ///
-    /// OpenMLS key store operation failed. Not retryable.
+    /// OpenMLS key store operation failed. Retryable.
     #[error(transparent)]
     MlsStore(#[from] MlsStoreError),
     /// Receive error.
     ///
-    /// Channel receive failed. Not retryable.
+    /// Channel receive failed. Retryable.
     #[error(transparent)]
     Recv(#[from] RecvError),
     /// Missing field.
     ///
-    /// Required field not present. Not retryable.
+    /// Required field not present. Retryable.
     #[error("Missing Field: {0:?} {1}")]
     MissingField(MissingField, String),
     /// Missing payload.
     ///
-    /// Sync payload not found for PIN. Not retryable.
+    /// Sync payload not found for PIN. Retryable.
     #[error("Could not find payload with pin {0:?}")]
     MissingPayload(Option<String>),
 }

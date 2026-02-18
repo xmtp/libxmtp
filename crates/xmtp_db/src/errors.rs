@@ -129,87 +129,87 @@ impl StorageError {
 pub enum NotFound {
     /// Group with welcome ID not found.
     ///
-    /// No group matches the welcome ID. Not retryable.
+    /// No group matches the welcome ID. Retryable.
     #[error("group with welcome id {0} not found")]
     GroupByWelcome(Cursor),
     /// Group with ID not found.
     ///
-    /// Group does not exist in local DB. Not retryable.
+    /// Group does not exist in local DB. Retryable.
     #[error("group with id {id} not found", id = hex::encode(_0))]
     GroupById(Vec<u8>),
     /// Installation time for group not found.
     ///
-    /// Missing installation timestamp. Not retryable.
+    /// Missing installation timestamp. Retryable.
     #[error("installation time for group {id}", id = hex::encode(_0))]
     InstallationTimeForGroup(Vec<u8>),
     /// Inbox ID for address not found.
     ///
-    /// Address has no associated inbox. Not retryable.
+    /// Address has no associated inbox. Retryable.
     #[error("inbox id for address {0} not found")]
     InboxIdForAddress(String),
     /// Message ID not found.
     ///
-    /// Message does not exist in local DB. Not retryable.
+    /// Message does not exist in local DB. Retryable.
     #[error("message id {id} not found", id = hex::encode(_0))]
     MessageById(Vec<u8>),
     /// DM by inbox ID not found.
     ///
-    /// No DM conversation with this inbox. Not retryable.
+    /// No DM conversation with this inbox. Retryable.
     #[error("dm by dm_target_inbox_id {0} not found")]
     DmByInbox(String),
     /// Intent for ToPublish not found.
     ///
-    /// Intent with specified ID not in expected state. Not retryable.
-    #[error("intent with id {0} for state Publish from ToPublish not found")]
+    /// Failed to transition intent from ToPublish to Published. Retryable.
+    #[error("intent with id {0} for state Published from ToPublish not found")]
     IntentForToPublish(i32),
     /// Intent for Published not found.
     ///
-    /// Intent with specified ID not in expected state. Not retryable.
+    /// Intent with specified ID not in expected state. Retryable.
     #[error("intent with id {0} for state ToPublish from Published not found")]
     IntentForPublish(i32),
     /// Intent for Committed not found.
     ///
-    /// Intent with specified ID not in expected state. Not retryable.
+    /// Failed to transition intent from Published to Committed. Retryable.
     #[error("intent with id {0} for state Committed from Published not found")]
     IntentForCommitted(i32),
     /// Intent by ID not found.
     ///
-    /// Intent does not exist. Not retryable.
+    /// Intent does not exist. Retryable.
     #[error("Intent with id {0} not found")]
     IntentById(i32),
     /// Refresh state not found.
     ///
-    /// No refresh state matching criteria. Not retryable.
+    /// No refresh state matching criteria. Retryable.
     #[error("refresh state with id {id} of kind {1} originating from node {2} not found", id = hex::encode(_0))]
     RefreshStateByIdKindAndOriginator(Vec<u8>, EntityKind, i32),
     /// Cipher salt not found.
     ///
-    /// Database encryption salt missing. Not retryable.
+    /// Database encryption salt missing. Retryable.
     #[error("Cipher salt for db at [`{0}`] not found")]
     CipherSalt(String),
     /// Sync group not found.
     ///
-    /// No sync group for this installation. Not retryable.
+    /// No sync group for this installation. Retryable.
     #[error("Sync Group for installation {0} not found")]
     SyncGroup(InstallationId),
     /// Key package reference not found.
     ///
-    /// Key package handle not in store. Not retryable.
+    /// Key package handle not in store. Retryable.
     #[error("Key Package Reference {handle} not found", handle = hex::encode(_0))]
     KeyPackageReference(Vec<u8>),
     /// MLS group not found.
     ///
-    /// OpenMLS group not in local state. Not retryable.
+    /// OpenMLS group not in local state. Retryable.
     #[error("MLS Group Not Found")]
     MlsGroup,
     /// Post-quantum private key not found.
     ///
-    /// PQ key pair not in store. Not retryable.
+    /// PQ key pair not in store. Retryable.
     #[error("Post Quantum Key Pair not found")]
     PostQuantumPrivateKey,
     /// Key package not found.
     ///
-    /// Key package not in store. Not retryable.
+    /// Key package not in store. Retryable.
     #[error("Key Package {kp} not found", kp = hex::encode(_0))]
     KeyPackage(Vec<u8>),
 }

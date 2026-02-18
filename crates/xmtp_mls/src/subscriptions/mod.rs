@@ -182,12 +182,12 @@ pub enum SubscribeError {
     Group(#[from] Box<GroupError>),
     /// Not found.
     ///
-    /// Subscribed resource not found. Not retryable.
+    /// Subscribed resource not found. Retryable.
     #[error(transparent)]
     NotFound(#[from] NotFound),
     /// Group message not found.
     ///
-    /// Expected message missing from database. Not retryable.
+    /// Expected message missing from database. Retryable.
     // TODO: Add this to `NotFound`
     #[error("group message expected in database but is missing")]
     GroupMessageNotFound,
@@ -198,7 +198,7 @@ pub enum SubscribeError {
     ReceiveGroup(#[from] Box<GroupMessageProcessingError>),
     /// Storage error.
     ///
-    /// Database operation failed. Not retryable.
+    /// Database operation failed. May be retryable.
     #[error(transparent)]
     Storage(#[from] StorageError),
     /// Decode error.
@@ -238,7 +238,7 @@ pub enum SubscribeError {
     Conversion(#[from] xmtp_proto::ConversionError),
     /// Envelope error.
     ///
-    /// Decentralized API envelope error. Not retryable.
+    /// Decentralized API envelope error. May be retryable.
     #[error(transparent)]
     Envelope(#[from] xmtp_api_d14n::protocol::EnvelopeError),
 }

@@ -159,7 +159,7 @@ pub enum PlatformStorageError {
     Pool(#[from] diesel::r2d2::PoolError),
     /// DB connection error.
     ///
-    /// R2D2 connection manager error. Retryable.
+    /// R2D2 connection manager error. Not retryable.
     #[error("Error with connection to Sqlite {0}")]
     DbConnection(#[from] diesel::r2d2::Error),
     /// Pool needs connection.
@@ -174,7 +174,7 @@ pub enum PlatformStorageError {
     PoolRequiresPath,
     /// SQLCipher not loaded.
     ///
-    /// Encryption key given but SQLCipher not available. Not retryable.
+    /// Encryption key given but SQLCipher not available. Retryable.
     #[error("The SQLCipher Sqlite extension is not present, but an encryption key is given")]
     SqlCipherNotLoaded,
     /// SQLCipher key incorrect.
@@ -199,7 +199,7 @@ pub enum PlatformStorageError {
     NotFound(#[from] NotFound),
     /// I/O error.
     ///
-    /// File system I/O error. May be retryable.
+    /// File system I/O error. Retryable.
     #[error(transparent)]
     Io(#[from] std::io::Error),
     /// Hex decode error.
@@ -214,7 +214,7 @@ pub enum PlatformStorageError {
     DieselConnect(#[from] diesel::ConnectionError),
     /// Boxed error.
     ///
-    /// Wrapped dynamic error. May be retryable.
+    /// Wrapped dynamic error. Not retryable.
     #[error(transparent)]
     Boxed(#[from] BoxDynError),
 }

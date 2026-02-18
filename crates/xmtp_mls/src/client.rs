@@ -83,7 +83,7 @@ pub enum ClientError {
     PublishError(String),
     /// Storage error.
     ///
-    /// Database operation failed. Not retryable.
+    /// Database operation failed. May be retryable.
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
     /// API error.

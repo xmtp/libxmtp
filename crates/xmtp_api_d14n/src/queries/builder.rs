@@ -52,9 +52,9 @@ pub enum MessageBackendBuilderError {
     /// Stateful client cursor store not set. Not retryable.
     #[error("failed to build stateful local client, cursor store not replaced, type {0}")]
     CursorStoreNotReplaced(&'static str),
-    /// Uninitialized field.
+    /// Read/write client builder error.
     ///
-    /// Read/write client builder error. Not retryable.
+    /// Read/write client builder failed. Not retryable.
     #[error("error while building read/write api client {0},")]
     UninitializedField(#[from] ReadWriteClientBuilderError),
     /// Readonly builder error.

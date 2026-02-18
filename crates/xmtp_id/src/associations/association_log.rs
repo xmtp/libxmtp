@@ -33,12 +33,12 @@ pub enum AssociationError {
     MemberNotAllowed(MemberKind, MemberKind),
     /// Missing existing member.
     ///
-    /// Expected member not found in association state. Not retryable.
+    /// Required signer not found or signer identity mismatch. Not retryable.
     #[error("Missing existing member")]
     MissingExistingMember,
     /// Legacy signature reuse.
     ///
-    /// Legacy key used with non-zero nonce. Not retryable.
+    /// Legacy delegated signature used in disallowed context. Not retryable.
     #[error("Legacy key is only allowed to be associated using a legacy signature with nonce 0")]
     LegacySignatureReuse,
     /// New member ID signature mismatch.

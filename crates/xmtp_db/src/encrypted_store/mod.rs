@@ -152,17 +152,17 @@ pub enum ConnectionError {
     DecodeError(#[from] DecodeError),
     /// Disconnect in transaction.
     ///
-    /// Cannot disconnect while transaction is active. Not retryable.
+    /// Cannot disconnect while transaction is active. Retryable.
     #[error("disconnect not possible in transaction")]
     DisconnectInTransaction,
     /// Reconnect in transaction.
     ///
-    /// Cannot reconnect while transaction is active. Not retryable.
+    /// Cannot reconnect while transaction is active. Retryable.
     #[error("reconnect not possible in transaction")]
     ReconnectInTransaction,
     /// Invalid query.
     ///
-    /// Database query is malformed. Not retryable.
+    /// Invalid query parameters or configuration. Not retryable.
     #[error("invalid query: {0}")]
     InvalidQuery(String),
     /// Invalid version.

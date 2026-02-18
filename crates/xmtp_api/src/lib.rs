@@ -36,7 +36,7 @@ pub fn dyn_err(e: impl RetryableError + 'static) -> ApiError {
 pub enum ApiError {
     /// API client error.
     ///
-    /// Network request to XMTP backend failed. Retryable.
+    /// API operation error (network, deserialization, or other). May be retryable.
     #[error("api client error {0}")]
     Api(Box<dyn RetryableError>),
     /// Mismatched key packages.

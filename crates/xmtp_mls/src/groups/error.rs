@@ -112,7 +112,7 @@ pub enum GroupError {
     LeaveCantProcessed(#[from] GroupLeaveValidationError),
     /// Storage error.
     ///
-    /// Database operation failed. Not retryable.
+    /// Database operation failed. May be retryable.
     #[error("storage error: {0}")]
     Storage(#[from] xmtp_db::StorageError),
     /// Intent error.
@@ -130,26 +130,26 @@ pub enum GroupError {
     /// MLS TLS encoding/decoding failed. Not retryable.
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
-    /// Add members error.
+    /// Update group membership error.
     ///
-    /// Failed to update group membership. Not retryable.
+    /// Failed to update group membership. May be retryable.
     #[error("add members: {0}")]
     UpdateGroupMembership(
         #[from] openmls::prelude::UpdateGroupMembershipError<sql_key_store::SqlKeyStoreError>,
     ),
     /// Group create error.
     ///
-    /// MLS group creation failed. Not retryable.
+    /// MLS group creation failed. May be retryable.
     #[error("group create: {0}")]
     GroupCreate(#[from] openmls::group::NewGroupError<sql_key_store::SqlKeyStoreError>),
     /// Self update error.
     ///
-    /// MLS self-update operation failed. Not retryable.
+    /// MLS self-update operation failed. May be retryable.
     #[error("self update: {0}")]
     SelfUpdate(#[from] openmls::group::SelfUpdateError<sql_key_store::SqlKeyStoreError>),
     /// Welcome error.
     ///
-    /// Processing MLS welcome message failed. Not retryable.
+    /// Processing MLS welcome message failed. May be retryable.
     #[error("welcome error: {0}")]
     WelcomeError(#[from] openmls::prelude::WelcomeError<sql_key_store::SqlKeyStoreError>),
     /// Invalid extension.
@@ -194,7 +194,7 @@ pub enum GroupError {
     InvalidPublicKeys(Vec<Vec<u8>>),
     /// Commit validation error.
     ///
-    /// MLS commit validation failed. Not retryable.
+    /// MLS commit validation failed. May be retryable.
     #[error("Commit validation error {0}")]
     CommitValidation(#[from] CommitValidationError),
     /// Identity error.
@@ -214,7 +214,7 @@ pub enum GroupError {
     CryptoError(#[from] openmls::prelude::CryptoError),
     /// Group context proposal error.
     ///
-    /// Failed to create group context extension proposal. Not retryable.
+    /// Failed to create group context extension proposal. May be retryable.
     #[error("create group context proposal error: {0}")]
     CreateGroupContextExtProposalError(
         #[from] CreateGroupContextExtProposalError<sql_key_store::SqlKeyStoreError>,
@@ -231,7 +231,7 @@ pub enum GroupError {
     LeafNodeError(#[from] LibraryError),
     /// Installation diff error.
     ///
-    /// Installation diff computation failed. Not retryable.
+    /// Installation diff computation failed. May be retryable.
     #[error("Installation diff error: {0}")]
     InstallationDiff(#[from] InstallationDiffError),
     /// No PSK support.
@@ -241,7 +241,7 @@ pub enum GroupError {
     NoPSKSupport,
     /// SQL key store error.
     ///
-    /// OpenMLS key store operation failed. Not retryable.
+    /// OpenMLS key store operation failed. May be retryable.
     #[error("sql key store error: {0}")]
     SqlKeyStore(#[from] sql_key_store::SqlKeyStoreError),
     /// Sync failed to wait.
@@ -311,7 +311,7 @@ pub enum GroupError {
     NoWelcomesToSend,
     /// Codec error.
     ///
-    /// Content type codec failed. Not retryable.
+    /// Content type codec failed. Retryable.
     #[error("Codec error: {0}")]
     CodecError(#[from] CodecError),
     /// Wrap welcome error.
@@ -336,7 +336,7 @@ pub enum GroupError {
     UninitializedResult,
     /// Diesel ORM error.
     ///
-    /// Raw database query failed. Not retryable.
+    /// Raw database query failed. May be retryable.
     #[error(transparent)]
     Diesel(#[from] xmtp_db::diesel::result::Error),
     /// Uninitialized field.

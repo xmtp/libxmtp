@@ -53,7 +53,7 @@ pub enum SignatureError {
     AddressValidationError(#[from] xmtp_cryptography::signature::IdentifierValidationError),
     /// URL parse error.
     ///
-    /// CAIP-10 account ID URL is malformed. Not retryable.
+    /// URL parsing failed. Not retryable.
     #[error(transparent)]
     UrlParseError(#[from] url::ParseError),
     /// Decode error.

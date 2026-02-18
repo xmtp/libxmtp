@@ -298,7 +298,7 @@ pub enum SqlKeyStoreError {
     UnsupportedValueTypeBytes,
     /// Unsupported method.
     ///
-    /// Update operation not supported by this key store. Not retryable.
+    /// PSK operations not supported by this key store. Not retryable.
     #[error("Updating is not supported by this key store.")]
     UnsupportedMethod,
     /// Serialization error.

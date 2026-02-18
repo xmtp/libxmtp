@@ -173,7 +173,7 @@ pub enum SignatureRequestError {
     Signature(#[from] SignatureError),
     /// Unable to get block number.
     ///
-    /// Failed to fetch blockchain block number. Retryable.
+    /// Block number not returned after successful SCW verification. May be retryable.
     #[error("Unable to get block number")]
     BlockNumber,
 }

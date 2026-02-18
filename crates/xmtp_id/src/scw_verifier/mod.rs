@@ -45,14 +45,14 @@ pub enum VerifierError {
     /// JSON serialization/deserialization failed. Not retryable.
     #[error(transparent)]
     Serde(#[from] serde_json::Error),
-    /// Malformed EIP URL.
+    /// Malformed chain ID.
     ///
-    /// URL not preceded with eip144:. Not retryable.
-    #[error("URLs must be preceded with eip144:")]
+    /// Chain ID string lacks expected eip155: prefix. Not retryable.
+    #[error("Chain IDs must be preceded with eip155:")]
     MalformedEipUrl,
     /// No verifier.
     ///
-    /// Verifier not configured. Not retryable.
+    /// Verifier not configured. Retryable.
     #[error("verifier not present")]
     NoVerifier,
     /// Invalid hash.

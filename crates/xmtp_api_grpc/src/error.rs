@@ -51,12 +51,12 @@ pub enum GrpcBuilderError {
 pub enum GrpcError {
     /// Invalid URI.
     ///
-    /// URI for channel creation is malformed. Not retryable.
+    /// URI for channel creation is malformed. Retryable.
     #[error("Invalid URI during channel creation")]
     InvalidUri(#[from] http::uri::InvalidUri),
     /// Metadata error.
     ///
-    /// Invalid gRPC metadata value. Not retryable.
+    /// Invalid gRPC metadata value. Retryable.
     #[error(transparent)]
     Metadata(#[from] tonic::metadata::errors::InvalidMetadataValue),
     /// gRPC status error.
@@ -66,17 +66,17 @@ pub enum GrpcError {
     Status(#[from] tonic::Status),
     /// Not found.
     ///
-    /// Requested resource not found or empty. Not retryable.
+    /// Requested resource not found, empty, or proto conversion failed. Retryable.
     #[error("{0} not found/empty")]
     NotFound(String),
     /// Unexpected payload.
     ///
-    /// Payload not expected in response. Not retryable.
+    /// Payload not expected in response. Retryable.
     #[error("Payload not expected")]
     UnexpectedPayload,
     /// Missing payload.
     ///
-    /// Expected payload not in response. Not retryable.
+    /// Expected payload not in response. Retryable.
     #[error("payload is missing")]
     MissingPayload,
     #[error(transparent)]
@@ -84,12 +84,12 @@ pub enum GrpcError {
     Proto(#[from] xmtp_proto::ProtoError),
     /// Decode error.
     ///
-    /// Protobuf decoding failed. Not retryable.
+    /// Protobuf decoding failed. Retryable.
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
     /// Unreachable.
     ///
-    /// Infallible error -- should never occur. Not retryable.
+    /// Infallible error -- should never occur. Retryable.
     #[error("unreachable (Infallible)")]
     Unreachable,
     /// Transport error.

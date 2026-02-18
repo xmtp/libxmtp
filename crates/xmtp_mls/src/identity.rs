@@ -199,7 +199,7 @@ pub enum IdentityError {
     Decode(#[from] prost::DecodeError),
     /// Installation not found.
     ///
-    /// Installation ID missing from store. Not retryable.
+    /// Installation ID not found in network association state. Not retryable.
     #[error("installation not found: {0}")]
     InstallationIdNotFound(String),
     #[error(transparent)]
