@@ -484,8 +484,6 @@ struct ErrorCodeAttr {
     inherit: bool,
     /// Implement for a remote type path: #[error_code(remote = "path::Type")]
     remote: Option<Path>,
-    /// Skip doc comment requirement: #[error_code(undocumented)]
-    undocumented: bool,
     /// Mark as internal (not surfaced to SDK consumers): #[error_code(internal)]
     internal: bool,
 }
@@ -510,9 +508,6 @@ impl ErrorCodeAttr {
                 if meta.path.is_ident("inherit") {
                     result.inherit = true;
                     Ok(())
-                } else if meta.path.is_ident("undocumented") {
-                    result.undocumented = true;
-                    Ok(())
                 } else if meta.path.is_ident("internal") {
                     result.internal = true;
                     Ok(())
@@ -526,7 +521,7 @@ impl ErrorCodeAttr {
                     Ok(())
                 } else {
                     Err(meta.error(
-                        "expected `inherit`, `undocumented`, `internal`, `remote = \"path::Type\"`, or a string literal",
+                        "expected `inherit`, `internal`, `remote = \"path::Type\"`, or a string literal",
                     ))
                 }
             });
@@ -586,15 +581,14 @@ pub fn derive_error_code(input: proc_macro::TokenStream) -> proc_macro::TokenStr
                         }
                     }
                 } else {
-                    // Require doc comments on non-inherited, non-remote, non-undocumented variants
-                    if !is_remote && !attr.undocumented {
+                    // Require doc comments on non-inherited, non-remote variants
+                    if !is_remote {
                         let has_doc = variant.attrs.iter().any(|a| a.path().is_ident("doc"));
                         if !has_doc {
                             let msg = format!(
                                 "Missing doc comment on error variant `{}::{}`. \
                                  All ErrorCode variants require a `///` doc comment \
-                                 describing the error. Add a doc comment or, as a \
-                                 temporary measure, mark with `#[error_code(undocumented)]`.",
+                                 describing the error.",
                                 name_str, variant_name
                             );
                             let span = variant_name.span();
@@ -639,15 +633,14 @@ pub fn derive_error_code(input: proc_macro::TokenStream) -> proc_macro::TokenStr
             }
         }
         Data::Struct(_) => {
-            // Require doc comments on non-remote, non-undocumented structs
-            if !is_remote && !container_attr.undocumented {
+            // Require doc comments on non-remote structs
+            if !is_remote {
                 let has_doc = input.attrs.iter().any(|a| a.path().is_ident("doc"));
                 if !has_doc {
                     let msg = format!(
                         "Missing doc comment on error struct `{}`. \
                          All ErrorCode types require a `///` doc comment \
-                         describing the error. Add a doc comment or, as a \
-                         temporary measure, mark with `#[error_code(undocumented)]`.",
+                         describing the error.",
                         name_str
                     );
                     return syn::Error::new_spanned(&input.ident, msg)

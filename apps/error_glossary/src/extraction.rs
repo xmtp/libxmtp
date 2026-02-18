@@ -223,7 +223,7 @@ fn parse_error_code_attrs(attrs: &[syn::Attribute]) -> ErrorCodeAttrParsed {
                 let lit: syn::LitStr = value.parse()?;
                 result.remote = Some(lit.value());
             }
-            // undocumented is irrelevant for glossary purposes
+
             Ok(())
         });
     }

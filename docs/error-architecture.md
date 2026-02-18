@@ -129,16 +129,6 @@ pub enum GroupIntentError {
 }
 ```
 
-### `#[error_code(undocumented)]` -- skip doc requirement
-
-Temporarily skips the doc comment requirement. Use as a stopgap when adding variants quickly; all variants should eventually have doc comments:
-
-```rust
-#[error_code(undocumented)]
-#[error("temporary error")]
-TemporaryVariant,
-```
-
 ## How codes propagate through FFI bindings
 
 All three binding layers format errors as `[ErrorCode] human-readable message`.
