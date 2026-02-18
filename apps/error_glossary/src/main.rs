@@ -23,7 +23,10 @@ struct Cli {
 fn main() {
     let cli = Cli::parse();
     let workspace = cli.workspace.canonicalize().unwrap_or_else(|e| {
-        eprintln!("error: cannot resolve workspace path {:?}: {}", cli.workspace, e);
+        eprintln!(
+            "error: cannot resolve workspace path {:?}: {}",
+            cli.workspace, e
+        );
         std::process::exit(1);
     });
 

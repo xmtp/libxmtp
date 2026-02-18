@@ -15,10 +15,7 @@ pub fn discover_source_files(workspace: &Path) -> BTreeMap<String, Vec<PathBuf>>
             continue;
         }
 
-        for entry in WalkDir::new(&scan_root)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
+        for entry in WalkDir::new(&scan_root).into_iter().filter_map(|e| e.ok()) {
             let path = entry.path();
 
             if !path.is_file() {

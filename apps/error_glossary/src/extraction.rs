@@ -20,12 +20,7 @@ pub fn extract_error_types(source: &str, file_path: &Path, workspace: &Path) -> 
 }
 
 /// Recursively collect ErrorCode types from items, skipping test modules.
-fn collect_items(
-    items: &[syn::Item],
-    source_file: &str,
-    in_test: bool,
-    out: &mut Vec<ErrorType>,
-) {
+fn collect_items(items: &[syn::Item], source_file: &str, in_test: bool, out: &mut Vec<ErrorType>) {
     if in_test {
         return;
     }
