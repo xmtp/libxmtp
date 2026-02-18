@@ -1,9 +1,11 @@
 use crate::{AppWindow, state::LogState};
+use parking_lot::RwLock;
 use slint::{Color, Weak};
 use std::{
     fs::read_to_string,
     hash::{Hash, Hasher},
     path::Path,
+    sync::Arc,
 };
 
 pub fn open_file_dialog(handle: Weak<AppWindow>) {
@@ -79,7 +81,11 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     )
 }
 
-pub fn file_selected(handle: Weak<AppWindow>, path: impl AsRef<Path>) {
+pub fn file_selected(
+    handle: Weak<AppWindow>,
+    path: impl AsRef<Path>,
+    log_state_ref: Arc<RwLock<Option<Arc<LogState>>>>,
+) {
     let path = path.as_ref();
     tracing::info!("Selected logs file {path:?}");
 
@@ -95,5 +101,8 @@ pub fn file_selected(handle: Weak<AppWindow>, path: impl AsRef<Path>) {
     let lines = log_file.split('\n').peekable();
     let state = LogState::new();
     state.ingest_all(lines);
-    state.update_ui(&handle);
+    state.clone().update_ui(&handle);
+
+    // Store the state for later use by state-clicked callback
+    *log_state_ref.write() = Some(state);
 }

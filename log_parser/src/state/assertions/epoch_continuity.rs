@@ -45,7 +45,7 @@ impl LogAssertion for EpochContinuityAssertion {
                             .push(format!("Epoch went backwards. Was {a}, is now {b}.")),
                         (_, Some(e)) => {
                             epoch = Some(e);
-                            state.epoch_auth = None;
+                            auth = None;
                         }
                         _ => {}
                     }
@@ -55,7 +55,7 @@ impl LogAssertion for EpochContinuityAssertion {
                         (None, Some(a)) => auth = Some(a.clone()),
                         (Some(a), Some(b)) if a != b => {
                             let description =
-                                format!("Epoch auth changed mid-epoch. From {b} to {a}");
+                                format!("Epoch auth changed mid-epoch. From {a} to {b}");
                             auth = Some(b.clone());
                             state.event.problems.lock().push(description);
                         }

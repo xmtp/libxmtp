@@ -3,8 +3,9 @@ use crate::{
     ui::file_open::{file_selected, open_file_dialog},
 };
 use anyhow::Result;
+use parking_lot::RwLock;
 use pest_derive::Parser;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 use tokio::runtime::Runtime;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 use xmtp_common::TestWriter;
@@ -33,19 +34,24 @@ fn main() -> Result<()> {
     tracing::info!("Log parser starting up");
     let ui = AppWindow::new()?;
 
+    // Global state storage that persists across callbacks
+    let current_log_state: Arc<RwLock<Option<Arc<LogState>>>> = Arc::new(RwLock::new(None));
+
     ui.on_request_open_file({
         let ui_handle = ui.as_weak();
         move || open_file_dialog(ui_handle.clone())
     });
     ui.on_file_selected({
         let ui_handle = ui.as_weak();
-        move |path| file_selected(ui_handle.clone(), path)
+        let log_state_ref = current_log_state.clone();
+        move |path| file_selected(ui_handle.clone(), path, log_state_ref.clone())
     });
 
     ui.on_build_log({
         let writer = writer.clone();
         let ui_handle = ui.as_weak();
         let runtime_handle = handle.clone();
+        let log_state_ref = current_log_state.clone();
         move || {
             writer.clear();
 
@@ -75,7 +81,53 @@ fn main() -> Result<()> {
 
             let state = LogState::new();
             state.ingest_all(lines);
-            state.update_ui(&ui_handle);
+            state.clone().update_ui(&ui_handle);
+
+            // Store the state for later use by state-clicked callback
+            *log_state_ref.write() = Some(state);
+        }
+    });
+
+    ui.on_state_clicked({
+        let ui_handle = ui.as_weak();
+        let log_state_ref = current_log_state.clone();
+        move |group_id, installation_id, unique_id| {
+            let group_id = group_id.to_string();
+            let installation_id = installation_id.to_string();
+            let unique_id = unique_id as u64;
+
+            tracing::info!(
+                "State clicked: group={}, installation={}, unique_id={}",
+                group_id,
+                installation_id,
+                unique_id
+            );
+
+            let log_state_guard = log_state_ref.read();
+            if let Some(ref log_state) = *log_state_guard {
+                if let Some(group_state) =
+                    log_state.find_group_state_by_id(&installation_id, &group_id, unique_id)
+                {
+                    let detail = group_state.ui_group_state_detail(&installation_id);
+                    if let Some(ui) = ui_handle.upgrade() {
+                        ui.set_selected_state_detail(detail);
+                        ui.set_show_state_detail(true);
+                    }
+                } else {
+                    tracing::warn!("Could not find GroupState with unique_id={}", unique_id);
+                }
+            } else {
+                tracing::warn!("No log state available");
+            }
+        }
+    });
+
+    ui.on_close_state_detail({
+        let ui_handle = ui.as_weak();
+        move || {
+            if let Some(ui) = ui_handle.upgrade() {
+                ui.set_show_state_detail(false);
+            }
         }
     });
 

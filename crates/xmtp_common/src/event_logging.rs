@@ -31,7 +31,7 @@ pub enum Event {
     #[context(group_id, members, epoch, icon = "➕")]
     AddedMembers,
     /// Received new group from welcome.
-    #[context(group_id, conversation_type, epoch, icon = "🤝")]
+    #[context(group_id, conversation_type, epoch, epoch_auth, icon = "🤝")]
     ProcessedWelcome,
 
     // ===================== MLS Operations =====================
@@ -48,15 +48,14 @@ pub enum Event {
         removed_inboxes,
         left_inboxes,
         metadata_changes,
+        cursor,
+        originator,
         icon = "😮‍💨"
     )]
     MLSProcessedStagedCommit,
     /// Received application message.
     #[context(group_id, epoch, msg_epoch, sender_inbox_id)]
     MLSReceivedApplicationMessage,
-    /// Group epoch updated.
-    #[context(group_id, cursor, originator, epoch, epoch_auth, previous_epoch)]
-    MLSGroupEpochUpdated,
 
     // ===================== Network =====================
     /// Stream started.

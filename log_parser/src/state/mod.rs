@@ -3,15 +3,29 @@ pub mod event;
 pub mod ui;
 pub mod value;
 
-use crate::state::assertions::{LogAssertion, epoch_continuity::EpochContinuityAssertion};
+use crate::state::assertions::{
+    LogAssertion, epoch_auth_consistency::EpochAuthConsistency,
+    epoch_continuity::EpochContinuityAssertion,
+};
 use anyhow::{Context, Result};
 pub use event::LogEvent;
 use parking_lot::{Mutex, MutexGuard, RwLock, RwLockWriteGuard};
 use std::{
     collections::{BTreeMap, HashMap},
     iter::Peekable,
-    sync::{Arc, Weak},
+    sync::{
+        Arc, Weak,
+        atomic::{AtomicU64, Ordering},
+    },
 };
+
+/// Global counter for unique GroupState IDs
+static GROUP_STATE_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+/// Generate a new unique ID for a GroupState
+fn next_group_state_id() -> u64 {
+    GROUP_STATE_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
+}
 pub use value::Value;
 use xmtp_common::Event;
 
@@ -28,19 +42,41 @@ pub struct LogState {
 
 #[derive(Default)]
 pub struct Epochs {
+    // These are important events without an associated group state
+    // that we want to display in the epoch tab.
     pub outer_events: Arc<RwLock<Vec<Arc<LogEvent>>>>,
     pub epochs: BTreeMap<EpochNumber, Epoch>,
 }
 
 #[derive(Default)]
 pub struct Epoch {
-    pub auth: Option<EpochAuth>,
     pub states: Vec<Arc<Mutex<GroupState>>>,
 }
 
 impl LogState {
     pub fn new() -> Arc<Self> {
         Arc::default()
+    }
+
+    /// Find a GroupState by its unique_id, narrowed by installation_id and group_id
+    pub fn find_group_state_by_id(
+        &self,
+        installation_id: &str,
+        group_id: &str,
+        unique_id: u64,
+    ) -> Option<GroupState> {
+        let clients = self.clients.read();
+        let client = clients.get(installation_id)?;
+        let client = client.read();
+        let group = client.groups.get(group_id)?;
+        let group = group.read();
+        for state in &group.states {
+            let state = state.lock();
+            if state.unique_id == unique_id {
+                return Some(state.clone());
+            }
+        }
+        None
     }
 
     pub fn ingest_all<'a>(&self, mut lines: Peekable<impl Iterator<Item = &'a str>>) {
@@ -55,6 +91,9 @@ impl LogState {
 
         if let Err(err) = EpochContinuityAssertion::assert(&self) {
             tracing::error!("Continuity error: {err}");
+        };
+        if let Err(err) = EpochAuthConsistency::assert(&self) {
+            tracing::error!("Epoch auth consistency error: {err}");
         };
 
         // sort everything by time
@@ -131,10 +170,6 @@ impl LogState {
                     Event::CreatedDM => {
                         group_state.dm_target = Some(ctx("target_inbox")?.as_str()?.to_string());
                     }
-                    Event::MLSGroupEpochUpdated => {
-                        group_state.previous_epoch = Some(ctx("previous_epoch")?.as_int()?);
-                        group_state.cursor = Some(ctx("cursor")?.as_int()?);
-                    }
                     _ => {}
                 }
             }
@@ -197,9 +232,10 @@ impl Group {
 
 #[derive(Clone)]
 pub struct GroupState {
+    /// Globally unique ID for this GroupState instance
+    pub unique_id: u64,
     pub event: Arc<LogEvent>,
     pub dm_target: Option<InstallationId>,
-    pub previous_epoch: Option<i64>,
     pub epoch: Option<i64>,
     pub epoch_auth: Option<String>,
     pub cursor: Option<i64>,
@@ -219,9 +255,9 @@ impl Group {
 impl GroupState {
     fn new(event: &Arc<LogEvent>) -> Self {
         Self {
+            unique_id: next_group_state_id(),
             event: event.clone(),
             dm_target: None,
-            previous_epoch: None,
             epoch: None,
             epoch_auth: None,
             cursor: None,
@@ -234,11 +270,19 @@ impl GroupState {
 impl Group {
     fn new_event(&mut self, event: &Arc<LogEvent>) -> MutexGuard<'_, GroupState> {
         let last = self.states.last().expect("There should always be one");
+        let last_guard = last.lock();
 
         let new_state = GroupState {
+            unique_id: next_group_state_id(),
             event: event.clone(),
-            ..last.lock().clone()
+            dm_target: last_guard.dm_target.clone(),
+            epoch: last_guard.epoch,
+            epoch_auth: last_guard.epoch_auth.clone(),
+            cursor: last_guard.cursor,
+            originator: last_guard.originator,
+            members: last_guard.members.clone(),
         };
+        drop(last_guard);
 
         self.states.push(Arc::new(Mutex::new(new_state)));
         self.states.last().expect("Just pushed").lock()

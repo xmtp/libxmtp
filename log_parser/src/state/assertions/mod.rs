@@ -1,3 +1,4 @@
+pub mod epoch_auth_consistency;
 pub mod epoch_continuity;
 
 use crate::state::LogState;

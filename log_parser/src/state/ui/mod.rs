@@ -1,6 +1,6 @@
 use crate::{
-    AppWindow, UIEpochHeader, UIEvent, UIGroupRow, UIGroupState, UIInstallationCell,
-    UIInstallationRow, UIStream,
+    AppWindow, UIEpochHeader, UIEvent, UIGroupRow, UIGroupState, UIGroupStateDetail,
+    UIInstallationCell, UIInstallationRow, UIStream,
     state::{GroupState, LogEvent, LogState},
     ui::file_open::color_from_string,
 };
@@ -216,12 +216,12 @@ impl LogEvent {
             .collect();
 
         UIGroupState {
+            unique_id: 0, // LogEvents don't have unique IDs, only GroupStates do
             msg: SharedString::from(self.msg),
             icon: SharedString::from(self.icon),
             context: ModelRc::new(VecModel::from(self.ui_context_entries())),
             intermediate: SharedString::from(&self.intermediate),
             epoch: -1,
-            previous_epoch: -1,
             problems: ModelRc::new(VecModel::from(problem_strings)),
             background: Color::from_rgb_u8(211, 211, 211),
             line_number: self.line_number as i32,
@@ -240,15 +240,42 @@ impl GroupState {
             .collect();
 
         UIGroupState {
+            unique_id: self.unique_id as i32,
             msg: SharedString::from(self.event.msg),
             icon: SharedString::from(self.event.icon),
             epoch: self.epoch.unwrap_or(-1) as i32,
-            previous_epoch: self.previous_epoch.unwrap_or(-1) as i32,
             problems: ModelRc::new(VecModel::from(problem_strings)),
             context: ModelRc::new(VecModel::from(self.event.ui_context_entries())),
             intermediate: SharedString::from(&self.event.intermediate),
             background: Color::from_rgb_u8(255, 255, 255),
             line_number: self.event.line_number as i32,
+        }
+    }
+
+    /// Create a detailed UI representation of this GroupState for the detail panel
+    pub fn ui_group_state_detail(&self, installation_id: &str) -> UIGroupStateDetail {
+        let problem_strings: Vec<SharedString> = self
+            .event
+            .problems
+            .lock()
+            .iter()
+            .map(|p| SharedString::from(p))
+            .collect();
+
+        UIGroupStateDetail {
+            unique_id: self.unique_id as i32,
+            installation_id: SharedString::from(installation_id),
+            msg: SharedString::from(self.event.msg),
+            icon: SharedString::from(self.event.icon),
+            epoch: self.epoch.unwrap_or(-1) as i32,
+            epoch_auth: SharedString::from(self.epoch_auth.as_deref().unwrap_or("")),
+            cursor: self.cursor.unwrap_or(-1) as i32,
+            originator: self.originator.unwrap_or(-1) as i32,
+            dm_target: SharedString::from(self.dm_target.as_deref().unwrap_or("")),
+            line_number: self.event.line_number as i32,
+            problems: ModelRc::new(VecModel::from(problem_strings)),
+            context: ModelRc::new(VecModel::from(self.event.ui_context_entries())),
+            intermediate: SharedString::from(&self.event.intermediate),
         }
     }
 }

@@ -876,12 +876,14 @@ where
                     self.context.installation_id(),
                     group_id = self.group_id,
                     epoch = mls_group.epoch().as_u64(),
-                    epoch_auth = mls_group.epoch_authenticator().as_slice().short_hex(),
+                    epoch_auth = mls_group.epoch_authenticator().as_slice(),
                     actor_installation_id = validated_commit.actor.installation_id,
                     added_inboxes = $payload.added_inboxes,
                     removed_inboxes = $payload.removed_inboxes,
                     left_inboxes = $payload.left_inboxes,
-                    metadata_changes = $payload.metadata_field_changes
+                    metadata_changes = $payload.metadata_field_changes,
+                    cursor = cursor.sequence_id,
+                    originator = cursor.originator_id
                 );
             }
 
@@ -1057,7 +1059,6 @@ where
             }
             // once the checks for processing pass, actually process the message
             let processed_message = mls_group.process_message(&provider, message.clone())?;
-            let previous_epoch = mls_group.epoch().as_u64();
             let identifier = self.process_external_message(
                 mls_group,
                 processed_message,
@@ -1066,19 +1067,6 @@ where
                 &storage,
                 &mut deferred_events,
             )?;
-            let new_epoch = mls_group.epoch().as_u64();
-            if new_epoch > previous_epoch {
-                log_event!(
-                    Event::MLSGroupEpochUpdated,
-                    self.context.installation_id(),
-                    group_id = self.group_id,
-                    cursor = cursor.sequence_id,
-                    originator = cursor.originator_id,
-                    epoch = new_epoch,
-                    epoch_auth = mls_group.epoch_authenticator().as_slice().short_hex(),
-                    previous_epoch
-                );
-            }
             Ok::<_, GroupMessageProcessingError>(identifier)
         })?;
 
@@ -1265,12 +1253,14 @@ where
                         self.context.installation_id(),
                         group_id = self.group_id,
                         epoch = mls_group.epoch().as_u64(),
-                        epoch_auth = mls_group.epoch_authenticator().as_slice().short_hex(),
+                        epoch_auth = mls_group.epoch_authenticator().as_slice(),
                         actor_installation_id = validated_commit.actor.installation_id,
                         added_inboxes = $payload.added_inboxes,
                         removed_inboxes = $payload.removed_inboxes,
                         left_inboxes = $payload.left_inboxes,
-                        metadata_changes = $payload.metadata_field_changes
+                        metadata_changes = $payload.metadata_field_changes,
+                        cursor = cursor.sequence_id,
+                        originator = cursor.originator_id
                     );
                 }
 

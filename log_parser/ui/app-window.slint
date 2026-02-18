@@ -10,12 +10,13 @@ import {
     EpochTab,
     UIContextEntry,
     UIGroupState,
+    UIGroupStateDetail,
     UIInstallationCell,
     UIEpochHeader,
     UIInstallationRow,
     UIGroupRow,
 } from "epoch-tab.slint";
-export { UIContextEntry, UIGroupState, UIInstallationCell, UIEpochHeader, UIInstallationRow, UIGroupRow }
+export { UIContextEntry, UIGroupState, UIGroupStateDetail, UIInstallationCell, UIEpochHeader, UIInstallationRow, UIGroupRow }
 
 // ─── Shared Data Structures ───
 
@@ -159,9 +160,15 @@ export component AppWindow inherits Window {
     in-out property <[UIGroupRow]> epoch-groups: [];
     in-out property <int> active-tab: 0;
 
+    // Selected state detail (set by Rust when state-clicked callback fires)
+    in-out property <UIGroupStateDetail> selected-state-detail;
+    in-out property <bool> show-state-detail: false;
+
     callback request-open-file();
     callback file-selected(string);
     callback build-log();
+    callback state-clicked(/* group-id */ string, /* installation-id */ string, /* unique-id */ int);
+    callback close-state-detail();
 
     MenuBar {
         Menu {
@@ -288,6 +295,259 @@ export component AppWindow inherits Window {
         // Epochs Tab
         if root.active-tab == 1: EpochTab {
             epoch-groups: root.epoch-groups;
+            state-clicked(group-id, installation-id, unique-id) => {
+                root.state-clicked(group-id, installation-id, unique-id);
+            }
+        }
+
+        // ─── Selected State Detail Panel (overlay) ───
+        if root.show-state-detail: Rectangle {
+            background: #00000080;
+
+            TouchArea {
+                clicked => {
+                    root.show-state-detail = false;
+                    root.close-state-detail();
+                }
+            }
+
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: min(600px, parent.width - 40px);
+                height: min(500px, parent.height - 40px);
+                background: #ffffff;
+                border-radius: 8px;
+                drop-shadow-blur: 20px;
+                drop-shadow-color: #00000040;
+
+                TouchArea {
+                    // Prevent clicks from closing the panel
+                }
+
+                VerticalBox {
+                    padding: 16px;
+                    spacing: 8px;
+
+                    // Header
+                    HorizontalBox {
+                        spacing: 8px;
+
+                        Text {
+                            text: root.selected-state-detail.icon;
+                            font-size: 18px;
+                            font-weight: 700;
+                        }
+
+                        Text {
+                            text: root.selected-state-detail.msg;
+                            font-size: 16px;
+                            font-weight: 700;
+                            color: #333333;
+                            horizontal-stretch: 1;
+                        }
+
+                        Rectangle {
+                            width: close-text.preferred-width + 16px;
+                            height: 28px;
+                            background: close-touch.has-hover ? #e0e0e0 : #f0f0f0;
+                            border-radius: 4px;
+
+                            close-text := Text {
+                                text: "✕ Close";
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: #666666;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            close-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.show-state-detail = false;
+                                    root.close-state-detail();
+                                }
+                            }
+                        }
+                    }
+
+                    // Metadata row
+                    HorizontalBox {
+                        spacing: 8px;
+
+                        Rectangle {
+                            width: line-label.preferred-width + 12px;
+                            height: 24px;
+                            background: #f0f0f0;
+                            border-radius: 4px;
+
+                            line-label := Text {
+                                text: "Line: " + root.selected-state-detail.line-number;
+                                font-size: 11px;
+                                color: #666666;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        if root.selected-state-detail.epoch >= 0: Rectangle {
+                            width: epoch-label.preferred-width + 12px;
+                            height: 24px;
+                            background: #e0f0e0;
+                            border-radius: 4px;
+
+                            epoch-label := Text {
+                                text: "Epoch: " + root.selected-state-detail.epoch;
+                                font-size: 11px;
+                                color: #448844;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        if root.selected-state-detail.cursor >= 0: Rectangle {
+                            width: cursor-label.preferred-width + 12px;
+                            height: 24px;
+                            background: #fff0e0;
+                            border-radius: 4px;
+
+                            cursor-label := Text {
+                                text: "Cursor: " + root.selected-state-detail.cursor;
+                                font-size: 11px;
+                                color: #886644;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    // Installation ID
+                    HorizontalBox {
+                        spacing: 4px;
+
+                        Text {
+                            text: "Installation:";
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: #888888;
+                        }
+
+                        Text {
+                            text: root.selected-state-detail.installation-id;
+                            font-size: 11px;
+                            color: #444444;
+                            font-family: "monospace";
+                        }
+                    }
+
+                    // Epoch Auth
+                    if root.selected-state-detail.epoch-auth != "": HorizontalBox {
+                        spacing: 4px;
+
+                        Text {
+                            text: "Epoch Auth:";
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: #888888;
+                        }
+
+                        Text {
+                            text: root.selected-state-detail.epoch-auth;
+                            font-size: 11px;
+                            color: #444444;
+                            font-family: "monospace";
+                        }
+                    }
+
+                    // Context entries
+                    ScrollView {
+                        vertical-stretch: 1;
+
+                        VerticalLayout {
+                            alignment: start;
+                            spacing: 6px;
+
+                            for ctx in root.selected-state-detail.context: Rectangle {
+                                background: #f8f8f8;
+                                border-radius: 4px;
+                                min-height: ctx-inner.preferred-height;
+
+                                ctx-inner := VerticalBox {
+                                    padding: 6px;
+
+                                    Text {
+                                        text: ctx.key + ":";
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        color: #666666;
+                                    }
+
+                                    Text {
+                                        text: ctx.value;
+                                        font-size: 11px;
+                                        color: #333333;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                            }
+
+                            // Problems section
+                            if root.selected-state-detail.problems.length > 0: Rectangle {
+                                background: #fff5f5;
+                                border-radius: 4px;
+                                min-height: problems-layout.preferred-height;
+
+                                problems-layout := VerticalBox {
+                                    padding: 8px;
+                                    spacing: 4px;
+
+                                    Text {
+                                        text: "⚠ Problems (" + root.selected-state-detail.problems.length + ")";
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        color: #cc3333;
+                                    }
+
+                                    for problem in root.selected-state-detail.problems: Text {
+                                        text: "• " + problem;
+                                        font-size: 11px;
+                                        color: #993333;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                            }
+
+                            // Intermediate logs
+                            if root.selected-state-detail.intermediate != "": Rectangle {
+                                background: #f5f8ff;
+                                border-radius: 4px;
+                                min-height: intermediate-layout.preferred-height;
+
+                                intermediate-layout := VerticalBox {
+                                    padding: 8px;
+                                    spacing: 4px;
+
+                                    Text {
+                                        text: "📋 Intermediate Logs";
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        color: #3355aa;
+                                    }
+
+                                    Text {
+                                        text: root.selected-state-detail.intermediate;
+                                        font-size: 10px;
+                                        font-family: "monospace";
+                                        color: #444444;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

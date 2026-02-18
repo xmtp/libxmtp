@@ -12,14 +12,32 @@ export struct UIContextEntry {
     value: string,
 }
 
+// ─── Detailed State View (for selected state panel) ───
+
+export struct UIGroupStateDetail {
+    unique-id: int,
+    installation-id: string,
+    msg: string,
+    icon: string,
+    epoch: int,
+    epoch-auth: string,
+    cursor: int,
+    originator: int,
+    dm-target: string,
+    line-number: int,
+    problems: [string],
+    context: [UIContextEntry],
+    intermediate: string,
+}
+
 // ─── Epoch View Data Structures ───
 
 export struct UIGroupState {
+    unique-id: int,
     msg: string,
     icon: string,
     epoch: int,
     background: color,
-    previous-epoch: int,
     problems: [string],
     context: [UIContextEntry],
     intermediate: string,
@@ -68,9 +86,13 @@ global EpochConstants {
 component GroupStateCard inherits Rectangle {
     in property <UIGroupState> state;
     in property <bool> group-focused;
+    in property <string> installation-id;
 
     callback warning-clicked();
     callback logs-clicked(string);
+    callback state-clicked(/* group-id */ string, /* installation-id */ string, /* unique-id */ int);
+
+    in property <string> group-id;
 
     property <bool> show-problems: root.state.problems.length > 0;
 
@@ -84,6 +106,14 @@ component GroupStateCard inherits Rectangle {
     drop-shadow-blur: root.show-problems ? 4px : 2px;
     drop-shadow-offset-y: root.show-problems ? 2px : 1px;
     drop-shadow-color: root.show-problems ? #cc444420 : #00000010;
+
+    // Make the entire card clickable
+    card-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.state-clicked(root.group-id, root.installation-id, root.state.unique-id);
+        }
+    }
 
     card-layout := VerticalLayout {
         alignment: start;
@@ -126,22 +156,6 @@ component GroupStateCard inherits Rectangle {
 
                 line-label := Text {
                     text: "L" + root.state.line-number;
-                    font-size: 9px;
-                    font-weight: 500;
-                    color: #888888;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-            }
-
-            if root.state.previous-epoch != -1: Rectangle {
-                width: prev-label.preferred-width + 10px;
-                height: prev-label.preferred-height + 4px;
-                background: #f0f0f0;
-                border-radius: 3px;
-
-                prev-label := Text {
-                    text: "← e" + root.state.previous-epoch;
                     font-size: 9px;
                     font-weight: 500;
                     color: #888888;
@@ -303,8 +317,13 @@ component InstallationCell inherits Rectangle {
     in property <int> column-max-states;
     in property <bool> group-focused;
 
+    in property <string> installation-id;
+
     callback warning-clicked();
     callback logs-clicked(string);
+    callback state-clicked(/* group-id */ string, /* installation-id */ string, /* unique-id */ int);
+
+    in property <string> group-id;
 
     width: column-max-states * (EpochConstants.state-card-width + EpochConstants.state-card-gap) - EpochConstants.state-card-gap + EpochConstants.column-padding * 2;
     background: transparent;
@@ -319,11 +338,16 @@ component InstallationCell inherits Rectangle {
         for state in root.cell.states: GroupStateCard {
             state: state;
             group-focused: root.group-focused;
+            group-id: root.group-id;
+            installation-id: root.installation-id;
             warning-clicked => {
                 root.warning-clicked();
             }
             logs-clicked(intermediate) => {
                 root.logs-clicked(intermediate);
+            }
+            state-clicked(group-id, installation-id, unique-id) => {
+                root.state-clicked(group-id, installation-id, unique-id);
             }
         }
     }
@@ -374,6 +398,7 @@ component GroupContainer inherits Rectangle {
 
     callback focus-group(string);
     callback focus-group-logs(string, string);
+    callback state-clicked(/* group-id */ string, /* installation-id */ string, /* unique-id */ int);
 
     min-height: group-layout.preferred-height;
     border-width: root.group-focused ? 2px : 1px;
@@ -499,11 +524,16 @@ component GroupContainer inherits Rectangle {
                             cell: cell;
                             column-max-states: root.group-row.epoch-headers[idx].max-states;
                             group-focused: root.group-focused;
+                            group-id: root.group-row.group-id;
+                            installation-id: inst-row.installation-id;
                             warning-clicked => {
                                 root.focus-group(root.group-row.group-id);
                             }
                             logs-clicked(intermediate) => {
                                 root.focus-group-logs(root.group-row.group-id, intermediate);
+                            }
+                            state-clicked(group-id, installation-id, unique-id) => {
+                                root.state-clicked(group-id, installation-id, unique-id);
                             }
                         }
                     }
@@ -587,6 +617,9 @@ component GroupContainer inherits Rectangle {
 
 export component EpochTab inherits Rectangle {
     in property <[UIGroupRow]> epoch-groups: [];
+
+    // Callback when a state card is clicked, passes group-id, installation-id and unique-id
+    callback state-clicked(/* group-id */ string, /* installation-id */ string, /* unique-id */ int);
 
     // When non-empty, only the group with this id is shown, with detail expanded.
     property <string> focused-group-id: "";
@@ -688,6 +721,9 @@ export component EpochTab inherits Rectangle {
                     root.focused-group-id = gid;
                     root.focus-mode = "logs";
                     root.focused-intermediate = intermediate;
+                }
+                state-clicked(group-id, installation-id, unique-id) => {
+                    root.state-clicked(group-id, installation-id, unique-id);
                 }
             }
         }

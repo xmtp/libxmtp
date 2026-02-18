@@ -73,12 +73,14 @@ where
             Ok(mls_group) => {
                 if let Some(mls_group) = &mls_group {
                     let epoch = mls_group.epoch().await?;
+                    let epoch_auth = mls_group.epoch_authenticator().await?;
                     log_event!(
                         Event::ProcessedWelcome,
                         self.context.installation_id(),
                         group_id = mls_group.group_id.as_slice(),
                         conversation_type = %mls_group.conversation_type,
-                        epoch
+                        epoch,
+                        epoch_auth
                     );
                 }
 

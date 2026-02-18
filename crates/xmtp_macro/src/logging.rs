@@ -134,7 +134,7 @@ impl Parse for LogEventInput {
             // Keep sigil as '#' so context formatting can quote the value
             // Auto-apply # for known byte-like field names (e.g. group_id)
             let name_str = name.to_string();
-            let short_hex_fields = &["group_id", "installation_id"];
+            let short_hex_fields = &["group_id", "installation_id", "epoch_auth"];
             if sigil == Some('#')
                 || (sigil.is_none()
                     && short_hex_fields
