@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::api_client::AggregateStats;
 use crate::{ApiEndpoint, ProtoError};
 use thiserror::Error;
@@ -5,7 +7,7 @@ use xmtp_common::{BoxDynError, RetryableError, retryable};
 
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum ApiClientError<E: std::error::Error> {
+pub enum ApiClientError {
     #[error(
         "api client at endpoint \"{}\" has error {}. \n {:?} \n",
         endpoint,
@@ -14,12 +16,12 @@ pub enum ApiClientError<E: std::error::Error> {
     )]
     ClientWithEndpointAndStats {
         endpoint: String,
-        source: E,
+        source: NetworkError,
         stats: AggregateStats,
     },
     #[error("API Error {}, \n {:?} \n", e, stats)]
     ErrorWithStats {
-        e: Box<dyn RetryableError>,
+        e: NetworkError,
         stats: AggregateStats,
     },
     /// The client encountered an error.
@@ -27,10 +29,10 @@ pub enum ApiClientError<E: std::error::Error> {
     ClientWithEndpoint {
         endpoint: String,
         /// The client error.
-        source: E,
+        source: NetworkError,
     },
     #[error("client errored {}", source)]
-    Client { source: E },
+    Client { source: NetworkError },
     #[error(transparent)]
     Http(#[from] http::Error),
     #[error(transparent)]
@@ -53,36 +55,86 @@ pub enum ApiClientError<E: std::error::Error> {
     WritesDisabled,
 }
 
-impl<E> ApiClientError<E>
-where
-    E: std::error::Error + 'static,
-{
-    pub fn new(endpoint: ApiEndpoint, source: E) -> Self {
-        Self::ClientWithEndpoint {
-            endpoint: endpoint.to_string(),
-            source,
-        }
-    }
+/// A lower level NetworkError, like gRPC/QUIC/HTTP/1.1 errors go here.
+/// use [`ApiClientError::new`] to construct
+// needed because of AsDynError sealed trait
+#[derive(Debug)]
+pub struct NetworkError {
+    source: Box<dyn RetryableError>,
+}
 
-    /// add an endpoint to a ApiError::Client error
-    pub fn endpoint(self, endpoint: String) -> Self {
-        match self {
-            Self::Client { source } => Self::ClientWithEndpoint { source, endpoint },
-            v => v,
+impl std::error::Error for NetworkError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source.source()
+    }
+}
+
+impl Display for NetworkError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.source)
+    }
+}
+
+impl RetryableError for NetworkError {
+    fn is_retryable(&self) -> bool {
+        self.source.is_retryable()
+    }
+}
+
+impl NetworkError {
+    pub fn new(e: impl RetryableError + 'static) -> Self {
+        NetworkError {
+            source: Box::new(e),
         }
     }
 }
 
-impl<E: std::error::Error> ApiClientError<E> {
+impl ApiClientError {
+    pub fn new(endpoint: ApiEndpoint, source: impl RetryableError + 'static) -> Self {
+        Self::ClientWithEndpoint {
+            endpoint: endpoint.to_string(),
+            source: NetworkError::new(source),
+        }
+    }
+
+    /// add an endpoint to a ApiError::Client error
+    pub fn endpoint(self, endpoint: impl ToString) -> Self {
+        match self {
+            Self::Client { source } => Self::ClientWithEndpoint {
+                source,
+                endpoint: endpoint.to_string(),
+            },
+            v => v,
+        }
+    }
+
+    pub fn client(client: impl RetryableError + 'static) -> Self {
+        Self::Client {
+            source: NetworkError::new(client),
+        }
+    }
+
+    /// Try to pull a [`NetworkError`] out of this error enum.
+    /// returns None if there's no match
+    pub fn network_error(&self) -> Option<&NetworkError> {
+        use ApiClientError::*;
+        match self {
+            ClientWithEndpointAndStats { source, .. }
+            | ClientWithEndpoint { source, .. }
+            | ErrorWithStats { e: source, .. }
+            | Client { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+}
+
+impl ApiClientError {
     pub fn other<R: RetryableError + 'static>(e: R) -> Self {
         ApiClientError::Other(Box::new(e))
     }
 }
 
-impl<E> RetryableError for ApiClientError<E>
-where
-    E: RetryableError + std::error::Error + 'static,
-{
+impl RetryableError for ApiClientError {
     fn is_retryable(&self) -> bool {
         use ApiClientError::*;
         match self {
@@ -105,8 +157,8 @@ where
 }
 
 // Infallible errors by definition can never occur
-impl<E: std::error::Error> From<std::convert::Infallible> for ApiClientError<E> {
-    fn from(_v: std::convert::Infallible) -> ApiClientError<E> {
+impl From<std::convert::Infallible> for ApiClientError {
+    fn from(_v: std::convert::Infallible) -> ApiClientError {
         unreachable!("Infallible errors can never occur")
     }
 }
