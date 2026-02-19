@@ -16,6 +16,6 @@ xmtp_common::if_d14n! {
 }
 
 pub type FullD14nClient =
-    D14nClient<ReadWriteClient<MultiNodeClient, GrpcClient>, Arc<dyn CursorStore>>;
+    D14nClient<ReadWriteClient<MultiNodeClient<GrpcClient>, GrpcClient>, Arc<dyn CursorStore>>;
 
 pub type FullV3Client = V3Client<GrpcClient, Arc<dyn CursorStore>>;

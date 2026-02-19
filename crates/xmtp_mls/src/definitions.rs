@@ -12,6 +12,6 @@ pub type MlsContext =
 
 pub type WrappedXmtpApiClient = ApiDebugWrapper<TrackedStatsClient<XmtpApiClient>>;
 
-pub type XmtpApiClient = FullXmtpApiArc<ApiClientError<GrpcError>>;
+pub type XmtpApiClient = FullXmtpApiArc<ApiClientError>;
 
-pub type XmtpClientBundle = ClientBundle<GrpcError>;
+pub type XmtpClientBundle = ClientBundle;

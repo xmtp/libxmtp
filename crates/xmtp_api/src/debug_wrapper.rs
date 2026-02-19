@@ -3,6 +3,7 @@ use xmtp_api_d14n::protocol::XmtpEnvelope;
 use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_common::RetryableError;
 use xmtp_proto::api::HasStats;
+use xmtp_proto::api::NetworkError;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::IdentityStats;
@@ -47,14 +48,13 @@ impl<A> ApiDebugWrapper<A> {
     }
 }
 
-async fn wrap_err<T, R, F, E>(
+async fn wrap_err<T, R, F>(
     req: R,
     stats: impl Fn() -> AggregateStats,
-) -> Result<T, ApiClientError<E>>
+) -> Result<T, ApiClientError>
 where
     R: FnOnce() -> F,
-    F: Future<Output = Result<T, ApiClientError<E>>>,
-    E: RetryableError + 'static,
+    F: Future<Output = Result<T, ApiClientError>>,
 {
     let res = req().await;
     if let Err(e) = res {
@@ -68,7 +68,7 @@ where
             }
             err @ ApiClientError::ClientWithEndpointAndStats { .. } => Err(err),
             e => Err(ApiClientError::ErrorWithStats {
-                e: Box::new(e),
+                e: NetworkError::new(e),
                 stats: stats(),
             }),
         }
@@ -95,13 +95,12 @@ where
 }
 
 #[xmtp_common::async_trait]
-impl<A, E> XmtpMlsClient for ApiDebugWrapper<A>
+impl<A> XmtpMlsClient for ApiDebugWrapper<A>
 where
-    A: XmtpMlsClient<Error = ApiClientError<E>>,
-    E: RetryableError + 'static,
+    A: XmtpMlsClient<Error = ApiClientError>,
     A: HasStats,
 {
-    type Error = ApiClientError<E>;
+    type Error = ApiClientError;
 
     async fn upload_key_package(
         &self,
@@ -215,17 +214,16 @@ where
 }
 
 #[xmtp_common::async_trait]
-impl<A, E> XmtpMlsStreams for ApiDebugWrapper<A>
+impl<A> XmtpMlsStreams for ApiDebugWrapper<A>
 where
-    A: XmtpMlsStreams<Error = ApiClientError<E>>,
-    E: RetryableError + 'static,
+    A: XmtpMlsStreams<Error = ApiClientError>,
     A: HasStats,
 {
     type GroupMessageStream = <A as XmtpMlsStreams>::GroupMessageStream;
 
     type WelcomeMessageStream = <A as XmtpMlsStreams>::WelcomeMessageStream;
 
-    type Error = ApiClientError<E>;
+    type Error = ApiClientError;
 
     async fn subscribe_group_messages(
         &self,
@@ -265,13 +263,12 @@ where
 }
 
 #[xmtp_common::async_trait]
-impl<A, E> XmtpIdentityClient for ApiDebugWrapper<A>
+impl<A> XmtpIdentityClient for ApiDebugWrapper<A>
 where
-    A: XmtpIdentityClient<Error = ApiClientError<E>>,
-    E: RetryableError + 'static,
+    A: XmtpIdentityClient<Error = ApiClientError>,
     A: HasStats,
 {
-    type Error = ApiClientError<E>;
+    type Error = ApiClientError;
 
     async fn publish_identity_update(
         &self,

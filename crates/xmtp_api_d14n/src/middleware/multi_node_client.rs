@@ -1,5 +1,5 @@
 mod builder;
-pub use builder::{MultiNodeClientBuilder, MultiNodeClientBuilderError};
+pub use builder::MultiNodeClientBuilderError;
 
 mod client;
 pub use client::MultiNodeClient;

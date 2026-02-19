@@ -76,6 +76,8 @@ impl Endpoint for QueryEnvelopes {
 
 #[cfg(test)]
 mod test {
+    use std::error::Error;
+
     use super::*;
     use xmtp_api_grpc::{error::GrpcError, test::XmtpdClient};
     use xmtp_proto::{api, prelude::*, types::TopicKind};
@@ -125,10 +127,10 @@ mod test {
         // the request will fail b/c we're using dummy data but
         // we just care if the endpoint is working
         match err {
-            ApiClientError::<GrpcError>::ClientWithEndpoint {
-                source: GrpcError::Status(ref s),
+            ApiClientError::ClientWithEndpoint {
+                source: ref s,
                 ..
-            } => assert!(s.message().contains("invalid topic"), "{}", err),
+            } => assert!(s.source().message().contains("invalid topic"), "{}", err),
             _ => panic!("request failed"),
         }
     }
