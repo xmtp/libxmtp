@@ -1,9 +1,10 @@
 #![allow(unused)]
 
 use super::FullXmtpClient;
+use crate::groups::device_sync::{ArchiveOptions, BackupElementSelection};
 use crate::{
     Client, MlsContext,
-    builder::{ClientBuilder, ForkRecoveryOpts, ForkRecoveryPolicy, SyncWorkerMode},
+    builder::{ClientBuilder, DeviceSyncMode, ForkRecoveryOpts, ForkRecoveryPolicy},
     client::ClientError,
     context::XmtpSharedContext,
     cursor_store::SqliteCursorStore,
@@ -53,7 +54,7 @@ use xmtp_api_d14n::{
 use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
 use xmtp_common::StreamHandle;
 use xmtp_common::TestLogReplace;
-use xmtp_configuration::{DeviceSyncUrls, DockerUrls};
+use xmtp_configuration::DockerUrls;
 use xmtp_configuration::{KEY_PACKAGE_ROTATION_INTERVAL_NS, LOCALHOST};
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
 #[cfg(not(target_arch = "wasm32"))]
@@ -86,9 +87,7 @@ use xmtp_proto::{
     identity_v1::PublishIdentityUpdateRequest,
     prelude::XmtpTestClient,
     xmtp::{
-        device_sync::{
-            BackupElement, BackupElementSelection, BackupOptions, backup_element::Element,
-        },
+        device_sync::{BackupElement, backup_element::Element},
         identity::associations::IdentityUpdate,
         message_contents::PrivateKey,
     },
@@ -241,7 +240,6 @@ where
             .with_disable_workers(self.disable_workers)
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .with_device_sync_worker_mode(Some(self.sync_mode))
-            .with_device_sync_server_url(self.sync_url.clone())
             .maybe_version(self.version.clone())
             .with_commit_log_worker(self.commit_log_worker)
             .fork_recovery_opts(self.fork_recovery_opts.clone().unwrap_or_default());
@@ -268,7 +266,7 @@ where
             replace.add(client.inbox_id(), name);
         }
         let mut worker = None;
-        if self.wait_for_init && self.sync_mode != SyncWorkerMode::Disabled {
+        if self.wait_for_init && self.sync_mode != DeviceSyncMode::Disabled {
             while worker.is_none() {
                 xmtp_common::task::yield_now().await;
                 worker = client.context.sync_metrics();
@@ -435,8 +433,7 @@ where
     Owner: InboxOwner,
 {
     pub owner: Owner,
-    pub sync_mode: SyncWorkerMode,
-    pub sync_url: Option<String>,
+    pub sync_mode: DeviceSyncMode,
     pub fork_recovery_opts: Option<ForkRecoveryOpts>,
     pub wait_for_init: bool,
     pub stream: bool,
@@ -472,8 +469,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
     fn default() -> Self {
         Self {
             owner: generate_local_wallet(),
-            sync_mode: SyncWorkerMode::Disabled,
-            sync_url: None,
+            sync_mode: DeviceSyncMode::Disabled,
             fork_recovery_opts: None,
             wait_for_init: true,
             stream: false,
@@ -505,7 +501,6 @@ where
         TesterBuilder {
             owner,
             sync_mode: self.sync_mode,
-            sync_url: self.sync_url,
             fork_recovery_opts: self.fork_recovery_opts,
             wait_for_init: self.wait_for_init,
             stream: self.stream,
@@ -644,13 +639,12 @@ where
     }
 
     pub fn sync_worker(mut self) -> Self {
-        self.sync_mode = SyncWorkerMode::Enabled;
+        self.sync_mode = DeviceSyncMode::Enabled;
         self
     }
 
-    pub fn sync_server(mut self) -> Self {
-        self.sync_url = Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string());
-        self
+    pub fn sync_mode(self, sync_mode: DeviceSyncMode) -> Self {
+        Self { sync_mode, ..self }
     }
 
     pub fn persistent_db(mut self) -> Self {
@@ -681,10 +675,6 @@ where
     pub fn do_not_wait_for_init(mut self) -> Self {
         self.wait_for_init = false;
         self
-    }
-
-    pub fn sync_mode(self, sync_mode: SyncWorkerMode) -> Self {
-        Self { sync_mode, ..self }
     }
 }
 

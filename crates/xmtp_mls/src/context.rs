@@ -1,5 +1,5 @@
 use crate::GroupCommitLock;
-use crate::builder::{ForkRecoveryOpts, SyncWorkerMode};
+use crate::builder::{DeviceSyncMode, ForkRecoveryOpts};
 use crate::client::DeviceSync;
 use crate::groups::device_sync::worker::SyncMetric;
 use crate::subscriptions::{LocalEvents, SyncWorkerEvent};
@@ -78,12 +78,8 @@ where
         &self.scw_verifier
     }
 
-    pub fn device_sync_server_url(&self) -> Option<&String> {
-        self.device_sync.server_url.as_ref()
-    }
-
     pub fn device_sync_worker_enabled(&self) -> bool {
-        !matches!(self.device_sync.mode, SyncWorkerMode::Disabled)
+        !matches!(self.device_sync.mode, DeviceSyncMode::Disabled)
     }
 
     /// Reconstructs the DeviceSyncClient from the context
@@ -183,12 +179,8 @@ where
 
     fn device_sync(&self) -> &DeviceSync;
 
-    fn device_sync_server_url(&self) -> Option<&String> {
-        self.device_sync().server_url.as_ref()
-    }
-
     fn device_sync_worker_enabled(&self) -> bool {
-        !matches!(self.device_sync().mode, SyncWorkerMode::Disabled)
+        !matches!(self.device_sync().mode, DeviceSyncMode::Disabled)
     }
 
     fn fork_recovery_opts(&self) -> &ForkRecoveryOpts;
@@ -334,10 +326,6 @@ where
 
     fn device_sync(&self) -> &DeviceSync {
         <T as XmtpSharedContext>::device_sync(self)
-    }
-
-    fn device_sync_server_url(&self) -> Option<&String> {
-        <T as XmtpSharedContext>::device_sync_server_url(self)
     }
 
     fn device_sync_worker_enabled(&self) -> bool {
