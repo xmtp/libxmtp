@@ -171,7 +171,7 @@ export component IntermediateLogsPanel inherits Rectangle {
     border-width: 1px;
     border-color: #d0d8f0;
     min-height: logs-panel-layout.preferred-height;
-    max-height: 200px;
+    max-height: 300px;
 
     logs-panel-layout := VerticalLayout {
         padding: 12px;
@@ -193,8 +193,10 @@ export component IntermediateLogsPanel inherits Rectangle {
         }
 
         ScrollView {
+            min-height: 0px;
             Rectangle {
                 min-height: logs-panel-text.preferred-height + 12px;
+                min-width: logs-panel-text.preferred-width + 16px;
                 background: #ffffff;
                 border-radius: 4px;
                 border-width: 1px;
@@ -205,10 +207,9 @@ export component IntermediateLogsPanel inherits Rectangle {
                     font-size: 10px;
                     font-family: "monospace";
                     color: #444444;
-                    wrap: word-wrap;
+                    wrap: no-wrap;
                     x: 8px;
                     y: 6px;
-                    width: parent.width - 16px;
                 }
             }
         }
