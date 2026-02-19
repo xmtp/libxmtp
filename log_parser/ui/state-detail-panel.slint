@@ -11,10 +11,14 @@ import {
 
 // ─── Floating State Detail Panel Component ───
 
+
+
 export component StateDetailPanel inherits Rectangle {
     in property <UIGroupStateDetail> detail;
+    in-out property <bool> copied: false;
 
     callback close-requested();
+    callback copy-intermediate-requested(string);
 
     width: 400px;
     height: 450px;
@@ -221,28 +225,47 @@ export component StateDetailPanel inherits Rectangle {
                 }
 
                 // Intermediate logs
-                if root.detail.intermediate != "": Rectangle {
-                    background: #f5f8ff;
-                    border-radius: 4px;
-                    min-height: intermediate-layout.preferred-height;
+                if root.detail.intermediate != "": intermediate-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.copied = true;
+                        root.copy-intermediate-requested(root.detail.intermediate);
+                    }
 
-                    intermediate-layout := VerticalBox {
-                        padding: 8px;
-                        spacing: 4px;
+                    Rectangle {
+                        background: intermediate-touch.has-hover ? #e8f0ff : #f5f8ff;
+                        border-radius: 4px;
+                        min-height: intermediate-layout.preferred-height;
 
-                        Text {
-                            text: "📋 Intermediate Logs";
-                            font-size: 12px;
-                            font-weight: 700;
-                            color: #3355aa;
-                        }
+                        intermediate-layout := VerticalBox {
+                            padding: 8px;
+                            spacing: 4px;
 
-                        Text {
-                            text: root.detail.intermediate;
-                            font-size: 10px;
-                            font-family: "monospace";
-                            color: #444444;
-                            wrap: word-wrap;
+                            HorizontalBox {
+                                spacing: 4px;
+
+                                Text {
+                                    text: "Intermediate Logs";
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                    color: #3355aa;
+                                    horizontal-stretch: 1;
+                                }
+
+                                Text {
+                                    text: root.copied ? "✓ Copied!" : (intermediate-touch.has-hover ? "📋 Click to copy" : "");
+                                    font-size: 10px;
+                                    color: root.copied ? #44aa44 : #6688cc;
+                                }
+                            }
+
+                            Text {
+                                text: root.detail.intermediate;
+                                font-size: 10px;
+                                font-family: "monospace";
+                                color: #444444;
+                                wrap: word-wrap;
+                            }
                         }
                     }
                 }

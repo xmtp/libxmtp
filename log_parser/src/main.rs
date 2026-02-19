@@ -3,6 +3,7 @@ use crate::{
     ui::file_open::{file_selected, open_file_dialog},
 };
 use anyhow::Result;
+use arboard::Clipboard;
 use parking_lot::RwLock;
 use pest_derive::Parser;
 use std::{sync::Arc, time::Duration};
@@ -130,6 +131,28 @@ fn main() -> Result<()> {
         move || {
             if let Some(ui) = ui_handle.upgrade() {
                 ui.set_show_state_detail(false);
+            }
+        }
+    });
+
+    ui.on_copy_intermediate({
+        move |text| {
+            let text = text.to_string();
+
+            match Clipboard::new() {
+                Ok(mut ctx) => {
+                    if let Err(e) = ctx.set_text(text.clone()) {
+                        tracing::error!("Failed to copy to clipboard: {}", e);
+                    } else {
+                        tracing::info!(
+                            "Copied intermediate logs to clipboard ({} chars)",
+                            text.len()
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to access clipboard: {}", e);
+                }
             }
         }
     });

@@ -6,6 +6,7 @@ version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+arboard = { version = "3.6.1", features = ["wayland-data-control"] }
 futures.workspace = true
 native-dialog = "0.7"
 parking_lot.workspace = true

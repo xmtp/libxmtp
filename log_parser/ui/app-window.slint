@@ -179,6 +179,7 @@ export component AppWindow inherits Window {
     callback build-log();
     callback state-clicked(/* group-id */ string, /* installation-id */ string, /* unique-id */ int);
     callback close-state-detail();
+    callback copy-intermediate(/* text */ string);
 
     MenuBar {
         Menu {
@@ -352,6 +353,9 @@ export component AppWindow inherits Window {
         close-requested => {
             root.show-state-detail = false;
             root.close-state-detail();
+        }
+        copy-intermediate-requested(text) => {
+            root.copy-intermediate(text);
         }
     }
 }
