@@ -1,3 +1,4 @@
+use crate::ErrorWrapper;
 use crate::{client::Client, identity::Identifier};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -108,7 +109,7 @@ pub async fn inbox_state_from_inbox_ids(
     .maybe_gateway_host(gateway_host)
     .is_secure(true)
     .build()
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    .map_err(ErrorWrapper::js)?;
   let backend = TrackedStatsClient::new(backend);
   let api = ApiClientWrapper::new(backend, strategies::exponential_cooldown());
   let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
@@ -124,7 +125,7 @@ pub async fn inbox_state_from_inbox_ids(
     &scw_verifier,
   )
   .await
-  .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+  .map_err(ErrorWrapper::js)?;
   Ok(state.into_iter().map(Into::into).collect())
 }
 
@@ -145,7 +146,7 @@ impl Client {
       .inner_client()
       .inbox_state(refresh_from_network)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(state.into())
   }
 
@@ -160,7 +161,7 @@ impl Client {
       .identity_updates()
       .get_latest_association_state(&conn, &inbox_id)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(state.into())
   }
 
@@ -176,7 +177,7 @@ impl Client {
       .fetch_inbox_updates_count(refresh_from_network, ids)
       .await
       .map(|map| crate::to_value(&map).map_err(JsError::from))
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))
+      .map_err(ErrorWrapper::js)
       .flatten()
   }
 
@@ -207,13 +208,13 @@ impl Client {
       .into_iter()
       .map(hex::decode)
       .collect::<std::result::Result<Vec<Vec<u8>>, _>>()
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     let key_package_results = self
       .inner_client()
       .get_key_packages_for_installation_ids(installation_ids)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     // Create a HashMap to store results
     let mut result_map: HashMap<String, KeyPackageStatus> = HashMap::new();
