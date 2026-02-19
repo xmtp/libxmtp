@@ -4,7 +4,6 @@ use crate::protocol::{
 };
 use crate::protocol::{SequencedExtractor, V3GroupMessageExtractor, traits::Extractor};
 use crate::{V3Client, v3::*};
-use xmtp_common::RetryableError;
 use xmtp_configuration::{MAX_PAGE_SIZE, Originators};
 use xmtp_proto::api::{self, ApiClientError, Client, Query};
 use xmtp_proto::api_client::XmtpMlsClient;
@@ -12,14 +11,12 @@ use xmtp_proto::mls_v1::{self, GroupMessage as ProtoGroupMessage, PagingInfo, So
 use xmtp_proto::types::{GroupId, GroupMessageMetadata, InstallationId, TopicKind, WelcomeMessage};
 
 #[xmtp_common::async_trait]
-impl<C, Store, E> XmtpMlsClient for V3Client<C, Store>
+impl<C, Store> XmtpMlsClient for V3Client<C, Store>
 where
-    E: RetryableError + 'static,
-    C: Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<C as Client>::Error>> + 'static,
+    C: Client,
     Store: CursorStore,
 {
-    type Error = ApiClientError<E>;
+    type Error = ApiClientError;
 
     async fn upload_key_package(
         &self,

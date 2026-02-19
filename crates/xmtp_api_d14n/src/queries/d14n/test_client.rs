@@ -52,8 +52,9 @@ where
         Arc<dyn CursorStore>,
     >;
     fn create() -> Self::Builder {
-        let mut rw = ReadWriteClient::builder();
-        rw.read(<Builder1 as XmtpTestClient>::create())
+        let rw = ReadWriteClient::builder();
+        let rw = rw
+            .read(<Builder1 as XmtpTestClient>::create())
             .write(<Builder2 as XmtpTestClient>::create())
             .filter(PAYER_WRITE_FILTER);
         D14nClientBuilder::new(rw, Arc::new(NoCursorStore))
