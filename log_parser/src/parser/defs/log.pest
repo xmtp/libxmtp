@@ -45,7 +45,7 @@ value = _{ object | array | braced_array | quoted_string | number | boolean | nu
 
 // Option values: Some(...) with balanced parens/braces, or None
 option_value =  { "Some" ~ "(" ~ option_inner ~ ")" | "None" ~ !("(" | ASCII_ALPHANUMERIC | "_") }
-option_inner = @{ ("(" ~ option_inner ~ ")" | "{" ~ option_inner ~ "}" | "[" ~ option_inner ~ "]" | !("(" | ")" | "{" | "}" | "[" | "]") ~ ANY)* }
+option_inner = @{ ("(" ~ option_inner ~ ")" | "{" ~ option_inner ~ "}" | "[" ~ option_inner ~ "]" | quoted_string | !("(" | ")" | "{" | "}" | "[" | "]") ~ ANY)* }
 
 // Unquoted string value (alphanumeric, underscores, hyphens - for hex strings, identifiers, etc.)
 unquoted_string = @{ (ASCII_ALPHANUMERIC | "_" | "-" | ".")+ }
