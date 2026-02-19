@@ -22,7 +22,7 @@ impl LogAssertion for BuildTimeline {
         }
 
         // Sort the states
-        for (group_id, states) in &mut timeline {
+        for (_group_id, states) in &mut timeline {
             states.sort();
         }
 

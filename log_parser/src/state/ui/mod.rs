@@ -1,10 +1,12 @@
 use crate::{
     AppWindow, UIEpochHeader, UIEvent, UIGroupRow, UIGroupState, UIGroupStateDetail,
     UIInstallationCell, UIInstallationRow, UIStream, UITimelineEntry, UITimelineGroup,
+    UITimelineInstallationRow,
     state::{GroupState, LogEvent, LogState, StateOrEvent},
     ui::file_open::color_from_string,
 };
 use slint::{Color, ModelRc, SharedString, VecModel, Weak};
+use std::collections::HashMap as StdHashMap;
 use std::{collections::BTreeSet, sync::Arc};
 
 fn short_id(id: &str) -> String {
@@ -204,9 +206,9 @@ impl LogState {
 
                 // ─── Timeline Tab ───
                 // Transform: timeline (group → [StateOrEvent])
-                // Into:      UITimelineGroup (group → [UITimelineEntry])
+                // Into:      UITimelineGroup (group → [UITimelineInstallationRow])
                 //
-                // Each group has a chronologically sorted list of events/states
+                // Each group has installation rows, each with chronologically sorted entries
 
                 let mut timeline_groups: Vec<UITimelineGroup> = Vec::new();
 
@@ -216,33 +218,99 @@ impl LogState {
 
                 for group_id in timeline_group_ids {
                     let entries = &timeline[group_id];
-                    let mut ui_entries: Vec<UITimelineEntry> = Vec::new();
+
+                    // First pass: collect all unique timestamps to create time slots
+                    // Each unique timestamp becomes a slot index
+                    let mut all_timestamps: Vec<i64> = entries
+                        .iter()
+                        .map(|e| match e {
+                            StateOrEvent::State(s) => s.lock().event.time,
+                            StateOrEvent::Event(e) => e.time,
+                        })
+                        .collect();
+                    all_timestamps.sort();
+                    all_timestamps.dedup();
+
+                    // Create a map from timestamp to slot index
+                    let timestamp_to_slot: StdHashMap<i64, i32> = all_timestamps
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, &ts)| (ts, idx as i32))
+                        .collect();
+
+                    let total_slots = all_timestamps.len() as i32;
+
+                    // Group entries by installation with slot indices
+                    let mut entries_by_inst: StdHashMap<String, Vec<UITimelineEntry>> =
+                        StdHashMap::new();
+                    let mut total_entries = 0;
 
                     for entry in entries {
-                        let ui_entry = match entry {
+                        let (inst_id, ui_entry) = match entry {
                             StateOrEvent::State(state) => {
                                 let state = state.lock();
-                                let inst_id = &state.event.installation;
-                                let inst_name = self.installation_name(inst_id);
+                                let inst_id = state.event.installation.clone();
+                                let inst_name = self.installation_name(&inst_id);
                                 let display_name = if inst_name.is_empty() {
-                                    short_id(inst_id)
+                                    short_id(&inst_id)
                                 } else {
                                     inst_name.clone()
                                 };
-                                state.ui_timeline_entry(inst_id, &display_name)
+                                let slot_index =
+                                    *timestamp_to_slot.get(&state.event.time).unwrap_or(&0);
+                                (
+                                    inst_id,
+                                    state.ui_timeline_entry(
+                                        &state.event.installation,
+                                        &display_name,
+                                        slot_index,
+                                    ),
+                                )
                             }
                             StateOrEvent::Event(event) => {
-                                let inst_id = &event.installation;
-                                let inst_name = self.installation_name(inst_id);
+                                let inst_id = event.installation.clone();
+                                let inst_name = self.installation_name(&inst_id);
                                 let display_name = if inst_name.is_empty() {
-                                    short_id(inst_id)
+                                    short_id(&inst_id)
                                 } else {
                                     inst_name.clone()
                                 };
-                                event.ui_timeline_entry(inst_id, &display_name)
+                                let slot_index = *timestamp_to_slot.get(&event.time).unwrap_or(&0);
+                                (
+                                    inst_id,
+                                    event.ui_timeline_entry(
+                                        &event.installation,
+                                        &display_name,
+                                        slot_index,
+                                    ),
+                                )
                             }
                         };
-                        ui_entries.push(ui_entry);
+                        entries_by_inst.entry(inst_id).or_default().push(ui_entry);
+                        total_entries += 1;
+                    }
+
+                    // Build installation rows
+                    let mut installation_rows: Vec<UITimelineInstallationRow> = Vec::new();
+                    let mut inst_ids: Vec<String> = entries_by_inst.keys().cloned().collect();
+                    inst_ids.sort();
+
+                    for inst_id in inst_ids {
+                        let inst_name = self.installation_name(&inst_id);
+                        let display_name = if inst_name.is_empty() {
+                            short_id(&inst_id)
+                        } else {
+                            format!("{inst_name} ({})", short_id(&inst_id))
+                        };
+                        let inst_color = color_from_string(&inst_id);
+                        let inst_entries = entries_by_inst.remove(&inst_id).unwrap_or_default();
+
+                        installation_rows.push(UITimelineInstallationRow {
+                            installation_id: SharedString::from(inst_id.as_str()),
+                            installation_name: SharedString::from(&display_name),
+                            installation_color: inst_color,
+                            entries: ModelRc::new(VecModel::from(inst_entries)),
+                        });
                     }
 
                     let group_color = color_from_string(group_id);
@@ -251,7 +319,9 @@ impl LogState {
                         group_id: SharedString::from(group_id.as_str()),
                         group_id_short: SharedString::from(short_id(group_id)),
                         group_color,
-                        entries: ModelRc::new(VecModel::from(ui_entries)),
+                        installation_rows: ModelRc::new(VecModel::from(installation_rows)),
+                        total_entries: total_entries as i32,
+                        total_slots,
                     });
                 }
 
@@ -264,7 +334,12 @@ impl LogState {
 
 impl LogEvent {
     /// Create a timeline entry UI representation of this LogEvent
-    fn ui_timeline_entry(&self, installation_id: &str, installation_name: &str) -> UITimelineEntry {
+    fn ui_timeline_entry(
+        &self,
+        installation_id: &str,
+        installation_name: &str,
+        slot_index: i32,
+    ) -> UITimelineEntry {
         let problem_strings: Vec<SharedString> = self
             .problems
             .lock()
@@ -281,6 +356,7 @@ impl LogEvent {
             installation_color: color_from_string(installation_id),
             epoch: -1,
             timestamp: self.time as i32,
+            slot_index,
             line_number: self.line_number as i32,
             problems: ModelRc::new(VecModel::from(problem_strings)),
             context: ModelRc::new(VecModel::from(self.ui_context_entries())),
@@ -338,6 +414,7 @@ impl GroupState {
         &self,
         installation_id: &str,
         installation_name: &str,
+        slot_index: i32,
     ) -> UITimelineEntry {
         let problem_strings: Vec<SharedString> = self
             .event
@@ -356,6 +433,7 @@ impl GroupState {
             installation_color: color_from_string(installation_id),
             epoch: self.epoch.unwrap_or(-1) as i32,
             timestamp: self.event.time as i32,
+            slot_index,
             line_number: self.event.line_number as i32,
             problems: ModelRc::new(VecModel::from(problem_strings)),
             context: ModelRc::new(VecModel::from(self.event.ui_context_entries())),
