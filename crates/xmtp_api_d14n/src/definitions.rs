@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use xmtp_api_grpc::GrpcClient;
+use xmtp_proto::api::ApiClientError;
 
 use crate::{
     D14nClient, MultiNodeClient, ReadWriteClient, V3Client,
-    protocol::{CursorStore, NoCursorStore},
+    protocol::{CursorStore, FullXmtpApiArc, NoCursorStore},
 };
 
 xmtp_common::if_v3! {
@@ -16,6 +17,8 @@ xmtp_common::if_d14n! {
 }
 
 pub type FullD14nClient =
-    D14nClient<ReadWriteClient<MultiNodeClient, GrpcClient>, Arc<dyn CursorStore>>;
+    D14nClient<ReadWriteClient<MultiNodeClient<GrpcClient>, GrpcClient>, Arc<dyn CursorStore>>;
 
 pub type FullV3Client = V3Client<GrpcClient, Arc<dyn CursorStore>>;
+
+pub type XmtpApiClient = FullXmtpApiArc<ApiClientError>;
