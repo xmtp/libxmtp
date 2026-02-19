@@ -42,18 +42,21 @@ $(ARCHS_IOS): %:
 	mkdir -p build/$@
 	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 	mv $(TARGET_DIR)/$@/release/$(DYLIB) build/$@/$(DYLIB)
+	install_name_tool -id @rpath/$(DYLIB) build/$@/$(DYLIB)
 
 $(ARCHS_MAC): %:
 	cargo build --target $@ --target-dir $(TARGET_DIR) --release --no-default-features
 	mkdir -p build/$@
 	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 	mv $(TARGET_DIR)/$@/release/$(DYLIB) build/$@/$(DYLIB)
+	install_name_tool -id @rpath/$(DYLIB) build/$@/$(DYLIB)
 
 aarch64-apple-ios:
 	IPHONEOS_DEPLOYMENT_TARGET=10 cargo build --target $@ --target-dir $(TARGET_DIR) --release
 	mkdir -p build/$@
 	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 	mv $(TARGET_DIR)/$@/release/$(DYLIB) build/$@/$(DYLIB)
+	install_name_tool -id @rpath/$(DYLIB) build/$@/$(DYLIB)
 
 $(LIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
 $(DYLIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
@@ -69,6 +72,8 @@ lipodyn:
 	mkdir -p build/lipo_macos build/lipo_ios_sim
 	lipo -create -output build/lipo_ios_sim/$(DYLIB) $(foreach arch,$(ARCHS_IOS),$(wildcard build/$(arch)/$(DYLIB)))
 	lipo -create -output build/lipo_macos/$(DYLIB) $(foreach arch,$(ARCHS_MAC),$(wildcard build/$(arch)/$(DYLIB)))
+	install_name_tool -id @rpath/$(DYLIB) build/lipo_ios_sim/$(DYLIB)
+	install_name_tool -id @rpath/$(DYLIB) build/lipo_macos/$(DYLIB)
 
 # xcframework combines libs for different platforms (iOS, iOS-simulator, macOS, ...) into one framework that can be used in Xcode
 framework: lipo
