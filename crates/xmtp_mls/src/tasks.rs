@@ -1,6 +1,6 @@
 use crate::{
     context::XmtpSharedContext,
-    groups::device_sync::{DeviceSyncClient, DeviceSyncError},
+    groups::device_sync::{ArchiveOptions, DeviceSyncClient, DeviceSyncError},
     worker::{NeedsDbReconnect, Worker, WorkerFactory, WorkerKind},
 };
 use prost::Message;
@@ -229,27 +229,27 @@ where
                 let Some(metrics) = context.sync_metrics().clone() else {
                     return Err(TaskWorkerError::MissingMetrics);
                 };
-                let Some(options) = &send_sync_archive.options else {
+                let Some(proto_options) = send_sync_archive.options.clone() else {
                     tracing::warn!(
                         "SendSyncArchive task has no archive options. Unable to process."
                     );
                     return Ok(());
                 };
+                let options: ArchiveOptions = proto_options.into();
 
                 let client = DeviceSyncClient::new(context.clone(), metrics);
 
-                let request_id = send_sync_archive.request_id.clone().unwrap_or_else(|| {
-                    let pin = xmtp_common::rand_string::<6>();
+                let pin = send_sync_archive.pin.clone().unwrap_or_else(|| {
+                    let pin = xmtp_common::rand_string::<5>();
                     format!("{pin:04}")
                 });
 
                 client
                     .send_archive(
-                        options,
+                        &options,
                         &send_sync_archive.sync_group_id,
-                        &request_id,
+                        &pin,
                         &send_sync_archive.server_url,
-                        true,
                     )
                     .await
                     .inspect_err(|e| {
@@ -257,7 +257,7 @@ where
                             Event::DeviceSyncArchiveUploadFailure,
                             context.installation_id(),
                             group_id = send_sync_archive.sync_group_id,
-                            request_id = send_sync_archive.request_id(),
+                            pin = send_sync_archive.pin(),
                             err = %e
                         )
                     })?;

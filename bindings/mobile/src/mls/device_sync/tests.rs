@@ -884,7 +884,7 @@ async fn test_new_installation_group_message_visibility() {
 #[tokio::test]
 async fn test_sync_consent() {
     // Create two test users
-    let alix = Tester::builder().sync_server().sync_worker().build().await;
+    let alix = Tester::builder().sync_worker().build().await;
     let bo = Tester::new().await;
 
     // Create a group conversation

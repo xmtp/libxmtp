@@ -6,7 +6,7 @@ use xmtp_common::{TestLogReplace, tmp_path};
 use xmtp_configuration::GrpcUrls;
 use xmtp_id::InboxOwner;
 use xmtp_mls::{
-    builder::SyncWorkerMode,
+    builder::DeviceSyncMode,
     utils::{PasskeyUser, Tester, TesterBuilder},
 };
 
@@ -54,7 +54,7 @@ impl LocalBuilder<PrivateKeySigner> for TesterBuilder<PrivateKeySigner> {
         client.register_identity(signature_request).await?;
 
         let mut worker = None;
-        if self.wait_for_init && self.sync_mode != SyncWorkerMode::Disabled {
+        if self.wait_for_init && self.sync_mode != DeviceSyncMode::Disabled {
             while worker.is_none() {
                 xmtp_common::task::yield_now().await;
                 worker = client.inner_client.context.sync_metrics();
@@ -108,7 +108,7 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
         client.register_identity(signature_request).await?;
 
         let mut worker = None;
-        if self.wait_for_init && self.sync_mode != SyncWorkerMode::Disabled {
+        if self.wait_for_init && self.sync_mode != DeviceSyncMode::Disabled {
             while worker.is_none() {
                 xmtp_common::task::yield_now().await;
                 worker = client.inner_client.context.sync_metrics();
@@ -195,7 +195,6 @@ where
         ident.into(),
         1,
         None,
-        builder.sync_url.clone(),
         Some(builder.sync_mode.into()),
         None,
         None,

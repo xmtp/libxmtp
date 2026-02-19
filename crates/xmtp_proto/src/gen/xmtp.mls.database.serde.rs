@@ -1734,7 +1734,7 @@ impl serde::Serialize for SendSyncArchive {
         if !self.sync_group_id.is_empty() {
             len += 1;
         }
-        if self.request_id.is_some() {
+        if self.pin.is_some() {
             len += 1;
         }
         if !self.server_url.is_empty() {
@@ -1749,8 +1749,8 @@ impl serde::Serialize for SendSyncArchive {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("sync_group_id", pbjson::private::base64::encode(&self.sync_group_id).as_str())?;
         }
-        if let Some(v) = self.request_id.as_ref() {
-            struct_ser.serialize_field("request_id", v)?;
+        if let Some(v) = self.pin.as_ref() {
+            struct_ser.serialize_field("pin", v)?;
         }
         if !self.server_url.is_empty() {
             struct_ser.serialize_field("server_url", &self.server_url)?;
@@ -1768,8 +1768,7 @@ impl<'de> serde::Deserialize<'de> for SendSyncArchive {
             "options",
             "sync_group_id",
             "syncGroupId",
-            "request_id",
-            "requestId",
+            "pin",
             "server_url",
             "serverUrl",
         ];
@@ -1778,7 +1777,7 @@ impl<'de> serde::Deserialize<'de> for SendSyncArchive {
         enum GeneratedField {
             Options,
             SyncGroupId,
-            RequestId,
+            Pin,
             ServerUrl,
             __SkipField__,
         }
@@ -1804,7 +1803,7 @@ impl<'de> serde::Deserialize<'de> for SendSyncArchive {
                         match value {
                             "options" => Ok(GeneratedField::Options),
                             "syncGroupId" | "sync_group_id" => Ok(GeneratedField::SyncGroupId),
-                            "requestId" | "request_id" => Ok(GeneratedField::RequestId),
+                            "pin" => Ok(GeneratedField::Pin),
                             "serverUrl" | "server_url" => Ok(GeneratedField::ServerUrl),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -1827,7 +1826,7 @@ impl<'de> serde::Deserialize<'de> for SendSyncArchive {
             {
                 let mut options__ = None;
                 let mut sync_group_id__ = None;
-                let mut request_id__ = None;
+                let mut pin__ = None;
                 let mut server_url__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -1845,11 +1844,11 @@ impl<'de> serde::Deserialize<'de> for SendSyncArchive {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::RequestId => {
-                            if request_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("requestId"));
+                        GeneratedField::Pin => {
+                            if pin__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pin"));
                             }
-                            request_id__ = map_.next_value()?;
+                            pin__ = map_.next_value()?;
                         }
                         GeneratedField::ServerUrl => {
                             if server_url__.is_some() {
@@ -1865,7 +1864,7 @@ impl<'de> serde::Deserialize<'de> for SendSyncArchive {
                 Ok(SendSyncArchive {
                     options: options__,
                     sync_group_id: sync_group_id__.unwrap_or_default(),
-                    request_id: request_id__,
+                    pin: pin__,
                     server_url: server_url__.unwrap_or_default(),
                 })
             }

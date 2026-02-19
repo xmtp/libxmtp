@@ -33,9 +33,7 @@ use valuable::Valuable;
 use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_common::time::now_ns;
-use xmtp_configuration::{
-    DeviceSyncUrls, GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsProduction, GrpcUrlsStaging,
-};
+use xmtp_configuration::{GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsProduction, GrpcUrlsStaging};
 use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::signature::SignatureError;
@@ -476,13 +474,7 @@ async fn create_client<C: XmtpApi + Clone + XmtpQuery + 'static>(
 > {
     let msg_store = get_encrypted_store(&cli.db).await?;
     let builder = xmtp_mls::Client::builder(account).store(msg_store);
-    let mut builder = builder.api_clients(grpc.clone(), grpc);
-
-    builder = match (cli.testnet, &cli.env) {
-        (false, Env::Local) => builder.device_sync_server_url(DeviceSyncUrls::LOCAL_ADDRESS),
-        (false, Env::Dev) => builder.device_sync_server_url(DeviceSyncUrls::DEV_ADDRESS),
-        _ => builder,
-    };
+    let builder = builder.api_clients(grpc.clone(), grpc);
 
     let client = builder
         .with_remote_verifier()?
