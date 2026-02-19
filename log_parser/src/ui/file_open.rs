@@ -9,21 +9,19 @@ use std::{
 };
 
 pub fn open_file_dialog(handle: Weak<AppWindow>) {
-    std::thread::spawn(move || {
-        use native_dialog::FileDialog;
-        if let Ok(Some(path)) = FileDialog::new()
-            .set_title("Open Log File")
-            .show_open_single_file()
-        {
-            let path_str = path.to_string_lossy().to_string();
-            slint::invoke_from_event_loop(move || {
-                if let Some(ui) = handle.upgrade() {
-                    ui.invoke_file_selected(path_str.into());
-                }
-            })
-            .ok();
+    let task = rfd::AsyncFileDialog::new()
+        .set_title("Open Log File")
+        .pick_file();
+
+    slint::spawn_local(async move {
+        if let Some(file) = task.await {
+            let path_str = file.path().to_string_lossy().to_string();
+            if let Some(ui) = handle.upgrade() {
+                ui.invoke_file_selected(path_str.into());
+            }
         }
-    });
+    })
+    .unwrap();
 }
 
 fn format_duration_ns(duration_ns: i64) -> String {

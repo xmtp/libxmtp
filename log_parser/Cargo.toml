@@ -8,7 +8,7 @@ version.workspace = true
 anyhow.workspace = true
 arboard = { version = "3.6.1", features = ["wayland-data-control"] }
 futures.workspace = true
-native-dialog = "0.7"
+rfd = "0.15"
 parking_lot.workspace = true
 pest = "2.8.5"
 pest_derive = "2.8.5"
