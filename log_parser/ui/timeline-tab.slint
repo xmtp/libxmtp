@@ -63,7 +63,6 @@ component TimelineEntryCard inherits Rectangle {
     in property <bool> group-focused;
 
     callback warning-clicked();
-    callback logs-clicked(string);
     callback entry-clicked(/* group-id */ string, /* installation-id */ string, /* unique-id */ int);
 
     in property <string> group-id;
@@ -179,23 +178,16 @@ component TimelineEntryCard inherits Rectangle {
             if root.entry.intermediate != "": Rectangle {
                 width: logs-label.preferred-width + 8px;
                 height: logs-label.preferred-height + 4px;
-                background: logs-touch.has-hover ? #d8e8ff : #e8f0ff;
+                background: #e8f0ff;
                 border-radius: 3px;
 
                 logs-label := Text {
-                    text: "📋";
+                    text: "Logs";
                     font-size: 8px;
                     font-weight: 600;
                     color: #4466aa;
                     horizontal-alignment: center;
                     vertical-alignment: center;
-                }
-
-                logs-touch := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => {
-                        root.logs-clicked(root.entry.intermediate);
-                    }
                 }
             }
         }
@@ -338,9 +330,6 @@ component GroupTimelineContainer inherits Rectangle {
                                 group-id: root.group.group-id;
                                 warning-clicked => {
                                     root.focus-group(root.group.group-id);
-                                }
-                                logs-clicked(intermediate) => {
-                                    root.focus-group-logs(root.group.group-id, intermediate);
                                 }
                                 entry-clicked(group-id, installation-id, unique-id) => {
                                     root.entry-clicked(group-id, installation-id, unique-id);

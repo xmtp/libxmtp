@@ -138,7 +138,9 @@ export component FocusBanner inherits Rectangle {
             vertical-alignment: center;
         }
 
-        Rectangle { horizontal-stretch: 1; }
+        Rectangle {
+            horizontal-stretch: 1;
+        }
 
         Rectangle {
             width: back-text.preferred-width + 20px;
@@ -158,7 +160,9 @@ export component FocusBanner inherits Rectangle {
 
             back-touch := TouchArea {
                 mouse-cursor: pointer;
-                clicked => { root.back-clicked(); }
+                clicked => {
+                    root.back-clicked();
+                }
             }
         }
     }
@@ -224,7 +228,6 @@ component GroupStateCard inherits Rectangle {
     in property <string> installation-id;
 
     callback warning-clicked();
-    callback logs-clicked(string);
     callback state-clicked(/* group-id */ string, /* installation-id */ string, /* unique-id */ int);
 
     in property <string> group-id;
@@ -324,7 +327,7 @@ component GroupStateCard inherits Rectangle {
             if root.state.intermediate != "": Rectangle {
                 width: logs-label.preferred-width + 10px;
                 height: logs-label.preferred-height + 4px;
-                background: logs-touch.has-hover ? #d8e8ff : #e8f0ff;
+                background: #e8f0ff;
                 border-radius: 3px;
 
                 logs-label := Text {
@@ -334,13 +337,6 @@ component GroupStateCard inherits Rectangle {
                     color: #4466aa;
                     horizontal-alignment: center;
                     vertical-alignment: center;
-                }
-
-                logs-touch := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => {
-                        root.logs-clicked(root.state.intermediate);
-                    }
                 }
             }
         }
@@ -454,7 +450,6 @@ component InstallationCell inherits Rectangle {
     in property <string> installation-id;
 
     callback warning-clicked();
-    callback logs-clicked(string);
     callback state-clicked(/* group-id */ string, /* installation-id */ string, /* unique-id */ int);
 
     in property <string> group-id;
@@ -475,9 +470,6 @@ component InstallationCell inherits Rectangle {
             installation-id: root.installation-id;
             warning-clicked => {
                 root.warning-clicked();
-            }
-            logs-clicked(intermediate) => {
-                root.logs-clicked(intermediate);
             }
             state-clicked(group-id, installation-id, unique-id) => {
                 root.state-clicked(group-id, installation-id, unique-id);
@@ -626,9 +618,6 @@ component GroupContainer inherits Rectangle {
                             installation-id: inst-row.installation-id;
                             warning-clicked => {
                                 root.focus-group(root.group-row.group-id);
-                            }
-                            logs-clicked(intermediate) => {
-                                root.focus-group-logs(root.group-row.group-id, intermediate);
                             }
                             state-clicked(group-id, installation-id, unique-id) => {
                                 root.state-clicked(group-id, installation-id, unique-id);

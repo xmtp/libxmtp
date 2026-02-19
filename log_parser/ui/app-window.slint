@@ -174,6 +174,10 @@ export component AppWindow inherits Window {
     in-out property <UIGroupStateDetail> selected-state-detail;
     in-out property <bool> show-state-detail: false;
 
+    // State detail panel position (for drag and drop)
+    in-out property <length> state-detail-panel-x: root.width - 400px - 16px;
+    in-out property <length> state-detail-panel-y: root.height - 450px - 16px;
+
     callback request-open-file();
     callback file-selected(string);
     callback build-log();
@@ -344,10 +348,10 @@ export component AppWindow inherits Window {
         }
     }
 
-    // ─── Selected State Detail Panel (floating bottom-right) ───
+    // ─── Selected State Detail Panel (floating, draggable) ───
     if root.show-state-detail: StateDetailPanel {
-        x: parent.width - self.width - 16px;
-        y: parent.height - self.height - 16px;
+        x: root.state-detail-panel-x;
+        y: root.state-detail-panel-y;
         height: min(450px, parent.height - 100px);
         detail: root.selected-state-detail;
         close-requested => {
@@ -356,6 +360,11 @@ export component AppWindow inherits Window {
         }
         copy-intermediate-requested(text) => {
             root.copy-intermediate(text);
+        }
+        drag-move(delta-x, delta-y) => {
+            // Update position with bounds checking
+            root.state-detail-panel-x = max(0px, min(root.width - self.width, root.state-detail-panel-x + delta-x));
+            root.state-detail-panel-y = max(0px, min(root.height - self.height, root.state-detail-panel-y + delta-y));
         }
     }
 }
