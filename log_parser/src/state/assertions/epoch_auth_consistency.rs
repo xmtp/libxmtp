@@ -1,14 +1,11 @@
-use crate::state::{
-    LogState,
-    assertions::{AssertionFailure, LogAssertion},
-};
+use crate::state::{LogState, assertions::LogAssertion};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 
 pub struct EpochAuthConsistency;
 
 impl LogAssertion for EpochAuthConsistency {
-    fn assert(state: &LogState) -> Result<Option<AssertionFailure>> {
+    fn assert(state: &LogState) -> Result<()> {
         let epochs = state.grouped_epochs.read();
 
         let mut auths = HashMap::new();
@@ -56,6 +53,6 @@ impl LogAssertion for EpochAuthConsistency {
             }
         }
 
-        Ok(None)
+        Ok(())
     }
 }

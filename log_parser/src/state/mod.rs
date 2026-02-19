@@ -1,11 +1,15 @@
 pub mod assertions;
 pub mod event;
+pub mod state_or_event;
 pub mod ui;
 pub mod value;
 
-use crate::state::assertions::{
-    LogAssertion, epoch_auth_consistency::EpochAuthConsistency,
-    epoch_continuity::EpochContinuityAssertion,
+use crate::state::{
+    assertions::{
+        LogAssertion, build_timeline::BuildTimeline, epoch_auth_consistency::EpochAuthConsistency,
+        epoch_continuity::EpochContinuityAssertion,
+    },
+    state_or_event::StateOrEvent,
 };
 use anyhow::{Context, Result};
 pub use event::LogEvent;
@@ -32,12 +36,12 @@ use xmtp_common::Event;
 type InstallationId = String;
 type GroupId = String;
 type EpochNumber = i64;
-type EpochAuth = String;
 
 #[derive(Default)]
 pub struct LogState {
     pub grouped_epochs: RwLock<HashMap<GroupId, HashMap<InstallationId, Epochs>>>,
-    pub clients: RwLock<HashMap<InstallationId, Arc<RwLock<ClientState>>>>,
+    pub timeline: Mutex<HashMap<GroupId, Vec<StateOrEvent>>>,
+    pub clients: Mutex<HashMap<InstallationId, Arc<RwLock<ClientState>>>>,
 }
 
 #[derive(Default)]
@@ -53,6 +57,15 @@ pub struct Epoch {
     pub states: Vec<Arc<Mutex<GroupState>>>,
 }
 
+pub struct ClientState {
+    pub name: Option<String>,
+    pub events: Vec<Arc<LogEvent>>,
+    pub groups: HashMap<String, Arc<RwLock<Group>>>,
+    pub num_clients: isize,
+    pub inst: String,
+    pub inbox_id: String,
+}
+
 impl LogState {
     pub fn new() -> Arc<Self> {
         Arc::default()
@@ -65,7 +78,7 @@ impl LogState {
         group_id: &str,
         unique_id: u64,
     ) -> Option<GroupState> {
-        let clients = self.clients.read();
+        let clients = self.clients.lock();
         let client = clients.get(installation_id)?;
         let client = client.read();
         let group = client.groups.get(group_id)?;
@@ -95,9 +108,12 @@ impl LogState {
         if let Err(err) = EpochAuthConsistency::assert(&self) {
             tracing::error!("Epoch auth consistency error: {err}");
         };
+        if let Err(err) = BuildTimeline::assert(&self) {
+            tracing::error!("Build timeline error: {err}");
+        };
 
         // sort everything by time
-        self.clients.write().values().for_each(|c| c.write().sort());
+        self.clients.lock().values().for_each(|c| c.write().sort());
     }
 
     fn ingest(&self, event: Arc<LogEvent>) -> Result<()> {
@@ -108,7 +124,7 @@ impl LogState {
         };
 
         let installation = &event.installation;
-        let mut clients = self.clients.write();
+        let mut clients = self.clients.lock();
         let mut client = match event.event {
             Event::ClientCreated => {
                 let inbox_id = ctx("inbox_id")?.as_str()?;
@@ -180,15 +196,17 @@ impl LogState {
 
         Ok(())
     }
-}
 
-pub struct ClientState {
-    pub name: Option<String>,
-    pub events: Vec<Arc<LogEvent>>,
-    pub groups: HashMap<String, Arc<RwLock<Group>>>,
-    pub num_clients: isize,
-    pub inst: String,
-    pub inbox_id: String,
+    fn org_group(&self) -> HashMap<GroupId, Vec<Arc<RwLock<Group>>>> {
+        let mut groups = HashMap::new();
+        for (_inst, state) in &*self.clients.lock() {
+            for (group_id, group) in &state.read().groups {
+                let g = groups.entry(group_id.clone()).or_insert_with(|| vec![]);
+                g.push(group.clone());
+            }
+        }
+        groups
+    }
 }
 
 impl ClientState {
@@ -200,6 +218,14 @@ impl ClientState {
             inst: inst.to_string(),
             inbox_id: inbox_id.to_string(),
             num_clients: 0,
+        }
+    }
+
+    fn key(&self) -> String {
+        if let Some(name) = &self.name {
+            format!("{name}-{}", self.inst)
+        } else {
+            self.inst.clone()
         }
     }
 
@@ -329,7 +355,7 @@ mod tests {
         let state = LogState::new();
         state.ingest_all(lines);
 
-        let welcome_found = state.clients.read().iter().any(|(_inst_id, c)| {
+        let welcome_found = state.clients.lock().iter().any(|(_inst_id, c)| {
             c.read()
                 .events
                 .iter()

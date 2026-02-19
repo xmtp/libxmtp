@@ -6,48 +6,6 @@ use slint::{Color, SharedString};
 use std::{collections::HashMap, iter::Peekable};
 use xmtp_common::Event;
 
-/// Strip ANSI escape sequences (CSI sequences like color codes) from a string
-/// so that raw log output displays cleanly in the UI.
-fn strip_ansi_escapes(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            match chars.next() {
-                // CSI sequence: ESC [ <params> <final byte>
-                // Parameter bytes are in 0x30-0x3F, intermediate bytes in 0x20-0x2F,
-                // and the final byte is in 0x40-0x7E.
-                Some('[') => {
-                    for c in chars.by_ref() {
-                        let b = c as u32;
-                        if (0x40..=0x7E).contains(&b) {
-                            break;
-                        }
-                    }
-                }
-                // OSC sequence: ESC ] ... (terminated by BEL or ST)
-                Some(']') => {
-                    let mut prev = '\0';
-                    for c in chars.by_ref() {
-                        if c == '\x07' || (prev == '\x1b' && c == '\\') {
-                            break;
-                        }
-                        prev = c;
-                    }
-                }
-                // For other escape sequences (e.g. ESC followed by a single char),
-                // just skip the ESC and that character.
-                Some(_) => {}
-                // Trailing ESC at end of string
-                None => {}
-            }
-        } else {
-            result.push(c);
-        }
-    }
-    result
-}
-
 #[derive(Debug)]
 pub struct LogEvent {
     pub event: Event,
@@ -59,6 +17,25 @@ pub struct LogEvent {
     pub line_number: usize,
     pub time: i64,
     pub problems: Mutex<Vec<String>>,
+}
+
+impl Ord for LogEvent {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.time.cmp(&other.time)
+    }
+}
+impl Eq for LogEvent {}
+
+impl PartialEq for LogEvent {
+    fn eq(&self, other: &Self) -> bool {
+        self.time == other.time
+    }
+}
+
+impl PartialOrd for LogEvent {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.time.partial_cmp(&other.time)
+    }
 }
 
 pub(crate) const TIME_KEY: &str = "time";
@@ -81,10 +58,6 @@ impl LogEvent {
     pub fn ui_group_color(&self) -> Option<Color> {
         let group_id = self.context("group_id")?.as_str().ok()?;
         Some(color_from_string(group_id))
-    }
-
-    pub fn event_name(&self) -> &str {
-        self.event.metadata().doc
     }
 
     pub fn installation(&self) -> &str {
@@ -174,4 +147,46 @@ impl LogEvent {
             problems: Mutex::default(),
         })
     }
+}
+
+/// Strip ANSI escape sequences (CSI sequences like color codes) from a string
+/// so that raw log output displays cleanly in the UI.
+fn strip_ansi_escapes(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            match chars.next() {
+                // CSI sequence: ESC [ <params> <final byte>
+                // Parameter bytes are in 0x30-0x3F, intermediate bytes in 0x20-0x2F,
+                // and the final byte is in 0x40-0x7E.
+                Some('[') => {
+                    for c in chars.by_ref() {
+                        let b = c as u32;
+                        if (0x40..=0x7E).contains(&b) {
+                            break;
+                        }
+                    }
+                }
+                // OSC sequence: ESC ] ... (terminated by BEL or ST)
+                Some(']') => {
+                    let mut prev = '\0';
+                    for c in chars.by_ref() {
+                        if c == '\x07' || (prev == '\x1b' && c == '\\') {
+                            break;
+                        }
+                        prev = c;
+                    }
+                }
+                // For other escape sequences (e.g. ESC followed by a single char),
+                // just skip the ESC and that character.
+                Some(_) => {}
+                // Trailing ESC at end of string
+                None => {}
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }

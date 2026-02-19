@@ -1,7 +1,4 @@
-use crate::state::{
-    LogState,
-    assertions::{AssertionFailure, LogAssertion},
-};
+use crate::state::{LogState, assertions::LogAssertion};
 use anyhow::Result;
 use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc};
@@ -10,25 +7,16 @@ use xmtp_common::Event;
 pub struct EpochContinuityAssertion;
 
 impl LogAssertion for EpochContinuityAssertion {
-    fn assert(state: &LogState) -> Result<Option<AssertionFailure>> {
-        // The value is groups from multiple installations
-        let mut group_collection = HashMap::new();
-        for (_inst, state) in &*state.clients.read() {
-            for (group_id, group) in &state.read().groups {
-                let g = group_collection
-                    .entry(group_id.clone())
-                    .or_insert_with(|| vec![]);
-                g.push(group.clone());
-            }
-        }
+    fn assert(state: &LogState) -> Result<()> {
+        let group_collection = state.org_group();
 
-        for (group_id, groups) in group_collection {
+        for (group_id, inst_groups) in group_collection {
             // Group the events into epochs
             let mut all_group_epochs = state.grouped_epochs.write();
             let group_epochs = all_group_epochs.entry(group_id.clone()).or_default();
 
             // Massage the epoch # and auth forward through group states.
-            for group in &groups {
+            for group in &inst_groups {
                 let mut epoch = None;
                 let mut auth: Option<String> = None;
                 let mut group = group.write();
@@ -65,7 +53,7 @@ impl LogAssertion for EpochContinuityAssertion {
             }
 
             // Group the events into epochs.
-            for group in &groups {
+            for group in &inst_groups {
                 let group = group.read();
 
                 let installation_epochs = group_epochs
@@ -90,7 +78,7 @@ impl LogAssertion for EpochContinuityAssertion {
                     .entry(installation_id.to_string())
                     .or_insert_with(|| {
                         let mut events = vec![];
-                        if let Some(client) = state.clients.read().get(installation_id) {
+                        if let Some(client) = state.clients.lock().get(installation_id) {
                             for event in &client.read().events {
                                 match event.event {
                                     Event::ClientCreated
@@ -108,6 +96,6 @@ impl LogAssertion for EpochContinuityAssertion {
             }
         }
 
-        Ok(None)
+        Ok(())
     }
 }

@@ -1,7 +1,7 @@
 use crate::{
     AppWindow, UIEpochHeader, UIEvent, UIGroupRow, UIGroupState, UIGroupStateDetail,
-    UIInstallationCell, UIInstallationRow, UIStream,
-    state::{GroupState, LogEvent, LogState},
+    UIInstallationCell, UIInstallationRow, UIStream, UITimelineEntry, UITimelineGroup,
+    state::{GroupState, LogEvent, LogState, StateOrEvent},
     ui::file_open::color_from_string,
 };
 use slint::{Color, ModelRc, SharedString, VecModel, Weak};
@@ -18,7 +18,7 @@ fn short_id(id: &str) -> String {
 impl LogState {
     /// Look up a friendly name for an installation id from the clients map.
     fn installation_name(&self, installation_id: &str) -> String {
-        let clients = self.clients.read();
+        let clients = self.clients.lock();
         if let Some(client) = clients.get(installation_id) {
             let client = client.read();
             if let Some(ref name) = client.name {
@@ -33,7 +33,7 @@ impl LogState {
             .upgrade_in_event_loop(move |ui| {
                 // ─── Events Tab ───
                 let mut streams = Vec::new();
-                for (inst, client) in &*self.clients.read() {
+                for (inst, client) in &*self.clients.lock() {
                     let client = client.read();
                     let mut stream = Vec::new();
 
@@ -201,12 +201,93 @@ impl LogState {
 
                 let epoch_groups = ModelRc::new(VecModel::from(group_rows));
                 ui.set_epoch_groups(epoch_groups);
+
+                // ─── Timeline Tab ───
+                // Transform: timeline (group → [StateOrEvent])
+                // Into:      UITimelineGroup (group → [UITimelineEntry])
+                //
+                // Each group has a chronologically sorted list of events/states
+
+                let mut timeline_groups: Vec<UITimelineGroup> = Vec::new();
+
+                let timeline = self.timeline.lock();
+                let mut timeline_group_ids: Vec<&String> = timeline.keys().collect();
+                timeline_group_ids.sort();
+
+                for group_id in timeline_group_ids {
+                    let entries = &timeline[group_id];
+                    let mut ui_entries: Vec<UITimelineEntry> = Vec::new();
+
+                    for entry in entries {
+                        let ui_entry = match entry {
+                            StateOrEvent::State(state) => {
+                                let state = state.lock();
+                                let inst_id = &state.event.installation;
+                                let inst_name = self.installation_name(inst_id);
+                                let display_name = if inst_name.is_empty() {
+                                    short_id(inst_id)
+                                } else {
+                                    inst_name.clone()
+                                };
+                                state.ui_timeline_entry(inst_id, &display_name)
+                            }
+                            StateOrEvent::Event(event) => {
+                                let inst_id = &event.installation;
+                                let inst_name = self.installation_name(inst_id);
+                                let display_name = if inst_name.is_empty() {
+                                    short_id(inst_id)
+                                } else {
+                                    inst_name.clone()
+                                };
+                                event.ui_timeline_entry(inst_id, &display_name)
+                            }
+                        };
+                        ui_entries.push(ui_entry);
+                    }
+
+                    let group_color = color_from_string(group_id);
+
+                    timeline_groups.push(UITimelineGroup {
+                        group_id: SharedString::from(group_id.as_str()),
+                        group_id_short: SharedString::from(short_id(group_id)),
+                        group_color,
+                        entries: ModelRc::new(VecModel::from(ui_entries)),
+                    });
+                }
+
+                let timeline_groups = ModelRc::new(VecModel::from(timeline_groups));
+                ui.set_timeline_groups(timeline_groups);
             })
             .inspect_err(|e| tracing::error!("{e:?}"));
     }
 }
 
 impl LogEvent {
+    /// Create a timeline entry UI representation of this LogEvent
+    fn ui_timeline_entry(&self, installation_id: &str, installation_name: &str) -> UITimelineEntry {
+        let problem_strings: Vec<SharedString> = self
+            .problems
+            .lock()
+            .iter()
+            .map(|p| SharedString::from(p))
+            .collect();
+
+        UITimelineEntry {
+            unique_id: 0, // LogEvents don't have unique IDs
+            msg: SharedString::from(self.msg),
+            icon: SharedString::from(self.icon),
+            installation_id: SharedString::from(installation_id),
+            installation_name: SharedString::from(installation_name),
+            installation_color: color_from_string(installation_id),
+            epoch: -1,
+            timestamp: self.time as i32,
+            line_number: self.line_number as i32,
+            problems: ModelRc::new(VecModel::from(problem_strings)),
+            context: ModelRc::new(VecModel::from(self.ui_context_entries())),
+            intermediate: SharedString::from(&self.intermediate),
+        }
+    }
+
     fn ui_group_state(&self) -> UIGroupState {
         let problem_strings: Vec<SharedString> = self
             .problems
@@ -249,6 +330,36 @@ impl GroupState {
             intermediate: SharedString::from(&self.event.intermediate),
             background: Color::from_rgb_u8(255, 255, 255),
             line_number: self.event.line_number as i32,
+        }
+    }
+
+    /// Create a timeline entry UI representation of this GroupState
+    pub fn ui_timeline_entry(
+        &self,
+        installation_id: &str,
+        installation_name: &str,
+    ) -> UITimelineEntry {
+        let problem_strings: Vec<SharedString> = self
+            .event
+            .problems
+            .lock()
+            .iter()
+            .map(|p| SharedString::from(p))
+            .collect();
+
+        UITimelineEntry {
+            unique_id: self.unique_id as i32,
+            msg: SharedString::from(self.event.msg),
+            icon: SharedString::from(self.event.icon),
+            installation_id: SharedString::from(installation_id),
+            installation_name: SharedString::from(installation_name),
+            installation_color: color_from_string(installation_id),
+            epoch: self.epoch.unwrap_or(-1) as i32,
+            timestamp: self.event.time as i32,
+            line_number: self.event.line_number as i32,
+            problems: ModelRc::new(VecModel::from(problem_strings)),
+            context: ModelRc::new(VecModel::from(self.event.ui_context_entries())),
+            intermediate: SharedString::from(&self.event.intermediate),
         }
     }
 

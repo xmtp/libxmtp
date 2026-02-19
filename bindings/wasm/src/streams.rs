@@ -1,4 +1,3 @@
-
 use crate::client::RustMlsGroup;
 use crate::conversation::Conversation;
 use crate::enriched_message::DecodedMessage;

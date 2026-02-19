@@ -18,6 +18,13 @@ import {
 } from "epoch-tab.slint";
 export { UIContextEntry, UIGroupState, UIGroupStateDetail, UIInstallationCell, UIEpochHeader, UIInstallationRow, UIGroupRow }
 
+import {
+    TimelineTab,
+    UITimelineEntry,
+    UITimelineGroup,
+} from "timeline-tab.slint";
+export { UITimelineEntry, UITimelineGroup }
+
 // ─── Shared Data Structures ───
 
 export struct UIEvent {
@@ -158,6 +165,7 @@ component LogColumn inherits Rectangle {
 export component AppWindow inherits Window {
     in-out property <[UIStream]> log-streams: [];
     in-out property <[UIGroupRow]> epoch-groups: [];
+    in-out property <[UITimelineGroup]> timeline-groups: [];
     in-out property <int> active-tab: 0;
 
     // Selected state detail (set by Rust when state-clicked callback fires)
@@ -258,6 +266,30 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+
+            Rectangle {
+                width: timeline-tab-text.preferred-width + 24px;
+                height: 32px;
+                background: root.active-tab == 2 ? #4a72c4 : #e0e0e0;
+                border-radius: 6px;
+                border-bottom-left-radius: 0px;
+                border-bottom-right-radius: 0px;
+
+                timeline-tab-text := Text {
+                    text: "Timeline";
+                    font-size: 13px;
+                    font-weight: root.active-tab == 2 ? 700 : 400;
+                    color: root.active-tab == 2 ? #ffffff : #555555;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                TouchArea {
+                    clicked => {
+                        root.active-tab = 2;
+                    }
+                }
+            }
         }
 
         // Tab divider line
@@ -296,6 +328,14 @@ export component AppWindow inherits Window {
         if root.active-tab == 1: EpochTab {
             epoch-groups: root.epoch-groups;
             state-clicked(group-id, installation-id, unique-id) => {
+                root.state-clicked(group-id, installation-id, unique-id);
+            }
+        }
+
+        // Timeline Tab
+        if root.active-tab == 2: TimelineTab {
+            timeline-groups: root.timeline-groups;
+            entry-clicked(group-id, installation-id, unique-id) => {
                 root.state-clicked(group-id, installation-id, unique-id);
             }
         }
