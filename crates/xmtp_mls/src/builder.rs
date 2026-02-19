@@ -97,8 +97,7 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) store: Option<Db>,
     pub(crate) identity_strategy: IdentityStrategy,
     pub(crate) scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
-    pub(crate) device_sync_server_url: Option<String>,
-    pub(crate) device_sync_worker_mode: SyncWorkerMode,
+    pub(crate) device_sync_worker_mode: DeviceSyncMode,
     pub(crate) fork_recovery_opts: Option<ForkRecoveryOpts>,
     pub(crate) version_info: VersionInfo,
     pub(crate) allow_offline: bool,
@@ -110,7 +109,7 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SyncWorkerMode {
+pub enum DeviceSyncMode {
     Disabled,
     Enabled,
 }
@@ -157,8 +156,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity: None,
             store: None,
             scw_verifier: None,
-            device_sync_server_url: None,
-            device_sync_worker_mode: SyncWorkerMode::Enabled,
+            device_sync_worker_mode: DeviceSyncMode::Enabled,
             fork_recovery_opts: None,
             version_info: VersionInfo::default(),
             allow_offline: false,
@@ -189,7 +187,6 @@ where
             store: Some(client.context.store.clone()),
             identity_strategy: IdentityStrategy::CachedOnly,
             scw_verifier: Some(Box::new(client.context.scw_verifier.clone())),
-            device_sync_server_url: client.context.device_sync.server_url.clone(),
             device_sync_worker_mode: client.context.device_sync.mode,
             fork_recovery_opts: Some(client.context.fork_recovery_opts.clone()),
             version_info: client.context.version_info.clone(),
@@ -233,7 +230,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity_strategy,
             mut scw_verifier,
 
-            device_sync_server_url,
             device_sync_worker_mode,
             fork_recovery_opts,
             version_info,
@@ -316,7 +312,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             local_events: local_events.clone(),
             worker_events: worker_tx.clone(),
             device_sync: DeviceSync {
-                server_url: device_sync_server_url,
                 mode: device_sync_worker_mode,
             },
             fork_recovery_opts: fork_recovery_opts.unwrap_or_default(),
@@ -400,7 +395,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity: self.identity,
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
-            device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
@@ -428,7 +422,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity: self.identity,
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
-            device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
@@ -456,7 +449,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity: self.identity,
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
-            device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
@@ -469,33 +461,19 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
-    pub fn with_device_sync_server_url(self, url: Option<String>) -> Self {
-        Self {
-            device_sync_server_url: url,
-            ..self
-        }
-    }
-
     pub fn with_disable_workers(mut self, disable_workers: bool) -> Self {
         self.disable_workers = disable_workers;
         self
     }
 
-    pub fn device_sync_server_url(self, url: &str) -> Self {
+    pub fn with_device_sync_worker_mode(self, mode: Option<DeviceSyncMode>) -> Self {
         Self {
-            device_sync_server_url: Some(url.into()),
+            device_sync_worker_mode: mode.unwrap_or(DeviceSyncMode::Enabled),
             ..self
         }
     }
 
-    pub fn with_device_sync_worker_mode(self, mode: Option<SyncWorkerMode>) -> Self {
-        Self {
-            device_sync_worker_mode: mode.unwrap_or(SyncWorkerMode::Enabled),
-            ..self
-        }
-    }
-
-    pub fn device_sync_worker_mode(self, mode: SyncWorkerMode) -> Self {
+    pub fn device_sync_worker_mode(self, mode: DeviceSyncMode) -> Self {
         Self {
             device_sync_worker_mode: mode,
             ..self
@@ -519,7 +497,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
             store: self.store,
-            device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
@@ -612,7 +589,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: self.scw_verifier,
             store: self.store,
 
-            device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
@@ -645,7 +621,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: self.scw_verifier,
             store: self.store,
 
-            device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
@@ -671,7 +646,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: Some(Box::new(verifier)),
             store: self.store,
 
-            device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
@@ -704,7 +678,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             scw_verifier: Some(Box::new(ApiClientWrapper::new(api, Retry::default()))
                 as Box<dyn SmartContractSignatureVerifier>),
             store: self.store,
-            device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             version_info: self.version_info,
