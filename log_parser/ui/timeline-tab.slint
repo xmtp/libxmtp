@@ -6,7 +6,9 @@ import {
 
 import {
     UIContextEntry,
-    UIGroupState,
+    InstallationLabel,
+    FocusBanner,
+    IntermediateLogsPanel,
 } from "epoch-tab.slint";
 
 // ─── Timeline Data Structures ───
@@ -229,41 +231,6 @@ component TimelineEntryCard inherits Rectangle {
     }
 }
 
-// ─── Installation Label ───
-
-component InstallationLabel inherits Rectangle {
-    in property <string> name;
-    in property <color> inst-color;
-
-    width: TimelineConstants.label-column-width;
-    background: transparent;
-
-    HorizontalLayout {
-        padding-left: 8px;
-        padding-right: 8px;
-        spacing: 6px;
-        alignment: start;
-
-        // Color pip
-        Rectangle {
-            width: 8px;
-            height: 8px;
-            background: root.inst-color;
-            border-radius: 4px;
-            y: (parent.height - self.height) / 2;
-        }
-
-        Text {
-            text: root.name;
-            font-size: 11px;
-            font-weight: 600;
-            color: #444444;
-            overflow: elide;
-            vertical-alignment: center;
-        }
-    }
-}
-
 // ─── Group Timeline Container ───
 
 component GroupTimelineContainer inherits Rectangle {
@@ -399,6 +366,7 @@ component GroupTimelineContainer inherits Rectangle {
                         }
 
                         InstallationLabel {
+                            width: TimelineConstants.label-column-width;
                             name: inst-row.installation-name;
                             inst-color: inst-row.installation-color;
                             y: (parent.height - self.height) / 2;
@@ -409,53 +377,8 @@ component GroupTimelineContainer inherits Rectangle {
         }
 
         // ─── Intermediate Logs Panel ───
-        if root.show-intermediate: Rectangle {
-            background: #f5f8ff;
-            border-width: 1px;
-            border-color: #d0d8f0;
-            min-height: logs-panel-layout.preferred-height;
-            max-height: 200px;
-
-            logs-panel-layout := VerticalLayout {
-                padding: 12px;
-                spacing: 8px;
-
-                Rectangle {
-                    height: logs-panel-header.preferred-height + 8px;
-                    background: #e0e8ff;
-                    border-radius: 4px;
-
-                    logs-panel-header := Text {
-                        text: "📋 Intermediate Logs";
-                        font-size: 12px;
-                        font-weight: 700;
-                        color: #3355aa;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                }
-
-                ScrollView {
-                    Rectangle {
-                        min-height: logs-panel-text.preferred-height + 12px;
-                        background: #ffffff;
-                        border-radius: 4px;
-                        border-width: 1px;
-                        border-color: #d0d8f0;
-
-                        logs-panel-text := Text {
-                            text: root.focused-intermediate;
-                            font-size: 10px;
-                            font-family: "monospace";
-                            color: #444444;
-                            wrap: word-wrap;
-                            x: 8px;
-                            y: 6px;
-                            width: parent.width - 16px;
-                        }
-                    }
-                }
-            }
+        if root.show-intermediate: IntermediateLogsPanel {
+            intermediate-text: root.focused-intermediate;
         }
     }
 }
@@ -493,58 +416,12 @@ export component TimelineTab inherits Rectangle {
             alignment: start;
 
             // ─── Focus Banner ───
-            if root.has-focus: Rectangle {
-                height: 36px;
-                background: root.focus-mode == "logs" ? #f0f5ff : #eef2ff;
-                border-radius: 6px;
-                border-width: 1px;
-                border-color: root.focus-mode == "logs" ? #b0c8ee : #c0ccee;
-
-                HorizontalLayout {
-                    padding-left: 12px;
-                    padding-right: 8px;
-                    spacing: 8px;
-                    alignment: start;
-
-                    Text {
-                        text: root.focus-mode == "logs" ? "📋 Focused on group — showing intermediate logs" : "🔍 Focused on group — showing problems";
-                        font-size: 12px;
-                        font-weight: 600;
-                        color: root.focus-mode == "logs" ? #3a5588 : #4a5588;
-                        vertical-alignment: center;
-                    }
-
-                    // Spacer
-                    Rectangle {
-                        horizontal-stretch: 1;
-                    }
-
-                    // Back button
-                    Rectangle {
-                        width: back-text.preferred-width + 20px;
-                        height: 26px;
-                        background: back-touch.has-hover ? #4a72c4 : #5a82d4;
-                        border-radius: 4px;
-                        y: (parent.height - self.height) / 2;
-
-                        back-text := Text {
-                            text: "← Show All Groups";
-                            font-size: 11px;
-                            font-weight: 600;
-                            color: #ffffff;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-
-                        back-touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                root.focused-group-id = "";
-                                root.focus-mode = "";
-                                root.focused-intermediate = "";
-                            }
-                        }
-                    }
+            if root.has-focus: FocusBanner {
+                focus-mode: root.focus-mode;
+                back-clicked => {
+                    root.focused-group-id = "";
+                    root.focus-mode = "";
+                    root.focused-intermediate = "";
                 }
             }
 
