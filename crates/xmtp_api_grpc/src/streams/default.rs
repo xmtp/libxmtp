@@ -12,7 +12,7 @@ use futures::{Stream, TryStream};
 use pin_project::pin_project;
 use xmtp_proto::{
     ApiEndpoint,
-    api::{ApiClientError, Client},
+    api::{ApiClientError, BytesStream, Client},
 };
 
 #[pin_project]
@@ -34,14 +34,14 @@ impl<S, T> XmtpTonicStream<S, T> {
     }
 }
 
-impl<T> XmtpTonicStream<crate::GrpcStream, T> {
+impl<T> XmtpTonicStream<BytesStream, T> {
     /// create a stream from the body of a request
     /// makes the request and starts the stream
     pub async fn from_body<B: prost::Name>(
         body: B,
         client: crate::GrpcClient,
         endpoint: ApiEndpoint,
-    ) -> Result<Self, ApiClientError<GrpcError>> {
+    ) -> Result<Self, ApiClientError> {
         let pnq = xmtp_proto::path_and_query::<B>();
         let request = http::Request::builder();
         let path = http::uri::PathAndQuery::try_from(pnq.as_ref())?;
@@ -58,7 +58,7 @@ where
     GrpcError: From<<S as TryStream>::Error>,
     T: prost::Message + Default,
 {
-    type Item = Result<T, ApiClientError<GrpcError>>;
+    type Item = Result<T, ApiClientError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.as_mut().project();

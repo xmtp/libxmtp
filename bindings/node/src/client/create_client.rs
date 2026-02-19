@@ -100,8 +100,8 @@ pub async fn create_client(
   let mut backend = MessageBackendBuilder::default();
   backend
     .v3_host(&v3_host)
-    .maybe_gateway_host(gateway_host)
     .readonly(matches!(client_mode, ClientMode::Notification))
+    .maybe_gateway_host(gateway_host)
     .maybe_auth_callback(auth_callback.map(|c| Arc::new(c.clone()) as _))
     .maybe_auth_handle(auth_handle.map(|h| h.clone().into()))
     .app_version(app_version.clone().unwrap_or_default())
@@ -168,8 +168,14 @@ pub async fn create_client(
 
   let cursor_store = SqliteCursorStore::new(store.db());
   backend.cursor_store(cursor_store);
-  let api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
-  let sync_api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
+  let api_client = backend
+    .clone()
+    .build_optional_d14n()
+    .map_err(ErrorWrapper::from)?;
+  let sync_api_client = backend
+    .clone()
+    .build_optional_d14n()
+    .map_err(ErrorWrapper::from)?;
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
     .api_clients(api_client, sync_api_client)

@@ -22,14 +22,10 @@ impl<E, T, C> Query<C> for V3Paged<E, T>
 where
     E: Query<C, Output = T> + Pageable,
     C: Client,
-    C::Error: std::error::Error,
     T: Default + prost::Message + Paged + 'static,
 {
     type Output = Vec<<T as Paged>::Message>;
-    async fn query(
-        &mut self,
-        client: &C,
-    ) -> Result<Vec<<T as Paged>::Message>, ApiClientError<C::Error>> {
+    async fn query(&mut self, client: &C) -> Result<Vec<<T as Paged>::Message>, ApiClientError> {
         let mut out: Vec<<T as Paged>::Message> = vec![];
         self.endpoint.set_cursor(self.id_cursor.unwrap_or(0));
         loop {

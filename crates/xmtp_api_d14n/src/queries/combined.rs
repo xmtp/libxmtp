@@ -1,7 +1,8 @@
-use xmtp_api_grpc::error::GrpcError;
 use xmtp_configuration::CUTOVER_REFRESH_TIME;
+use xmtp_id::scw_verifier::VerifierError;
 use xmtp_proto::api::ApiClientError;
 use xmtp_proto::api::Client;
+use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::identity_v1;
 use xmtp_proto::mls_v1;
@@ -11,27 +12,50 @@ use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::types::{GroupId, GroupMessage};
 
+use crate::D14nClient;
+use crate::ToDynApi;
+use crate::V3Client;
 use crate::d14n::FetchD14nCutover;
+use crate::definitions::XmtpApiClient;
 use crate::protocol::CursorStore;
-use crate::protocol::FullXmtpApiArc;
 
+mod connected_check;
 mod streams;
-
-type XmtpApiClient = FullXmtpApiArc<ApiClientError<GrpcError>>;
+mod to_dyn_api;
+mod xmtp_query;
 
 #[derive(Clone)]
-pub struct CombinedD14nClient<C, Store> {
+pub struct MigrationClient<V3, D14n, Store> {
     pub(crate) v3_client: XmtpApiClient,
     pub(crate) xmtpd_client: XmtpApiClient,
     store: Store,
-    client: C,
+    v3_grpc: V3,
+    xmtpd_grpc: D14n,
 }
 
-impl<C, S: CursorStore> CombinedD14nClient<C, S>
+impl<V3, D14n, Store> MigrationClient<V3, D14n, Store>
 where
-    C: Client<Error = GrpcError>,
+    V3: Client + IsConnectedCheck + Clone + 'static,
+    D14n: Client + IsConnectedCheck + Clone + 'static,
+    Store: CursorStore + Clone + 'static,
 {
-    pub async fn choose_client(&self) -> Result<&XmtpApiClient, ApiClientError<GrpcError>> {
+    pub fn new(v3: V3, d14n: D14n, store: Store) -> Result<Self, VerifierError> {
+        Ok(Self {
+            v3_grpc: v3.clone(),
+            xmtpd_grpc: d14n.clone(),
+            store: store.clone(),
+            v3_client: V3Client::new(v3, store.clone()).arced(),
+            xmtpd_client: D14nClient::new(d14n, store)?.arced(),
+        })
+    }
+}
+
+impl<V3, D14n, S: CursorStore> MigrationClient<V3, D14n, S>
+where
+    V3: Client,
+    D14n: Client,
+{
+    pub async fn choose_client(&self) -> Result<&XmtpApiClient, ApiClientError> {
         if self.store.has_migrated()? {
             return Ok(&self.xmtpd_client);
         }
@@ -41,7 +65,7 @@ where
 
         let time_since_refresh = now.saturating_sub(cutover_ns);
         let cutover_ns = if time_since_refresh >= CUTOVER_REFRESH_TIME {
-            let cutover_ns = FetchD14nCutover.query(&self.client).await?.timestamp_ns as i64;
+            let cutover_ns = FetchD14nCutover.query(&self.v3_grpc).await?.timestamp_ns as i64;
             self.store.set_cutover_ns(cutover_ns)?;
             cutover_ns
         } else {
@@ -58,12 +82,13 @@ where
 }
 
 #[xmtp_common::async_trait]
-impl<C, S> XmtpMlsClient for CombinedD14nClient<C, S>
+impl<V3, D14n, S> XmtpMlsClient for MigrationClient<V3, D14n, S>
 where
-    C: Client<Error = GrpcError>,
+    V3: Client,
+    D14n: Client,
     S: CursorStore,
 {
-    type Error = ApiClientError<GrpcError>;
+    type Error = ApiClientError;
 
     async fn upload_key_package(
         &self,
@@ -163,12 +188,13 @@ where
 }
 
 #[xmtp_common::async_trait]
-impl<C, S> XmtpIdentityClient for CombinedD14nClient<C, S>
+impl<V3, D14n, S> XmtpIdentityClient for MigrationClient<V3, D14n, S>
 where
     S: CursorStore,
-    C: Client<Error = GrpcError>,
+    V3: Client,
+    D14n: Client,
 {
-    type Error = ApiClientError<GrpcError>;
+    type Error = ApiClientError;
 
     async fn publish_identity_update(
         &self,

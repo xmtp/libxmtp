@@ -6,7 +6,6 @@ use crate::protocol::traits::{Envelope, EnvelopeCollection, Extractor};
 use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds};
 use itertools::Itertools;
 use std::collections::HashMap;
-use xmtp_common::RetryableError;
 use xmtp_configuration::Originators;
 use xmtp_id::associations::AccountId;
 use xmtp_id::scw_verifier::{SmartContractSignatureVerifier, VerifierError};
@@ -26,14 +25,12 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{
 };
 
 #[xmtp_common::async_trait]
-impl<C, Store, E> XmtpIdentityClient for D14nClient<C, Store>
+impl<C, Store> XmtpIdentityClient for D14nClient<C, Store>
 where
-    E: RetryableError + 'static,
-    C: Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<C as xmtp_proto::api::Client>::Error>> + 'static,
+    C: Client,
     Store: CursorStore,
 {
-    type Error = ApiClientError<E>;
+    type Error = ApiClientError;
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn publish_identity_update(

@@ -3,12 +3,11 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use color_eyre::eyre;
 use std::path::PathBuf;
-use xmtp_configuration::{MULTI_NODE_TIMEOUT_MS, PAYER_WRITE_FILTER};
+use xmtp_configuration::PAYER_WRITE_FILTER;
 use xxhash_rust::xxh3;
 mod types;
-use std::time::Duration;
 pub use types::*;
-use xmtp_api_d14n::{ClientBundle, MessageBackendBuilder, MiddlewareBuilder, ReadWriteClient};
+use xmtp_api_d14n::{ClientBundle, MessageBackendBuilder, ReadWriteClient};
 use xmtp_api_grpc::GrpcClient;
 use xmtp_proto::{
     api::Client,
@@ -296,6 +295,9 @@ pub struct BackendOpts {
     /// Enable the decentralization backend
     #[arg(short, long)]
     pub d14n: bool,
+    /// enable the v3 -> d14n cutover client
+    #[arg(short, long, conflicts_with_all = &["d14n"])]
+    pub enable_migration: bool,
     /// Timeout for reading writes to the decentralized backend
     #[arg(long, short, default_value_t = default_ryow_timeout())]
     pub ryow_timeout: humantime::Duration,
@@ -350,13 +352,20 @@ impl BackendOpts {
 
         let mut builder = MessageBackendBuilder::default();
         builder.v3_host(network.as_str()).is_secure(is_secure);
+        if self.enable_migration {
+            let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
+            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
+            return Ok(builder.gateway_host(xmtpd_gateway_host.as_str()).build()?);
+        }
         if self.d14n {
             let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
             trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
-            Ok(builder.gateway_host(xmtpd_gateway_host.as_str()).build()?)
+            Ok(builder
+                .gateway_host(xmtpd_gateway_host.as_str())
+                .build_d14n()?)
         } else {
             trace!(url = %network, is_secure, "create grpc");
-            Ok(builder.build()?)
+            Ok(builder.build_v3()?)
         }
     }
 
@@ -366,13 +375,20 @@ impl BackendOpts {
 
         let mut builder = ClientBundle::builder();
         builder.v3_host(network.as_str()).is_secure(is_secure);
+        if self.enable_migration {
+            let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
+            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
+            return Ok(builder.gateway_host(xmtpd_gateway_host.as_str()).build()?);
+        }
         if self.d14n {
             let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
             trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
-            Ok(builder.gateway_host(xmtpd_gateway_host.as_str()).build()?)
+            Ok(builder
+                .gateway_host(xmtpd_gateway_host.as_str())
+                .build_d14n()?)
         } else {
             trace!(url = %network, is_secure, "create grpc");
-            Ok(builder.build()?)
+            Ok(builder.build_v3()?)
         }
     }
 
@@ -383,16 +399,15 @@ impl BackendOpts {
         let mut gateway_client_builder = GrpcClient::builder();
         gateway_client_builder.set_host(self.xmtpd_gateway_url()?.to_string());
         gateway_client_builder.set_tls(is_secure);
+        let gateway_client = gateway_client_builder.build()?;
         let mut node_builder = GrpcClient::builder();
         node_builder.set_tls(is_secure);
 
-        let mut multi_node = xmtp_api_d14n::middleware::MultiNodeClientBuilder::default();
-        multi_node.set_timeout(Duration::from_millis(MULTI_NODE_TIMEOUT_MS))?;
-        multi_node.set_gateway_builder(gateway_client_builder.clone())?;
-        multi_node.set_node_client_builder(node_builder)?;
-        let multi_node = multi_node.build()?;
+        let multi_node = xmtp_api_d14n::middleware::MultiNodeClient::builder()
+            .gateway_client(gateway_client.clone())
+            .node_client_template(node_builder)
+            .build()?;
 
-        let gateway_client = gateway_client_builder.build()?;
         let rw = ReadWriteClient::builder()
             .read(multi_node)
             .write(gateway_client)
@@ -402,6 +417,10 @@ impl BackendOpts {
     }
 }
 
+// this decides the folder/prefix for network
+// each network gets an isolated folder/database for redb and also sqlite clients
+// if the numbers are the same, clients will conflict on network
+// custom network URLS are hashed with xxh3_64
 impl<'a> From<&'a BackendOpts> for u64 {
     fn from(value: &'a BackendOpts) -> Self {
         use BackendKind::*;
@@ -409,15 +428,20 @@ impl<'a> From<&'a BackendOpts> for u64 {
         if let Some(ref url) = value.url {
             xxh3::xxh3_64(url.as_str().as_bytes())
         } else {
-            match (value.backend, value.d14n) {
-                (Production, false) => 2,
-                (Staging, false) => 1,
-                (Dev, false) => 1,
-                (Local, false) => 0,
-                (Production, true) => 5,
-                (Staging, true) => 6,
-                (Dev, true) => 4,
-                (Local, true) => 3,
+            match (value.backend, value.d14n, value.enable_migration) {
+                (Production, false, false) => 2,
+                (Staging, false, false) => 1,
+                (Dev, false, false) => 1,
+                (Local, false, false) => 0,
+                (Production, true, false) => 5,
+                (Staging, true, false) => 6,
+                (Dev, true, false) => 4,
+                (Local, true, false) => 3,
+                // Migration cases, where the client is both d14n and v3
+                (Local, _, true) => 7,
+                (Dev, _, true) => 8,
+                (Staging, _, true) => 9,
+                (Production, _, true) => 10,
             }
         }
     }
