@@ -14,7 +14,7 @@ where
     C: Client,
 {
     type Output = ();
-    async fn query(&mut self, client: &C) -> Result<(), ApiClientError<C::Error>> {
+    async fn query(&mut self, client: &C) -> Result<(), ApiClientError> {
         let _ = QueryRaw::<C>::query_raw(&mut self.endpoint, client).await?;
         // ignore response value
         Ok(())
@@ -70,9 +70,7 @@ mod tests {
         let bytes = TestProto { inner: 900 }.encode_to_vec();
         client.expect_request().times(3).returning(|_, _, _| {
             tracing::info!("error");
-            Err(ApiClientError::Client {
-                source: MockError::ARetryableError,
-            })
+            Err(ApiClientError::client(MockError::ARetryableError))
         });
         client
             .expect_request()
