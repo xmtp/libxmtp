@@ -190,12 +190,23 @@ pub struct InfoOpts {
     pub app: bool,
 }
 
+#[derive(ValueEnum, Debug, Copy, Clone)]
+pub enum ExportEntityKind {
+    Group,
+    Message,
+    Identity,
+    GroupTopics,
+    IdentityTopics,
+    KeyPackageTopics,
+    WelcomeMessageTopics,
+}
+
 /// Export information to JSON
 #[derive(Args, Debug)]
 pub struct ExportOpts {
     /// Entity to export
     #[arg(long, short)]
-    pub entity: EntityKind,
+    pub entity: ExportEntityKind,
     /// File to write to
     #[arg(long, short)]
     pub out: Option<PathBuf>,
