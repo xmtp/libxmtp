@@ -89,6 +89,7 @@ framework: lipo
 
 frameworkdyn: lipodyn
 	rm -rf LibXMTPSwiftFFIDynamic.xcframework
+	install_name_tool -id @rpath/$(DYLIB) build/aarch64-apple-ios/$(DYLIB)
 	xcodebuild -create-xcframework \
 		-library build/aarch64-apple-ios/$(DYLIB) \
 		-headers build/swift/dynamic/include/libxmtp/ \
