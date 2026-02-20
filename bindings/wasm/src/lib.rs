@@ -18,6 +18,9 @@ pub mod signatures;
 pub mod streams;
 mod user_preferences;
 
+#[cfg(any(test, feature = "test-utils"))]
+mod builder_test;
+
 use serde_wasm_bindgen::Serializer;
 use wasm_bindgen::{JsError, JsValue};
 use xmtp_common::ErrorCode;
