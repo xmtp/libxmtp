@@ -1,9 +1,14 @@
-use crate::{LogParser, Rule, UIContextEntry, state::Value, ui::file_open::color_from_string};
-use anyhow::{Context, Result, bail};
+use crate::{state::Value, ui::file_open::color_from_string, LogParser, Rule, UIContextEntry};
+use anyhow::{bail, Context, Result};
 use parking_lot::Mutex;
 use pest::Parser;
 use slint::{Color, SharedString};
-use std::{collections::HashMap, iter::Peekable, sync::Arc};
+use std::{
+    collections::HashMap,
+    iter::Peekable,
+    sync::atomic::{AtomicI64, Ordering},
+    sync::Arc,
+};
 use xmtp_common::Event;
 
 #[derive(Debug)]
@@ -15,26 +20,26 @@ pub struct LogEvent {
     pub context: HashMap<String, Value>,
     pub intermediate: String,
     pub line_number: usize,
-    pub time: i64,
+    pub time: AtomicI64,
     pub problems: Mutex<Vec<String>>,
 }
 
 impl Ord for LogEvent {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.time.cmp(&other.time)
+        self.time().cmp(&other.time())
     }
 }
 impl Eq for LogEvent {}
 
 impl PartialEq for LogEvent {
     fn eq(&self, other: &Self) -> bool {
-        self.time == other.time
+        self.time() == other.time()
     }
 }
 
 impl PartialOrd for LogEvent {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.time.partial_cmp(&other.time)
+        self.time().partial_cmp(&other.time())
     }
 }
 
@@ -72,6 +77,10 @@ impl LogEvent {
 
     pub fn installation(&self) -> &str {
         &self.installation
+    }
+
+    pub fn time(&self) -> i64 {
+        self.time.load(Ordering::Relaxed)
     }
 
     pub fn group_id(&self) -> Option<&str> {
@@ -153,7 +162,7 @@ impl LogEvent {
             context,
             intermediate,
             line_number,
-            time: time.as_int()?,
+            time: AtomicI64::new(time.as_int()?),
             problems: Mutex::default(),
         })
     }

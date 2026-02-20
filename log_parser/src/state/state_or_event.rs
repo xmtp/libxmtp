@@ -27,7 +27,7 @@ impl Ord for StateOrEvent {
             }
         };
 
-        event.time.cmp(&other_event.time)
+        event.time().cmp(&other_event.time())
     }
 }
 

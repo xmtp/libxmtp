@@ -1,9 +1,9 @@
 use crate::{
+    state::{GroupState, LogEvent, LogState, StateOrEvent},
+    ui::file_open::color_from_string,
     UIEpochHeader, UIEvent, UIGroupRow, UIGroupState, UIGroupStateDetail, UIInstallationCell,
     UIInstallationRow, UISource, UIStream, UITimelineEntry, UITimelineGroup,
     UITimelineInstallationRow,
-    state::{GroupState, LogEvent, LogState, StateOrEvent},
-    ui::file_open::color_from_string,
 };
 use slint::{Color, ModelRc, SharedString, VecModel};
 use std::collections::HashMap as StdHashMap;
@@ -149,7 +149,7 @@ impl LogState {
                                 loop {
                                     let cell = match (states.peek(), outer_events.peek()) {
                                         (Some(state), Some(event))
-                                            if event.time < state.lock().event.time =>
+                                            if event.time() < state.lock().event.time() =>
                                         {
                                             let event = outer_events.next().unwrap();
                                             event.ui_group_state()
@@ -228,8 +228,8 @@ impl LogState {
                     let mut all_timestamps: Vec<i64> = entries
                         .iter()
                         .map(|e| match e {
-                            StateOrEvent::State(s) => s.lock().event.time,
-                            StateOrEvent::Event(e) => e.time,
+                            StateOrEvent::State(s) => s.lock().event.time(),
+                            StateOrEvent::Event(e) => e.time(),
                         })
                         .collect();
                     all_timestamps.sort();
@@ -261,7 +261,7 @@ impl LogState {
                                     inst_name.clone()
                                 };
                                 let slot_index =
-                                    *timestamp_to_slot.get(&state.event.time).unwrap_or(&0);
+                                    *timestamp_to_slot.get(&state.event.time()).unwrap_or(&0);
                                 (
                                     inst_id,
                                     state.ui_timeline_entry(
@@ -279,7 +279,8 @@ impl LogState {
                                 } else {
                                     inst_name.clone()
                                 };
-                                let slot_index = *timestamp_to_slot.get(&event.time).unwrap_or(&0);
+                                let slot_index =
+                                    *timestamp_to_slot.get(&event.time()).unwrap_or(&0);
                                 (
                                     inst_id,
                                     event.ui_timeline_entry(
@@ -379,7 +380,7 @@ impl LogEvent {
             installation_name: SharedString::from(installation_name),
             installation_color: color_from_string(installation_id),
             epoch: -1,
-            timestamp: self.time as i32,
+            timestamp: self.time() as i32,
             slot_index,
             line_number: self.line_number as i32,
             problems: ModelRc::new(VecModel::from(problem_strings)),
@@ -456,7 +457,7 @@ impl GroupState {
             installation_name: SharedString::from(installation_name),
             installation_color: color_from_string(installation_id),
             epoch: self.epoch.unwrap_or(-1) as i32,
-            timestamp: self.event.time as i32,
+            timestamp: self.event.time() as i32,
             slot_index,
             line_number: self.event.line_number as i32,
             problems: ModelRc::new(VecModel::from(problem_strings)),

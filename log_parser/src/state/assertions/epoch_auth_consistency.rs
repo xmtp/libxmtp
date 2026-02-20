@@ -1,4 +1,4 @@
-use crate::state::{LogState, assertions::LogAssertion};
+use crate::state::{assertions::LogAssertion, LogState};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 

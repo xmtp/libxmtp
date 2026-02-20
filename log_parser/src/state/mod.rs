@@ -8,7 +8,7 @@ use crate::{
     AppWindow,
     state::{
         assertions::{
-            LogAssertion, build_timeline::BuildTimeline,
+            LogAssertion, account_for_drift::AccountForDrift, build_timeline::BuildTimeline,
             epoch_auth_consistency::EpochAuthConsistency,
             epoch_continuity::EpochContinuityAssertion,
         },
@@ -130,6 +130,9 @@ impl LogState {
             }
         }
 
+        if let Err(err) = AccountForDrift::assert(&self) {
+            tracing::error!("Continuity error: {err}");
+        };
         if let Err(err) = EpochContinuityAssertion::assert(&self) {
             tracing::error!("Continuity error: {err}");
         };
@@ -283,7 +286,7 @@ pub struct Group {
 impl Group {
     fn sort(&mut self) {
         self.states
-            .sort_by(|a, b| a.lock().event.time.cmp(&b.lock().event.time));
+            .sort_by(|a, b| a.lock().event.time().cmp(&b.lock().event.time()));
     }
 }
 
