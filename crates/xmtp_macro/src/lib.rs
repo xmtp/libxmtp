@@ -288,7 +288,7 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 use xmtp_proto::ShortHex;
                 __installation_id.short_hex()
             };
-            let __short_ns = xmtp_common::time::now_ns() % 10_000_000_000_000_000;
+            let __short_ns = xmtp_common::time::now_ns() % 100_000_000_000_000_000;
 
             // Build message with context for non-structured logging
             let __message = if ::xmtp_common::is_structured_logging() {
