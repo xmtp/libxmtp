@@ -19,11 +19,15 @@ describe("Error Codes", () => {
       expect.unreachable("Should have thrown an error");
     } catch (error: unknown) {
       const err = error as Error & { code?: string };
-      // Error message should contain the error code prefix
-      expect(err.message).toMatch(/^\[GroupError::/);
-      // The .code property should be set
-      expect(err.code).toBeDefined();
-      expect(err.code).toMatch(/^GroupError::/);
+      expect(
+        err.message,
+        "Error message should contain the error code prefix",
+      ).toBe(
+        "[GroupError::TooManyCharacters] Exceeded max characters for this field. Must be under: 100",
+      );
+      expect(err.code, 'The "code" property should be set').toBe(
+        "GroupError::TooManyCharacters",
+      );
     }
   });
 
@@ -38,10 +42,15 @@ describe("Error Codes", () => {
       expect.unreachable("Should have thrown an error");
     } catch (error: unknown) {
       const err = error as Error & { code?: string };
-      // Error message should contain an error code prefix in brackets
-      expect(err.message).toMatch(/^\[/);
-      // The .code property should be set
-      expect(err.code).toBe("Benny-Check-This");
+      expect(
+        err.message.startsWith(
+          "[GroupError::Client] client: API error: api client error api client at endpoint",
+        ),
+        'Error message should contain an error "code" prefix in brackets',
+      ).toBe(true);
+      expect(err.code, 'The "code" property should be set').toBe(
+        "GroupError::Client",
+      );
     }
   });
 });
