@@ -1,12 +1,23 @@
 #!/bin/bash
 source "$(dirname "$0")/.setup"
 
+# --release builds all 4 targets + dynamic libs; default builds only simulator + host macOS
+if [[ "${1:-}" == "--release" ]]; then
+    PACKAGE="ios-libs"
+    MAKE_TARGET="lipo framework"
+    echo "Building iOS bindings (all targets)..."
+else
+    PACKAGE="ios-libs-fast"
+    MAKE_TARGET="framework-fast"
+    echo "Building iOS bindings (simulator + macOS only)..."
+fi
+
 # Build static libs + Swift bindings via Nix (cached in Cachix)
-nix build "${ROOT}#ios-libs" --out-link "${ROOT}/bindings/mobile/build/nix"
+nix build "${ROOT}#${PACKAGE}" --out-link "${ROOT}/bindings/mobile/build/nix"
 
 # Enter Nix shell for xcframework assembly (needs Xcode)
 ensure_nix_shell "$@"
 
 # Assemble xcframework from Nix-built artifacts
 cd "${ROOT}/bindings/mobile"
-make lipo framework
+make ${MAKE_TARGET}
