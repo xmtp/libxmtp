@@ -5,7 +5,10 @@ use crate::{
 use anyhow::Result;
 use arboard::Clipboard;
 use pest_derive::Parser;
-use std::time::Duration;
+use std::{
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
 use tokio::runtime::Runtime;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 use xmtp_common::TestWriter;
@@ -19,6 +22,8 @@ mod ui;
 struct LogParser;
 
 slint::include_modules!();
+
+static EXAMPLE_COUNT: AtomicUsize = AtomicUsize::new(1);
 
 fn main() -> Result<()> {
     let writer = TestWriter::new();
@@ -78,7 +83,10 @@ fn main() -> Result<()> {
 
             let lines = file.split('\n').peekable();
             let events = LogEvent::parse(lines);
-            state.add_source("example", events);
+            state.add_source(
+                format!("Example {}", EXAMPLE_COUNT.fetch_add(1, Ordering::Relaxed)),
+                events,
+            );
         }
     });
 
@@ -157,6 +165,8 @@ fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::HashMap, time::Duration};
+
     use crate::state::LogEvent;
     use tracing_subscriber::fmt;
     use xmtp_common::TestWriter;
@@ -174,20 +184,43 @@ mod tests {
 
         let _guard = tracing::subscriber::set_default(subscriber);
 
-        tester!(bo);
-        tester!(alix);
+        // ===============================================
+
+        tester!(bo, stream);
+        tester!(alix, stream);
+        tester!(caro, stream);
         bo.test_talk_in_dm_with(&alix).await?;
+        let (group, _) = bo.test_talk_in_new_group_with(&alix).await?;
+        group.add_members(&[caro.inbox_id()]).await?;
+
+        alix.save_snapshot_to_file("alix.db3");
+        tester!(alix2, snapshot_file: "alix.db3", stream);
+
+        group.update_group_name("Fellows".into()).await?;
+        caro.sync_all_welcomes_and_groups(None).await?;
+        bo.sync_all_welcomes_and_groups(None).await?;
+
+        // =================================================
+
+        std::thread::sleep(Duration::from_millis(500));
 
         let log = writer.as_string();
-        let mut lines = log.split("\n").peekable();
+        let lines = log.split('\n');
 
-        let mut count = 0;
-        let mut line_count: usize = 0;
+        let inst_regex = regex::Regex::new(r#"inst: "([^"]+)""#).unwrap();
+        let mut logs: HashMap<String, Vec<&str>> = HashMap::new();
 
-        while let Ok(_event) = LogEvent::from(&mut lines, &mut line_count) {
-            count += 1;
+        for line in lines {
+            if let Some(caps) = inst_regex.captures(line) {
+                let inst = caps.get(1).unwrap().as_str();
+                let lines = logs.entry(inst.to_string()).or_default();
+                lines.push(line);
+            }
         }
 
-        dbg!(count);
+        for (inst, logs) in logs {
+            let log = logs.join("\n");
+            std::fs::write(format!("log-{inst}.txt"), log).unwrap();
+        }
     }
 }

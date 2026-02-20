@@ -12,6 +12,7 @@ rfd = "0.15"
 parking_lot.workspace = true
 pest = "2.8.5"
 pest_derive = "2.8.5"
+regex.workspace = true
 slint = "1.14.1"
 tokio.workspace = true
 tracing.workspace = true
