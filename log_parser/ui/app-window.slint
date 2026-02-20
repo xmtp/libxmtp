@@ -195,6 +195,16 @@ export component AppWindow inherits Window {
                 }
             }
         }
+
+        Menu {
+            title: "Tools";
+            MenuItem {
+                title: "Build Log";
+                activated => {
+                    root.build-log();
+                }
+            }
+        }
     }
 
     VerticalBox {
@@ -208,13 +218,6 @@ export component AppWindow inherits Window {
                 vertical-alignment: center;
                 color: root.log-streams.length > 0 ? #333333 : #888888;
                 horizontal-stretch: 1;
-            }
-
-            Button {
-                text: "Build Log";
-                clicked => {
-                    root.build-log();
-                }
             }
         }
 
