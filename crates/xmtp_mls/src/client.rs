@@ -182,7 +182,7 @@ impl<Context: Clone> Clone for Client<Context> {
     fn clone(&self) -> Self {
         Self {
             context: self.context.clone(),
-            installation_id: self.installation_id.clone(),
+            installation_id: self.installation_id,
             local_events: self.local_events.clone(),
             workers: self.workers.clone(),
         }

@@ -344,7 +344,11 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disabled_workers = disable_workers,
         );
 
+<<<<<<< HEAD
         let installation_id = context.installation_id().clone();
+=======
+        let installation_id = context.installation_id();
+>>>>>>> origin/main
         let client = Client {
             context,
             installation_id,
