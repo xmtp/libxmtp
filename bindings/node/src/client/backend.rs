@@ -11,16 +11,12 @@ pub struct BackendBuilder {
   #[builder(required)]
   pub env: XmtpEnv,
 
-  #[builder(optional)]
   pub api_url: Option<String>,
 
-  #[builder(optional)]
   pub gateway_host: Option<String>,
 
-  #[builder(optional)]
   pub readonly: Option<bool>,
 
-  #[builder(optional)]
   pub app_version: Option<String>,
 
   #[builder(skip)]
@@ -28,6 +24,9 @@ pub struct BackendBuilder {
 
   #[builder(skip)]
   auth_handle: Option<AuthHandle>,
+
+  #[builder(skip)]
+  consumed: bool,
 }
 
 #[napi]
@@ -44,6 +43,13 @@ impl BackendBuilder {
 
   #[napi]
   pub fn build(&mut self) -> Result<Backend> {
+    if self.consumed {
+      return Err(napi::Error::from_reason(
+        "BackendBuilder has already been consumed by build()",
+      ));
+    }
+    self.consumed = true;
+
     let config = validate_and_resolve(
       self.env.into(),
       self.api_url.clone(),
