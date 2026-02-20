@@ -167,7 +167,6 @@ fn main() -> Result<()> {
 mod tests {
     use std::{collections::HashMap, time::Duration};
 
-    use crate::state::LogEvent;
     use tracing_subscriber::fmt;
     use xmtp_common::TestWriter;
     use xmtp_mls::tester;
