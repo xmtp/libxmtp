@@ -216,19 +216,6 @@ export component AppWindow inherits Window {
     }
 
     VerticalBox {
-        // Header bar
-        HorizontalBox {
-            height: 40px;
-            padding: 8px;
-
-            Text {
-                text: root.log-streams.length > 0 ? root.log-streams.length + " log stream(s) loaded" : "No files loaded - use File > Open to load a log";
-                vertical-alignment: center;
-                color: root.log-streams.length > 0 ? #333333 : #888888;
-                horizontal-stretch: 1;
-            }
-        }
-
         // Tab bar
         HorizontalBox {
             height: 36px;
