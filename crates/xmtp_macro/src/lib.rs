@@ -288,12 +288,12 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 use xmtp_proto::ShortHex;
                 __installation_id.short_hex()
             };
-            let __short_ns = xmtp_common::time::now_ns() % 100_000_000_000_000_000;
+            let __time_ns = xmtp_common::time::now_ns();
 
             // Build message with context for non-structured logging
             let __message = if ::xmtp_common::is_structured_logging() {
                 // Structured logging: include installation_id and timestamp in message
-                format!("➣ {} {{time: {__short_ns}, inst: \"{__inst}\"}}", __meta.doc)
+                format!("➣ {} {{time: {__time_ns}, inst: \"{__inst}\"}}", __meta.doc)
             } else {
                 // Non-structured logging: embed context in message for readability
                 let mut __context_parts: ::std::vec::Vec<String> = __meta.context_fields
@@ -306,7 +306,7 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     })
                     .collect();
 
-                __context_parts.push(format!("time: {__short_ns}"));
+                __context_parts.push(format!("time: {__time_ns}"));
                 __context_parts.push(format!("inst: \"{__inst}\""));
                 let __context_str = __context_parts.join(", ").replace('\n', " ");
 
