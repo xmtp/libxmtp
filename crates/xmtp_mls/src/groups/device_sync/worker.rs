@@ -1,3 +1,4 @@
+use super::{ArchiveOptions, BackupElementSelection};
 use super::{
     DeviceSyncClient, DeviceSyncError, IterWithContent,
     preference_sync::{PreferenceUpdate, store_preference_updates},
@@ -29,7 +30,7 @@ use xmtp_proto::{
     ConversionError,
     xmtp::{
         device_sync::{
-            BackupElementSelection, BackupOptions,
+            BackupElementSelection as BackupElementSelectionProto,
             content::{
                 DeviceSyncAcknowledge, DeviceSyncKeyType, DeviceSyncReply as DeviceSyncReplyProto,
                 DeviceSyncRequest as DeviceSyncRequestProto,
@@ -121,10 +122,6 @@ where
     Context: XmtpSharedContext + 'static,
 {
     async fn run(&mut self) -> Result<(), DeviceSyncError> {
-        // Wait for the identity to be ready & verified before doing anything
-        while !self.client.context.identity().is_ready() {
-            xmtp_common::task::yield_now().await
-        }
         self.sync_init().await?;
         self.metrics.increment_metric(SyncMetric::Init);
 
@@ -187,8 +184,7 @@ where
             let conn = self.client.context.db();
             log_event!(
                 Event::DeviceSyncInitializing,
-                self.client.context.installation_id(),
-                server_url = client.context.device_sync().server_url
+                self.client.context.installation_id()
             );
 
             // The only thing that sync init really does right now is ensures that there's a sync group.
@@ -203,11 +199,6 @@ where
                     self.client.context.installation_id(),
                     group_id = sync_group.group_id
                 );
-
-                // Ask the sync group for a sync payload if the url is present.
-                if self.client.context.device_sync_server_url().is_some() {
-                    self.client.send_sync_request().await?;
-                }
             }
 
             log_event!(
@@ -341,15 +332,6 @@ where
                     return Ok(());
                 }
 
-                let Some(server_url) = self.context.device_sync_server_url() else {
-                    log_event!(
-                        Event::DeviceSyncNoServerUrl,
-                        self.context.installation_id(),
-                        request_id = request.request_id
-                    );
-                    return Ok(());
-                };
-
                 self.context.task_channels().send(
                     NewTask::builder()
                         .originating_message_originator_id(msg.originator_id as i32)
@@ -359,9 +341,9 @@ where
                                 xmtp_proto::xmtp::mls::database::task::Task::SendSyncArchive(
                                     SendSyncArchive {
                                         options: request.options,
-                                        request_id: Some(request.request_id),
+                                        pin: Some(request.pin),
                                         sync_group_id: msg.group_id.clone(),
-                                        server_url: server_url.to_string(),
+                                        server_url: request.server_url,
                                     },
                                 ),
                             ),
@@ -381,17 +363,17 @@ where
                     return Ok(());
                 }
 
-                // Check if this reply was asked for by this installation.
                 if self.is_reply_requested_by_installation(&reply).await? {
                     self.process_archive(msg, reply).await.inspect_err(
-                        |err| log_event!(Event::DeviceSyncArchiveImportFailure, self.context.installation_id(), err = %err),
-                    )?;
+                                        |err| log_event!(Event::DeviceSyncArchiveImportFailure, self.context.installation_id(), err = %err),
+                                    )?;
                 } else {
                     log_event!(
                         Event::DeviceSyncArchiveNotRequested,
                         self.context.installation_id()
                     );
                 }
+
                 handle.increment_metric(SyncMetric::PayloadProcessed);
             }
             ContentProto::PreferenceUpdates(PreferenceUpdatesProto { updates }) => {
@@ -419,64 +401,12 @@ where
         Ok(())
     }
 
-    /// Acknowledge a sync request.
-    /// Returns an error if request is already acknowledged by another installation.
-    /// The first installation to acknowledge the sync request will be the installation to handle the response.
-    pub async fn acknowledge_sync_request(
-        &self,
-        sync_group_id: &Vec<u8>,
-        request_id: &str,
-    ) -> Result<(), DeviceSyncError> {
-        let sync_group = self.mls_store.group(sync_group_id)?;
-        // Pull down any new messages
-        sync_group.sync_with_conn().await?;
-
-        let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
-
-        // Look in reverse for a request, and ensure it was not acknowledged by someone else.
-        for (message, content) in messages.iter_with_content().rev() {
-            let ContentProto::Acknowledge(acknowledge) = content else {
-                continue;
-            };
-            if acknowledge.request_id != request_id {
-                continue;
-            }
-
-            if message.sender_installation_id != self.installation_id() {
-                // Request has already been acknowledged by another installation.
-                // Let that installation handle it.
-                log_event!(
-                    Event::DeviceSyncRequestAlreadyAcknowledged,
-                    self.context.installation_id(),
-                    request_id,
-                    acknowledged_by = #message.sender_installation_id
-                );
-                return Err(DeviceSyncError::AlreadyAcknowledged);
-            }
-
-            return Ok(());
-        }
-
-        // Acknowledge and break.
-        self.send_device_sync_message(ContentProto::Acknowledge(DeviceSyncAcknowledge {
-            request_id: request_id.to_string(),
-        }))
-        .await?;
-        log_event!(
-            Event::DeviceSyncRequestAcknowledged,
-            self.context.installation_id(),
-            request_id
-        );
-        Ok(())
-    }
-
     pub(crate) async fn send_archive(
         &self,
-        options: &BackupOptions,
+        options: &ArchiveOptions,
         sync_group_id: &Vec<u8>,
         pin: &str,
         server_url: &str,
-        requested: bool,
     ) -> Result<(), DeviceSyncError>
     where
         Context::Db: 'static,
@@ -488,19 +418,8 @@ where
             server_url
         );
 
-        let acknowledge = async || {
-            if requested {
-                self.acknowledge_sync_request(sync_group_id, pin).await?;
-            }
-
-            Ok::<_, DeviceSyncError>(())
-        };
-
-        // Acknowledge the sync request
-        acknowledge().await?;
-
         // Generate a random encryption key
-        let key = xmtp_common::rand_vec::<32>();
+        let key = xmtp_common::rand_vec::<ENC_KEY_SIZE>();
 
         tracing::info!("Building the exporter.");
         // Now we want to create an encrypted stream from our database to the history server.
@@ -528,27 +447,17 @@ where
             ..Default::default()
         };
 
-        // Check acknowledgement one more time.
-        // This ensures we were the first to acknowledge.
-        acknowledge().await?;
-
         tracing::info!("Sending sync request reply message.");
         // Send the message out over the network
         self.send_device_sync_message(ContentProto::Reply(reply))
             .await?;
 
         // Update metrics.
-        if options
-            .elements
-            .contains(&(BackupElementSelection::Consent as i32))
-        {
+        if options.elements.contains(&BackupElementSelection::Consent) {
             self.metrics
                 .increment_metric(SyncMetric::ConsentPayloadSent);
         }
-        if options
-            .elements
-            .contains(&(BackupElementSelection::Messages as i32))
-        {
+        if options.elements.contains(&BackupElementSelection::Messages) {
             self.metrics
                 .increment_metric(SyncMetric::MessagesPayloadSent);
         }
@@ -563,7 +472,11 @@ where
         Ok(())
     }
 
-    pub async fn send_sync_request(&self) -> Result<(), ClientError> {
+    pub async fn send_sync_request(
+        &self,
+        options: ArchiveOptions,
+        server_url: impl ToString,
+    ) -> Result<(), ClientError> {
         let sync_group = self.get_sync_group().await?;
         sync_group
             .sync_with_conn()
@@ -571,17 +484,13 @@ where
             .map_err(GroupError::from)?;
 
         let request = DeviceSyncRequestProto {
-            request_id: xmtp_common::rand_string::<ENC_KEY_SIZE>(),
-            options: Some(BackupOptions {
-                elements: vec![
-                    BackupElementSelection::Messages as i32,
-                    BackupElementSelection::Consent as i32,
-                ],
-                ..Default::default()
-            }),
+            pin: xmtp_common::rand_string::<5>(),
+            options: Some(options.into()),
+            server_url: server_url.to_string(),
 
             // Deprecated fields
-            ..Default::default()
+            #[allow(deprecated)]
+            deprecated_kind: 0,
         };
 
         self.send_device_sync_message(ContentProto::Request(request))
@@ -599,7 +508,7 @@ where
 
     pub async fn send_sync_archive(
         &self,
-        options: &BackupOptions,
+        options: &ArchiveOptions,
         server_url: &str,
         pin: &str,
     ) -> Result<(), ClientError>
@@ -612,7 +521,7 @@ where
             .await
             .map_err(GroupError::from)?;
 
-        self.send_archive(options, &sync_group.group_id, pin, server_url, false)
+        self.send_archive(options, &sync_group.group_id, pin, server_url)
             .await
             .map_err(|e| GroupError::DeviceSync(Box::new(e)))?;
 
@@ -627,8 +536,8 @@ where
         let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
 
         for (msg, content) in messages.iter_with_content() {
-            if let ContentProto::Request(DeviceSyncRequestProto { request_id, .. }) = content
-                && *request_id == reply.request_id
+            if let ContentProto::Request(DeviceSyncRequestProto { pin, .. }) = content
+                && *pin == reply.request_id
                 && msg.sender_installation_id == self.installation_id()
             {
                 return Ok(true);
@@ -719,7 +628,7 @@ where
             msg_id = #msg.id,
             group_id = msg.group_id
         );
-        if reply.kind() != BackupElementSelection::Unspecified {
+        if reply.kind() != BackupElementSelectionProto::Unspecified {
             log_event!(Event::DeviceSyncV1Archive, self.context.installation_id());
             // This is a legacy payload, the legacy function will process it.
             return Ok(());
