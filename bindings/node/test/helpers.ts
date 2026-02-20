@@ -5,18 +5,28 @@ import { createWalletClient, http, toBytes } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { sepolia } from 'viem/chains'
 import {
-  createClient as create,
+  BackendBuilder,
+  createClientWithBackend as create,
   createLocalToxicClient,
   generateInboxId,
   getInboxIdByIdentity,
   IdentifierKind,
   LogLevel,
   SyncWorkerMode,
+  XmtpEnv,
 } from '../dist/index'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 export const TEST_API_URL = 'http://localhost:5556'
 export const GATEWAY_TEST_URL = 'http://localhost:5052'
+
+export const createLocalBackend = async (appVersion?: string) => {
+  const builder = new BackendBuilder(XmtpEnv.Local).setApiUrl(TEST_API_URL)
+  if (appVersion) {
+    builder.setAppVersion(appVersion)
+  }
+  return builder.build()
+}
 
 export const createUser = () => {
   const key = generatePrivateKey()
@@ -37,8 +47,9 @@ export type User = ReturnType<typeof createUser>
 
 export const createClient = async (user: User, appVersion?: string) => {
   const dbPath = join(__dirname, `${user.uuid}.db3`)
+  const backend = await createLocalBackend(appVersion)
   const inboxId =
-    (await getInboxIdByIdentity(TEST_API_URL, undefined, false, {
+    (await getInboxIdByIdentity(backend, {
       identifier: user.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })) ||
@@ -47,14 +58,9 @@ export const createClient = async (user: User, appVersion?: string) => {
       identifierKind: IdentifierKind.Ethereum,
     })
   return create(
-    TEST_API_URL,
-    undefined,
-    false,
+    backend,
     {
       dbPath,
-      undefined,
-      undefined,
-      undefined,
     },
     inboxId,
     {
@@ -63,8 +69,7 @@ export const createClient = async (user: User, appVersion?: string) => {
     },
     SyncWorkerMode.Disabled,
     { level: LogLevel.Error },
-    undefined,
-    appVersion ?? null
+    undefined
   )
 }
 
@@ -88,8 +93,9 @@ export const createRegisteredClient = async (
 
 export const createToxicClient = async (user: User) => {
   const dbPath = join(__dirname, `${user.uuid}.db3`)
+  const backend = await createLocalBackend()
   const inboxId =
-    (await getInboxIdByIdentity(TEST_API_URL, undefined, false, {
+    (await getInboxIdByIdentity(backend, {
       identifier: user.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })) ||
