@@ -10,7 +10,7 @@ use tracing_subscriber::{filter, fmt::format::Pretty};
 use tsify::Tsify;
 use wasm_bindgen::{JsValue, prelude::*};
 use xmtp_api_d14n::MessageBackendBuilder;
-use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
+use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::DeviceSyncMode as XmtpDeviceSyncMode;
@@ -205,22 +205,13 @@ pub(crate) async fn build_store(
     None => StorageOption::Ephemeral,
   };
 
-  match encryption_key {
-    Some(key) => {
-      let key: Vec<u8> = key.to_vec();
-      let _key: EncryptionKey = key
-        .try_into()
-        .map_err(|_| JsError::new("Malformed 32 byte encryption key"))?;
-      let db = WasmDb::new(&storage_option).await?;
-      EncryptedMessageStore::new(db)
-        .map_err(|e| JsError::new(&format!("Error creating encrypted message store {e}")))
-    }
-    None => {
-      let db = WasmDb::new(&storage_option).await?;
-      EncryptedMessageStore::new(db)
-        .map_err(|e| JsError::new(&format!("Error creating unencrypted message store {e}")))
-    }
+  if encryption_key.is_some() {
+    tracing::warn!("encryption_key is not supported in WASM and will be ignored");
   }
+
+  let db = WasmDb::new(&storage_option).await?;
+  EncryptedMessageStore::new(db)
+    .map_err(|e| JsError::new(&format!("Error creating message store {e}")))
 }
 
 #[allow(clippy::too_many_arguments)]

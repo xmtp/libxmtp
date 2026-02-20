@@ -9,16 +9,12 @@ pub struct BackendBuilder {
   #[builder(required)]
   pub env: XmtpEnv,
 
-  #[builder(optional)]
   api_url: Option<String>,
 
-  #[builder(optional)]
   gateway_host: Option<String>,
 
-  #[builder(optional)]
   pub readonly: Option<bool>,
 
-  #[builder(optional)]
   app_version: Option<String>,
 
   #[builder(skip)]
@@ -41,7 +37,7 @@ impl BackendBuilder {
   }
 
   #[wasm_bindgen]
-  pub fn build(&mut self) -> Result<Backend, JsError> {
+  pub fn build(mut self) -> Result<Backend, JsError> {
     let config = validate_and_resolve(
       self.env.into(),
       self.api_url.clone(),
