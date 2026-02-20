@@ -13,13 +13,15 @@ use std::{
 pub fn open_file_dialog(handle: Weak<AppWindow>) {
     let task = rfd::AsyncFileDialog::new()
         .set_title("Open Log File")
-        .pick_file();
+        .pick_files();
 
     slint::spawn_local(async move {
-        if let Some(file) = task.await {
-            let path_str = file.path().to_string_lossy().to_string();
-            if let Some(ui) = handle.upgrade() {
-                ui.invoke_file_selected(path_str.into());
+        if let Some(files) = task.await {
+            for file in files {
+                let path_str = file.path().to_string_lossy().to_string();
+                if let Some(ui) = handle.upgrade() {
+                    ui.invoke_file_selected(path_str.into());
+                }
             }
         }
     })
