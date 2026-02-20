@@ -1,6 +1,7 @@
 #![recursion_limit = "256"]
 #![warn(clippy::unwrap_used)]
 
+pub mod builder;
 pub mod client;
 mod consent_state;
 pub mod content_types;
