@@ -1312,6 +1312,7 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
+ "xmtp_macro",
  "xmtp_mls",
  "xmtp_proto",
 ]
@@ -1352,6 +1353,7 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
+ "xmtp_macro",
  "xmtp_mls",
  "xmtp_proto",
 ]
@@ -10406,6 +10408,7 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
+ "xmtp_macro",
  "xmtp_mls",
  "xmtp_proto",
 ]

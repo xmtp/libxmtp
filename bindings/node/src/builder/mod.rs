@@ -1,2 +1,3 @@
-#[cfg(test)]
-mod builder_tests;
+xmtp_common::if_test! {
+    mod builder_tests;
+}

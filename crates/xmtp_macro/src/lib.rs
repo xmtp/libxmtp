@@ -3,6 +3,9 @@ extern crate proc_macro;
 mod builder;
 mod logging;
 
+#[cfg(test)]
+mod builder_test;
+
 use proc_macro2::*;
 use quote::{quote, quote_spanned};
 use syn::{Data, DeriveInput, Fields, Path, parse_macro_input};
@@ -66,9 +69,13 @@ pub fn napi_builder(
 
     let item = syn::parse_macro_input!(input as syn::ItemStruct);
     let config = builder::AnnotationConfig {
-        binding_ann: quote! { #[::napi_derive::napi] },
+        struct_ann: quote! { #[::napi_derive::napi] },
+        impl_ann: quote! { #[::napi_derive::napi] },
         constructor_ann: quote! { #[::napi_derive::napi(constructor)] },
         setter_ann: napi_setter_ann,
+        setter_impl_ann: None,
+        setter_style: builder::SetterStyle::NapiThis,
+        setter_prefix: "set_",
     };
     match builder::expand_builder(item, config) {
         Ok(tokens) => tokens.into(),
@@ -94,9 +101,47 @@ pub fn wasm_builder(
 
     let item = syn::parse_macro_input!(input as syn::ItemStruct);
     let config = builder::AnnotationConfig {
-        binding_ann: quote! { #[::wasm_bindgen::prelude::wasm_bindgen] },
+        struct_ann: quote! { #[::wasm_bindgen::prelude::wasm_bindgen(getter_with_clone)] },
+        impl_ann: quote! { #[::wasm_bindgen::prelude::wasm_bindgen] },
         constructor_ann: quote! { #[::wasm_bindgen::prelude::wasm_bindgen(constructor)] },
         setter_ann: wasm_setter_ann,
+        setter_impl_ann: None,
+        setter_style: builder::SetterStyle::Consuming,
+        setter_prefix: "set_",
+    };
+    match builder::expand_builder(item, config) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Attribute macro that generates a UniFFI-annotated builder pattern for a struct.
+///
+/// Emits `#[derive(uniffi::Object)]` on the struct and `#[uniffi::export]` on the
+/// impl block. UniFFI annotates the impl block as a whole rather than individual
+/// methods, so `constructor_ann` and `setter_ann` are empty.
+///
+/// See [`napi_builder`] for field attribute documentation.
+#[proc_macro_attribute]
+pub fn uniffi_builder(
+    _attr: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    fn no_ann(_ident: &syn::Ident) -> proc_macro2::TokenStream {
+        quote! {}
+    }
+
+    let item = syn::parse_macro_input!(input as syn::ItemStruct);
+    let config = builder::AnnotationConfig {
+        struct_ann: quote! { #[derive(::uniffi::Object)] },
+        impl_ann: quote! { #[::uniffi::export] },
+        constructor_ann: quote! { #[::uniffi::constructor] },
+        setter_ann: no_ann,
+        // UniFFI wraps objects in Arc<Self>, so `&mut self` setters can't
+        // live inside `#[uniffi::export]`. Place them in a plain impl block.
+        setter_impl_ann: Some(quote! {}),
+        setter_style: builder::SetterStyle::MutRefChain,
+        setter_prefix: "",
     };
     match builder::expand_builder(item, config) {
         Ok(tokens) => tokens.into(),
