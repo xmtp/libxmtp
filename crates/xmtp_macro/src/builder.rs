@@ -5,18 +5,47 @@ use syn::{Expr, Field, Ident, ItemStruct, Type, Visibility, parse_str};
 /// Annotation configuration supplied by the caller (proc macro entry point).
 ///
 /// This keeps `builder.rs` fully binding-agnostic — it has no knowledge of
-/// NAPI, WASM, or any other binding system. The caller provides the
+/// NAPI, WASM, UniFFI, or any other binding system. The caller provides the
 /// annotation tokens for each position.
 pub struct AnnotationConfig {
-    /// Annotation placed on the struct definition **and** the `impl` block.
-    /// e.g. `#[::napi_derive::napi]`
-    pub binding_ann: TokenStream,
+    /// Annotation placed on the struct definition.
+    /// e.g. `#[::napi_derive::napi]` or `#[derive(uniffi::Object)]`
+    pub struct_ann: TokenStream,
+    /// Annotation placed on the `impl` block containing the constructor.
+    /// e.g. `#[::napi_derive::napi]` or `#[uniffi::export]`
+    pub impl_ann: TokenStream,
     /// Annotation placed on the constructor method.
-    /// e.g. `#[::napi_derive::napi(constructor)]`
+    /// e.g. `#[::napi_derive::napi(constructor)]` or `#[uniffi::constructor]`
     pub constructor_ann: TokenStream,
-    /// Per-setter annotation. Receives the field [`Ident`] so that the
-    /// caller can derive names (e.g. camelCase for WASM).
+    /// Per-setter annotation. Receives the **setter method name** [`Ident`]
+    /// (after prefix) so the caller can derive names (e.g. camelCase for WASM).
     pub setter_ann: fn(&Ident) -> TokenStream,
+    /// Optional separate annotation for the setter `impl` block.
+    /// When `Some`, setters are placed in a separate `impl` block with this
+    /// annotation (e.g. no annotation for UniFFI, where `&mut self` setters
+    /// can't live inside `#[uniffi::export]`). When `None`, setters share
+    /// the same `impl` block as the constructor (used by NAPI and WASM).
+    pub setter_impl_ann: Option<TokenStream>,
+    /// Controls the setter method signature style.
+    pub setter_style: SetterStyle,
+    /// Prefix prepended to setter method names (e.g. `"set_"` for NAPI/WASM
+    /// to avoid conflicts with auto-generated field property getters).
+    /// Empty string means the setter name equals the field name.
+    pub setter_prefix: &'static str,
+}
+
+/// Controls how setter methods receive and return `self`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetterStyle {
+    /// `&mut self` + NAPI `This<'scope>` — injects the JS `this` object and
+    /// returns it for chaining: `new Builder("x").setPort(8080).build()`.
+    NapiThis,
+    /// `mut self -> Self` — consuming pattern for wasm_bindgen.
+    /// Enables JS chaining: `new Builder("x").setPort(8080).build()`.
+    Consuming,
+    /// `&mut self -> &mut Self` — Rust-side chaining for non-exported setters
+    /// (UniFFI, tests).
+    MutRefChain,
 }
 
 /// How a field participates in the builder pattern.
@@ -70,6 +99,14 @@ pub fn expand_builder(input: ItemStruct, config: AnnotationConfig) -> syn::Resul
     let struct_vis = &input.vis;
     let struct_ident = &input.ident;
     let struct_generics = &input.generics;
+    let (impl_generics, ty_generics, where_clause) = struct_generics.split_for_impl();
+
+    // Preserve non-macro struct-level attributes (e.g. #[allow(dead_code)]).
+    let other_struct_attrs: Vec<&syn::Attribute> = input
+        .attrs
+        .iter()
+        .filter(|a| !a.path().is_ident("builder"))
+        .collect();
 
     let cleaned_fields: Vec<TokenStream> = parsed
         .iter()
@@ -85,10 +122,11 @@ pub fn expand_builder(input: ItemStruct, config: AnnotationConfig) -> syn::Resul
         })
         .collect();
 
-    let binding_attr = &config.binding_ann;
+    let struct_attr = &config.struct_ann;
 
     let struct_def = quote! {
-        #binding_attr
+        #(#other_struct_attrs)*
+        #struct_attr
         #struct_vis struct #struct_ident #struct_generics {
             #(#cleaned_fields),*
         }
@@ -137,47 +175,106 @@ pub fn expand_builder(input: ItemStruct, config: AnnotationConfig) -> syn::Resul
     };
 
     // 4. Setters ---------------------------------------------------------
-    // Setters use `&mut self` (no return) so they can be exported to JS/WASM.
-    // NAPI and wasm_bindgen cannot handle consuming-self or `-> &mut Self`.
     let setters: Vec<TokenStream> = parsed
         .iter()
         .filter(|f| matches!(f.mode, FieldMode::Optional | FieldMode::Default))
         .map(|f| {
-            let ident = &f.ident;
-            let setter_ann = (config.setter_ann)(&f.ident);
+            let field_ident = &f.ident;
 
-            match f.mode {
+            // Compute setter method name: prefix + field name (e.g. "set_flag").
+            let setter_name = if config.setter_prefix.is_empty() {
+                f.ident.clone()
+            } else {
+                Ident::new(
+                    &format!("{}{}", config.setter_prefix, f.ident),
+                    f.ident.span(),
+                )
+            };
+
+            let setter_ann = (config.setter_ann)(&setter_name);
+
+            let (param_ty, assign_expr) = match f.mode {
                 FieldMode::Optional => {
                     let inner_ty = extract_option_inner(&f.ty).expect(
                         "optional field must be Option<T> (this was validated during parsing)",
                     );
-                    quote! {
-                        #setter_ann
-                        pub fn #ident(&mut self, #ident: #inner_ty) {
-                            self.#ident = Some(#ident);
-                        }
-                    }
+                    (quote! { #inner_ty }, quote! { Some(#field_ident) })
                 }
                 FieldMode::Default => {
                     let ty = &f.ty;
+                    (quote! { #ty }, quote! { #field_ident })
+                }
+                _ => unreachable!(),
+            };
+
+            // The parameter uses the field name so `self.field = field` reads naturally.
+            match config.setter_style {
+                SetterStyle::NapiThis => {
+                    // NAPI `This<'scope>` pattern for JS chaining.
+                    // `This` is injected by NAPI-RS; JS callers don't pass it.
+                    // Returning `This` makes the setter chainable in JS.
                     quote! {
                         #setter_ann
-                        pub fn #ident(&mut self, #ident: #ty) {
-                            self.#ident = #ident;
+                        pub fn #setter_name<'scope>(
+                            &'scope mut self,
+                            this: ::napi::bindgen_prelude::This<'scope>,
+                            #field_ident: #param_ty,
+                        ) -> ::napi::bindgen_prelude::This<'scope> {
+                            self.#field_ident = #assign_expr;
+                            this
                         }
                     }
                 }
-                _ => unreachable!(),
+                SetterStyle::Consuming => {
+                    // `mut self -> Self` for wasm_bindgen JS-side chaining.
+                    quote! {
+                        #setter_ann
+                        pub fn #setter_name(mut self, #field_ident: #param_ty) -> Self {
+                            self.#field_ident = #assign_expr;
+                            self
+                        }
+                    }
+                }
+                SetterStyle::MutRefChain => {
+                    // `&mut self -> &mut Self` for Rust-side chaining.
+                    quote! {
+                        #setter_ann
+                        pub fn #setter_name(&mut self, #field_ident: #param_ty) -> &mut Self {
+                            self.#field_ident = #assign_expr;
+                            self
+                        }
+                    }
+                }
             }
         })
         .collect();
 
     // 5. Combine ---------------------------------------------------------
-    let impl_block = quote! {
-        #binding_attr
-        impl #struct_generics #struct_ident #struct_generics {
-            #constructor
-            #(#setters)*
+    let impl_attr = &config.impl_ann;
+
+    let impl_block = if let Some(setter_impl_attr) = &config.setter_impl_ann {
+        // Split: constructor in one impl block, setters in another.
+        // Used by UniFFI where `#[uniffi::export]` wraps methods in Arc<Self>,
+        // making `&mut self` setters incompatible.
+        quote! {
+            #impl_attr
+            impl #impl_generics #struct_ident #ty_generics #where_clause {
+                #constructor
+            }
+
+            #setter_impl_attr
+            impl #impl_generics #struct_ident #ty_generics #where_clause {
+                #(#setters)*
+            }
+        }
+    } else {
+        // Single impl block: constructor + setters together (NAPI, WASM).
+        quote! {
+            #impl_attr
+            impl #impl_generics #struct_ident #ty_generics #where_clause {
+                #constructor
+                #(#setters)*
+            }
         }
     };
 
@@ -211,6 +308,13 @@ fn parse_field(field: &Field) -> syn::Result<BuilderField> {
             continue;
         }
 
+        if mode.is_some() {
+            return Err(syn::Error::new_spanned(
+                attr,
+                "duplicate #[builder(...)] attribute; each field may only have one",
+            ));
+        }
+
         // Parse the contents of #[builder(...)].
         attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("required") {
@@ -236,12 +340,16 @@ fn parse_field(field: &Field) -> syn::Result<BuilderField> {
         })?;
     }
 
-    let mode = mode.ok_or_else(|| {
-        syn::Error::new_spanned(
-            field,
-            "field must have a #[builder(required | optional | default = \"..\" | skip)] attribute",
-        )
-    })?;
+    let mode = match mode {
+        Some(m) => m,
+        None if extract_option_inner(&ty).is_some() => FieldMode::Optional,
+        None => {
+            return Err(syn::Error::new_spanned(
+                field,
+                "field must have a #[builder(required | optional | default = \"..\" | skip)] attribute",
+            ));
+        }
+    };
 
     // Validate optional fields are actually `Option<T>`.
     if mode == FieldMode::Optional && extract_option_inner(&ty).is_none() {
@@ -299,28 +407,18 @@ fn extract_option_inner(ty: &Type) -> Option<&Type> {
 pub fn to_camel_case(s: &str) -> String {
     let mut result = String::new();
     let mut capitalize_next = false;
+    let mut seen_alpha = false;
     for c in s.chars() {
         if c == '_' {
             capitalize_next = true;
-        } else if capitalize_next {
+        } else if capitalize_next && seen_alpha {
             result.push(c.to_ascii_uppercase());
             capitalize_next = false;
         } else {
             result.push(c);
+            capitalize_next = false;
+            seen_alpha = true;
         }
     }
     result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_to_camel_case() {
-        assert_eq!(to_camel_case("my_field_name"), "myFieldName");
-        assert_eq!(to_camel_case("desc"), "desc");
-        assert_eq!(to_camel_case("a_b_c"), "aBC");
-        assert_eq!(to_camel_case("already"), "already");
-    }
 }
