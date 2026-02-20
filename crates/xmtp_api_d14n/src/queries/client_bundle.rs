@@ -147,6 +147,11 @@ struct __ClientBundleBuilder {
 }
 
 impl ClientBundleBuilder {
+    pub fn maybe_v3_host<U: Into<String>>(&mut self, host: Option<U>) -> &mut Self {
+        self.v3_host = host.map(Into::into);
+        self
+    }
+
     pub fn maybe_gateway_host<U: Into<String>>(&mut self, host: Option<U>) -> &mut Self {
         self.gateway_host = host.map(Into::into);
         self
@@ -172,67 +177,121 @@ impl ClientBundleBuilder {
             is_secure,
             readonly,
         } = self.clone();
-        let v3_host = v3_host.ok_or(MessageBackendBuilderError::MissingV3Host)?;
         let is_secure = is_secure.unwrap_or_default();
         let readonly = readonly.unwrap_or_default();
 
-        // implicitly use a d14n client
-        if let Some(gateway) = gateway_host {
-            let mut gateway_client_builder = GrpcClient::builder();
-            gateway_client_builder.set_host(gateway.to_string());
-            gateway_client_builder.set_tls(is_secure);
+        match (v3_host, gateway_host) {
+            // D14n mode: gateway_host is set (v3_host is ignored)
+            (_, Some(gateway)) => {
+                let mut gateway_client_builder = GrpcClient::builder();
+                gateway_client_builder.set_host(gateway.to_string());
+                gateway_client_builder.set_tls(is_secure);
 
-            if let Some(version) = app_version {
-                gateway_client_builder.set_app_version(version)?;
-            }
-
-            let mut multi_node = crate::middleware::MultiNodeClientBuilder::default();
-            multi_node.set_timeout(Duration::from_millis(MULTI_NODE_TIMEOUT_MS))?;
-            multi_node.set_gateway_builder(gateway_client_builder.clone())?;
-            let mut template = GrpcClient::builder();
-            template.set_tls(is_secure);
-            multi_node.set_node_client_builder(template)?;
-
-            let gateway_client = gateway_client_builder.build()?;
-            let multi_node = multi_node.build()?;
-
-            let client = if auth_callback.is_some() || auth_handle.is_some() {
-                let auth = crate::AuthMiddleware::new(gateway_client, auth_callback, auth_handle);
-                let client = ReadWriteClient::builder()
-                    .read(multi_node)
-                    .write(auth)
-                    .filter(PAYER_WRITE_FILTER)
-                    .build()?;
-                if readonly {
-                    ReadonlyClient::builder().inner(client).build()?.arced()
-                } else {
-                    client.arced()
+                if let Some(version) = app_version {
+                    gateway_client_builder.set_app_version(version)?;
                 }
-            } else {
-                let client = ReadWriteClient::builder()
-                    .read(multi_node)
-                    .write(gateway_client)
-                    .filter(PAYER_WRITE_FILTER)
-                    .build()?;
-                if readonly {
-                    ReadonlyClient::builder().inner(client).build()?.arced()
+
+                let mut multi_node = crate::middleware::MultiNodeClientBuilder::default();
+                multi_node.set_timeout(Duration::from_millis(MULTI_NODE_TIMEOUT_MS))?;
+                multi_node.set_gateway_builder(gateway_client_builder.clone())?;
+                let mut template = GrpcClient::builder();
+                template.set_tls(is_secure);
+                multi_node.set_node_client_builder(template)?;
+
+                let gateway_client = gateway_client_builder.build()?;
+                let multi_node = multi_node.build()?;
+
+                let client = if auth_callback.is_some() || auth_handle.is_some() {
+                    let auth =
+                        crate::AuthMiddleware::new(gateway_client, auth_callback, auth_handle);
+                    let client = ReadWriteClient::builder()
+                        .read(multi_node)
+                        .write(auth)
+                        .filter(PAYER_WRITE_FILTER)
+                        .build()?;
+                    if readonly {
+                        ReadonlyClient::builder().inner(client).build()?.arced()
+                    } else {
+                        client.arced()
+                    }
                 } else {
-                    client.arced()
-                }
-            };
+                    let client = ReadWriteClient::builder()
+                        .read(multi_node)
+                        .write(gateway_client)
+                        .filter(PAYER_WRITE_FILTER)
+                        .build()?;
+                    if readonly {
+                        ReadonlyClient::builder().inner(client).build()?.arced()
+                    } else {
+                        client.arced()
+                    }
+                };
 
-            Ok(ClientBundle::d14n(client))
-        } else {
-            let mut v3_client = GrpcClient::builder();
-            v3_client.set_host(v3_host.to_string());
-            v3_client.set_tls(is_secure);
-            if let Some(ref version) = app_version {
-                v3_client.set_app_version(version.clone())?;
+                Ok(ClientBundle::d14n(client))
             }
+            // V3 mode: only v3_host is set
+            (Some(v3_host), None) => {
+                let mut v3_client = GrpcClient::builder();
+                v3_client.set_host(v3_host.to_string());
+                v3_client.set_tls(is_secure);
+                if let Some(ref version) = app_version {
+                    v3_client.set_app_version(version.clone())?;
+                }
 
-            let v3_client = v3_client.build()?;
-            let client = v3_client.arced();
-            Ok(ClientBundle::v3(client))
+                let v3_client = v3_client.build()?;
+                let client = v3_client.arced();
+                Ok(ClientBundle::v3(client))
+            }
+            // Neither host provided
+            (None, None) => Err(MessageBackendBuilderError::MissingHost),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_build_v3_only() {
+        let bundle = ClientBundle::builder()
+            .v3_host("http://localhost:5050")
+            .is_secure(false)
+            .build()?;
+
+        assert!(matches!(bundle.kind(), ClientKind::V3));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_build_d14n_with_gateway_only() {
+        let bundle = ClientBundle::builder()
+            .gateway_host("http://localhost:5050")
+            .is_secure(false)
+            .build()?;
+
+        assert!(matches!(bundle.kind(), ClientKind::D14n));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_build_d14n_with_both_hosts() {
+        let bundle = ClientBundle::builder()
+            .v3_host("http://localhost:5050")
+            .gateway_host("http://localhost:6060")
+            .is_secure(false)
+            .build()?;
+
+        // When gateway_host is provided, D14n mode is used regardless of v3_host
+        assert!(matches!(bundle.kind(), ClientKind::D14n));
+    }
+
+    #[xmtp_common::test]
+    async fn test_build_no_hosts_fails() {
+        let result = ClientBundle::builder().is_secure(false).build();
+
+        match result {
+            Err(MessageBackendBuilderError::MissingHost) => {} // expected
+            Err(other) => panic!("Expected MissingHost error, got: {other:?}"),
+            Ok(_) => panic!("Expected error when neither host is provided"),
         }
     }
 }
