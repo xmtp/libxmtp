@@ -1,6 +1,7 @@
 use crate::{
     UIEpochHeader, UIEvent, UIGroupRow, UIGroupState, UIGroupStateDetail, UIInstallationCell,
-    UIInstallationRow, UIStream, UITimelineEntry, UITimelineGroup, UITimelineInstallationRow,
+    UIInstallationRow, UISource, UIStream, UITimelineEntry, UITimelineGroup,
+    UITimelineInstallationRow,
     state::{GroupState, LogEvent, LogState, StateOrEvent},
     ui::file_open::color_from_string,
 };
@@ -330,6 +331,26 @@ impl LogState {
 
                 let timeline_groups = ModelRc::new(VecModel::from(timeline_groups));
                 ui.set_timeline_groups(timeline_groups);
+
+                // ─── Sources Tab ───
+                // Transform: sources HashMap<String, Vec<Arc<LogEvent>>>
+                // Into:      [UISource] with name and event count
+
+                let mut ui_sources: Vec<UISource> = Vec::new();
+                let sources = self.sources.lock();
+                let mut source_names: Vec<&String> = sources.keys().collect();
+                source_names.sort();
+
+                for source_name in source_names {
+                    let events = &sources[source_name];
+                    ui_sources.push(UISource {
+                        name: SharedString::from(source_name.as_str()),
+                        event_count: events.len() as i32,
+                    });
+                }
+
+                let sources_model = ModelRc::new(VecModel::from(ui_sources));
+                ui.set_sources(sources_model);
             })
             .inspect_err(|e| tracing::error!("{e:?}"));
     }

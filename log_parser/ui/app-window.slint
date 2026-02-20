@@ -25,6 +25,12 @@ import {
 } from "timeline-tab.slint";
 export { UITimelineEntry, UITimelineGroup }
 
+import {
+    SourcesTab,
+    UISource,
+} from "sources-tab.slint";
+export { UISource }
+
 import { StateDetailPanel } from "state-detail-panel.slint";
 
 // ─── Shared Data Structures ───
@@ -168,6 +174,7 @@ export component AppWindow inherits Window {
     in-out property <[UIStream]> log-streams: [];
     in-out property <[UIGroupRow]> epoch-groups: [];
     in-out property <[UITimelineGroup]> timeline-groups: [];
+    in-out property <[UISource]> sources: [];
     in-out property <int> active-tab: 0;
 
     // Selected state detail (set by Rust when state-clicked callback fires)
@@ -184,6 +191,7 @@ export component AppWindow inherits Window {
     callback state-clicked(/* group-id */ string, /* installation-id */ string, /* unique-id */ int);
     callback close-state-detail();
     callback copy-intermediate(/* text */ string);
+    callback remove-source(/* source-name */ string);
 
     MenuBar {
         Menu {
@@ -300,6 +308,30 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+
+            Rectangle {
+                width: sources-tab-text.preferred-width + 24px;
+                height: 32px;
+                background: root.active-tab == 3 ? #4a72c4 : #e0e0e0;
+                border-radius: 6px;
+                border-bottom-left-radius: 0px;
+                border-bottom-right-radius: 0px;
+
+                sources-tab-text := Text {
+                    text: "Sources";
+                    font-size: 13px;
+                    font-weight: root.active-tab == 3 ? 700 : 400;
+                    color: root.active-tab == 3 ? #ffffff : #555555;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                TouchArea {
+                    clicked => {
+                        root.active-tab = 3;
+                    }
+                }
+            }
         }
 
         // Tab divider line
@@ -347,6 +379,14 @@ export component AppWindow inherits Window {
             timeline-groups: root.timeline-groups;
             entry-clicked(group-id, installation-id, unique-id) => {
                 root.state-clicked(group-id, installation-id, unique-id);
+            }
+        }
+
+        // Sources Tab
+        if root.active-tab == 3: SourcesTab {
+            sources: root.sources;
+            remove-source(name) => {
+                root.remove-source(name);
             }
         }
     }

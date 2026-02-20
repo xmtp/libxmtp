@@ -142,6 +142,15 @@ fn main() -> Result<()> {
         }
     });
 
+    ui.on_remove_source({
+        let state = state.clone();
+        move |source_name| {
+            let source_name = source_name.to_string();
+            tracing::info!("Removing source: {}", source_name);
+            state.remove_source(&source_name);
+        }
+    });
+
     ui.run()?;
     Ok(())
 }
