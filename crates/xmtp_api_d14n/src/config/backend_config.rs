@@ -1,6 +1,6 @@
 use thiserror::Error;
 use xmtp_common::ErrorCode;
-use xmtp_configuration::{GrpcUrlsLocal, XmtpEnv};
+use xmtp_configuration::XmtpEnv;
 
 #[derive(Debug, Clone)]
 pub struct ResolvedBackendConfig {
@@ -34,15 +34,6 @@ pub fn validate_and_resolve(
 ) -> Result<ResolvedBackendConfig, BackendConfigError> {
     // Resolve api_url: override takes precedence, then constant for centralized envs
     let api_url = api_url_override.or_else(|| env.default_api_url().map(String::from));
-
-    // For Local env, auto-set gateway_host to the local gateway URL
-    let gateway_host = gateway_host.or_else(|| {
-        if matches!(env, XmtpEnv::Local) {
-            Some(GrpcUrlsLocal::GATEWAY.to_string())
-        } else {
-            None
-        }
-    });
 
     // Auth requires gateway_host
     if has_auth && gateway_host.is_none() {
@@ -143,22 +134,30 @@ mod tests {
 
     #[test]
     fn test_is_secure_derived_from_urls() {
-        let config = validate_and_resolve(XmtpEnv::Local, None, None, false, None, false).unwrap();
-        assert!(!config.is_secure); // Local URLs are http
+        let config = validate_and_resolve(
+            XmtpEnv::Local,
+            Some("http://localhost:5556".to_string()),
+            None,
+            false,
+            None,
+            false,
+        )
+        .unwrap();
+        assert!(!config.is_secure); // http URLs are not secure
     }
 
     #[test]
-    fn test_local_env_auto_sets_gateway() {
+    fn test_local_env_no_implicit_gateway() {
         let config = validate_and_resolve(XmtpEnv::Local, None, None, false, None, false).unwrap();
-        assert_eq!(config.gateway_host.as_deref(), Some(GrpcUrlsLocal::GATEWAY));
+        assert!(config.gateway_host.is_none());
     }
 
     #[test]
-    fn test_local_env_gateway_override() {
+    fn test_local_env_explicit_gateway() {
         let config = validate_and_resolve(
             XmtpEnv::Local,
             None,
-            Some("http://custom-gateway:5052".to_string()),
+            Some("http://localhost:5052".to_string()),
             false,
             None,
             false,
@@ -166,7 +165,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             config.gateway_host.as_deref(),
-            Some("http://custom-gateway:5052")
+            Some("http://localhost:5052")
         );
     }
 
@@ -183,11 +182,10 @@ mod tests {
     }
 
     #[test]
-    fn test_local_env_with_auth_no_explicit_gateway() {
-        // Local env auto-sets gateway_host, so auth should work without explicit gateway
-        let config = validate_and_resolve(XmtpEnv::Local, None, None, false, None, true).unwrap();
-        assert!(config.gateway_host.is_some());
-        assert_eq!(config.gateway_host.as_deref(), Some(GrpcUrlsLocal::GATEWAY));
+    fn test_local_env_auth_requires_explicit_gateway() {
+        // Local env no longer auto-sets gateway_host, so auth without explicit gateway should fail
+        let result = validate_and_resolve(XmtpEnv::Local, None, None, false, None, true);
+        assert!(result.is_err());
     }
 
     #[test]
