@@ -1,4 +1,5 @@
 use crate::ErrorWrapper;
+use crate::client::backend::Backend;
 use crate::{
   client::Client,
   identity::{Identifier, IdentifierKind},
@@ -10,7 +11,7 @@ use std::sync::Arc;
 use tsify::Tsify;
 use wasm_bindgen::prelude::{JsError, wasm_bindgen};
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_d14n::{MessageBackendBuilder, TrackedStatsClient};
+use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::{
   AccountId,
@@ -49,20 +50,15 @@ pub fn verify_signed_with_public_key(
 
 #[wasm_bindgen(js_name = revokeInstallationsSignatureRequest)]
 pub fn revoke_installations_signature_request(
-  #[wasm_bindgen(js_name = host)] v3_host: String,
-  #[wasm_bindgen(js_name = gatewayHost)] gateway_host: Option<String>,
+  backend: &Backend,
   #[wasm_bindgen(js_name = recoveryIdentifier)] recovery_identifier: Identifier,
   #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
   #[wasm_bindgen(js_name = installationIds)] installation_ids: Vec<Uint8Array>,
 ) -> Result<SignatureRequestHandle, JsError> {
-  let backend = MessageBackendBuilder::default()
-    .v3_host(&v3_host)
-    .maybe_gateway_host(gateway_host)
-    .is_secure(true)
-    .build()
+  let api_client = MessageBackendBuilder::default()
+    .from_bundle(backend.bundle.clone())
     .map_err(ErrorWrapper::js)?;
-  let backend = TrackedStatsClient::new(backend);
-  let api = ApiClientWrapper::new(Arc::new(backend), strategies::exponential_cooldown());
+  let api = ApiClientWrapper::new(api_client, strategies::exponential_cooldown());
   let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
   let ident = recovery_identifier.try_into()?;
@@ -79,22 +75,13 @@ pub fn revoke_installations_signature_request(
 
 #[wasm_bindgen(js_name = applySignatureRequest)]
 pub async fn apply_signature_request(
-  #[wasm_bindgen(js_name = host)] v3_host: String,
-  #[wasm_bindgen(js_name = gatewayHost)] gateway_host: Option<String>,
+  backend: &Backend,
   #[wasm_bindgen(js_name = signatureRequest)] signature_request: &SignatureRequestHandle,
 ) -> Result<(), JsError> {
-  let backend = MessageBackendBuilder::default()
-    .v3_host(&v3_host)
-    .maybe_gateway_host(gateway_host)
-    .is_secure(true)
-    .build()
+  let api_client = MessageBackendBuilder::default()
+    .from_bundle(backend.bundle.clone())
     .map_err(ErrorWrapper::js)?;
-  let backend = TrackedStatsClient::new(backend);
-
-  let api = ApiClientWrapper::new(
-    TrackedStatsClient::new(backend),
-    strategies::exponential_cooldown(),
-  );
+  let api = ApiClientWrapper::new(api_client, strategies::exponential_cooldown());
   let scw_verifier = Arc::new(api.clone());
 
   let inner = signature_request.inner.lock().await;

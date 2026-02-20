@@ -189,3 +189,6 @@ om.json
 /.build
 /.swiftpm
 **/.direnv/**
+
+# Superpowers
+docs/plans
