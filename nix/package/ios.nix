@@ -22,18 +22,21 @@
 #   3. Clean separation — Nix does expensive compilation/caching, Make does fast assembly.
 #   4. `make local` would break — devs who don't use nix build depend on the Makefile flow.
 #   5. Manually building xcframework (without xcodebuild) would be fragile.
-{ lib
-, xmtp
-, stdenv
-, ...
+{
+  lib,
+  xmtp,
+  stdenv,
+  ...
 }:
 let
   inherit (xmtp) iosEnv mobile;
   # override craneLib rust toolchain with given stdenv
   # https://crane.dev/API.html#mklib
-  craneLib = xmtp.craneLib.overrideScope (_: _: {
-    inherit stdenv;
-  });
+  craneLib = xmtp.craneLib.overrideScope (
+    _: _: {
+      inherit stdenv;
+    }
+  );
   ffi-uniffi-bindgen = "${xmtp.ffi-uniffi-bindgen}/bin/ffi-uniffi-bindgen";
   # Rust toolchain with iOS/macOS cross-compilation targets.
   # No clippy/rustfmt — this is a build-only toolchain (the dev shell adds those).
@@ -60,50 +63,54 @@ let
   # IMPROVEMENT: buildDepsOnly could include an Xcode existence check in its
   # buildPhaseCargoCommand to provide a clearer error message if Xcode is missing,
   # rather than failing deep in the cc-rs build with cryptic SDK path errors.
-  buildTarget = target:
+  buildTarget =
+    target:
     let
       envSetup = iosEnv.envSetup target;
 
       # Phase 1: Dep caching — rebuilds when Cargo.lock, Cargo.toml, or build.rs change.
-      cargoArtifacts = rust.buildDepsOnly (commonArgs // {
-        pname = "xmtpv3-deps-${target}";
-        CARGO_BUILD_TARGET = target;
-        # Impure: needs Xcode SDK for bindgen during dep compilation
-        __noChroot = true;
-        cargoExtraArgs = "--target ${target} -p xmtpv3";
-        # envSetup is inlined in buildPhaseCargoCommand because crane's buildDepsOnly
-        # strips preBuild hooks (it needs full control of the build phase to replace
-        # source files with dummies). envSetup dynamically resolves the Xcode path
-        # via xcode-select and sets DEVELOPER_DIR, SDKROOT, CC/CXX, and bindgen args.
-        buildPhaseCargoCommand = ''
-          ${envSetup}
-          cargo build --release --target ${target} -p xmtpv3
-        '';
-      });
+      cargoArtifacts = rust.buildDepsOnly (
+        commonArgs
+        // {
+          pname = "xmtpv3-deps-${target}";
+          CARGO_BUILD_TARGET = target;
+          # Impure: needs Xcode SDK for bindgen during dep compilation
+          __noChroot = true;
+          cargoExtraArgs = "--target ${target} -p xmtpv3";
+          # envSetup is inlined in buildPhaseCargoCommand because crane's buildDepsOnly
+          # strips preBuild hooks (it needs full control of the build phase to replace
+          # source files with dummies). envSetup dynamically resolves the Xcode path
+          # via xcode-select and sets DEVELOPER_DIR, SDKROOT, CC/CXX, and bindgen args.
+          buildPhaseCargoCommand = ''
+            ${envSetup}
+            cargo build --release --target ${target} -p xmtpv3
+          '';
+        }
+      );
     in
     # Phase 2: Build project source using cached dep artifacts.
-    rust.buildPackage (commonArgs // {
-      inherit cargoArtifacts version;
-      CARGO_BUILD_TARGET = target;
-      __noChroot = true;
-      pname = "xmtpv3-${target}";
-      src = bindingsFileset;
-      cargoExtraArgs = "--target ${target} -p xmtpv3";
-      # preBuild works here (unlike buildDepsOnly) because buildPackage doesn't
-      # need to replace source files, so crane leaves the build hooks intact.
-      preBuild = iosEnv.envSetup target;
-      # Override crane's default installPhase which expects a binary executable.
-      # We produce a static library (.a) and dynamic library (.dylib), so we copy them directly.
-      installPhaseCommand = ''
-        mkdir -p $out/${target}
-        cp target/${target}/release/libxmtpv3.a $out/${target}/
-        cp target/${target}/release/libxmtpv3.dylib $out/${target}/
-        install_name_tool -id @rpath/libxmtpv3.dylib $out/${target}/libxmtpv3.dylib
-      '';
-    });
-
-  # Per-target derivations (genAttrs creates { "x86_64-apple-darwin" = <drv>; ... })
-  targets = lib.genAttrs iosEnv.iosTargets buildTarget;
+    rust.buildPackage (
+      commonArgs
+      // {
+        inherit cargoArtifacts version;
+        CARGO_BUILD_TARGET = target;
+        __noChroot = true;
+        pname = "xmtpv3-${target}";
+        src = bindingsFileset;
+        cargoExtraArgs = "--target ${target} -p xmtpv3";
+        # preBuild works here (unlike buildDepsOnly) because buildPackage doesn't
+        # need to replace source files, so crane leaves the build hooks intact.
+        preBuild = iosEnv.envSetup target;
+        # Override crane's default installPhase which expects a binary executable.
+        # We produce a static library (.a) and dynamic library (.dylib), so we copy them directly.
+        installPhaseCommand = ''
+          mkdir -p $out/${target}
+          cp target/${target}/release/libxmtpv3.a $out/${target}/
+          cp target/${target}/release/libxmtpv3.dylib $out/${target}/
+          install_name_tool -id @rpath/libxmtpv3.dylib $out/${target}/libxmtpv3.dylib
+        '';
+      }
+    );
 
   # Native host env setup for Swift bindings (builds for macOS host, not iOS).
   nativeEnvSetup = iosEnv.envSetup "aarch64-apple-darwin";
@@ -113,72 +120,86 @@ let
   # generate Swift bindings (.swift file + C header + modulemap).
   # Impure because it needs the Xcode SDK for the native host build.
   # The generated files are platform-independent — they work with any target's .a file.
-  swiftBindings = rust.buildPackage (commonArgs // {
-    pname = "xmtpv3-swift-bindings";
-    __noChroot = true;
-    src = bindingsFileset;
-    inherit version;
-    cargoArtifacts = rust.buildDepsOnly (commonArgs // {
-      pname = "xmtpv3-swift-bindings-deps";
+  swiftBindings = rust.buildPackage (
+    commonArgs
+    // {
+      pname = "xmtpv3-swift-bindings";
       __noChroot = true;
+      src = bindingsFileset;
+      inherit version;
+      cargoArtifacts = rust.buildDepsOnly (
+        commonArgs
+        // {
+          pname = "xmtpv3-swift-bindings-deps";
+          __noChroot = true;
+          cargoExtraArgs = "-p xmtpv3";
+          buildPhaseCargoCommand = ''
+            ${nativeEnvSetup}
+            cargo build --release -p xmtpv3
+          '';
+        }
+      );
       cargoExtraArgs = "-p xmtpv3";
       buildPhaseCargoCommand = ''
         ${nativeEnvSetup}
         cargo build --release -p xmtpv3
       '';
-    });
-    cargoExtraArgs = "-p xmtpv3";
-    buildPhaseCargoCommand = ''
-      ${nativeEnvSetup}
-      cargo build --release -p xmtpv3
-    '';
-    # Prevent crane from trying to find and install cargo binaries from $out/bin.
-    # This derivation produces generated source files, not executables.
-    doNotPostBuildInstallCargoBinaries = true;
-    installPhaseCommand = ''
-      ${nativeEnvSetup}
-      # Generate Swift bindings using uniffi-bindgen.
-      # This runs the ffi-uniffi-bindgen binary (built above) against the compiled
-      # static library to extract the FFI interface and produce:
-      #   - xmtpv3.swift: Swift source with all public API types and functions
-      #   - xmtpv3FFI.h: C header for the FFI layer
-      #   - xmtpv3FFI.modulemap: Clang module map (renamed to module.modulemap)
-      ${ffi-uniffi-bindgen} generate \
-        --library target/release/libxmtpv3.a \
-        --out-dir $TMPDIR/swift-out \
-        --language swift
+      # Prevent crane from trying to find and install cargo binaries from $out/bin.
+      # This derivation produces generated source files, not executables.
+      doNotPostBuildInstallCargoBinaries = true;
+      installPhaseCommand = ''
+        ${nativeEnvSetup}
+        # Generate Swift bindings using uniffi-bindgen.
+        # This runs the ffi-uniffi-bindgen binary (built above) against the compiled
+        # static library to extract the FFI interface and produce:
+        #   - xmtpv3.swift: Swift source with all public API types and functions
+        #   - xmtpv3FFI.h: C header for the FFI layer
+        #   - xmtpv3FFI.modulemap: Clang module map (renamed to module.modulemap)
+        ${ffi-uniffi-bindgen} generate \
+          --library target/release/libxmtpv3.a \
+          --out-dir $TMPDIR/swift-out \
+          --language swift
 
-      # Organize into expected directory structure for xcframework assembly
-      mkdir -p $out/swift/include/libxmtp
-      cp $TMPDIR/swift-out/xmtpv3.swift $out/swift/
-      mv $TMPDIR/swift-out/xmtpv3FFI.h $out/swift/include/libxmtp/
-      mv $TMPDIR/swift-out/xmtpv3FFI.modulemap $out/swift/include/libxmtp/module.modulemap
-    '';
-  });
+        # Organize into expected directory structure for xcframework assembly
+        mkdir -p $out/swift/include/libxmtp
+        cp $TMPDIR/swift-out/xmtpv3.swift $out/swift/
+        mv $TMPDIR/swift-out/xmtpv3FFI.h $out/swift/include/libxmtp/
+        mv $TMPDIR/swift-out/xmtpv3FFI.modulemap $out/swift/include/libxmtp/module.modulemap
+      '';
+    }
+  );
 
-  # Aggregate derivation: combines all per-target static+dynamic libraries + Swift bindings
-  # into a single output directory.
-  # Uses symlinks instead of copies to avoid ~100MB duplication in the Nix store
-  # (each .a file is 20-30MB). The Makefile's lipo/framework targets follow symlinks.
-  # dontUnpack = true because there's no source to extract — this derivation only
-  # creates symlinks to other Nix store paths.
-  aggregate = stdenv.mkDerivation {
-    pname = "xmtpv3-ios-libs";
-    inherit version;
-    dontUnpack = true;
-    installPhase = ''
-      mkdir -p $out/swift
-      ${lib.concatMapStringsSep "\n" (target: ''
-        mkdir -p $out/${target}
-        ln -s ${targets.${target}}/${target}/libxmtpv3.a $out/${target}/libxmtpv3.a
-        ln -s ${targets.${target}}/${target}/libxmtpv3.dylib $out/${target}/libxmtpv3.dylib
-      '') iosEnv.iosTargets}
-      ln -s ${swiftBindings}/swift/xmtpv3.swift $out/swift/xmtpv3.swift
-      ln -s ${swiftBindings}/swift/include $out/swift/include
-    '';
-  };
+  # Function to build a specific set of targets (mirrors mkAndroid in android.nix)
+  mkIos =
+    targetList:
+    let
+      selectedTargets = lib.genAttrs targetList buildTarget;
+
+      selectedAggregate = stdenv.mkDerivation {
+        pname = "xmtpv3-ios-libs";
+        inherit version;
+        dontUnpack = true;
+        installPhase = ''
+          mkdir -p $out/swift
+          ${lib.concatMapStringsSep "\n" (target: ''
+            mkdir -p $out/${target}
+            ln -s ${selectedTargets.${target}}/${target}/libxmtpv3.a $out/${target}/libxmtpv3.a
+            ln -s ${selectedTargets.${target}}/${target}/libxmtpv3.dylib $out/${target}/libxmtpv3.dylib
+          '') targetList}
+          ln -s ${swiftBindings}/swift/xmtpv3.swift $out/swift/xmtpv3.swift
+          ln -s ${swiftBindings}/swift/include $out/swift/include
+        '';
+      };
+    in
+    {
+      targets = selectedTargets;
+      inherit swiftBindings;
+      aggregate = selectedAggregate;
+    };
 
 in
 {
-  inherit targets swiftBindings aggregate;
+  inherit swiftBindings mkIos;
+  # Default: all targets (for backward compat)
+  inherit (mkIos iosEnv.iosTargets) targets aggregate;
 }

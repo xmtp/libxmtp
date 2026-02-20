@@ -23,22 +23,41 @@ jobs:
       - uses: nixbuild/nix-quick-install-action@v34
         with:
           nix_conf: |
-            extra-substituters = https://cache.garnix.io
-            extra-trusted-public-keys = cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=
+            extra-substituters = https://cache.garnix.io https://xmtp.cachix.org
+            extra-trusted-public-keys = cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g= xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0=
       - run: nix build --version
-      - name: Setup Cachix
-        uses: cachix/cachix-action@v16
-        with:
-          name: xmtp
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          skipPush: true
       - name: Install omnix
         run: nix profile install nixpkgs#omnix
       - name: build all flake outputs
-        run: om ci run --include-all-dependencies --results=om.json -- --accept-flake-config
+        run: om ci run --include-all-dependencies --results=om.json
       - name: push to cachix
         if: env.BRANCH_NAME == 'main'
         run: nix run github:juspay/cachix-push -- --cache xmtp --subflake omnix --prefix "$BRANCH_NAME" < om.json
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+  validation-image-aarch64:
+    runs-on: warp-ubuntu-latest-arm64-16x
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: nixbuild/nix-quick-install-action@v34
+        with:
+          nix_conf: |
+            extra-substituters = https://cache.garnix.io https://xmtp.cachix.org
+            extra-trusted-public-keys = cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g= xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0=
+      - run: nix build --version
+      - name: build validation service image
+        run: nix build .#validation-service-image-aarch64-multiplatform
+      - name: push to cachix
+        if: github.ref_name == 'main'
+        run: nix run nixpkgs#cachix -- push xmtp ./result
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: pin to cachix
+        if: github.ref_name == 'main'
+        run: nix run nixpkgs#cachix -- pin xmtp validation-service-image-aarch64 ./result
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}

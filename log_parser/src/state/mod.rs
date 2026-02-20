@@ -4,19 +4,23 @@ pub mod state_or_event;
 pub mod ui;
 pub mod value;
 
-use crate::state::{
-    assertions::{
-        LogAssertion, build_timeline::BuildTimeline, epoch_auth_consistency::EpochAuthConsistency,
-        epoch_continuity::EpochContinuityAssertion,
+use crate::{
+    AppWindow,
+    state::{
+        assertions::{
+            LogAssertion, build_timeline::BuildTimeline,
+            epoch_auth_consistency::EpochAuthConsistency,
+            epoch_continuity::EpochContinuityAssertion,
+        },
+        state_or_event::StateOrEvent,
     },
-    state_or_event::StateOrEvent,
 };
 use anyhow::{Context, Result};
 pub use event::LogEvent;
-use parking_lot::{Mutex, MutexGuard, RwLock, RwLockWriteGuard};
+use parking_lot::{Mutex, MutexGuard};
+use slint::Weak as SlintWeak;
 use std::{
     collections::{BTreeMap, HashMap},
-    iter::Peekable,
     sync::{
         Arc, Weak,
         atomic::{AtomicU64, Ordering},
@@ -37,18 +41,19 @@ type InstallationId = String;
 type GroupId = String;
 type EpochNumber = i64;
 
-#[derive(Default)]
 pub struct LogState {
-    pub grouped_epochs: RwLock<HashMap<GroupId, HashMap<InstallationId, Epochs>>>,
+    pub sources: Mutex<HashMap<String, Vec<Arc<LogEvent>>>>,
+    pub grouped_epochs: Mutex<HashMap<GroupId, HashMap<InstallationId, Epochs>>>,
     pub timeline: Mutex<HashMap<GroupId, Vec<StateOrEvent>>>,
-    pub clients: Mutex<HashMap<InstallationId, Arc<RwLock<ClientState>>>>,
+    pub clients: Mutex<HashMap<InstallationId, Arc<Mutex<ClientState>>>>,
+    pub ui: Option<SlintWeak<AppWindow>>,
 }
 
 #[derive(Default)]
 pub struct Epochs {
     // These are important events without an associated group state
     // that we want to display in the epoch tab.
-    pub outer_events: Arc<RwLock<Vec<Arc<LogEvent>>>>,
+    pub outer_events: Arc<Mutex<Vec<Arc<LogEvent>>>>,
     pub epochs: BTreeMap<EpochNumber, Epoch>,
 }
 
@@ -60,15 +65,21 @@ pub struct Epoch {
 pub struct ClientState {
     pub name: Option<String>,
     pub events: Vec<Arc<LogEvent>>,
-    pub groups: HashMap<String, Arc<RwLock<Group>>>,
+    pub groups: HashMap<String, Arc<Mutex<Group>>>,
     pub num_clients: isize,
     pub inst: String,
     pub inbox_id: String,
 }
 
 impl LogState {
-    pub fn new() -> Arc<Self> {
-        Arc::default()
+    pub fn new(ui: Option<SlintWeak<AppWindow>>) -> Arc<Self> {
+        Arc::new(Self {
+            clients: Mutex::default(),
+            grouped_epochs: Mutex::default(),
+            sources: Mutex::default(),
+            timeline: Mutex::default(),
+            ui,
+        })
     }
 
     /// Find a GroupState by its unique_id, narrowed by installation_id and group_id
@@ -80,9 +91,9 @@ impl LogState {
     ) -> Option<GroupState> {
         let clients = self.clients.lock();
         let client = clients.get(installation_id)?;
-        let client = client.read();
+        let client = client.lock();
         let group = client.groups.get(group_id)?;
-        let group = group.read();
+        let group = group.lock();
         for state in &group.states {
             let state = state.lock();
             if state.unique_id == unique_id {
@@ -92,14 +103,31 @@ impl LogState {
         None
     }
 
-    pub fn ingest_all<'a>(&self, mut lines: Peekable<impl Iterator<Item = &'a str>>) {
-        let mut line_count: usize = 0;
-        while let Ok(event) = LogEvent::from(&mut lines, &mut line_count)
-            .inspect_err(|e| tracing::error!("Parsing err: {e:?}"))
+    pub fn add_source(self: &Arc<Self>, source: impl ToString, events: Vec<Arc<LogEvent>>) {
+        self.sources.lock().insert(source.to_string(), events);
+        self.rebuild();
+    }
+
+    pub fn remove_source(self: &Arc<Self>, source: &str) {
+        self.sources.lock().remove(source);
+        self.rebuild();
+    }
+
+    fn rebuild(self: &Arc<Self>) {
+        // Perform a soft-reset.
+        *self.grouped_epochs.lock() = HashMap::new();
+        *self.timeline.lock() = HashMap::new();
+        *self.clients.lock() = HashMap::new();
+
         {
-            if let Err(err) = self.ingest(Arc::new(event)) {
-                tracing::warn!("{err:?}");
-            };
+            let sources = self.sources.lock();
+            for (_source, events) in &*sources {
+                for event in events {
+                    if let Err(err) = self.ingest(event) {
+                        tracing::error!("Event ingest error: {err}");
+                    }
+                }
+            }
         }
 
         if let Err(err) = EpochContinuityAssertion::assert(&self) {
@@ -113,10 +141,13 @@ impl LogState {
         };
 
         // sort everything by time
-        self.clients.lock().values().for_each(|c| c.write().sort());
+        self.clients.lock().values().for_each(|c| c.lock().sort());
+
+        // update the ui
+        self.clone().update_ui();
     }
 
-    fn ingest(&self, event: Arc<LogEvent>) -> Result<()> {
+    fn ingest(&self, event: &Arc<LogEvent>) -> Result<()> {
         let ctx = |key: &str| -> Result<&Value> {
             event
                 .context(key)
@@ -129,12 +160,12 @@ impl LogState {
             Event::ClientCreated => {
                 let inbox_id = ctx("inbox_id")?.as_str()?;
                 clients.entry(installation.to_string()).or_insert_with(|| {
-                    Arc::new(RwLock::new(ClientState::new(&installation, inbox_id, None)))
+                    Arc::new(Mutex::new(ClientState::new(&installation, inbox_id, None)))
                 })
             }
             _ => clients.get_mut(installation).context("Missing client")?,
         }
-        .write();
+        .lock();
         let group_id = ctx("group_id").and_then(|id| id.as_str()).ok();
 
         match (group_id, event.event) {
@@ -156,7 +187,7 @@ impl LogState {
             }
             (Some(group_id), raw_event) => {
                 {
-                    let mut epochs = self.grouped_epochs.write();
+                    let mut epochs = self.grouped_epochs.lock();
                     if !epochs.contains_key(group_id) {
                         epochs.insert(group_id.to_string(), HashMap::new());
                     }
@@ -192,15 +223,15 @@ impl LogState {
             _ => {}
         }
 
-        client.events.push(event);
+        client.events.push(event.clone());
 
         Ok(())
     }
 
-    fn org_group(&self) -> HashMap<GroupId, Vec<Arc<RwLock<Group>>>> {
+    fn org_group(&self) -> HashMap<GroupId, Vec<Arc<Mutex<Group>>>> {
         let mut groups = HashMap::new();
         for (_inst, state) in &*self.clients.lock() {
-            for (group_id, group) in &state.read().groups {
+            for (group_id, group) in &state.lock().groups {
                 let g = groups.entry(group_id.clone()).or_insert_with(|| vec![]);
                 g.push(group.clone());
             }
@@ -229,18 +260,18 @@ impl ClientState {
         }
     }
 
-    fn group(&mut self, group_id: &str, event: &Arc<LogEvent>) -> RwLockWriteGuard<'_, Group> {
+    fn group(&mut self, group_id: &str, event: &Arc<LogEvent>) -> MutexGuard<'_, Group> {
         if !self.groups.contains_key(group_id) {
             let state = Group::new(event);
             self.groups.insert(group_id.to_string(), state.clone());
-            return self.groups[group_id].write();
+            return self.groups[group_id].lock();
         }
 
-        self.groups.get(group_id).unwrap().write()
+        self.groups.get(group_id).unwrap().lock()
     }
 
     fn sort(&self) {
-        self.groups.values().for_each(|g| g.write().sort());
+        self.groups.values().for_each(|g| g.lock().sort());
     }
 }
 
@@ -266,12 +297,12 @@ pub struct GroupState {
     pub epoch_auth: Option<String>,
     pub cursor: Option<i64>,
     pub originator: Option<i64>,
-    pub members: HashMap<InstallationId, Weak<RwLock<ClientState>>>,
+    pub members: HashMap<InstallationId, Weak<Mutex<ClientState>>>,
 }
 
 impl Group {
-    fn new(event: &Arc<LogEvent>) -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(Self {
+    fn new(event: &Arc<LogEvent>) -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(Self {
             installation_id: event.installation.clone(),
             states: vec![Arc::new(Mutex::new(GroupState::new(event)))],
         }))
@@ -352,11 +383,12 @@ mod tests {
         let log = writer.as_string();
         let lines = log.split("\n").peekable();
 
-        let state = LogState::new();
-        state.ingest_all(lines);
+        let state = LogState::new(None);
+        let events = LogEvent::parse(lines);
+        state.add_source("anon", events);
 
         let welcome_found = state.clients.lock().iter().any(|(_inst_id, c)| {
-            c.read()
+            c.lock()
                 .events
                 .iter()
                 .any(|e| e.event == Event::ProcessedWelcome)

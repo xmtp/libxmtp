@@ -3,7 +3,7 @@ use anyhow::{Context, Result, bail};
 use parking_lot::Mutex;
 use pest::Parser;
 use slint::{Color, SharedString};
-use std::{collections::HashMap, iter::Peekable};
+use std::{collections::HashMap, iter::Peekable, sync::Arc};
 use xmtp_common::Event;
 
 #[derive(Debug)]
@@ -41,6 +41,16 @@ impl PartialOrd for LogEvent {
 pub(crate) const TIME_KEY: &str = "time";
 
 impl LogEvent {
+    pub fn parse<'a>(mut lines: Peekable<impl Iterator<Item = &'a str>>) -> Vec<Arc<LogEvent>> {
+        let mut line_count = 0;
+        let mut events = vec![];
+        while let Ok(event) = Self::from(&mut lines, &mut line_count) {
+            events.push(Arc::new(event));
+        }
+
+        events
+    }
+
     pub fn context(&self, key: &str) -> Option<&Value> {
         self.context.get(key)
     }

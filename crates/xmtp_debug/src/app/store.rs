@@ -393,7 +393,7 @@ where
         let items = self
             .load(network)?
             .ok_or(eyre!("no items found, try generating some"))?;
-        Ok(items.choose_multiple(rng, n))
+        Ok(items.sample(rng, n))
     }
 
     fn random_n(
@@ -423,7 +423,7 @@ where
         let uninit = random.spare_capacity_mut();
         for chunk in uninit.chunks_mut(len) {
             items
-                .choose_multiple(rng, chunk.len())
+                .sample(rng, chunk.len())
                 .into_iter()
                 .enumerate()
                 .for_each(|(idx, i)| {

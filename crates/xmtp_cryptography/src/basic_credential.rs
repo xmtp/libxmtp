@@ -77,14 +77,14 @@ pub struct XmtpInstallationCredential(Box<SigningKey>);
 
 impl Default for XmtpInstallationCredential {
     fn default() -> Self {
-        Self(Box::new(SigningKey::generate(&mut crate::rand::rng())))
+        Self(Box::new(SigningKey::from_bytes(&crate::rand::rand_array())))
     }
 }
 
 impl XmtpInstallationCredential {
     /// Create a new [`XmtpInstallationCredential`] with [`rand_chacha::ChaCha20Rng`]
     pub fn new() -> Self {
-        Self(Box::new(SigningKey::generate(&mut crate::rand::rng())))
+        Self(Box::new(SigningKey::from_bytes(&crate::rand::rand_array())))
     }
 
     /// Get a reference to the public [`ed25519_dalek::VerifyingKey`]

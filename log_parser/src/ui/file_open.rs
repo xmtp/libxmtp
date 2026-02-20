@@ -1,5 +1,7 @@
-use crate::{AppWindow, state::LogState};
-use parking_lot::RwLock;
+use crate::{
+    AppWindow,
+    state::{LogEvent, LogState},
+};
 use slint::{Color, Weak};
 use std::{
     fs::read_to_string,
@@ -24,7 +26,7 @@ pub fn open_file_dialog(handle: Weak<AppWindow>) {
     .unwrap();
 }
 
-fn format_duration_ns(duration_ns: i64) -> String {
+fn _format_duration_ns(duration_ns: i64) -> String {
     if duration_ns < 0 {
         return String::new();
     }
@@ -79,11 +81,7 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     )
 }
 
-pub fn file_selected(
-    handle: Weak<AppWindow>,
-    path: impl AsRef<Path>,
-    log_state_ref: Arc<RwLock<Option<Arc<LogState>>>>,
-) {
+pub fn file_selected(path: impl AsRef<Path>, state: Arc<LogState>) {
     let path = path.as_ref();
     tracing::info!("Selected logs file {path:?}");
 
@@ -97,10 +95,6 @@ pub fn file_selected(
     };
 
     let lines = log_file.split('\n').peekable();
-    let state = LogState::new();
-    state.ingest_all(lines);
-    state.clone().update_ui(&handle);
-
-    // Store the state for later use by state-clicked callback
-    *log_state_ref.write() = Some(state);
+    let events = LogEvent::parse(lines);
+    state.add_source(format!("{path:?}"), events);
 }

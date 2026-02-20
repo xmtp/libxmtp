@@ -1,13 +1,14 @@
 # Shared configuration for mobile (iOS/Android) cross-compilation derivations.
 # Centralizes common build arguments, filesets, and version extraction.
-{ lib
-, xmtp
-, zstd
-, openssl
-, sqlite
-, pkg-config
-, perl
-, zlib
+{
+  lib,
+  xmtp,
+  zstd,
+  openssl,
+  sqlite,
+  pkg-config,
+  perl,
+  zlib,
 }:
 let
   # Narrow fileset for buildDepsOnly — only Cargo.toml, Cargo.lock, build.rs,
@@ -31,8 +32,16 @@ let
     src = depsFileset;
     strictDeps = true;
     # perl is needed for openssl-sys's vendored build (its Configure script is Perl).
-    nativeBuildInputs = [ pkg-config perl zlib ];
-    buildInputs = [ zstd openssl sqlite ];
+    nativeBuildInputs = [
+      pkg-config
+      perl
+      zlib
+    ];
+    buildInputs = [
+      zstd
+      openssl
+      sqlite
+    ];
     doCheck = false;
     # Disable zerocallusedregs hardening which can cause issues with cross-compilation.
     hardeningDisable = [ "zerocallusedregs" ];
@@ -45,7 +54,9 @@ in
   # Version extracted from workspace Cargo.toml — use this instead of calling
   # crateNameFromCargoToml multiple times in each derivation.
   # Note: This requires the caller to pass in a crane instance with the right toolchain.
-  mkVersion = rust: (rust.crateNameFromCargoToml {
-    cargoToml = ./../../Cargo.toml;
-  }).version;
+  mkVersion =
+    rust:
+    (rust.crateNameFromCargoToml {
+      cargoToml = ./../../Cargo.toml;
+    }).version;
 }

@@ -6,7 +6,7 @@ pub struct EpochAuthConsistency;
 
 impl LogAssertion for EpochAuthConsistency {
     fn assert(state: &LogState) -> Result<()> {
-        let epochs = state.grouped_epochs.read();
+        let epochs = state.grouped_epochs.lock();
 
         let mut auths = HashMap::new();
 

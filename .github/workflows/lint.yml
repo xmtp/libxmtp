@@ -22,6 +22,7 @@ jobs:
       ios: ${{ steps.filter.outputs.ios }}
       android: ${{ steps.filter.outputs.android }}
       toml: ${{ steps.filter.outputs.toml }}
+      nix: ${{ steps.filter.outputs.nix }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v3
@@ -56,6 +57,10 @@ jobs:
             toml:
               - '**/*.toml'
               - '.github/workflows/lint-toml*'
+            nix:
+              - '**/*.nix'
+              - 'flake.nix'
+              - '.github/workflows/lint-nix*'
 
   lint-workspace:
     needs: detect-changes
@@ -93,6 +98,12 @@ jobs:
     uses: ./.github/workflows/lint-toml.yml
     secrets: inherit
 
+  lint-nix:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.nix == 'true'
+    uses: ./.github/workflows/lint-nix.yml
+    secrets: inherit
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -104,6 +115,7 @@ jobs:
       # - lint-ios TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       # - lint-android TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       - lint-toml
+      - lint-nix
     steps:
       - run: |
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || \

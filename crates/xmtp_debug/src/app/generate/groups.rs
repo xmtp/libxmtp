@@ -65,7 +65,7 @@ impl GenerateGroups {
                         let _permit = semaphore.acquire().await?;
                         debug!(owner = hex::encode(owner), "group owner");
                         let invitees = {
-                            let mut rng = rand::thread_rng();
+                            let mut rng = rand::rng();
                             // todo: maybe generate more identities at this point?
                             // or earlier, check if we have sufficient identities for this
                             // command

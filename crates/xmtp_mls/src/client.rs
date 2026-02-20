@@ -1,16 +1,5 @@
 use crate::{
-    groups::welcome_sync::GroupSyncSummary,
-    identity_updates::{batch_get_association_state_with_verifier, get_creation_signature_kind},
-    messages::{
-        decoded_message::DecodedMessage,
-        enrichment::{EnrichMessageError, enrich_messages},
-    },
-};
-use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
-use xmtp_macro::log_event;
-
-use crate::{
-    builder::SyncWorkerMode,
+    builder::DeviceSyncMode,
     context::XmtpSharedContext,
     groups::{
         ConversationListItem, GroupError, MlsGroup,
@@ -26,12 +15,21 @@ use crate::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     worker::{WorkerRunner, metrics::WorkerMetrics},
 };
+use crate::{
+    groups::welcome_sync::GroupSyncSummary,
+    identity_updates::{batch_get_association_state_with_verifier, get_creation_signature_kind},
+    messages::{
+        decoded_message::DecodedMessage,
+        enrichment::{EnrichMessageError, enrich_messages},
+    },
+};
 use openmls::prelude::tls_codec::Error as TlsCodecError;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::{ErrorCode, Event, Retry, retry_async, retryable};
+use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::{
     ConnectionExt, NotFound, StorageError, XmtpDb,
@@ -51,6 +49,7 @@ use xmtp_id::{
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
+use xmtp_macro::log_event;
 use xmtp_mls_common::{
     group::{DMMetadataOptions, GroupMetadataOptions},
     group_metadata::DmMembers,
@@ -175,8 +174,7 @@ impl<Context> Drop for Client<Context> {
 
 #[derive(Clone)]
 pub struct DeviceSync {
-    pub(crate) server_url: Option<String>,
-    pub(crate) mode: SyncWorkerMode,
+    pub(crate) mode: DeviceSyncMode,
 }
 
 // most of these things are `Arc`'s
@@ -293,10 +291,6 @@ where
     #[cfg(any(test, feature = "test-utils"))]
     pub fn set_name(&self, name: &str) {
         log_event!(Event::AssociateName, self.context.installation_id(), name);
-    }
-
-    pub fn device_sync_server_url(&self) -> Option<&String> {
-        self.context.device_sync_server_url()
     }
 
     pub fn device_sync_worker_enabled(&self) -> bool {

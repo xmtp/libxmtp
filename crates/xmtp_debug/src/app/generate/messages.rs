@@ -14,7 +14,7 @@ use alloy::primitives::map::HashSet;
 use color_eyre::eyre::WrapErr;
 use color_eyre::eyre::{self, Result, eyre};
 use indicatif::{ProgressBar, ProgressStyle};
-use rand::{Rng, SeedableRng, prelude::IteratorRandom, rngs::SmallRng, seq::SliceRandom};
+use rand::{RngExt, SeedableRng, prelude::IteratorRandom, rngs::SmallRng, seq::IndexedRandom};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -139,7 +139,7 @@ impl GenerateMessages {
             return Ok(());
         }
         info!(time = ?std::time::Instant::now(), "adding new member");
-        let rng = &mut SmallRng::from_entropy();
+        let rng = &mut SmallRng::from_rng(&mut rand::rng());
         let group = group_store
             .random(&network, rng)?
             .ok_or(eyre!("no group in local store"))?;
@@ -188,7 +188,7 @@ impl GenerateMessages {
             return Ok(());
         }
         let _permit = semaphore.acquire().await?;
-        let rng = &mut SmallRng::from_entropy();
+        let rng = &mut SmallRng::from_rng(&mut rand::rng());
         let clients = identities.clone();
         let group = group_store
             .random(&network, rng)?
@@ -202,8 +202,8 @@ impl GenerateMessages {
             let mls_group = client.group(&group.id.into())?;
             mls_group.sync_with_conn().await?;
             mls_group.maybe_update_installations(None).await?;
-            let words = rng.gen_range(0..10);
-            let words = lipsum::lipsum_words_with_rng(&mut *rng, words as usize);
+            let words = rng.random_range(0..10);
+            let words = lipsum::lipsum_words(words as usize);
             info!(time = ?std::time::Instant::now(), new_description=words, "updating group description");
             mls_group
                 .update_group_description(words)
@@ -237,7 +237,7 @@ impl GenerateMessages {
             set.spawn({
                 async move {
                     let _permit = semaphore.acquire().await?;
-                    let rng = &mut SmallRng::from_entropy();
+                    let rng = &mut SmallRng::from_rng(&mut rand::rng());
                     let group = group
                         .random(&n, rng)?
                         .ok_or(eyre!("no group in local store"))?;
@@ -284,7 +284,7 @@ impl GenerateMessages {
         } = opts;
 
         info!(time = ?std::time::Instant::now(), group = hex::encode(group.id), "sending message");
-        let rng = &mut SmallRng::from_entropy();
+        let rng = &mut SmallRng::from_rng(&mut rand::rng());
         if let Some(inbox_id) = group.members.choose(rng) {
             let client = clients
                 .get(inbox_id.as_slice())
@@ -294,8 +294,8 @@ impl GenerateMessages {
             let group = client.group(&group.id.into())?;
             group.sync_with_conn().await?;
             group.maybe_update_installations(None).await?;
-            let words = rng.gen_range(0..*max_message_size);
-            let words = lipsum::lipsum_words_with_rng(&mut *rng, words as usize);
+            let words = rng.random_range(0..*max_message_size);
+            let words = lipsum::lipsum_words(words as usize);
             let message = content_type::new_message(words);
             group
                 .send_message(

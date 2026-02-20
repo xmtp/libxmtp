@@ -1,11 +1,10 @@
 use crate::{
-    AppWindow, UIEpochHeader, UIEvent, UIGroupRow, UIGroupState, UIGroupStateDetail,
-    UIInstallationCell, UIInstallationRow, UIStream, UITimelineEntry, UITimelineGroup,
-    UITimelineInstallationRow,
+    UIEpochHeader, UIEvent, UIGroupRow, UIGroupState, UIGroupStateDetail, UIInstallationCell,
+    UIInstallationRow, UIStream, UITimelineEntry, UITimelineGroup, UITimelineInstallationRow,
     state::{GroupState, LogEvent, LogState, StateOrEvent},
     ui::file_open::color_from_string,
 };
-use slint::{Color, ModelRc, SharedString, VecModel, Weak};
+use slint::{Color, ModelRc, SharedString, VecModel};
 use std::collections::HashMap as StdHashMap;
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -22,7 +21,7 @@ impl LogState {
     fn installation_name(&self, installation_id: &str) -> String {
         let clients = self.clients.lock();
         if let Some(client) = clients.get(installation_id) {
-            let client = client.read();
+            let client = client.lock();
             if let Some(ref name) = client.name {
                 return name.clone();
             }
@@ -30,13 +29,17 @@ impl LogState {
         String::new()
     }
 
-    pub fn update_ui(self: Arc<Self>, ui: &Weak<AppWindow>) {
+    pub fn update_ui(self: Arc<Self>) {
+        let Some(ui) = self.ui.clone() else {
+            return;
+        };
+
         let _ = ui
             .upgrade_in_event_loop(move |ui| {
                 // ─── Events Tab ───
                 let mut streams = Vec::new();
                 for (inst, client) in &*self.clients.lock() {
-                    let client = client.read();
+                    let client = client.lock();
                     let mut stream = Vec::new();
 
                     for event in &client.events {
@@ -81,7 +84,7 @@ impl LogState {
 
                 let mut group_rows: Vec<UIGroupRow> = Vec::new();
 
-                let grouped_epochs = self.grouped_epochs.read();
+                let grouped_epochs = self.grouped_epochs.lock();
                 let mut group_ids: Vec<&String> = grouped_epochs.keys().collect();
                 group_ids.sort();
 
@@ -132,7 +135,7 @@ impl LogState {
                             continue;
                         };
 
-                        let outer_events_guard = epochs.outer_events.read();
+                        let outer_events_guard = epochs.outer_events.lock();
                         let mut outer_events = outer_events_guard.iter().peekable();
 
                         for (i, epoch_number) in epoch_numbers.iter().enumerate() {

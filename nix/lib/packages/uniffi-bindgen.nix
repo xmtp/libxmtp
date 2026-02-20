@@ -1,5 +1,6 @@
-{ xmtp
-, lib
+{
+  xmtp,
+  lib,
 }:
 let
   inherit (xmtp) mobile;
@@ -8,8 +9,9 @@ let
   cargoArtifacts = rust.buildDepsOnly mobile.commonArgs;
   src = ./../../..;
 in
-rust.buildPackage
-  (mobile.commonArgs // {
+rust.buildPackage (
+  mobile.commonArgs
+  // {
     inherit cargoArtifacts;
     pname = "ffi-uniffi-bindgen";
     cargoExtraArgs = "-p xmtpv3 --bin ffi-uniffi-bindgen --features uniffi/cli";
@@ -18,4 +20,5 @@ rust.buildPackage
       root = src;
       fileset = xmtp.filesets.forCrate (src + /bindings/mobile);
     };
-  })
+  }
+)

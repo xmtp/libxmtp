@@ -14,7 +14,7 @@ impl LogAssertion for BuildTimeline {
             let group_tl = timeline.entry(group_id.clone()).or_default();
 
             for inst_group in inst_groups {
-                let inst_group = inst_group.read();
+                let inst_group = inst_group.lock();
                 for state in &inst_group.states {
                     group_tl.push(StateOrEvent::State(state.clone()));
                 }

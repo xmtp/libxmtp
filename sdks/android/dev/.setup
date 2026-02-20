@@ -7,9 +7,10 @@ set -eou pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 SDK_ROOT="${ROOT}/sdks/android"
 
-# Re-exec in the android Nix shell if not already there
+# Re-exec in the android Nix shell if not already there.
+# Also accepts the "local" (default) shell which has all necessary tools.
 ensure_nix_shell() {
-    if [[ "${XMTP_DEV_SHELL:-}" != "android" ]]; then
+    if [[ "${XMTP_DEV_SHELL:-}" != "android" && "${XMTP_DEV_SHELL:-}" != "local" ]]; then
         exec nix develop "${ROOT}#android" --command "$0" "$@"
     fi
 }

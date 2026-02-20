@@ -1,4 +1,13 @@
-{ rustPlatform, pkg-config, fetchCrate, curl, nodejs_latest, openssl, stdenv, lib }:
+{
+  rustPlatform,
+  pkg-config,
+  fetchCrate,
+  curl,
+  nodejs_latest,
+  openssl,
+  stdenv,
+  lib,
+}:
 let
   src = fetchCrate {
     pname = "wasm-bindgen-cli";

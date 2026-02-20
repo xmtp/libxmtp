@@ -1,6 +1,10 @@
 # Pre-built SwiftLint binary from GitHub releases
 # This avoids building the Swift compiler from source in Nix
-{ stdenv, fetchurl, unzip }:
+{
+  stdenv,
+  fetchurl,
+  unzip,
+}:
 
 stdenv.mkDerivation rec {
   pname = "swiftlint";
