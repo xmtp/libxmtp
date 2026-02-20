@@ -20,7 +20,8 @@ pub enum BackendConfigError {
 }
 
 fn is_url_secure(url: &str) -> bool {
-    url.starts_with("https://")
+    let lower = url.to_ascii_lowercase();
+    lower.starts_with("https://") || lower.starts_with("grpcs://")
 }
 
 pub fn validate_and_resolve(
@@ -187,6 +188,48 @@ mod tests {
         let config = validate_and_resolve(XmtpEnv::Local, None, None, false, None, true).unwrap();
         assert!(config.gateway_host.is_some());
         assert_eq!(config.gateway_host.as_deref(), Some(GrpcUrlsLocal::GATEWAY));
+    }
+
+    #[test]
+    fn test_is_url_secure_case_insensitive() {
+        let config = validate_and_resolve(
+            XmtpEnv::Dev,
+            Some("HTTPS://grpc.dev.xmtp.network:443".to_string()),
+            None,
+            false,
+            None,
+            false,
+        )
+        .unwrap();
+        assert!(config.is_secure);
+    }
+
+    #[test]
+    fn test_is_url_secure_grpcs() {
+        let config = validate_and_resolve(
+            XmtpEnv::Testnet,
+            None,
+            Some("grpcs://gateway.testnet.xmtp.network:443".to_string()),
+            false,
+            None,
+            false,
+        )
+        .unwrap();
+        assert!(config.is_secure);
+    }
+
+    #[test]
+    fn test_is_url_secure_grpcs_case_insensitive() {
+        let config = validate_and_resolve(
+            XmtpEnv::Testnet,
+            None,
+            Some("GRPCS://gateway.testnet.xmtp.network:443".to_string()),
+            false,
+            None,
+            false,
+        )
+        .unwrap();
+        assert!(config.is_secure);
     }
 
     #[test]
