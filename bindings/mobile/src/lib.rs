@@ -9,6 +9,9 @@ pub mod message;
 pub mod mls;
 pub mod worker;
 
+#[cfg(test)]
+mod builder_test;
+
 pub use crate::inbox_owner::SigningError;
 pub use logger::{enter_debug_writer, exit_debug_writer};
 pub use message::*;

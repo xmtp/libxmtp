@@ -1,4 +1,4 @@
-/// Test builder structs for verifying the `#[napi_builder]` macro from JS.
+/// Test builder structs for verifying the `#[wasm_builder]` macro from JS.
 ///
 /// These structs are only compiled when the `test-utils` feature is enabled
 /// (via `yarn build:test`). They exercise all builder field modes:
@@ -6,9 +6,10 @@
 ///
 /// The TypeScript tests in `test/Builder.test.ts` import these structs and
 /// verify constructor parameters, setter chaining, and default values.
-#[allow(dead_code)]
-#[xmtp_macro::napi_builder]
-pub struct NapiTestBuilder {
+
+// -- Combined test struct exercising all field modes -----------------------
+#[xmtp_macro::wasm_builder]
+pub struct WasmTestBuilder {
   #[builder(required)]
   pub name: String,
 
@@ -21,7 +22,4 @@ pub struct NapiTestBuilder {
 
   #[builder(default = "true")]
   pub enabled: bool,
-
-  #[builder(skip)]
-  internal: Vec<u8>,
 }
