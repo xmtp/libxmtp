@@ -11,6 +11,7 @@ use openmls::{
     credentials::{BasicCredential, CredentialWithKey, errors::BasicCredentialError},
     extensions::{
         ApplicationIdExtension, Extension, ExtensionType, Extensions, LastResortExtension,
+        UnknownExtension,
     },
     key_packages::KeyPackage,
     messages::proposals::ProposalType,
@@ -33,8 +34,8 @@ use xmtp_common::{RetryableError, retryable};
 use xmtp_configuration::{
     CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
     GROUP_PERMISSIONS_EXTENSION_ID, KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX,
-    MUTABLE_METADATA_EXTENSION_ID, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
-    WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+    MUTABLE_METADATA_EXTENSION_ID, PROPOSAL_SUPPORT_EXTENSION_ID,
+    WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
 use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
 use xmtp_cryptography::signature::IdentifierValidationError;
@@ -705,6 +706,7 @@ impl Identity {
 #[cfg(any(test, feature = "test-utils"))]
 tokio::task_local! {
     pub static ENABLE_WELCOME_POINTERS: bool;
+    pub static ENABLE_PROPOSAL_SUPPORT: bool;
 }
 
 #[derive(Builder, Debug)]
@@ -757,21 +759,46 @@ impl XmtpKeyPackageBuilder {
 
         let application_id =
             Extension::ApplicationId(ApplicationIdExtension::new(this.inbox_id.as_bytes()));
-        let leaf_node_extensions = Extensions::single(application_id);
+        // Version 1 of proposal support - advertises that this installation can receive proposals
+        let proposal_support =
+            Extension::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID, UnknownExtension(vec![1]));
+        let mut leaf_node_ext_vec = vec![application_id, proposal_support];
+        #[cfg(any(test, feature = "test-utils"))]
+        {
+            if !ENABLE_PROPOSAL_SUPPORT.try_with(|v| *v).unwrap_or(true) {
+                let extension = leaf_node_ext_vec
+                    .pop()
+                    .expect("Proposal support extension is always present");
+                assert_eq!(
+                    extension.extension_type(),
+                    ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID)
+                );
+            }
+        }
+        let leaf_node_extensions = Extensions::from_vec(leaf_node_ext_vec)?;
 
+        let mut capability_extensions = vec![
+            ExtensionType::LastResort,
+            ExtensionType::ApplicationId,
+            ExtensionType::ImmutableMetadata,
+            ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
+            ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
+            ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
+            ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
+            ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
+            ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID),
+        ];
+        #[cfg(any(test, feature = "test-utils"))]
+        {
+            if !ENABLE_PROPOSAL_SUPPORT.try_with(|v| *v).unwrap_or(true) {
+                capability_extensions
+                    .retain(|e| *e != ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID));
+            }
+        }
         let capabilities = Capabilities::new(
             None,
             Some(&[CIPHERSUITE]),
-            Some(&[
-                ExtensionType::LastResort,
-                ExtensionType::ApplicationId,
-                ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
-                ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
-                ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
-                ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
-                ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
-                ExtensionType::ImmutableMetadata,
-            ]),
+            Some(&capability_extensions),
             Some(&[ProposalType::GroupContextExtensions]),
             None,
         );
@@ -779,7 +806,6 @@ impl XmtpKeyPackageBuilder {
         let kp_builder = KeyPackage::builder()
             .leaf_node_capabilities(capabilities)
             .leaf_node_extensions(leaf_node_extensions)
-            .expect("application id extension is always valid in leaf nodes")
             .key_package_extensions(key_package_extensions);
 
         let kp_builder = {

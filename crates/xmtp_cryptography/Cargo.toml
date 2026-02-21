@@ -21,7 +21,7 @@ alloy = { workspace = true, features = [
 ] }
 ed25519-dalek = { workspace = true, features = ["digest"] }
 hex.workspace = true
-libcrux-ed25519 = "0.0.4"
+libcrux-ed25519.workspace = true
 openmls.workspace = true
 openmls_basic_credential.workspace = true
 openmls_traits.workspace = true
@@ -40,6 +40,7 @@ getrandom = { workspace = true, features = ["wasm_js"] }
 getrandom_03 = { package = "getrandom", version = "0.3", features = [
   "wasm_js",
 ] }
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
 openmls = { workspace = true, features = ["js"] }
 
 [features]
