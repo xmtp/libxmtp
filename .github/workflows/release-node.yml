@@ -243,17 +243,17 @@ jobs:
         run: xmtp-release set-manifest-version --sdk node-bindings --version "$VERSION"
 
       - name: Disable usePackageExitCodes feature
-        uses: crazy-max/ghaction-chocolatey@v3
+        uses: crazy-max/ghaction-chocolatey@v4
         with:
           args: feature disable --name="'usePackageExitCodes'"
 
       - name: Upgrade Visual Studio 2022 enterprise
-        uses: crazy-max/ghaction-chocolatey@v3
+        uses: crazy-max/ghaction-chocolatey@v4
         with:
           args: upgrade visualstudio2022enterprise
 
       - name: Install Visual Studio 2022 build tools
-        uses: crazy-max/ghaction-chocolatey@v3
+        uses: crazy-max/ghaction-chocolatey@v4
         with:
           args: install visualstudio2022buildtools
 
