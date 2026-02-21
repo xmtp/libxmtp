@@ -19,6 +19,7 @@ use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_proto::api_client::AggregateStats;
 
+use crate::ErrorWrapper;
 use crate::conversations::Conversations;
 use crate::device_sync::DeviceSync;
 use crate::identity::{ApiStats, Identifier, IdentityStats};
@@ -234,14 +235,8 @@ pub async fn create_client(
   );
 
   backend.cursor_store(SqliteCursorStore::new(store.db()));
-  let api_client = backend
-    .clone()
-    .build()
-    .map_err(|e| JsError::new(&e.to_string()))?;
-  let sync_api_client = backend
-    .clone()
-    .build()
-    .map_err(|e| JsError::new(&e.to_string()))?;
+  let api_client = backend.clone().build().map_err(ErrorWrapper::js)?;
+  let sync_api_client = backend.clone().build().map_err(ErrorWrapper::js)?;
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
     .api_clients(api_client, sync_api_client)
@@ -257,10 +252,10 @@ pub async fn create_client(
 
   let xmtp_client = builder
     .default_mls_store()
-    .map_err(|e| JsError::new(&e.to_string()))?
+    .map_err(ErrorWrapper::js)?
     .build()
     .await
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    .map_err(ErrorWrapper::js)?;
 
   Ok(Client {
     account_identifier,
@@ -323,7 +318,7 @@ impl Client {
       .inner_client
       .can_message(&account_identifiers)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     let results: HashMap<_, _> = results
       .into_iter()
@@ -343,7 +338,7 @@ impl Client {
       .inner_client
       .find_inbox_id_from_identifier(&conn, identifier.try_into()?)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(inbox_id)
   }
@@ -361,7 +356,7 @@ impl Client {
         inbox_ids.iter().map(String::as_str).collect(),
       )
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(state.into_iter().map(Into::into).collect())
   }
 
@@ -382,7 +377,7 @@ impl Client {
     let summary = inner
       .sync_all_welcomes_and_device_sync_groups()
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(summary.into())
   }

@@ -1,3 +1,4 @@
+use crate::ErrorWrapper;
 use crate::client::{GroupSyncSummary, RustXmtpClient};
 use bindings_wasm_macros::wasm_bindgen_numbered_enum;
 use js_sys::Uint8Array;
@@ -189,7 +190,7 @@ impl DeviceSync {
       .device_sync_client()
       .send_sync_request(options.into(), server_url)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -208,7 +209,7 @@ impl DeviceSync {
       .device_sync_client()
       .send_sync_archive(&options.into(), &server_url, &pin)
       .await
-      .map_err(|e| JsError::new(&format!("{}", e)))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(())
   }
 
@@ -221,7 +222,7 @@ impl DeviceSync {
       .device_sync_client()
       .process_archive_with_pin(archive_pin.as_deref())
       .await
-      .map_err(|e| JsError::new(&format!("{}", e)))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(())
   }
 
@@ -237,7 +238,7 @@ impl DeviceSync {
       .inner_client
       .device_sync_client()
       .list_available_archives(days_cutoff)
-      .map_err(|e| JsError::new(&format!("{}", e)))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(available.into_iter().map(Into::into).collect())
   }
@@ -311,12 +312,12 @@ impl DeviceSync {
       .inner_client
       .sync_welcomes()
       .await
-      .map_err(|e| JsError::new(&format!("{}", e)))?;
+      .map_err(ErrorWrapper::js)?;
     let summary = self
       .inner_client
       .sync_all_device_sync_groups()
       .await
-      .map_err(|e| JsError::new(&format!("{}", e)))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(summary.into())
   }

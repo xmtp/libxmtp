@@ -7780,76 +7780,6 @@ public func FfiConverterTypeFfiEnrichedReply_lower(_ value: FfiEnrichedReply) ->
 }
 
 
-public struct FfiErrorInfo {
-    public var code: String
-    public var message: String
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(code: String, message: String) {
-        self.code = code
-        self.message = message
-    }
-}
-
-#if compiler(>=6)
-extension FfiErrorInfo: Sendable {}
-#endif
-
-
-extension FfiErrorInfo: Equatable, Hashable {
-    public static func ==(lhs: FfiErrorInfo, rhs: FfiErrorInfo) -> Bool {
-        if lhs.code != rhs.code {
-            return false
-        }
-        if lhs.message != rhs.message {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(code)
-        hasher.combine(message)
-    }
-}
-
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFfiErrorInfo: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiErrorInfo {
-        return
-            try FfiErrorInfo(
-                code: FfiConverterString.read(from: &buf), 
-                message: FfiConverterString.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: FfiErrorInfo, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.code, into: &buf)
-        FfiConverterString.write(value.message, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFfiErrorInfo_lift(_ buf: RustBuffer) throws -> FfiErrorInfo {
-    return try FfiConverterTypeFfiErrorInfo.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFfiErrorInfo_lower(_ value: FfiErrorInfo) -> RustBuffer {
-    return FfiConverterTypeFfiErrorInfo.lower(value)
-}
-
-
 public struct FfiForkRecoveryOpts {
     public var enableRecoveryRequests: FfiForkRecoveryPolicy
     public var groupsToRequestRecovery: [String]
@@ -16509,16 +16439,6 @@ public func isConnected(api: XmtpApiClient)async  -> Bool  {
         )
 }
 /**
- * Parse an error string like `[ErrorCode] message` into a structured error info.
- */
-public func parseXmtpError(message: String) -> FfiErrorInfo  {
-    return try!  FfiConverterTypeFfiErrorInfo_lift(try! rustCall() {
-    uniffi_xmtpv3_fn_func_parse_xmtp_error(
-        FfiConverterString.lower(message),$0
-    )
-})
-}
-/**
  * * Static revoke a list of installations
  */
 public func revokeInstallations(api: XmtpApiClient, recoveryIdentifier: FfiIdentifier, inboxId: String, installationIds: [Data])throws  -> FfiSignatureRequest  {
@@ -16680,9 +16600,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_is_connected() != 17295) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_parse_xmtp_error() != 57286) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_revoke_installations() != 64481) {

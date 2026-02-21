@@ -22,11 +22,6 @@ use serde_wasm_bindgen::Serializer;
 use wasm_bindgen::{JsError, JsValue};
 use xmtp_common::ErrorCode;
 
-#[allow(dead_code)]
-fn error(e: impl std::error::Error) -> JsError {
-  JsError::new(&format!("{}", e))
-}
-
 /// Wrapper for errors that implement ErrorCode trait.
 /// Prefixes the error message with the error code.
 ///
@@ -57,6 +52,14 @@ where
 {
   fn from(err: T) -> ErrorWrapper<T> {
     ErrorWrapper(err)
+  }
+}
+
+impl<T: ErrorCode> ErrorWrapper<T> {
+  /// Converts any error implementing `ErrorCode` into a `JsError` with
+  /// the `[ErrorCode] message` format and a `.code` property.
+  pub(crate) fn js(e: T) -> JsError {
+    ErrorWrapper(e).into()
   }
 }
 
