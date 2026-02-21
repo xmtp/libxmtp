@@ -1,0 +1,47 @@
+# Default configuration is uncommented
+# Commented configuration is an example
+[xnet]
+use_standard_ports = true
+toxiproxy_port = 8474
+
+[migration]
+enable = false
+migration_timestamp = 2_147_483_647
+
+[xmtpd]
+image = "ghcr.io/xmtp/xmtpd"
+version = "sha-695b07e"
+
+[v3]
+image = "ghcr.io/xmtp/node-go"
+version = "main"
+port = 5556
+
+[gateway]
+image = "ghcr.io/xmtp/xmtpd-gateway"
+version = "sha-695b07e"
+
+[validation]
+image = "ghcr.io/xmtp/mls-validation-service"
+version = "main"
+
+[contracts]
+image = "ghcr.io/xmtp/contracts"
+version = "main"
+
+[history]
+image = "ghcr.io/xmtp/message-history-server"
+version = "main"
+
+[toxiproxy]
+image = "ghcr.io/shopify/toxiproxy"
+version = "2.12.0"
+
+# [[xmtpd.nodes]]
+# enable = true
+# name = "alice-operator"
+# port = 3000
+# migrator = true
+
+# [[xmtpd.nodes]] # add the node but use defaults everywhere
+# enable = true
