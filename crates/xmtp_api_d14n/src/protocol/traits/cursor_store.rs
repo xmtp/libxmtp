@@ -97,6 +97,24 @@ pub trait CursorStore: MaybeSend + MaybeSync {
         &self,
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, CursorStoreError>;
+
+    /// Update the d14n migration cutover timestamp (nanoseconds)
+    fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), CursorStoreError>;
+
+    /// Get the d14n migration cutover timestamp (nanoseconds)
+    fn get_cutover_ns(&self) -> Result<i64, CursorStoreError>;
+
+    /// Get the last time we checked for migration cutover (nanoseconds)
+    fn get_last_checked_ns(&self) -> Result<i64, CursorStoreError>;
+
+    /// Update the last time we checked for migration cutover (nanoseconds)
+    fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), CursorStoreError>;
+
+    /// Check whether the d14n migration has already been completed
+    fn has_migrated(&self) -> Result<bool, CursorStoreError>;
+
+    /// Mark the d14n migration as completed
+    fn set_has_migrated(&self, has_migrated: bool) -> Result<(), CursorStoreError>;
 }
 
 impl<T: CursorStore> CursorStore for Option<T> {
@@ -174,6 +192,54 @@ impl<T: CursorStore> CursorStore for Option<T> {
             NoCursorStore.resolve_children(cursors)
         }
     }
+
+    fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), CursorStoreError> {
+        if let Some(c) = self {
+            c.set_cutover_ns(cutover_ns)
+        } else {
+            NoCursorStore.set_cutover_ns(cutover_ns)
+        }
+    }
+
+    fn get_cutover_ns(&self) -> Result<i64, CursorStoreError> {
+        if let Some(c) = self {
+            c.get_cutover_ns()
+        } else {
+            NoCursorStore.get_cutover_ns()
+        }
+    }
+
+    fn has_migrated(&self) -> Result<bool, CursorStoreError> {
+        if let Some(c) = self {
+            c.has_migrated()
+        } else {
+            NoCursorStore.has_migrated()
+        }
+    }
+
+    fn set_has_migrated(&self, has_migrated: bool) -> Result<(), CursorStoreError> {
+        if let Some(c) = self {
+            c.set_has_migrated(has_migrated)
+        } else {
+            NoCursorStore.set_has_migrated(has_migrated)
+        }
+    }
+
+    fn get_last_checked_ns(&self) -> Result<i64, CursorStoreError> {
+        if let Some(c) = self {
+            c.get_last_checked_ns()
+        } else {
+            NoCursorStore.get_last_checked_ns()
+        }
+    }
+
+    fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), CursorStoreError> {
+        if let Some(c) = self {
+            c.set_last_checked_ns(last_checked_ns)
+        } else {
+            NoCursorStore.set_last_checked_ns(last_checked_ns)
+        }
+    }
 }
 
 impl<T: CursorStore + ?Sized> CursorStore for &T {
@@ -220,6 +286,30 @@ impl<T: CursorStore + ?Sized> CursorStore for &T {
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, CursorStoreError> {
         (**self).resolve_children(cursors)
+    }
+
+    fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), CursorStoreError> {
+        (**self).set_cutover_ns(cutover_ns)
+    }
+
+    fn get_cutover_ns(&self) -> Result<i64, CursorStoreError> {
+        (**self).get_cutover_ns()
+    }
+
+    fn get_last_checked_ns(&self) -> Result<i64, CursorStoreError> {
+        (**self).get_last_checked_ns()
+    }
+
+    fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), CursorStoreError> {
+        (**self).set_last_checked_ns(last_checked_ns)
+    }
+
+    fn has_migrated(&self) -> Result<bool, CursorStoreError> {
+        (**self).has_migrated()
+    }
+
+    fn set_has_migrated(&self, has_migrated: bool) -> Result<(), CursorStoreError> {
+        (**self).set_has_migrated(has_migrated)
     }
 }
 
@@ -268,6 +358,30 @@ impl<T: CursorStore + ?Sized> CursorStore for Arc<T> {
     ) -> Result<Vec<OrphanedEnvelope>, CursorStoreError> {
         (**self).resolve_children(cursors)
     }
+
+    fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), CursorStoreError> {
+        (**self).set_cutover_ns(cutover_ns)
+    }
+
+    fn get_cutover_ns(&self) -> Result<i64, CursorStoreError> {
+        (**self).get_cutover_ns()
+    }
+
+    fn get_last_checked_ns(&self) -> Result<i64, CursorStoreError> {
+        (**self).get_last_checked_ns()
+    }
+
+    fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), CursorStoreError> {
+        (**self).set_last_checked_ns(last_checked_ns)
+    }
+
+    fn has_migrated(&self) -> Result<bool, CursorStoreError> {
+        (**self).has_migrated()
+    }
+
+    fn set_has_migrated(&self, has_migrated: bool) -> Result<(), CursorStoreError> {
+        (**self).set_has_migrated(has_migrated)
+    }
 }
 
 impl<T: CursorStore + ?Sized> CursorStore for Box<T> {
@@ -314,6 +428,30 @@ impl<T: CursorStore + ?Sized> CursorStore for Box<T> {
         cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, CursorStoreError> {
         (**self).resolve_children(cursors)
+    }
+
+    fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), CursorStoreError> {
+        (**self).set_cutover_ns(cutover_ns)
+    }
+
+    fn get_cutover_ns(&self) -> Result<i64, CursorStoreError> {
+        (**self).get_cutover_ns()
+    }
+
+    fn get_last_checked_ns(&self) -> Result<i64, CursorStoreError> {
+        (**self).get_last_checked_ns()
+    }
+
+    fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), CursorStoreError> {
+        (**self).set_last_checked_ns(last_checked_ns)
+    }
+
+    fn has_migrated(&self) -> Result<bool, CursorStoreError> {
+        (**self).has_migrated()
+    }
+
+    fn set_has_migrated(&self, has_migrated: bool) -> Result<(), CursorStoreError> {
+        (**self).set_has_migrated(has_migrated)
     }
 }
 
@@ -367,5 +505,29 @@ impl CursorStore for NoCursorStore {
         _cursors: &[Cursor],
     ) -> Result<Vec<OrphanedEnvelope>, CursorStoreError> {
         Ok(Vec::new())
+    }
+
+    fn set_cutover_ns(&self, _cutover_ns: i64) -> Result<(), CursorStoreError> {
+        Ok(())
+    }
+
+    fn get_cutover_ns(&self) -> Result<i64, CursorStoreError> {
+        Ok(i64::MAX)
+    }
+
+    fn get_last_checked_ns(&self) -> Result<i64, CursorStoreError> {
+        Ok(0)
+    }
+
+    fn set_last_checked_ns(&self, _last_checked_ns: i64) -> Result<(), CursorStoreError> {
+        Ok(())
+    }
+
+    fn has_migrated(&self) -> Result<bool, CursorStoreError> {
+        Ok(false)
+    }
+
+    fn set_has_migrated(&self, _has_migrated: bool) -> Result<(), CursorStoreError> {
+        Ok(())
     }
 }
