@@ -3,12 +3,11 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use color_eyre::eyre;
 use std::path::PathBuf;
-use xmtp_configuration::{MULTI_NODE_TIMEOUT_MS, PAYER_WRITE_FILTER};
+use xmtp_configuration::PAYER_WRITE_FILTER;
 use xxhash_rust::xxh3;
 mod types;
-use std::time::Duration;
 pub use types::*;
-use xmtp_api_d14n::{ClientBundle, MessageBackendBuilder, MiddlewareBuilder, ReadWriteClient};
+use xmtp_api_d14n::{ClientBundle, MessageBackendBuilder, ReadWriteClient};
 use xmtp_api_grpc::GrpcClient;
 use xmtp_proto::{
     api::Client,
@@ -383,16 +382,15 @@ impl BackendOpts {
         let mut gateway_client_builder = GrpcClient::builder();
         gateway_client_builder.set_host(self.xmtpd_gateway_url()?.to_string());
         gateway_client_builder.set_tls(is_secure);
+        let gateway_client = gateway_client_builder.build()?;
         let mut node_builder = GrpcClient::builder();
         node_builder.set_tls(is_secure);
 
-        let mut multi_node = xmtp_api_d14n::middleware::MultiNodeClientBuilder::default();
-        multi_node.set_timeout(Duration::from_millis(MULTI_NODE_TIMEOUT_MS))?;
-        multi_node.set_gateway_builder(gateway_client_builder.clone())?;
-        multi_node.set_node_client_builder(node_builder)?;
-        let multi_node = multi_node.build()?;
+        let multi_node = xmtp_api_d14n::middleware::MultiNodeClient::builder()
+            .gateway_client(gateway_client.clone())
+            .node_client_template(node_builder)
+            .build()?;
 
-        let gateway_client = gateway_client_builder.build()?;
         let rw = ReadWriteClient::builder()
             .read(multi_node)
             .write(gateway_client)

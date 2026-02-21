@@ -3,7 +3,7 @@
 use derive_builder::UninitializedFieldError;
 use std::sync::Arc;
 use thiserror::Error;
-use xmtp_api_grpc::error::{GrpcBuilderError, GrpcError};
+use xmtp_api_grpc::error::GrpcBuilderError;
 use xmtp_common::{ErrorCode, MaybeSend, MaybeSync};
 use xmtp_id::scw_verifier::VerifierError;
 use xmtp_proto::api::ApiClientError;
@@ -45,6 +45,8 @@ pub enum MessageBackendBuilderError {
     Builder(#[from] UninitializedFieldError),
     #[error("client kind {0} is currently unsupported")]
     UnsupportedClient(ClientKind),
+    #[error("XMTP Gateway host is required")]
+    MissingGatewayHost,
 }
 
 /// Indicates this api implementation can be type-erased
@@ -110,8 +112,8 @@ impl MessageBackendBuilder {
 
     pub fn from_bundle(
         &mut self,
-        bundle: ClientBundle<GrpcError>,
-    ) -> Result<FullXmtpApiArc<ApiClientError<GrpcError>>, MessageBackendBuilderError> {
+        bundle: ClientBundle,
+    ) -> Result<FullXmtpApiArc<ApiClientError>, MessageBackendBuilderError> {
         let cursor_store = self
             .cursor_store
             .clone()
@@ -137,9 +139,7 @@ impl MessageBackendBuilder {
     }
 
     /// Build the client
-    pub fn build(
-        &mut self,
-    ) -> Result<FullXmtpApiArc<ApiClientError<GrpcError>>, MessageBackendBuilderError> {
+    pub fn build(&mut self) -> Result<FullXmtpApiArc<ApiClientError>, MessageBackendBuilderError> {
         let Self { client_bundle, .. } = self;
         let bundle = client_bundle.build()?;
         self.from_bundle(bundle)

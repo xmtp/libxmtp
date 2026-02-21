@@ -27,7 +27,7 @@ impl<E: Error> FakeEmptyStream<E> {
 }
 
 impl<E: Error> Stream for FakeEmptyStream<E> {
-    type Item = Result<hyper::body::Frame<Bytes>, E>;
+    type Item = Result<Bytes, E>;
 
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Poll::Pending

@@ -1,17 +1,16 @@
-use std::{error::Error, sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use crate::{
-    AuthCallback, AuthHandle, MessageBackendBuilderError, MiddlewareBuilder, ReadWriteClient,
-    ReadonlyClient,
+    AuthCallback, AuthHandle, MessageBackendBuilderError, MultiNodeClientBuilderError,
+    ReadWriteClient, ReadonlyClient,
 };
 use derive_builder::Builder;
 use http::{request, uri::PathAndQuery};
 use prost::bytes::Bytes;
-use xmtp_api_grpc::{GrpcClient, error::GrpcError};
-use xmtp_common::{MaybeSend, MaybeSync};
-use xmtp_configuration::{MULTI_NODE_TIMEOUT_MS, PAYER_WRITE_FILTER};
+use xmtp_api_grpc::GrpcClient;
+use xmtp_configuration::PAYER_WRITE_FILTER;
 use xmtp_proto::{
-    api::{ApiClientError, ArcClient, Client, IsConnectedCheck, ToBoxedClient},
+    api::{ApiClientError, ArcClient, BytesStream, Client, IsConnectedCheck, ToBoxedClient},
     prelude::{ApiBuilder, NetConnectConfig},
     types::AppVersion,
 };
@@ -34,12 +33,12 @@ impl std::fmt::Display for ClientKind {
     }
 }
 
-pub struct ClientBundle<Err> {
-    client: ArcClient<Err>,
+pub struct ClientBundle {
+    client: ArcClient,
     kind: ClientKind,
 }
 
-impl<Err> Clone for ClientBundle<Err> {
+impl Clone for ClientBundle {
     fn clone(&self) -> Self {
         Self {
             client: self.client.clone(),
@@ -48,27 +47,20 @@ impl<Err> Clone for ClientBundle<Err> {
     }
 }
 
-impl ClientBundle<()> {
+impl ClientBundle {
     pub fn builder() -> ClientBundleBuilder {
         ClientBundleBuilder::default()
     }
 }
 
 #[xmtp_common::async_trait]
-impl<Err> Client for ClientBundle<Err>
-where
-    Err: Error + MaybeSend + MaybeSync + 'static,
-{
-    type Error = Err;
-
-    type Stream = <ArcClient<Err> as Client>::Stream;
-
+impl Client for ClientBundle {
     async fn request(
         &self,
         request: request::Builder,
         path: PathAndQuery,
         body: Bytes,
-    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
+    ) -> Result<http::Response<Bytes>, ApiClientError> {
         self.client.request(request, path, body).await
     }
 
@@ -77,29 +69,25 @@ where
         request: request::Builder,
         path: PathAndQuery,
         body: Bytes,
-    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
         self.client.stream(request, path, body).await
-    }
-
-    fn fake_stream(&self) -> http::Response<Self::Stream> {
-        self.client.fake_stream()
     }
 }
 
 #[xmtp_common::async_trait]
-impl<Err> IsConnectedCheck for ClientBundle<Err> {
+impl IsConnectedCheck for ClientBundle {
     async fn is_connected(&self) -> bool {
         self.client.is_connected().await
     }
 }
 
-impl<Err> ClientBundle<Err> {
-    pub fn new(client: ArcClient<Err>, kind: ClientKind) -> Self {
+impl ClientBundle {
+    pub fn new(client: ArcClient, kind: ClientKind) -> Self {
         Self { client, kind }
     }
 
     /// create a d14n client bundle
-    pub fn d14n(client: ArcClient<Err>) -> Self {
+    pub fn d14n(client: ArcClient) -> Self {
         Self {
             client,
             kind: ClientKind::D14n,
@@ -107,7 +95,7 @@ impl<Err> ClientBundle<Err> {
     }
 
     /// Create a v3 client bundle
-    pub fn v3(client: ArcClient<Err>) -> Self {
+    pub fn v3(client: ArcClient) -> Self {
         Self {
             client,
             kind: ClientKind::V3,
@@ -115,7 +103,7 @@ impl<Err> ClientBundle<Err> {
     }
 
     /// Create a hybrid client
-    pub fn hybrid(client: ArcClient<Err>) -> Self {
+    pub fn hybrid(client: ArcClient) -> Self {
         Self {
             client,
             kind: ClientKind::Hybrid,
@@ -162,7 +150,68 @@ impl ClientBundleBuilder {
         self
     }
 
-    pub fn build(&mut self) -> Result<ClientBundle<GrpcError>, MessageBackendBuilderError> {
+    fn inner_build_d14n(
+        &mut self,
+        gw_host: String,
+        is_secure: bool,
+        readonly: bool,
+    ) -> Result<ClientBundle, MessageBackendBuilderError> {
+        let Self {
+            app_version,
+            auth_callback,
+            auth_handle,
+            ..
+        } = self.clone();
+
+        let mut gateway_client_builder = GrpcClient::builder();
+        gateway_client_builder.set_host(gw_host.to_string());
+        gateway_client_builder.set_tls(is_secure);
+
+        if let Some(version) = app_version {
+            gateway_client_builder.set_app_version(version)?;
+        }
+        let gateway_client = gateway_client_builder.build()?;
+        let gateway_client = if auth_callback.is_some() || auth_handle.is_some() {
+            crate::AuthMiddleware::new(gateway_client, auth_callback, auth_handle).arced()
+        } else {
+            gateway_client.arced()
+        };
+
+        let mut multi_node = crate::middleware::MultiNodeClient::builder();
+        let multi_node = multi_node.gateway_client(gateway_client.clone());
+        let mut template = GrpcClient::builder();
+        template.set_tls(is_secure);
+        let multi_node = multi_node
+            .node_client_template(template)
+            .build()
+            .map_err(MultiNodeClientBuilderError::from)?;
+
+        if readonly {
+            return Ok(ClientBundle::d14n(
+                ReadonlyClient::builder().inner(multi_node).build()?.arced(),
+            ));
+        }
+        let client = ReadWriteClient::builder()
+            .read(multi_node)
+            .write(gateway_client)
+            .filter(PAYER_WRITE_FILTER)
+            .build()?;
+
+        Ok(ClientBundle::d14n(client.arced()))
+    }
+
+    /// build a client that is d14n only
+    pub fn build_d14n(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
+        let Self {
+            gateway_host,
+            is_secure,
+            ..
+        } = self.clone();
+
+        todo!()
+    }
+
+    pub fn build(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
         let Self {
             v3_host,
             gateway_host,
@@ -178,50 +227,7 @@ impl ClientBundleBuilder {
 
         // implicitly use a d14n client
         if let Some(gateway) = gateway_host {
-            let mut gateway_client_builder = GrpcClient::builder();
-            gateway_client_builder.set_host(gateway.to_string());
-            gateway_client_builder.set_tls(is_secure);
-
-            if let Some(version) = app_version {
-                gateway_client_builder.set_app_version(version)?;
-            }
-
-            let mut multi_node = crate::middleware::MultiNodeClientBuilder::default();
-            multi_node.set_timeout(Duration::from_millis(MULTI_NODE_TIMEOUT_MS))?;
-            multi_node.set_gateway_builder(gateway_client_builder.clone())?;
-            let mut template = GrpcClient::builder();
-            template.set_tls(is_secure);
-            multi_node.set_node_client_builder(template)?;
-
-            let gateway_client = gateway_client_builder.build()?;
-            let multi_node = multi_node.build()?;
-
-            let client = if auth_callback.is_some() || auth_handle.is_some() {
-                let auth = crate::AuthMiddleware::new(gateway_client, auth_callback, auth_handle);
-                let client = ReadWriteClient::builder()
-                    .read(multi_node)
-                    .write(auth)
-                    .filter(PAYER_WRITE_FILTER)
-                    .build()?;
-                if readonly {
-                    ReadonlyClient::builder().inner(client).build()?.arced()
-                } else {
-                    client.arced()
-                }
-            } else {
-                let client = ReadWriteClient::builder()
-                    .read(multi_node)
-                    .write(gateway_client)
-                    .filter(PAYER_WRITE_FILTER)
-                    .build()?;
-                if readonly {
-                    ReadonlyClient::builder().inner(client).build()?.arced()
-                } else {
-                    client.arced()
-                }
-            };
-
-            Ok(ClientBundle::d14n(client))
+            self.inner_build_d14n(gateway, is_secure, readonly)
         } else {
             let mut v3_client = GrpcClient::builder();
             v3_client.set_host(v3_host.to_string());

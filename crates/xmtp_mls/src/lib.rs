@@ -1,4 +1,4 @@
-#![recursion_limit = "256"]
+# ![recursion_limit = "256"]
 #![warn(clippy::unwrap_used)]
 
 pub mod builder;

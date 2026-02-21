@@ -6,8 +6,8 @@ xmtp_common::if_test! {
 
 use derive_builder::Builder;
 use prost::bytes::Bytes;
-use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api::{ApiClientError, Client};
+use xmtp_proto::api::{BytesStream, IsConnectedCheck};
 
 const DENY: &[&str] = &[
     "UploadKeyPackage",
@@ -16,6 +16,8 @@ const DENY: &[&str] = &[
     "SendWelcomeMessages",
     "RegisterInstallation",
     "PublishIdentityUpdate",
+    "PublishClientEnvelopes",
+    "PublishCommitLog",
 ];
 
 /// A client that will error on requests that write to the network.
@@ -37,15 +39,12 @@ impl<C> Client for ReadonlyClient<C>
 where
     C: Client,
 {
-    type Error = <C as Client>::Error;
-    type Stream = <C as Client>::Stream;
-
     async fn request(
         &self,
         request: http::request::Builder,
         path: http::uri::PathAndQuery,
         body: Bytes,
-    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
+    ) -> Result<http::Response<Bytes>, ApiClientError> {
         let p = path.path();
         if DENY.iter().any(|d| p.contains(d)) {
             return Err(ApiClientError::WritesDisabled);
@@ -59,17 +58,13 @@ where
         request: http::request::Builder,
         path: http::uri::PathAndQuery,
         body: Bytes,
-    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
         let p = path.path();
         if DENY.iter().any(|d| p.contains(d)) {
             return Err(ApiClientError::WritesDisabled);
         }
 
         self.inner.stream(request, path, body).await
-    }
-
-    fn fake_stream(&self) -> http::Response<Self::Stream> {
-        self.inner.fake_stream()
     }
 }
 

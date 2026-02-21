@@ -1,4 +1,3 @@
-use xmtp_api_grpc::error::GrpcError;
 use xmtp_configuration::CUTOVER_REFRESH_TIME;
 use xmtp_proto::api::ApiClientError;
 use xmtp_proto::api::Client;
@@ -17,7 +16,7 @@ use crate::protocol::FullXmtpApiArc;
 
 mod streams;
 
-type XmtpApiClient = FullXmtpApiArc<ApiClientError<GrpcError>>;
+type XmtpApiClient = FullXmtpApiArc<ApiClientError>;
 
 #[derive(Clone)]
 pub struct CombinedD14nClient<C, Store> {
@@ -26,12 +25,21 @@ pub struct CombinedD14nClient<C, Store> {
     store: Store,
     client: C,
 }
-
+/*
+impl<C, Store> CombinedClient<C, Store> {
+    pub fn new(client: C, store: Store) -> Result<Self, VerifierError> {
+        Ok(Self {
+            client,
+            store,
+        })
+    }
+}
+*/
 impl<C, S: CursorStore> CombinedD14nClient<C, S>
 where
-    C: Client<Error = GrpcError>,
+    C: Client,
 {
-    pub async fn choose_client(&self) -> Result<&XmtpApiClient, ApiClientError<GrpcError>> {
+    pub async fn choose_client(&self) -> Result<&XmtpApiClient, ApiClientError> {
         if self.store.has_migrated()? {
             return Ok(&self.xmtpd_client);
         }
@@ -60,10 +68,10 @@ where
 #[xmtp_common::async_trait]
 impl<C, S> XmtpMlsClient for CombinedD14nClient<C, S>
 where
-    C: Client<Error = GrpcError>,
+    C: Client,
     S: CursorStore,
 {
-    type Error = ApiClientError<GrpcError>;
+    type Error = ApiClientError;
 
     async fn upload_key_package(
         &self,
@@ -166,9 +174,9 @@ where
 impl<C, S> XmtpIdentityClient for CombinedD14nClient<C, S>
 where
     S: CursorStore,
-    C: Client<Error = GrpcError>,
+    C: Client,
 {
-    type Error = ApiClientError<GrpcError>;
+    type Error = ApiClientError;
 
     async fn publish_identity_update(
         &self,

@@ -21,7 +21,6 @@ pub mod process_welcome;
 mod stream_all;
 mod stream_conversations;
 pub mod stream_messages;
-mod stream_utils;
 
 #[cfg(any(test, feature = "test-utils"))]
 use crate::subscriptions::stream_messages::stream_stats::{StreamStatsWrapper, StreamWithStats};
