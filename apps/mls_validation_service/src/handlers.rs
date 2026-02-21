@@ -2,14 +2,13 @@ use futures::future::{join_all, try_join_all};
 use openmls::framing::ContentType;
 use openmls::prelude::{MlsMessageIn, ProtocolMessage, tls_codec::Deserialize};
 use openmls_rust_crypto::RustCrypto;
-use tonic::{Request, Response, Status};
-
+use tonic::{Code, Request, Response, Status};
 use xmtp_id::{
     associations::{
         self, AssociationError, DeserializationError, SignatureError, try_map_vec,
         unverified::UnverifiedIdentityUpdate,
     },
-    scw_verifier::{SmartContractSignatureVerifier, ValidationResponse},
+    scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError},
 };
 use xmtp_mls::{
     utils::id::serialize_group_id,
@@ -50,9 +49,45 @@ pub enum GrpcServerError {
     Conversion(#[from] xmtp_proto::ConversionError),
 }
 
+/// Maps application vs infrastructure errors to the appropriate gRPC status code so clients can
+/// tell validation failures from transient or server errors.
+/// 
+/// Note: It's extremely important for the D14N backend to correctly map these errors to the appropriate gRPC status codes.
+/// And only errors that are truly retryable should be mapped to the Unavailable status code.
+///
+/// - **InvalidArgument**: Bad client input (deserialization, conversion, association state, or
+///   signature validation). Client should fix the request. Non retryable.
+/// - **Unavailable**: Network or transient infra (verifier RPC, I/O, missing verifier, or
+///   retryable "other" errors). Client may retry. Retryable.
+/// - **Internal**: Server/verifier failure (e.g. non-retryable "other" from verifier). Clients may
+///   retry later once the infra problem is resolved.
 impl From<GrpcServerError> for Status {
     fn from(err: GrpcServerError) -> Self {
-        Status::invalid_argument(err.to_string())
+        use xmtp_id::associations::SignatureError;
+        let message = err.to_string();
+        let code = match &err {
+            GrpcServerError::Deserialization(_) | GrpcServerError::Conversion(_) => {
+                Code::InvalidArgument
+            }
+            GrpcServerError::Association(_) => Code::InvalidArgument,
+            GrpcServerError::Signature(sig) => match sig {
+                SignatureError::VerifierError(ve) => match ve {
+                    VerifierError::Io(_) | VerifierError::Provider(_) | VerifierError::NoVerifier => {
+                        Code::Unavailable
+                    }
+                    VerifierError::Other(inner) => {
+                        if xmtp_common::RetryableError::is_retryable(inner.as_ref()) {
+                            Code::Unavailable
+                        } else {
+                            Code::Internal
+                        }
+                    }
+                    _ => Code::InvalidArgument,
+                },
+                _ => Code::InvalidArgument,
+            },
+        };
+        Status::new(code, message)
     }
 }
 
