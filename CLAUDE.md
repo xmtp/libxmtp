@@ -28,6 +28,7 @@ LibXMTP is a shared library implementing the XMTP messaging protocol using MLS (
 ```
 
 **Key patterns:**
+
 - `Client<Context>` - Generic client parameterized by context (allows different API/DB combinations)
 - `ClientBuilder` - Fluent builder for client construction with identity, API, and storage config
 - `XmtpMlsLocalContext` - Centralizes dependencies (API, storage, identity, locks, events)

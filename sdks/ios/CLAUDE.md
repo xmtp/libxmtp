@@ -53,6 +53,7 @@ Tests require a running XMTP backend. For CI, tests use ephemeral Fly.io infrast
 ```
 
 Environment variables for custom backend:
+
 - `XMTP_NODE_ADDRESS` - Node gRPC URL
 - `XMTP_HISTORY_SERVER_ADDRESS` - History server URL
 
