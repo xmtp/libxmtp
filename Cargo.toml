@@ -6,6 +6,7 @@ members = [
   "bindings/*",
   # Core crates
   "crates/*",
+  "log_parser",
   # Core crates
   "crates/xmtp-workspace-hack",
 ]

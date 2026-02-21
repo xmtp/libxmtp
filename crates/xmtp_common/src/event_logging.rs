@@ -36,7 +36,7 @@ pub enum Event {
 
     // ===================== MLS Operations =====================
     /// Received staged commit. Merging and clearing any pending commits.
-    #[context(group_id, sender_installation_id, msg_epoch, epoch, icon = "❗")]
+    #[context(group_id, sender_installation_id, msg_epoch, epoch, hash, icon = "❗")]
     MLSReceivedStagedCommit,
     /// Processed staged commit.
     #[context(
@@ -94,7 +94,7 @@ pub enum Event {
     #[context(group_id, intent_id, intent_kind, commit_hash, icon = "✨")]
     GroupSyncCommitPublishSuccess,
     /// Commit sent. Staged commit is present. Stopping further publishes for this round.
-    #[context(group_id, icon = "🛑")]
+    #[context(group_id, hash, icon = "🛑")]
     GroupSyncStagedCommitPresent,
     /// Updating group cursor.
     #[context(group_id, cursor, originator, icon = "📍")]
