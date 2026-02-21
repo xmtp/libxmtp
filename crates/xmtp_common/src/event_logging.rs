@@ -5,8 +5,17 @@ pub use utils::*;
 pub enum Event {
     // ===================== General Client =====================
     /// Client created.
-    #[context(device_sync_enabled, disabled_workers, inbox_id, full_installation_id)]
+    #[context(
+        device_sync_enabled,
+        disabled_workers,
+        inbox_id,
+        full_installation_id,
+        icon = "⬆️"
+    )]
     ClientCreated,
+    /// Client dropped.
+    #[context(icon = "⬇️")]
+    ClientDropped,
     /// Associating name with installation.
     #[context(name)]
     AssociateName,
@@ -22,7 +31,7 @@ pub enum Event {
     #[context(group_id, members, epoch, icon = "➕")]
     AddedMembers,
     /// Received new group from welcome.
-    #[context(group_id, conversation_type, epoch, icon = "🤝")]
+    #[context(group_id, conversation_type, epoch, epoch_auth, icon = "🤝")]
     ProcessedWelcome,
 
     // ===================== MLS Operations =====================
@@ -34,26 +43,26 @@ pub enum Event {
         group_id,
         actor_installation_id,
         epoch,
+        epoch_auth,
         added_inboxes,
         removed_inboxes,
         left_inboxes,
         metadata_changes,
+        cursor,
+        originator,
         icon = "😮‍💨"
     )]
     MLSProcessedStagedCommit,
     /// Received application message.
     #[context(group_id, epoch, msg_epoch, sender_inbox_id)]
     MLSReceivedApplicationMessage,
-    /// Group epoch updated.
-    #[context(group_id, cursor, originator, epoch, epoch_auth, previous_epoch)]
-    MLSGroupEpochUpdated,
 
     // ===================== Network =====================
     /// Stream started.
-    #[context(kind)]
+    #[context(kind, icon = "🌊")]
     StreamOpened,
     /// Stream closed.
-    #[context(kind)]
+    #[context(kind, icon = "🏜️")]
     StreamClosed,
 
     // ===================== Group Syncing =====================
