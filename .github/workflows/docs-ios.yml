@@ -1,28 +1,46 @@
 name: iOS Docs
 
 on:
-  push:
-    branches: ["main"]
-    paths: ["sdks/ios/**"]
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+        description: "Version string (e.g., 4.9.0, 4.9.1-rc.1)"
+      update-latest:
+        required: true
+        type: boolean
+        description: "Also update ios/latest/"
+      ref:
+        required: true
+        type: string
+        description: "Git ref to build from"
   workflow_dispatch:
+    inputs:
+      version:
+        required: false
+        type: string
+        description: "Version string (e.g., 4.9.0). Leave empty to only update latest."
+      update-latest:
+        required: false
+        type: boolean
+        default: true
+        description: "Also update ios/latest/"
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: "ios-pages"
+  group: "ios-docs"
   cancel-in-progress: false
 
 jobs:
   deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
@@ -32,29 +50,46 @@ jobs:
           xcode-version: "16.0"
       - name: Build bindings
         run: nix develop .#ios --command ./sdks/ios/dev/bindings
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.0"
-      - name: Cache Ruby gems
-        uses: actions/cache@v5
-        with:
-          path: sdks/ios/vendor/bundle
-          key: ${{ runner.os }}-gems-${{ hashFiles('**/Gemfile.lock') }}
-      - name: Install Jazzy
-        working-directory: sdks/ios
+      - name: Hide internal symbols from docs
+        run: ./sdks/ios/dev/hide-internal-symbols
+
+      # Versioned deploy (only when called with an explicit version)
+      - name: Generate versioned docs
+        if: inputs.version
         run: |
-          bundle config path vendor/bundle
-          bundle add jazzy
-      - name: Generate documentation
-        working-directory: sdks/ios
-        run: bundle exec jazzy --output ./docs --theme=fullwidth --module=XMTPiOS
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v4
+          swift package \
+            --allow-writing-to-package-directory \
+            generate-documentation \
+            --target XMTPiOS \
+            --output-path ./.build/docs \
+            --transform-for-static-hosting \
+            --hosting-base-path libxmtp/ios/${{ inputs.version }}
+      - name: Deploy versioned docs
+        if: inputs.version
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: "sdks/ios/docs"
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./.build/docs
+          destination_dir: ios/${{ inputs.version }}
+          keep_files: true
+
+      # Latest deploy
+      - name: Generate latest docs
+        if: inputs.update-latest
+        run: |
+          rm -rf ./.build/docs-latest
+          swift package \
+            --allow-writing-to-package-directory \
+            generate-documentation \
+            --target XMTPiOS \
+            --output-path ./.build/docs-latest \
+            --transform-for-static-hosting \
+            --hosting-base-path libxmtp/ios/latest
+      - name: Deploy latest docs
+        if: inputs.update-latest
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./.build/docs-latest
+          destination_dir: ios/latest
+          keep_files: true
