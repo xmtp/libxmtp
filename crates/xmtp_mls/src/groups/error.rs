@@ -26,7 +26,11 @@ use xmtp_db::sql_key_store;
 use xmtp_mls_common::group_metadata::GroupMetadataError;
 use xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError;
 
+/// Wraps multiple message processing errors from a single receive operation.
+///
+/// Contains a list of message IDs that failed and their corresponding errors. May be retryable.
 #[derive(Error, Debug, ErrorCode)]
+#[error_code(internal)]
 pub struct ReceiveErrors {
     /// list of message ids we received
     ids: Vec<u64>,
@@ -76,116 +80,278 @@ pub enum GroupError {
     #[error(transparent)]
     #[error_code(inherit)]
     NotFound(#[from] NotFound),
+    /// Max user limit exceeded.
+    ///
+    /// Attempted to add too many members. Not retryable.
     #[error("Max user limit exceeded.")]
     UserLimitExceeded,
+    /// Sequence ID not found.
+    ///
+    /// Missing sequence ID in local database. Not retryable.
     #[error("SequenceId not found in local db")]
     MissingSequenceId,
+    /// Addresses not found.
+    ///
+    /// Specified addresses have no XMTP identity. Not retryable.
     #[error("Addresses not found {0:?}")]
     AddressNotFound(Vec<String>),
+    /// API error.
+    ///
+    /// Network request failed. Retryable.
     #[error("api error: {0}")]
     WrappedApi(#[from] xmtp_api::ApiError),
+    /// Invalid group membership.
+    ///
+    /// Group membership state is invalid. Not retryable.
     #[error("invalid group membership")]
     InvalidGroupMembership,
+    /// Leave cannot be processed.
+    ///
+    /// Group leave validation failed. Not retryable.
     #[error(transparent)]
     LeaveCantProcessed(#[from] GroupLeaveValidationError),
+    /// Storage error.
+    ///
+    /// Database operation failed. May be retryable.
     #[error("storage error: {0}")]
     Storage(#[from] xmtp_db::StorageError),
+    /// Intent error.
+    ///
+    /// Failed to process group intent. Not retryable.
     #[error("intent error: {0}")]
     Intent(#[from] IntentError),
+    /// Create message error.
+    ///
+    /// MLS message creation failed. Not retryable.
     #[error("create message: {0}")]
     CreateMessage(#[from] openmls::prelude::CreateMessageError),
+    /// TLS codec error.
+    ///
+    /// MLS TLS encoding/decoding failed. Not retryable.
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
+    /// Update group membership error.
+    ///
+    /// Failed to update group membership. May be retryable.
     #[error("add members: {0}")]
     UpdateGroupMembership(
         #[from] openmls::prelude::UpdateGroupMembershipError<sql_key_store::SqlKeyStoreError>,
     ),
+    /// Group create error.
+    ///
+    /// MLS group creation failed. May be retryable.
     #[error("group create: {0}")]
     GroupCreate(#[from] openmls::group::NewGroupError<sql_key_store::SqlKeyStoreError>),
+    /// Self update error.
+    ///
+    /// MLS self-update operation failed. May be retryable.
     #[error("self update: {0}")]
     SelfUpdate(#[from] openmls::group::SelfUpdateError<sql_key_store::SqlKeyStoreError>),
+    /// Welcome error.
+    ///
+    /// Processing MLS welcome message failed. May be retryable.
     #[error("welcome error: {0}")]
     WelcomeError(#[from] openmls::prelude::WelcomeError<sql_key_store::SqlKeyStoreError>),
+    /// Invalid extension.
+    ///
+    /// MLS extension validation failed. Not retryable.
     #[error("Invalid extension {0}")]
     InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
+    /// Invalid signature.
+    ///
+    /// MLS signature verification failed. Not retryable.
     #[error("Invalid signature: {0}")]
     Signature(#[from] openmls::prelude::SignatureError),
+    /// Client error.
+    ///
+    /// Client operation failed within group. May be retryable.
     #[error("client: {0}")]
     Client(#[from] ClientError),
+    /// Receive error.
+    ///
+    /// Processing received group message failed. May be retryable.
     #[error("receive error: {0}")]
     ReceiveError(#[from] GroupMessageProcessingError),
+    /// Receive errors.
+    ///
+    /// Multiple message processing failures. May be retryable.
     #[error("Receive errors: {0}")]
     ReceiveErrors(ReceiveErrors),
+    /// Address validation error.
+    ///
+    /// An address/identifier is invalid. Not retryable.
     #[error(transparent)]
     AddressValidation(#[from] IdentifierValidationError),
+    /// Local event error.
+    ///
+    /// Failed to process local event. Not retryable.
     #[error(transparent)]
     LocalEvent(#[from] LocalEventError),
+    /// Invalid public keys.
+    ///
+    /// Keys are not valid Ed25519 public keys. Not retryable.
     #[error("Public Keys {0:?} are not valid ed25519 public keys")]
     InvalidPublicKeys(Vec<Vec<u8>>),
+    /// Commit validation error.
+    ///
+    /// MLS commit validation failed. May be retryable.
     #[error("Commit validation error {0}")]
     CommitValidation(#[from] CommitValidationError),
+    /// Identity error.
+    ///
+    /// Identity operation failed. Not retryable.
     #[error("identity error: {0}")]
     Identity(#[from] IdentityError),
+    /// Conversion error.
+    ///
+    /// Proto conversion failed. Not retryable.
     #[error("conversion error: {0}")]
     ConversionError(#[from] xmtp_proto::ConversionError),
+    /// Crypto error.
+    ///
+    /// Cryptographic operation failed. Not retryable.
     #[error("crypto error: {0}")]
     CryptoError(#[from] openmls::prelude::CryptoError),
+    /// Group context proposal error.
+    ///
+    /// Failed to create group context extension proposal. May be retryable.
     #[error("create group context proposal error: {0}")]
     CreateGroupContextExtProposalError(
         #[from] CreateGroupContextExtProposalError<sql_key_store::SqlKeyStoreError>,
     ),
+    /// Credential error.
+    ///
+    /// MLS credential validation failed. Not retryable.
     #[error("Credential error")]
     CredentialError(#[from] BasicCredentialError),
+    /// Leaf node error.
+    ///
+    /// MLS leaf node operation failed. Not retryable.
     #[error("LeafNode error")]
     LeafNodeError(#[from] LibraryError),
+    /// Installation diff error.
+    ///
+    /// Installation diff computation failed. May be retryable.
     #[error("Installation diff error: {0}")]
     InstallationDiff(#[from] InstallationDiffError),
+    /// No PSK support.
+    ///
+    /// Pre-shared keys are not supported. Not retryable.
     #[error("PSKs are not support")]
     NoPSKSupport,
+    /// SQL key store error.
+    ///
+    /// OpenMLS key store operation failed. May be retryable.
     #[error("sql key store error: {0}")]
     SqlKeyStore(#[from] sql_key_store::SqlKeyStoreError),
+    /// Sync failed to wait.
+    ///
+    /// Waiting for intent sync failed. Retryable.
     #[error("Sync failed to wait for intent")]
     SyncFailedToWait(Box<SyncSummary>),
+    /// Missing pending commit.
+    ///
+    /// Expected pending commit not found. Not retryable.
     #[error("Missing pending commit")]
     MissingPendingCommit,
+    /// Process intent error.
+    ///
+    /// Failed to process group intent. May be retryable.
     #[error(transparent)]
     ProcessIntent(#[from] ProcessIntentError),
+    /// Failed to load lock.
+    ///
+    /// Concurrency lock acquisition failed. Retryable.
     #[error("Failed to load lock")]
     LockUnavailable,
+    /// Exceeded max characters.
+    ///
+    /// Field value exceeds character limit. Not retryable.
     #[error("Exceeded max characters for this field. Must be under: {length}")]
     TooManyCharacters { length: usize },
+    /// Group paused until update.
+    ///
+    /// Group is paused until a newer version is available. Not retryable.
     #[error("Group is paused until version {0} is available")]
     GroupPausedUntilUpdate(String),
+    /// Group is inactive.
+    ///
+    /// Operation on an inactive group. Not retryable.
     #[error("Group is inactive")]
     GroupInactive,
+    /// Sync summary.
+    ///
+    /// Sync operation completed with errors. May be retryable.
     #[error("{}", _0.to_string())]
     Sync(#[from] Box<SyncSummary>),
+    /// Database connection error.
+    ///
+    /// Database connection failed. Retryable.
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
+    /// MLS store error.
+    ///
+    /// OpenMLS key store failed. Not retryable.
     #[error(transparent)]
     MlsStore(#[from] MlsStoreError),
+    /// Metadata permissions error.
+    ///
+    /// Metadata permission check failed. Not retryable.
     #[error(transparent)]
     MetadataPermissionsError(#[from] MetadataPermissionsError),
+    /// Failed to verify installations.
+    ///
+    /// Installation verification failed. Not retryable.
     #[error("Failed to verify all installations")]
     FailedToVerifyInstallations,
+    /// No welcomes to send.
+    ///
+    /// No welcome messages to send to new members. Not retryable.
     #[error("no welcomes to send")]
     NoWelcomesToSend,
+    /// Codec error.
+    ///
+    /// Content type codec failed. Retryable.
     #[error("Codec error: {0}")]
     CodecError(#[from] CodecError),
+    /// Wrap welcome error.
+    ///
+    /// Failed to wrap welcome message. Not retryable.
     #[error(transparent)]
     WrapWelcome(#[from] WrapWelcomeError),
+    /// Unwrap welcome error.
+    ///
+    /// Failed to unwrap welcome message. Not retryable.
     #[error(transparent)]
     UnwrapWelcome(#[from] UnwrapWelcomeError),
+    /// Welcome data not found.
+    ///
+    /// Welcome data missing from topic. Not retryable.
     #[error("Failed to retrieve welcome data from topic {0}")]
     WelcomeDataNotFound(String),
+    /// Result not initialized.
+    ///
+    /// Expected result was not initialized. Not retryable.
     #[error("Result was not initialized")]
     UninitializedResult,
+    /// Diesel ORM error.
+    ///
+    /// Raw database query failed. May be retryable.
     #[error(transparent)]
     Diesel(#[from] xmtp_db::diesel::result::Error),
+    /// Uninitialized field.
+    ///
+    /// Builder field not initialized. Not retryable.
     #[error(transparent)]
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
+    /// Delete message error.
+    ///
+    /// Failed to delete message. Not retryable.
     #[error(transparent)]
     DeleteMessage(#[from] DeleteMessageError),
+    /// Device sync error.
+    ///
+    /// Device sync operation failed. May be retryable.
     #[error(transparent)]
     DeviceSync(#[from] Box<DeviceSyncError>),
 }

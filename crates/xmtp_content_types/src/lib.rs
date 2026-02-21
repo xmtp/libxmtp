@@ -28,13 +28,26 @@ mod compatibility_test;
 pub mod test_utils;
 
 #[derive(Debug, Error, ErrorCode)]
+#[error_code(internal)]
 pub enum CodecError {
+    /// Encode error.
+    ///
+    /// Content type encoding failed. Not retryable.
     #[error("encode error {0}")]
     Encode(String),
+    /// Decode error.
+    ///
+    /// Content type decoding failed. Not retryable.
     #[error("decode error {0}")]
     Decode(String),
+    /// Codec not found.
+    ///
+    /// No codec registered for content type. Not retryable.
     #[error("codec not found for {0:?}")]
     CodecNotFound(ContentTypeId),
+    /// Invalid content type.
+    ///
+    /// Content type identifier is invalid. Not retryable.
     #[error("invalid content type")]
     InvalidContentType,
 }

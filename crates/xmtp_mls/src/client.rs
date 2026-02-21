@@ -75,39 +75,90 @@ pub enum ClientError {
     #[error(transparent)]
     #[error_code(inherit)]
     AddressValidation(#[from] IdentifierValidationError),
+    /// Could not publish.
+    ///
+    /// Failed to publish messages to the network. May be retryable.
     #[error("could not publish: {0}")]
     PublishError(String),
+    /// Storage error.
+    ///
+    /// Database operation failed. May be retryable.
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
+    /// API error.
+    ///
+    /// Network request to XMTP backend failed. Retryable.
     #[error("API error: {0}")]
     Api(#[from] xmtp_api::ApiError),
+    /// Identity error.
+    ///
+    /// Problem with identity operations. Not retryable.
     #[error("identity error: {0}")]
     Identity(#[from] crate::identity::IdentityError),
+    /// TLS Codec error.
+    ///
+    /// Encoding/decoding MLS TLS structures failed. Not retryable.
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
+    /// Key package verification failed.
+    ///
+    /// Invalid key package received from network. Not retryable.
     #[error("key package verification: {0}")]
     KeyPackageVerification(#[from] KeyPackageVerificationError),
+    /// Stream inconsistency.
+    ///
+    /// Message stream state became inconsistent. Not retryable.
     #[error("Stream inconsistency error: {0}")]
     StreamInconsistency(String),
+    /// Association error.
+    ///
+    /// Identity association operation failed. Not retryable.
     #[error("Association error: {0}")]
     Association(#[from] AssociationError),
+    /// Signature validation error.
+    ///
+    /// A signature failed verification. Not retryable.
     #[error("signature validation error: {0}")]
     SignatureValidation(#[from] SignatureError),
+    /// Identity update error.
+    ///
+    /// Failed to process identity update. Not retryable.
     #[error(transparent)]
     IdentityUpdate(#[from] IdentityUpdateError),
+    /// Signature request error.
+    ///
+    /// Failed to create/process signature request. Not retryable.
     #[error(transparent)]
     SignatureRequest(#[from] SignatureRequestError),
+    /// Group error.
+    ///
+    /// Group operation failed. May be retryable.
     // the box is to prevent infinite cycle between client and group errors
     #[error(transparent)]
     Group(Box<GroupError>),
+    /// Local event error.
+    ///
+    /// Failed to process local event. Not retryable.
     #[error(transparent)]
     LocalEvent(#[from] LocalEventError),
+    /// Database connection error.
+    ///
+    /// Connection to database failed. Retryable.
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
+    /// Generic error.
+    ///
+    /// Unclassified error. May be retryable.
     #[error("generic:{0}")]
     Generic(String),
+    /// MLS store error.
+    ///
+    /// OpenMLS key store operation failed. Not retryable.
     #[error(transparent)]
     MlsStore(#[from] MlsStoreError),
+    /// Message enrichment error.
+    ///
+    /// Failed to enrich message content. Not retryable.
     #[error(transparent)]
     EnrichMessage(#[from] EnrichMessageError),
 }

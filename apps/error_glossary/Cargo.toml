@@ -1,0 +1,16 @@
+[package]
+name = "error_glossary"
+edition = "2021"
+version.workspace = true
+license.workspace = true
+description = "Generates a markdown error glossary from ErrorCode-deriving types"
+
+[[bin]]
+name = "error-glossary"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+syn = { version = "2.0", features = ["full", "parsing"] }
+walkdir = "2"
+xmtp-workspace-hack = { version = "0.1", path = "../../crates/xmtp-workspace-hack" }

@@ -70,6 +70,8 @@ openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "beb0884d
 openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", features = ["test-utils"] }
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = { version = "1" }
 rand = { version = "0.9", features = ["serde"] }
 rand_chacha-274715c4dabd11b0 = { package = "rand_chacha", version = "0.9" }
 rand_chacha-468e82937335b1c9 = { package = "rand_chacha", version = "0.3" }
@@ -86,6 +88,7 @@ serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value", "unbounded_depth"] }
 sha1 = { version = "0.10", features = ["compress"] }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union", "write"] }
+syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
 time = { version = "0.3", features = ["formatting", "local-offset", "parsing"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
@@ -164,6 +167,7 @@ openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "beb0884db2640
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
 proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = { version = "1" }
 rand = { version = "0.9", features = ["serde"] }
 rand_chacha-274715c4dabd11b0 = { package = "rand_chacha", version = "0.9" }
 rand_chacha-468e82937335b1c9 = { package = "rand_chacha", version = "0.3" }
