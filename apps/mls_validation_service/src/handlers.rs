@@ -3,6 +3,7 @@ use openmls::framing::ContentType;
 use openmls::prelude::{MlsMessageIn, ProtocolMessage, tls_codec::Deserialize};
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Code, Request, Response, Status};
+use xmtp_common::RetryableError;
 use xmtp_id::{
     associations::{
         self, AssociationError, DeserializationError, SignatureError, try_map_vec,
@@ -75,8 +76,8 @@ impl From<GrpcServerError> for Status {
                     VerifierError::Io(_) | VerifierError::Provider(_) | VerifierError::NoVerifier => {
                         Code::Unavailable
                     }
-                    VerifierError::Other(inner) => {
-                        if xmtp_common::RetryableError::is_retryable(inner.as_ref()) {
+                    VerifierError::Other(_) => {
+                        if ve.is_retryable() {
                             Code::Unavailable
                         } else {
                             Code::Internal
@@ -256,7 +257,7 @@ async fn verify_smart_contract_wallet_signatures(
             Err(err) => VerifySmartContractWalletSignaturesValidationResponse {
                 is_valid: false,
                 block_number: None,
-                error: Some(format!("{err:?}")),
+                error: Some(err.to_string()),
             },
             Ok(response) => VerifySmartContractWalletSignaturesValidationResponse {
                 is_valid: response.is_valid,
@@ -335,6 +336,12 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
+    use tonic::Code;
+    use xmtp_id::associations::{AssociationError, DeserializationError, SignatureError};
+    use xmtp_id::scw_verifier::VerifierError;
+    use xmtp_proto::ConversionError;
+    use xmtp_common::{rand_string, rand_u64, RetryableError};
     use alloy::dyn_abi::SolType;
     use alloy::primitives::{B256, U256};
     use alloy::providers::Provider;
@@ -347,7 +354,6 @@ mod tests {
         prelude::{Credential as OpenMlsCredential, CredentialWithKey, tls_codec::Serialize},
     };
     use openmls_rust_crypto::OpenMlsRustCrypto;
-    use xmtp_common::{rand_string, rand_u64};
     use xmtp_configuration::CIPHERSUITE;
     use xmtp_cryptography::XmtpInstallationCredential;
     use xmtp_id::utils::test::smart_wallet;
@@ -566,5 +572,94 @@ mod tests {
                 error: None
             }
         );
+    }
+
+    /// Helper to build VerifierError::Other with configurable retryability for tests.
+    #[derive(Debug)]
+    struct RetryableTestError(bool);
+    impl std::fmt::Display for RetryableTestError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "test error retryable={}", self.0)
+        }
+    }
+    impl std::error::Error for RetryableTestError {}
+    impl RetryableError for RetryableTestError {
+        fn is_retryable(&self) -> bool {
+            self.0
+        }
+    }
+
+    #[test]
+    fn grpc_error_deserialization_maps_to_invalid_argument() {
+        let err = GrpcServerError::Deserialization(DeserializationError::InvalidAccountId);
+        let status = Status::from(err);
+        assert_eq!(status.code(), Code::InvalidArgument);
+    }
+
+    #[test]
+    fn grpc_error_conversion_maps_to_invalid_argument() {
+        let err = GrpcServerError::Conversion(ConversionError::Unspecified("field"));
+        let status = Status::from(err);
+        assert_eq!(status.code(), Code::InvalidArgument);
+    }
+
+    #[test]
+    fn grpc_error_association_maps_to_invalid_argument() {
+        let err = GrpcServerError::Association(AssociationError::Replay);
+        let status = Status::from(err);
+        assert_eq!(status.code(), Code::InvalidArgument);
+    }
+
+    #[test]
+    fn grpc_error_signature_verifier_io_maps_to_unavailable() {
+        let io_err = io::Error::new(io::ErrorKind::ConnectionRefused, "test");
+        let err = GrpcServerError::Signature(SignatureError::VerifierError(VerifierError::Io(
+            io_err,
+        )));
+        let status = Status::from(err);
+        assert_eq!(status.code(), Code::Unavailable);
+    }
+
+    #[test]
+    fn grpc_error_signature_verifier_no_verifier_maps_to_unavailable() {
+        let err = GrpcServerError::Signature(SignatureError::VerifierError(
+            VerifierError::NoVerifier,
+        ));
+        let status = Status::from(err);
+        assert_eq!(status.code(), Code::Unavailable);
+    }
+
+    #[test]
+    fn grpc_error_signature_verifier_other_retryable_maps_to_unavailable() {
+        let err = GrpcServerError::Signature(SignatureError::VerifierError(
+            VerifierError::Other(Box::new(RetryableTestError(true))),
+        ));
+        let status = Status::from(err);
+        assert_eq!(status.code(), Code::Unavailable);
+    }
+
+    #[test]
+    fn grpc_error_signature_verifier_other_non_retryable_maps_to_internal() {
+        let err = GrpcServerError::Signature(SignatureError::VerifierError(
+            VerifierError::Other(Box::new(RetryableTestError(false))),
+        ));
+        let status = Status::from(err);
+        assert_eq!(status.code(), Code::Internal);
+    }
+
+    #[test]
+    fn grpc_error_signature_other_variants_maps_to_invalid_argument() {
+        let err = GrpcServerError::Signature(SignatureError::Invalid);
+        let status = Status::from(err);
+        assert_eq!(status.code(), Code::InvalidArgument);
+    }
+
+    #[test]
+    fn grpc_error_signature_verifier_invalid_hash_maps_to_invalid_argument() {
+        let err = GrpcServerError::Signature(SignatureError::VerifierError(
+            VerifierError::InvalidHash(vec![1, 2, 3]),
+        ));
+        let status = Status::from(err);
+        assert_eq!(status.code(), Code::InvalidArgument);
     }
 }
