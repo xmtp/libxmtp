@@ -1,10 +1,7 @@
 use crate::{
     mls_v1::QueryGroupMessagesResponse,
     types::{GroupId, GroupMessageMetadata, TopicCursor, WelcomeMessage},
-    xmtp::xmtpv4::{
-        envelopes::OriginatorEnvelope,
-        message_api::QueryEnvelopesResponse,
-    },
+    xmtp::xmtpv4::{envelopes::OriginatorEnvelope, message_api::QueryEnvelopesResponse},
 };
 
 use super::*;
