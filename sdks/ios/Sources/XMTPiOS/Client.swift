@@ -1,12 +1,22 @@
 import Foundation
 import os
 
+/// A callback invoked before a key authentication event, giving the app a chance to
+/// prepare the UI (e.g., show a signing prompt) before the user is asked to sign.
 public typealias PreEventCallback = () async throws -> Void
+
+/// Metadata associated with a message, such as sender and timestamp information.
+///
+/// This is a type alias for the FFI-layer `FfiMessageMetadata`.
 public typealias MessageMetadata = FfiMessageMetadata
 
+/// Errors thrown by ``Client`` during creation, identity resolution, or configuration.
 public enum ClientError: Error, CustomStringConvertible, LocalizedError {
+	/// Client creation failed. The associated value contains a human-readable reason.
 	case creationError(String)
+	/// No inbox ID could be found or generated for the given identity.
 	case missingInboxId
+	/// The provided inbox ID is invalid (e.g., it starts with `0x`).
 	case invalidInboxId(String)
 
 	public var description: String {
@@ -25,9 +35,16 @@ public enum ClientError: Error, CustomStringConvertible, LocalizedError {
 	}
 }
 
+/// Controls which groups are eligible for automatic MLS fork recovery.
+///
+/// An MLS "fork" occurs when group state diverges between members. Recovery re-establishes
+/// a consistent state so messages can flow again.
 public enum ForkRecoveryPolicy {
+	/// Disable fork recovery entirely.
 	case none
+	/// Only recover groups that appear in ``ForkRecoveryOptions/groupsToRequestRecovery``.
 	case allowlistedGroups
+	/// Attempt recovery for every forked group.
 	case all
 
 	func toFfi() -> FfiForkRecoveryPolicy {
@@ -42,12 +59,27 @@ public enum ForkRecoveryPolicy {
 	}
 }
 
+/// Configuration for MLS fork recovery behavior.
+///
+/// Use this struct to control whether and how the client requests and responds
+/// to fork-recovery operations.
 public struct ForkRecoveryOptions {
+	/// The policy that determines which groups may request fork recovery.
 	public var enableRecoveryRequests: ForkRecoveryPolicy
+	/// Group IDs (hex strings) eligible for recovery when the policy is ``ForkRecoveryPolicy/allowlistedGroups``.
 	public var groupsToRequestRecovery: [String]
+	/// When `true`, this installation will not respond to fork-recovery requests from other members.
 	public var disableRecoveryResponses: Bool?
+	/// Optional interval, in nanoseconds, between recovery worker runs.
 	public var workerIntervalNs: UInt64?
 
+	/// Creates fork recovery options.
+	///
+	/// - Parameters:
+	///   - enableRecoveryRequests: The policy for which groups may request recovery.
+	///   - groupsToRequestRecovery: Group IDs eligible for recovery (used with ``ForkRecoveryPolicy/allowlistedGroups``).
+	///   - disableRecoveryResponses: Pass `true` to prevent this installation from responding to recovery requests.
+	///   - workerIntervalNs: Optional interval in nanoseconds for the recovery worker.
 	public init(
 		enableRecoveryRequests: ForkRecoveryPolicy,
 		groupsToRequestRecovery: [String],
@@ -162,33 +194,72 @@ actor ApiClientCache {
 	}
 }
 
+/// A unique, network-assigned identifier for an XMTP inbox.
+///
+/// An inbox ID is a hex-encoded string that represents a user's identity on the XMTP network.
+/// Multiple wallet addresses (accounts) can be associated with a single inbox ID.
 public typealias InboxId = String
 
+/// The primary entry point for interacting with the XMTP messaging network.
+///
+/// A `Client` represents a single XMTP installation. It manages the local encrypted
+/// database, network connections, conversations, and identity operations.
+///
+/// ## Creating a Client
+///
+/// Use ``create(account:options:)`` to register a new identity, or ``build(publicIdentity:options:inboxId:)``
+/// to reconnect an existing one:
+///
+/// ```swift
+/// // First launch -- registers on the network
+/// let client = try await Client.create(account: wallet, options: opts)
+///
+/// // Subsequent launches -- no signing key needed
+/// let client = try await Client.build(publicIdentity: identity, options: opts)
+/// ```
+///
+/// ## Thread Safety
+///
+/// `Client` is a `final class` and is safe to share across Swift concurrency contexts.
 public final class Client {
+	/// The inbox ID associated with this client's identity on the XMTP network.
 	public let inboxID: InboxId
+	/// The version string of the underlying libxmtp library.
 	public let libXMTPVersion: String = getVersionInfo()
+	/// The file-system path to the local encrypted SQLite database.
 	public let dbPath: String
+	/// A hex-encoded identifier for this specific app installation.
 	public let installationID: String
+	/// The public identity (e.g., wallet address) associated with this client.
 	public let publicIdentity: PublicIdentity
+	/// The XMTP network environment this client is connected to (e.g., `.dev`, `.production`).
 	public let environment: XMTPEnvironment
 	private let ffiClient: FfiXmtpClient
 	private static let apiCache = ApiClientCache()
 
+	/// The entry point for listing, creating, and streaming conversations.
 	public lazy var conversations: Conversations = .init(
 		client: self, ffiConversations: ffiClient.conversations(),
 		ffiClient: ffiClient
 	)
 
+	/// Manages consent and private preference settings for this inbox.
 	public lazy var preferences: PrivatePreferences = .init(
 		client: self, ffiClient: ffiClient
 	)
 
+	/// Provides access to debug and diagnostic information for this client instance.
 	public lazy var debugInformation: XMTPDebugInformation = .init(
 		client: self, ffiClient: ffiClient
 	)
 
 	static var codecRegistry = CodecRegistry()
 
+	/// Registers a content codec globally so all clients can encode and decode its content type.
+	///
+	/// Call this before sending or receiving messages that use a custom content type.
+	///
+	/// - Parameter codec: The codec to register.
 	public static func register(codec: any ContentCodec) {
 		codecRegistry.register(codec: codec)
 	}
@@ -260,6 +331,27 @@ public final class Client {
 		return client
 	}
 
+	/// Creates a new XMTP client and registers it on the network.
+	///
+	/// This is the primary entry point for first-time users. It looks up (or generates) an
+	/// inbox ID for the given account, creates the local encrypted database, and registers the
+	/// installation's identity on the XMTP network. The `account` will be asked to produce
+	/// a signature during this process.
+	///
+	/// ```swift
+	/// let options = ClientOptions(dbEncryptionKey: myKey)
+	/// let client = try await Client.create(account: wallet, options: options)
+	/// print(client.inboxID) // the newly registered inbox
+	/// ```
+	///
+	/// On subsequent app launches where the identity is already registered, use
+	/// ``build(publicIdentity:options:inboxId:)`` instead -- it does not require a signing key.
+	///
+	/// - Parameters:
+	///   - account: A signing key (e.g., an Ethereum wallet) used to authenticate and register the identity.
+	///   - options: Configuration for network, database, and codecs.
+	/// - Returns: A fully initialized and network-registered ``Client``.
+	/// - Throws: ``ClientError/creationError(_:)`` if signing or registration fails.
 	public static func create(
 		account: SigningKey, options: ClientOptions
 	)
@@ -278,6 +370,30 @@ public final class Client {
 		)
 	}
 
+	/// Builds a client for an already-registered identity without requiring a signing key.
+	///
+	/// Use this on subsequent app launches after the identity has been registered with
+	/// ``create(account:options:)``. Because no signing key is needed, the user is not
+	/// prompted to sign anything.
+	///
+	/// ```swift
+	/// // Reconnect on app launch
+	/// let client = try await Client.build(
+	///     publicIdentity: savedIdentity,
+	///     options: options
+	/// )
+	/// ```
+	///
+	/// If you supply an `inboxId`, the client will attempt to build offline without
+	/// contacting the network, which is useful for immediate access in poor connectivity.
+	///
+	/// - Parameters:
+	///   - publicIdentity: The public identity (e.g., wallet address) previously registered.
+	///   - options: Configuration for network, database, and codecs.
+	///   - inboxId: An optional inbox ID. When provided, the client builds offline without a network lookup.
+	/// - Returns: A reconnected ``Client`` backed by the existing local database.
+	/// - Throws: ``ClientError/creationError(_:)`` if the local database cannot be opened
+	///   or the identity is not yet registered.
 	public static func build(
 		publicIdentity: PublicIdentity, options: ClientOptions,
 		inboxId: InboxId? = nil
@@ -301,6 +417,7 @@ public final class Client {
 		)
 	}
 
+	/// Creates a raw FFI client without signing or registering the identity.
 	@available(
 		*,
 		deprecated,
@@ -428,6 +545,11 @@ public final class Client {
 		}
 	}
 
+	/// Connects (or returns a cached connection) to the XMTP API backend.
+	///
+	/// - Parameter api: Network configuration specifying the environment and TLS settings.
+	/// - Returns: A connected ``XmtpApiClient``.
+	/// - Throws: If the connection cannot be established.
 	public static func connectToApiBackend(api: ClientOptions.Api) async throws
 		-> XmtpApiClient
 	{
@@ -454,6 +576,11 @@ public final class Client {
 		return newClient
 	}
 
+	/// Connects (or returns a cached connection) to the XMTP sync API backend used for device sync.
+	///
+	/// - Parameter api: Network configuration specifying the environment and TLS settings.
+	/// - Returns: A connected ``XmtpApiClient`` for sync operations.
+	/// - Throws: If the connection cannot be established.
 	public static func connectToSyncApiBackend(api: ClientOptions.Api)
 		async throws
 		-> XmtpApiClient
@@ -481,6 +608,12 @@ public final class Client {
 		return newClient
 	}
 
+	/// Looks up the inbox ID for a public identity on the network, or generates a new one if none exists.
+	///
+	/// - Parameters:
+	///   - api: Network configuration.
+	///   - publicIdentity: The identity to look up.
+	/// - Returns: The existing or newly generated ``InboxId``.
 	public static func getOrCreateInboxId(
 		api: ClientOptions.Api, publicIdentity: PublicIdentity
 	) async throws -> InboxId {
@@ -502,6 +635,17 @@ public final class Client {
 		return inboxId
 	}
 
+	/// Revokes one or more installations from an inbox without requiring a local client.
+	///
+	/// This is a static convenience for revoking installations when you only have
+	/// the signing key and inbox ID, without a fully constructed ``Client``.
+	///
+	/// - Parameters:
+	///   - api: Network configuration.
+	///   - signingKey: The recovery signing key that owns the inbox.
+	///   - inboxId: The inbox ID to revoke installations from.
+	///   - installationIds: Hex-encoded installation IDs to revoke.
+	/// - Throws: ``ClientError/creationError(_:)`` if signing or the network request fails.
 	public static func revokeInstallations(
 		api: ClientOptions.Api,
 		signingKey: SigningKey,
@@ -538,6 +682,7 @@ public final class Client {
 		}
 	}
 
+	/// Applies a pre-built signature request to the network without a local client.
 	@available(
 		*,
 		deprecated,
@@ -560,6 +705,7 @@ public final class Client {
 		)
 	}
 
+	/// Creates a revocation signature request for manual signature management.
 	@available(
 		*,
 		deprecated,
@@ -619,6 +765,13 @@ public final class Client {
 		)
 	}
 
+	/// Checks whether one or more identities are reachable on the XMTP network without a local client.
+	///
+	/// - Parameters:
+	///   - accountIdentities: The identities to check.
+	///   - api: Network configuration.
+	/// - Returns: A dictionary mapping each identity's ``PublicIdentity/identifier`` to a `Bool`
+	///   indicating whether that identity has an active XMTP installation.
 	public static func canMessage(
 		accountIdentities: [PublicIdentity], api: ClientOptions.Api
 	) async throws -> [String: Bool] {
@@ -633,6 +786,12 @@ public final class Client {
 		)
 	}
 
+	/// Fetches the identity state for a list of inbox IDs from the network without a local client.
+	///
+	/// - Parameters:
+	///   - inboxIds: The inbox IDs to query.
+	///   - api: Network configuration.
+	/// - Returns: An array of ``InboxState`` values describing each inbox's installations and linked accounts.
 	public static func inboxStatesForInboxIds(
 		inboxIds: [InboxId],
 		api: ClientOptions.Api
@@ -644,6 +803,14 @@ public final class Client {
 		return result.map { InboxState(ffiInboxState: $0) }
 	}
 
+	/// Retrieves the MLS key package status for each installation ID without a local client.
+	///
+	/// Key package status indicates whether an installation's MLS key material is valid, expired, or revoked.
+	///
+	/// - Parameters:
+	///   - installationIds: Hex-encoded installation IDs to query.
+	///   - api: Network configuration.
+	/// - Returns: A dictionary mapping each hex-encoded installation ID to its ``FfiKeyPackageStatus``.
 	public static func keyPackageStatusesForInstallationIds(
 		installationIds: [String],
 		api: ClientOptions.Api
@@ -663,6 +830,14 @@ public final class Client {
 		return statusMap
 	}
 
+	/// Fetches the metadata of the newest message in each group without a local client.
+	///
+	/// Useful for displaying preview information (sender, timestamp) without downloading full messages.
+	///
+	/// - Parameters:
+	///   - groupIds: Hex-encoded group IDs to query.
+	///   - api: Network configuration.
+	/// - Returns: A dictionary mapping each hex-encoded group ID to its newest ``MessageMetadata``.
 	public static func getNewestMessageMetadata(
 		groupIds: [String],
 		api: ClientOptions.Api
@@ -699,6 +874,7 @@ public final class Client {
 		self.publicIdentity = publicIdentity
 	}
 
+	/// Links an additional signing key (wallet) to this client's inbox.
 	@available(
 		*, deprecated,
 		message:
@@ -738,6 +914,15 @@ public final class Client {
 		}
 	}
 
+	/// Unlinks an identity from this inbox, signed by the recovery account.
+	///
+	/// After removal, the identity will no longer be associated with this inbox and
+	/// cannot send or receive messages through it.
+	///
+	/// - Parameters:
+	///   - recoveryAccount: The signing key authorized to make identity changes on this inbox.
+	///   - identityToRemove: The public identity to unlink.
+	/// - Throws: ``ClientError/creationError(_:)`` if signing fails.
 	public func removeAccount(
 		recoveryAccount: SigningKey, identityToRemove: PublicIdentity
 	) async throws {
@@ -759,6 +944,13 @@ public final class Client {
 		}
 	}
 
+	/// Revokes every installation on this inbox except the current one.
+	///
+	/// This is useful when a user wants to sign out of all other devices.
+	/// If there are no other installations, this method returns without error.
+	///
+	/// - Parameter signingKey: The signing key authorized to make identity changes.
+	/// - Throws: ``ClientError/creationError(_:)`` if signing fails.
 	public func revokeAllOtherInstallations(signingKey: SigningKey) async throws {
 		guard let signatureRequest = try await ffiRevokeAllOtherInstallations() else {
 			// No other installations to revoke – nothing to do.
@@ -779,6 +971,12 @@ public final class Client {
 		}
 	}
 
+	/// Revokes specific installations from this inbox.
+	///
+	/// - Parameters:
+	///   - signingKey: The signing key authorized to make identity changes.
+	///   - installationIds: Hex-encoded installation IDs to revoke.
+	/// - Throws: ``ClientError/creationError(_:)`` if signing fails.
 	public func revokeInstallations(
 		signingKey: SigningKey, installationIds: [String]
 	) async throws {
@@ -801,6 +999,10 @@ public final class Client {
 		}
 	}
 
+	/// Checks whether a single identity is reachable on the XMTP network.
+	///
+	/// - Parameter identity: The identity to check.
+	/// - Returns: `true` if the identity has an active XMTP installation, `false` otherwise.
 	public func canMessage(identity: PublicIdentity) async throws -> Bool {
 		let canMessage = try await canMessage(identities: [
 			identity,
@@ -808,6 +1010,11 @@ public final class Client {
 		return canMessage[identity.identifier] ?? false
 	}
 
+	/// Checks whether multiple identities are reachable on the XMTP network.
+	///
+	/// - Parameter identities: The identities to check.
+	/// - Returns: A dictionary mapping each identity's ``PublicIdentity/identifier`` to a `Bool`
+	///   indicating reachability.
 	public func canMessage(identities: [PublicIdentity]) async throws
 		-> [String: Bool]
 	{
@@ -821,12 +1028,19 @@ public final class Client {
 		)
 	}
 
+	/// Deletes the local encrypted database file from disk.
+	///
+	/// - Important: This is a destructive, irreversible operation. All locally cached
+	///   conversations and messages will be lost. The client instance should not be used after
+	///   calling this method. You will need to call ``create(account:options:)`` or
+	///   ``build(publicIdentity:options:inboxId:)`` to obtain a new client.
 	public func deleteLocalDatabase() throws {
 		try dropLocalDatabaseConnection()
 		let fm = FileManager.default
 		try fm.removeItem(atPath: dbPath)
 	}
 
+	/// Drops the active connection to the local database.
 	@available(
 		*, deprecated,
 		message:
@@ -836,10 +1050,15 @@ public final class Client {
 		try ffiClient.releaseDbConnection()
 	}
 
+	/// Re-establishes the connection to the local encrypted database after it was dropped.
 	public func reconnectLocalDatabase() async throws {
 		try await ffiClient.dbReconnect()
 	}
 
+	/// Looks up the inbox ID associated with a public identity on the network.
+	///
+	/// - Parameter identity: The identity to look up.
+	/// - Returns: The ``InboxId`` if the identity is registered, or `nil` if it has never been seen on the network.
 	public func inboxIdFromIdentity(identity: PublicIdentity) async throws
 		-> InboxId?
 	{
@@ -855,10 +1074,20 @@ public final class Client {
 		try await ffiClient.sendSyncRequest(options: opts.toFfi(), serverUrl: resolvedUrl)
 	}
 
+	/// Signs a message using this installation's private MLS key.
+	///
+	/// - Parameter message: The plaintext message to sign.
+	/// - Returns: The raw signature bytes.
 	public func signWithInstallationKey(message: String) throws -> Data {
 		try ffiClient.signWithInstallationKey(text: message)
 	}
 
+	/// Verifies that a signature was produced by this installation's key.
+	///
+	/// - Parameters:
+	///   - message: The original plaintext message that was signed.
+	///   - signature: The raw signature bytes to verify.
+	/// - Returns: `true` if the signature is valid, `false` otherwise.
 	public func verifySignature(message: String, signature: Data) throws -> Bool {
 		do {
 			try ffiClient.verifySignedWithInstallationKey(
@@ -870,6 +1099,13 @@ public final class Client {
 		}
 	}
 
+	/// Verifies that a signature was produced by a specific installation's public key.
+	///
+	/// - Parameters:
+	///   - message: The original plaintext message that was signed.
+	///   - signature: The raw signature bytes to verify.
+	///   - installationId: The hex-encoded installation ID whose public key should be used for verification.
+	/// - Returns: `true` if the signature is valid for the given installation, `false` otherwise.
 	public func verifySignatureWithInstallationId(
 		message: String, signature: Data, installationId: String
 	) throws -> Bool {
@@ -884,6 +1120,11 @@ public final class Client {
 		}
 	}
 
+	/// Returns the full identity state for this client's inbox, including all linked accounts and installations.
+	///
+	/// - Parameter refreshFromNetwork: When `true`, fetches the latest state from the network
+	///   instead of returning the locally cached version.
+	/// - Returns: An ``InboxState`` describing the inbox's current installations and linked identities.
 	public func inboxState(refreshFromNetwork: Bool) async throws -> InboxState {
 		try await InboxState(
 			ffiInboxState: ffiClient.inboxState(
@@ -892,6 +1133,12 @@ public final class Client {
 		)
 	}
 
+	/// Fetches the identity state for a list of inbox IDs.
+	///
+	/// - Parameters:
+	///   - refreshFromNetwork: When `true`, fetches the latest state from the network.
+	///   - inboxIds: The inbox IDs to query.
+	/// - Returns: An array of ``InboxState`` values for the requested inboxes.
 	public func inboxStatesForInboxIds(
 		refreshFromNetwork: Bool, inboxIds: [InboxId]
 	) async throws -> [InboxState] {
@@ -934,6 +1181,12 @@ public final class Client {
 		)
 	}
 
+	/// Creates an encrypted archive of the local database at the specified path.
+	///
+	/// - Parameters:
+	///   - path: The file-system path where the archive will be written.
+	///   - encryptionKey: A symmetric key used to encrypt the archive.
+	///   - opts: Options controlling which data to include in the archive.
 	public func createArchive(
 		path: String,
 		encryptionKey: Data,
@@ -942,10 +1195,21 @@ public final class Client {
 		try await ffiClient.createArchive(path: path, opts: opts.toFfi(), key: encryptionKey)
 	}
 
+	/// Imports an encrypted archive into the local database, restoring conversations and messages.
+	///
+	/// - Parameters:
+	///   - path: The file-system path to the archive file.
+	///   - encryptionKey: The symmetric key that was used to encrypt the archive.
 	public func importArchive(path: String, encryptionKey: Data) async throws {
 		try await ffiClient.importArchive(path: path, key: encryptionKey)
 	}
 
+	/// Reads metadata from an encrypted archive without fully importing it.
+	///
+	/// - Parameters:
+	///   - path: The file-system path to the archive file.
+	///   - encryptionKey: The symmetric key that was used to encrypt the archive.
+	/// - Returns: An ``ArchiveMetadata`` value describing the archive's contents and creation date.
 	public func archiveMetadata(path: String, encryptionKey: Data) async throws
 		-> ArchiveMetadata
 	{
@@ -955,6 +1219,7 @@ public final class Client {
 		return ArchiveMetadata(ffiMetadata)
 	}
 
+	/// Applies a pre-built signature request to the network for manual signature management.
 	@available(
 		*,
 		deprecated,
@@ -972,6 +1237,7 @@ public final class Client {
 		)
 	}
 
+	/// Creates a revocation signature request for specific installations for manual signature management.
 	@available(
 		*,
 		deprecated,
@@ -990,6 +1256,7 @@ public final class Client {
 		return SignatureRequest(ffiSignatureRequest: ffiSigReq)
 	}
 
+	/// Creates a signature request to revoke all other installations for manual signature management.
 	@available(
 		*,
 		deprecated,
@@ -1007,6 +1274,7 @@ public final class Client {
 			.map(SignatureRequest.init(ffiSignatureRequest:))
 	}
 
+	/// Creates a signature request to remove an identity for manual signature management.
 	@available(
 		*,
 		deprecated,
@@ -1025,6 +1293,7 @@ public final class Client {
 		return SignatureRequest(ffiSignatureRequest: ffiSigReq)
 	}
 
+	/// Creates a signature request to add an identity for manual signature management.
 	@available(
 		*,
 		deprecated,
@@ -1060,6 +1329,7 @@ public final class Client {
 		}
 	}
 
+	/// Returns the pending signature request for this client, if any, for manual signature management.
 	@available(
 		*,
 		deprecated,
@@ -1076,6 +1346,7 @@ public final class Client {
 		return SignatureRequest(ffiSignatureRequest: ffiReq)
 	}
 
+	/// Registers the client's identity on the network using a pre-built signature request.
 	@available(
 		*,
 		deprecated,
