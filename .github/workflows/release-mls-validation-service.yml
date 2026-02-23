@@ -2,21 +2,43 @@ name: Build (and push/deploy) MLS Validation Service
 
 on:
   push:
-    branches: [ main ]         # main: push SHA tag
-  pull_request:                # PRs: build only
-  workflow_dispatch:           # manual: full tags + deploy
+    branches: [main] # main: push SHA tag
+  pull_request: # PRs: build only
+  workflow_dispatch: # manual: full tags + deploy
+
+env:
+  IMAGE: ghcr.io/xmtp/mls-validation-service
 
 jobs:
-  push_to_registry:
-    name: Build MLS Validation Docker Image
+  build:
+    name: Build (${{ matrix.arch }})
     runs-on: warp-ubuntu-latest-x64-16x
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Build Docker image
+        run: nix build .#validation-service-image-${{ matrix.arch }} -L
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.arch }}
+          path: result
+
+  push:
+    name: Push to GHCR
+    runs-on: ubuntu-latest
+    needs: build
+    if: ${{ github.event_name != 'pull_request' }}
     permissions:
       contents: read
       packages: write
-    outputs:
-      digest: ${{ steps.build.outputs.digest }}
-    env:
-      IMAGE: ghcr.io/${{ github.repository_owner }}/mls-validation-service
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -28,65 +50,64 @@ jobs:
         id: version
         run: echo "version=$(toml get -r Cargo.toml workspace.package.version)" >> "$GITHUB_OUTPUT"
 
-      # ---- Metadata per mode ----
-      - name: Metadata (manual/full)
-        id: meta_full
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE }}
-          tags: |
-            type=raw,value=v${{ steps.version.outputs.version }}
-            type=raw,value=${{ steps.version.outputs.version }}
-            type=sha
-            type=raw,value=latest
-
-      - name: Metadata (main/sha-only)
-        id: meta_sha
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE }}
-          tags: |
-            type=sha
-
-      - name: Metadata (PR/non-main build-only)
-        id: meta_ci
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE }}
-          tags: |
-            type=raw,value=ci-${{ github.sha }}
-
-      # ---- Login only when pushing ----
       - name: Log in to GHCR
-        if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ---- Single build step with conditional push ----
-      - name: Build (and conditionally push)
-        id: build
-        uses: docker/build-push-action@v6
+      - name: Download image artifacts
+        uses: actions/download-artifact@v4
         with:
-          context: .
-          file: ./dev/validation_service/Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta_full.outputs.tags || steps.meta_sha.outputs.tags || steps.meta_ci.outputs.tags }}
-          labels: ${{ steps.meta_full.outputs.labels || steps.meta_sha.outputs.labels || steps.meta_ci.outputs.labels }}
+          pattern: image-*
+
+      - name: Determine SHA tag
+        id: sha
+        run: echo "tag=sha-$(echo ${{ github.sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      - name: Load and push arch-specific images
+        run: |
+          # Load amd64 image (tagged :main by Nix)
+          docker load -i image-amd64/result
+          docker tag ${{ env.IMAGE }}:main ${{ env.IMAGE }}:${{ steps.sha.outputs.tag }}-amd64
+          docker push ${{ env.IMAGE }}:${{ steps.sha.outputs.tag }}-amd64
+
+          # Load arm64 image (overwrites :main)
+          docker load -i image-arm64/result
+          docker tag ${{ env.IMAGE }}:main ${{ env.IMAGE }}:${{ steps.sha.outputs.tag }}-arm64
+          docker push ${{ env.IMAGE }}:${{ steps.sha.outputs.tag }}-arm64
+
+      - name: Create and push multi-arch manifest (SHA)
+        run: |
+          docker manifest create ${{ env.IMAGE }}:${{ steps.sha.outputs.tag }} \
+            ${{ env.IMAGE }}:${{ steps.sha.outputs.tag }}-amd64 \
+            ${{ env.IMAGE }}:${{ steps.sha.outputs.tag }}-arm64
+          docker manifest push ${{ env.IMAGE }}:${{ steps.sha.outputs.tag }}
+
+      - name: Push version tags (manual dispatch only)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+
+          for TAG in "v${VERSION}" "${VERSION}" "latest"; do
+            docker manifest create ${{ env.IMAGE }}:${TAG} \
+              ${{ env.IMAGE }}:${{ steps.sha.outputs.tag }}-amd64 \
+              ${{ env.IMAGE }}:${{ steps.sha.outputs.tag }}-arm64
+            docker manifest push ${{ env.IMAGE }}:${TAG}
+          done
+
+    outputs:
+      digest: ${{ steps.sha.outputs.tag }}
 
   deploy:
     name: Deploy new MLS validation image to infra
     runs-on: ubuntu-latest
-    needs: push_to_registry
-    if: ${{ github.event_name == 'workflow_dispatch' }}  # manual only
+    needs: push
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     strategy:
       matrix:
-        environment: [ dev, production, testnet-staging, testnet-dev, testnet ]
+        environment: [dev, production, testnet-staging, testnet-dev, testnet]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -98,5 +119,5 @@ jobs:
           terraform-org: xmtp
           terraform-workspace: ${{ matrix.environment }}
           variable-name: validation_service_image
-          variable-value: "ghcr.io/xmtp/mls-validation-service@${{ needs.push_to_registry.outputs.digest }}"
-          variable-value-required-prefix: "ghcr.io/xmtp/mls-validation-service@sha256:"
+          variable-value: "ghcr.io/xmtp/mls-validation-service:${{ needs.push.outputs.digest }}"
+          variable-value-required-prefix: "ghcr.io/xmtp/mls-validation-service:"

@@ -4,19 +4,14 @@ script_dir="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 "${script_dir}"/compose pull
 
-# skip building mls_validation_service if its built in nix
-if [ -f result ] && tar -xOf result manifest.json 2>/dev/null | grep -q "mls-validation-service"; then
-    echo "detected nix validation image, skipping build"
-    "${script_dir}"/compose build --parallel $("${script_dir}"/compose config --services | grep -v "^validation$")
-     docker load -i result
-else
-    echo "Building all services including validation"
-    "${script_dir}"/compose build --parallel
+# Build validation service image via Nix (fast path: host Docker architecture)
+if [ ! -f result ] || ! tar -xOf result manifest.json 2>/dev/null | grep -q "mls-validation-service"; then
+    echo "Building validation service image via Nix..."
+    nix build .#validation-service-image -L
 fi
+docker load -i result
 
-
-if [ -f result ] && tar -xOf result manifest.json 2>/dev/null | grep -q "mls-validation-service"; then
-  docker load -i result
-fi
+# Build remaining services (envoy proxy, toxiproxy, anvil)
+"${script_dir}"/compose build --parallel $("${script_dir}"/compose config --services | grep -v "^validation$")
 
 "${script_dir}"/compose up -d --remove-orphans --wait --timeout 500
