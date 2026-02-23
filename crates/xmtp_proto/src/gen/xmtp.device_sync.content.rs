@@ -123,15 +123,17 @@ impl ::prost::Name for HmacKeyUpdate {
 /// Initiator or new installation id requesting a sync payload send a request
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeviceSyncRequest {
+    /// Unique identifier for each request
     #[prost(string, tag = "1")]
-    pub pin: ::prost::alloc::string::String,
+    pub request_id: ::prost::alloc::string::String,
+    #[deprecated]
     #[prost(string, tag = "2")]
-    pub server_url: ::prost::alloc::string::String,
+    pub pin_code: ::prost::alloc::string::String,
     #[deprecated]
     #[prost(enumeration = "super::BackupElementSelection", tag = "3")]
-    pub deprecated_kind: i32,
+    pub kind: i32,
     #[prost(message, optional, tag = "4")]
-    pub options: ::core::option::Option<super::ArchiveOptions>,
+    pub options: ::core::option::Option<super::BackupOptions>,
 }
 impl ::prost::Name for DeviceSyncRequest {
     const NAME: &'static str = "DeviceSyncRequest";
