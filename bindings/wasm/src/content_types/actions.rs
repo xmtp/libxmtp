@@ -7,6 +7,8 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::actions::ActionsCodec;
 
+use super::ContentTypeError;
+use crate::ErrorWrapper;
 use crate::encoded_content::{ContentTypeId, EncodedContent};
 
 #[derive(Clone, Serialize, Deserialize, Tsify)]
@@ -30,10 +32,10 @@ impl TryFrom<xmtp_content_types::actions::Actions> for Actions {
       Some(dt) => {
         let ns_opt = dt.timestamp_nanos_opt();
         if ns_opt.is_none() {
-          return Err(JsError::new(&format!(
+          return Err(ContentTypeError::TimestampOutOfRange(format!(
             "Actions '{}' expiration timestamp is out of valid range for conversion to nanoseconds",
             actions_id
-          )));
+          )).into_js());
         }
         ns_opt
       }
@@ -93,10 +95,10 @@ impl TryFrom<xmtp_content_types::actions::Action> for Action {
       Some(dt) => {
         let ns_opt = dt.timestamp_nanos_opt();
         if ns_opt.is_none() {
-          return Err(JsError::new(&format!(
+          return Err(ContentTypeError::TimestampOutOfRange(format!(
             "Action '{}' expiration timestamp is out of valid range for conversion to nanoseconds",
             action_id
-          )));
+          )).into_js());
         }
         ns_opt
       }
@@ -165,7 +167,7 @@ pub fn content_type_actions() -> ContentTypeId {
 pub fn encode_actions(actions: Actions) -> Result<EncodedContent, JsError> {
   Ok(
     ActionsCodec::encode(actions.into())
-      .map_err(|e| JsError::new(&format!("{}", e)))?
+      .map_err(ErrorWrapper::js)?
       .into(),
   )
 }

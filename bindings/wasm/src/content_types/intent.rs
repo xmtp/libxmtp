@@ -1,3 +1,4 @@
+use crate::ErrorWrapper;
 use crate::encoded_content::{ContentTypeId, EncodedContent};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -48,7 +49,7 @@ pub fn content_type_intent() -> ContentTypeId {
 pub fn encode_intent(intent: Intent) -> Result<EncodedContent, JsError> {
   Ok(
     IntentCodec::encode(intent.into())
-      .map_err(|e| JsError::new(&format!("{}", e)))?
+      .map_err(ErrorWrapper::js)?
       .into(),
   )
 }

@@ -952,7 +952,9 @@ describe("EnrichedMessage", () => {
           error = e;
         }
         expect(error).toBeDefined();
-        expect((error as Error).message).toBe("missing field `description`");
+        expect((error as Error).message).toBe(
+          "[ContentTypeError::InvalidData] missing field `description`",
+        );
       });
 
       it("should error when metadata is missing `transactionType` field", async () => {
@@ -980,7 +982,7 @@ describe("EnrichedMessage", () => {
         }
         expect(error).toBeDefined();
         expect((error as Error).message).toBe(
-          "missing field `transactionType`",
+          "[ContentTypeError::InvalidData] missing field `transactionType`",
         );
       });
 

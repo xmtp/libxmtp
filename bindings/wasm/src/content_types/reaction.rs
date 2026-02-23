@@ -7,6 +7,7 @@ use xmtp_content_types::ContentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
 
+use crate::ErrorWrapper;
 use crate::encoded_content::{ContentTypeId, EncodedContent};
 
 #[derive(Clone, Serialize, Deserialize, Tsify)]
@@ -63,7 +64,7 @@ pub fn encode_reaction(reaction: Reaction) -> Result<EncodedContent, JsError> {
   let reaction_v2: ReactionV2 = reaction.into();
   Ok(
     ReactionCodec::encode(reaction_v2)
-      .map_err(|e| JsError::new(&format!("{}", e)))?
+      .map_err(ErrorWrapper::js)?
       .into(),
   )
 }

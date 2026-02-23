@@ -1,3 +1,4 @@
+use crate::ErrorWrapper;
 use crate::encoded_content::{ContentTypeId, EncodedContent};
 use wasm_bindgen::JsError;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -11,9 +12,5 @@ pub fn content_type_text() -> ContentTypeId {
 
 #[wasm_bindgen(js_name = "encodeText")]
 pub fn encode_text(text: String) -> Result<EncodedContent, JsError> {
-  Ok(
-    TextCodec::encode(text)
-      .map_err(|e| JsError::new(&format!("{}", e)))?
-      .into(),
-  )
+  Ok(TextCodec::encode(text).map_err(ErrorWrapper::js)?.into())
 }
