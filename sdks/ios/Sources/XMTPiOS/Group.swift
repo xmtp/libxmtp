@@ -489,7 +489,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		try await ffiGroup.removeConversationMessageDisappearingSettings()
 	}
 
-	/// Returns null if group is not paused, otherwise the min version required to unpause this group
+	/// Returns `nil` if this group is not paused, otherwise the minimum version required to unpause it.
 	public func pausedForVersion() throws -> String? {
 		try ffiGroup.pausedForVersion()
 	}

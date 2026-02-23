@@ -419,8 +419,9 @@ public final class Client {
 
 	/// Creates a raw FFI client without signing or registering the identity.
 	///
-	/// - Note: Deprecated. Use ``create(account:options:)`` or ``build(publicIdentity:options:inboxId:)`` instead,
-	///   which handle identity registration automatically.
+	/// - Note: Deprecated. Use ``create(account:options:)`` instead, which handles
+	///   signing and identity registration automatically. For reconnecting a
+	///   previously registered identity without a signer, use ``build(publicIdentity:options:inboxId:)``.
 	@available(
 		*,
 		deprecated,

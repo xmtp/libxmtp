@@ -411,7 +411,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	/// Returns null if conversation is not paused, otherwise the min version required to unpause this conversation
+	/// Returns `nil` if this conversation is not paused, otherwise the minimum version required to unpause it.
 	public func pausedForVersion() async throws -> String? {
 		switch self {
 		case let .group(group):

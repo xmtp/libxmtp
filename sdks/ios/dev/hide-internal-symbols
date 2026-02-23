@@ -5,15 +5,27 @@
 SETUP_FILE="$(dirname "$0")/.setup"
 [[ -f "$SETUP_FILE" ]] || { echo "Error: .setup file not found at $SETUP_FILE" >&2; exit 1; }
 source "$SETUP_FILE" || { echo "Error: failed to source .setup" >&2; exit 1; }
+[[ -n "${IOS_SDK_DIR}" ]] || { echo "Error: IOS_SDK_DIR not set in .setup" >&2; exit 1; }
 
 PROTO_DIR="${IOS_SDK_DIR}/Sources/XMTPiOS/Proto"
 PUSH_DIR="${IOS_SDK_DIR}/Sources/XMTPiOS/Push"
 FFI_FILE="${IOS_SDK_DIR}/Sources/XMTPiOS/Libxmtp/xmtpv3.swift"
 
+[[ -f "$FFI_FILE" ]] || { echo "Error: FFI file not found at $FFI_FILE — was the bindings build step run first?" >&2; exit 1; }
+
 # ── Proto files ──────────────────────────────────────────────────
 # Annotate every public struct/enum except whitelisted types that
 # the SDK re-exports via typealiases.
 
+# Proto types the SDK re-exports as public typealiases (see Codecs/ and GroupUpdated.swift).
+# A type belongs here if it appears in a public SDK API signature — removing it would
+# hide documentation for types that end-users interact with directly.
+#   EncodedContent        → used by EncodedContent typealias and codec protocol
+#   ContentTypeId         → used by ContentTypeID typealias in content type definitions
+#   GroupUpdated          → used by GroupUpdated typealias for membership-change messages
+#   Ciphertext            → used by Ciphertext typealias in encryption APIs
+#   PrivateKey            → used by PrivateKey typealias in legacy key APIs
+#   Subscription          → used by push notification subscription APIs
 PROTO_WHITELIST='Xmtp_MessageContents_EncodedContent|Xmtp_MessageContents_ContentTypeId|Xmtp_Mls_MessageContents_GroupUpdated|Xmtp_MessageContents_Ciphertext|Xmtp_MessageContents_PrivateKey|Notifications_V1_Subscription'
 
 proto_files=(
@@ -56,6 +68,13 @@ echo "Annotated $found proto/push files"
 # match existing uniffi convention. Skip already-annotated lines,
 # FfiConverterType* structs, and whitelisted types.
 
+# FFI types the SDK re-exports via public typealiases (see DecodedMessageV2.swift, Client.swift).
+# A type belongs here if the SDK surfaces it in a public API without wrapping it.
+#   FfiMessageMetadata    → returned by Client.messageBytesMetadata()
+#   FfiContentType        → used internally by DecodedMessageV2.contentTypeId
+#   FfiIntent             → re-exported as public Intent typealias
+#   FfiActions            → re-exported as public Actions typealias
+#   FfiSignatureKind      → used in public identity/signature APIs
 FFI_WHITELIST='FfiMessageMetadata|FfiContentType|FfiIntent|FfiActions|FfiSignatureKind'
 
 perl -i -ne '

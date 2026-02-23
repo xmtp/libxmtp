@@ -200,7 +200,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		try await ffiConversation.removeConversationMessageDisappearingSettings()
 	}
 
-	/// Returns null if dm is not paused, otherwise the min version required to unpause this dm
+	/// Returns `nil` if this DM is not paused, otherwise the minimum version required to unpause it.
 	public func pausedForVersion() throws -> String? {
 		try ffiConversation.pausedForVersion()
 	}
