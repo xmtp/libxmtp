@@ -11,9 +11,7 @@ use xmtp_proto::mls_v1::{
     SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest, welcome_message,
 };
 use xmtp_proto::types::{Cursor, OrphanedEnvelope, Topic};
-use xmtp_proto::xmtp::xmtpv4::message_api::{
-    SubscribeEnvelopesResponse, get_newest_envelope_response,
-};
+use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
 use xmtp_proto::{
     ConversionError,
     xmtp::identity::{api::v1::get_identity_updates_request, associations::IdentityUpdate},
@@ -473,62 +471,6 @@ impl<'env> ProtocolEnvelope<'env> for () {
     }
 }
 
-impl EnvelopeCollection<'_> for SubscribeEnvelopesResponse {
-    fn topics(&self) -> Result<Vec<Topic>, EnvelopeError> {
-        self.envelopes.topics()
-    }
-
-    fn cursors(&self) -> Result<Vec<Cursor>, EnvelopeError> {
-        self.envelopes.cursors()
-    }
-
-    fn payloads(&self) -> Result<Vec<Payload>, EnvelopeError> {
-        self.envelopes.payloads()
-    }
-
-    fn sha256_hashes(&self) -> Result<Vec<Vec<u8>>, EnvelopeError> {
-        self.envelopes.sha256_hashes()
-    }
-
-    fn client_envelopes(&self) -> Result<Vec<ClientEnvelope>, EnvelopeError> {
-        self.envelopes.client_envelopes()
-    }
-
-    fn len(&self) -> usize {
-        self.envelopes.len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.envelopes.is_empty()
-    }
-
-    fn consume<E>(self) -> Result<Vec<<E as Extractor>::Output>, EnvelopeError>
-    where
-        for<'a> E: Default + Extractor + EnvelopeVisitor<'a>,
-        Self: Clone,
-        for<'a> EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
-        Self: Sized,
-    {
-        self.envelopes.consume::<E>()
-    }
-
-    fn group_messages(
-        &self,
-    ) -> Result<Vec<Option<xmtp_proto::types::GroupMessage>>, EnvelopeError> {
-        self.envelopes.group_messages()
-    }
-
-    fn welcome_messages(
-        &self,
-    ) -> Result<Vec<Option<xmtp_proto::types::WelcomeMessage>>, EnvelopeError> {
-        self.envelopes.welcome_messages()
-    }
-
-    fn orphans(&self) -> Result<Vec<OrphanedEnvelope>, EnvelopeError> {
-        self.envelopes.orphans()
-    }
-}
-
 impl EnvelopeCollection<'_> for SubscribeGroupMessagesRequest {
     fn topics(&self) -> Result<Vec<Topic>, EnvelopeError> {
         self.filters.topics()
@@ -801,18 +743,15 @@ mod tests {
                 .build(),
             TestEnvelopeBuilder::new().with_identity_update().build(),
         ];
-        // Test EnvelopeCollection implementations
-        let response = SubscribeEnvelopesResponse {
-            envelopes: envelopes.clone(),
-        };
-        assert_eq!(response.len(), 4);
-        assert_eq!(response.payloads().unwrap().len(), 4);
-        assert_eq!(response.client_envelopes().unwrap().len(), 4);
-        assert!(!response.is_empty());
+        // Test EnvelopeCollection implementations on Vec<OriginatorEnvelope>
+        assert_eq!(envelopes.len(), 4);
+        assert_eq!(envelopes.payloads().unwrap().len(), 4);
+        assert_eq!(envelopes.client_envelopes().unwrap().len(), 4);
+        assert!(!envelopes.is_empty());
 
-        let empty_response = SubscribeEnvelopesResponse { envelopes: vec![] };
-        assert_eq!(empty_response.len(), 0);
-        assert!(empty_response.is_empty());
+        let empty: Vec<OriginatorEnvelope> = vec![];
+        assert_eq!(empty.len(), 0);
+        assert!(empty.is_empty());
     }
 
     #[xmtp_common::test]
