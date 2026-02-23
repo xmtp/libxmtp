@@ -1,5 +1,5 @@
 use xmtp_proto::xmtp::device_sync::{
-    ArchiveOptions as BackupOptionsProto, BackupElementSelection as BackupElementSelectionProto,
+    BackupOptions as BackupOptionsProto, BackupElementSelection as BackupElementSelectionProto,
 };
 
 /// Native representation of backup element selection with strongly-typed variants.

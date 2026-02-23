@@ -1,21 +1,24 @@
-use crate::d14n::SubscribeEnvelopes;
+use crate::d14n::SubscribeTopics;
 use crate::protocol::{CursorStore, GroupMessageExtractor, WelcomeMessageExtractor};
 use crate::queries::stream;
-use crate::{FlattenedStream, OrderedStream, TryExtractorStream};
+use crate::{OrderedStream, StatusAwareStream, TryExtractorStream};
 
 use super::D14nClient;
 use xmtp_common::RetryableError;
 use xmtp_proto::api::{ApiClientError, Client, QueryStream, XmtpStream};
-use xmtp_proto::api_client::{Paged, XmtpMlsStreams};
+use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::{GroupId, InstallationId, TopicCursor, TopicKind};
-use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse;
+use xmtp_proto::xmtp::xmtpv4::envelopes::OriginatorEnvelope;
+use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeTopicsResponse;
 
-type PagedItem = <SubscribeEnvelopesResponse as Paged>::Message;
+type StatusStreamT<C> = StatusAwareStream<
+    XmtpStream<<C as Client>::Stream, SubscribeTopicsResponse>,
+>;
 
 type OrderedStreamT<C, Store> = OrderedStream<
-    FlattenedStream<XmtpStream<<C as Client>::Stream, SubscribeEnvelopesResponse>>,
+    StatusStreamT<C>,
     Store,
-    PagedItem,
+    OriginatorEnvelope,
 >;
 
 #[xmtp_common::async_trait]
@@ -31,7 +34,7 @@ where
     type GroupMessageStream = TryExtractorStream<OrderedStreamT<C, Store>, GroupMessageExtractor>;
 
     type WelcomeMessageStream = TryExtractorStream<
-        XmtpStream<<C as Client>::Stream, SubscribeEnvelopesResponse>,
+        StatusStreamT<C>,
         WelcomeMessageExtractor,
     >;
 
@@ -40,11 +43,12 @@ where
         group_ids: &[&GroupId],
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         if group_ids.is_empty() {
-            let s = SubscribeEnvelopes::builder()
+            let s = SubscribeTopics::builder()
                 .build()?
                 .fake_stream(&self.client);
+            let (s, _status) = stream::status_aware(s);
             let s = stream::ordered(
-                stream::flattened(s),
+                s,
                 self.cursor_store.clone(),
                 TopicCursor::default(),
             );
@@ -54,22 +58,22 @@ where
             .iter()
             .map(|gid| TopicKind::GroupMessagesV1.create(gid))
             .collect::<Vec<_>>();
-        let lcc = self
-            .cursor_store
-            .lcc_maybe_missing(&topics.iter().collect::<Vec<_>>())?;
         let topic_cursor: TopicCursor = self
             .cursor_store
             .latest_for_topics(&mut topics.iter())?
             .into();
-        tracing::debug!("subscribing to messages @cursor={}", lcc);
-        let s = SubscribeEnvelopes::builder()
-            .topics(topics)
-            .last_seen(lcc)
+        let mut builder = SubscribeTopics::builder();
+        for (topic, cursor) in &topic_cursor {
+            tracing::debug!("subscribing to messages for topic {} @cursor={}", topic, cursor);
+            builder.filter((topic.clone(), cursor.clone()));
+        }
+        let s = builder
             .build()?
             .stream(&self.client)
             .await?;
+        let (s, _status) = stream::status_aware(s);
         let s = stream::ordered(
-            stream::flattened(s),
+            s,
             self.cursor_store.clone(),
             topic_cursor,
         );
@@ -81,30 +85,33 @@ where
         topics: &TopicCursor,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         if topics.is_empty() {
-            let s = SubscribeEnvelopes::builder()
+            let s = SubscribeTopics::builder()
                 .build()?
                 .fake_stream(&self.client);
+            let (s, _status) = stream::status_aware(s);
             let s = stream::ordered(
-                stream::flattened(s),
+                s,
                 self.cursor_store.clone(),
                 TopicCursor::default(),
             );
             return Ok(stream::try_extractor(s));
         }
-        // Compute the lowest common cursor from the provided cursors
-        let lcc = topics.lcc();
-        tracing::debug!(
-            "subscribing to messages with provided cursors @cursor={}",
-            lcc
-        );
-        let s = SubscribeEnvelopes::builder()
-            .topics(topics.topics())
-            .last_seen(lcc)
+        let mut builder = SubscribeTopics::builder();
+        for (topic, cursor) in topics {
+            tracing::debug!(
+                "subscribing to messages with provided cursor for topic {} @cursor={}",
+                topic,
+                cursor
+            );
+            builder.filter((topic.clone(), cursor.clone()));
+        }
+        let s = builder
             .build()?
             .stream(&self.client)
             .await?;
+        let (s, _status) = stream::status_aware(s);
         let s = stream::ordered(
-            stream::flattened(s),
+            s,
             self.cursor_store.clone(),
             topics.clone(),
         );
@@ -116,24 +123,27 @@ where
         installations: &[&InstallationId],
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         if installations.is_empty() {
-            let s = SubscribeEnvelopes::builder()
+            let s = SubscribeTopics::builder()
                 .build()?
                 .fake_stream(&self.client);
+            let (s, _status) = stream::status_aware(s);
             return Ok(stream::try_extractor(s));
         }
         let topics = installations
             .iter()
             .map(|ins| TopicKind::WelcomeMessagesV1.create(ins))
             .collect::<Vec<_>>();
-        let lcc = self
-            .cursor_store
-            .lowest_common_cursor(&topics.iter().collect::<Vec<_>>())?;
-        let s = SubscribeEnvelopes::builder()
-            .topics(topics)
-            .last_seen(lcc)
+        let mut builder = SubscribeTopics::builder();
+        for topic in &topics {
+            let cursor = self.cursor_store.latest(topic)?;
+            tracing::debug!("subscribing to welcome messages for topic {} @cursor={}", topic, cursor);
+            builder.filter((topic.clone(), cursor));
+        }
+        let s = builder
             .build()?
             .stream(&self.client)
             .await?;
+        let (s, _status) = stream::status_aware(s);
         Ok(stream::try_extractor(s))
     }
 }

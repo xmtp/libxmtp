@@ -11,7 +11,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use openmls_rust_crypto::RustCrypto;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
-use xmtp_api_d14n::d14n::SubscribeEnvelopes;
+use xmtp_api_d14n::d14n::SubscribeTopics;
 use xmtp_api_d14n::protocol::{CollectionExtractor, Extractor, KeyPackagesExtractor};
 use xmtp_proto::api::QueryStreamExt;
 use xmtp_proto::types::{InstallationId, TopicKind};
@@ -66,7 +66,7 @@ impl GenerateIdentity {
         let network = &self.network;
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
-        let s = Arc::new(Mutex::new(SubscribeEnvelopes::builder()));
+        let s = Arc::new(Mutex::new(SubscribeTopics::builder()));
 
         tracing::info!("creating clients");
         let clients = stream::iter((0..n).collect::<Vec<_>>())
@@ -83,7 +83,7 @@ impl GenerateIdentity {
                         bar_pointer
                             .set_message(format!("generated client {}", c.identity().inbox_id()));
                         let mut s = s.lock().await;
-                        s.topic(TopicKind::KeyPackagesV1.create(c.identity().installation_id()));
+                        s.filter((TopicKind::KeyPackagesV1.create(c.identity().installation_id()), None));
                         bar_pointer.inc(1);
                         Ok::<_, eyre::Report>((c, wallet))
                     }
@@ -113,7 +113,7 @@ impl GenerateIdentity {
                 .collect::<HashSet<_>>();
             tokio::spawn(async move {
                 let api = n.xmtpd()?;
-                let mut s = s.last_seen(None).build()?;
+                let mut s = s.build()?;
                 let s = s.subscribe(&api).await?;
                 let bar_ref = bar.clone();
                 let _ = tx.send(());
