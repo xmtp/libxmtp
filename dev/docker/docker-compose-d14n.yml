@@ -94,6 +94,7 @@ services:
       - local.env
     environment:
       - "XMTPD_CONTRACTS_ENVIRONMENT=anvil"
+      - "XMTPD_API_ORIGINATOR_CACHE_TTL=5s"
     depends_on:
       enable-node-native:
         condition: service_completed_successfully
