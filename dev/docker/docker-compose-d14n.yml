@@ -1,7 +1,7 @@
-x-xmtpd-server-image: &x-xmtpd-server-image ghcr.io/xmtp/xmtpd:sha-695b07e
-x-xmtpd-gateway-image: &x-xmtpd-gateway-image ghcr.io/xmtp/xmtpd-gateway:sha-695b07e
-x-xmtpd-cli-image: &x-xmtpd-cli-image ghcr.io/xmtp/xmtpd-cli:sha-695b07e
-x-xmtpd-contracts-image: &x-xmtpd-contracts-image ghcr.io/xmtp/contracts:v2025.12.12-1
+x-xmtpd-server-image: &x-xmtpd-server-image ghcr.io/xmtp/xmtpd:02-18-add_subscribetopicenvelopes_api
+x-xmtpd-gateway-image: &x-xmtpd-gateway-image ghcr.io/xmtp/xmtpd-gateway:02-18-add_subscribetopicenvelopes_api
+x-xmtpd-cli-image: &x-xmtpd-cli-image ghcr.io/xmtp/xmtpd-cli:02-18-add_subscribetopicenvelopes_api
+x-xmtpd-contracts-image: &x-xmtpd-contracts-image ghcr.io/xmtp/contracts:v2026.02.10-1
 x-postgres-image: &x-postgres-image postgres:16
 x-redis-image: &x-redis-image redis:7-alpine
 
