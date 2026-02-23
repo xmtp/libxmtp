@@ -10,8 +10,8 @@ Here we describe each component, as well as providing links to the interface bou
 
 #### Backend Node
 
-- Centralized repo: https://github.com/xmtp/xmtp-node-go
-- Decentralized repo: https://github.com/xmtp/xmtpd
+- Centralized repo: <https://github.com/xmtp/xmtp-node-go>
+- Decentralized repo: <https://github.com/xmtp/xmtpd>
 
 This is the backend, currently a set of centralized nodes operated by Ephemera, sharing a Postgres instance. The current API interface is captured in the [protos](https://github.com/xmtp/proto) repo, mostly [here](https://github.com/xmtp/proto/blob/8b46912744d89e29236f21ed81b33facb5384239/proto/identity/api/v1/identity.proto#L19) and [here](https://github.com/xmtp/proto/blob/8b46912744d89e29236f21ed81b33facb5384239/proto/mls/api/v1/mls.proto#L23). A simple mental model of the backend is a pub/sub system, with append-only, ordered lists of payloads categorized by [topic](https://docs.xmtp.org/protocol/topics) and indexed by [cursors](https://docs.xmtp.org/protocol/cursors).
 
@@ -19,8 +19,8 @@ A trustless, decentralized replacement is currently under development. More info
 
 #### Rust SDK (libxmtp)
 
-- Libxmtp repo: https://github.com/xmtp/libxmtp
-- OpenMLS repo (fork): https://github.com/xmtp/openmls
+- Libxmtp repo: <https://github.com/xmtp/libxmtp>
+- OpenMLS repo (fork): <https://github.com/xmtp/openmls>
 
 This is the core client SDK. It fetches and publishes payloads from the [backend](https://github.com/xmtp/proto/blob/8b46912744d89e29236f21ed81b33facb5384239/proto/identity/api/v1/identity.proto#L19), encrypting and decrypting them using [OpenMLS](https://book.openmls.tech/), and storing them in the [database](https://github.com/xmtp/libxmtp/blob/2ab5529d4bc0ca1aa90e986a78cb23d2c6f227b7/xmtp_db/src/encrypted_store/schema_gen.rs#L1) before exposing results to the native SDK's via [bindings](https://github.com/xmtp/libxmtp/tree/main/bindings/mobile).
 
@@ -32,20 +32,19 @@ This is simply a library in the libxmtp repo for validating payloads that is use
 
 #### Platform SDK's
 
+- iOS repo: <https://github.com/xmtp/xmtp-ios>
+- Android repo: <https://github.com/xmtp/xmtp-android>
+- React Native repo: <https://github.com/xmtp/xmtp-react-native>
+- JS (browser/node.js) repo: <https://github.com/xmtp/xmtp-js>
+- Push notif server example: <https://github.com/xmtp/example-notification-server-go>
 
-- iOS repo: https://github.com/xmtp/xmtp-ios
-- Android repo: https://github.com/xmtp/xmtp-android
-- React Native repo: https://github.com/xmtp/xmtp-react-native
-- JS (browser/node.js) repo: https://github.com/xmtp/xmtp-js
-- Push notif server example: https://github.com/xmtp/example-notification-server-go
-
-This is a set of SDK's for each native platform. The interface to Rust is described in the [bindings](https://github.com/xmtp/libxmtp/tree/main/bindings/mobile), and the user interface is described in the [docs](https://docs.xmtp.org). 
+This is a set of SDK's for each native platform. The interface to Rust is described in the [bindings](https://github.com/xmtp/libxmtp/tree/main/bindings/mobile), and the user interface is described in the [docs](https://docs.xmtp.org).
 
 #### Reference apps and agents
 
-- Convos (iOS) repo: https://github.com/ephemeraHQ/convos-ios
-- xmtp.chat (web) repo: https://github.com/xmtp/xmtp-js/tree/main/apps/xmtp.chat
-- Agents repo: https://github.com/ephemeraHQ/xmtp-agent-examples
+- Convos (iOS) repo: <https://github.com/ephemeraHQ/convos-ios>
+- xmtp.chat (web) repo: <https://github.com/xmtp/xmtp-js/tree/main/apps/xmtp.chat>
+- Agents repo: <https://github.com/ephemeraHQ/xmtp-agent-examples>
 
 These are open-source reference apps and bots developed by Ephemera. We recommend downloading Convos from the App store and loading xmtp.chat in your browser to get a feel for the types of features you can build on top of XMTP. Please ping a team member so you can DM with them in the app and get added to a developer's group. Outside of Ephemera, there are a wide variety of apps and agents from an array of organizations built on XMTP - please ask for a list, and experiment with them too.
 

@@ -1,4 +1,6 @@
 exclude = [
+  "**/node_modules/**",
+  ".build/**",
   ".direnv/**",
   "crates/xmtp_proto/Cargo.toml",
   "crates/xmtp-workspace-hack/Cargo.toml",
