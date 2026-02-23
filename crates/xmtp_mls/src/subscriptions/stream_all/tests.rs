@@ -166,13 +166,6 @@ async fn test_dm_stream_all_messages() {
         .send_message("first".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
-    // TODO:d14n
-    // this discrepancy is because of the LCC (we get duplicates)
-    // not sure if theres an easy fix
-    // https://github.com/xmtp/libxmtp/issues/2613
-    if cfg!(feature = "d14n") {
-        assert_msg!(stream, "second DM msg");
-    }
     assert_msg!(stream, "first");
 
     alix_dm
