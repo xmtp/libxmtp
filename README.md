@@ -21,10 +21,10 @@
 
 ## Requirements
 
-- Install [Rustup](https://rustup.rs/)
-- Install [Docker](https://www.docker.com/get-started/)
-- Install
-  [Foundry](https://book.getfoundry.sh/getting-started/installation#using-foundryup)
+- [Rustup](https://rustup.rs/)
+- [Docker](https://www.docker.com/get-started/)
+- [Foundry](https://book.getfoundry.sh/getting-started/installation#using-foundryup)
+- [just](https://github.com/casey/just) (optional for testing)
 
 ## Development
 
@@ -48,7 +48,7 @@ Start Docker Desktop.
 - To install other dependencies and start background services:
 
   ```bash
-  dev/up
+  ./dev/up
   ```
 
   Specifically, this command creates and runs an XMTP node in Docker Desktop.
@@ -84,16 +84,22 @@ Start Docker Desktop.
   just wasm test
   ```
 
+ Note: If the tests fail with "bind() failed: Cannot assign requested address," Chrome is unable to bind to IPv6 and will fall back to IPv4. Although this should be a warning, Chromedriver currently logs this message as SEVERE, which halts the wasm-bindgen-test. You can optionally disable the Chromedriver logs output to prevent this.
+
+  ```bash
+  CHROMEDRIVER_ARGS="--log-level=OFF" just wasm test
+  ```
+
 - To run WebAssembly tests interactively for a package, for example, `xmtp_mls`:
 
   ```bash
-  dev/test/wasm-interactive xmtp_mls
+  ./dev/test/wasm-interactive xmtp_mls
   ```
 
 - To run browser SDK tests:
 
   ```bash
-  dev/test/browser-sdk
+  ./dev/test/browser-sdk
   ```
 
 ## Tips & Tricks
@@ -177,8 +183,8 @@ nix develop     # Enter the default dev shell
 To temporarily disable/enable direnv without uninstalling anything:
 
 ```bash
-dev/direnv-down  # Disable direnv auto-activation
-dev/direnv-up    # Re-enable direnv
+./dev/direnv-down  # Disable direnv auto-activation
+./dev/direnv-up    # Re-enable direnv
 ```
 
 See [docs/nix-setup.md](docs/nix-setup.md) for the full setup guide, including
