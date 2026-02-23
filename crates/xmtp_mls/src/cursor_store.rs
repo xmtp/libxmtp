@@ -32,21 +32,6 @@ where
         + MaybeSend
         + MaybeSync,
 {
-    fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
-        self.db
-            .lowest_common_cursor(topics)
-            .map_err(CursorStoreError::other)
-    }
-
-    // temp until reliable streams
-    fn lcc_maybe_missing(&self, topics: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
-        let c = self
-            .db
-            .lowest_common_cursor_combined(topics)
-            .map_err(CursorStoreError::other)?;
-        Ok(c)
-    }
-
     fn latest(&self, topic: &Topic) -> Result<GlobalCursor, CursorStoreError> {
         match topic.kind() {
             TopicKind::WelcomeMessagesV1 => {

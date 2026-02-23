@@ -3,10 +3,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::{
-    api::VectorClock,
-    types::{GlobalCursor, InstallationId, Topic},
-};
+use crate::types::{GlobalCursor, InstallationId, Topic};
 
 /// A cursor that keeps a [`super::GlobalCursor`] for each topic it has seen.
 #[derive(Default, Debug, PartialEq, Clone)]
@@ -34,28 +31,6 @@ impl TopicCursor {
     /// check if this topic cursor contains [`super::GroupId`]
     pub fn contains_group(&self, group_id: impl AsRef<[u8]>) -> bool {
         self.inner.contains_key(&Topic::new_group_message(group_id))
-    }
-
-    /// Computes the Lowest Common Cursor (LCC) across all topics.
-    ///
-    /// For each originator node, takes the minimum sequence ID seen across
-    /// all topics. Returns an empty cursor if this TopicCursor is empty.
-    pub fn lcc(&self) -> GlobalCursor {
-        self.values().fold(GlobalCursor::default(), |mut acc, c| {
-            acc.merge_least(c);
-            acc
-        })
-    }
-
-    /// Computes the Greatest Common Cursor (GCC) across all topics.
-    ///
-    /// For each originator node, takes the maximum sequence ID seen across
-    /// all topics. Returns an empty cursor if this TopicCursor is empty.
-    pub fn gcc(&self) -> GlobalCursor {
-        self.values().fold(GlobalCursor::default(), |mut acc, c| {
-            acc.merge(c);
-            acc
-        })
     }
 
     /// consume this topic cursor into a list of its topics

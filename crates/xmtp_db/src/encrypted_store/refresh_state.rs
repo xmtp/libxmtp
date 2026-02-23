@@ -11,7 +11,7 @@ use diesel::{
 };
 use itertools::Itertools;
 use xmtp_configuration::Originators;
-use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId, Topic, TopicKind};
+use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId};
 
 use super::{ConnectionExt, Sqlite, db_connection::DbConnection, schema::refresh_state};
 use crate::{StorageError, StoreOrIgnore, impl_store_or_ignore};
@@ -178,13 +178,6 @@ pub trait QueryRefreshState {
         cursor: Cursor,
     ) -> Result<bool, StorageError>;
 
-    fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, StorageError>;
-
-    fn lowest_common_cursor_combined(
-        &self,
-        topics: &[&Topic],
-    ) -> Result<GlobalCursor, StorageError>;
-
     fn latest_cursor_for_id<Id: AsRef<[u8]>>(
         &self,
         entity_id: Id,
@@ -246,17 +239,6 @@ impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
         originator_ids: &[u32],
     ) -> Result<Vec<Cursor>, StorageError> {
         (**self).get_last_cursor_for_originators(id, entity_kind, originator_ids)
-    }
-
-    fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, StorageError> {
-        (**self).lowest_common_cursor(topics)
-    }
-
-    fn lowest_common_cursor_combined(
-        &self,
-        topics: &[&Topic],
-    ) -> Result<GlobalCursor, StorageError> {
-        (**self).lowest_common_cursor_combined(topics)
     }
 
     fn latest_cursor_for_id<Id: AsRef<[u8]>>(
@@ -443,187 +425,6 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         Ok(cursor_map)
     }
 
-    fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, StorageError> {
-        use super::schema::identity_updates::dsl as idsl;
-        use super::schema::refresh_state::dsl as rdsl;
-
-        // diesel does not support eq_any (IN) on tuple types.
-        // so, something like `.filter((dsl::entity_id, dsl::entity_kind).eq_any(entities))` will not compile. its possible to implement
-        // with a custom QueryFragment, but maybe that's a future
-        // exercise. ref: https://github.com/diesel-rs/diesel/issues/3222#issuecomment-2079474318
-        // it also does not support group_by on boxed queries
-        let entities = topics
-            .iter()
-            .flat_map(|t| match t.kind() {
-                TopicKind::GroupMessagesV1 => {
-                    vec![
-                        (t.identifier().to_vec(), EntityKind::ApplicationMessage),
-                        (t.identifier().to_vec(), EntityKind::CommitMessage),
-                    ]
-                }
-                TopicKind::WelcomeMessagesV1 => {
-                    vec![(t.identifier().to_vec(), EntityKind::Welcome)]
-                }
-                TopicKind::IdentityUpdatesV1 | TopicKind::KeyPackagesV1 | _ => vec![],
-            })
-            .collect::<Vec<_>>();
-
-        let identity_inbox_ids: Vec<String> = topics
-            .iter()
-            .filter_map(|t| Topic::identity_updates(t))
-            .map(|t| hex::encode(t.identifier()))
-            .collect();
-
-        let mut refresh = rdsl::refresh_state
-            .select((rdsl::originator_id, rdsl::sequence_id))
-            .filter(rdsl::entity_kind.eq(-1)) // Start with a query that will never return any results
-            .into_boxed();
-        for (entity_id, entity_kind) in &entities {
-            refresh = refresh.or_filter(
-                rdsl::entity_id
-                    .eq(entity_id)
-                    .and(rdsl::entity_kind.eq(entity_kind)),
-            );
-        }
-
-        let identity = idsl::identity_updates
-            .select((idsl::originator_id, idsl::sequence_id))
-            .filter(idsl::inbox_id.eq_any(identity_inbox_ids))
-            .into_boxed();
-        let cursor = self.raw_query_read(|conn| {
-            refresh
-                .select((rdsl::originator_id, rdsl::sequence_id))
-                .union_all(identity)
-                .load_iter::<(i32, i64), DefaultLoadingMode>(conn)?
-                .map_ok(|(o, s)| (o as u32, s as u64))
-                .process_results(|iter| iter.into_grouping_map().min())
-        })?;
-
-        Ok(GlobalCursor::with_hashmap(cursor))
-    }
-
-    // _NOTE:_ TEMP until reliable streams
-    // and cursor can be updated from streams
-    fn lowest_common_cursor_combined(
-        &self,
-        topics: &[&Topic],
-    ) -> Result<GlobalCursor, StorageError> {
-        // Build entities list from topics, including both refresh_state entries and group_messages
-        let entities = topics
-            .iter()
-            .flat_map(|t| match t.kind() {
-                TopicKind::GroupMessagesV1 => {
-                    vec![
-                        (t.identifier().to_vec(), EntityKind::ApplicationMessage),
-                        (t.identifier().to_vec(), EntityKind::CommitMessage),
-                    ]
-                }
-                TopicKind::WelcomeMessagesV1 => {
-                    vec![(t.identifier().to_vec(), EntityKind::Welcome)]
-                }
-                TopicKind::IdentityUpdatesV1 | TopicKind::KeyPackagesV1 | _ => vec![],
-            })
-            .collect::<Vec<_>>();
-
-        // Collect identity update inbox IDs
-        let identity_inbox_ids: Vec<String> = topics
-            .iter()
-            .filter_map(|t| match t.kind() {
-                TopicKind::IdentityUpdatesV1 => Some(hex::encode(t.identifier())),
-                _ => None,
-            })
-            .collect();
-
-        let has_identity_updates = !identity_inbox_ids.is_empty();
-        let has_entities = !entities.is_empty();
-
-        if !has_entities && !has_identity_updates {
-            return Ok(GlobalCursor::default());
-        }
-
-        let mut query_parts = Vec::new();
-
-        // Add refresh_state and group_messages parts if we have entities
-        if has_entities {
-            let placeholders = entities
-                .iter()
-                .map(|_| "(?, ?)")
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            query_parts.push(format!(
-                "SELECT originator_id, sequence_id
-                FROM refresh_state
-                WHERE (entity_id, entity_kind) IN ({})",
-                placeholders
-            ));
-
-            query_parts.push(format!(
-                "SELECT originator_id, sequence_id
-                FROM conversation_list
-                WHERE (id, CASE message_kind
-                    WHEN 1 THEN 2  -- GroupMessageKind::Application -> EntityKind::ApplicationMessage
-                    WHEN 2 THEN 7  -- GroupMessageKind::MembershipChange -> EntityKind::CommitMessage
-                END) IN ({})",
-                placeholders
-            ));
-        }
-
-        // Add identity_updates part if we have inbox IDs
-        if has_identity_updates {
-            let inbox_placeholders = identity_inbox_ids
-                .iter()
-                .map(|_| "?")
-                .collect::<Vec<_>>()
-                .join(", ");
-            query_parts.push(format!(
-                "SELECT originator_id, sequence_id
-                FROM identity_updates
-                WHERE inbox_id IN ({})",
-                inbox_placeholders
-            ));
-        }
-
-        // Build a query that unions all sources, then finds MIN per originator
-        let query = format!(
-            "SELECT originator_id, MIN(sequence_id) AS sequence_id
-            FROM ({})
-            GROUP BY originator_id",
-            query_parts.join(" UNION ALL ")
-        );
-
-        let cursor = self.raw_query_read(|conn| {
-            let mut q = diesel::sql_query(query).into_boxed();
-
-            if has_entities {
-                // Bind entity_id and entity_kind pairs for refresh_state
-                for (id, kind) in &entities {
-                    q = q.bind::<Binary, _>(id);
-                    q = q.bind::<Integer, _>(*kind);
-                }
-
-                // Bind entity_id and entity_kind pairs for group_messages
-                for (id, kind) in &entities {
-                    q = q.bind::<Binary, _>(id);
-                    q = q.bind::<Integer, _>(*kind);
-                }
-            }
-
-            // Bind identity_updates parameters
-            if has_identity_updates {
-                for inbox_id in identity_inbox_ids {
-                    q = q.bind::<diesel::sql_types::Text, _>(inbox_id);
-                }
-            }
-
-            q.load_iter::<SingleCursor, DefaultLoadingMode>(conn)?
-                .map_ok(|c| (c.originator_id as u32, c.sequence_id as u64))
-                .collect::<QueryResult<GlobalCursor>>()
-        })?;
-
-        Ok(cursor)
-    }
-
     fn latest_cursor_for_id<Id: AsRef<[u8]>>(
         &self,
         entity_id: Id,
@@ -768,9 +569,8 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
-    use crate::identity_update::StoredIdentityUpdateBuilder;
+    use crate::StoreOrIgnore;
     use crate::test_utils::with_connection;
-    use crate::{Store, StoreOrIgnore};
     use rstest::rstest;
 
     #[xmtp_common::test]
@@ -947,24 +747,6 @@ pub(crate) mod tests {
         .unwrap();
     }
 
-    // Helper function to create and store a RefreshState
-    fn create_identity_update<C: ConnectionExt>(
-        conn: &DbConnection<C>,
-        originator_id: i32,
-        sequence_id: i64,
-    ) {
-        StoredIdentityUpdateBuilder::default()
-            .inbox_id(xmtp_common::rand_string::<32>())
-            .sequence_id(sequence_id)
-            .originator_id(originator_id)
-            .payload(xmtp_common::rand_vec::<32>())
-            .server_timestamp_ns(xmtp_common::rand_i64())
-            .build()
-            .unwrap()
-            .store(conn)
-            .unwrap();
-    }
-
     #[rstest]
     #[case::mixed_existing_missing(
         vec![(0, 100), (10, 200)], // Pre-populate originators 0 and 10
@@ -1098,145 +880,6 @@ pub(crate) mod tests {
                     cursor.get(&expected_orig)
                 );
             }
-        })
-    }
-
-    #[rstest]
-    #[case::single_topic_minimium(
-        vec![
-            (vec![1, 1, 1], EntityKind::ApplicationMessage, 200, 127),
-            (vec![1, 1, 1], EntityKind::CommitMessage, 0, 115),
-            (vec![1, 1, 1], EntityKind::CommitLogDownload, 100, 0),
-            (vec![1, 1, 1], EntityKind::CommitLogUpload, 100, 2),
-            (vec![1, 1, 1], EntityKind::CommitLogForkCheckLocal, 100, 0),
-            (vec![1, 1, 1], EntityKind::CommitLogForkCheckRemote, 100, 0)
-        ],
-        vec![
-            TopicKind::GroupMessagesV1.create(vec![1, 1, 1]),
-        ],
-        vec![(200, 127), (0, 115)]  // MIN across both topics: min(min(100, 150), min(50, 75)) = 50
-    )]
-    #[case::multiple_topics_finds_minimum(
-        vec![
-            (vec![1, 1, 1], EntityKind::ApplicationMessage, 0, 100),
-            (vec![1, 1, 1], EntityKind::CommitMessage, 0, 150),
-            (vec![2, 2, 2], EntityKind::ApplicationMessage, 0, 50),  // Lower value in topic 2
-            (vec![2, 2, 2], EntityKind::CommitMessage, 0, 75),
-        ],
-        vec![
-            TopicKind::GroupMessagesV1.create(vec![1, 1, 1]),
-            TopicKind::GroupMessagesV1.create(vec![2, 2, 2]),
-        ],
-        vec![(0, 50)]  // MIN across both topics: min(min(100, 150), min(50, 75)) = 50
-    )]
-    #[case::multiple_topics_different_originators(
-        vec![
-            (vec![3, 3, 3], EntityKind::ApplicationMessage, 5, 500),
-            (vec![3, 3, 3], EntityKind::CommitMessage, 5, 600),
-            (vec![4, 4, 4], EntityKind::ApplicationMessage, 10, 1000),
-            (vec![4, 4, 4], EntityKind::CommitMessage, 10, 1100),
-            (vec![4, 4, 4], EntityKind::ApplicationMessage, 5, 300),  // Lower value for originator 5
-        ],
-        vec![
-            TopicKind::GroupMessagesV1.create(vec![3, 3, 3]),
-            TopicKind::GroupMessagesV1.create(vec![4, 4, 4]),
-        ],
-        vec![(5, 300), (10, 1000)]  // MIN for each originator across topics
-    )]
-    #[case::mixed_group_and_welcome_topics(
-        vec![
-            (vec![6, 6, 6], EntityKind::ApplicationMessage, 0, 100),
-            (vec![6, 6, 6], EntityKind::CommitMessage, 0, 150),
-            (vec![7, 7, 7], EntityKind::Welcome, 0, 50),  // Lower value for originator 0
-            (vec![7, 7, 7], EntityKind::Welcome, 10, 200),
-        ],
-        vec![
-            TopicKind::GroupMessagesV1.create(vec![6, 6, 6]),
-            TopicKind::WelcomeMessagesV1.create(vec![7, 7, 7]),
-        ],
-        vec![(0, 50), (10, 200)]  // MIN across different entity kinds
-    )]
-    #[case::originator_in_some_topics_only(
-        vec![
-            (vec![8, 8, 8], EntityKind::ApplicationMessage, 5, 100),
-            (vec![8, 8, 8], EntityKind::CommitMessage, 5, 200),
-            (vec![9, 9, 9], EntityKind::ApplicationMessage, 10, 300),
-            (vec![9, 9, 9], EntityKind::CommitMessage, 10, 400),
-        ],
-        vec![
-            TopicKind::GroupMessagesV1.create(vec![8, 8, 8]),
-            TopicKind::GroupMessagesV1.create(vec![9, 9, 9]),
-        ],
-        vec![(5, 100), (10, 300)]  // Each originator appears in only one topic
-    )]
-    #[xmtp_common::test]
-    async fn lowest_common_cursor_scenarios(
-        #[case] pre_populate: Vec<(Vec<u8>, EntityKind, i32, i64)>,
-        #[case] query_topics: Vec<xmtp_proto::types::Topic>,
-        #[case] expected: Vec<(u32, u64)>,
-    ) {
-        with_connection(|conn| {
-            // Pre-populate states
-            for (entity_id, kind, orig, seq) in pre_populate {
-                create_state(conn, &entity_id, kind, orig, seq);
-            }
-
-            // Execute query
-            let topic_refs: Vec<&xmtp_proto::types::Topic> = query_topics.iter().collect();
-            let cursor = conn.lowest_common_cursor(&topic_refs).unwrap();
-
-            // Verify results
-            assert_eq!(
-                cursor.len(),
-                expected.len(),
-                "Expected {} originators, got {}",
-                expected.len(),
-                cursor.len()
-            );
-            for (expected_orig, expected_seq) in expected {
-                assert_eq!(
-                    cursor.get(&expected_orig),
-                    expected_seq,
-                    "Mismatch for originator {}: expected {}, got {}",
-                    expected_orig,
-                    expected_seq,
-                    cursor.get(&expected_orig)
-                );
-            }
-        })
-    }
-
-    #[xmtp_common::test]
-    fn lowest_common_cursor_empty_topics() {
-        with_connection(|conn| {
-            create_state(conn, &[1, 2, 3], EntityKind::ApplicationMessage, 0, 100);
-            create_identity_update(conn, 1, 100);
-            let result = conn.lowest_common_cursor(&[]);
-            match result {
-                Ok(cursor) => {
-                    tracing::info!("{:?}", cursor);
-                    assert_eq!(cursor.len(), 0, "Empty topics should return empty cursor");
-                }
-                Err(_e) => {
-                    // Also acceptable to return an error for empty topics
-                }
-            }
-        })
-    }
-
-    #[xmtp_common::test]
-    fn lowest_common_cursor_no_matching_states() {
-        with_connection(|conn| {
-            let topics = [
-                TopicKind::GroupMessagesV1.create(vec![99, 99, 99]),
-                TopicKind::WelcomeMessagesV1.create(vec![88, 88, 88]),
-                TopicKind::IdentityUpdatesV1.create(b"test inbox"),
-                TopicKind::IdentityUpdatesV1.create(b"inbox test 2"),
-            ];
-            let topic_refs: Vec<&xmtp_proto::types::Topic> = topics.iter().collect();
-            create_identity_update(conn, 1, 100);
-            let cursor = conn.lowest_common_cursor(&topic_refs).unwrap();
-            assert_eq!(cursor.len(), 0);
         })
     }
 
