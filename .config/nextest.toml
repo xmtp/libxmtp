@@ -27,7 +27,7 @@ retries = 3
 slow-timeout = "90sec"
 default-filter = "not (test(/\\w*commit_log*/))"
 # inherits = "ci" not supported until latest nextest release
-failure-output = "never"
+failure-output = "immediate-final"
 fail-fast = false
 
 [[profile.ci-d14n.overrides]]
