@@ -1,5 +1,5 @@
 use xmtp_proto::xmtp::device_sync::{
-    BackupOptions as BackupOptionsProto, BackupElementSelection as BackupElementSelectionProto,
+    ArchiveOptions as ArchiveOptionsProto, BackupElementSelection as BackupElementSelectionProto,
 };
 
 /// Native representation of backup element selection with strongly-typed variants.
@@ -64,8 +64,8 @@ impl ArchiveOptions {
     }
 }
 
-impl From<BackupOptionsProto> for ArchiveOptions {
-    fn from(proto: BackupOptionsProto) -> Self {
+impl From<ArchiveOptionsProto> for ArchiveOptions {
+    fn from(proto: ArchiveOptionsProto) -> Self {
         Self {
             elements: proto.elements().map(BackupElementSelection::from).collect(),
             start_ns: proto.start_ns,
@@ -75,7 +75,7 @@ impl From<BackupOptionsProto> for ArchiveOptions {
     }
 }
 
-impl From<ArchiveOptions> for BackupOptionsProto {
+impl From<ArchiveOptions> for ArchiveOptionsProto {
     fn from(opts: ArchiveOptions) -> Self {
         Self {
             elements: opts
@@ -90,7 +90,7 @@ impl From<ArchiveOptions> for BackupOptionsProto {
     }
 }
 
-impl From<&ArchiveOptions> for BackupOptionsProto {
+impl From<&ArchiveOptions> for ArchiveOptionsProto {
     fn from(opts: &ArchiveOptions) -> Self {
         Self {
             elements: opts
@@ -137,7 +137,7 @@ mod tests {
             exclude_disappearing_messages: true,
         };
 
-        let proto: BackupOptionsProto = opts.clone().into();
+        let proto: ArchiveOptionsProto = opts.clone().into();
         let round_tripped: ArchiveOptions = proto.into();
 
         assert_eq!(opts, round_tripped);
@@ -164,7 +164,7 @@ mod tests {
             exclude_disappearing_messages: false,
         };
 
-        let proto: BackupOptionsProto = (&opts).into();
+        let proto: ArchiveOptionsProto = (&opts).into();
         assert_eq!(
             proto.elements,
             vec![BackupElementSelectionProto::Consent as i32]

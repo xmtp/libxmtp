@@ -11,15 +11,10 @@ use xmtp_proto::types::{GroupId, InstallationId, TopicCursor, TopicKind};
 use xmtp_proto::xmtp::xmtpv4::envelopes::OriginatorEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeTopicsResponse;
 
-type StatusStreamT<C> = StatusAwareStream<
-    XmtpStream<<C as Client>::Stream, SubscribeTopicsResponse>,
->;
+type StatusStreamT<C> =
+    StatusAwareStream<XmtpStream<<C as Client>::Stream, SubscribeTopicsResponse>>;
 
-type OrderedStreamT<C, Store> = OrderedStream<
-    StatusStreamT<C>,
-    Store,
-    OriginatorEnvelope,
->;
+type OrderedStreamT<C, Store> = OrderedStream<StatusStreamT<C>, Store, OriginatorEnvelope>;
 
 #[xmtp_common::async_trait]
 impl<C, Store, E> XmtpMlsStreams for D14nClient<C, Store>
@@ -33,10 +28,7 @@ where
 
     type GroupMessageStream = TryExtractorStream<OrderedStreamT<C, Store>, GroupMessageExtractor>;
 
-    type WelcomeMessageStream = TryExtractorStream<
-        StatusStreamT<C>,
-        WelcomeMessageExtractor,
-    >;
+    type WelcomeMessageStream = TryExtractorStream<StatusStreamT<C>, WelcomeMessageExtractor>;
 
     async fn subscribe_group_messages(
         &self,
@@ -47,11 +39,7 @@ where
                 .build()?
                 .fake_stream(&self.client);
             let (s, _status) = stream::status_aware(s);
-            let s = stream::ordered(
-                s,
-                self.cursor_store.clone(),
-                TopicCursor::default(),
-            );
+            let s = stream::ordered(s, self.cursor_store.clone(), TopicCursor::default());
             return Ok(stream::try_extractor(s));
         }
         let topics = group_ids
@@ -64,19 +52,16 @@ where
             .into();
         let mut builder = SubscribeTopics::builder();
         for (topic, cursor) in &topic_cursor {
-            tracing::debug!("subscribing to messages for topic {} @cursor={}", topic, cursor);
+            tracing::debug!(
+                "subscribing to messages for topic {} @cursor={}",
+                topic,
+                cursor
+            );
             builder.filter((topic.clone(), cursor.clone()));
         }
-        let s = builder
-            .build()?
-            .stream(&self.client)
-            .await?;
+        let s = builder.build()?.stream(&self.client).await?;
         let (s, _status) = stream::status_aware(s);
-        let s = stream::ordered(
-            s,
-            self.cursor_store.clone(),
-            topic_cursor,
-        );
+        let s = stream::ordered(s, self.cursor_store.clone(), topic_cursor);
         Ok(stream::try_extractor(s))
     }
 
@@ -89,11 +74,7 @@ where
                 .build()?
                 .fake_stream(&self.client);
             let (s, _status) = stream::status_aware(s);
-            let s = stream::ordered(
-                s,
-                self.cursor_store.clone(),
-                TopicCursor::default(),
-            );
+            let s = stream::ordered(s, self.cursor_store.clone(), TopicCursor::default());
             return Ok(stream::try_extractor(s));
         }
         let mut builder = SubscribeTopics::builder();
@@ -105,16 +86,9 @@ where
             );
             builder.filter((topic.clone(), cursor.clone()));
         }
-        let s = builder
-            .build()?
-            .stream(&self.client)
-            .await?;
+        let s = builder.build()?.stream(&self.client).await?;
         let (s, _status) = stream::status_aware(s);
-        let s = stream::ordered(
-            s,
-            self.cursor_store.clone(),
-            topics.clone(),
-        );
+        let s = stream::ordered(s, self.cursor_store.clone(), topics.clone());
         Ok(stream::try_extractor(s))
     }
 
@@ -136,13 +110,14 @@ where
         let mut builder = SubscribeTopics::builder();
         for topic in &topics {
             let cursor = self.cursor_store.latest(topic)?;
-            tracing::debug!("subscribing to welcome messages for topic {} @cursor={}", topic, cursor);
+            tracing::debug!(
+                "subscribing to welcome messages for topic {} @cursor={}",
+                topic,
+                cursor
+            );
             builder.filter((topic.clone(), cursor));
         }
-        let s = builder
-            .build()?
-            .stream(&self.client)
-            .await?;
+        let s = builder.build()?.stream(&self.client).await?;
         let (s, _status) = stream::status_aware(s);
         Ok(stream::try_extractor(s))
     }

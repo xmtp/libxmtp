@@ -341,10 +341,9 @@ where
                                 xmtp_proto::xmtp::mls::database::task::Task::SendSyncArchive(
                                     SendSyncArchive {
                                         options: request.options,
-                                        request_id: Some(request.request_id.clone()),
+                                        pin: Some(request.pin),
                                         sync_group_id: msg.group_id.clone(),
-                                        // TODO: server_url removed from DeviceSyncRequest proto, needs alternative source
-                                        server_url: String::new(),
+                                        server_url: request.server_url,
                                     },
                                 ),
                             ),
@@ -476,7 +475,7 @@ where
     pub async fn send_sync_request(
         &self,
         options: ArchiveOptions,
-        _server_url: impl ToString,
+        server_url: impl ToString,
     ) -> Result<(), ClientError> {
         let sync_group = self.get_sync_group().await?;
         sync_group
@@ -484,14 +483,14 @@ where
             .await
             .map_err(GroupError::from)?;
 
-        #[allow(deprecated)]
         let request = DeviceSyncRequestProto {
-            request_id: xmtp_common::rand_string::<5>(),
+            pin: xmtp_common::rand_string::<5>(),
             options: Some(options.into()),
+            server_url: server_url.to_string(),
 
             // Deprecated fields
-            kind: 0,
-            pin_code: String::new(),
+            #[allow(deprecated)]
+            deprecated_kind: 0,
         };
 
         self.send_device_sync_message(ContentProto::Request(request))
@@ -537,8 +536,8 @@ where
         let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
 
         for (msg, content) in messages.iter_with_content() {
-            if let ContentProto::Request(DeviceSyncRequestProto { request_id, .. }) = content
-                && *request_id == reply.request_id
+            if let ContentProto::Request(DeviceSyncRequestProto { pin, .. }) = content
+                && *pin == reply.request_id
                 && msg.sender_installation_id == self.installation_id()
             {
                 return Ok(true);
