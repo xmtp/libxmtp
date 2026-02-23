@@ -83,6 +83,10 @@ public actor PrivatePreferences {
 		try await ffiClient.syncPreferences()
 	}
 
+	/// Syncs consent state from the network.
+	///
+	/// - Note: Deprecated. Use ``sync()`` instead, which syncs all preferences
+	///   (not just consent state).
 	@available(
 		*, deprecated,
 		message: "syncConsent is deprecated. Use `sync()` instead."

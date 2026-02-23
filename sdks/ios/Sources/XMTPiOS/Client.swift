@@ -418,6 +418,9 @@ public final class Client {
 	}
 
 	/// Creates a raw FFI client without signing or registering the identity.
+	///
+	/// - Note: Deprecated. Use ``create(account:options:)`` or ``build(publicIdentity:options:inboxId:)`` instead,
+	///   which handle identity registration automatically.
 	@available(
 		*,
 		deprecated,
@@ -683,6 +686,9 @@ public final class Client {
 	}
 
 	/// Applies a pre-built signature request to the network without a local client.
+	///
+	/// - Note: Deprecated. Use ``revokeInstallations(api:signingKey:inboxId:installationIds:)`` instead,
+	///   which manages the signature flow automatically.
 	@available(
 		*,
 		deprecated,
@@ -706,6 +712,9 @@ public final class Client {
 	}
 
 	/// Creates a revocation signature request for manual signature management.
+	///
+	/// - Note: Deprecated. Use ``revokeInstallations(api:signingKey:inboxId:installationIds:)`` instead,
+	///   which manages the signature flow automatically.
 	@available(
 		*,
 		deprecated,
@@ -875,6 +884,11 @@ public final class Client {
 	}
 
 	/// Links an additional signing key (wallet) to this client's inbox.
+	///
+	/// - Note: Deprecated. Use ``addAccount(newAccount:allowReassignInboxId:)`` with care.
+	///   Adding a wallet already associated with another inbox will cause that wallet to lose
+	///   access to its original inbox. Call ``inboxIdFromIdentity(identity:)`` first to check
+	///   whether the wallet is already linked elsewhere.
 	@available(
 		*, deprecated,
 		message:
@@ -1041,6 +1055,10 @@ public final class Client {
 	}
 
 	/// Drops the active connection to the local database.
+	///
+	/// - Note: Deprecated. Avoid using this method directly. If you must drop the connection,
+	///   always call ``reconnectLocalDatabase()`` before performing any further operations,
+	///   or the app will error on the next database access.
 	@available(
 		*, deprecated,
 		message:
@@ -1220,6 +1238,11 @@ public final class Client {
 	}
 
 	/// Applies a pre-built signature request to the network for manual signature management.
+	///
+	/// - Note: Deprecated. Use ``addAccount(newAccount:allowReassignInboxId:)``,
+	///   ``removeAccount(recoveryAccount:identityToRemove:)``, or
+	///   ``revokeInstallations(signingKey:installationIds:)`` instead,
+	///   which manage the signature flow automatically.
 	@available(
 		*,
 		deprecated,
@@ -1238,6 +1261,9 @@ public final class Client {
 	}
 
 	/// Creates a revocation signature request for specific installations for manual signature management.
+	///
+	/// - Note: Deprecated. Use ``revokeInstallations(signingKey:installationIds:)`` instead,
+	///   which manages the signature flow automatically.
 	@available(
 		*,
 		deprecated,
@@ -1257,6 +1283,9 @@ public final class Client {
 	}
 
 	/// Creates a signature request to revoke all other installations for manual signature management.
+	///
+	/// - Note: Deprecated. Use ``revokeAllOtherInstallations(signingKey:)`` instead,
+	///   which manages the signature flow automatically.
 	@available(
 		*,
 		deprecated,
@@ -1275,6 +1304,9 @@ public final class Client {
 	}
 
 	/// Creates a signature request to remove an identity for manual signature management.
+	///
+	/// - Note: Deprecated. Use ``removeAccount(recoveryAccount:identityToRemove:)`` instead,
+	///   which manages the signature flow automatically.
 	@available(
 		*,
 		deprecated,
@@ -1294,6 +1326,9 @@ public final class Client {
 	}
 
 	/// Creates a signature request to add an identity for manual signature management.
+	///
+	/// - Note: Deprecated. Use ``addAccount(newAccount:allowReassignInboxId:)`` instead,
+	///   which manages the signature flow automatically.
 	@available(
 		*,
 		deprecated,
@@ -1330,6 +1365,9 @@ public final class Client {
 	}
 
 	/// Returns the pending signature request for this client, if any, for manual signature management.
+	///
+	/// - Note: Deprecated. Use ``create(account:options:)`` instead, which handles the
+	///   signature flow internally.
 	@available(
 		*,
 		deprecated,
@@ -1347,6 +1385,9 @@ public final class Client {
 	}
 
 	/// Registers the client's identity on the network using a pre-built signature request.
+	///
+	/// - Note: Deprecated. Use ``create(account:options:)`` instead, which handles identity
+	///   registration automatically as part of client creation.
 	@available(
 		*,
 		deprecated,
