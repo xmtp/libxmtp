@@ -18,6 +18,7 @@ use xmtp_api_d14n::d14n::SubscribeTopics;
 use xmtp_api_d14n::protocol::{CollectionExtractor, Extractor, KeyPackagesExtractor};
 use xmtp_proto::api::QueryStreamExt;
 use xmtp_proto::types::{InstallationId, TopicKind};
+use xmtp_proto::xmtp::xmtpv4::message_api::subscribe_topics_response::Response as SubscribeTopicsResponse;
 
 /// Identity Generation
 pub struct GenerateIdentity {
@@ -133,9 +134,8 @@ impl GenerateIdentity {
                     .await
                     .wrap_err("timeout reached for reading writes on key package published")??
                 {
-                    use xmtp_proto::xmtp::xmtpv4::message_api::subscribe_topics_response::Response;
                     let envelopes = match kp.response {
-                        Some(Response::Envelopes(e)) => e.envelopes,
+                        Some(SubscribeTopicsResponse::Envelopes(e)) => e.envelopes,
                         _ => continue,
                     };
                     // TODO: we can deserialize key packages in extractors possibly

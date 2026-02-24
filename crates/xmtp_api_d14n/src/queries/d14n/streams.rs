@@ -10,10 +10,9 @@ use xmtp_proto::types::{GroupId, InstallationId, TopicCursor, TopicKind};
 use xmtp_proto::xmtp::xmtpv4::envelopes::OriginatorEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeTopicsResponse;
 
-type StatusStreamT<C> =
-    StatusAwareStream<XmtpStream<<C as Client>::Stream, SubscribeTopicsResponse>>;
+type StatusStreamT = StatusAwareStream<XmtpStream<SubscribeTopicsResponse>>;
 
-type OrderedStreamT<C, Store> = OrderedStream<StatusStreamT<C>, Store, OriginatorEnvelope>;
+type OrderedStreamT<Store> = OrderedStream<StatusStreamT, Store, OriginatorEnvelope>;
 
 #[xmtp_common::async_trait]
 impl<C, Store> XmtpMlsStreams for D14nClient<C, Store>
@@ -23,18 +22,17 @@ where
 {
     type Error = ApiClientError;
 
-    type GroupMessageStream = TryExtractorStream<OrderedStreamT<C, Store>, GroupMessageExtractor>;
+    type GroupMessageStream = TryExtractorStream<OrderedStreamT<Store>, GroupMessageExtractor>;
 
-    type WelcomeMessageStream = TryExtractorStream<StatusStreamT<C>, WelcomeMessageExtractor>;
+    type WelcomeMessageStream = TryExtractorStream<StatusStreamT, WelcomeMessageExtractor>;
 
     async fn subscribe_group_messages(
         &self,
         group_ids: &[&GroupId],
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         if group_ids.is_empty() {
-            let s = SubscribeTopics::builder()
-                .build()?
-                .fake_stream(&self.client);
+            let mut endpoint = SubscribeTopics::builder().build()?;
+            let s = endpoint.fake_stream(&self.client);
             let (s, _status) = stream::status_aware(s);
             let s = stream::ordered(s, self.cursor_store.clone(), TopicCursor::default());
             return Ok(stream::try_extractor(s));
@@ -56,7 +54,8 @@ where
             );
             builder.filter((topic.clone(), cursor.clone()));
         }
-        let s = builder.build()?.stream(&self.client).await?;
+        let mut endpoint = builder.build()?;
+        let s = endpoint.stream(&self.client).await?;
         let (s, _status) = stream::status_aware(s);
         let s = stream::ordered(s, self.cursor_store.clone(), topic_cursor);
         Ok(stream::try_extractor(s))
@@ -67,9 +66,8 @@ where
         topics: &TopicCursor,
     ) -> Result<Self::GroupMessageStream, Self::Error> {
         if topics.is_empty() {
-            let s = SubscribeTopics::builder()
-                .build()?
-                .fake_stream(&self.client);
+            let mut endpoint = SubscribeTopics::builder().build()?;
+            let s = endpoint.fake_stream(&self.client);
             let (s, _status) = stream::status_aware(s);
             let s = stream::ordered(s, self.cursor_store.clone(), TopicCursor::default());
             return Ok(stream::try_extractor(s));
@@ -83,7 +81,8 @@ where
             );
             builder.filter((topic.clone(), cursor.clone()));
         }
-        let s = builder.build()?.stream(&self.client).await?;
+        let mut endpoint = builder.build()?;
+        let s = endpoint.stream(&self.client).await?;
         let (s, _status) = stream::status_aware(s);
         let s = stream::ordered(s, self.cursor_store.clone(), topics.clone());
         Ok(stream::try_extractor(s))
@@ -94,9 +93,8 @@ where
         installations: &[&InstallationId],
     ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         if installations.is_empty() {
-            let s = SubscribeTopics::builder()
-                .build()?
-                .fake_stream(&self.client);
+            let mut endpoint = SubscribeTopics::builder().build()?;
+            let s = endpoint.fake_stream(&self.client);
             let (s, _status) = stream::status_aware(s);
             return Ok(stream::try_extractor(s));
         }
@@ -114,7 +112,8 @@ where
             );
             builder.filter((topic.clone(), cursor));
         }
-        let s = builder.build()?.stream(&self.client).await?;
+        let mut endpoint = builder.build()?;
+        let s = endpoint.stream(&self.client).await?;
         let (s, _status) = stream::status_aware(s);
         Ok(stream::try_extractor(s))
     }
