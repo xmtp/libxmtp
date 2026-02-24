@@ -11,7 +11,6 @@ When you build an app with XMTP, all messages are encoded with a [content type](
 - `ReplyCodec`: Enables sending of replies.
 - `ReadReceiptCodec`: Enables read receipts.
 
-
 ## Support remote media attachments
 
 The following examples demonstrate how to use `AttachmentCodec` and `RemoteAttachmentCodec` to support remote attachments in your app. Remote attachments can include rich media such as images, videos, GIFs, and more.
