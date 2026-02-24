@@ -76,10 +76,12 @@ let
   commonEnv = {
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
     NIX_DEBUG = 1;
+    inherit (xmtp.shellCommon.wasmEnv)
+      CC_wasm32_unknown_unknown
+      AR_wasm32_unknown_unknown
+      CFLAGS_wasm32_unknown_unknown
+      ;
     # why CC manually (zstd): https://github.com/gyscos/zstd-rs/issues/339
-    CC_wasm32_unknown_unknown = "${llvmPackages.clang-unwrapped}/bin/clang";
-    AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
-    CFLAGS_wasm32_unknown_unknown = "-I ${llvmPackages.clang-unwrapped.lib}/lib/clang/21/include";
     # SQLITE_WASM_RS_UPDATE_PREBUILD = 1;
   };
 
@@ -128,22 +130,23 @@ let
         rust-toolchain
         chromedriver
         corepack
-        cargo-nextest
       ]
       # chromium unsupported on darwin
       # google-chrome unsupported on aarch64-linux
       # Firefox compiles from scratch on everything but x86_64 (unreliable build)
       ++ lib.optionals stdenv.isDarwin [ google-chrome ]
       ++ lib.optionals stdenv.isLinux [ chromium ];
+      inherit (xmtp.shellCommon.wasmEnv)
+        WASM_BINDGEN_TEST_ONLY_WEB
+        RSTEST_TIMEOUT
+        WASM_BINDGEN_TEST_TIMEOUT
+        WASM_BINDGEN_TEST_WEBDRIVER_JSON
+        CHROMEDRIVER
+        ;
 
       SQLITE = "${sqlite.dev}";
       SQLITE_OUT = "${sqlite.out}";
-      CHROMEDRIVER = "${lib.getBin chromedriver}/bin/chromedriver";
-      WASM_BINDGEN_TEST_TIMEOUT = 1024;
-      WASM_BINDGEN_TEST_ONLY_WEB = 1;
-      RSTEST_TIMEOUT = 90;
       CARGO_PROFILE_TEST_DEBUG = 0;
-      WASM_BINDGEN_TEST_WEBDRIVER_JSON = ./../../webdriver.json;
       CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
       XMTP_NIX_ENV = 1;
     }

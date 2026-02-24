@@ -81,6 +81,12 @@ in
     CC_wasm32_unknown_unknown = "${llvmPackages.clang-unwrapped}/bin/clang";
     AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
     CFLAGS_wasm32_unknown_unknown = "-I ${llvmPackages.clang-unwrapped.lib}/lib/clang/21/include";
+    WASM_BINDGEN_TEST_ONLY_WEB = 1;
+    WASM_BINDGEN_TEST_TIMEOUT = 1024;
+    RSTEST_TIMEOUT = 90;
+    WASM_BINDGEN_TEST_WEBDRIVER_JSON = ./../../webdriver.json;
+    CHROMEDRIVER = "${lib.getBin chromedriver}/bin/chromedriver";
+
   };
 
   # WASM tooling

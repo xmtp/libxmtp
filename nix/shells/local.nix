@@ -65,6 +65,11 @@ mkShell {
     CC_wasm32_unknown_unknown
     AR_wasm32_unknown_unknown
     CFLAGS_wasm32_unknown_unknown
+    WASM_BINDGEN_TEST_ONLY_WEB
+    WASM_BINDGEN_TEST_TIMEOUT
+    RSTEST_TIMEOUT
+    WASM_BINDGEN_TEST_WEBDRIVER_JSON
+    CHROMEDRIVER
     ;
 
   # --- Android env vars ---
