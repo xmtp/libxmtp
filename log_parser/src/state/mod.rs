@@ -76,7 +76,7 @@ pub struct ClientState {
     pub name: Option<String>,
     pub events: Vec<Arc<LogEvent>>,
     pub all_groups: Arc<Mutex<HashMap<GroupId, Arc<Mutex<Group>>>>>,
-    pub groupa: HashMap<GroupId, Arc<Mutex<Group>>>,
+    pub groups: HashMap<GroupId, Arc<Mutex<Group>>>,
     pub num_clients: isize,
     pub inst: String,
     pub inbox_id: String,
@@ -113,10 +113,12 @@ impl State {
         let groups = self.groups.lock();
         let group = groups.get(group_id)?;
         let group = group.lock();
-        for state in &group.states {
-            let state = state.lock();
-            if state.unique_id == unique_id {
-                return Some(state.clone());
+        for states_by_installation in &group.states {
+            for (_installation_id, state) in states_by_installation {
+                let state = state.lock();
+                if state.unique_id == unique_id {
+                    return Some(state.clone());
+                }
             }
         }
         None
@@ -273,7 +275,7 @@ impl ClientState {
             inbox_id: inbox_id.to_string(),
             num_clients: 0,
             all_groups,
-            groupa: HashMap::default(),
+            groups: HashMap::default(),
         }
     }
 
@@ -286,20 +288,20 @@ impl ClientState {
     }
 
     fn group(&mut self, group_id: &str, event: &Arc<LogEvent>) -> MutexGuard<'_, Group> {
-        if !self.groupa.contains_key(group_id) {
+        if !self.groups.contains_key(group_id) {
             {
                 let mut all_groups = self.all_groups.lock();
                 if let Some(group) = all_groups.get(group_id) {
-                    self.groupa.insert(group_id.to_string(), group.clone());
+                    self.groups.insert(group_id.to_string(), group.clone());
                 } else {
                     let group = Group::new(event);
                     all_groups.insert(group_id.to_string(), group.clone());
-                    self.groupa.insert(group_id.to_string(), group.clone());
+                    self.groups.insert(group_id.to_string(), group.clone());
                 }
             }
         }
 
-        self.groupa.get(group_id).unwrap().lock()
+        self.groups.get(group_id).unwrap().lock()
     }
 }
 
@@ -307,22 +309,31 @@ pub struct Group {
     pub has_errors: AtomicBool,
     pub installation_id: String,
     pub timeline: Vec<StateOrEvent>,
-    pub states: Vec<Arc<Mutex<GroupState>>>,
+    pub states: Vec<HashMap<InstallationId, Arc<Mutex<GroupState>>>>,
 }
 
 impl Group {
     fn new(event: &Arc<LogEvent>) -> Arc<Mutex<Self>> {
+        let mut states_map = HashMap::new();
+        states_map.insert(
+            event.installation.clone(),
+            Arc::new(Mutex::new(GroupState::new(event))),
+        );
         Arc::new(Mutex::new(Self {
             installation_id: event.installation.clone(),
-            states: vec![Arc::new(Mutex::new(GroupState::new(event)))],
+            states: vec![states_map],
             has_errors: AtomicBool::new(false),
             timeline: Vec::new(),
         }))
     }
 
     fn sort(&mut self) {
-        self.states
-            .sort_by(|a, b| a.lock().event.time().cmp(&b.lock().event.time()));
+        // Sort states by the earliest event time in each HashMap
+        self.states.sort_by(|a, b| {
+            let a_time = a.values().next().map(|s| s.lock().event.time());
+            let b_time = b.values().next().map(|s| s.lock().event.time());
+            a_time.cmp(&b_time)
+        });
     }
 }
 
@@ -356,23 +367,42 @@ impl GroupState {
 
 impl Group {
     fn new_event(&mut self, event: &Arc<LogEvent>) -> MutexGuard<'_, GroupState> {
-        let last = self.states.last().expect("There should always be one");
-        let last_guard = last.lock();
+        let installation_id = event.installation.clone();
 
-        let new_state = GroupState {
-            unique_id: next_group_state_id(),
-            event: event.clone(),
-            dm_target: last_guard.dm_target.clone(),
-            epoch: last_guard.epoch,
-            epoch_auth: last_guard.epoch_auth.clone(),
-            cursor: last_guard.cursor,
-            originator: last_guard.originator,
-            members: last_guard.members.clone(),
+        // Find the last state for this installation to copy from
+        let last_state_for_installation = self
+            .states
+            .iter()
+            .rev()
+            .find_map(|states_map| states_map.get(&installation_id));
+
+        let new_state = if let Some(last) = last_state_for_installation {
+            let last_guard = last.lock();
+            GroupState {
+                unique_id: next_group_state_id(),
+                event: event.clone(),
+                dm_target: last_guard.dm_target.clone(),
+                epoch: last_guard.epoch,
+                epoch_auth: last_guard.epoch_auth.clone(),
+                cursor: last_guard.cursor,
+                originator: last_guard.originator,
+                members: last_guard.members.clone(),
+            }
+        } else {
+            GroupState::new(event)
         };
-        drop(last_guard);
 
-        self.states.push(Arc::new(Mutex::new(new_state)));
-        self.states.last().expect("Just pushed").lock()
+        let new_state_arc = Arc::new(Mutex::new(new_state));
+        let mut new_states_map = HashMap::new();
+        new_states_map.insert(installation_id.clone(), new_state_arc);
+        self.states.push(new_states_map);
+
+        self.states
+            .last()
+            .expect("Just pushed")
+            .get(&installation_id)
+            .expect("Just inserted")
+            .lock()
     }
 }
 

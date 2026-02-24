@@ -252,8 +252,8 @@ impl State {
 
                 let mut timeline_groups: Vec<UITimelineGroup> = Vec::new();
 
-                let timeline = self.timeline.lock();
-                let mut timeline_group_ids: Vec<&String> = timeline.keys().collect();
+                let groups = self.groups.lock();
+                let mut timeline_group_ids: Vec<&String> = groups.keys().collect();
                 timeline_group_ids.sort();
 
                 // Use the same pagination as epochs tab
@@ -261,7 +261,8 @@ impl State {
                 let end = ((groups_page + 1) * PAGE_SIZE).min(timeline_group_ids.len());
 
                 for group_id in timeline_group_ids.into_iter().skip(start).take(end - start) {
-                    let entries = &timeline[group_id];
+                    let group = groups[group_id].lock();
+                    let entries = &group.timeline;
 
                     // First pass: collect all unique timestamps to create time slots
                     // Each unique timestamp becomes a slot index

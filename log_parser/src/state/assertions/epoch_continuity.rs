@@ -17,52 +17,65 @@ impl LogAssertion for EpochContinuityAssertion {
 
             // Massage the epoch # and auth forward through group states.
 
-            let mut epoch = None;
-            let mut auth: Option<String> = None;
             let mut group = group.lock();
-            for state in &mut group.states {
-                let mut state = state.lock();
-                match (epoch, state.epoch) {
-                    (Some(e), None) => {
-                        state.epoch = Some(e);
-                    }
-                    (Some(a), Some(b)) if b < a => state
-                        .event
-                        .problems
-                        .lock()
-                        .push(format!("Epoch went backwards. Was {a}, is now {b}.")),
-                    (_, Some(e)) => {
-                        epoch = Some(e);
-                        auth = None;
-                    }
-                    _ => {}
-                }
 
-                match (&auth, &state.epoch_auth) {
-                    (Some(a), None) => state.epoch_auth = Some(a.clone()),
-                    (None, Some(a)) => auth = Some(a.clone()),
-                    (Some(a), Some(b)) if a != b => {
-                        let description = format!("Epoch auth changed mid-epoch. From {a} to {b}");
-                        auth = Some(b.clone());
-                        state.event.problems.lock().push(description);
+            // Process each installation's states separately
+            // First, collect all installation IDs that appear in the group
+            let mut installation_epochs: HashMap<String, (Option<i64>, Option<String>)> =
+                HashMap::new();
+
+            for states_map in &mut group.states {
+                for (installation_id, state) in states_map.iter_mut() {
+                    let mut state = state.lock();
+                    let (epoch, auth) = installation_epochs
+                        .entry(installation_id.clone())
+                        .or_insert((None, None));
+                    match (*epoch, state.epoch) {
+                        (Some(e), None) => {
+                            state.epoch = Some(e);
+                        }
+                        (Some(a), Some(b)) if b < a => state
+                            .event
+                            .problems
+                            .lock()
+                            .push(format!("Epoch went backwards. Was {a}, is now {b}.")),
+                        (_, Some(e)) => {
+                            *epoch = Some(e);
+                            *auth = None;
+                        }
+                        _ => {}
                     }
-                    _ => {}
+
+                    match (&auth, &state.epoch_auth) {
+                        (Some(a), None) => state.epoch_auth = Some(a.clone()),
+                        (None, Some(a)) => *auth = Some(a.clone()),
+                        (Some(a), Some(b)) if a != b => {
+                            let description =
+                                format!("Epoch auth changed mid-epoch. From {a} to {b}");
+                            *auth = Some(b.clone());
+                            state.event.problems.lock().push(description);
+                        }
+                        _ => {}
+                    }
                 }
             }
 
             // Group the events into epochs.
-            for state in &group.states {
-                let state_lock = state.lock();
-                let Some(epoch) = state_lock.epoch else {
-                    continue;
-                };
-                let installation_id = state_lock.event.installation.clone();
-                drop(state_lock);
+            for states_map in &group.states {
+                for (installation_id, state) in states_map {
+                    let state_lock = state.lock();
+                    let Some(epoch) = state_lock.epoch else {
+                        continue;
+                    };
+                    drop(state_lock);
 
-                let installation_epochs = group_epochs.entry(installation_id).or_default();
-                let installation_epoch = installation_epochs.epochs.entry(epoch).or_default();
+                    let installation_epochs_entry =
+                        group_epochs.entry(installation_id.clone()).or_default();
+                    let installation_epoch =
+                        installation_epochs_entry.epochs.entry(epoch).or_default();
 
-                installation_epoch.states.push(state.clone());
+                    installation_epoch.states.push(state.clone());
+                }
             }
         }
 
