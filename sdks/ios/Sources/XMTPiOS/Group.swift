@@ -863,7 +863,9 @@ public struct Group: Identifiable, Equatable, Hashable {
 	///
 	/// Each returned ``DecodedMessage`` includes child reactions as part of its structure.
 	/// For a more comprehensive approach that also includes replies and other enriched metadata,
-	/// consider using ``enrichedMessages(beforeNs:afterNs:limit:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)`` instead.
+	/// consider using
+	/// ``enrichedMessages(beforeNs:afterNs:limit:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
+	/// instead.
 	///
 	/// - Parameters:
 	///   - beforeNs: Only include messages sent before this timestamp (nanoseconds since epoch).
