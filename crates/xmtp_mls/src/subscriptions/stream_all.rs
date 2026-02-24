@@ -74,11 +74,6 @@ where
         conversation_type: Option<ConversationType>,
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
-        log_event!(
-            Event::StreamOpened,
-            context.installation_id(),
-            kind = ?StreamKind::All
-        );
         Self::from_cow(Cow::Owned(context), conversation_type, consent_states).await
     }
 }

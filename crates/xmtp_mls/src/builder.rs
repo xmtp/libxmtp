@@ -368,8 +368,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disabled_workers = disable_workers,
         );
 
+        let installation_id = context.installation_id();
         let client = Client {
             context,
+            installation_id,
             local_events,
             workers,
         };
