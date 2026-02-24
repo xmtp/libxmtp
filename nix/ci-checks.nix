@@ -8,6 +8,7 @@ _: {
           wasm-bindings
           wasm-bindgen-cli
           mls_validation_service
+          wasm-bindings-test
           ;
       };
       checks.dev-shells = pkgs.linkFarm "dev-shells" self'.devShells;

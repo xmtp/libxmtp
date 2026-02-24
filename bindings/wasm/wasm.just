@@ -5,7 +5,7 @@ test:
 
 # Run WASM integration tests (builds wasm + vitest in browser)
 test-integration:
-  nix develop .#js --command bash -c 'yarn && yarn typecheck && yarn build:test && yarn run vitest run'
+  nix develop .#js --command bash -c 'yarn && yarn typecheck && yarn playwright install && nix build .#wasm-bindings-test && ln -s result/dist {{ justfile_directory()}}/bindings/wasm/dist && yarn run vitest run'
 # need a nix build .#wasm-bindings-test to be usable with integration tests
 
 # Build WASM bindings
