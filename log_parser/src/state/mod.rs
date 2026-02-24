@@ -23,7 +23,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     sync::{
         Arc, Weak,
-        atomic::{AtomicU32, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     },
 };
 
@@ -302,6 +302,7 @@ impl ClientState {
 }
 
 pub struct Group {
+    pub has_errors: AtomicBool,
     pub installation_id: String,
     pub states: Vec<Arc<Mutex<GroupState>>>,
 }
@@ -331,6 +332,7 @@ impl Group {
         Arc::new(Mutex::new(Self {
             installation_id: event.installation.clone(),
             states: vec![Arc::new(Mutex::new(GroupState::new(event)))],
+            has_errors: AtomicBool::new(false),
         }))
     }
 }

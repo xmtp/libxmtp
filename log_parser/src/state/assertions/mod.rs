@@ -3,6 +3,7 @@ pub mod build_group_order;
 pub mod build_timeline;
 pub mod epoch_auth_consistency;
 pub mod epoch_continuity;
+pub mod track_which_groups_have_errors;
 
 use crate::state::State;
 use anyhow::Result;
