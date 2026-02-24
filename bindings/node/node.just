@@ -9,12 +9,16 @@ install:
 install-ci:
   nix develop .#{{devshell}} --command bash -c 'yarn install --immutable'
 
-# Build Node.js NAPI bindings
-check: install
+# Build NAPI bindings and assemble dist
+[private]
+_prepare-dist *extra_flags="":
   nix develop .#{{devshell}} --command bash -c '\
     rm -rf dist && \
-    yarn napi build --platform --release --esm && \
+    yarn napi build --platform --esm {{extra_flags}} && \
     mkdir -p dist && mv index.js dist && mv index.d.ts dist && mv *.node dist'
+
+# Build Node.js NAPI bindings
+check: install (_prepare-dist "--release")
 
 # Check TypeScript formatting
 lint: install
@@ -25,12 +29,8 @@ format: install
   nix develop .#{{devshell}} --command bash -c 'yarn prettier -w .'
 
 # Run Node.js tests (builds NAPI bindings with test features + vitest)
-test: install
-  nix develop .#{{devshell}} --command bash -c '\
-    rm -rf dist && \
-    yarn napi build --platform --esm --features test-utils && \
-    mkdir -p dist && mv index.js dist && mv index.d.ts dist && mv *.node dist && \
-    yarn vitest run'
+test: install (_prepare-dist "--features test-utils")
+  nix develop .#{{devshell}} --command bash -c 'yarn vitest run'
 
 # Build Node.js NAPI bindings (alias)
 build: check

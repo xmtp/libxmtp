@@ -18,7 +18,7 @@ test:
   nix develop .#{{devshell}} --command bash -c './dev/bindings && ./gradlew -p . library:testDebug'
 
 # Run integration tests (requires emulator)
-test-integration:
+test-integration: build
   nix develop .#{{devshell}} --command bash -c 'run-test-emulator && ./gradlew -p . connectedCheck --continue'
 
 # Build native bindings

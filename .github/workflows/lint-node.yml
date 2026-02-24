@@ -14,5 +14,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
+      - name: Install dependencies
+        run: just node install-ci
       - name: Lint Node bindings
         run: just node lint

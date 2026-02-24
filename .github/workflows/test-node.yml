@@ -14,6 +14,8 @@ jobs:
         with:
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
+      - name: Install dependencies
+        run: just node install-ci
       - name: Start backend
         run: just backend up
       - name: Run Node tests

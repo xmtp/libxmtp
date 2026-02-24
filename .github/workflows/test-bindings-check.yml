@@ -4,8 +4,12 @@ on:
 jobs:
   check-swift:
     runs-on: warp-macos-13-arm64-6x
-    env:
-      NIX_DEVSHELL: ios
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -14,9 +18,10 @@ jobs:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "true"
-      - uses: taiki-e/install-action@just
       - name: Check iOS bindings compile
-        run: just ios check
+        run: |
+          nix develop .#ios --command \
+            cargo check --target ${{ matrix.target }} --manifest-path bindings/mobile/Cargo.toml
 
   check-android:
     runs-on: warp-ubuntu-latest-x64-16x

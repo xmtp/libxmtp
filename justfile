@@ -25,8 +25,9 @@ _check-workspace:
 
 [private]
 _check-crate +crates:
-  nix develop .#{{devshell}} --command \
-    cargo check --locked {{crates}}
+  nix develop .#{{devshell}} --command bash -c '\
+    args=""; for c in {{crates}}; do args="$args -p $c"; done; \
+    cargo check --locked $args'
 
 # --- LINT ---
 
@@ -41,7 +42,7 @@ lint-rust:
   nix develop .#{{devshell}} --command cargo hakari manage-deps --dry-run
 
 # Config linting: TOML, Nix, shell scripts
-lint-config: lint-toml lint-nix lint-shell
+lint-config: lint-toml lint-nix lint-treefmt
 
 lint-toml:
   nix develop .#{{devshell}} --command taplo format --check --diff
@@ -50,7 +51,7 @@ lint-toml:
 lint-nix:
   nix develop .#{{devshell}} --command nixfmt --check nix/ flake.nix
 
-lint-shell:
+lint-treefmt:
   nix fmt -- --fail-on-change
 
 lint-markdown:
@@ -91,8 +92,9 @@ _test-d14n:
 
 [private]
 _test-crate +crates:
-  nix develop .#{{devshell}} --command {{cargo_test}} \
-    {{crates}}
+  nix develop .#{{devshell}} --command bash -c '\
+    args=""; for c in {{crates}}; do args="$args -p $c"; done; \
+    {{cargo_test}} $args'
 
 # --- BACKEND ---
 
