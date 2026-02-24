@@ -1,0 +1,16 @@
+# Proto types the SDK re-exports as public typealiases.
+# A type belongs here if it appears in a public SDK API signature.
+# One type per line. Lines starting with # are comments.
+
+# Used by EncodedContent typealias and codec protocol
+Xmtp_MessageContents_EncodedContent
+# Used by ContentTypeID typealias in content type definitions
+Xmtp_MessageContents_ContentTypeId
+# Used by GroupUpdated typealias for membership-change messages
+Xmtp_Mls_MessageContents_GroupUpdated
+# Used by Ciphertext typealias in encryption APIs
+Xmtp_MessageContents_Ciphertext
+# Used by PrivateKey typealias in legacy key APIs
+Xmtp_MessageContents_PrivateKey
+# Used by push notification subscription APIs
+Notifications_V1_Subscription

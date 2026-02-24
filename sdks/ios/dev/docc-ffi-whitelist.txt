@@ -1,0 +1,14 @@
+# FFI types the SDK re-exports via public typealiases.
+# A type belongs here if the SDK surfaces it in a public API without wrapping it.
+# One type per line. Lines starting with # are comments.
+
+# Returned by Client.messageBytesMetadata()
+FfiMessageMetadata
+# Used internally by DecodedMessageV2.contentTypeId
+FfiContentType
+# Re-exported as public Intent typealias
+FfiIntent
+# Re-exported as public Actions typealias
+FfiActions
+# Used in public identity/signature APIs
+FfiSignatureKind
