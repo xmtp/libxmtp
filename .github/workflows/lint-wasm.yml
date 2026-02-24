@@ -2,34 +2,20 @@ name: Lint WASM
 on:
   workflow_call:
 env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-  CARGO_PROFILE_TEST_DEBUG: 0
+  NIX_DEVSHELL: wasm
 jobs:
   lint:
     name: Lint (WASM)
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-16x
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/setup-nix
         with:
-          targets: wasm32-unknown-unknown
-          workspaces: bindings/wasm
-      - name: Install emscripten toolchains
-        run: |
-          git clone https://github.com/emscripten-core/emsdk.git
-          cd emsdk
-          ./emsdk install latest
-          ./emsdk activate latest
-      - name: Run clippy and fail on warnings
-        run: |
-          source ./emsdk/emsdk_env.sh
-          cargo clippy --locked --manifest-path bindings/wasm/Cargo.toml --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings
-      - name: Run format check
-        run: cargo fmt --manifest-path bindings/wasm/Cargo.toml --check
-      - name: Run format check on typescript files
-        working-directory: bindings/wasm
-        run: |
-          yarn
-          yarn format:check
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: taiki-e/install-action@just
+      - name: Install dependencies
+        run: just wasm install-ci
+      - name: Lint WASM bindings
+        run: just wasm lint

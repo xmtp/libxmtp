@@ -1,9 +1,27 @@
-# Darwin only — will fail on Linux (no .#ios nix shell)
+export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
+
+set shell := ["../../dev/nix-shell"]
+
+# Verify iOS SDK builds (bindings + Swift)
+
+# Package.swift is at repo root, so cd there for swift commands
+check: build
+    cd "$(git rev-parse --show-toplevel)"
+    swift build
+
+# Run SwiftLint + SwiftFormat check
+lint:
+    swiftlint && swiftformat --lint .
+
+# Format Swift code
+format:
+    swiftformat .
 
 # Run Swift tests
-test:
-  nix develop .#ios --command ./dev/test
+test: build
+    cd "$(git rev-parse --show-toplevel)"
+    swift test --parallel
 
 # Build iOS native bindings (xcframework)
 build:
-  ./dev/bindings
+    ./dev/bindings

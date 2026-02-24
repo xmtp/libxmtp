@@ -2,8 +2,7 @@ name: Test WASM
 on:
   workflow_call:
 env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
+  NIX_DEVSHELL: wasm
 jobs:
   wasm-ci:
     name: Test (WASM)
@@ -17,29 +16,11 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "true"
       - uses: taiki-e/install-action@just
-      - name: Start Docker containers
-        run: |
-          nix build .#validation-service-image-musl64
-          dev/docker/up
-      - name: run tests
+      - name: Install dependencies
+        run: just wasm install-ci
+      - name: Start backend
+        run: just backend up
+      - name: Run WASM tests
         run: just wasm test
-
-  wasm-integration:
-    name: WASM Integration Tests
-    runs-on: warp-ubuntu-latest-x64-16x
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "true"
-      - name: Start Docker containers
-        run: |
-          nix build .#validation-service-image-musl64
-          dev/docker/up
-      # Ensure playwright version in nix matches that in package.json
-      - uses: taiki-e/install-action@just
-      - name: webassembly integration tests
+      - name: Run WASM integration tests
         run: just wasm test-integration

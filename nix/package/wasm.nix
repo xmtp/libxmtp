@@ -1,7 +1,6 @@
 {
   emscripten,
   lib,
-  fenix,
   wasm-pack,
   binaryen,
   zstd,
@@ -22,12 +21,11 @@
 }:
 let
   inherit (xmtp) craneLib;
-  # Pinned Rust Version
-  rust-toolchain = fenix.combine [
-    fenix.stable.cargo
-    fenix.stable.rustc
-    fenix.targets.wasm32-unknown-unknown.stable.rust-std
-  ];
+  # Pinned Rust Version (must use mkToolchain to match the rest of the project)
+  rust-toolchain =
+    xmtp.mkToolchain
+      [ "wasm32-unknown-unknown" ]
+      [ "clippy-preview" "rustfmt-preview" ];
   rust = craneLib.overrideToolchain (p: rust-toolchain);
 
   features = if test then "--features test-utils" else "";

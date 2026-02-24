@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec nix develop ".#${NIX_DEVSHELL:-default}" --command bash -euc "$1"

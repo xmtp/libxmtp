@@ -1,8 +1,8 @@
 name: Lint Android
-
 on:
   workflow_call:
-
+env:
+  NIX_DEVSHELL: android
 jobs:
   lint:
     name: Lint (Android)
@@ -12,9 +12,8 @@ jobs:
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
-      - name: Build Android Bindings
-        run: ./sdks/android/dev/bindings
-      - name: Run Spotless Check
-        run: nix develop ".#android" --command ./sdks/android/gradlew -p sdks/android spotlessCheck --continue
-      - name: Run Android Lint
-        run: nix develop ".#android" --command ./sdks/android/gradlew -p sdks/android :library:lintDebug
+      - uses: taiki-e/install-action@just
+      - name: Build Android bindings (required for lint)
+        run: just android build
+      - name: Lint Android SDK
+        run: just android lint
