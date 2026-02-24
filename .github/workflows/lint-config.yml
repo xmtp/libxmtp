@@ -1,20 +1,18 @@
-name: Lint WASM
+name: Lint Config
 on:
   workflow_call:
 env:
-  NIX_DEVSHELL: wasm
+  NIX_DEVSHELL: rust
 jobs:
   lint:
-    name: Lint (WASM)
-    runs-on: warp-ubuntu-latest-x64-16x
+    name: Lint (Config)
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "true"
       - uses: taiki-e/install-action@just
-      - name: Lint WASM bindings
-        run: just wasm lint
+      - name: Lint config files (TOML, Nix, shell)
+        run: just lint-config

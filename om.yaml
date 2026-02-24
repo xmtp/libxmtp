@@ -11,18 +11,13 @@ ci:
         build:
           enable: false
         custom:
-          wasm-test-v3:
+          wasm-test:
             type: devshell
             name: wasm
             command:
-              - ./dev/test/wasm-ci
-              - --v3
-          wasm-test-d14n:
-            type: devshell
-            name: wasm
-            command:
-              - ./dev/test/wasm-ci
-              - --d14n
+              - just
+              - wasm
+              - test
 develop:
   default:
     readme: |

@@ -1,6 +1,8 @@
 name: Test Node
 on:
   workflow_call:
+env:
+  NIX_DEVSHELL: js
 jobs:
   test:
     name: Test (Node)
@@ -11,9 +13,8 @@ jobs:
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "true"
-      - name: Start Docker containers
-        run: dev/up
-      - name: Run tests
-        run: nix develop .#rust --command bash -c 'cd bindings/node && yarn && yarn test'
+      - uses: taiki-e/install-action@just
+      - name: Start backend
+        run: just backend up
+      - name: Run Node tests
+        run: just node test

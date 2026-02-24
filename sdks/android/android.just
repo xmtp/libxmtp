@@ -1,12 +1,26 @@
-# Run Android unit tests
+# Defaults to `default` (full env). CI sets NIX_DEVSHELL=android for leaner builds.
+devshell := env("NIX_DEVSHELL", "default")
+
+# Verify Android SDK builds (bindings + Gradle)
+check:
+  nix develop .#{{devshell}} --command bash -c './dev/bindings && ./gradlew -p . build'
+
+# Run Spotless + Android Lint
+lint:
+  nix develop .#{{devshell}} --command bash -c './gradlew -p . spotlessCheck --continue && ./gradlew -p . :library:lintDebug'
+
+# Format Kotlin code
+format:
+  nix develop .#{{devshell}} --command bash -c './gradlew -p . spotlessApply'
+
+# Run unit tests
 test:
-  nix develop .#android --command ./gradlew -p . library:testDebug
+  nix develop .#{{devshell}} --command bash -c './dev/bindings && ./gradlew -p . library:testDebug'
 
-# Run integration tests with android emulator
+# Run integration tests (requires emulator)
 test-integration:
-  nix develop .#android --command run-test-emulator
-  nix develop .#android --command ./gradlew -p . connectedCheck --continue
+  nix develop .#{{devshell}} --command bash -c 'run-test-emulator && ./gradlew -p . connectedCheck --continue'
 
-# Build Android native bindings (.so + Kotlin)
+# Build native bindings
 build:
-  ./dev/bindings
+  nix develop .#{{devshell}} --command bash -c './dev/bindings'

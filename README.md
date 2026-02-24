@@ -81,7 +81,7 @@ Start Docker Desktop.
 - To run WebAssembly tests headless:
 
   ```bash
-  dev/test/wasm
+  just wasm test
   ```
 
 - To run WebAssembly tests interactively for a package, for example, `xmtp_mls`:

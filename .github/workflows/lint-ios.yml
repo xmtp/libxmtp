@@ -1,8 +1,8 @@
 name: Lint iOS
-
 on:
   workflow_call:
-
+env:
+  NIX_DEVSHELL: ios
 jobs:
   lint:
     name: Lint (iOS)
@@ -12,7 +12,6 @@ jobs:
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
-      - name: Run SwiftLint
-        run: ./sdks/ios/dev/lint
-      - name: Check SwiftFormat
-        run: ./sdks/ios/dev/fmt --lint
+      - uses: taiki-e/install-action@just
+      - name: Lint iOS SDK
+        run: just ios lint

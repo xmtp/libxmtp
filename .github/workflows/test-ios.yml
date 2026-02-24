@@ -53,13 +53,13 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "26"
-      - name: Build
-        run: nix develop ".#ios" --command ./sdks/ios/dev/build
-      - name: Run tests
+      - uses: taiki-e/install-action@just
+      - name: Build and test
         env:
+          NIX_DEVSHELL: ios
           XMTP_NODE_ADDRESS: ${{ needs.deploy-backend.outputs.node_url }}
           XMTP_HISTORY_SERVER_ADDRESS: ${{ needs.deploy-backend.outputs.history_url }}
-        run: nix develop .#ios --command ./sdks/ios/dev/test
+        run: just ios test
 
   cleanup:
     runs-on: ubuntu-latest
