@@ -17,6 +17,7 @@
   pkg-config,
   cargo-nextest,
   stdenv,
+  test ? false,
 }:
 let
   inherit (xmtp) craneLib;
@@ -26,6 +27,8 @@ let
       [ "wasm32-unknown-unknown" ]
       [ "clippy-preview" "rustfmt-preview" ];
   rust = craneLib.overrideToolchain (p: rust-toolchain);
+
+  features = if test then "--features test-utils" else "";
 
   libraryFileset = lib.fileset.toSource {
     root = ./../..;
@@ -63,7 +66,7 @@ let
     ];
     buildInputs = [ sqlite ];
     doCheck = false;
-    cargoExtraArgs = "--workspace --exclude xmtpv3 --exclude bindings_node --exclude xmtp_cli --exclude xdbg --exclude mls_validation_service --exclude xmtp_api_grpc --exclude benches --exclude xmtp-db-tools";
+    cargoExtraArgs = "--package bindings_wasm ${features}";
     hardeningDisable = [
       "zerocallusedregs"
       "stackprotector"
@@ -104,9 +107,11 @@ let
         mkdir -p $out/dist
         cargoBuildLog=$(mktemp cargoBuildLogXXXX.json)
 
-        HOME=$(mktemp -d fake-homeXXXX) wasm-pack --verbose build --target web --out-dir $out/dist --no-pack --release ./bindings/wasm -- --message-format json-render-diagnostics > "$cargoBuildLog"
+        HOME=$(mktemp -d fake-homeXXXX) wasm-pack \
+          --verbose build --target web --out-dir $out/dist \
+          --no-pack --release ./bindings/wasm ${features} \
+          --message-format json-render-diagnostics > "$cargoBuildLog"
       '';
-
     }
   );
 
@@ -145,5 +150,5 @@ let
   );
 in
 {
-  inherit bin devShell;
+  inherit devShell bin;
 }

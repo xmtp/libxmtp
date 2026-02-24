@@ -1,12 +1,10 @@
-# WASM requires its own shell (emscripten, wasm-pack, etc.)
 
-export NIX_DEVSHELL := env("NIX_DEVSHELL", "wasm")
+# Run WASM integration tests (builds wasm + vitest in browser)
+test-integration:
+  nix develop .#js --command bash -c 'yarn && yarn typecheck && yarn playwright install && nix build .#wasm-bindings-test && ln -s result/dist {{ justfile_directory()}}/bindings/wasm/dist && yarn run vitest run'
+# need a nix build .#wasm-bindings-test to be usable with integration tests
 
-set shell := ["../../dev/nix-shell"]
 
-# Install JS dependencies
-install:
-    yarn
 
 # Install JS dependencies (CI - frozen lockfile)
 install-ci:
@@ -35,11 +33,10 @@ test:
       --features d14n --no-fail-fast \
       -p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_d14n
 
-# Build WASM bindings for testing (test-utils feature, no wasm-opt)
-# Runs in .#wasm shell via set shell — RUSTFLAGS come from .cargo/config.toml
-[private]
-_build-test:
-    wasm-pack build --no-opt --target web --out-dir ./dist --no-pack --release -- --features test-utils
+(??)# Run WASM integration tests (builds wasm + vitest in browser)
+(??)test-integration:
+(??)  nix develop .#js --command bash -c 'yarn && yarn typecheck && yarn build:test && yarn run vitest run'
+(??)# need a nix build .#wasm-bindings-test to be usable with integration tests
 
 # Run WASM integration tests (vitest in browser — needs .#js shell for Playwright)
 [script("bash")]

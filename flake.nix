@@ -66,6 +66,7 @@
             {
               inherit (pkgs.xmtp) ffi-uniffi-bindgen;
               wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { }).bin;
+              wasm-bindings-test = (pkgs.callPackage ./nix/package/wasm.nix { test = true; }).bin;
               wasm-bindgen-cli = pkgs.callPackage ./nix/lib/packages/wasm-bindgen-cli.nix { };
               # Android bindings (.so libraries + Kotlin bindings)
               android-libs = android.aggregate;
