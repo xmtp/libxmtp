@@ -159,6 +159,22 @@ fn main() -> Result<()> {
         }
     });
 
+    ui.on_events_page_changed({
+        let state = state.clone();
+        move |page| {
+            tracing::info!("Events page changed to: {}", page);
+            state.set_events_page(page as u32);
+        }
+    });
+
+    ui.on_groups_page_changed({
+        let state = state.clone();
+        move |page| {
+            tracing::info!("Groups page changed to: {}", page);
+            state.set_groups_page(page as u32);
+        }
+    });
+
     ui.run()?;
     Ok(())
 }

@@ -23,7 +23,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     sync::{
         Arc, Weak,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU32, AtomicU64, Ordering},
     },
 };
 
@@ -48,6 +48,10 @@ pub struct State {
     pub timeline: Mutex<HashMap<GroupId, Vec<StateOrEvent>>>,
     pub clients: Mutex<HashMap<InstallationId, Arc<Mutex<ClientState>>>>,
     pub ui: Option<SlintWeak<AppWindow>>,
+    /// Current page for events (0-indexed)
+    pub events_page: AtomicU32,
+    /// Current page for groups (0-indexed), shared between Epochs and Timeline tabs
+    pub groups_page: AtomicU32,
 }
 
 #[derive(Default)]
@@ -81,7 +85,21 @@ impl State {
             sources: Mutex::default(),
             timeline: Mutex::default(),
             ui,
+            events_page: AtomicU32::new(0),
+            groups_page: AtomicU32::new(0),
         })
+    }
+
+    /// Set the events page and trigger a UI update
+    pub fn set_events_page(self: &Arc<Self>, page: u32) {
+        self.events_page.store(page, Ordering::Relaxed);
+        self.clone().update_ui();
+    }
+
+    /// Set the groups page and trigger a UI update
+    pub fn set_groups_page(self: &Arc<Self>, page: u32) {
+        self.groups_page.store(page, Ordering::Relaxed);
+        self.clone().update_ui();
     }
 
     /// Find a GroupState by its unique_id, narrowed by installation_id and group_id

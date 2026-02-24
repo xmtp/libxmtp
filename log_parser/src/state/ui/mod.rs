@@ -7,7 +7,11 @@ use crate::{
 };
 use slint::{Color, ModelRc, SharedString, VecModel};
 use std::collections::HashMap as StdHashMap;
+use std::sync::atomic::Ordering;
 use std::{collections::BTreeSet, sync::Arc};
+
+/// Maximum number of events or groups to display per page in the UI
+const PAGE_SIZE: usize = 1000;
 
 fn short_id(id: &str) -> String {
     if id.len() > 12 {
@@ -38,12 +42,20 @@ impl State {
         let _ = ui
             .upgrade_in_event_loop(move |ui| {
                 // ─── Events Tab ───
+                let events_page = self.events_page.load(Ordering::Relaxed) as usize;
                 let mut streams = Vec::new();
+                let mut max_events_count: usize = 0;
+
                 for (inst, client) in &*self.clients.lock() {
                     let client = client.lock();
-                    let mut stream = Vec::new();
+                    let total_events = client.events.len();
+                    max_events_count = max_events_count.max(total_events);
 
-                    for event in &client.events {
+                    let mut stream = Vec::new();
+                    let start = events_page * PAGE_SIZE;
+                    let end = ((events_page + 1) * PAGE_SIZE).min(total_events);
+
+                    for event in client.events.iter().skip(start).take(end - start) {
                         let color = event.ui_group_color();
                         stream.push(UIEvent {
                             event: SharedString::from(event.msg),
@@ -67,6 +79,15 @@ impl State {
                     });
                 }
 
+                // Calculate total pages for events
+                let events_total_pages = if max_events_count == 0 {
+                    1
+                } else {
+                    (max_events_count + PAGE_SIZE - 1) / PAGE_SIZE
+                };
+                ui.set_events_page(events_page as i32);
+                ui.set_events_total_pages(events_total_pages as i32);
+
                 let streams = ModelRc::new(VecModel::from(streams));
                 ui.set_log_streams(streams);
 
@@ -83,13 +104,24 @@ impl State {
                 // states any single installation has in that epoch. This lets the UI
                 // allocate a consistent column width so cells align across rows.
 
+                let groups_page = self.groups_page.load(Ordering::Relaxed) as usize;
                 let mut group_rows: Vec<UIGroupRow> = Vec::new();
 
                 let grouped_epochs = self.grouped_epochs.lock();
                 let mut group_ids: Vec<&String> = grouped_epochs.keys().collect();
                 group_ids.sort();
 
-                for group_id in group_ids {
+                let total_groups = group_ids.len();
+                let groups_total_pages = if total_groups == 0 {
+                    1
+                } else {
+                    (total_groups + PAGE_SIZE - 1) / PAGE_SIZE
+                };
+
+                let start = groups_page * PAGE_SIZE;
+                let end = ((groups_page + 1) * PAGE_SIZE).min(total_groups);
+
+                for group_id in group_ids.into_iter().skip(start).take(end - start) {
                     let inst_epochs_map = &grouped_epochs[group_id];
 
                     // Sort epochs by epoch number
@@ -205,6 +237,10 @@ impl State {
                     });
                 }
 
+                // Set pagination state for groups
+                ui.set_groups_page(groups_page as i32);
+                ui.set_groups_total_pages(groups_total_pages as i32);
+
                 let epoch_groups = ModelRc::new(VecModel::from(group_rows));
                 ui.set_epoch_groups(epoch_groups);
 
@@ -220,7 +256,11 @@ impl State {
                 let mut timeline_group_ids: Vec<&String> = timeline.keys().collect();
                 timeline_group_ids.sort();
 
-                for group_id in timeline_group_ids {
+                // Use the same pagination as epochs tab
+                let start = groups_page * PAGE_SIZE;
+                let end = ((groups_page + 1) * PAGE_SIZE).min(timeline_group_ids.len());
+
+                for group_id in timeline_group_ids.into_iter().skip(start).take(end - start) {
                     let entries = &timeline[group_id];
 
                     // First pass: collect all unique timestamps to create time slots
