@@ -1,18 +1,20 @@
-# Defaults to `default` (full env). CI sets NIX_DEVSHELL=js for leaner builds.
-devshell := env("NIX_DEVSHELL", "default")
+export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
+set shell := ["../../dev/nix-shell"]
 
 # Install JS dependencies
 install:
-  nix develop .#{{devshell}} --command bash -c 'yarn'
+  yarn
 
 # Install JS dependencies (CI - frozen lockfile)
 install-ci:
-  nix develop .#{{devshell}} --command bash -c 'yarn install --immutable'
+  yarn install --immutable
 
 # Build NAPI bindings and assemble dist (needs Rust — always uses default shell)
 [private]
+[script("bash")]
 _prepare-dist *extra_flags="":
-  nix develop .#default --command bash -c '\
+  set -euo pipefail
+  nix develop .#default --command bash -euc '\
     rm -rf dist && \
     yarn napi build --platform --esm {{extra_flags}} && \
     mkdir -p dist && mv index.js dist && mv index.d.ts dist && mv *.node dist'
@@ -22,15 +24,15 @@ check: install (_prepare-dist "--release")
 
 # Check TypeScript formatting
 lint: install
-  nix develop .#{{devshell}} --command bash -c 'yarn prettier -c .'
+  yarn prettier -c .
 
 # Format TypeScript files
 format: install
-  nix develop .#{{devshell}} --command bash -c 'yarn prettier -w .'
+  yarn prettier -w .
 
 # Run Node.js tests (builds NAPI bindings with test features + vitest)
 test: install (_prepare-dist "--features test-utils")
-  nix develop .#{{devshell}} --command bash -c 'yarn vitest run'
+  yarn vitest run
 
 # Build Node.js NAPI bindings (alias)
 build: check
