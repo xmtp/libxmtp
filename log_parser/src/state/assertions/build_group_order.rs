@@ -6,11 +6,12 @@ pub struct BuildGroupOrder;
 
 impl LogAssertion for BuildGroupOrder {
     fn assert(state: &State) -> Result<()> {
-        let timeline = state.timeline.lock();
         let mut order = BTreeMap::new();
+        let groups = state.groups.lock();
 
-        for (group_id, events) in &*timeline {
-            let Some(event) = events.last() else {
+        for (group_id, group) in &*groups {
+            let group = group.lock();
+            let Some(event) = group.timeline.last() else {
                 continue;
             };
 

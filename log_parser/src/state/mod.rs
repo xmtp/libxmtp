@@ -42,15 +42,16 @@ type GroupId = String;
 type EpochNumber = i64;
 
 pub struct State {
+    // State
     pub sources: Mutex<HashMap<String, Vec<Arc<LogEvent>>>>,
     pub groups: Arc<Mutex<HashMap<GroupId, Arc<Mutex<Group>>>>>,
 
+    // Meta state
     pub group_order: Mutex<BTreeMap<i64, GroupId>>,
     pub grouped_epochs: Mutex<HashMap<GroupId, HashMap<InstallationId, Epochs>>>,
-    pub timeline: Mutex<HashMap<GroupId, Vec<StateOrEvent>>>,
-
     pub clients: Mutex<HashMap<InstallationId, Arc<Mutex<ClientState>>>>,
 
+    // UI
     pub ui: Option<SlintWeak<AppWindow>>,
     /// Current page for events (0-indexed)
     pub events_page: AtomicU32,
@@ -89,7 +90,6 @@ impl State {
             group_order: Mutex::default(),
             grouped_epochs: Mutex::default(),
             sources: Mutex::default(),
-            timeline: Mutex::default(),
             ui,
             events_page: AtomicU32::new(0),
             groups_page: AtomicU32::new(0),
@@ -135,8 +135,8 @@ impl State {
     fn rebuild(self: &Arc<Self>) {
         // Perform a soft-reset.
         *self.grouped_epochs.lock() = HashMap::new();
-        *self.timeline.lock() = HashMap::new();
         *self.clients.lock() = HashMap::new();
+        *self.groups.lock() = HashMap::new();
 
         {
             let sources = self.sources.lock();
@@ -306,6 +306,7 @@ impl ClientState {
 pub struct Group {
     pub has_errors: AtomicBool,
     pub installation_id: String,
+    pub timeline: Vec<StateOrEvent>,
     pub states: Vec<Arc<Mutex<GroupState>>>,
 }
 
@@ -315,6 +316,7 @@ impl Group {
             installation_id: event.installation.clone(),
             states: vec![Arc::new(Mutex::new(GroupState::new(event)))],
             has_errors: AtomicBool::new(false),
+            timeline: Vec::new(),
         }))
     }
 
