@@ -288,11 +288,12 @@ impl ClientState {
     fn group(&mut self, group_id: &str, event: &Arc<LogEvent>) -> MutexGuard<'_, Group> {
         if !self.groupa.contains_key(group_id) {
             {
-                let all_groups = self.all_groups.lock();
+                let mut all_groups = self.all_groups.lock();
                 if let Some(group) = all_groups.get(group_id) {
                     self.groupa.insert(group_id.to_string(), group.clone());
                 } else {
                     let group = Group::new(event);
+                    all_groups.insert(group_id.to_string(), group.clone());
                     self.groupa.insert(group_id.to_string(), group.clone());
                 }
             }

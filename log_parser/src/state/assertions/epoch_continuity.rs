@@ -51,13 +51,15 @@ impl LogAssertion for EpochContinuityAssertion {
             }
 
             // Group the events into epochs.
-            let installation_epochs = group_epochs
-                .entry(group.installation_id.clone())
-                .or_default();
             for state in &group.states {
-                let Some(epoch) = state.lock().epoch else {
+                let state_lock = state.lock();
+                let Some(epoch) = state_lock.epoch else {
                     continue;
                 };
+                let installation_id = state_lock.event.installation.clone();
+                drop(state_lock);
+
+                let installation_epochs = group_epochs.entry(installation_id).or_default();
                 let installation_epoch = installation_epochs.epochs.entry(epoch).or_default();
 
                 installation_epoch.states.push(state.clone());
