@@ -95,7 +95,6 @@ fn main() -> Result<()> {
         let state = state.clone();
         move |group_id, installation_id, unique_id| {
             let group_id = group_id.to_string();
-            let installation_id = installation_id.to_string();
             let unique_id = unique_id as u64;
 
             tracing::info!(
@@ -105,9 +104,7 @@ fn main() -> Result<()> {
                 unique_id
             );
 
-            if let Some(group_state) =
-                state.find_group_state_by_id(&installation_id, &group_id, unique_id)
-            {
+            if let Some(group_state) = state.find_group_state_by_id(&group_id, unique_id) {
                 let detail = group_state.ui_group_state_detail(&installation_id);
                 if let Some(ui) = ui_handle.upgrade() {
                     ui.set_selected_state_detail(detail);

@@ -6,18 +6,16 @@ pub struct BuildTimeline;
 
 impl LogAssertion for BuildTimeline {
     fn assert(state: &State) -> Result<()> {
-        let group_org = state.org_group();
+        let groups = state.groups.lock();
         let mut timeline: HashMap<String, Vec<StateOrEvent>> = HashMap::new();
 
         // Collect the states
-        for (group_id, inst_groups) in &group_org {
+        for (group_id, group) in &*groups {
+            let group = group.lock();
             let group_tl = timeline.entry(group_id.clone()).or_default();
 
-            for inst_group in inst_groups {
-                let inst_group = inst_group.lock();
-                for state in &inst_group.states {
-                    group_tl.push(StateOrEvent::State(state.clone()));
-                }
+            for state in &group.states {
+                group_tl.push(StateOrEvent::State(state.clone()));
             }
         }
 

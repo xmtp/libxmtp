@@ -43,10 +43,14 @@ type EpochNumber = i64;
 
 pub struct State {
     pub sources: Mutex<HashMap<String, Vec<Arc<LogEvent>>>>,
+    pub groups: Arc<Mutex<HashMap<GroupId, Arc<Mutex<Group>>>>>,
+
     pub group_order: Mutex<BTreeMap<i64, GroupId>>,
     pub grouped_epochs: Mutex<HashMap<GroupId, HashMap<InstallationId, Epochs>>>,
     pub timeline: Mutex<HashMap<GroupId, Vec<StateOrEvent>>>,
+
     pub clients: Mutex<HashMap<InstallationId, Arc<Mutex<ClientState>>>>,
+
     pub ui: Option<SlintWeak<AppWindow>>,
     /// Current page for events (0-indexed)
     pub events_page: AtomicU32,
@@ -70,7 +74,8 @@ pub struct Epoch {
 pub struct ClientState {
     pub name: Option<String>,
     pub events: Vec<Arc<LogEvent>>,
-    pub groups: HashMap<String, Arc<Mutex<Group>>>,
+    pub all_groups: Arc<Mutex<HashMap<GroupId, Arc<Mutex<Group>>>>>,
+    pub groupa: HashMap<GroupId, Arc<Mutex<Group>>>,
     pub num_clients: isize,
     pub inst: String,
     pub inbox_id: String,
@@ -79,6 +84,7 @@ pub struct ClientState {
 impl State {
     pub fn new(ui: Option<SlintWeak<AppWindow>>) -> Arc<Self> {
         Arc::new(Self {
+            groups: Arc::default(),
             clients: Mutex::default(),
             group_order: Mutex::default(),
             grouped_epochs: Mutex::default(),
@@ -103,16 +109,9 @@ impl State {
     }
 
     /// Find a GroupState by its unique_id, narrowed by installation_id and group_id
-    pub fn find_group_state_by_id(
-        &self,
-        installation_id: &str,
-        group_id: &str,
-        unique_id: u64,
-    ) -> Option<GroupState> {
-        let clients = self.clients.lock();
-        let client = clients.get(installation_id)?;
-        let client = client.lock();
-        let group = client.groups.get(group_id)?;
+    pub fn find_group_state_by_id(&self, group_id: &str, unique_id: u64) -> Option<GroupState> {
+        let groups = self.groups.lock();
+        let group = groups.get(group_id)?;
         let group = group.lock();
         for state in &group.states {
             let state = state.lock();
@@ -167,7 +166,7 @@ impl State {
         };
 
         // sort everything by time
-        self.clients.lock().values().for_each(|c| c.lock().sort());
+        // self.clients.lock().values().for_each(|c| c.lock().sort());
 
         // update the ui
         self.clone().update_ui();
@@ -186,7 +185,12 @@ impl State {
             Event::ClientCreated => {
                 let inbox_id = ctx("inbox_id")?.as_str()?;
                 clients.entry(installation.to_string()).or_insert_with(|| {
-                    Arc::new(Mutex::new(ClientState::new(&installation, inbox_id, None)))
+                    Arc::new(Mutex::new(ClientState::new(
+                        &installation,
+                        inbox_id,
+                        None,
+                        self.groups.clone(),
+                    )))
                 })
             }
             _ => clients.get_mut(installation).context("Missing client")?,
@@ -253,28 +257,23 @@ impl State {
 
         Ok(())
     }
-
-    fn org_group(&self) -> HashMap<GroupId, Vec<Arc<Mutex<Group>>>> {
-        let mut groups = HashMap::new();
-        for (_inst, state) in &*self.clients.lock() {
-            for (group_id, group) in &state.lock().groups {
-                let g = groups.entry(group_id.clone()).or_insert_with(|| vec![]);
-                g.push(group.clone());
-            }
-        }
-        groups
-    }
 }
 
 impl ClientState {
-    fn new(inst: &str, inbox_id: &str, name: Option<String>) -> Self {
+    fn new(
+        inst: &str,
+        inbox_id: &str,
+        name: Option<String>,
+        all_groups: Arc<Mutex<HashMap<GroupId, Arc<Mutex<Group>>>>>,
+    ) -> Self {
         Self {
             name,
             events: Vec::new(),
-            groups: HashMap::default(),
             inst: inst.to_string(),
             inbox_id: inbox_id.to_string(),
             num_clients: 0,
+            all_groups,
+            groupa: HashMap::default(),
         }
     }
 
@@ -287,17 +286,19 @@ impl ClientState {
     }
 
     fn group(&mut self, group_id: &str, event: &Arc<LogEvent>) -> MutexGuard<'_, Group> {
-        if !self.groups.contains_key(group_id) {
-            let state = Group::new(event);
-            self.groups.insert(group_id.to_string(), state.clone());
-            return self.groups[group_id].lock();
+        if !self.groupa.contains_key(group_id) {
+            {
+                let all_groups = self.all_groups.lock();
+                if let Some(group) = all_groups.get(group_id) {
+                    self.groupa.insert(group_id.to_string(), group.clone());
+                } else {
+                    let group = Group::new(event);
+                    self.groupa.insert(group_id.to_string(), group.clone());
+                }
+            }
         }
 
-        self.groups.get(group_id).unwrap().lock()
-    }
-
-    fn sort(&self) {
-        self.groups.values().for_each(|g| g.lock().sort());
+        self.groupa.get(group_id).unwrap().lock()
     }
 }
 
@@ -308,6 +309,14 @@ pub struct Group {
 }
 
 impl Group {
+    fn new(event: &Arc<LogEvent>) -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(Self {
+            installation_id: event.installation.clone(),
+            states: vec![Arc::new(Mutex::new(GroupState::new(event)))],
+            has_errors: AtomicBool::new(false),
+        }))
+    }
+
     fn sort(&mut self) {
         self.states
             .sort_by(|a, b| a.lock().event.time().cmp(&b.lock().event.time()));
@@ -325,16 +334,6 @@ pub struct GroupState {
     pub cursor: Option<i64>,
     pub originator: Option<i64>,
     pub members: HashMap<InstallationId, Weak<Mutex<ClientState>>>,
-}
-
-impl Group {
-    fn new(event: &Arc<LogEvent>) -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self {
-            installation_id: event.installation.clone(),
-            states: vec![Arc::new(Mutex::new(GroupState::new(event)))],
-            has_errors: AtomicBool::new(false),
-        }))
-    }
 }
 
 impl GroupState {
