@@ -24,7 +24,7 @@ const vitestConfig = defineVitestConfig({
         },
       ],
     },
-    testTimeout: 120000,
+    testTimeout: 60_000,
   },
 });
 

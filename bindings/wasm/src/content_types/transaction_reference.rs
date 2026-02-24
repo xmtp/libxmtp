@@ -1,3 +1,4 @@
+use crate::ErrorWrapper;
 use crate::encoded_content::{ContentTypeId, EncodedContent};
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -95,7 +96,7 @@ pub fn encode_transaction_reference(
 ) -> Result<EncodedContent, JsError> {
   Ok(
     TransactionReferenceCodec::encode(transaction_reference.into())
-      .map_err(|e| JsError::new(&format!("{}", e)))?
+      .map_err(ErrorWrapper::js)?
       .into(),
   )
 }

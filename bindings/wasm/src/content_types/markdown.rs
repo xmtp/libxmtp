@@ -1,3 +1,4 @@
+use crate::ErrorWrapper;
 use crate::encoded_content::{ContentTypeId, EncodedContent};
 use wasm_bindgen::JsError;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -13,7 +14,7 @@ pub fn content_type_markdown() -> ContentTypeId {
 pub fn encode_markdown(text: String) -> Result<EncodedContent, JsError> {
   Ok(
     MarkdownCodec::encode(text)
-      .map_err(|e| JsError::new(&format!("{}", e)))?
+      .map_err(ErrorWrapper::js)?
       .into(),
   )
 }
