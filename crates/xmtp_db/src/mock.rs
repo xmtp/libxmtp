@@ -7,7 +7,7 @@ use crate::local_commit_log::{LocalCommitLog, LocalCommitLogOrder};
 use crate::remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder};
 use std::collections::HashMap;
 use std::sync::Arc;
-use xmtp_proto::types::{Cursor, GlobalCursor, OrphanedEnvelope, Topic};
+use xmtp_proto::types::{Cursor, GlobalCursor, OrphanedEnvelope};
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
 use crate::SqliteConnection;
@@ -626,9 +626,6 @@ mock! {
         ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError>;
 
         #[mockall::concretize]
-        fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, StorageError>;
-
-        #[mockall::concretize]
         fn latest_cursor_for_id<Id: AsRef<[u8]>>(
             &self,
             entity: Id,
@@ -644,8 +641,6 @@ mock! {
             originators: Option<&[&xmtp_proto::types::OriginatorId]>,
         ) -> Result<GlobalCursor, StorageError>;
 
-        #[mockall::concretize]
-        fn lowest_common_cursor_combined(&self, topics: &[&Topic]) -> Result<GlobalCursor, StorageError>;
     }
 
     impl QueryIdentityUpdates for DbQuery {

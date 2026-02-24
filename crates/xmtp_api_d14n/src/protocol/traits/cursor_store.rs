@@ -46,13 +46,6 @@ impl<E: std::error::Error> From<CursorStoreError> for ApiClientError<E> {
 /// _NOTE:_, implementations decide retry strategy. the exact implementation of persistence (or lack)
 /// is up to implementors. functions are assumed to be idempotent & atomic.
 pub trait CursorStore: MaybeSend + MaybeSync {
-    // /// Get the last seen cursor per originator
-    // fn last_seen(&self, topic: &Topic) -> Result<GlobalCursor, Self::Error>;
-
-    /// Compute the lowest common cursor across a set of topics.
-    /// For each node_id, uses the **minimum** sequence ID seen across all topics.
-    fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, CursorStoreError>;
-
     /// get the highest sequence id for a topic, regardless of originator
     fn latest(&self, topic: &Topic) -> Result<GlobalCursor, CursorStoreError>;
 
@@ -81,8 +74,6 @@ pub trait CursorStore: MaybeSend + MaybeSync {
         topics: &mut dyn Iterator<Item = &Topic>,
     ) -> Result<HashMap<Topic, GlobalCursor>, CursorStoreError>;
 
-    // temp until reliable streams
-    fn lcc_maybe_missing(&self, topic: &[&Topic]) -> Result<GlobalCursor, CursorStoreError>;
     /// find dependencies of each locally-stored intent payload hash
     fn find_message_dependencies(
         &self,
@@ -100,14 +91,6 @@ pub trait CursorStore: MaybeSend + MaybeSync {
 }
 
 impl<T: CursorStore> CursorStore for Option<T> {
-    fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
-        if let Some(c) = self {
-            c.lowest_common_cursor(topics)
-        } else {
-            NoCursorStore.lowest_common_cursor(topics)
-        }
-    }
-
     fn latest(&self, topic: &Topic) -> Result<GlobalCursor, CursorStoreError> {
         if let Some(c) = self {
             c.latest(topic)
@@ -139,13 +122,6 @@ impl<T: CursorStore> CursorStore for Option<T> {
         }
     }
 
-    fn lcc_maybe_missing(&self, topic: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
-        if let Some(c) = self {
-            c.lcc_maybe_missing(topic)
-        } else {
-            NoCursorStore.lcc_maybe_missing(topic)
-        }
-    }
     fn find_message_dependencies(
         &self,
         hashes: &[&[u8]],
@@ -177,10 +153,6 @@ impl<T: CursorStore> CursorStore for Option<T> {
 }
 
 impl<T: CursorStore + ?Sized> CursorStore for &T {
-    fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
-        (**self).lowest_common_cursor(topics)
-    }
-
     fn latest(&self, topic: &Topic) -> Result<GlobalCursor, CursorStoreError> {
         (**self).latest(topic)
     }
@@ -198,10 +170,6 @@ impl<T: CursorStore + ?Sized> CursorStore for &T {
         topics: &mut dyn Iterator<Item = &Topic>,
     ) -> Result<HashMap<Topic, GlobalCursor>, CursorStoreError> {
         (**self).latest_for_topics(topics)
-    }
-
-    fn lcc_maybe_missing(&self, topic: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
-        (**self).lcc_maybe_missing(topic)
     }
 
     fn find_message_dependencies(
@@ -224,10 +192,6 @@ impl<T: CursorStore + ?Sized> CursorStore for &T {
 }
 
 impl<T: CursorStore + ?Sized> CursorStore for Arc<T> {
-    fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
-        (**self).lowest_common_cursor(topics)
-    }
-
     fn latest(&self, topic: &Topic) -> Result<GlobalCursor, CursorStoreError> {
         (**self).latest(topic)
     }
@@ -245,10 +209,6 @@ impl<T: CursorStore + ?Sized> CursorStore for Arc<T> {
         topics: &mut dyn Iterator<Item = &Topic>,
     ) -> Result<HashMap<Topic, GlobalCursor>, CursorStoreError> {
         (**self).latest_for_topics(topics)
-    }
-
-    fn lcc_maybe_missing(&self, topic: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
-        (**self).lcc_maybe_missing(topic)
     }
 
     fn find_message_dependencies(
@@ -271,10 +231,6 @@ impl<T: CursorStore + ?Sized> CursorStore for Arc<T> {
 }
 
 impl<T: CursorStore + ?Sized> CursorStore for Box<T> {
-    fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
-        (**self).lowest_common_cursor(topics)
-    }
-
     fn latest(&self, topic: &Topic) -> Result<GlobalCursor, CursorStoreError> {
         (**self).latest(topic)
     }
@@ -292,10 +248,6 @@ impl<T: CursorStore + ?Sized> CursorStore for Box<T> {
         topics: &mut dyn Iterator<Item = &Topic>,
     ) -> Result<HashMap<Topic, GlobalCursor>, CursorStoreError> {
         (**self).latest_for_topics(topics)
-    }
-
-    fn lcc_maybe_missing(&self, topic: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
-        (**self).lcc_maybe_missing(topic)
     }
 
     fn find_message_dependencies(
@@ -322,10 +274,6 @@ impl<T: CursorStore + ?Sized> CursorStore for Box<T> {
 pub struct NoCursorStore;
 
 impl CursorStore for NoCursorStore {
-    fn lowest_common_cursor(&self, _: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
-        Ok(GlobalCursor::default())
-    }
-
     fn latest(&self, _: &Topic) -> Result<GlobalCursor, CursorStoreError> {
         Ok(GlobalCursor::default())
     }
@@ -345,10 +293,6 @@ impl CursorStore for NoCursorStore {
         Ok(HashMap::from_iter(
             topics.map(|t| (t.clone(), GlobalCursor::default())),
         ))
-    }
-
-    fn lcc_maybe_missing(&self, _: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
-        Ok(GlobalCursor::default())
     }
 
     fn find_message_dependencies(
