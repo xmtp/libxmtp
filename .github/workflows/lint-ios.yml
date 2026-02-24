@@ -12,6 +12,7 @@ jobs:
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - uses: taiki-e/install-action@just
       - name: Lint iOS SDK
         run: just ios lint

@@ -9,10 +9,10 @@ install:
 install-ci:
   nix develop .#{{devshell}} --command bash -c 'yarn install --immutable'
 
-# Build NAPI bindings and assemble dist
+# Build NAPI bindings and assemble dist (needs Rust — always uses default shell)
 [private]
 _prepare-dist *extra_flags="":
-  nix develop .#{{devshell}} --command bash -c '\
+  nix develop .#default --command bash -c '\
     rm -rf dist && \
     yarn napi build --platform --esm {{extra_flags}} && \
     mkdir -p dist && mv index.js dist && mv index.d.ts dist && mv *.node dist'
