@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+exec nix develop "${REPO_ROOT}#${NIX_DEVSHELL:-default}" --command bash -euc "$1"

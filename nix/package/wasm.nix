@@ -1,7 +1,6 @@
 {
   emscripten,
   lib,
-  fenix,
   wasm-pack,
   binaryen,
   zstd,
@@ -18,16 +17,18 @@
   pkg-config,
   cargo-nextest,
   stdenv,
+  test ? false,
 }:
 let
   inherit (xmtp) craneLib;
-  # Pinned Rust Version
-  rust-toolchain = fenix.combine [
-    fenix.stable.cargo
-    fenix.stable.rustc
-    fenix.targets.wasm32-unknown-unknown.stable.rust-std
-  ];
+  # Pinned Rust Version (must use mkToolchain to match the rest of the project)
+  rust-toolchain =
+    xmtp.mkToolchain
+      [ "wasm32-unknown-unknown" ]
+      [ "clippy-preview" "rustfmt-preview" ];
   rust = craneLib.overrideToolchain (p: rust-toolchain);
+
+  features = if test then "--features test-utils" else "";
 
   libraryFileset = lib.fileset.toSource {
     root = ./../..;
@@ -65,7 +66,7 @@ let
     ];
     buildInputs = [ sqlite ];
     doCheck = false;
-    cargoExtraArgs = "--workspace --exclude xmtpv3 --exclude bindings_node --exclude xmtp_cli --exclude xdbg --exclude mls_validation_service --exclude xmtp_api_grpc --exclude benches --exclude xmtp-db-tools";
+    cargoExtraArgs = "--package bindings_wasm ${features}";
     hardeningDisable = [
       "zerocallusedregs"
       "stackprotector"
@@ -75,10 +76,12 @@ let
   commonEnv = {
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
     NIX_DEBUG = 1;
+    inherit (xmtp.shellCommon.wasmEnv)
+      CC_wasm32_unknown_unknown
+      AR_wasm32_unknown_unknown
+      CFLAGS_wasm32_unknown_unknown
+      ;
     # why CC manually (zstd): https://github.com/gyscos/zstd-rs/issues/339
-    CC_wasm32_unknown_unknown = "${llvmPackages.clang-unwrapped}/bin/clang";
-    AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
-    CFLAGS_wasm32_unknown_unknown = "-I ${llvmPackages.clang-unwrapped.lib}/lib/clang/21/include";
     # SQLITE_WASM_RS_UPDATE_PREBUILD = 1;
   };
 
@@ -106,9 +109,11 @@ let
         mkdir -p $out/dist
         cargoBuildLog=$(mktemp cargoBuildLogXXXX.json)
 
-        HOME=$(mktemp -d fake-homeXXXX) wasm-pack --verbose build --target web --out-dir $out/dist --no-pack --release ./bindings/wasm -- --message-format json-render-diagnostics > "$cargoBuildLog"
+        HOME=$(mktemp -d fake-homeXXXX) wasm-pack \
+          --verbose build --target web --out-dir $out/dist \
+          --no-pack --release ./bindings/wasm -- \
+          ${features} --message-format json-render-diagnostics > "$cargoBuildLog"
       '';
-
     }
   );
 
@@ -125,27 +130,28 @@ let
         rust-toolchain
         chromedriver
         corepack
-        cargo-nextest
       ]
       # chromium unsupported on darwin
       # google-chrome unsupported on aarch64-linux
       # Firefox compiles from scratch on everything but x86_64 (unreliable build)
       ++ lib.optionals stdenv.isDarwin [ google-chrome ]
       ++ lib.optionals stdenv.isLinux [ chromium ];
+      inherit (xmtp.shellCommon.wasmEnv)
+        WASM_BINDGEN_TEST_ONLY_WEB
+        RSTEST_TIMEOUT
+        WASM_BINDGEN_TEST_TIMEOUT
+        WASM_BINDGEN_TEST_WEBDRIVER_JSON
+        CHROMEDRIVER
+        ;
 
       SQLITE = "${sqlite.dev}";
       SQLITE_OUT = "${sqlite.out}";
-      CHROMEDRIVER = "${lib.getBin chromedriver}/bin/chromedriver";
-      WASM_BINDGEN_TEST_TIMEOUT = 1024;
-      WASM_BINDGEN_TEST_ONLY_WEB = 1;
-      RSTEST_TIMEOUT = 90;
       CARGO_PROFILE_TEST_DEBUG = 0;
-      WASM_BINDGEN_TEST_WEBDRIVER_JSON = ./../../webdriver.json;
       CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
       XMTP_NIX_ENV = 1;
     }
   );
 in
 {
-  inherit bin devShell;
+  inherit devShell bin;
 }

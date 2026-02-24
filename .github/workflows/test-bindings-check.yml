@@ -18,21 +18,15 @@ jobs:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "true"
-      - name: Build target
+      - name: Check iOS bindings compile
         run: |
           nix develop .#ios --command \
             cargo check --target ${{ matrix.target }} --manifest-path bindings/mobile/Cargo.toml
+
   check-android:
     runs-on: warp-ubuntu-latest-x64-16x
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - x86_64-linux-android
-          # We can add other targets later by making a pkg derivation and configuring LD_LIBRARY_PATH
-          # according to https://github.com/bburdette/tauri-zknotes/blob/7aa3495dc2c8a266d81c2fa3e51ae347e9c2597d/flake.nix#L158
-          # but this is good for just checking to ensure it compiles on this target
-          # Can also run android emulator here after cloning xmtp-android
+    env:
+      NIX_DEVSHELL: android
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -41,9 +35,6 @@ jobs:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "true"
-      - name: check target
-        run: |
-          nix develop .#android --command \
-            cargo ndk --platform 23 -t ${{ matrix.target }} \
-              --manifest-path bindings/mobile/Cargo.toml \
-              -- check
+      - uses: taiki-e/install-action@just
+      - name: Check Android bindings compile
+        run: just android check
