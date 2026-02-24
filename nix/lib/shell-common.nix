@@ -38,6 +38,9 @@
   toxiproxy,
   rr,
   markdownlint-cli,
+  chromedriver,
+  google-chrome,
+  chromium,
 }:
 let
   inherit (stdenv) isLinux;
@@ -86,8 +89,14 @@ in
     wasm-pack
     binaryen
     emscripten
+    chromedriver
     wasm-tools
-  ];
+  ]
+  # chromium unsupported on darwin
+  # google-chrome unsupported on aarch64-linux
+  # Firefox compiles from scratch on everything but x86_64 (unreliable build)
+  ++ lib.optionals stdenv.isDarwin [ google-chrome ]
+  ++ lib.optionals stdenv.isLinux [ chromium ];
 
   # Cargo workflow tools
   cargoTools = [

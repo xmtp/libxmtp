@@ -3973,7 +3973,7 @@ async fn test_max_past_epochs() {
     assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3
 }
 
-#[wasm_bindgen_test(unsupported = tokio::test)]
+#[xmtp_common::test]
 async fn test_validate_dm_group() {
     let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let added_by_inbox = "added_by_inbox_id";

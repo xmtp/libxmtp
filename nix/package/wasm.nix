@@ -109,8 +109,8 @@ let
 
         HOME=$(mktemp -d fake-homeXXXX) wasm-pack \
           --verbose build --target web --out-dir $out/dist \
-          --no-pack --release ./bindings/wasm ${features} \
-          --message-format json-render-diagnostics > "$cargoBuildLog"
+          --no-pack --release ./bindings/wasm -- \
+          ${features} --message-format json-render-diagnostics > "$cargoBuildLog"
       '';
     }
   );

@@ -1,10 +1,8 @@
+export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
+set shell := ["../../dev/nix-shell"]
 
-# Run WASM integration tests (builds wasm + vitest in browser)
-test-integration:
-  nix develop .#js --command bash -c 'yarn && yarn typecheck && yarn playwright install && nix build .#wasm-bindings-test && ln -s result/dist {{ justfile_directory()}}/bindings/wasm/dist && yarn run vitest run'
-# need a nix build .#wasm-bindings-test to be usable with integration tests
-
-
+install:
+    yarn
 
 # Install JS dependencies (CI - frozen lockfile)
 install-ci:
@@ -27,16 +25,11 @@ format: install
 
 # Run WASM unit tests (v3 + d14n)
 test:
-    RUST_LOG=off cargo test --locked --release --target wasm32-unknown-unknown \
+    XMTP_TEST_LOGGING=false RUST_LOG=off cargo test --locked --release --target wasm32-unknown-unknown \
       -p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_d14n && \
-    RUST_LOG=off cargo test --locked --release --target wasm32-unknown-unknown \
+    XMTP_TEST_LOGGING=false RUST_LOG=off cargo test --locked --release --target wasm32-unknown-unknown \
       --features d14n --no-fail-fast \
       -p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_d14n
-
-(??)# Run WASM integration tests (builds wasm + vitest in browser)
-(??)test-integration:
-(??)  nix develop .#js --command bash -c 'yarn && yarn typecheck && yarn build:test && yarn run vitest run'
-(??)# need a nix build .#wasm-bindings-test to be usable with integration tests
 
 # Run WASM integration tests (vitest in browser — needs .#js shell for Playwright)
 [script("bash")]
@@ -49,3 +42,9 @@ test-integration: _build-test install
 [script("bash")]
 build:
     nix build .#wasm-bindings
+
+[private]
+_build-test:
+  nix build .#wasm-bindings-test
+  mkdir -p {{ justfile_directory() }}/bindings/wasm/dist
+  cp -r result/dist/* {{ justfile_directory() }}/bindings/wasm/dist
