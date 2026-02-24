@@ -8,8 +8,8 @@ use crate::{
     AppWindow,
     state::{
         assertions::{
-            LogAssertion, account_for_drift::AccountForDrift, build_timeline::BuildTimeline,
-            epoch_auth_consistency::EpochAuthConsistency,
+            LogAssertion, account_for_drift::AccountForDrift, build_group_order::BuildGroupOrder,
+            build_timeline::BuildTimeline, epoch_auth_consistency::EpochAuthConsistency,
             epoch_continuity::EpochContinuityAssertion,
         },
         state_or_event::StateOrEvent,
@@ -41,8 +41,9 @@ type InstallationId = String;
 type GroupId = String;
 type EpochNumber = i64;
 
-pub struct LogState {
+pub struct State {
     pub sources: Mutex<HashMap<String, Vec<Arc<LogEvent>>>>,
+    pub group_order: Mutex<BTreeMap<i64, GroupId>>,
     pub grouped_epochs: Mutex<HashMap<GroupId, HashMap<InstallationId, Epochs>>>,
     pub timeline: Mutex<HashMap<GroupId, Vec<StateOrEvent>>>,
     pub clients: Mutex<HashMap<InstallationId, Arc<Mutex<ClientState>>>>,
@@ -71,10 +72,11 @@ pub struct ClientState {
     pub inbox_id: String,
 }
 
-impl LogState {
+impl State {
     pub fn new(ui: Option<SlintWeak<AppWindow>>) -> Arc<Self> {
         Arc::new(Self {
             clients: Mutex::default(),
+            group_order: Mutex::default(),
             grouped_epochs: Mutex::default(),
             sources: Mutex::default(),
             timeline: Mutex::default(),
@@ -130,17 +132,20 @@ impl LogState {
             }
         }
 
-        if let Err(err) = AccountForDrift::assert(&self) {
+        if let Err(err) = AccountForDrift::assert(self) {
             tracing::error!("Continuity error: {err}");
         };
-        if let Err(err) = EpochContinuityAssertion::assert(&self) {
+        if let Err(err) = EpochContinuityAssertion::assert(self) {
             tracing::error!("Continuity error: {err}");
         };
-        if let Err(err) = EpochAuthConsistency::assert(&self) {
+        if let Err(err) = EpochAuthConsistency::assert(self) {
             tracing::error!("Epoch auth consistency error: {err}");
         };
-        if let Err(err) = BuildTimeline::assert(&self) {
+        if let Err(err) = BuildTimeline::assert(self) {
             tracing::error!("Build timeline error: {err}");
+        };
+        if let Err(err) = BuildGroupOrder::assert(self) {
+            tracing::error!("Build group order error: {err}");
         };
 
         // sort everything by time
@@ -353,7 +358,7 @@ impl Group {
 mod tests {
     use std::time::Duration;
 
-    use crate::state::{LogEvent, LogState};
+    use crate::state::{LogEvent, State};
     use tracing_subscriber::fmt;
     use xmtp_common::{Event, TestWriter};
     use xmtp_mls::tester;
@@ -386,7 +391,7 @@ mod tests {
         let log = writer.as_string();
         let lines = log.split("\n").peekable();
 
-        let state = LogState::new(None);
+        let state = State::new(None);
         let events = LogEvent::parse(lines);
         state.add_source("anon", events);
 

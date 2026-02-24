@@ -1,5 +1,5 @@
 use crate::{
-    state::{LogEvent, LogState},
+    state::{LogEvent, State},
     ui::file_open::{file_selected, open_file_dialog},
 };
 use anyhow::Result;
@@ -38,7 +38,7 @@ fn main() -> Result<()> {
 
     tracing::info!("Log parser starting up");
     let ui = AppWindow::new()?;
-    let state = LogState::new(Some(ui.as_weak()));
+    let state = State::new(Some(ui.as_weak()));
 
     ui.on_request_open_file({
         let ui_handle = ui.as_weak();
@@ -165,7 +165,7 @@ fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, time::Duration};
+    use std::time::Duration;
 
     use tracing_subscriber::fmt;
     use xmtp_common::TestWriter;
@@ -185,15 +185,16 @@ mod tests {
 
         // ===============================================
 
-        tester!(bo, stream);
-        tester!(alix, stream);
-        tester!(caro, stream);
+        tester!(bo, stream, disable_workers);
+        tester!(alix, stream, disable_workers);
+        tester!(caro, stream, disable_workers);
         bo.test_talk_in_dm_with(&alix).await?;
         let (group, _) = bo.test_talk_in_new_group_with(&alix).await?;
         group.add_members(&[caro.inbox_id()]).await?;
 
-        // alix.save_snapshot_to_file("alix.db3");
-        // tester!(alix2, snapshot_file: "alix.db3", stream);
+        for _ in 0..10000 {
+            let _ = bo.test_talk_in_new_group_with(&alix).await;
+        }
 
         group.update_group_name("Fellows".into()).await?;
         caro.sync_all_welcomes_and_groups(None).await?;
@@ -204,22 +205,24 @@ mod tests {
         std::thread::sleep(Duration::from_millis(500));
 
         let log = writer.as_string();
-        let lines = log.split('\n');
+        tokio::fs::write("logs.txt", log).await?;
 
-        let inst_regex = regex::Regex::new(r#"inst: "([^"]+)""#).unwrap();
-        let mut logs: HashMap<String, Vec<&str>> = HashMap::new();
+        // let lines = log.split('\n');
 
-        for line in lines {
-            if let Some(caps) = inst_regex.captures(line) {
-                let inst = caps.get(1).unwrap().as_str();
-                let lines = logs.entry(inst.to_string()).or_default();
-                lines.push(line);
-            }
-        }
+        // let inst_regex = regex::Regex::new(r#"inst: "([^"]+)""#).unwrap();
+        // let mut logs: HashMap<String, Vec<&str>> = HashMap::new();
 
-        for (inst, logs) in logs {
-            let log = logs.join("\n");
-            std::fs::write(format!("log-{inst}.txt"), log).unwrap();
-        }
+        // for line in lines {
+        //     if let Some(caps) = inst_regex.captures(line) {
+        //         let inst = caps.get(1).unwrap().as_str();
+        //         let lines = logs.entry(inst.to_string()).or_default();
+        //         lines.push(line);
+        //     }
+        // }
+
+        // for (inst, logs) in logs {
+        //     let log = logs.join("\n");
+        //     std::fs::write(format!("log-{inst}.txt"), log).unwrap();
+        // }
     }
 }

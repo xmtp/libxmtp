@@ -1,11 +1,11 @@
-use crate::state::{assertions::LogAssertion, LogState, StateOrEvent};
+use crate::state::{State, StateOrEvent, assertions::LogAssertion};
 use anyhow::Result;
 use std::collections::HashMap;
 
 pub struct BuildTimeline;
 
 impl LogAssertion for BuildTimeline {
-    fn assert(state: &LogState) -> Result<()> {
+    fn assert(state: &State) -> Result<()> {
         let group_org = state.org_group();
         let mut timeline: HashMap<String, Vec<StateOrEvent>> = HashMap::new();
 

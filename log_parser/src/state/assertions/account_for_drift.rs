@@ -1,13 +1,12 @@
-use std::{collections::HashMap, sync::atomic::Ordering};
-
-use crate::state::{InstallationId, LogState, assertions::LogAssertion};
+use crate::state::{InstallationId, State, assertions::LogAssertion};
 use anyhow::{Context, Result};
+use std::{collections::HashMap, sync::atomic::Ordering};
 use xmtp_common::Event;
 
 pub struct AccountForDrift;
 
 impl LogAssertion for AccountForDrift {
-    fn assert(state: &LogState) -> Result<()> {
+    fn assert(state: &State) -> Result<()> {
         let sources = state.sources.lock();
 
         // This is when the commits go out.

@@ -7,6 +7,15 @@ pub enum StateOrEvent {
     Event(Arc<LogEvent>),
 }
 
+impl StateOrEvent {
+    pub fn time(&self) -> i64 {
+        match self {
+            Self::State(state) => state.lock().event.time(),
+            Self::Event(event) => event.time(),
+        }
+    }
+}
+
 impl Ord for StateOrEvent {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         let state;

@@ -1,6 +1,6 @@
 use crate::{
     AppWindow,
-    state::{LogEvent, LogState},
+    state::{LogEvent, State},
 };
 use slint::{Color, Weak};
 use std::{
@@ -83,7 +83,7 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     )
 }
 
-pub fn file_selected(path: impl AsRef<Path>, state: Arc<LogState>) {
+pub fn file_selected(path: impl AsRef<Path>, state: Arc<State>) {
     let path = path.as_ref();
     tracing::info!("Selected logs file {path:?}");
 

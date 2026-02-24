@@ -1,4 +1,4 @@
-use crate::state::{assertions::LogAssertion, LogState};
+use crate::state::{State, assertions::LogAssertion};
 use anyhow::Result;
 use parking_lot::Mutex;
 use std::{collections::HashMap, sync::Arc};
@@ -7,7 +7,7 @@ use xmtp_common::Event;
 pub struct EpochContinuityAssertion;
 
 impl LogAssertion for EpochContinuityAssertion {
-    fn assert(state: &LogState) -> Result<()> {
+    fn assert(state: &State) -> Result<()> {
         let group_collection = state.org_group();
 
         for (group_id, inst_groups) in group_collection {

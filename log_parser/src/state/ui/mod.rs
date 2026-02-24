@@ -1,9 +1,9 @@
 use crate::{
-    state::{GroupState, LogEvent, LogState, StateOrEvent},
-    ui::file_open::color_from_string,
     UIEpochHeader, UIEvent, UIGroupRow, UIGroupState, UIGroupStateDetail, UIInstallationCell,
     UIInstallationRow, UISource, UIStream, UITimelineEntry, UITimelineGroup,
     UITimelineInstallationRow,
+    state::{GroupState, LogEvent, State, StateOrEvent},
+    ui::file_open::color_from_string,
 };
 use slint::{Color, ModelRc, SharedString, VecModel};
 use std::collections::HashMap as StdHashMap;
@@ -17,7 +17,7 @@ fn short_id(id: &str) -> String {
     }
 }
 
-impl LogState {
+impl State {
     /// Look up a friendly name for an installation id from the clients map.
     fn installation_name(&self, installation_id: &str) -> String {
         let clients = self.clients.lock();
