@@ -3,7 +3,7 @@ FROM ghcr.io/xmtp/rust:latest
 RUN sudo apt update && sudo apt install -y pkg-config openssl
 
 WORKDIR /workspaces/libxmtp
-COPY --chown=xmtp:xmtp rust-toolchain .
+COPY --chown=xmtp:xmtp rust-toolchain.toml .
 
 ENV RUSTUP_PERMIT_COPY_RENAME "yes"
 
