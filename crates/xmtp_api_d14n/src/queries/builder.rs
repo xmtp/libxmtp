@@ -3,7 +3,7 @@
 use derive_builder::UninitializedFieldError;
 use std::sync::Arc;
 use thiserror::Error;
-use xmtp_api_grpc::error::{GrpcBuilderError, GrpcError};
+use xmtp_api_grpc::error::GrpcBuilderError;
 use xmtp_common::{ErrorCode, MaybeSend, MaybeSync};
 use xmtp_id::scw_verifier::VerifierError;
 use xmtp_proto::api::ApiClientError;
@@ -11,7 +11,7 @@ use xmtp_proto::types::AppVersion;
 
 use crate::protocol::{CursorStore, FullXmtpApiArc, FullXmtpApiBox, NoCursorStore};
 use crate::{
-    AuthCallback, AuthHandle, ClientBundle, ClientBundleBuilder, ClientKind, D14nClient,
+    AuthCallback, AuthHandle, ClientBundle, ClientBundleBuilder, D14nClient, MigrationClient,
     MultiNodeClientBuilderError, ReadWriteClientBuilderError, ReadonlyClientBuilderError, V3Client,
 };
 
@@ -43,8 +43,8 @@ pub enum MessageBackendBuilderError {
     ReadonlyBuilder(#[from] ReadonlyClientBuilderError),
     #[error(transparent)]
     Builder(#[from] UninitializedFieldError),
-    #[error("client kind {0} is currently unsupported")]
-    UnsupportedClient(ClientKind),
+    #[error("XMTP Gateway host is required")]
+    MissingGatewayHost,
 }
 
 /// Indicates this api implementation can be type-erased
@@ -110,19 +110,19 @@ impl MessageBackendBuilder {
 
     pub fn from_bundle(
         &mut self,
-        bundle: ClientBundle<GrpcError>,
-    ) -> Result<FullXmtpApiArc<ApiClientError<GrpcError>>, MessageBackendBuilderError> {
+        bundle: ClientBundle,
+    ) -> Result<FullXmtpApiArc<ApiClientError>, MessageBackendBuilderError> {
         let cursor_store = self
             .cursor_store
             .clone()
             .unwrap_or(Arc::new(NoCursorStore) as Arc<dyn CursorStore>);
 
-        match bundle.kind() {
-            ClientKind::D14n => Ok(D14nClient::new(bundle, cursor_store)?.arced()),
-            ClientKind::V3 => Ok(V3Client::new(bundle, cursor_store).arced()),
-            ClientKind::Hybrid => Err(MessageBackendBuilderError::UnsupportedClient(
-                ClientKind::Hybrid,
-            )),
+        match bundle {
+            ClientBundle::D14n(c) => Ok(D14nClient::new(c, cursor_store)?.arced()),
+            ClientBundle::V3(c) => Ok(V3Client::new(c, cursor_store).arced()),
+            ClientBundle::Migration { v3, xmtpd } => {
+                Ok(MigrationClient::new(v3, xmtpd, cursor_store)?.arced())
+            }
         }
     }
 
@@ -137,9 +137,7 @@ impl MessageBackendBuilder {
     }
 
     /// Build the client
-    pub fn build(
-        &mut self,
-    ) -> Result<FullXmtpApiArc<ApiClientError<GrpcError>>, MessageBackendBuilderError> {
+    pub fn build(&mut self) -> Result<FullXmtpApiArc<ApiClientError>, MessageBackendBuilderError> {
         let Self { client_bundle, .. } = self;
         let bundle = client_bundle.build()?;
         self.from_bundle(bundle)
