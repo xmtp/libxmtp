@@ -1328,6 +1328,7 @@ dependencies = [
  "const-hex",
  "futures",
  "js-sys",
+ "owo-colors",
  "pin-project",
  "prost",
  "serde",
@@ -9850,8 +9851,6 @@ dependencies = [
  "uniffi_bindgen",
  "uniffi_core",
  "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
  "winnow",
  "zerocopy",
 ]
