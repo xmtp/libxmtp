@@ -1,18 +1,14 @@
 pub mod commit_log;
 pub mod commit_log_key;
-pub mod device_sync;
-pub mod disappearing_messages;
 mod error;
 pub mod group_membership;
 pub mod group_permissions;
 pub mod intents;
-pub mod key_package_cleaner_worker;
 pub mod members;
 pub mod message_list;
 pub(super) mod mls_ext;
 pub(super) mod mls_sync;
 pub mod oneshot;
-pub(crate) mod pending_self_remove_worker;
 pub mod send_message_opts;
 pub(super) mod subscriptions;
 pub mod summary;
@@ -34,7 +30,6 @@ use self::{
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
 };
-use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::{
     intents::{QueueIntent, ReaddInstallationsIntentData},
     mls_ext::CommitLogStorer,
@@ -44,7 +39,10 @@ use crate::messages::enrichment::EnrichMessageError;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::{GroupCommitLock, context::XmtpSharedContext};
 use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
-use device_sync::preference_sync::PreferenceUpdate;
+use crate::{
+    groups::send_message_opts::SendMessageOpts,
+    worker::device_sync::preference_sync::PreferenceUpdate,
+};
 pub use error::*;
 use intents::{SendMessageIntentData, UpdateGroupMembershipResult};
 use openmls::{

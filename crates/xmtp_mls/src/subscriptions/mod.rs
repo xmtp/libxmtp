@@ -26,13 +26,11 @@ mod stream_utils;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::subscriptions::stream_messages::stream_stats::{StreamStatsWrapper, StreamWithStats};
 
+use crate::worker::device_sync::preference_sync::PreferenceUpdate;
 use crate::{
     Client,
     context::XmtpSharedContext,
-    groups::{
-        GroupError, MlsGroup, device_sync::preference_sync::PreferenceUpdate,
-        mls_sync::GroupMessageProcessingError,
-    },
+    groups::{GroupError, MlsGroup, mls_sync::GroupMessageProcessingError},
     messages::decoded_message::DecodedMessage,
     subscriptions::d14n_compat::{V3OrD14n, decode_welcome_message},
 };

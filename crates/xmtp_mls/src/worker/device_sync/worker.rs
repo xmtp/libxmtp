@@ -6,13 +6,11 @@ use super::{
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
-    groups::{
-        GroupError,
-        device_sync::{AvailableArchive, archive::insert_importer},
-    },
+    groups::GroupError,
     subscriptions::{LocalEvents, SyncWorkerEvent},
     worker::{
         BoxedWorker, DynMetrics, MetricsCasting, Worker, WorkerFactory, WorkerKind, WorkerResult,
+        device_sync::{AvailableArchive, archive::insert_importer},
         metrics::WorkerMetrics,
     },
 };
