@@ -10,5 +10,5 @@
   "eip155:232": "https://rpc.lens.xyz",
   "eip155:2741": "https://api.mainnet.abs.xyz",
   "eip155:100": "https://public-gno-mainnet.fastnode.io",
-  "eip:155:42": "https://42.rpc.thirdweb.com"
+  "eip155:42": "https://42.rpc.thirdweb.com"
 }
