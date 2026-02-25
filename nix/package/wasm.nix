@@ -128,6 +128,7 @@ let
       inputsFrom = [ commonArgs ];
       buildInputs = [
         rust-toolchain
+        cargo-nextest
         chromedriver
         corepack
       ]
