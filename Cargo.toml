@@ -13,8 +13,8 @@ members = [
 default-members = [
   # Applications
   "apps/[!(android)]*",
-  # Bindings (excluding wasm - only for wasm32 target)
-  "bindings/[!(wasm)]*",
+  # Bindings
+  "bindings/*",
   # Core crates
   "crates/*",
 ] # Used when cargo commands in the workspace root, such as `cargo test`, are run without flags.
