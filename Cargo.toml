@@ -3,7 +3,7 @@ members = [
   # Applications
   "apps/[!android]*",
   # Bindings
-  "bindings/*",
+  "bindings/[!(wasm)]*",
   # Core crates
   "crates/*",
   # Core crates

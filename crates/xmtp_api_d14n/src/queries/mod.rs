@@ -18,17 +18,16 @@ pub use d14n::*;
 pub use stream::*;
 pub use v3::*;
 
-use std::error::Error as StdError;
-use xmtp_common::{MaybeSend, MaybeSync, RetryableError, retryable};
+use xmtp_common::{RetryableError, retryable};
 use xmtp_proto::{
     ConversionError,
     api::{ApiClientError, BodyError},
 };
 
 #[derive(thiserror::Error, Debug)]
-pub enum QueryError<E: StdError> {
+pub enum QueryError {
     #[error(transparent)]
-    ApiClient(#[from] ApiClientError<E>),
+    ApiClient(#[from] ApiClientError),
     #[error(transparent)]
     Envelope(#[from] crate::protocol::EnvelopeError),
     #[error(transparent)]
@@ -37,19 +36,13 @@ pub enum QueryError<E: StdError> {
     Body(#[from] BodyError),
 }
 
-impl<E> From<crate::protocol::EnvelopeError> for ApiClientError<E>
-where
-    E: StdError + MaybeSend + MaybeSync,
-{
-    fn from(e: crate::protocol::EnvelopeError) -> ApiClientError<E> {
+impl From<crate::protocol::EnvelopeError> for ApiClientError {
+    fn from(e: crate::protocol::EnvelopeError) -> ApiClientError {
         ApiClientError::Other(Box::new(e))
     }
 }
 
-impl<E> RetryableError for QueryError<E>
-where
-    E: StdError + RetryableError + 'static,
-{
+impl RetryableError for QueryError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::ApiClient(c) => retryable!(c),

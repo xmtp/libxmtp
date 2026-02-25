@@ -54,7 +54,7 @@ pub mod prelude {
         ApiBuilder, ArcedXmtpApi, BoxedXmtpApi, NetConnectConfig, XmtpIdentityClient,
         XmtpMlsClient, XmtpMlsStreams,
     };
-    pub use super::traits::{ApiClientError, Client, Endpoint, Query, QueryStream};
+    pub use super::traits::{ApiClientError, BytesStream, Client, Endpoint, Query, QueryStream};
 }
 
 pub mod identity_v1 {
