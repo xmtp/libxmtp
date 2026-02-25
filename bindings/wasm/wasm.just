@@ -23,13 +23,22 @@ lint: install
 format: install
     yarn prettier -w .
 
+# Packages that support the WASM target
+wasm_packages := "-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_d14n"
+
 # Run WASM unit tests (v3 + d14n)
-test:
-    XMTP_TEST_LOGGING=false RUST_LOG=off cargo test --locked --release --target wasm32-unknown-unknown \
-      -p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_d14n && \
-    XMTP_TEST_LOGGING=false RUST_LOG=off cargo test --locked --release --target wasm32-unknown-unknown \
-      --features d14n --no-fail-fast \
-      -p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_d14n
+test: test-v3 test-d14n
+
+# Run WASM v3 unit tests
+test-v3:
+    XMTP_TEST_LOGGING=false RUST_LOG=off cargo nextest run --locked --profile ci --target wasm32-unknown-unknown \
+      {{wasm_packages}}
+
+# Run WASM d14n unit tests
+test-d14n:
+    XMTP_TEST_LOGGING=false RUST_LOG=off cargo nextest run --locked --profile ci-d14n --target wasm32-unknown-unknown \
+      --features d14n \
+      {{wasm_packages}}
 
 # Run WASM integration tests (vitest in browser — needs .#js shell for Playwright)
 [script("bash")]
