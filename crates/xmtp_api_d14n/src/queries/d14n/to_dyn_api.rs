@@ -1,7 +1,5 @@
-use std::error::Error;
 use std::sync::Arc;
 
-use xmtp_common::RetryableError;
 use xmtp_proto::api::ApiClientError;
 use xmtp_proto::api::{Client, IsConnectedCheck};
 
@@ -9,14 +7,12 @@ use crate::protocol::FullXmtpApiArc;
 use crate::protocol::FullXmtpApiBox;
 use crate::{BoxedStreamsClient, D14nClient, ToDynApi, protocol::CursorStore};
 
-impl<M, Store, E> ToDynApi for D14nClient<M, Store>
+impl<M, Store> ToDynApi for D14nClient<M, Store>
 where
-    E: Error + RetryableError + 'static,
-    M: Client<Error = E> + IsConnectedCheck + 'static,
+    M: Client + IsConnectedCheck + 'static,
     Store: CursorStore + Clone + 'static,
-    <M as Client>::Stream: 'static,
 {
-    type Error = ApiClientError<E>;
+    type Error = ApiClientError;
     fn boxed(self) -> FullXmtpApiBox<Self::Error> {
         Box::new(BoxedStreamsClient::new(self))
     }

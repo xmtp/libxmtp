@@ -5,11 +5,10 @@
 
 use crate::{
     error::{GrpcBuilderError, GrpcError},
-    streams::{EscapableTonicStream, FakeEmptyStream, NonBlockingWebStream},
+    streams::EscapableTonicStream,
 };
 use futures::Stream;
-use http::{StatusCode, request, uri::PathAndQuery};
-use http_body_util::StreamBody;
+use http::{request, uri::PathAndQuery};
 use pin_project::pin_project;
 use prost::bytes::Bytes;
 use std::{
@@ -17,23 +16,22 @@ use std::{
     task::{Context, Poll, ready},
 };
 use tonic::{
-    Response, Status, Streaming,
+    Status,
     client::Grpc,
-    codec::Codec,
     metadata::{self, MetadataMap, MetadataValue},
 };
 use xmtp_common::Retry;
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
 use xmtp_proto::{
-    api::{ApiClientError, Client, IsConnectedCheck},
+    api::{ApiClientError, BytesStream, Client, IsConnectedCheck},
     api_client::{ApiBuilder, NetConnectConfig},
     codec::TransparentCodec,
     types::AppVersion,
 };
 
-impl From<GrpcError> for ApiClientError<GrpcError> {
-    fn from(source: GrpcError) -> ApiClientError<GrpcError> {
-        ApiClientError::Client { source }
+impl From<GrpcError> for ApiClientError {
+    fn from(source: GrpcError) -> ApiClientError {
+        ApiClientError::client(source)
     }
 }
 
@@ -111,6 +109,9 @@ impl GrpcClient {
     }
 }
 
+// just a more convenient way to map the stream type to
+// something more customized to the trait, without playing around with getting the
+// generics right on nested futures combinators.
 #[pin_project]
 /// A stream of bytes from a GRPC Network Source
 pub struct GrpcStream {
@@ -128,26 +129,23 @@ impl From<crate::streams::NonBlocking> for GrpcStream {
 // something more customized to the trait, without playing around with getting the
 // generics right on nested futures combinators.
 impl Stream for GrpcStream {
-    type Item = Result<Bytes, GrpcError>;
+    type Item = Result<Bytes, ApiClientError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.project();
         let item = ready!(this.inner.poll_next(cx));
-        Poll::Ready(item.map(|i| i.map_err(GrpcError::from)))
+        Poll::Ready(item.map(|i| i.map_err(|e| ApiClientError::client(GrpcError::from(e)))))
     }
 }
 
 #[xmtp_common::async_trait]
 impl Client for GrpcClient {
-    type Error = GrpcError;
-    type Stream = GrpcStream;
-
     async fn request(
         &self,
         request: http::request::Builder,
         path: http::uri::PathAndQuery,
         body: Bytes,
-    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
+    ) -> Result<http::Response<Bytes>, ApiClientError> {
         let client = &mut self.inner.clone();
         self.wait_for_ready(client).await.map_err(GrpcError::from)?;
         let request = self
@@ -167,7 +165,7 @@ impl Client for GrpcClient {
         request: request::Builder,
         path: PathAndQuery,
         body: Bytes,
-    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
         let this = self.clone();
         // client requires to be moved so it lives long enough for streaming response future.
         let response = async move {
@@ -181,22 +179,12 @@ impl Client for GrpcClient {
             Box::pin(response) as crate::streams::ResponseFuture
         );
         let response = crate::streams::send(req).await.map_err(GrpcError::from)?;
-        let response = response.map(|body| GrpcStream {
-            inner: EscapableTonicStream::new(body),
+        let response = response.map(|body| {
+            BytesStream::new(GrpcStream {
+                inner: EscapableTonicStream::new(body),
+            })
         });
         Ok(response.to_http().map(Into::into))
-    }
-
-    // just need to ensure the type is the same as `stream`
-    fn fake_stream(&self) -> http::Response<Self::Stream> {
-        let mut codec = TransparentCodec::default();
-        let s = StreamBody::new(FakeEmptyStream::<Status>::new());
-        let response = Streaming::new_response(codec.decoder(), s, StatusCode::OK, None, None);
-        let response = Response::new(response);
-        let response = response.map(|body| GrpcStream {
-            inner: EscapableTonicStream::new(NonBlockingWebStream::started(body)),
-        });
-        response.to_http()
     }
 }
 

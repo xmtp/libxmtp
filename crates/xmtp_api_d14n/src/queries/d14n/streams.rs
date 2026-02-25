@@ -4,7 +4,6 @@ use crate::queries::stream;
 use crate::{FlattenedStream, OrderedStream, TryExtractorStream};
 
 use super::D14nClient;
-use xmtp_common::RetryableError;
 use xmtp_proto::api::{ApiClientError, Client, QueryStream, XmtpStream};
 use xmtp_proto::api_client::{Paged, XmtpMlsStreams};
 use xmtp_proto::types::{GroupId, InstallationId, TopicCursor, TopicKind};
@@ -12,28 +11,21 @@ use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse;
 
 type PagedItem = <SubscribeEnvelopesResponse as Paged>::Message;
 
-type OrderedStreamT<C, Store> = OrderedStream<
-    FlattenedStream<XmtpStream<<C as Client>::Stream, SubscribeEnvelopesResponse>>,
-    Store,
-    PagedItem,
->;
+type OrderedStreamT<Store> =
+    OrderedStream<FlattenedStream<XmtpStream<SubscribeEnvelopesResponse>>, Store, PagedItem>;
 
 #[xmtp_common::async_trait]
-impl<C, Store, E> XmtpMlsStreams for D14nClient<C, Store>
+impl<C, Store> XmtpMlsStreams for D14nClient<C, Store>
 where
-    C: Client<Error = E>,
-    <C as Client>::Stream: 'static,
-    E: RetryableError + 'static,
+    C: Client,
     Store: CursorStore + Clone,
 {
-    type Error = ApiClientError<E>;
+    type Error = ApiClientError;
 
-    type GroupMessageStream = TryExtractorStream<OrderedStreamT<C, Store>, GroupMessageExtractor>;
+    type GroupMessageStream = TryExtractorStream<OrderedStreamT<Store>, GroupMessageExtractor>;
 
-    type WelcomeMessageStream = TryExtractorStream<
-        XmtpStream<<C as Client>::Stream, SubscribeEnvelopesResponse>,
-        WelcomeMessageExtractor,
-    >;
+    type WelcomeMessageStream =
+        TryExtractorStream<XmtpStream<SubscribeEnvelopesResponse>, WelcomeMessageExtractor>;
 
     async fn subscribe_group_messages(
         &self,

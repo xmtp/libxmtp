@@ -12,7 +12,7 @@ use crate::{
 pub(super) async fn request<C: Client>(
     client: &C,
     endpoint: &mut impl Endpoint,
-) -> Result<http::Response<Bytes>, ApiClientError<C::Error>> {
+) -> Result<http::Response<Bytes>, ApiClientError> {
     let request = http::Request::builder();
     let endpoint_url = endpoint.grpc_endpoint();
     let path = http::uri::PathAndQuery::try_from(endpoint_url.as_ref())?;
@@ -31,7 +31,7 @@ where
     <Q as Endpoint>::Output: Default + prost::Message + 'static,
 {
     type Output = <Q as Endpoint>::Output;
-    async fn query(&mut self, client: &C) -> Result<Self::Output, ApiClientError<C::Error>> {
+    async fn query(&mut self, client: &C) -> Result<Self::Output, ApiClientError> {
         let rsp = request(client, self).await?;
         let value = prost::Message::decode(rsp.into_body())?;
         Ok(value)
@@ -45,7 +45,7 @@ where
     E: Endpoint,
     C: Client,
 {
-    async fn query_raw(&mut self, client: &C) -> Result<bytes::Bytes, ApiClientError<C::Error>> {
+    async fn query_raw(&mut self, client: &C) -> Result<bytes::Bytes, ApiClientError> {
         let rsp = request(client, self).await?;
         Ok(rsp.into_body())
     }
@@ -59,10 +59,7 @@ where
     C: Client,
     T: Default + prost::Message + 'static,
 {
-    async fn stream(
-        &mut self,
-        client: &C,
-    ) -> Result<XmtpStream<<C as Client>::Stream, T>, ApiClientError<C::Error>> {
+    async fn stream(&mut self, client: &C) -> Result<XmtpStream<T>, ApiClientError> {
         let request = http::Request::builder();
         let endpoint = self.grpc_endpoint();
         let path = http::uri::PathAndQuery::try_from(endpoint.as_ref())?;
@@ -75,10 +72,11 @@ where
         Ok(stream)
     }
 
-    fn fake_stream(&mut self, client: &C) -> XmtpStream<<C as Client>::Stream, T> {
+    fn fake_stream(&mut self, client: &C) -> XmtpStream<T> {
         let endpoint = self.grpc_endpoint();
-        let rsp = client.fake_stream();
-        let stream = rsp.into_body();
-        XmtpStream::new(stream, ApiEndpoint::Path(endpoint.into_owned()))
+        XmtpStream::new(
+            client.fake_stream().into_body(),
+            ApiEndpoint::Path(endpoint.into_owned()),
+        )
     }
 }
