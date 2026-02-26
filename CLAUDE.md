@@ -28,7 +28,6 @@ LibXMTP is a shared library implementing the XMTP messaging protocol using MLS (
 ```
 
 **Key patterns:**
-
 - `Client<Context>` - Generic client parameterized by context (allows different API/DB combinations)
 - `ClientBuilder` - Fluent builder for client construction with identity, API, and storage config
 - `XmtpMlsLocalContext` - Centralizes dependencies (API, storage, identity, locks, events)
@@ -42,34 +41,41 @@ LibXMTP is a shared library implementing the XMTP messaging protocol using MLS (
 ```bash
 dev/up                    # Install dependencies and start Docker services (XMTP node)
 dev/docker/down           # Stop Docker services
+just backend up           # Build validation service + start Docker
+just backend down         # Stop Docker services
 ```
 
 ### Testing
 
 ```bash
-cargo test                          # Run all Rust tests
-cargo test -p xmtp_mls              # Run tests for a specific crate
-cargo test test_name                # Run a single test by name
-cargo test -p xmtp_mls test_name    # Run a single test in a specific crate
-RUST_LOG=off cargo test             # Run tests with minimal logging
-dev/test/wasm                       # Run WASM tests headless
+just test                           # Run all tests (v3 + d14n)
+just test v3                        # Run v3 tests only
+just test d14n                      # Run d14n tests only
+just test crate xmtp_mls            # Run tests for a specific crate
+just wasm test                      # Run WASM unit tests
+just node test                      # Run Node.js tests
+just ios test                       # Run iOS Swift tests
+just android test                   # Run Android unit tests
 dev/test/coverage                   # Run tests and open coverage report in browser
 ```
 
 ### Code Quality
 
 ```bash
-dev/lint                 # Run all linting (shellcheck, markdown, rust) - ALWAYS run before committing
-dev/fmt                  # Format code (markdown and rust)
-dev/lint-rust            # Run Rust clippy against all targets
+just lint                # Run all linting (rust + config + markdown) - ALWAYS run before committing
+just lint-rust           # Run Rust clippy, fmt check, hakari
+just lint-config         # Lint TOML, Nix, shell scripts
+just format              # Format all code (Rust, Nix, TOML, TypeScript, Swift, Kotlin)
 ```
 
 ### Platform Checks
 
 ```bash
-dev/check-wasm          # Check WASM bindings compile
-dev/check-android       # Check Android bindings
-dev/check-swift         # Check Swift bindings
+just check                          # Check workspace compiles
+just check crate xmtp_mls           # Check specific crate
+just wasm check                     # Check WASM bindings compile
+just android check                  # Check Android bindings
+just ios check                      # Check iOS bindings
 ```
 
 ### Android SDK
@@ -77,16 +83,7 @@ dev/check-swift         # Check Swift bindings
 ```bash
 nix develop .#android             # Enter Android development shell
 ./sdks/android/dev/bindings       # Build Android bindings via Nix
-./sdks/android/dev/build          # Build the full Android SDK
-nix build .#android-libs          # Build all Android targets via Nix
-nix build .#android-libs-fast     # Build host-matching target only
-```
-
-### Node.js Bindings
-
-```bash
-nix build .#node-bindings-fast    # Build host-matching .node binary
-nix build .#node-bindings-js      # Generate JS/TS bindings (index.js + index.d.ts)
+just android build                # Build Android native bindings
 ```
 
 ### Benchmarks
@@ -131,6 +128,6 @@ Uses Diesel ORM with encrypted SQLite. Migrations are in `crates/xmtp_db/migrati
 
 ## Code Change Requirements
 
-- **Always run `./dev/lint`** before committing Rust changes
-- For `bindings_node` changes, also run `yarn && yarn format:check` in `bindings/node`
+- **Always run `just lint`** before committing Rust changes
+- For `bindings_node` changes, also run `just node lint`
 - Add test coverage for new functionality

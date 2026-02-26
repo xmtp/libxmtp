@@ -1,27 +1,40 @@
 {
-  "rust-analyzer.cargo.sysroot": "discover",
-  "rust-analyzer.check.command": "check",
-  "rust-analyzer.linkedProjects": ["Cargo.toml"],
-  "rust-analyzer.cargo.allTargets": true,
-  "rust-analyzer.procMacro.enable": true,
-  "rust-analyzer.diagnostics.enable": true,
-  "rust-analyzer.diagnostics.disabled": [
-    "unlinked-file",
-    "unresolved-macro-call",
-    "unresolved-proc-macro",
-    "macro-error"
-  ],
-  "rust-analyzer.cargo.buildScripts.enable": true,
-  "rust-analyzer.files.exclude": ["bindings/wasm/**"],
-  "rust-analyzer.procMacro.attributes.enable": true,
-  "rust-analyzer.procMacro.ignored": {
-    "tracing": ["instrument"],
-    "napi-derive": ["napi"],
-    "async-recursion": ["async_recursion"],
-    "ctor": ["ctor"],
-    "tokio": ["test"],
-    "async-stream": ["stream", "try_stream"]
-  },
+    "rust-analyzer": {
+        "linkedProjects": [
+            "Cargo.toml"
+        ],
+        "cargo": {
+            "sysroot": "discover",
+            "allTargets": true,
+            "buildScripts": {
+                "enable": true
+            },
+        },
+        "procMacro": {
+            "enable": true,
+            "attributes.enable": true,
+            "ignored": {
+                "tracing": ["instrument"],
+                "napi-derive": ["napi"],
+                "async-recursion": ["async_recursion"],
+                "ctor": ["ctor"],
+                "tokio": ["test"],
+                "async-stream": ["stream", "try_stream"]
+            }
+        },
+        "diagnostics": {
+            "enable": true,
+            "disabled": [
+                "unlinked-file",
+                "unresolved-macro-call",
+                "unresolved-proc-macro",
+                "macro-error"
+            ]
+        },
+        "check": {
+            "command": "clippy"
+        },
+    },
   "gitlens.blame.ignoreWhitespace": true,
   "coverage-gutters.coverageFileNames": ["coverage/lcov"],
   "coverage-gutters.coverageReportFileName": "coverage/html/index.html",

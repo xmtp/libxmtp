@@ -13,12 +13,15 @@ jobs:
         with:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - name: Build bindings
-        run: nix develop .#android --command ./sdks/android/dev/bindings
+      - uses: taiki-e/install-action@just
       - name: Start backend
-        run: ./dev/up
+        env:
+          NIX_DEVSHELL: android
+        run: just backend up
       - name: Run unit tests
-        run: nix develop .#android --command ./sdks/android/gradlew -p sdks/android library:testDebug
+        env:
+          NIX_DEVSHELL: android
+        run: just android test
 
   integration-tests:
     name: Integration Tests (Android)
@@ -30,20 +33,19 @@ jobs:
         with:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: taiki-e/install-action@just
       - name: Start backend
-        run: ./dev/build_validation_service_local && ./dev/docker/up
+        env:
+          NIX_DEVSHELL: android
+        run: just backend up
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Build bindings
-        run: nix develop .#android --command ./sdks/android/dev/bindings
-      - name: Start emulator
-        timeout-minutes: 10
-        env:
-          NIX_ANDROID_EMULATOR_FLAGS: "-no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192"
-        run: nix develop .#android --command run-test-emulator
       - name: Run integration tests
         timeout-minutes: 20
-        run: nix develop .#android --command ./sdks/android/gradlew -p sdks/android connectedCheck --continue
+        env:
+          NIX_DEVSHELL: android
+          NIX_ANDROID_EMULATOR_FLAGS: "-no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192"
+        run: just android test-integration

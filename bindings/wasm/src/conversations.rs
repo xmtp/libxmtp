@@ -17,6 +17,7 @@ use xmtp_mls::mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_proto::types::Cursor as XmtpCursor;
 
+use crate::ErrorWrapper;
 use crate::consent_state::{Consent, ConsentState};
 use crate::enriched_message::DecodedMessage;
 use crate::identity::Identifier;
@@ -362,11 +363,7 @@ impl Conversations {
       }
       Some(GroupPermissionsOptions::CustomPolicy) => {
         if let Some(policy_set) = options.custom_permission_policy_set {
-          Some(
-            policy_set
-              .try_into()
-              .map_err(|e| JsError::new(format!("{}", e).as_str()))?,
-          )
+          Some(policy_set.try_into().map_err(ErrorWrapper::js)?)
         } else {
           None
         }
@@ -377,7 +374,7 @@ impl Conversations {
     let group = self
       .inner_client
       .create_group(group_permissions, Some(metadata_options))
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(group.into())
   }
@@ -429,7 +426,7 @@ impl Conversations {
         options.map(|opt| opt.into_dm_metadata_options()),
       )
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(convo.into())
   }
@@ -444,7 +441,7 @@ impl Conversations {
       .inner_client
       .find_or_create_dm(inbox_id, options.map(|opt| opt.into_dm_metadata_options()))
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(convo.into())
   }
@@ -454,12 +451,12 @@ impl Conversations {
     &self,
     #[wasm_bindgen(js_name = groupId)] group_id: String,
   ) -> Result<Conversation, JsError> {
-    let group_id = hex::decode(group_id).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    let group_id = hex::decode(group_id).map_err(ErrorWrapper::js)?;
 
     let group = self
       .inner_client
       .stitched_group(&group_id)
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(group.into())
   }
@@ -472,7 +469,7 @@ impl Conversations {
     let convo = self
       .inner_client
       .dm_group_from_target_inbox(target_inbox_id)
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(convo.into())
   }
@@ -482,13 +479,12 @@ impl Conversations {
     &self,
     #[wasm_bindgen(js_name = messageId)] message_id: String,
   ) -> Result<Message, JsError> {
-    let message_id =
-      hex::decode(message_id).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    let message_id = hex::decode(message_id).map_err(ErrorWrapper::js)?;
 
     let message = self
       .inner_client
       .message(message_id)
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(message.into())
   }
@@ -498,13 +494,12 @@ impl Conversations {
     &self,
     #[wasm_bindgen(js_name = messageId)] message_id: String,
   ) -> Result<DecodedMessage, JsError> {
-    let message_id =
-      hex::decode(message_id).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    let message_id = hex::decode(message_id).map_err(ErrorWrapper::js)?;
 
     let message = self
       .inner_client
       .message_v2(message_id)
-      .map_err(|e| JsError::new(&e.to_string()))?;
+      .map_err(ErrorWrapper::js)?;
 
     message.try_into()
   }
@@ -514,13 +509,12 @@ impl Conversations {
     &self,
     #[wasm_bindgen(js_name = messageId)] message_id: String,
   ) -> Result<u32, JsError> {
-    let message_id =
-      hex::decode(message_id).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    let message_id = hex::decode(message_id).map_err(ErrorWrapper::js)?;
 
     let deleted_count = self
       .inner_client
       .delete_message(message_id)
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(deleted_count as u32)
   }
@@ -531,7 +525,7 @@ impl Conversations {
       .inner_client
       .sync_welcomes()
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -548,7 +542,7 @@ impl Conversations {
       .inner_client
       .sync_all_welcomes_and_groups(consents)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(summary.into())
   }
@@ -558,7 +552,7 @@ impl Conversations {
     let convo_list: js_sys::Array = self
       .inner_client
       .list_conversations(opts.unwrap_or_default().into())
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+      .map_err(ErrorWrapper::js)?
       .into_iter()
       .map(|group| {
         JsValue::from(ConversationListItem::new(
@@ -580,14 +574,14 @@ impl Conversations {
         include_duplicate_dms: true,
         ..Default::default()
       })
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     let mut hmac_map: HashMap<String, Vec<HmacKey>> = HashMap::new();
     for conversation in conversations {
       let id = hex::encode(&conversation.group_id);
       let keys = conversation
         .hmac_keys(-1..=1)
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+        .map_err(ErrorWrapper::js)?
         .into_iter()
         .map(Into::into)
         .collect::<Vec<_>>();

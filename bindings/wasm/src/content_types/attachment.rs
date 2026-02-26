@@ -1,3 +1,4 @@
+use crate::ErrorWrapper;
 use crate::encoded_content::{ContentTypeId, EncodedContent};
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -48,7 +49,7 @@ pub fn content_type_attachment() -> ContentTypeId {
 pub fn encode_attachment(attachment: Attachment) -> Result<EncodedContent, JsError> {
   Ok(
     AttachmentCodec::encode(attachment.into())
-      .map_err(|e| JsError::new(&format!("{}", e)))?
+      .map_err(ErrorWrapper::js)?
       .into(),
   )
 }

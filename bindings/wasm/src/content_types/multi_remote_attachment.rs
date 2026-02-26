@@ -1,4 +1,5 @@
 use super::remote_attachment::RemoteAttachment;
+use crate::ErrorWrapper;
 use crate::encoded_content::{ContentTypeId, EncodedContent};
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -41,7 +42,7 @@ pub fn encode_multi_remote_attachment(
 ) -> Result<EncodedContent, JsError> {
   Ok(
     MultiRemoteAttachmentCodec::encode(multi_remote_attachment.into())
-      .map_err(|e| JsError::new(&format!("{}", e)))?
+      .map_err(ErrorWrapper::js)?
       .into(),
   )
 }

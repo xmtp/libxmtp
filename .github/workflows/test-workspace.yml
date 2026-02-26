@@ -2,10 +2,8 @@ name: Test Workspace
 on:
   workflow_call:
 env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-  RUSTFLAGS: --cfg tracing_unstable
-  CARGO_PROFILE_TEST_DEBUG: 0
+  NIX_DEVSHELL: rust
+  CARGO_TEST_CMD: "cargo llvm-cov nextest --no-fail-fast --no-report"
 jobs:
   test:
     name: Test (Rust Workspace)
@@ -13,38 +11,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-      - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/setup-nix
         with:
-          warp: "true"
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            network=host
-      - name: Start Docker containers
-        run: |
-          dev/build_validation_service_local
-          dev/docker/up
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          sccache: "true"
+      - uses: taiki-e/install-action@just
+      - name: Start backend
+        run: just backend up
       - name: Dump docker logs on failure
         if: failure()
         uses: jwalton/gh-docker-logs@v2
-      - name: Install nextest
-        uses: taiki-e/install-action@nextest
-      - name: Install cargo llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
-      - name: test workspace with v3
-        run: cargo llvm-cov nextest --no-fail-fast --no-report --profile ci --workspace --exclude bindings_wasm
-      - name: test workspace with decentralization
-        run: |
-          cargo llvm-cov nextest \
-          --features d14n --no-fail-fast --no-report --profile ci-d14n \
-          -E 'package(xmtp_mls)' -E 'rdeps(xmtp_mls)' \
-          --workspace --exclude bindings_wasm
-      - name: generate coverage
-        run: cargo llvm-cov report --output-path lcov.info --lcov
-      - name: upload coverage
+      - name: Run tests (v3 + d14n with coverage)
+        run: just test
+      - name: Generate coverage report
+        run: nix develop .#rust --command cargo llvm-cov report --output-path lcov.info --lcov
+      - name: Upload coverage
         uses: codecov/codecov-action@v5
         with:
           files: lcov.info

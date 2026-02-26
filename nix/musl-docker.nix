@@ -52,11 +52,23 @@ _: {
     in
     {
       packages = {
-        validation-service-image = pkgs.dockerTools.buildLayeredImage (
-          lib.recursiveUpdate imageCommon {
-            config.entrypoint = [ "${self'.packages.mls_validation_service}/bin/mls-validation-service" ];
-          }
-        );
+        validation-service-image =
+          let
+            # On Linux, use the native binary (fastest — no cross-compilation).
+            # On macOS, cross-compile to x86_64-linux-musl for Docker.
+            binary =
+              if pkgs.stdenv.isLinux then
+                self'.packages.mls_validation_service
+              else
+                config.rust-project.crates.mls_validation_service.crane.outputs.drv.crate.overrideAttrs (
+                  old: old // (env-musl old)
+                );
+          in
+          pkgs.dockerTools.buildLayeredImage (
+            lib.recursiveUpdate imageCommon {
+              config.entrypoint = [ "${binary}/bin/mls-validation-service" ];
+            }
+          );
       }
       // lib.optionalAttrs (pkgs.stdenv.system == "aarch64-linux") {
         mls-validation-service-aarch64-multiplatform =
