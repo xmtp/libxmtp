@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tsify::Tsify;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_id::associations::DeserializationError;
-use xmtp_mls::groups::device_sync::{
+use xmtp_mls::worker::device_sync::{
   ArchiveOptions as XmtpArchiveOptions, AvailableArchive, BackupElementSelection,
   archive::{
     ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter, insert_importer,

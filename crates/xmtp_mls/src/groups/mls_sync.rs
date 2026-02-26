@@ -427,7 +427,7 @@ where
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip_all)
     )]
-    pub(super) async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
+    pub(crate) async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
         let intents = self.context.db().find_group_intents(
             self.group_id.clone(),
             Some(vec![IntentState::ToPublish, IntentState::Published]),
@@ -453,7 +453,7 @@ where
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip(self))
     )]
-    pub(super) async fn sync_until_intent_resolved(
+    pub(crate) async fn sync_until_intent_resolved(
         &self,
         intent_id: ID,
     ) -> Result<SyncSummary, GroupError> {
@@ -2672,7 +2672,7 @@ where
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip_all)
     )]
-    pub(super) async fn add_missing_installations(&self) -> Result<(), GroupError> {
+    pub(crate) async fn add_missing_installations(&self) -> Result<(), GroupError> {
         let intent_data = self.get_membership_update_intent(&[], &[]).await?;
 
         // If there is nothing to do, stop here

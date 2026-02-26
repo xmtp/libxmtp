@@ -32,8 +32,8 @@ pub enum VerifierError {
     Serde(#[from] serde_json::Error),
     #[error("URLs must be preceded with eip144:")]
     MalformedEipUrl,
-    #[error("verifier not present")]
-    NoVerifier,
+    #[error("verifier not present for chain ID {0}")]
+    NoVerifier(String),
     #[error("hash was invalid length or otherwise malformed")]
     InvalidHash(Vec<u8>),
     #[error("{0}")]
@@ -45,7 +45,7 @@ impl RetryableError for VerifierError {
         use VerifierError::*;
         match self {
             Io(_) => true,
-            NoVerifier => true,
+            NoVerifier(_) => true,
             Provider(_) => true,
             Other(o) => o.is_retryable(),
             _ => false,
@@ -229,6 +229,6 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
                 .await;
         }
 
-        Err(VerifierError::NoVerifier)
+        Err(VerifierError::NoVerifier(account_id.chain_id))
     }
 }

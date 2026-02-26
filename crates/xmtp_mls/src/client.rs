@@ -2,9 +2,7 @@ use crate::{
     builder::DeviceSyncMode,
     context::XmtpSharedContext,
     groups::{
-        ConversationListItem, GroupError, MlsGroup,
-        device_sync::{DeviceSyncClient, preference_sync::PreferenceUpdate, worker::SyncMetric},
-        group_permissions::PolicySet,
+        ConversationListItem, GroupError, MlsGroup, group_permissions::PolicySet,
         welcome_sync::WelcomeService,
     },
     identity::{Identity, IdentityError, parse_credential},
@@ -13,6 +11,9 @@ use crate::{
     subscriptions::{LocalEventError, LocalEvents, SyncWorkerEvent},
     utils::VersionInfo,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+    worker::device_sync::{
+        DeviceSyncClient, preference_sync::PreferenceUpdate, worker::SyncMetric,
+    },
     worker::{WorkerRunner, metrics::WorkerMetrics},
 };
 use crate::{
