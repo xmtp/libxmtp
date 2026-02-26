@@ -72,9 +72,8 @@ diesel = { workspace = true, features = ["r2d2"] }
 dyn-clone.workspace = true
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
-sqlite-wasm-rs = { version = "0.4", default-features = false, features = [
-  "precompiled",
-] }
+sqlite-wasm-rs = { version = "0.5", default-features = false }
+sqlite-wasm-vfs = "0.2"
 tokio.workspace = true
 web-sys = { workspace = true, features = ["DomException"] }
 wasm-bindgen = { workspace = true }

@@ -4,7 +4,6 @@ const ALIX_DB: &str = "tests/assets/alix.xmtp";
 const BO_DB: &str = "tests/assets/bo.xmtp";
 
 #[xmtp_common::test(unwrap_try = true)]
-#[cfg(not(target_arch = "wasm32"))]
 #[ignore]
 async fn setup_migration_test() {
     tester!(alix);
@@ -19,7 +18,6 @@ async fn setup_migration_test() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-#[cfg(not(target_arch = "wasm32"))]
 async fn test_existing_client_db() {
     tester!(alix, snapshot_file: ALIX_DB);
     tester!(bo, snapshot_file: BO_DB);

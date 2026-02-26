@@ -188,7 +188,9 @@ impl<P: MlsProviderExt> OpenMlsTestExt for BarebonesMlsClient<P> {
         membership.members.insert(inbox_id.to_string(), 0);
         // Update the extensions to have the new GroupMembership
         let mut new_extensions = mls_group.extensions().clone();
-        new_extensions.add_or_replace(build_group_membership_extension(&membership));
+        new_extensions
+            .add_or_replace(build_group_membership_extension(&membership))
+            .unwrap();
 
         let (_commit, welcome, _) = mls_group
             .update_group_membership(

@@ -27,7 +27,10 @@ impl Distribution<StorageError> for StandardUniform {
             7 => StorageError::DbDeserialize,
             8 => StorageError::Builder(derive_builder::UninitializedFieldError::new("test field")),
             10 => rand::random(), // platform
-            11 => StorageError::Prost(prost::DecodeError::new("test random decode error")),
+            11 => StorageError::Prost(
+                <xmtp_proto::mls_v1::GroupMessage as prost::Message>::decode([].as_slice())
+                    .unwrap_err(),
+            ),
             12 => StorageError::Connection(rand::random()),
             13 => StorageError::Conversion(xmtp_proto::ConversionError::Unspecified(
                 "random test error",
@@ -188,7 +191,7 @@ mod wasm {
     impl Distribution<crate::PlatformStorageError> for StandardUniform {
         fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> crate::PlatformStorageError {
             match rng.random_range(0..=2) {
-                0 => PlatformStorageError::SAH(sqlite_wasm_rs::sahpool_vfs::OpfsSAHError::Generic(
+                0 => PlatformStorageError::SAH(sqlite_wasm_vfs::sahpool::OpfsSAHError::Generic(
                     "rand test opfs err".to_string(),
                 )),
                 1 => PlatformStorageError::Connection(rand_diesel_conn_err(rng)),

@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use openmls::extensions::Extensions;
+use openmls::{extensions::Extensions, group::GroupContext};
 use prost::Message;
 use serde::Serialize;
 use thiserror::Error;
@@ -101,10 +101,10 @@ impl TryFrom<GroupMetadataProto> for GroupMetadata {
     }
 }
 
-impl TryFrom<&Extensions> for GroupMetadata {
+impl TryFrom<&Extensions<GroupContext>> for GroupMetadata {
     type Error = GroupMetadataError;
 
-    fn try_from(extensions: &Extensions) -> Result<Self, Self::Error> {
+    fn try_from(extensions: &Extensions<GroupContext>) -> Result<Self, Self::Error> {
         let data = extensions
             .immutable_metadata()
             .ok_or(GroupMetadataError::MissingExtension)?;
@@ -197,7 +197,7 @@ impl TryFrom<DmMembersProto> for DmMembers<InboxId> {
 }
 
 pub fn extract_group_metadata(
-    extensions: &Extensions,
+    extensions: &Extensions<GroupContext>,
 ) -> Result<GroupMetadata, GroupMetadataError> {
     let extension = extensions
         .immutable_metadata()

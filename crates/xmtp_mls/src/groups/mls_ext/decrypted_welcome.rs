@@ -194,7 +194,10 @@ impl DecryptedWelcome {
             tracing::error!("No PSK support for welcome");
             return Err(GroupError::NoPSKSupport);
         }
-        let staged_welcome = builder.skip_lifetime_validation().build()?;
+        let staged_welcome = builder
+            .replace_old_group()
+            .skip_lifetime_validation()
+            .build()?;
 
         let added_by_node = staged_welcome.welcome_sender()?;
 

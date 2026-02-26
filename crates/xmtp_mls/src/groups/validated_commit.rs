@@ -3,7 +3,8 @@ use super::{
     MAX_GROUP_NAME_LENGTH,
     group_membership::{GroupMembership, MembershipDiff},
     group_permissions::{
-        GroupMutablePermissions, GroupMutablePermissionsError, extract_group_permissions,
+        GroupMutablePermissions, GroupMutablePermissionsError, MembershipPolicy, MetadataPolicy,
+        PermissionsPolicy, PolicySet, extract_group_permissions,
     },
 };
 use crate::{
@@ -13,7 +14,7 @@ use crate::{
 use openmls::{
     credentials::{BasicCredential, Credential as OpenMlsCredential, errors::BasicCredentialError},
     extensions::{Extension, Extensions, UnknownExtension},
-    group::{MlsGroup as OpenMlsGroup, StagedCommit},
+    group::{GroupContext, MlsGroup as OpenMlsGroup, QueuedProposal, StagedCommit},
     messages::proposals::Proposal,
     prelude::{LeafNodeIndex, Sender},
     treesync::LeafNode,
@@ -25,6 +26,7 @@ use serde::Serialize;
 use std::collections::HashSet;
 use thiserror::Error;
 use xmtp_common::{retry::RetryableError, retryable};
+use xmtp_configuration::PROPOSAL_SUPPORT_EXTENSION_ID;
 use xmtp_db::StorageError;
 use xmtp_db::local_commit_log::CommitType;
 #[cfg(doc)]
@@ -91,12 +93,18 @@ pub enum CommitValidationError {
     GroupMutablePermissions(#[from] GroupMutablePermissionsError),
     #[error("PSKs are not support")]
     NoPSKSupport,
+    #[error("External init proposals are not supported")]
+    ExternalInitProposalNotSupported,
     #[error(transparent)]
     StorageError(#[from] StorageError),
     #[error("Exceeded max characters for this field. Must be under: {length}")]
     TooManyCharacters { length: usize },
     #[error("Version part missing")]
     VersionMissing,
+    #[error("Proposer could not be determined for inbox change in proposal-enabled group")]
+    ProposerNotFound,
+    #[error("Proposals are not enabled on this group")]
+    ProposalsNotEnabled,
 }
 
 impl RetryableError for CommitValidationError {
@@ -204,6 +212,9 @@ pub struct Inbox {
     pub is_creator: bool,
     pub is_admin: bool,
     pub is_super_admin: bool,
+    /// The proposer who requested this inbox change (if from a proposal)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proposer: Option<CommitParticipant>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -285,14 +296,17 @@ impl LibXMTPVersion {
  * 4. For updates (either updating a path or via an Update Proposal) clients must verify that the `installation_id` is
  *    present in the [`AssociationState`] for the `inbox_id` presented in the credential at the `to_sequence_id` found in the
  *    new [`GroupMembership`].
- * 5. All proposals in a commit must come from the same installation
+ * 5. All proposals must come from group members (proposer permissions are validated, not committer)
  * 6. No PSK proposals will be allowed
  * 7. New installations may be missing from the commit but still be present in the expected diff.
  * 8. Confirms metadata character limit is not exceeded
  */
 #[derive(Debug, Clone, Serialize)]
 pub struct ValidatedCommit {
+    /// The actor who created the commit (the committer)
     pub actor: CommitParticipant,
+    /// All unique proposers who created proposals in this commit
+    pub proposers: Vec<CommitParticipant>,
     pub added_inboxes: Vec<Inbox>,
     pub removed_inboxes: Vec<Inbox>,
     pub readded_installations: HashSet<Vec<u8>>,
@@ -317,6 +331,9 @@ impl ValidatedCommit {
         let current_group_members = get_current_group_members(openmls_group);
 
         let existing_group_extensions = openmls_group.extensions();
+        let proposals_enabled = existing_group_extensions
+            .iter()
+            .any(|ext| matches!(ext, Extension::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID, _)));
         let new_group_extensions = staged_commit.group_context().extensions();
 
         let metadata_validation_info = extract_metadata_changes(
@@ -365,9 +382,10 @@ impl ValidatedCommit {
 
         let permissions_changed =
             extract_permissions_changed(&group_permissions, new_group_extensions)?;
-        // Get the actor who created the commit.
-        // Because we don't allow for multiple actors in a commit, this will error if two proposals come from different authors.
-        let actor = extract_actor(
+        // Get the committer who created the commit and all unique proposers.
+        // The committer may differ from the proposers (e.g., when one member commits
+        // proposals created by other members).
+        let (actor, proposers) = extract_committer_and_proposers(
             staged_commit,
             openmls_group,
             &immutable_metadata,
@@ -384,6 +402,9 @@ impl ValidatedCommit {
             mut added_installations,
             mut removed_installations,
             mut credentials_to_verify,
+            added_inbox_proposers,
+            removed_inbox_proposers,
+            gce_proposer,
         } = get_proposal_changes(
             staged_commit,
             openmls_group,
@@ -394,8 +415,16 @@ impl ValidatedCommit {
         // Get the expected diff of installations added and removed based on the difference between the current
         // group membership and the new group membership.
         // Also gets back the added and removed inbox ids from the expected diff
-        let expected_diff =
-            ExpectedDiff::from_staged_commit(context, staged_commit, openmls_group).await?;
+        let expected_diff = ExpectedDiff::from_staged_commit_with_proposers(
+            context,
+            staged_commit,
+            openmls_group,
+            proposals_enabled,
+            &gce_proposer,
+            &added_inbox_proposers,
+            &removed_inbox_proposers,
+        )
+        .await?;
 
         let ExpectedDiff {
             new_group_membership,
@@ -456,6 +485,7 @@ impl ValidatedCommit {
 
         let verified_commit = Self {
             actor,
+            proposers,
             added_inboxes,
             removed_inboxes,
             readded_installations,
@@ -542,15 +572,24 @@ impl From<ValidatedCommit> for GroupMembershipChanges {
     }
 }
 
+use std::collections::HashMap;
+
 struct ProposalChanges {
     added_installations: HashSet<Vec<u8>>,
     removed_installations: HashSet<Vec<u8>>,
     credentials_to_verify: Vec<CommitParticipant>,
+    /// Maps inbox_id to the proposer who proposed adding it
+    added_inbox_proposers: HashMap<String, CommitParticipant>,
+    /// Maps inbox_id to the proposer who proposed removing it
+    removed_inbox_proposers: HashMap<String, CommitParticipant>,
+    /// The proposer of the GCE proposal (if any) - this affects membership changes
+    gce_proposer: Option<CommitParticipant>,
 }
 
 /**
  * Extracts the installations added and removed via proposals in the commit.
  * Also returns a list of credentials from existing members that need verification (caused by update proposals)
+ * Tracks which proposer created each proposal for permission validation.
  */
 fn get_proposal_changes(
     staged_commit: &StagedCommit,
@@ -562,8 +601,22 @@ fn get_proposal_changes(
     let mut added_installations: HashSet<Vec<u8>> = HashSet::new();
     let mut removed_installations: HashSet<Vec<u8>> = HashSet::new();
     let mut credentials_to_verify: Vec<CommitParticipant> = vec![];
+    let mut added_inbox_proposers: HashMap<String, CommitParticipant> = HashMap::new();
+    let mut removed_inbox_proposers: HashMap<String, CommitParticipant> = HashMap::new();
+    let mut gce_proposer: Option<CommitParticipant> = None;
 
     for proposal in staged_commit.queued_proposals() {
+        // Extract the proposer for this proposal
+        let proposer = match proposal.sender() {
+            Sender::Member(leaf_index) => extract_commit_participant(
+                leaf_index,
+                openmls_group,
+                immutable_metadata,
+                mutable_metadata,
+            )?,
+            _ => return Err(CommitValidationError::ActorNotMember),
+        };
+
         match proposal.proposal() {
             // For update proposals, we need to validate that the credential and installation key
             // are valid for the inbox_id in the current group membership state
@@ -580,7 +633,9 @@ fn get_proposal_changes(
                 // building the expected installation diff
                 let leaf_node = add_proposal.key_package().leaf_node();
                 let installation_id = leaf_node.signature_key().as_slice().to_vec();
+                let inbox_id = inbox_id_from_credential(leaf_node.credential())?;
                 added_installations.insert(installation_id);
+                added_inbox_proposers.insert(inbox_id, proposer);
             }
             // For Remove Proposals, all we need to do is validate that the installation_id is in the expected diff
             Proposal::Remove(remove_proposal) => {
@@ -588,7 +643,13 @@ fn get_proposal_changes(
                     .member_at(remove_proposal.removed())
                     .ok_or(CommitValidationError::SubjectDoesNotExist)?;
                 let installation_id = leaf_node.signature_key.to_vec();
+                let inbox_id = inbox_id_from_credential(&leaf_node.credential)?;
                 removed_installations.insert(installation_id);
+                removed_inbox_proposers.insert(inbox_id, proposer);
+            }
+            // For GroupContextExtensions proposals, track the proposer for membership changes
+            Proposal::GroupContextExtensions(_) => {
+                gce_proposer = Some(proposer);
             }
             _ => continue,
         }
@@ -598,6 +659,9 @@ fn get_proposal_changes(
         added_installations,
         removed_installations,
         credentials_to_verify,
+        added_inbox_proposers,
+        removed_inbox_proposers,
+        gce_proposer,
     })
 }
 
@@ -635,10 +699,14 @@ struct ExpectedDiff {
 }
 
 impl ExpectedDiff {
-    pub(super) async fn from_staged_commit(
+    pub(super) async fn from_staged_commit_with_proposers(
         context: &impl XmtpSharedContext,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
+        proposals_enabled: bool,
+        gce_proposer: &Option<CommitParticipant>,
+        added_inbox_proposers: &HashMap<String, CommitParticipant>,
+        removed_inbox_proposers: &HashMap<String, CommitParticipant>,
     ) -> Result<Self, CommitValidationError> {
         // Get the immutable and mutable metadata
         let extensions = openmls_group.extensions();
@@ -650,30 +718,37 @@ impl ExpectedDiff {
             return Err(CommitValidationError::NoPSKSupport);
         }
 
-        let expected_diff = Self::extract_expected_diff(
+        let expected_diff = Self::extract_expected_diff_with_proposers(
             context,
             openmls_group.group_id().as_slice(),
             staged_commit,
             extensions,
             &immutable_metadata,
             &mutable_metadata,
+            proposals_enabled,
+            gce_proposer,
+            added_inbox_proposers,
+            removed_inbox_proposers,
         )
         .await?;
 
         Ok(expected_diff)
     }
 
-    /// Generates an expected diff of installations added and removed based on the difference between the current
-    /// [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`].
-    /// This requires loading the Inbox state from the network.
-    /// Satisfies Rule 2
-    async fn extract_expected_diff(
+    /// Generates an expected diff with proposer attribution for each inbox change.
+    /// This is used when validating commits with proposals from multiple members.
+    #[allow(clippy::too_many_arguments)]
+    async fn extract_expected_diff_with_proposers(
         context: &impl XmtpSharedContext,
         group_id: &[u8], // used for logging
         staged_commit: &StagedCommit,
-        existing_group_extensions: &Extensions,
+        existing_group_extensions: &Extensions<GroupContext>,
         immutable_metadata: &GroupMetadata,
         mutable_metadata: &GroupMutableMetadata,
+        proposals_enabled: bool,
+        gce_proposer: &Option<CommitParticipant>,
+        added_inbox_proposers: &HashMap<String, CommitParticipant>,
+        removed_inbox_proposers: &HashMap<String, CommitParticipant>,
     ) -> Result<ExpectedDiff, CommitValidationError> {
         let conn = context.db();
         let old_group_membership = extract_group_membership(existing_group_extensions)?;
@@ -686,17 +761,59 @@ impl ExpectedDiff {
             &membership_diff,
         )?;
 
+        // For added inboxes, try to find the proposer from:
+        // 1. The original Add proposal proposer for this specific inbox
+        // 2. The GCE proposer (if membership changed via GCE proposal without a direct Add proposal)
+        // When proposals are enabled, a proposer must always be determinable.
         let added_inboxes = membership_diff
             .added_inboxes
             .iter()
-            .map(|inbox_id| build_inbox(inbox_id, immutable_metadata, mutable_metadata))
-            .collect::<Vec<Inbox>>();
+            .map(|inbox_id| {
+                // Look up the proposer who proposed adding this specific inbox.
+                // Falls back to the GCE proposer if no direct Add proposal was found
+                // (e.g., membership changed via a GroupContextExtensions proposal).
+                let proposer = added_inbox_proposers
+                    .get(inbox_id.as_str())
+                    .cloned()
+                    .or_else(|| gce_proposer.clone());
+                match proposer {
+                    Some(p) => Ok(build_inbox_with_proposer(
+                        inbox_id,
+                        immutable_metadata,
+                        mutable_metadata,
+                        p,
+                    )),
+                    None if proposals_enabled => Err(CommitValidationError::ProposerNotFound),
+                    None => Ok(build_inbox(inbox_id, immutable_metadata, mutable_metadata)),
+                }
+            })
+            .collect::<Result<Vec<Inbox>, CommitValidationError>>()?;
 
+        // For removed inboxes, try to find the proposer from:
+        // 1. The original Remove proposal proposer for this specific inbox
+        // 2. The GCE proposer (if membership changed via GCE proposal without a direct Remove proposal)
+        // When proposals are enabled, a proposer must always be determinable.
         let removed_inboxes = membership_diff
             .removed_inboxes
             .iter()
-            .map(|inbox_id| build_inbox(inbox_id, immutable_metadata, mutable_metadata))
-            .collect::<Vec<Inbox>>();
+            .map(|inbox_id| {
+                let proposer = removed_inbox_proposers
+                    .get(inbox_id.as_str())
+                    .cloned()
+                    .or_else(|| gce_proposer.clone());
+                match proposer {
+                    Some(p) => Ok(build_inbox_with_proposer(
+                        inbox_id,
+                        immutable_metadata,
+                        mutable_metadata,
+                        p,
+                    )),
+                    None if proposals_enabled => Err(CommitValidationError::ProposerNotFound),
+                    None => Ok(build_inbox(inbox_id, immutable_metadata, mutable_metadata)),
+                }
+            })
+            .collect::<Result<Vec<Inbox>, CommitValidationError>>()?;
+
         let identity_updates = IdentityUpdates::new(&context);
         let expected_installation_diff = identity_updates
             .get_installation_diff(
@@ -855,7 +972,7 @@ fn extract_commit_participant(
 /// until a match is found
 #[tracing::instrument(level = "trace", skip_all)]
 pub fn extract_group_membership(
-    extensions: &Extensions,
+    extensions: &Extensions<GroupContext>,
 ) -> Result<GroupMembership, CommitValidationError> {
     for extension in extensions.iter() {
         if let Extension::Unknown(
@@ -879,8 +996,8 @@ fn extract_metadata_changes(
     immutable_metadata: &GroupMetadata,
     // We already have the old mutable metadata, so save parsing it a second time
     old_mutable_metadata: &GroupMutableMetadata,
-    old_group_extensions: &Extensions,
-    new_group_extensions: &Extensions,
+    old_group_extensions: &Extensions<GroupContext>,
+    new_group_extensions: &Extensions<GroupContext>,
 ) -> Result<MutableMetadataValidationInfo, CommitValidationError> {
     let old_mutable_metadata_ext = find_mutable_metadata_extension(old_group_extensions)
         .ok_or(CommitValidationError::MissingMutableMetadata)?;
@@ -942,7 +1059,7 @@ fn extract_metadata_changes(
 // Returns true if the permissions have changed, false otherwise
 fn extract_permissions_changed(
     old_group_permissions: &GroupMutablePermissions,
-    new_group_extensions: &Extensions,
+    new_group_extensions: &Extensions<GroupContext>,
 ) -> Result<bool, CommitValidationError> {
     let new_group_permissions: GroupMutablePermissions = new_group_extensions.try_into()?;
     Ok(!old_group_permissions.eq(&new_group_permissions))
@@ -988,6 +1105,22 @@ fn build_inbox(
         is_admin: mutable_metadata.is_admin(inbox_id),
         is_super_admin: mutable_metadata.is_super_admin(inbox_id),
         is_creator: immutable_metadata.creator_inbox_id.eq(inbox_id),
+        proposer: None,
+    }
+}
+
+fn build_inbox_with_proposer(
+    inbox_id: &String,
+    immutable_metadata: &GroupMetadata,
+    mutable_metadata: &GroupMutableMetadata,
+    proposer: CommitParticipant,
+) -> Inbox {
+    Inbox {
+        inbox_id: inbox_id.to_string(),
+        is_admin: mutable_metadata.is_admin(inbox_id),
+        is_super_admin: mutable_metadata.is_super_admin(inbox_id),
+        is_creator: immutable_metadata.creator_inbox_id.eq(inbox_id),
+        proposer: Some(proposer),
     }
 }
 
@@ -1036,79 +1169,273 @@ fn inbox_id_from_credential(
     Ok(decoded.inbox_id)
 }
 
-/// Takes a [`StagedCommit`] and tries to extract the actor who created the commit.
+/// Takes a [`StagedCommit`] and extracts the committer (from path update) and all unique proposers.
 /// In the case of a self-update, which does not contain any proposals, this will come from the update_path.
-/// In the case of a commit with proposals, it will be the creator of all the proposals.
-/// Satisfies Rule 5 by erroring if any proposals have different actors
-fn extract_actor(
+/// In the case of a commit with proposals, it collects all unique proposers from the proposals.
+///
+/// Returns (committer, proposers) where:
+/// - `committer` is the actor who created the commit (from path update or single proposer)
+/// - `proposers` is a list of all unique members who created proposals
+///
+/// Note: The committer may differ from the proposers - this is valid when one member commits
+/// proposals created by other members.
+fn extract_committer_and_proposers(
     staged_commit: &StagedCommit,
     openmls_group: &OpenMlsGroup,
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
-) -> Result<CommitParticipant, CommitValidationError> {
-    // If there was a path update, get the leaf node that was updated
+) -> Result<(CommitParticipant, Vec<CommitParticipant>), CommitValidationError> {
+    // If there was a path update, get the leaf node that was updated (this is the committer)
     let path_update_leaf_node: Option<&LeafNode> = staged_commit.update_path_leaf_node();
 
-    // Iterate through the proposals and get the sender of the proposal.
-    // Error if there are multiple senders found
-    let proposal_author_leaf_index = staged_commit
-        .queued_proposals()
-        .try_fold::<Option<&LeafNodeIndex>, _, _>(
-            None,
-            |existing_value, proposal| match proposal.sender() {
-                Sender::Member(member_leaf_node_index) => match existing_value {
-                    Some(existing_member) => {
-                        if existing_member.ne(member_leaf_node_index) {
-                            return Err(CommitValidationError::MultipleActors);
-                        }
-                        Ok(existing_value)
-                    }
-                    None => Ok(Some(member_leaf_node_index)),
-                },
-                _ => Err(CommitValidationError::ActorNotMember),
-            },
-        )?;
-
-    // If there is both a path update and there are proposals we need to make sure that they are from the same actor
-    if let (Some(path_update_leaf_node), Some(proposal_author_leaf_index)) =
-        (path_update_leaf_node, proposal_author_leaf_index)
-    {
-        let proposal_author = openmls_group
-            .member_at(*proposal_author_leaf_index)
-            .ok_or(CommitValidationError::ActorCouldNotBeFound)?;
-
-        // Verify that the signature keys are the same
-        if path_update_leaf_node
-            .signature_key()
-            .as_slice()
-            .to_vec()
-            .ne(&proposal_author.signature_key)
-        {
-            return Err(CommitValidationError::MultipleActors);
+    // Collect all unique proposers from the proposals
+    let mut proposer_leaf_indices: Vec<&LeafNodeIndex> = Vec::new();
+    for proposal in staged_commit.queued_proposals() {
+        match proposal.sender() {
+            Sender::Member(member_leaf_node_index) => {
+                // Only add if not already in the list
+                if !proposer_leaf_indices.contains(&member_leaf_node_index) {
+                    proposer_leaf_indices.push(member_leaf_node_index);
+                }
+            }
+            _ => return Err(CommitValidationError::ActorNotMember),
         }
     }
 
-    // Convert the path update leaf node to a [`CommitParticipant`]
-    if let Some(path_update_leaf_node) = path_update_leaf_node {
-        return CommitParticipant::from_leaf_node(
-            path_update_leaf_node,
-            immutable_metadata,
-            mutable_metadata,
-        );
-    }
-
-    // Convert the proposal author leaf index to a [`CommitParticipant`]
-    if let Some(leaf_index) = proposal_author_leaf_index {
-        return extract_commit_participant(
+    // Convert all proposer leaf indices to CommitParticipants
+    let mut proposers: Vec<CommitParticipant> = Vec::new();
+    for leaf_index in &proposer_leaf_indices {
+        let participant = extract_commit_participant(
             leaf_index,
             openmls_group,
             immutable_metadata,
             mutable_metadata,
-        );
+        )?;
+        proposers.push(participant);
     }
 
-    // To get here there must be no path update and no proposals found. This should actually be impossible
-    Err(CommitValidationError::ActorCouldNotBeFound)
+    // Determine the committer:
+    // 1. If there's a path update, the committer is from the path update
+    // 2. Otherwise, if there are proposers, the committer is the single proposer (for backwards compat)
+    let committer = if let Some(path_update_leaf_node) = path_update_leaf_node {
+        CommitParticipant::from_leaf_node(
+            path_update_leaf_node,
+            immutable_metadata,
+            mutable_metadata,
+        )?
+    } else if proposer_leaf_indices.len() == 1 {
+        // Single proposer case - for backwards compatibility, use them as the committer
+        proposers[0].clone()
+    } else if proposer_leaf_indices.is_empty() {
+        // No path update and no proposals - this should be impossible
+        return Err(CommitValidationError::ActorCouldNotBeFound);
+    } else {
+        // Multiple proposers but no path update - this shouldn't happen in practice
+        // because commits with proposals should have a path update from the committer
+        return Err(CommitValidationError::ActorCouldNotBeFound);
+    };
+
+    Ok((committer, proposers))
+}
+
+/// Validates a single proposal by checking if the proposer has the required permissions.
+/// Returns Ok(()) if the proposal is valid, or an error if validation fails.
+///
+/// This function should be called when receiving proposals to ensure they are valid
+/// before they are stored and later committed.
+pub fn validate_proposal(
+    proposal: &QueuedProposal,
+    openmls_group: &OpenMlsGroup,
+    policy_set: &PolicySet,
+    immutable_metadata: &GroupMetadata,
+    mutable_metadata: &GroupMutableMetadata,
+) -> Result<(), CommitValidationError> {
+    // Extract the proposer from the proposal
+    let proposer = match proposal.sender() {
+        Sender::Member(leaf_index) => extract_commit_participant(
+            leaf_index,
+            openmls_group,
+            immutable_metadata,
+            mutable_metadata,
+        )?,
+        Sender::External(_) | Sender::NewMemberCommit | Sender::NewMemberProposal => {
+            // External and new member proposals are not supported
+            return Err(CommitValidationError::ActorNotMember);
+        }
+    };
+
+    // Validate based on proposal type
+    match proposal.proposal() {
+        Proposal::Add(add_proposal) => {
+            // Check if the proposer has permission to add members
+            let added_inbox_id =
+                inbox_id_from_credential(add_proposal.key_package().leaf_node().credential())?;
+            let inbox = Inbox {
+                inbox_id: added_inbox_id.clone(),
+                is_creator: false,
+                is_admin: false,
+                is_super_admin: false,
+                proposer: Some(proposer.clone()),
+            };
+            if !policy_set.add_member_policy.evaluate(&proposer, &inbox) {
+                // DM bypass: allow adding the other DM participant even if policy denies
+                let is_dm_add = immutable_metadata.dm_members.as_ref().is_some_and(|dm| {
+                    (added_inbox_id == dm.member_one_inbox_id.as_ref()
+                        || added_inbox_id == dm.member_two_inbox_id.as_ref())
+                        && added_inbox_id != proposer.inbox_id
+                });
+                if !is_dm_add {
+                    tracing::warn!(
+                        proposer_inbox_id = %proposer.inbox_id,
+                        "Proposal rejected: proposer does not have permission to add members"
+                    );
+                    return Err(CommitValidationError::InsufficientPermissions);
+                }
+            }
+        }
+        Proposal::Remove(remove_proposal) => {
+            // Check if the proposer has permission to remove members
+            // Get the inbox_id of the member being removed
+            let removed_member = openmls_group
+                .member_at(remove_proposal.removed())
+                .ok_or(CommitValidationError::SubjectDoesNotExist)?;
+            let removed_inbox_id = inbox_id_from_credential(&removed_member.credential)?;
+            let removed_is_admin = mutable_metadata.admin_list.contains(&removed_inbox_id);
+            let removed_is_super_admin = mutable_metadata.is_super_admin(&removed_inbox_id);
+
+            // Super admins cannot be removed
+            if removed_is_super_admin {
+                tracing::warn!(
+                    proposer_inbox_id = %proposer.inbox_id,
+                    removed_inbox_id = %removed_inbox_id,
+                    "Proposal rejected: cannot remove super admin"
+                );
+                return Err(CommitValidationError::InsufficientPermissions);
+            }
+
+            let removed_inbox = Inbox {
+                inbox_id: removed_inbox_id.clone(),
+                is_creator: immutable_metadata.creator_inbox_id == removed_inbox_id,
+                is_admin: removed_is_admin,
+                is_super_admin: removed_is_super_admin,
+                proposer: Some(proposer.clone()),
+            };
+
+            if !policy_set
+                .remove_member_policy
+                .evaluate(&proposer, &removed_inbox)
+            {
+                tracing::warn!(
+                    proposer_inbox_id = %proposer.inbox_id,
+                    removed_inbox_id = %removed_inbox_id,
+                    "Proposal rejected: proposer does not have permission to remove members"
+                );
+                return Err(CommitValidationError::InsufficientPermissions);
+            }
+        }
+        Proposal::GroupContextExtensions(gce_proposal) => {
+            let existing_extensions = openmls_group.extensions();
+            let new_extensions = gce_proposal.extensions();
+
+            // Check for mutable metadata changes (group name, admin list, etc.)
+            let old_meta = find_mutable_metadata_extension(existing_extensions);
+            let new_meta = find_mutable_metadata_extension(new_extensions);
+            if old_meta.is_some() && new_meta.is_none() {
+                tracing::warn!(
+                    proposer_inbox_id = %proposer.inbox_id,
+                    "GCE proposal rejected: cannot remove mutable metadata extension"
+                );
+                return Err(CommitValidationError::InsufficientPermissions);
+            }
+            if let (Some(old_meta), Some(new_meta)) = (old_meta, new_meta)
+                && old_meta != new_meta
+            {
+                let metadata_changes = extract_metadata_changes(
+                    immutable_metadata,
+                    mutable_metadata,
+                    existing_extensions,
+                    new_extensions,
+                )?;
+
+                for change in &metadata_changes.metadata_field_changes {
+                    if let Some(policy) = policy_set.update_metadata_policy.get(&change.field_name)
+                        && !policy.evaluate(&proposer, change)
+                    {
+                        tracing::warn!(
+                            proposer_inbox_id = %proposer.inbox_id,
+                            field = %change.field_name,
+                            "GCE proposal rejected: no permission to update metadata field"
+                        );
+                        return Err(CommitValidationError::InsufficientPermissions);
+                    }
+                }
+
+                if !metadata_changes.admins_added.is_empty()
+                    && !policy_set.add_admin_policy.evaluate(&proposer)
+                {
+                    tracing::warn!(
+                        proposer_inbox_id = %proposer.inbox_id,
+                        "GCE proposal rejected: no permission to add admins"
+                    );
+                    return Err(CommitValidationError::InsufficientPermissions);
+                }
+                if !metadata_changes.admins_removed.is_empty()
+                    && !policy_set.remove_admin_policy.evaluate(&proposer)
+                {
+                    tracing::warn!(
+                        proposer_inbox_id = %proposer.inbox_id,
+                        "GCE proposal rejected: no permission to remove admins"
+                    );
+                    return Err(CommitValidationError::InsufficientPermissions);
+                }
+
+                if (!metadata_changes.super_admins_added.is_empty()
+                    || !metadata_changes.super_admins_removed.is_empty())
+                    && !proposer.is_super_admin
+                {
+                    tracing::warn!(
+                        proposer_inbox_id = %proposer.inbox_id,
+                        "GCE proposal rejected: only super admins can modify super admin list"
+                    );
+                    return Err(CommitValidationError::InsufficientPermissions);
+                }
+            }
+
+            // Check for permission changes (only super admin can change permissions)
+            let old_permissions: GroupMutablePermissions = existing_extensions.try_into()?;
+            if !proposer.is_super_admin
+                && let Ok(true) = extract_permissions_changed(&old_permissions, new_extensions)
+            {
+                tracing::warn!(
+                    proposer_inbox_id = %proposer.inbox_id,
+                    "GCE proposal rejected: only super admins can change permissions"
+                );
+                return Err(CommitValidationError::InsufficientPermissions);
+            }
+        }
+        Proposal::Update(_) => {
+            // Update proposals (key updates) are always allowed for the member themselves
+        }
+        Proposal::PreSharedKey(_) => {
+            // PSK proposals are not supported
+            return Err(CommitValidationError::NoPSKSupport);
+        }
+        Proposal::ReInit(_) => {
+            // ReInit proposals require super admin (not currently supported)
+        }
+        Proposal::ExternalInit(_) => {
+            // External init proposals are not supported
+            return Err(CommitValidationError::ExternalInitProposalNotSupported);
+        }
+        Proposal::Custom(_) => {
+            // Custom proposals - allow by default, will be validated at commit time
+        }
+        Proposal::SelfRemove => {
+            // Self-remove proposals are always allowed
+        }
+    }
+
+    Ok(())
 }
 
 impl From<&MetadataFieldChange> for MetadataFieldChangeProto {
