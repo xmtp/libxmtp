@@ -50,6 +50,9 @@ pub enum GenericError {
     GroupMutablePermissions(
         #[from] xmtp_mls::groups::group_permissions::GroupMutablePermissionsError,
     ),
+    /// Generic error.
+    ///
+    /// Unclassified error with string message. May be retryable.
     #[error("{err}")]
     Generic { err: String },
     #[error(transparent)]
@@ -61,6 +64,9 @@ pub enum GenericError {
     #[error(transparent)]
     #[error_code(inherit)]
     Verifier(#[from] xmtp_id::scw_verifier::VerifierError),
+    /// Failed to convert to u32.
+    ///
+    /// Numeric conversion failed. Not retryable.
     #[error("Failed to convert to u32")]
     FailedToConvertToU32,
     #[error("Association error: {0}")]
@@ -72,8 +78,14 @@ pub enum GenericError {
     #[error(transparent)]
     #[error_code(inherit)]
     Identity(#[from] xmtp_mls::identity::IdentityError),
+    /// Join error.
+    ///
+    /// Tokio task join failed. Not retryable.
     #[error(transparent)]
     JoinError(#[from] tokio::task::JoinError),
+    /// I/O error.
+    ///
+    /// File or network I/O failed. May be retryable.
     #[error(transparent)]
     IoError(#[from] tokio::io::Error),
     #[error(transparent)]
@@ -88,12 +100,24 @@ pub enum GenericError {
     #[error(transparent)]
     #[error_code(inherit)]
     AddressValidation(#[from] IdentifierValidationError),
+    /// Log init error.
+    ///
+    /// Failed to initialize log file. Not retryable.
     #[error("Error initializing rolling log file")]
     LogInit(#[from] tracing_appender::rolling::InitError),
+    /// Reload log error.
+    ///
+    /// Failed to reload log subscriber. Not retryable.
     #[error(transparent)]
     ReloadLog(#[from] tracing_subscriber::reload::Error),
+    /// Log error.
+    ///
+    /// Error initializing debug log file. Not retryable.
     #[error("Error initializing debug log file")]
     Log(String),
+    /// Timer expired.
+    ///
+    /// Operation timed out. Retryable.
     #[error("Timer duration expired")]
     Expired,
     #[error(transparent)]

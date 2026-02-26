@@ -54,22 +54,40 @@ mod tests;
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum DeviceSyncError {
+    /// I/O error.
+    ///
+    /// File system or network I/O failed. May be retryable.
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),
+    /// Serialization error.
+    ///
+    /// JSON serialization/deserialization failed. Retryable.
     #[error("Serialization/Deserialization Error {0}")]
     Serde(#[from] serde_json::Error),
     #[error(transparent)]
     #[error_code(inherit)]
     ProtoConversion(#[from] xmtp_proto::ConversionError),
+    /// AES-GCM encryption error.
+    ///
+    /// Encryption/decryption of sync payload failed. Retryable.
     #[error("AES-GCM encryption error")]
     AesGcm(#[from] aes_gcm::Error),
     #[error("storage error: {0}")]
     #[error_code(inherit)]
     Storage(#[from] StorageError),
+    /// HTTP request error.
+    ///
+    /// HTTP request for sync payload failed. Retryable.
     #[error("reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
+    /// Type conversion error.
+    ///
+    /// Internal type conversion failed. Retryable.
     #[error("type conversion error")]
     Conversion,
+    /// UTF-8 error.
+    ///
+    /// String is not valid UTF-8. Retryable.
     #[error("utf-8 error: {0}")]
     UTF8(#[from] std::str::Utf8Error),
     #[error("client error: {0}")]
@@ -78,45 +96,93 @@ pub enum DeviceSyncError {
     #[error("group error: {0}")]
     #[error_code(inherit)]
     Group(#[from] GroupError),
+    /// No pending request.
+    ///
+    /// No pending sync request to reply to. Retryable.
     #[error("no pending request to reply to")]
     NoPendingRequest,
+    /// Invalid payload.
+    ///
+    /// Sync message payload is malformed. Retryable.
     #[error("invalid history message payload")]
     InvalidPayload,
+    /// Unspecified sync kind.
+    ///
+    /// Device sync kind not specified. Not retryable.
     #[error("unspecified device sync kind")]
     UnspecifiedDeviceSyncKind,
+    /// Sync payload too old.
+    ///
+    /// Sync reply is outdated. Retryable.
     #[error("sync reply is too old")]
     SyncPayloadTooOld,
     #[error(transparent)]
     #[error_code(inherit)]
     Subscribe(#[from] SubscribeError),
+    /// Bincode error.
+    ///
+    /// Binary serialization failed. Retryable.
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
+    /// Archive error.
+    ///
+    /// Sync archive operation failed. Retryable.
     #[error(transparent)]
     Archive(#[from] ArchiveError),
+    /// Decode error.
+    ///
+    /// Protobuf decoding failed. Retryable.
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
     #[error_code(inherit)]
     Deserialization(#[from] DeserializationError),
+    /// Already acknowledged.
+    ///
+    /// Sync interaction already acknowledged. Not retryable.
     #[error("Sync interaction is already acknowledged by another installation")]
     AlreadyAcknowledged,
+    /// Missing options.
+    ///
+    /// Sync request options not provided. Retryable.
     #[error("Sync request is missing options")]
     MissingOptions,
+    /// Missing sync server URL.
+    ///
+    /// Sync server URL not configured. Not retryable.
     #[error("Missing sync server url")]
     MissingSyncServerUrl,
+    /// Missing sync group.
+    ///
+    /// Sync group not found. Not retryable.
     #[error("Missing sync group")]
     MissingSyncGroup,
     #[error(transparent)]
     #[error_code(inherit)]
     Db(#[from] xmtp_db::ConnectionError),
+    /// Sync summary.
+    ///
+    /// Sync completed with errors. May be retryable.
     #[error("{}", _0.to_string())]
     Sync(Box<SyncSummary>),
+    /// MLS store error.
+    ///
+    /// OpenMLS key store operation failed. Retryable.
     #[error(transparent)]
     MlsStore(#[from] MlsStoreError),
+    /// Receive error.
+    ///
+    /// Channel receive failed. Retryable.
     #[error(transparent)]
     Recv(#[from] RecvError),
+    /// Missing field.
+    ///
+    /// Required field not present. Retryable.
     #[error("Missing Field: {0:?} {1}")]
     MissingField(MissingField, String),
+    /// Missing payload.
+    ///
+    /// Sync payload not found for PIN. Retryable.
     #[error("Could not find payload with pin {0:?}")]
     MissingPayload(Option<String>),
 }

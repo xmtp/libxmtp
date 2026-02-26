@@ -187,10 +187,19 @@ impl IdentityStrategy {
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum IdentityError {
+    /// Credential serialization error.
+    ///
+    /// Failed to encode MLS credential. Not retryable.
     #[error(transparent)]
     CredentialSerialization(#[from] prost::EncodeError),
+    /// Decode error.
+    ///
+    /// Protobuf decoding failed. Not retryable.
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
+    /// Installation not found.
+    ///
+    /// Installation ID not found in network association state. Not retryable.
     #[error("installation not found: {0}")]
     InstallationIdNotFound(String),
     #[error(transparent)]
@@ -199,22 +208,49 @@ pub enum IdentityError {
     #[error(transparent)]
     #[error_code(inherit)]
     Signature(#[from] xmtp_id::associations::SignatureError),
+    /// Basic credential error.
+    ///
+    /// MLS basic credential validation failed. Not retryable.
     #[error(transparent)]
     BasicCredential(#[from] BasicCredentialError),
+    /// Legacy key re-use.
+    ///
+    /// Attempted to reuse a legacy key. Not retryable.
     #[error("Legacy key re-use")]
     LegacyKeyReuse,
+    /// Uninitialized identity.
+    ///
+    /// Identity not yet initialized. Not retryable.
     #[error("Uninitialized identity")]
     UninitializedIdentity,
+    /// Installation key error.
+    ///
+    /// Problem with installation key. Not retryable.
     #[error("Installation key {0}")]
     InstallationKey(String),
+    /// Malformed legacy key.
+    ///
+    /// Legacy key format is invalid. Not retryable.
     #[error("Malformed legacy key: {0}")]
     MalformedLegacyKey(String),
+    /// Legacy signature error.
+    ///
+    /// Legacy signature is invalid. Not retryable.
     #[error("Legacy signature: {0}")]
     LegacySignature(String),
+    /// Crypto error.
+    ///
+    /// Cryptographic operation failed. Not retryable.
     #[error(transparent)]
     Crypto(#[from] CryptoError),
+    /// Legacy key mismatch.
+    ///
+    /// Legacy key does not match address. Not retryable.
     #[error("legacy key does not match address")]
     LegacyKeyMismatch,
+    /// OpenMLS error.
+    ///
+    /// OpenMLS library error. Not retryable.
     #[error(transparent)]
     OpenMls(#[from] openmls::prelude::Error),
     #[error(transparent)]
@@ -223,22 +259,40 @@ pub enum IdentityError {
     #[error(transparent)]
     #[error_code(inherit)]
     OpenMlsStorageError(#[from] SqlKeyStoreError),
+    /// Key package generation error.
+    ///
+    /// Failed to generate MLS key package. Not retryable.
     #[error(transparent)]
     KeyPackageGenerationError(#[from] openmls::key_packages::errors::KeyPackageNewError),
     #[error(transparent)]
     #[error_code(inherit)]
     KeyPackageVerificationError(#[from] KeyPackageVerificationError),
+    /// Inbox ID mismatch.
+    ///
+    /// Associated InboxID does not match stored value. Not retryable.
     #[error("The InboxID {id}, associated does not match the stored InboxId {stored}.")]
     InboxIdMismatch { id: InboxId, stored: InboxId },
+    /// No associated Inbox ID.
+    ///
+    /// Address has no associated InboxID. Not retryable.
     #[error("The address {0} has no associated InboxID")]
     NoAssociatedInboxId(String),
+    /// Required identity not found.
+    ///
+    /// Identity was not found in cache. Not retryable.
     #[error("Required identity was not found in cache.")]
     RequiredIdentityNotFound,
+    /// New identity creation error.
+    ///
+    /// Error creating a new identity. Not retryable.
     #[error("error creating new identity: {0}")]
     NewIdentity(String),
     #[error(transparent)]
     #[error_code(inherit)]
     Association(#[from] AssociationError),
+    /// Signer error.
+    ///
+    /// Cryptographic signer failed. Not retryable.
     #[error(transparent)]
     Signer(#[from] xmtp_cryptography::SignerError),
     #[error(transparent)]
@@ -250,6 +304,9 @@ pub enum IdentityError {
     #[error(transparent)]
     #[error_code(inherit)]
     Db(#[from] xmtp_db::ConnectionError),
+    /// Too many installations.
+    ///
+    /// InboxID has reached max installation count. Not retryable.
     #[error(
         "Cannot register a new installation because the InboxID {inbox_id} has already registered {count}/{max} installations. Please revoke existing installations first."
     )]
@@ -261,12 +318,24 @@ pub enum IdentityError {
     #[error(transparent)]
     #[error_code(inherit)]
     GeneratePostQuantumKey(#[from] GeneratePostQuantumKeyError),
+    /// Invalid extension error.
+    ///
+    /// MLS extension validation failed. Not retryable.
     #[error(transparent)]
     InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
+    /// Missing PQ public key.
+    ///
+    /// Post-quantum public key not found. Not retryable.
     #[error("Missing post quantum public key")]
     MissingPostQuantumPublicKey,
+    /// Bincode serialization error.
+    ///
+    /// Binary serialization failed. Not retryable.
     #[error("Bincode serialization error")]
     Bincode,
+    /// Uninitialized field.
+    ///
+    /// Builder field not initialized. Not retryable.
     #[error(transparent)]
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
 }

@@ -17,25 +17,52 @@ static DEFAULT_CHAIN_URLS: &str = include_str!("chain_urls_default.json");
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum VerifierError {
+    /// Unexpected ERC-6492 result.
+    ///
+    /// Smart contract wallet signature verification returned unexpected result. Not retryable.
     #[error("unexpected result from ERC-6492 {0}")]
     UnexpectedERC6492Result(String),
     #[error(transparent)]
     #[error_code(inherit)]
     FromHex(#[from] hex::FromHexError),
+    /// Provider error.
+    ///
+    /// Ethereum RPC provider error. Retryable.
     #[error(transparent)]
     Provider(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
+    /// URL parse error.
+    ///
+    /// Verifier URL is malformed. Not retryable.
     #[error(transparent)]
     Url(#[from] url::ParseError),
+    /// I/O error.
+    ///
+    /// I/O operation failed. May be retryable.
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    /// Serialization error.
+    ///
+    /// JSON serialization/deserialization failed. Not retryable.
     #[error(transparent)]
     Serde(#[from] serde_json::Error),
-    #[error("URLs must be preceded with eip144:")]
+    /// Malformed chain ID.
+    ///
+    /// Chain ID string lacks expected eip155: prefix. Not retryable.
+    #[error("Chain IDs must be preceded with eip155:")]
     MalformedEipUrl,
+    /// No verifier.
+    ///
+    /// Verifier not configured. Retryable.
     #[error("verifier not present")]
     NoVerifier,
+    /// Invalid hash.
+    ///
+    /// Hash has invalid length or format. Not retryable.
     #[error("hash was invalid length or otherwise malformed")]
     InvalidHash(Vec<u8>),
+    /// Other error.
+    ///
+    /// Unclassified verifier error. May be retryable.
     #[error("{0}")]
     Other(Box<dyn RetryableError>),
 }

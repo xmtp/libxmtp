@@ -152,30 +152,69 @@ impl StorageOption {
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum PlatformStorageError {
+    /// Pool error.
+    ///
+    /// Database connection pool error. Retryable.
     #[error("Pool error: {0}")]
     Pool(#[from] diesel::r2d2::PoolError),
+    /// DB connection error.
+    ///
+    /// R2D2 connection manager error. Not retryable.
     #[error("Error with connection to Sqlite {0}")]
     DbConnection(#[from] diesel::r2d2::Error),
+    /// Pool needs connection.
+    ///
+    /// Pool must reconnect before use. Retryable.
     #[error("Pool needs to  reconnect before use")]
     PoolNeedsConnection,
+    /// Pool requires path.
+    ///
+    /// DB pool requires a persistent file path. Not retryable.
     #[error("Using a DB Pool requires a persistent path")]
     PoolRequiresPath,
+    /// SQLCipher not loaded.
+    ///
+    /// Encryption key given but SQLCipher not available. Retryable.
     #[error("The SQLCipher Sqlite extension is not present, but an encryption key is given")]
     SqlCipherNotLoaded,
+    /// SQLCipher key incorrect.
+    ///
+    /// PRAGMA key or salt has wrong value. Not retryable.
     #[error("PRAGMA key or salt has incorrect value")]
     SqlCipherKeyIncorrect,
+    /// Database locked.
+    ///
+    /// Database file is locked by another process. Retryable.
     #[error("Database is locked")]
     DatabaseLocked,
+    /// Diesel result error.
+    ///
+    /// Database query error. May be retryable.
     #[error(transparent)]
     DieselResult(#[from] diesel::result::Error),
+    /// Not found.
+    ///
+    /// Record not found in storage. Not retryable.
     #[error(transparent)]
     NotFound(#[from] NotFound),
+    /// I/O error.
+    ///
+    /// File system I/O error. Retryable.
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    /// Hex decode error.
+    ///
+    /// Failed to decode hex string. Not retryable.
     #[error(transparent)]
     FromHex(#[from] hex::FromHexError),
+    /// Diesel connection error.
+    ///
+    /// Failed to establish connection. Retryable.
     #[error(transparent)]
     DieselConnect(#[from] diesel::ConnectionError),
+    /// Boxed error.
+    ///
+    /// Wrapped dynamic error. Not retryable.
     #[error(transparent)]
     Boxed(#[from] BoxDynError),
 }

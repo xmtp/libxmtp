@@ -15,36 +15,84 @@ pub struct Mls;
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum StorageError {
+    /// Diesel connection error.
+    ///
+    /// Failed to connect to SQLite. Retryable.
     #[error(transparent)]
     DieselConnect(#[from] diesel::ConnectionError),
+    /// Diesel result error.
+    ///
+    /// Database query returned an error. May be retryable.
     #[error(transparent)]
     DieselResult(#[from] diesel::result::Error),
+    /// Migration error.
+    ///
+    /// Database migration failed. Not retryable.
     #[error("Error migrating database {0}")]
     MigrationError(#[from] BoxDynError),
+    /// Not found.
+    ///
+    /// Requested record does not exist. Not retryable.
     #[error(transparent)]
     NotFound(#[from] NotFound),
+    /// Duplicate item.
+    ///
+    /// Attempted to insert a duplicate record. Not retryable.
     #[error(transparent)]
     Duplicate(DuplicateItem),
+    /// OpenMLS storage error.
+    ///
+    /// OpenMLS key store operation failed. Not retryable.
     #[error(transparent)]
     OpenMlsStorage(#[from] SqlKeyStoreError),
+    /// Intentional rollback.
+    ///
+    /// Transaction was intentionally rolled back. Not retryable.
     #[error("Transaction was intentionally rolled back")]
     IntentionalRollback,
+    /// DB deserialization failed.
+    ///
+    /// Failed to deserialize data from database. Not retryable.
     #[error("failed to deserialize from db")]
     DbDeserialize,
+    /// DB serialization failed.
+    ///
+    /// Failed to serialize data for database. Not retryable.
     #[error("failed to serialize for db")]
     DbSerialize,
+    /// Builder error.
+    ///
+    /// Required fields missing from stored type. Not retryable.
     #[error("required fields missing from stored db type {0}")]
     Builder(#[from] derive_builder::UninitializedFieldError),
+    /// Platform storage error.
+    ///
+    /// Platform-specific storage error. May be retryable.
     #[error(transparent)]
     Platform(#[from] crate::database::PlatformStorageError),
+    /// Protobuf decode error.
+    ///
+    /// Failed to decode protobuf from database. Not retryable.
     #[error("decoding from database failed {}", _0)]
     Prost(#[from] prost::DecodeError),
+    /// Conversion error.
+    ///
+    /// Proto conversion failed. Not retryable.
     #[error(transparent)]
     Conversion(#[from] xmtp_proto::ConversionError),
+    /// Connection error.
+    ///
+    /// Database connection error. Retryable.
     #[error(transparent)]
     Connection(#[from] crate::ConnectionError),
+    /// Invalid HMAC length.
+    ///
+    /// HMAC key must be 42 bytes. Not retryable.
     #[error("HMAC key must be 42 bytes")]
     InvalidHmacLength,
+    /// Group intent error.
+    ///
+    /// Group intent processing failed. May be retryable.
     #[error(transparent)]
     GroupIntent(#[from] GroupIntentError),
 }
@@ -79,46 +127,104 @@ impl StorageError {
 #[derive(Error, Debug, ErrorCode)]
 // Monolithic enum for all things lost
 pub enum NotFound {
+    /// Group with welcome ID not found.
+    ///
+    /// No group matches the welcome ID. Retryable.
     #[error("group with welcome id {0} not found")]
     GroupByWelcome(Cursor),
+    /// Group with ID not found.
+    ///
+    /// Group does not exist in local DB. Retryable.
     #[error("group with id {id} not found", id = hex::encode(_0))]
     GroupById(Vec<u8>),
+    /// Installation time for group not found.
+    ///
+    /// Missing installation timestamp. Retryable.
     #[error("installation time for group {id}", id = hex::encode(_0))]
     InstallationTimeForGroup(Vec<u8>),
+    /// Inbox ID for address not found.
+    ///
+    /// Address has no associated inbox. Retryable.
     #[error("inbox id for address {0} not found")]
     InboxIdForAddress(String),
+    /// Message ID not found.
+    ///
+    /// Message does not exist in local DB. Retryable.
     #[error("message id {id} not found", id = hex::encode(_0))]
     MessageById(Vec<u8>),
+    /// DM by inbox ID not found.
+    ///
+    /// No DM conversation with this inbox. Retryable.
     #[error("dm by dm_target_inbox_id {0} not found")]
     DmByInbox(String),
-    #[error("intent with id {0} for state Publish from ToPublish not found")]
+    /// Intent for ToPublish not found.
+    ///
+    /// Failed to transition intent from ToPublish to Published. Retryable.
+    #[error("intent with id {0} for state Published from ToPublish not found")]
     IntentForToPublish(i32),
+    /// Intent for Published not found.
+    ///
+    /// Intent with specified ID not in expected state. Retryable.
     #[error("intent with id {0} for state ToPublish from Published not found")]
     IntentForPublish(i32),
+    /// Intent for Committed not found.
+    ///
+    /// Failed to transition intent from Published to Committed. Retryable.
     #[error("intent with id {0} for state Committed from Published not found")]
     IntentForCommitted(i32),
+    /// Intent by ID not found.
+    ///
+    /// Intent does not exist. Retryable.
     #[error("Intent with id {0} not found")]
     IntentById(i32),
+    /// Refresh state not found.
+    ///
+    /// No refresh state matching criteria. Retryable.
     #[error("refresh state with id {id} of kind {1} originating from node {2} not found", id = hex::encode(_0))]
     RefreshStateByIdKindAndOriginator(Vec<u8>, EntityKind, i32),
+    /// Cipher salt not found.
+    ///
+    /// Database encryption salt missing. Retryable.
     #[error("Cipher salt for db at [`{0}`] not found")]
     CipherSalt(String),
+    /// Sync group not found.
+    ///
+    /// No sync group for this installation. Retryable.
     #[error("Sync Group for installation {0} not found")]
     SyncGroup(InstallationId),
+    /// Key package reference not found.
+    ///
+    /// Key package handle not in store. Retryable.
     #[error("Key Package Reference {handle} not found", handle = hex::encode(_0))]
     KeyPackageReference(Vec<u8>),
+    /// MLS group not found.
+    ///
+    /// OpenMLS group not in local state. Retryable.
     #[error("MLS Group Not Found")]
     MlsGroup,
+    /// Post-quantum private key not found.
+    ///
+    /// PQ key pair not in store. Retryable.
     #[error("Post Quantum Key Pair not found")]
     PostQuantumPrivateKey,
+    /// Key package not found.
+    ///
+    /// Key package not in store. Retryable.
     #[error("Key Package {kp} not found", kp = hex::encode(_0))]
     KeyPackage(Vec<u8>),
 }
 
 #[derive(Error, Debug, ErrorCode)]
+#[error_code(internal)]
 pub enum DuplicateItem {
+    /// Duplicate welcome ID.
+    ///
+    /// Welcome ID already exists. Not retryable.
     #[error("the welcome id {0:?} already exists")]
     WelcomeId(Option<Cursor>),
+    /// Duplicate commit log public key.
+    ///
+    /// Commit log public key for group already exists. Not retryable.
     #[error("the commit log public key for group id {id} already exists", id = hex::encode(_0))]
     CommitLogPublicKey(Vec<u8>),
 }

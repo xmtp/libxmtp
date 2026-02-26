@@ -158,13 +158,22 @@ impl SignatureRequestBuilder {
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum SignatureRequestError {
+    /// Unknown signer.
+    ///
+    /// Signer not recognized for this request. Not retryable.
     #[error("Unknown signer")]
     UnknownSigner,
+    /// Missing signer.
+    ///
+    /// Required signature was not provided. Not retryable.
     #[error("Required signature was not provided")]
     MissingSigner,
     #[error("Signature error {0}")]
     #[error_code(inherit)]
     Signature(#[from] SignatureError),
+    /// Unable to get block number.
+    ///
+    /// Block number not returned after successful SCW verification. May be retryable.
     #[error("Unable to get block number")]
     BlockNumber,
 }
