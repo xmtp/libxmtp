@@ -74,7 +74,7 @@ impl Client {
 }
 ```
 
-4. Add `mod my_feature;` to `src/client/mod.rs`
+1. Add `mod my_feature;` to `src/client/mod.rs`
 
 ### Adding a New Conversation Method
 

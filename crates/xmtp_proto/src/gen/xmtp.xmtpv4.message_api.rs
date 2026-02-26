@@ -38,6 +38,142 @@ impl ::prost::Name for SubscribeEnvelopesRequest {
         "/xmtp.xmtpv4.message_api.SubscribeEnvelopesRequest".into()
     }
 }
+/// Request to subscribe to a series of topics, with a separate cursor for each topic
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SubscribeTopicsRequest {
+    #[prost(message, repeated, tag = "1")]
+    pub filters: ::prost::alloc::vec::Vec<subscribe_topics_request::TopicFilter>,
+}
+/// Nested message and enum types in `SubscribeTopicsRequest`.
+pub mod subscribe_topics_request {
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct TopicFilter {
+        #[prost(bytes = "vec", tag = "1")]
+        pub topic: ::prost::alloc::vec::Vec<u8>,
+        #[prost(message, optional, tag = "2")]
+        pub last_seen: ::core::option::Option<super::super::envelopes::Cursor>,
+    }
+    impl ::prost::Name for TopicFilter {
+        const NAME: &'static str = "TopicFilter";
+        const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.xmtpv4.message_api.SubscribeTopicsRequest.TopicFilter".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.xmtpv4.message_api.SubscribeTopicsRequest.TopicFilter".into()
+        }
+    }
+}
+impl ::prost::Name for SubscribeTopicsRequest {
+    const NAME: &'static str = "SubscribeTopicsRequest";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.message_api.SubscribeTopicsRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.message_api.SubscribeTopicsRequest".into()
+    }
+}
+/// Response to SubscribeTopics
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SubscribeTopicsResponse {
+    #[prost(oneof = "subscribe_topics_response::Response", tags = "1, 2")]
+    pub response: ::core::option::Option<subscribe_topics_response::Response>,
+}
+/// Nested message and enum types in `SubscribeTopicsResponse`.
+pub mod subscribe_topics_response {
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct StatusUpdate {
+        #[prost(enumeration = "SubscriptionStatus", tag = "1")]
+        pub status: i32,
+    }
+    impl ::prost::Name for StatusUpdate {
+        const NAME: &'static str = "StatusUpdate";
+        const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.xmtpv4.message_api.SubscribeTopicsResponse.StatusUpdate".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.xmtpv4.message_api.SubscribeTopicsResponse.StatusUpdate".into()
+        }
+    }
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Envelopes {
+        #[prost(message, repeated, tag = "1")]
+        pub envelopes: ::prost::alloc::vec::Vec<
+            super::super::envelopes::OriginatorEnvelope,
+        >,
+    }
+    impl ::prost::Name for Envelopes {
+        const NAME: &'static str = "Envelopes";
+        const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.xmtpv4.message_api.SubscribeTopicsResponse.Envelopes".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.xmtpv4.message_api.SubscribeTopicsResponse.Envelopes".into()
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum SubscriptionStatus {
+        Unspecified = 0,
+        Started = 1,
+        CatchupComplete = 2,
+        Waiting = 3,
+    }
+    impl SubscriptionStatus {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Unspecified => "SUBSCRIPTION_STATUS_UNSPECIFIED",
+                Self::Started => "SUBSCRIPTION_STATUS_STARTED",
+                Self::CatchupComplete => "SUBSCRIPTION_STATUS_CATCHUP_COMPLETE",
+                Self::Waiting => "SUBSCRIPTION_STATUS_WAITING",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "SUBSCRIPTION_STATUS_UNSPECIFIED" => Some(Self::Unspecified),
+                "SUBSCRIPTION_STATUS_STARTED" => Some(Self::Started),
+                "SUBSCRIPTION_STATUS_CATCHUP_COMPLETE" => Some(Self::CatchupComplete),
+                "SUBSCRIPTION_STATUS_WAITING" => Some(Self::Waiting),
+                _ => None,
+            }
+        }
+    }
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Response {
+        #[prost(message, tag = "1")]
+        Envelopes(Envelopes),
+        #[prost(message, tag = "2")]
+        StatusUpdate(StatusUpdate),
+    }
+}
+impl ::prost::Name for SubscribeTopicsResponse {
+    const NAME: &'static str = "SubscribeTopicsResponse";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.message_api.SubscribeTopicsResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.message_api.SubscribeTopicsResponse".into()
+    }
+}
 /// Streamed response for batch subscribe - can be multiple envelopes at once
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubscribeEnvelopesResponse {
@@ -278,11 +414,25 @@ pub mod replication_api_server {
             >
             + std::marker::Send
             + 'static;
+        /// This will be renamed to SubscribeOriginators
         async fn subscribe_envelopes(
             &self,
             request: tonic::Request<super::SubscribeEnvelopesRequest>,
         ) -> std::result::Result<
             tonic::Response<Self::SubscribeEnvelopesStream>,
+            tonic::Status,
+        >;
+        /// Server streaming response type for the SubscribeTopics method.
+        type SubscribeTopicsStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<super::SubscribeTopicsResponse, tonic::Status>,
+            >
+            + std::marker::Send
+            + 'static;
+        async fn subscribe_topics(
+            &self,
+            request: tonic::Request<super::SubscribeTopicsRequest>,
+        ) -> std::result::Result<
+            tonic::Response<Self::SubscribeTopicsStream>,
             tonic::Status,
         >;
         async fn query_envelopes(
@@ -424,6 +574,54 @@ pub mod replication_api_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = SubscribeEnvelopesSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.server_streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/xmtp.xmtpv4.message_api.ReplicationApi/SubscribeTopics" => {
+                    #[allow(non_camel_case_types)]
+                    struct SubscribeTopicsSvc<T: ReplicationApi>(pub Arc<T>);
+                    impl<
+                        T: ReplicationApi,
+                    > tonic::server::ServerStreamingService<
+                        super::SubscribeTopicsRequest,
+                    > for SubscribeTopicsSvc<T> {
+                        type Response = super::SubscribeTopicsResponse;
+                        type ResponseStream = T::SubscribeTopicsStream;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::ResponseStream>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::SubscribeTopicsRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ReplicationApi>::subscribe_topics(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = SubscribeTopicsSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

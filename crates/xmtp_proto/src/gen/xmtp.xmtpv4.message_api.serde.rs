@@ -2287,6 +2287,601 @@ impl<'de> serde::Deserialize<'de> for SubscribeEnvelopesResponse {
         deserializer.deserialize_struct("xmtp.xmtpv4.message_api.SubscribeEnvelopesResponse", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for SubscribeTopicsRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.filters.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.message_api.SubscribeTopicsRequest", len)?;
+        if !self.filters.is_empty() {
+            struct_ser.serialize_field("filters", &self.filters)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SubscribeTopicsRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "filters",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Filters,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "filters" => Ok(GeneratedField::Filters),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SubscribeTopicsRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.xmtpv4.message_api.SubscribeTopicsRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SubscribeTopicsRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut filters__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Filters => {
+                            if filters__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("filters"));
+                            }
+                            filters__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SubscribeTopicsRequest {
+                    filters: filters__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.xmtpv4.message_api.SubscribeTopicsRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for subscribe_topics_request::TopicFilter {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.topic.is_empty() {
+            len += 1;
+        }
+        if self.last_seen.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.message_api.SubscribeTopicsRequest.TopicFilter", len)?;
+        if !self.topic.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("topic", pbjson::private::base64::encode(&self.topic).as_str())?;
+        }
+        if let Some(v) = self.last_seen.as_ref() {
+            struct_ser.serialize_field("last_seen", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for subscribe_topics_request::TopicFilter {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "topic",
+            "last_seen",
+            "lastSeen",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Topic,
+            LastSeen,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "topic" => Ok(GeneratedField::Topic),
+                            "lastSeen" | "last_seen" => Ok(GeneratedField::LastSeen),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = subscribe_topics_request::TopicFilter;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.xmtpv4.message_api.SubscribeTopicsRequest.TopicFilter")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<subscribe_topics_request::TopicFilter, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut topic__ = None;
+                let mut last_seen__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Topic => {
+                            if topic__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("topic"));
+                            }
+                            topic__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::LastSeen => {
+                            if last_seen__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("lastSeen"));
+                            }
+                            last_seen__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(subscribe_topics_request::TopicFilter {
+                    topic: topic__.unwrap_or_default(),
+                    last_seen: last_seen__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.xmtpv4.message_api.SubscribeTopicsRequest.TopicFilter", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for SubscribeTopicsResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.response.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.message_api.SubscribeTopicsResponse", len)?;
+        if let Some(v) = self.response.as_ref() {
+            match v {
+                subscribe_topics_response::Response::Envelopes(v) => {
+                    struct_ser.serialize_field("envelopes", v)?;
+                }
+                subscribe_topics_response::Response::StatusUpdate(v) => {
+                    struct_ser.serialize_field("status_update", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SubscribeTopicsResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "envelopes",
+            "status_update",
+            "statusUpdate",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Envelopes,
+            StatusUpdate,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "envelopes" => Ok(GeneratedField::Envelopes),
+                            "statusUpdate" | "status_update" => Ok(GeneratedField::StatusUpdate),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SubscribeTopicsResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.xmtpv4.message_api.SubscribeTopicsResponse")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SubscribeTopicsResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut response__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Envelopes => {
+                            if response__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("envelopes"));
+                            }
+                            response__ = map_.next_value::<::std::option::Option<_>>()?.map(subscribe_topics_response::Response::Envelopes)
+;
+                        }
+                        GeneratedField::StatusUpdate => {
+                            if response__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("statusUpdate"));
+                            }
+                            response__ = map_.next_value::<::std::option::Option<_>>()?.map(subscribe_topics_response::Response::StatusUpdate)
+;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SubscribeTopicsResponse {
+                    response: response__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.xmtpv4.message_api.SubscribeTopicsResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for subscribe_topics_response::Envelopes {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.envelopes.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.message_api.SubscribeTopicsResponse.Envelopes", len)?;
+        if !self.envelopes.is_empty() {
+            struct_ser.serialize_field("envelopes", &self.envelopes)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for subscribe_topics_response::Envelopes {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "envelopes",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Envelopes,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "envelopes" => Ok(GeneratedField::Envelopes),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = subscribe_topics_response::Envelopes;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.xmtpv4.message_api.SubscribeTopicsResponse.Envelopes")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<subscribe_topics_response::Envelopes, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut envelopes__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Envelopes => {
+                            if envelopes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("envelopes"));
+                            }
+                            envelopes__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(subscribe_topics_response::Envelopes {
+                    envelopes: envelopes__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.xmtpv4.message_api.SubscribeTopicsResponse.Envelopes", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for subscribe_topics_response::StatusUpdate {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.status != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.message_api.SubscribeTopicsResponse.StatusUpdate", len)?;
+        if self.status != 0 {
+            let v = subscribe_topics_response::SubscriptionStatus::try_from(self.status)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.status)))?;
+            struct_ser.serialize_field("status", &v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for subscribe_topics_response::StatusUpdate {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "status",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Status,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "status" => Ok(GeneratedField::Status),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = subscribe_topics_response::StatusUpdate;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.xmtpv4.message_api.SubscribeTopicsResponse.StatusUpdate")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<subscribe_topics_response::StatusUpdate, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut status__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Status => {
+                            if status__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("status"));
+                            }
+                            status__ = Some(map_.next_value::<subscribe_topics_response::SubscriptionStatus>()? as i32);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(subscribe_topics_response::StatusUpdate {
+                    status: status__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.xmtpv4.message_api.SubscribeTopicsResponse.StatusUpdate", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for subscribe_topics_response::SubscriptionStatus {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unspecified => "SUBSCRIPTION_STATUS_UNSPECIFIED",
+            Self::Started => "SUBSCRIPTION_STATUS_STARTED",
+            Self::CatchupComplete => "SUBSCRIPTION_STATUS_CATCHUP_COMPLETE",
+            Self::Waiting => "SUBSCRIPTION_STATUS_WAITING",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for subscribe_topics_response::SubscriptionStatus {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "SUBSCRIPTION_STATUS_UNSPECIFIED",
+            "SUBSCRIPTION_STATUS_STARTED",
+            "SUBSCRIPTION_STATUS_CATCHUP_COMPLETE",
+            "SUBSCRIPTION_STATUS_WAITING",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = subscribe_topics_response::SubscriptionStatus;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "SUBSCRIPTION_STATUS_UNSPECIFIED" => Ok(subscribe_topics_response::SubscriptionStatus::Unspecified),
+                    "SUBSCRIPTION_STATUS_STARTED" => Ok(subscribe_topics_response::SubscriptionStatus::Started),
+                    "SUBSCRIPTION_STATUS_CATCHUP_COMPLETE" => Ok(subscribe_topics_response::SubscriptionStatus::CatchupComplete),
+                    "SUBSCRIPTION_STATUS_WAITING" => Ok(subscribe_topics_response::SubscriptionStatus::Waiting),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
 impl serde::Serialize for UnsignedMisbehaviorReport {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
