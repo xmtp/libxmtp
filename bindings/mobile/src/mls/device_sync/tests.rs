@@ -9,7 +9,7 @@ use crate::{
 use alloy::signers::local::PrivateKeySigner;
 use std::sync::Arc;
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes, text::TextCodec};
-use xmtp_mls::{groups::device_sync::worker::SyncMetric, utils::Tester};
+use xmtp_mls::{utils::Tester, worker::device_sync::worker::SyncMetric};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn test_create_new_installation_without_breaking_group() {

@@ -1,11 +1,10 @@
-use super::{
-    GroupError, MlsGroup, PreconfiguredPolicies, send_message_opts, summary::SyncSummary,
-    welcome_sync::WelcomeService,
-};
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
-    groups::intents::QueueIntent,
+    groups::{
+        GroupError, MlsGroup, PreconfiguredPolicies, intents::QueueIntent, send_message_opts,
+        summary::SyncSummary, welcome_sync::WelcomeService,
+    },
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{SubscribeError, SyncWorkerEvent},
     worker::{NeedsDbReconnect, metrics::WorkerMetrics},

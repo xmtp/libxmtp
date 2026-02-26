@@ -1,7 +1,9 @@
 use crate::{
     context::XmtpSharedContext,
-    groups::device_sync::{ArchiveOptions, DeviceSyncClient, DeviceSyncError},
-    worker::{NeedsDbReconnect, Worker, WorkerFactory, WorkerKind},
+    worker::{
+        NeedsDbReconnect, Worker, WorkerFactory, WorkerKind,
+        device_sync::{ArchiveOptions, DeviceSyncClient, DeviceSyncError},
+    },
 };
 use prost::Message;
 use std::sync::Arc;

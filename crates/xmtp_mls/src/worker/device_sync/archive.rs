@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use super::DeviceSyncError;
 use crate::{
     context::XmtpSharedContext,
-    groups::{MlsGroup, device_sync::MissingField, group_permissions::PolicySet},
+    groups::{MlsGroup, group_permissions::PolicySet},
+    worker::device_sync::MissingField,
 };
 use futures::StreamExt;
 pub use xmtp_archive::*;
@@ -166,13 +167,11 @@ fn insert(
 mod tests {
     #![allow(unused)]
     use super::*;
-    use crate::groups::device_sync::{ArchiveOptions, BackupElementSelection};
     use crate::groups::send_message_opts::SendMessageOpts;
     use crate::tester;
     use crate::utils::{LocalTester, Tester};
-    use crate::{
-        builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::wait_for_min_intents,
-    };
+    use crate::worker::device_sync::{ArchiveOptions, BackupElementSelection};
+    use crate::{builder::ClientBuilder, utils::test::wait_for_min_intents};
     use diesel::prelude::*;
     use futures::AsyncReadExt;
     use futures::io::{BufReader, Cursor};
