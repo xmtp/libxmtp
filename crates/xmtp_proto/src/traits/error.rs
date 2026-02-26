@@ -113,6 +113,19 @@ impl ApiClientError {
             source: NetworkError::new(client),
         }
     }
+
+    /// Try to pull a [`NetworkError`] out of this error enum.
+    /// returns None if there's no match
+    pub fn network_error(&self) -> Option<&NetworkError> {
+        use ApiClientError::*;
+        match self {
+            ClientWithEndpointAndStats { source, .. }
+            | ClientWithEndpoint { source, .. }
+            | ErrorWithStats { e: source, .. }
+            | Client { source, .. } => Some(source),
+            _ => None,
+        }
+    }
 }
 
 impl ApiClientError {

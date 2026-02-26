@@ -195,10 +195,21 @@ pub struct InfoOpts {
 pub struct ExportOpts {
     /// Entity to export
     #[arg(long, short)]
-    pub entity: EntityKind,
+    pub entity: ExportEntityKind,
     /// File to write to
     #[arg(long, short)]
     pub out: Option<PathBuf>,
+}
+
+#[derive(ValueEnum, Debug, Copy, Clone)]
+pub enum ExportEntityKind {
+    Group,
+    Message,
+    Identity,
+    GroupTopics,
+    IdentityTopics,
+    KeyPackageTopics,
+    WelcomeMessageTopics,
 }
 
 /// Stream messages and conversations
@@ -238,7 +249,7 @@ pub enum StreamKind {
     Messages,
 }
 
-#[derive(ValueEnum, Debug, Clone)]
+#[derive(ValueEnum, Debug, Copy, Clone)]
 pub enum EntityKind {
     Group,
     Message,
@@ -296,7 +307,7 @@ pub struct BackendOpts {
     #[arg(short, long)]
     pub d14n: bool,
     /// enable the v3 -> d14n cutover client
-    #[arg(short, long, conflicts_with_all = &["d14n"])]
+    #[arg(short = 'm', long, conflicts_with_all = &["d14n"])]
     pub enable_migration: bool,
     /// Timeout for reading writes to the decentralized backend
     #[arg(long, short, default_value_t = default_ryow_timeout())]
@@ -315,15 +326,19 @@ impl BackendOpts {
             return Ok(p.clone());
         }
 
-        match (self.backend, self.d14n) {
-            (Dev, false) => eyre::bail!("No gateway for V3"),
-            (Staging, false) => eyre::bail!("No gateway for V3"),
-            (Production, false) => eyre::bail!("No gateway for V3"),
-            (Local, false) => eyre::bail!("No gateway for V3"),
-            (Dev, true) => Ok((*crate::constants::XMTP_DEV_GATEWAY).clone()),
-            (Staging, true) => Ok((*crate::constants::XMTP_STAGING_GATEWAY).clone()),
-            (Production, true) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
-            (Local, true) => Ok((*crate::constants::XMTP_LOCAL_GATEWAY).clone()),
+        match (self.backend, self.d14n, self.enable_migration) {
+            (Dev, false, false) => eyre::bail!("No gateway for V3"),
+            (Staging, false, false) => eyre::bail!("No gateway for V3"),
+            (Production, false, false) => eyre::bail!("No gateway for V3"),
+            (Local, false, false) => eyre::bail!("No gateway for V3"),
+            (Dev, true, false) => Ok((*crate::constants::XMTP_DEV_GATEWAY).clone()),
+            (Staging, true, false) => Ok((*crate::constants::XMTP_STAGING_GATEWAY).clone()),
+            (Production, true, false) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
+            (Local, true, false) => Ok((*crate::constants::XMTP_LOCAL_GATEWAY).clone()),
+            (Local, _, true) => Ok((*crate::constants::XMTP_LOCAL_GATEWAY).clone()),
+            (Dev, _, true) => Ok((*crate::constants::XMTP_DEV_GATEWAY).clone()),
+            (Staging, _, true) => Ok((*crate::constants::XMTP_STAGING_GATEWAY).clone()),
+            (Production, _, true) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
         }
     }
 
@@ -334,15 +349,19 @@ impl BackendOpts {
             return n.clone();
         }
 
-        match (self.backend, self.d14n) {
-            (Dev, false) => (*crate::constants::XMTP_DEV).clone(),
-            (Staging, false) => (*crate::constants::XMTP_DEV).clone(),
-            (Production, false) => (*crate::constants::XMTP_PRODUCTION).clone(),
-            (Local, false) => (*crate::constants::XMTP_LOCAL).clone(),
-            (Dev, true) => (*crate::constants::XMTP_DEV_D14N).clone(),
-            (Staging, true) => (*crate::constants::XMTP_STAGING_D14N).clone(),
-            (Production, true) => (*crate::constants::XMTP_PRODUCTION_D14N).clone(),
-            (Local, true) => (*crate::constants::XMTP_LOCAL_D14N).clone(),
+        match (self.backend, self.d14n, self.enable_migration) {
+            (Dev, false, false) => (*crate::constants::XMTP_DEV).clone(),
+            (Staging, false, false) => (*crate::constants::XMTP_DEV).clone(),
+            (Production, false, false) => (*crate::constants::XMTP_PRODUCTION).clone(),
+            (Local, false, false) => (*crate::constants::XMTP_LOCAL).clone(),
+            (Dev, true, false) => (*crate::constants::XMTP_DEV_D14N).clone(),
+            (Staging, true, false) => (*crate::constants::XMTP_STAGING_D14N).clone(),
+            (Production, true, false) => (*crate::constants::XMTP_PRODUCTION_D14N).clone(),
+            (Local, true, false) => (*crate::constants::XMTP_LOCAL_D14N).clone(),
+            (Local, _, true) => (*crate::constants::XMTP_LOCAL).clone(),
+            (Dev, _, true) => (*crate::constants::XMTP_DEV).clone(),
+            (Staging, _, true) => (*crate::constants::XMTP_DEV).clone(),
+            (Production, _, true) => (*crate::constants::XMTP_PRODUCTION).clone(),
         }
     }
 
