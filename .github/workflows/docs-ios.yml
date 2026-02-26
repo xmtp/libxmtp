@@ -63,13 +63,14 @@ jobs:
             generate-documentation \
             --target XMTPiOS \
             --output-path ./.build/docs \
-            --transform-for-static-hosting
+            --transform-for-static-hosting \
+            --hosting-base-path api-ref/ios
 
       # Add Vercel SPA routing config
       - name: Configure Vercel routing
         if: inputs.update-latest || inputs.version
         run: |
-          echo '{ "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }] }' > .build/docs/vercel.json
+          echo '{ "rewrites": [{ "source": "/(.*)", "destination": "/" }] }' > .build/docs/vercel.json
 
       # Deploy to Vercel
       - name: Deploy to Vercel
