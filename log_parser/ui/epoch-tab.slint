@@ -1,0 +1,734 @@
+import {
+    ScrollView,
+    HorizontalBox,
+    VerticalBox,
+} from "std-widgets.slint";
+
+// ─── Shared Data Structures ───
+
+export struct UIContextEntry {
+    key: string,
+    value: string,
+}
+
+// ─── Detailed State View (for selected state panel) ───
+
+export struct UIGroupStateDetail {
+    unique-id: int,
+    installation-id: string,
+    msg: string,
+    icon: string,
+    epoch: int,
+    epoch-auth: string,
+    cursor: int,
+    originator: int,
+    dm-target: string,
+    line-number: int,
+    problems: [string],
+    context: [UIContextEntry],
+    intermediate: string,
+}
+
+// ─── Epoch View Data Structures ───
+
+export struct UIGroupState {
+    unique-id: int,
+    msg: string,
+    icon: string,
+    epoch: int,
+    background: color,
+    problems: [string],
+    context: [UIContextEntry],
+    intermediate: string,
+    line-number: int,
+}
+
+export struct UIInstallationCell {
+    states: [UIGroupState],
+    state-count: int,
+}
+
+export struct UIEpochHeader {
+    epoch-number: int,
+    max-states: int,
+}
+
+export struct UIInstallationRow {
+    installation-id: string,
+    installation-name: string,
+    installation-color: color,
+    cells: [UIInstallationCell],
+}
+
+export struct UIGroupRow {
+    group-id: string,
+    group-id-short: string,
+    group-color: color,
+    epoch-headers: [UIEpochHeader],
+    installation-rows: [UIInstallationRow],
+}
+
+// ─── Constants ───
+
+global EpochConstants {
+    out property <length> state-card-width: 200px;
+    out property <length> state-card-gap: 6px;
+    out property <length> column-padding: 12px;
+    out property <length> label-column-width: 170px;
+    out property <length> row-height-per-state: 72px;
+    out property <length> row-vertical-padding: 8px;
+    out property <length> header-height: 32px;
+}
+
+// ─── Shared Components ───
+
+export component InstallationLabel inherits Rectangle {
+    in property <string> name;
+    in property <color> inst-color;
+
+    background: transparent;
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 6px;
+        alignment: start;
+
+        // Color pip
+        Rectangle {
+            width: 8px;
+            height: 8px;
+            background: root.inst-color;
+            border-radius: 4px;
+            y: (parent.height - self.height) / 2;
+        }
+
+        Text {
+            text: root.name;
+            font-size: 11px;
+            font-weight: 600;
+            color: #444444;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component FocusBanner inherits Rectangle {
+    in property <string> focus-mode;
+    callback back-clicked();
+
+    height: 36px;
+    background: root.focus-mode == "logs" ? #f0f5ff : #eef2ff;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: root.focus-mode == "logs" ? #b0c8ee : #c0ccee;
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 8px;
+        spacing: 8px;
+        alignment: start;
+
+        Text {
+            text: "Focused on group";
+            font-size: 12px;
+            font-weight: 600;
+            color: root.focus-mode == "logs" ? #3a5588 : #4a5588;
+            vertical-alignment: center;
+        }
+
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+
+        Rectangle {
+            width: back-text.preferred-width + 20px;
+            height: 26px;
+            background: back-touch.has-hover ? #4a72c4 : #5a82d4;
+            border-radius: 4px;
+            y: (parent.height - self.height) / 2;
+
+            back-text := Text {
+                text: "← Show All Groups";
+                font-size: 11px;
+                font-weight: 600;
+                color: #ffffff;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            back-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.back-clicked();
+                }
+            }
+        }
+    }
+}
+
+export component IntermediateLogsPanel inherits Rectangle {
+    in property <string> intermediate-text;
+
+    background: #f5f8ff;
+    border-width: 1px;
+    border-color: #d0d8f0;
+    min-height: logs-panel-layout.preferred-height;
+    max-height: 300px;
+
+    logs-panel-layout := VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+
+        Rectangle {
+            height: logs-panel-header.preferred-height + 8px;
+            background: #e0e8ff;
+            border-radius: 4px;
+
+            logs-panel-header := Text {
+                text: "📋 Intermediate Logs";
+                font-size: 12px;
+                font-weight: 700;
+                color: #3355aa;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        ScrollView {
+            min-height: 0px;
+            Rectangle {
+                min-height: logs-panel-text.preferred-height + 12px;
+                min-width: logs-panel-text.preferred-width + 16px;
+                background: #ffffff;
+                border-radius: 4px;
+                border-width: 1px;
+                border-color: #d0d8f0;
+
+                logs-panel-text := Text {
+                    text: root.intermediate-text;
+                    font-size: 10px;
+                    font-family: "monospace";
+                    color: #444444;
+                    wrap: no-wrap;
+                    x: 8px;
+                    y: 6px;
+                }
+            }
+        }
+    }
+}
+
+// ─── State Card ───
+
+component GroupStateCard inherits Rectangle {
+    in property <UIGroupState> state;
+    in property <bool> group-focused;
+    in property <string> installation-id;
+
+    callback warning-clicked();
+    callback state-clicked(/* group-id */ string, /* installation-id */ string, /* unique-id */ int);
+
+    in property <string> group-id;
+
+    property <bool> show-problems: root.state.problems.length > 0;
+
+    width: EpochConstants.state-card-width;
+    min-height: card-layout.preferred-height;
+    background: root.state.background;
+    border-width: root.show-problems ? 2px : 1px;
+    border-color: root.show-problems ? #cc4444 : (root.state.problems.length > 0 ? #e07070 : #d0d0d0);
+    border-radius: 4px;
+
+    drop-shadow-blur: root.show-problems ? 4px : 2px;
+    drop-shadow-offset-y: root.show-problems ? 2px : 1px;
+    drop-shadow-color: root.show-problems ? #cc444420 : #00000010;
+
+    // Make the entire card clickable
+    card-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.state-clicked(root.group-id, root.installation-id, root.state.unique-id);
+        }
+    }
+
+    card-layout := VerticalLayout {
+        alignment: start;
+        padding: 6px;
+        spacing: 3px;
+
+        // Title (msg)
+        HorizontalLayout {
+            alignment: start;
+            spacing: 4px;
+
+            if root.state.icon != "": Text {
+                text: root.state.icon;
+                font-size: 14px;
+                font-weight: 700;
+                color: #333333;
+            }
+
+            Text {
+                text: root.state.msg;
+                font-size: 10px;
+                font-weight: 700;
+                color: #333333;
+                overflow: elide;
+                horizontal-alignment: left;
+            }
+        }
+
+        // Metadata badges
+        HorizontalLayout {
+            alignment: start;
+            spacing: 4px;
+
+            if root.state.line-number > 0: Rectangle {
+                width: line-label.preferred-width + 10px;
+                height: line-label.preferred-height + 4px;
+                background: #f0f0f0;
+                border-radius: 3px;
+
+                line-label := Text {
+                    text: "L" + root.state.line-number;
+                    font-size: 9px;
+                    font-weight: 500;
+                    color: #888888;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            if root.state.problems.length > 0: Rectangle {
+                width: problem-label.preferred-width + 10px;
+                height: problem-label.preferred-height + 4px;
+                background: warning-touch.has-hover ? #ffe0e0 : #fff0f0;
+                border-radius: 3px;
+
+                problem-label := Text {
+                    text: "⚠ " + root.state.problems.length;
+                    font-size: 9px;
+                    font-weight: 600;
+                    color: #cc4444;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                warning-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.warning-clicked();
+                    }
+                }
+            }
+
+            if root.state.intermediate != "": Rectangle {
+                width: logs-label.preferred-width + 10px;
+                height: logs-label.preferred-height + 4px;
+                background: #e8f0ff;
+                border-radius: 3px;
+
+                logs-label := Text {
+                    text: "📋 Logs";
+                    font-size: 9px;
+                    font-weight: 600;
+                    color: #4466aa;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Context entries
+        VerticalLayout {
+            alignment: start;
+            spacing: 2px;
+
+            for ctx in root.state.context: VerticalLayout {
+                alignment: start;
+                spacing: 0px;
+
+                Text {
+                    text: ctx.key + ":";
+                    font-size: 9px;
+                    color: #888888;
+                    font-weight: 500;
+                }
+
+                Text {
+                    text: ctx.value;
+                    font-size: 9px;
+                    color: #555555;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        // ─── Expanded Problems Section (shown when group is focused in problems mode) ───
+        if root.show-problems: Rectangle {
+            background: #fff5f5;
+            border-radius: 3px;
+            border-width: 1px;
+            border-color: #f0d0d0;
+            min-height: problems-inner.preferred-height;
+
+            problems-inner := VerticalLayout {
+                padding: 5px;
+                spacing: 3px;
+
+                Rectangle {
+                    height: problems-header.preferred-height + 2px;
+                    background: #ffe8e8;
+                    border-radius: 2px;
+
+                    problems-header := Text {
+                        text: "⚠ Problems (" + root.state.problems.length + ")";
+                        font-size: 9px;
+                        font-weight: 700;
+                        color: #cc3333;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                for problem in root.state.problems: Rectangle {
+                    min-height: problem-text.preferred-height + 6px;
+                    background: #ffffff;
+                    border-radius: 2px;
+                    border-width: 1px;
+                    border-color: #f0d0d0;
+
+                    problem-text := Text {
+                        text: "• " + problem;
+                        font-size: 9px;
+                        color: #993333;
+                        wrap: word-wrap;
+                        x: 4px;
+                        y: 3px;
+                        width: parent.width - 8px;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ─── Epoch Column Header ───
+
+component EpochColumnHeader inherits Rectangle {
+    in property <UIEpochHeader> header;
+
+    width: header.max-states * (EpochConstants.state-card-width + EpochConstants.state-card-gap) - EpochConstants.state-card-gap + EpochConstants.column-padding * 2;
+    height: EpochConstants.header-height;
+    background: #e0e4f0;
+    border-width: 1px;
+    border-color: #c0c4d0;
+
+    HorizontalLayout {
+        alignment: center;
+
+        Text {
+            text: "Epoch " + root.header.epoch-number;
+            font-size: 12px;
+            font-weight: 700;
+            color: #3a3a66;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// ─── Installation Cell (one epoch's states for one installation) ───
+
+component InstallationCell inherits Rectangle {
+    in property <UIInstallationCell> cell;
+    in property <int> column-max-states;
+    in property <bool> group-focused;
+
+    in property <string> installation-id;
+
+    callback warning-clicked();
+    callback state-clicked(/* group-id */ string, /* installation-id */ string, /* unique-id */ int);
+
+    in property <string> group-id;
+
+    width: column-max-states * (EpochConstants.state-card-width + EpochConstants.state-card-gap) - EpochConstants.state-card-gap + EpochConstants.column-padding * 2;
+    background: transparent;
+
+    HorizontalLayout {
+        padding-left: EpochConstants.column-padding;
+        padding-right: EpochConstants.column-padding;
+        spacing: EpochConstants.state-card-gap;
+        alignment: start;
+
+        for state in root.cell.states: GroupStateCard {
+            state: state;
+            group-focused: root.group-focused;
+            group-id: root.group-id;
+            installation-id: root.installation-id;
+            warning-clicked => {
+                root.warning-clicked();
+            }
+            state-clicked(group-id, installation-id, unique-id) => {
+                root.state-clicked(group-id, installation-id, unique-id);
+            }
+        }
+    }
+}
+
+// ─── Group Container ───
+
+component GroupContainer inherits Rectangle {
+    in property <UIGroupRow> group-row;
+    in property <bool> group-focused;
+    in property <string> focused-intermediate;
+    in property <bool> show-intermediate: root.focused-intermediate != "";
+
+    callback focus-group(string);
+    callback focus-group-logs(string, string);
+    callback state-clicked(/* group-id */ string, /* installation-id */ string, /* unique-id */ int);
+
+    min-height: group-layout.preferred-height;
+    border-width: root.group-focused ? 2px : 1px;
+    border-color: root.group-focused ? root.group-row.group-color : #d8d8d8;
+    border-radius: 8px;
+    background: #fafafa;
+    clip: true;
+
+    group-layout := VerticalLayout {
+        spacing: 0px;
+
+        // ─── Group Header Bar ───
+        Rectangle {
+            height: 40px;
+            background: #eeeeee;
+
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+                spacing: 10px;
+                alignment: start;
+
+                // Group color dot
+                Rectangle {
+                    width: 14px;
+                    height: 14px;
+                    background: root.group-row.group-color;
+                    border-radius: 7px;
+                    y: (parent.height - self.height) / 2;
+                }
+
+                Text {
+                    text: "Group: " + root.group-row.group-id-short;
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: #333333;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                Text {
+                    text: root.group-row.epoch-headers.length + " epoch(s)  ·  " + root.group-row.installation-rows.length + " installation(s)";
+                    font-size: 11px;
+                    color: #777777;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // ─── Table with sticky labels ───
+        data-flickable := Flickable {
+            VerticalLayout {
+                alignment: start;
+                spacing: 0px;
+
+                // ─── Header Row ───
+                Rectangle {
+                    height: EpochConstants.header-height;
+
+                    // Scrollable epoch column headers (with spacer for label column)
+                    HorizontalLayout {
+                        spacing: 0px;
+                        alignment: start;
+
+                        // Spacer so epoch headers start after label column
+                        Rectangle {
+                            width: EpochConstants.label-column-width;
+                            height: EpochConstants.header-height;
+                        }
+
+                        for hdr in root.group-row.epoch-headers: EpochColumnHeader {
+                            header: hdr;
+                        }
+                    }
+
+                    // Sticky corner header overlay (stays fixed horizontally)
+                    Rectangle {
+                        x: -data-flickable.viewport-x;
+                        width: EpochConstants.label-column-width;
+                        height: EpochConstants.header-height;
+                        background: #f0f0f0;
+                        border-width: 1px;
+                        border-color: #d0d0d0;
+
+                        Text {
+                            text: "Installation";
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: #666666;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // ─── Data Rows ───
+                for inst-row[row-idx] in root.group-row.installation-rows: Rectangle {
+                    min-height: row-inner.preferred-height;
+                    background: mod(row-idx, 2) == 0 ? #fafafe : #f5f5fa;
+
+                    // Row separator
+                    Rectangle {
+                        height: 1px;
+                        background: #e8e8e8;
+                        y: parent.height - 1px;
+                        width: parent.width;
+                    }
+
+                    // Scrollable data cells (with spacer for label column)
+                    row-inner := HorizontalLayout {
+                        spacing: 0px;
+                        alignment: start;
+                        padding-top: EpochConstants.row-vertical-padding;
+                        padding-bottom: EpochConstants.row-vertical-padding;
+
+                        // Spacer so cells start after label column
+                        Rectangle {
+                            width: EpochConstants.label-column-width;
+                        }
+
+                        // Cells for each epoch
+                        for cell[idx] in inst-row.cells: InstallationCell {
+                            cell: cell;
+                            column-max-states: root.group-row.epoch-headers[idx].max-states;
+                            group-focused: root.group-focused;
+                            group-id: root.group-row.group-id;
+                            installation-id: inst-row.installation-id;
+                            warning-clicked => {
+                                root.focus-group(root.group-row.group-id);
+                            }
+                            state-clicked(group-id, installation-id, unique-id) => {
+                                root.state-clicked(group-id, installation-id, unique-id);
+                            }
+                        }
+                    }
+
+                    // Sticky label overlay (stays fixed horizontally)
+                    Rectangle {
+                        x: -data-flickable.viewport-x;
+                        y: 0;
+                        width: EpochConstants.label-column-width;
+                        height: parent.height;
+                        background: parent.background;
+
+                        // Row separator on overlay
+                        Rectangle {
+                            height: 1px;
+                            background: #e8e8e8;
+                            y: parent.height - 1px;
+                            width: parent.width;
+                        }
+
+                        InstallationLabel {
+                            width: EpochConstants.label-column-width;
+                            name: inst-row.installation-name;
+                            inst-color: inst-row.installation-color;
+                            y: (parent.height - self.height) / 2;
+                        }
+                    }
+                }
+            }
+        }
+
+        // ─── Intermediate Logs Panel (shown inside group when in logs mode) ───
+        if root.show-intermediate: IntermediateLogsPanel {
+            intermediate-text: root.focused-intermediate;
+        }
+    }
+}
+
+// ─── Epoch Tab (top-level content for the Epochs tab) ───
+
+export component EpochTab inherits Rectangle {
+    in property <[UIGroupRow]> epoch-groups: [];
+
+    // Callback when a state card is clicked, passes group-id, installation-id and unique-id
+    callback state-clicked(/* group-id */ string, /* installation-id */ string, /* unique-id */ int);
+
+    // When non-empty, only the group with this id is shown, with detail expanded.
+    property <string> focused-group-id: "";
+    // "problems" or "logs" — determines which detail section to expand
+    property <string> focus-mode: "";
+    // The intermediate log text to display below the group when focus-mode == "logs"
+    property <string> focused-intermediate: "";
+    property <bool> has-focus: root.focused-group-id != "";
+
+    if root.epoch-groups.length == 0: Rectangle {
+        background: #f5f5f5;
+        border-radius: 8px;
+
+        Text {
+            text: "No epoch data available. Load a log file and build the log first.";
+            color: #888888;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    if root.epoch-groups.length > 0: ScrollView {
+        VerticalLayout {
+            padding: 12px;
+            spacing: 16px;
+            alignment: start;
+
+            // ─── Focus Banner ───
+            if root.has-focus: FocusBanner {
+                focus-mode: root.focus-mode;
+                back-clicked => {
+                    root.focused-group-id = "";
+                    root.focus-mode = "";
+                    root.focused-intermediate = "";
+                }
+            }
+
+            // ─── Group Containers ───
+            for group-row in root.epoch-groups: GroupContainer {
+                property <bool> is-visible: !root.has-focus || group-row.group-id == root.focused-group-id;
+                vertical-stretch: 0;
+                visible: is-visible;
+                height: is-visible ? self.preferred-height : 0;
+                group-row: group-row;
+                group-focused: root.has-focus && group-row.group-id == root.focused-group-id && root.focus-mode == "problems";
+                focused-intermediate: (root.has-focus && group-row.group-id == root.focused-group-id && root.focus-mode == "logs") ? root.focused-intermediate : "";
+                focus-group(gid) => {
+                    root.focused-group-id = gid;
+                    root.focus-mode = "problems";
+                    root.focused-intermediate = "";
+                }
+                focus-group-logs(gid, intermediate) => {
+                    root.focused-group-id = gid;
+                    root.focus-mode = "logs";
+                    root.focused-intermediate = intermediate;
+                }
+                state-clicked(group-id, installation-id, unique-id) => {
+                    root.focused-group-id = group-id;
+                    root.focus-mode = "";
+                    root.focused-intermediate = "";
+                    root.state-clicked(group-id, installation-id, unique-id);
+                }
+            }
+        }
+    }
+}

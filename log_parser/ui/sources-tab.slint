@@ -1,0 +1,182 @@
+import {
+    ScrollView,
+    HorizontalBox,
+    VerticalBox,
+    Button,
+} from "std-widgets.slint";
+
+// ─── Sources Data Structures ───
+
+export struct UISource {
+    name: string,
+    event-count: int,
+}
+
+// ─── Source Row Component ───
+
+component SourceRow inherits Rectangle {
+    in property <UISource> source;
+    callback remove-clicked(string);
+
+    min-height: 48px;
+    background: row-touch.has-hover ? #f5f5f5 : #ffffff;
+    border-width: 1px;
+    border-color: #e0e0e0;
+    border-radius: 6px;
+
+    row-touch := TouchArea {
+        mouse-cursor: default;
+    }
+
+    HorizontalLayout {
+        padding: 12px;
+        spacing: 12px;
+        alignment: start;
+
+        // File icon
+        Rectangle {
+            width: 32px;
+            height: 32px;
+            background: #e8f0ff;
+            border-radius: 6px;
+
+            Text {
+                text: "📄";
+                font-size: 16px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        // Source info
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+
+            Text {
+                text: root.source.name;
+                font-size: 13px;
+                font-weight: 600;
+                color: #333333;
+                overflow: elide;
+            }
+
+            Text {
+                text: root.source.event-count + " event(s)";
+                font-size: 11px;
+                color: #888888;
+            }
+        }
+
+        // Remove button
+        Rectangle {
+            width: 80px;
+            height: 32px;
+            background: remove-touch.has-hover ? #ff4444 : #ff6666;
+            border-radius: 4px;
+
+            Text {
+                text: "Remove";
+                font-size: 11px;
+                font-weight: 600;
+                color: #ffffff;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            remove-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.remove-clicked(root.source.name);
+                }
+            }
+        }
+    }
+}
+
+// ─── Sources Tab ───
+
+export component SourcesTab inherits Rectangle {
+    in property <[UISource]> sources: [];
+    callback remove-source(string);
+
+    if root.sources.length == 0: Rectangle {
+        background: #f5f5f5;
+        border-radius: 8px;
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 12px;
+
+            Text {
+                text: "📂";
+                font-size: 48px;
+                horizontal-alignment: center;
+            }
+
+            Text {
+                text: "No sources loaded";
+                font-size: 16px;
+                font-weight: 600;
+                color: #666666;
+                horizontal-alignment: center;
+            }
+
+            Text {
+                text: "Use File > Open to load a log file";
+                font-size: 13px;
+                color: #888888;
+                horizontal-alignment: center;
+            }
+        }
+    }
+
+    if root.sources.length > 0: ScrollView {
+        VerticalLayout {
+            padding: 16px;
+            spacing: 8px;
+            alignment: start;
+
+            // Header
+            Rectangle {
+                height: 40px;
+                background: #f0f0f0;
+                border-radius: 6px;
+
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    alignment: start;
+
+                    Text {
+                        text: "Loaded Sources";
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: #333333;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+
+                    Text {
+                        text: root.sources.length + " source(s)";
+                        font-size: 12px;
+                        color: #666666;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            // Source list
+            for source in root.sources: SourceRow {
+                source: source;
+                remove-clicked(name) => {
+                    root.remove-source(name);
+                }
+            }
+        }
+    }
+}

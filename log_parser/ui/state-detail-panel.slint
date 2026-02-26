@@ -1,0 +1,321 @@
+import {
+    ScrollView,
+    HorizontalBox,
+    VerticalBox,
+} from "std-widgets.slint";
+
+import {
+    UIContextEntry,
+    UIGroupStateDetail,
+} from "epoch-tab.slint";
+
+// ─── Floating State Detail Panel Component ───
+
+
+export component StateDetailPanel inherits Rectangle {
+    in property <UIGroupStateDetail> detail;
+    in-out property <bool> copied: false;
+
+    callback close-requested();
+    callback copy-intermediate-requested(string);
+    callback drag-move(/* delta-x */ length, /* delta-y */ length);
+
+    width: 400px;
+    height: 450px;
+    background: #ffffff;
+    border-radius: 8px;
+    drop-shadow-blur: 20px;
+    drop-shadow-color: #00000060;
+    border-width: 1px;
+    border-color: #cccccc;
+
+    VerticalLayout {
+        // Drag bar at top
+        Rectangle {
+            height: 12px;
+            background: drag-area.pressed ? #d0d0d0 : (drag-area.has-hover ? #e0e0e0 : #f0f0f0);
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+
+            drag-area := TouchArea {
+                mouse-cursor: move;
+                moved => {
+                    root.drag-move(self.mouse-x - self.pressed-x, self.mouse-y - self.pressed-y);
+                }
+
+                // Drag handle indicator (three dots)
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 3px;
+                    padding-top: 4px;
+
+                    Rectangle {
+                        width: 4px;
+                        height: 4px;
+                        border-radius: 2px;
+                        background: #999999;
+                    }
+
+                    Rectangle {
+                        width: 4px;
+                        height: 4px;
+                        border-radius: 2px;
+                        background: #999999;
+                    }
+
+                    Rectangle {
+                        width: 4px;
+                        height: 4px;
+                        border-radius: 2px;
+                        background: #999999;
+                    }
+                }
+            }
+        }
+
+        VerticalBox {
+            padding: 16px;
+            padding-top: 8px;
+            spacing: 8px;
+
+            // Header
+            HorizontalBox {
+                spacing: 8px;
+
+                Text {
+                    text: root.detail.icon;
+                    font-size: 18px;
+                    font-weight: 700;
+                }
+
+                Text {
+                    text: root.detail.msg;
+                    font-size: 16px;
+                    font-weight: 700;
+                    color: #333333;
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                }
+
+                Rectangle {
+                    width: close-text.preferred-width + 16px;
+                    height: 28px;
+                    background: close-touch.has-hover ? #e0e0e0 : #f0f0f0;
+                    border-radius: 4px;
+
+                    close-text := Text {
+                        text: "✕";
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: #666666;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    close-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.close-requested();
+                        }
+                    }
+                }
+            }
+
+            // Metadata row
+            HorizontalBox {
+                spacing: 8px;
+
+                Rectangle {
+                    width: line-label.preferred-width + 12px;
+                    height: 24px;
+                    background: #f0f0f0;
+                    border-radius: 4px;
+
+                    line-label := Text {
+                        text: "Line: " + root.detail.line-number;
+                        font-size: 11px;
+                        color: #666666;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                if root.detail.epoch >= 0: Rectangle {
+                    width: epoch-label.preferred-width + 12px;
+                    height: 24px;
+                    background: #e0f0e0;
+                    border-radius: 4px;
+
+                    epoch-label := Text {
+                        text: "Epoch: " + root.detail.epoch;
+                        font-size: 11px;
+                        color: #448844;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                if root.detail.cursor >= 0: Rectangle {
+                    width: cursor-label.preferred-width + 12px;
+                    height: 24px;
+                    background: #fff0e0;
+                    border-radius: 4px;
+
+                    cursor-label := Text {
+                        text: "Cursor: " + root.detail.cursor;
+                        font-size: 11px;
+                        color: #886644;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            // Installation ID
+            HorizontalBox {
+                spacing: 4px;
+
+                Text {
+                    text: "Installation:";
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: #888888;
+                }
+
+                Text {
+                    text: root.detail.installation-id;
+                    font-size: 11px;
+                    color: #444444;
+                    font-family: "monospace";
+                    overflow: elide;
+                }
+            }
+
+            // Epoch Auth
+            if root.detail.epoch-auth != "": HorizontalBox {
+                spacing: 4px;
+
+                Text {
+                    text: "Epoch Auth:";
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: #888888;
+                }
+
+                Text {
+                    text: root.detail.epoch-auth;
+                    font-size: 11px;
+                    color: #444444;
+                    font-family: "monospace";
+                    overflow: elide;
+                }
+            }
+
+            // Context entries
+            ScrollView {
+                vertical-stretch: 1;
+
+                VerticalLayout {
+                    alignment: start;
+                    spacing: 6px;
+
+                    for ctx in root.detail.context: Rectangle {
+                        background: #f8f8f8;
+                        border-radius: 4px;
+                        min-height: ctx-inner.preferred-height;
+
+                        ctx-inner := VerticalBox {
+                            padding: 6px;
+
+                            Text {
+                                text: ctx.key + ":";
+                                font-size: 11px;
+                                font-weight: 600;
+                                color: #666666;
+                            }
+
+                            Text {
+                                text: ctx.value;
+                                font-size: 11px;
+                                color: #333333;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+
+                    // Problems section
+                    if root.detail.problems.length > 0: Rectangle {
+                        background: #fff5f5;
+                        border-radius: 4px;
+                        min-height: problems-layout.preferred-height;
+
+                        problems-layout := VerticalBox {
+                            padding: 8px;
+                            spacing: 4px;
+
+                            Text {
+                                text: "⚠ Problems (" + root.detail.problems.length + ")";
+                                font-size: 12px;
+                                font-weight: 700;
+                                color: #cc3333;
+                            }
+
+                            for problem in root.detail.problems: Text {
+                                text: "• " + problem;
+                                font-size: 11px;
+                                color: #993333;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+
+                    // Intermediate logs
+                    if root.detail.intermediate != "": intermediate-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.copied = true;
+                            root.copy-intermediate-requested(root.detail.intermediate);
+                        }
+
+                        Rectangle {
+                            background: intermediate-touch.has-hover ? #e8f0ff : #f5f8ff;
+                            border-radius: 4px;
+                            min-height: intermediate-layout.preferred-height;
+
+                            intermediate-layout := VerticalBox {
+                                padding: 8px;
+                                spacing: 4px;
+
+                                HorizontalBox {
+                                    spacing: 4px;
+
+                                    Text {
+                                        text: "Intermediate Logs";
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        color: #3355aa;
+                                        horizontal-stretch: 1;
+                                    }
+
+                                    Text {
+                                        text: root.copied ? "✓ Copied!" : (intermediate-touch.has-hover ? "📋 Click to copy" : "");
+                                        font-size: 10px;
+                                        color: root.copied ? #44aa44 : #6688cc;
+                                    }
+                                }
+
+                                Text {
+                                    text: root.detail.intermediate;
+                                    font-size: 10px;
+                                    font-family: "monospace";
+                                    color: #444444;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
