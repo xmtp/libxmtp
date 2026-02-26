@@ -38,10 +38,10 @@ public enum ConversationError: Error, CustomStringConvertible, LocalizedError {
 /// A summary of the results from syncing all conversations.
 ///
 /// After calling ``Conversations/syncAllConversations(consentStates:)``, this struct
-/// reports how many conversations were eligible for syncing and how many were
-/// actually synced.
+/// reports how many conversations were eligible for syncing (based on the consent
+/// filter) and how many were actually synced.
 public struct GroupSyncSummary {
-	/// The total number of conversations that were eligible to be synced.
+	/// The number of conversations that matched the consent filter and were eligible to be synced.
 	public var numEligible: UInt64
 	/// The number of conversations that were successfully synced.
 	public var numSynced: UInt64
@@ -326,11 +326,11 @@ public class Conversations {
 		_ = try ffiClient.deleteMessage(messageId: messageId.hexToData)
 	}
 
-	/// Syncs the conversation list from the network.
+	/// Syncs the conversation list (welcomes) from the network.
 	///
-	/// Downloads any new or updated conversations (groups and DMs) from the XMTP
-	/// network and stores them locally. This does **not** sync the messages within
-	/// each conversation; use ``syncAllConversations(consentStates:)`` for that.
+	/// Fetches new group invitations and DM welcomes from the XMTP network and
+	/// stores them locally. This does **not** sync messages within each
+	/// conversation; use ``syncAllConversations(consentStates:)`` for that.
 	///
 	/// Call this before listing or finding conversations to ensure the local
 	/// database reflects the latest network state.
@@ -340,16 +340,23 @@ public class Conversations {
 		try await ffiConversations.sync()
 	}
 
-	/// Syncs messages for all conversations from the network.
+	/// Syncs new welcomes, messages, and preferences from the network.
 	///
-	/// Downloads new messages for every conversation and stores them locally.
+	/// This method performs a comprehensive sync that includes:
+	/// - New welcomes (group invitations)
+	/// - Messages for conversations matching the given consent states that have unread content
+	/// - Preference updates (consent lists, etc.)
+	///
 	/// Unlike ``sync()``, which only updates the conversation list, this method
-	/// fetches message content for each conversation.
+	/// also fetches message content for each eligible conversation.
 	///
-	/// - Parameter consentStates: An optional filter to only sync conversations matching
-	///   the given consent states (e.g., `.allowed`). Pass `nil` to sync all conversations.
+	/// We recommend syncing allowed conversations only to avoid storing unwanted
+	/// spam messages in the local database.
+	///
+	/// - Parameter consentStates: Filter to only sync conversations matching the given
+	///   consent states (e.g., `[.allowed]`). Pass `nil` to use the default behavior.
 	/// - Returns: A ``GroupSyncSummary`` indicating how many conversations were eligible
-	///   and how many were successfully synced.
+	///   (based on the consent filter) and how many were successfully synced.
 	/// - Throws: If the network request fails.
 	public func syncAllConversations(consentStates: [ConsentState]? = nil)
 		async throws -> GroupSyncSummary

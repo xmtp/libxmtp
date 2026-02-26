@@ -6,8 +6,10 @@ import Foundation
 /// other user, identified by their inbox ID. Unlike ``Group``, a DM has no admin
 /// operations, member management, or metadata like name or image.
 ///
-/// Use ``Conversations/newDm(with:)`` to create a new DM, or retrieve existing ones
-/// through ``Conversations/listDms()``.
+/// Use ``Conversations/findOrCreateDm(with:disappearingMessageSettings:)`` or
+/// ``Conversations/findOrCreateDmWithIdentity(with:disappearingMessageSettings:)``
+/// to create a new DM, or retrieve existing ones through
+/// ``Conversations/listDms(createdAfterNs:createdBeforeNs:lastActivityBeforeNs:lastActivityAfterNs:limit:consentStates:orderBy:)``.
 public struct Dm: Identifiable, Equatable, Hashable {
 	var ffiConversation: FfiConversation
 	var ffiLastMessage: FfiMessage?

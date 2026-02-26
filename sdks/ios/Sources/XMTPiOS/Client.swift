@@ -338,6 +338,10 @@ public final class Client {
 	/// installation's identity on the XMTP network. The `account` will be asked to produce
 	/// a signature during this process.
 	///
+	/// Each call without an existing local database creates a new installation. An inbox
+	/// can have up to **10 installations** before needing to revoke some via
+	/// ``revokeAllOtherInstallations(signingKey:)`` or ``revokeInstallations(signingKey:installationIds:)``.
+	///
 	/// ```swift
 	/// let options = ClientOptions(dbEncryptionKey: myKey)
 	/// let client = try await Client.create(account: wallet, options: options)
@@ -962,6 +966,8 @@ public final class Client {
 	/// Revokes every installation on this inbox except the current one.
 	///
 	/// This is useful when a user wants to sign out of all other devices.
+	/// An inbox can have up to **10 installations**; use this method to free
+	/// up slots when the limit is reached.
 	/// If there are no other installations, this method returns without error.
 	///
 	/// - Parameter signingKey: The signing key authorized to make identity changes.
