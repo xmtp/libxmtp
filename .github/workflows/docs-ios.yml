@@ -25,7 +25,7 @@ on:
         required: false
         type: boolean
         default: true
-        description: "Also update ios/latest/"
+        description: "Update the latest iOS API reference docs"
 
 permissions:
   contents: write
@@ -54,43 +54,30 @@ jobs:
       - name: Hide internal symbols from docs
         run: ./sdks/ios/dev/hide-internal-symbols
 
-      # Versioned deploy (only when called with an explicit version)
-      - name: Generate versioned docs
-        if: inputs.version
+      # Generate docs
+      - name: Generate docs
+        if: inputs.update-latest || inputs.version
         run: |
           swift package \
             --allow-writing-to-package-directory \
             generate-documentation \
             --target XMTPiOS \
             --output-path ./.build/docs \
-            --transform-for-static-hosting \
-            --hosting-base-path libxmtp/ios/${{ inputs.version }}
-      - name: Deploy versioned docs
-        if: inputs.version
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./.build/docs
-          destination_dir: ios/${{ inputs.version }}
-          keep_files: true
+            --transform-for-static-hosting
 
-      # Latest deploy
-      - name: Generate latest docs
-        if: inputs.update-latest
+      # Add Vercel SPA routing config
+      - name: Configure Vercel routing
+        if: inputs.update-latest || inputs.version
         run: |
-          rm -rf ./.build/docs-latest
-          swift package \
-            --allow-writing-to-package-directory \
-            generate-documentation \
-            --target XMTPiOS \
-            --output-path ./.build/docs-latest \
-            --transform-for-static-hosting \
-            --hosting-base-path libxmtp/ios/latest
-      - name: Deploy latest docs
-        if: inputs.update-latest
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./.build/docs-latest
-          destination_dir: ios/latest
-          keep_files: true
+          echo '{ "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }] }' > .build/docs/vercel.json
+
+      # Deploy to Vercel
+      - name: Deploy to Vercel
+        if: inputs.update-latest || inputs.version
+        run: |
+          npm install -g vercel
+          vercel deploy .build/docs --prod --token $VERCEL_TOKEN
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
