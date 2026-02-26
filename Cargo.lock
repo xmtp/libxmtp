@@ -2504,12 +2504,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dotenvy"
-version = "0.15.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
-
-[[package]]
 name = "downcast"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9726,25 +9720,6 @@ dependencies = [
  "xmtp_mls",
  "xmtp_proto",
  "xxhash-rust",
-]
-
-[[package]]
-name = "xmtp-db-tools"
-version = "1.9.0"
-dependencies = [
- "anyhow",
- "clap",
- "const-hex",
- "diesel",
- "diesel_migrations",
- "dotenvy",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "xmtp-workspace-hack",
- "xmtp_common",
- "xmtp_db",
- "xmtp_mls",
 ]
 
 [[package]]
