@@ -45,7 +45,7 @@ _: {
           };
           "xmtp_debug" = {
             autoWire = [ "crate" ];
-            path = src + /crates/xmtp_debug;
+            path = src + /apps/xmtp_debug;
           };
           "xmtp_cli" = {
             path = src + /apps/cli;
