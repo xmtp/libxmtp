@@ -7,6 +7,7 @@ use xmtp_db::consent_record::{
   ConsentState as XmtpConsentState, ConsentType as XmtpConsentType, StoredConsentRecord,
 };
 
+use crate::ErrorWrapper;
 use crate::{client::Client, conversation::Conversation};
 
 #[wasm_bindgen_numbered_enum]
@@ -95,7 +96,7 @@ impl Client {
       .inner_client()
       .set_consent_states(&stored_records)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(())
   }
 
@@ -109,7 +110,7 @@ impl Client {
       .inner_client()
       .get_consent_state(entity_type.into(), entity)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(result.into())
   }
@@ -120,9 +121,7 @@ impl Conversation {
   #[wasm_bindgen(js_name = consentState)]
   pub fn consent_state(&self) -> Result<ConsentState, JsError> {
     let group = self.to_mls_group();
-    let state = group
-      .consent_state()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let state = group.consent_state().map_err(ErrorWrapper::js)?;
 
     Ok(state.into())
   }
@@ -133,7 +132,7 @@ impl Conversation {
 
     group
       .update_consent_state(state.into())
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }

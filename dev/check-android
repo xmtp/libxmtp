@@ -1,7 +1,0 @@
-#!/bin/bash
-set -eou pipefail
-
-nix develop .#android --command \
-    cargo ndk --platform 23 -t x86_64-linux-android \
-        --manifest-path bindings/mobile/Cargo.toml \
-        -- check

@@ -20,3 +20,4 @@ builds:
       - "checks.x86_64-linux.*"
       - "checks.aarch64-darwin.*"
       - "packages.x86_64-linux.validation-service-image-musl64"
+      - "packages.x86_64-linux.android-libs-fast"

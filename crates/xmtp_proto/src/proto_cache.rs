@@ -10,6 +10,7 @@ type Cache = HashMap<(Cow<'static, str>, Cow<'static, str>), Cow<'static, str>>;
 
 // lookup a method path&query based on a type name & package
 pub static METHOD_LOOKUP: LazyLock<Cache> = LazyLock::new(|| {
+    use Cow::*;
     let pnq = |package: &str,
                service: &ServiceDescriptorProto,
                method: &MethodDescriptorProto|
@@ -29,12 +30,19 @@ pub static METHOD_LOOKUP: LazyLock<Cache> = LazyLock::new(|| {
         };
         for service in fd.service.iter() {
             for method in service.method.iter() {
+                if let Some(output_t) = method.output_type().split('.').next_back() {
+                    map.insert(
+                        (Owned(package.clone()), Owned(output_t.to_string())),
+                        Owned(pnq(package, service, method)),
+                    );
+                };
+
                 let Some(input_t) = method.input_type().split('.').next_back() else {
                     continue;
                 };
                 map.insert(
-                    (Cow::Owned(package.clone()), Cow::Owned(input_t.to_string())),
-                    Cow::Owned(pnq(package, service, method)),
+                    (Owned(package.clone()), Owned(input_t.to_string())),
+                    Owned(pnq(package, service, method)),
                 );
             }
         }

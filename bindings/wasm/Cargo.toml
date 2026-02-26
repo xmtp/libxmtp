@@ -11,7 +11,12 @@ workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+
 [dependencies]
+xmtp_common = { workspace = true, features = ["logging"] }
+
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 async-trait.workspace = true
 bindings_wasm_macros.workspace = true
 chrono.workspace = true
@@ -25,6 +30,7 @@ serde = { workspace = true, features = ["derive"] }
 serde-wasm-bindgen = "0.6.5"
 serde_bytes = "0.11"
 serde_json.workspace = true
+thiserror.workspace = true
 tracing = { workspace = true, features = ["release_max_level_debug"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 tracing-web = "0.1"
@@ -39,7 +45,6 @@ web-sys = { workspace = true, features = [
 ] }
 xmtp_api.workspace = true
 xmtp_api_d14n.workspace = true
-xmtp_common = { workspace = true, features = ["logging"] }
 xmtp_content_types.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_db.workspace = true
@@ -52,7 +57,7 @@ wasm-bindgen-test = { workspace = true, optional = true }
 xmtp_configuration = { workspace = true, optional = true }
 
 
-[dev-dependencies]
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 alloy.workspace = true
 chrono = { workspace = true }
 tokio.workspace = true
@@ -60,6 +65,9 @@ wasm-bindgen-test.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration.workspace = true
 xmtp_mls = { workspace = true, features = ["test-utils"] }
+
+[build-dependencies]
+owo-colors.workspace = true
 
 [features]
 test-utils = [

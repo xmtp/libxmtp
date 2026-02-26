@@ -7,6 +7,7 @@ use tsify::Tsify;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 
+use crate::ErrorWrapper;
 use crate::client::RustMlsGroup;
 use crate::content_types::{
   actions::Actions, attachment::Attachment, intent::Intent,
@@ -172,11 +173,11 @@ impl Conversation {
     let message_id = match opts.optimistic {
       Some(true) => group
         .send_message_optimistic(encoded_content.encode_to_vec().as_slice(), opts.into())
-        .map_err(|e| JsError::new(&format!("{e}")))?,
+        .map_err(ErrorWrapper::js)?,
       _ => group
         .send_message(encoded_content.encode_to_vec().as_slice(), opts.into())
         .await
-        .map_err(|e| JsError::new(&format!("{e}")))?,
+        .map_err(ErrorWrapper::js)?,
     };
 
     Ok(hex::encode(message_id.clone()))
@@ -194,7 +195,7 @@ impl Conversation {
     let group = self.to_mls_group();
     let message_id = group
       .prepare_message_for_later_publish(encoded_content.encode_to_vec().as_slice(), should_push)
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(hex::encode(message_id))
   }
 
@@ -210,13 +211,13 @@ impl Conversation {
     group
       .publish_stored_message(&message_id_bytes)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(())
   }
 
   #[wasm_bindgen(js_name = sendText)]
   pub async fn send_text(&self, text: String, optimistic: Option<bool>) -> Result<String, JsError> {
-    let encoded_content = TextCodec::encode(text).map_err(|e| JsError::new(&format!("{e}")))?;
+    let encoded_content = TextCodec::encode(text).map_err(ErrorWrapper::js)?;
     let opts = SendMessageOpts {
       should_push: TextCodec::should_push(),
       optimistic,
@@ -230,8 +231,7 @@ impl Conversation {
     markdown: String,
     optimistic: Option<bool>,
   ) -> Result<String, JsError> {
-    let encoded_content =
-      MarkdownCodec::encode(markdown).map_err(|e| JsError::new(&format!("{e}")))?;
+    let encoded_content = MarkdownCodec::encode(markdown).map_err(ErrorWrapper::js)?;
     let opts = SendMessageOpts {
       should_push: MarkdownCodec::should_push(),
       optimistic,
@@ -245,8 +245,7 @@ impl Conversation {
     reaction: Reaction,
     optimistic: Option<bool>,
   ) -> Result<String, JsError> {
-    let encoded_content =
-      ReactionCodec::encode(reaction.into()).map_err(|e| JsError::new(&format!("{e}")))?;
+    let encoded_content = ReactionCodec::encode(reaction.into()).map_err(ErrorWrapper::js)?;
     let opts = SendMessageOpts {
       should_push: ReactionCodec::should_push(),
       optimistic,
@@ -260,8 +259,7 @@ impl Conversation {
     reply: Reply,
     optimistic: Option<bool>,
   ) -> Result<String, JsError> {
-    let encoded_content =
-      ReplyCodec::encode(reply.into()).map_err(|e| JsError::new(&format!("{e}")))?;
+    let encoded_content = ReplyCodec::encode(reply.into()).map_err(ErrorWrapper::js)?;
     let opts = SendMessageOpts {
       should_push: ReplyCodec::should_push(),
       optimistic,
@@ -271,8 +269,7 @@ impl Conversation {
 
   #[wasm_bindgen(js_name = sendReadReceipt)]
   pub async fn send_read_receipt(&self, optimistic: Option<bool>) -> Result<String, JsError> {
-    let encoded_content =
-      ReadReceiptCodec::encode(ReadReceipt {}).map_err(|e| JsError::new(&format!("{e}")))?;
+    let encoded_content = ReadReceiptCodec::encode(ReadReceipt {}).map_err(ErrorWrapper::js)?;
     let opts = SendMessageOpts {
       should_push: ReadReceiptCodec::should_push(),
       optimistic,
@@ -286,8 +283,7 @@ impl Conversation {
     attachment: Attachment,
     optimistic: Option<bool>,
   ) -> Result<String, JsError> {
-    let encoded_content =
-      AttachmentCodec::encode(attachment.into()).map_err(|e| JsError::new(&format!("{e}")))?;
+    let encoded_content = AttachmentCodec::encode(attachment.into()).map_err(ErrorWrapper::js)?;
     let opts = SendMessageOpts {
       should_push: AttachmentCodec::should_push(),
       optimistic,
@@ -301,8 +297,8 @@ impl Conversation {
     #[wasm_bindgen(js_name = remoteAttachment)] remote_attachment: RemoteAttachment,
     optimistic: Option<bool>,
   ) -> Result<String, JsError> {
-    let encoded_content = RemoteAttachmentCodec::encode(remote_attachment.into())
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let encoded_content =
+      RemoteAttachmentCodec::encode(remote_attachment.into()).map_err(ErrorWrapper::js)?;
     let opts = SendMessageOpts {
       should_push: RemoteAttachmentCodec::should_push(),
       optimistic,
@@ -317,7 +313,7 @@ impl Conversation {
     optimistic: Option<bool>,
   ) -> Result<String, JsError> {
     let encoded_content = MultiRemoteAttachmentCodec::encode(multi_remote_attachment.into())
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
     let opts = SendMessageOpts {
       should_push: MultiRemoteAttachmentCodec::should_push(),
       optimistic,
@@ -331,8 +327,8 @@ impl Conversation {
     #[wasm_bindgen(js_name = transactionReference)] transaction_reference: TransactionReference,
     optimistic: Option<bool>,
   ) -> Result<String, JsError> {
-    let encoded_content = TransactionReferenceCodec::encode(transaction_reference.into())
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let encoded_content =
+      TransactionReferenceCodec::encode(transaction_reference.into()).map_err(ErrorWrapper::js)?;
     let opts = SendMessageOpts {
       should_push: TransactionReferenceCodec::should_push(),
       optimistic,
@@ -348,8 +344,7 @@ impl Conversation {
   ) -> Result<String, JsError> {
     let wsc: xmtp_content_types::wallet_send_calls::WalletSendCalls =
       wallet_send_calls.try_into()?;
-    let encoded_content =
-      WalletSendCallsCodec::encode(wsc).map_err(|e| JsError::new(&format!("{e}")))?;
+    let encoded_content = WalletSendCallsCodec::encode(wsc).map_err(ErrorWrapper::js)?;
     let opts = SendMessageOpts {
       should_push: WalletSendCallsCodec::should_push(),
       optimistic,
@@ -363,8 +358,7 @@ impl Conversation {
     actions: Actions,
     optimistic: Option<bool>,
   ) -> Result<String, JsError> {
-    let encoded_content =
-      ActionsCodec::encode(actions.into()).map_err(|e| JsError::new(&format!("{e}")))?;
+    let encoded_content = ActionsCodec::encode(actions.into()).map_err(ErrorWrapper::js)?;
     let opts = SendMessageOpts {
       should_push: ActionsCodec::should_push(),
       optimistic,
@@ -378,8 +372,7 @@ impl Conversation {
     intent: Intent,
     optimistic: Option<bool>,
   ) -> Result<String, JsError> {
-    let encoded_content =
-      IntentCodec::encode(intent.into()).map_err(|e| JsError::new(&format!("{e}")))?;
+    let encoded_content = IntentCodec::encode(intent.into()).map_err(ErrorWrapper::js)?;
     let opts = SendMessageOpts {
       should_push: IntentCodec::should_push(),
       optimistic,
@@ -391,10 +384,7 @@ impl Conversation {
   #[wasm_bindgen(js_name = publishMessages)]
   pub async fn publish_messages(&self) -> Result<(), JsError> {
     let group = self.to_mls_group();
-    group
-      .publish_messages()
-      .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    group.publish_messages().await.map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -403,10 +393,7 @@ impl Conversation {
   pub async fn sync(&self) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
-    group
-      .sync()
-      .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    group.sync().await.map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -420,7 +407,7 @@ impl Conversation {
     let group = self.to_mls_group();
     let messages: Vec<Message> = group
       .find_messages(&opts.into())
-      .map_err(|e| JsError::new(&format!("{e}")))?
+      .map_err(ErrorWrapper::js)?
       .into_iter()
       .map(Into::into)
       .collect();
@@ -435,7 +422,7 @@ impl Conversation {
     let query_args = opts.into();
     let count = group
       .count_messages(&query_args)
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(count)
   }
@@ -446,7 +433,7 @@ impl Conversation {
     let members: Vec<GroupMember> = group
       .members()
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?
+      .map_err(ErrorWrapper::js)?
       .into_iter()
       .map(|member| GroupMember {
         inbox_id: member.inbox_id,
@@ -476,18 +463,14 @@ impl Conversation {
   #[wasm_bindgen(js_name = membershipState)]
   pub fn membership_state(&self) -> Result<GroupMembershipState, JsError> {
     let group = self.to_mls_group();
-    let state = group
-      .membership_state()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let state = group.membership_state().map_err(ErrorWrapper::js)?;
     Ok(state.into())
   }
 
   #[wasm_bindgen(js_name = adminList)]
   pub fn admin_list(&self) -> Result<Vec<String>, JsError> {
     let group = self.to_mls_group();
-    let admin_list = group
-      .admin_list()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let admin_list = group.admin_list().map_err(ErrorWrapper::js)?;
 
     Ok(admin_list)
   }
@@ -495,9 +478,7 @@ impl Conversation {
   #[wasm_bindgen(js_name = superAdminList)]
   pub fn super_admin_list(&self) -> Result<Vec<String>, JsError> {
     let group = self.to_mls_group();
-    let super_admin_list = group
-      .super_admin_list()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let super_admin_list = group.super_admin_list().map_err(ErrorWrapper::js)?;
 
     Ok(super_admin_list)
   }
@@ -530,7 +511,7 @@ impl Conversation {
     group
       .add_members_by_identity(&account_identifiers.to_internal()?)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -544,7 +525,7 @@ impl Conversation {
     group
       .update_admin_list(UpdateAdminListType::Add, inbox_id)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -559,7 +540,7 @@ impl Conversation {
     group
       .update_admin_list(UpdateAdminListType::Remove, inbox_id)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -574,7 +555,7 @@ impl Conversation {
     group
       .update_admin_list(UpdateAdminListType::AddSuper, inbox_id)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -589,7 +570,7 @@ impl Conversation {
     group
       .update_admin_list(UpdateAdminListType::RemoveSuper, inbox_id)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -598,9 +579,7 @@ impl Conversation {
   pub fn group_permissions(&self) -> Result<GroupPermissions, JsError> {
     let group = self.to_mls_group();
 
-    let permissions = group
-      .permissions()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let permissions = group.permissions().map_err(ErrorWrapper::js)?;
 
     Ok(permissions.into())
   }
@@ -615,7 +594,7 @@ impl Conversation {
     group
       .add_members(&inbox_ids)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -630,7 +609,7 @@ impl Conversation {
     group
       .remove_members_by_identity(&account_identifiers.to_internal()?)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -646,7 +625,7 @@ impl Conversation {
     group
       .remove_members(ids.as_slice())
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -661,7 +640,7 @@ impl Conversation {
     group
       .update_group_name(group_name)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -670,9 +649,7 @@ impl Conversation {
   pub fn group_name(&self) -> Result<String, JsError> {
     let group = self.to_mls_group();
 
-    let group_name = group
-      .group_name()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let group_name = group.group_name().map_err(ErrorWrapper::js)?;
 
     Ok(group_name)
   }
@@ -687,7 +664,7 @@ impl Conversation {
     group
       .update_app_data(app_data)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -696,9 +673,7 @@ impl Conversation {
   pub fn app_data(&self) -> Result<String, JsError> {
     let group = self.to_mls_group();
 
-    let app_data = group
-      .app_data()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let app_data = group.app_data().map_err(ErrorWrapper::js)?;
 
     Ok(app_data)
   }
@@ -713,7 +688,7 @@ impl Conversation {
     group
       .update_group_image_url_square(group_image_url_square)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -722,9 +697,7 @@ impl Conversation {
   pub fn group_image_url_square(&self) -> Result<String, JsError> {
     let group = self.to_mls_group();
 
-    let group_image_url_square = group
-      .group_image_url_square()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let group_image_url_square = group.group_image_url_square().map_err(ErrorWrapper::js)?;
 
     Ok(group_image_url_square)
   }
@@ -739,7 +712,7 @@ impl Conversation {
     group
       .update_group_description(group_description)
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -748,9 +721,7 @@ impl Conversation {
   pub fn group_description(&self) -> Result<String, JsError> {
     let group = self.to_mls_group();
 
-    let group_description = group
-      .group_description()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let group_description = group.group_description().map_err(ErrorWrapper::js)?;
 
     Ok(group_description)
   }
@@ -780,34 +751,27 @@ impl Conversation {
   pub fn is_active(&self) -> Result<bool, JsError> {
     let group = self.to_mls_group();
 
-    group.is_active().map_err(|e| JsError::new(&format!("{e}")))
+    group.is_active().map_err(ErrorWrapper::js)
   }
 
   #[wasm_bindgen(js_name = pausedForVersion)]
   pub fn paused_for_version(&self) -> Result<Option<String>, JsError> {
     let group = self.to_mls_group();
 
-    group
-      .paused_for_version()
-      .map_err(|e| JsError::new(&format!("{e}")))
+    group.paused_for_version().map_err(ErrorWrapper::js)
   }
 
   #[wasm_bindgen(js_name = addedByInboxId)]
   pub fn added_by_inbox_id(&self) -> Result<String, JsError> {
     let group = self.to_mls_group();
 
-    group
-      .added_by_inbox_id()
-      .map_err(|e| JsError::new(&format!("{e}")))
+    group.added_by_inbox_id().map_err(ErrorWrapper::js)
   }
 
   #[wasm_bindgen(js_name = groupMetadata)]
   pub async fn group_metadata(&self) -> Result<GroupMetadata, JsError> {
     let group = self.to_mls_group();
-    let metadata = group
-      .metadata()
-      .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let metadata = group.metadata().await.map_err(ErrorWrapper::js)?;
 
     Ok(metadata.into())
   }
@@ -835,7 +799,7 @@ impl Conversation {
     let message = group
       .process_streamed_group_message(envelope_bytes.to_vec())
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(message.into_iter().map(Into::into).collect())
   }
 
@@ -866,7 +830,7 @@ impl Conversation {
       .to_mls_group()
       .update_conversation_message_disappearing_settings(settings.into())
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -877,7 +841,7 @@ impl Conversation {
       .to_mls_group()
       .remove_conversation_message_disappearing_settings()
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -889,7 +853,7 @@ impl Conversation {
     let settings = self
       .inner_group
       .disappearing_settings()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     match settings {
       Some(s) => Ok(Some(s.into())),
@@ -913,14 +877,14 @@ impl Conversation {
     let dms = self
       .inner_group
       .find_duplicate_dms()
-      .map_err(|e| JsError::new(&e.to_string()))?;
+      .map_err(ErrorWrapper::js)?;
 
     let mut hmac_map: HashMap<String, Vec<HmacKey>> = HashMap::new();
     for conversation in dms {
       let id = hex::encode(&conversation.group_id);
       let keys = conversation
         .hmac_keys(-1..=1)
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+        .map_err(ErrorWrapper::js)?
         .into_iter()
         .map(Into::into)
         .collect::<Vec<_>>();
@@ -929,7 +893,7 @@ impl Conversation {
 
     let keys = group
       .hmac_keys(-1..=1)
-      .map_err(|e| JsError::new(&format!("{e}")))?
+      .map_err(ErrorWrapper::js)?
       .into_iter()
       .map(Into::into)
       .collect::<Vec<HmacKey>>();
@@ -942,10 +906,7 @@ impl Conversation {
   #[wasm_bindgen(js_name = getDebugInfo)]
   pub async fn debug_info(&self) -> Result<JsValue, JsError> {
     let group = self.to_mls_group();
-    let debug_info = group
-      .debug_info()
-      .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let debug_info = group.debug_info().await.map_err(ErrorWrapper::js)?;
 
     Ok(crate::to_value(&ConversationDebugInfo {
       epoch: debug_info.epoch,
@@ -964,7 +925,7 @@ impl Conversation {
     let dms = self
       .inner_group
       .find_duplicate_dms()
-      .map_err(|e| JsError::new(&e.to_string()))?;
+      .map_err(ErrorWrapper::js)?;
 
     let conversations: Vec<Conversation> = dms.into_iter().map(Into::into).collect();
 
@@ -980,7 +941,7 @@ impl Conversation {
     let group = self.to_mls_group();
     let messages: Result<Vec<DecodedMessage>, _> = group
       .find_messages_v2(&opts.into())
-      .map_err(|e| JsError::new(&format!("{e}")))?
+      .map_err(ErrorWrapper::js)?
       .into_iter()
       .map(|msg| msg.try_into())
       .collect();
@@ -991,9 +952,7 @@ impl Conversation {
   #[wasm_bindgen(js_name = getLastReadTimes)]
   pub async fn get_last_read_times(&self) -> Result<JsValue, JsError> {
     let group = self.to_mls_group();
-    let times = group
-      .get_last_read_times()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let times = group.get_last_read_times().map_err(ErrorWrapper::js)?;
 
     Ok(crate::to_value(&times)?)
   }
@@ -1001,10 +960,7 @@ impl Conversation {
   #[wasm_bindgen(js_name = leaveGroup)]
   pub async fn leave_group(&self) -> Result<(), JsError> {
     let group = self.to_mls_group();
-    group
-      .leave_group()
-      .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+    group.leave_group().await.map_err(ErrorWrapper::js)?;
     Ok(())
   }
 }

@@ -123,12 +123,6 @@ pub enum FfiError {
     Error(GenericError),
 }
 
-#[derive(uniffi::Record, Clone, Debug, PartialEq, Eq)]
-pub struct FfiErrorInfo {
-    pub code: String,
-    pub message: String,
-}
-
 impl std::fmt::Display for FfiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -156,29 +150,6 @@ impl FfiError {
     pub fn generic(err: impl Into<String>) -> Self {
         FfiError::Error(GenericError::Generic { err: err.into() })
     }
-}
-
-fn parse_error_message(message: &str) -> FfiErrorInfo {
-    if let Some(rest) = message.strip_prefix('[')
-        && let Some(end) = rest.find(']')
-    {
-        let code = rest[..end].to_string();
-        return FfiErrorInfo {
-            code,
-            message: message.to_string(),
-        };
-    }
-
-    FfiErrorInfo {
-        code: "Unknown".to_string(),
-        message: message.to_string(),
-    }
-}
-
-/// Parse an error string like `[ErrorCode] message` into a structured error info.
-#[uniffi::export]
-pub fn parse_xmtp_error(message: String) -> FfiErrorInfo {
-    parse_error_message(&message)
 }
 
 impl From<xmtp_common::time::Expired> for FfiError {
@@ -291,34 +262,6 @@ mod lib_tests {
             "Expected error to start with [StorageError::NotFound], got: {}",
             display
         );
-    }
-
-    #[test]
-    fn test_parse_xmtp_error_with_code() {
-        let parsed = crate::parse_xmtp_error("[GroupError::NotFound] Group not found".to_string());
-        assert_eq!(parsed.code, "GroupError::NotFound");
-        assert_eq!(parsed.message, "[GroupError::NotFound] Group not found");
-    }
-
-    #[test]
-    fn test_parse_xmtp_error_without_code() {
-        let parsed = crate::parse_xmtp_error("Some error".to_string());
-        assert_eq!(parsed.code, "Unknown");
-        assert_eq!(parsed.message, "Some error");
-    }
-
-    #[test]
-    fn test_parse_xmtp_error_empty_brackets() {
-        let parsed = crate::parse_xmtp_error("[] Empty brackets".to_string());
-        assert_eq!(parsed.code, "");
-        assert_eq!(parsed.message, "[] Empty brackets");
-    }
-
-    #[test]
-    fn test_parse_xmtp_error_nested_brackets() {
-        let parsed =
-            crate::parse_xmtp_error("[Outer::Error] Message with [nested] brackets".to_string());
-        assert_eq!(parsed.code, "Outer::Error");
     }
 
     #[test]

@@ -1,8 +1,0 @@
-#!/bin/bash
-set -eou pipefail
-
-if ! cargo-clippy &>/dev/null; then rustup component add clippy; fi
-
-dev/lint-shellcheck
-dev/lint-markdown
-dev/lint-rust

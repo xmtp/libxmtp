@@ -17,7 +17,7 @@ main() {
   # Go to the workspace root so that the workspace config can be found by cross
   cd $WORKSPACE_PATH
   if ! cross &>/dev/null; then
-    echo -e "${RED} `cargo-cross` not detected. install cargo-cross to continue${NC}";
+    echo -e "${RED} 'cargo-cross' not detected. install cargo-cross to continue${NC}";
     exit
   fi
   # Uncomment to build for all targets. aarch64-linux-android is the default target for an emulator on Android Studio on an M1 mac.

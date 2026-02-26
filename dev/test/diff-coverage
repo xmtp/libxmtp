@@ -3,7 +3,7 @@ set -eou pipefail
 
 # Create temporary directory
 TEMP_DIR=$(mktemp -d)
-trap "rm -rf $TEMP_DIR" EXIT
+trap 'rm -rf $TEMP_DIR' EXIT
 
 # Generate full coverage in lcov format
 cargo llvm-cov --ignore-filename-regex "(xmtp_proto/src/gen)|(test/)|(mock/)|(mock.rs)|(test_utils\.rs)|(test_utils\/)|(tests.rs)" --lcov --output-path "$TEMP_DIR/lcov.info" nextest --no-fail-fast --profile ci --workspace --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
