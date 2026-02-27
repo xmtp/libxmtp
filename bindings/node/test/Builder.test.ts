@@ -1,5 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import { NapiTestBuilder } from '../dist/index'
+import { BackendBuilder, NapiTestBuilder, XmtpEnv } from '../dist/index'
+
+describe('BackendBuilder', () => {
+  it('should build a Backend with default settings', async () => {
+    const backend = await new BackendBuilder(XmtpEnv.Dev).build()
+    expect(backend.env).toBe(XmtpEnv.Dev)
+    expect(backend.v3Host).toBe('https://grpc.dev.xmtp.network:443')
+    expect(backend.gatewayHost).toBeNull()
+    expect(backend.appVersion).toBe('')
+  })
+
+  it('should build with custom app version', async () => {
+    const backend = await new BackendBuilder(XmtpEnv.Dev)
+      .setAppVersion('TestApp/1.0')
+      .build()
+    expect(backend.appVersion).toBe('TestApp/1.0')
+  })
+
+  it('should reject double build', async () => {
+    const builder = new BackendBuilder(XmtpEnv.Dev)
+    await builder.build()
+    await expect(builder.build()).rejects.toThrow('already been consumed')
+  })
+})
 
 describe('NapiTestBuilder', () => {
   it('should set required fields and apply defaults', () => {
