@@ -41,6 +41,7 @@ xmtp_content_types.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_db.workspace = true
 xmtp_id.workspace = true
+xmtp_macro.workspace = true
 xmtp_mls.workspace = true
 xmtp_proto.workspace = true
 

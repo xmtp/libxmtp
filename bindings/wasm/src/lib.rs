@@ -22,6 +22,8 @@ xmtp_common::if_wasm! {
     pub use errors::*;
     #[cfg(any(test, feature = "test-utils"))]
     pub mod tests;
+    #[cfg(any(test, feature = "test-utils"))]
+    mod builder_test;
 }
 
 pub fn lib() {
