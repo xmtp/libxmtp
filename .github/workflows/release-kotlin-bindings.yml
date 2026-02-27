@@ -1,6 +1,9 @@
 name: Release Kotlin Bindings
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - nm/use-unstable-rust-flags
 jobs:
   build-linux:
     runs-on: warp-ubuntu-latest-x64-16x
