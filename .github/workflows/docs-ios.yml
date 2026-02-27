@@ -64,15 +64,10 @@ jobs:
             --target XMTPiOS \
             --output-path ./.build/docs \
             --transform-for-static-hosting \
-            --hosting-base-path api-ref/ios
-
-      # Restructure output to match hosting base path
-      - name: Prepare deploy directory
-        if: inputs.update-latest || inputs.version
-        run: |
-          mkdir -p .build/deploy/api-ref/ios
-          cp -r .build/docs/* .build/deploy/api-ref/ios/
-          echo '{ "rewrites": [{ "source": "/api-ref/ios/(.*)", "destination": "/api-ref/ios/index.html" }] }' > .build/deploy/vercel.json
+            --hosting-base-path ios
+          mkdir -p .build/deploy/ios
+          cp -r .build/docs/* .build/deploy/ios/
+          echo '{ "rewrites": [{ "source": "/ios/(.*)", "destination": "/ios/index.html" }] }' > .build/deploy/vercel.json
 
       # Deploy to Vercel
       - name: Deploy to Vercel
