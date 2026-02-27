@@ -1,15 +1,25 @@
 //! Stateful service manager
 //! network is hardcoded to XNET_NETWORK_NAME
+use std::collections::HashMap;
 use std::io::stdout;
 
+use bollard::{
+    Docker,
+    models::ContainerCreateBody,
+    query_parameters::{
+        CreateContainerOptionsBuilder, ListContainersOptionsBuilder,
+        RemoveContainerOptionsBuilder, StopContainerOptionsBuilder,
+    },
+};
 use crate::{
     Config,
     config::NodeToml,
     constants::Xmtpd as XmtpdConst,
-    network::Network,
+    network::{Network, XNET_NETWORK_NAME},
     services::{
-        self, CoreDns, Gateway, Grafana, NodeGo, Otterscan, Prometheus, ReplicationDb, Service,
-        ToxiProxy, Traefik, TraefikConfig, Xmtpd, allocate_xmtpd_port,
+        self, CoreDns, Gateway, Grafana, NodeGo, Otterscan, PgAdmin, Prometheus, ReplicationDb,
+        Service, ToxiProxy, Traefik, TraefikConfig, Xmtpd, allocate_xmtpd_port,
+        create_and_start_container,
     },
     types::XmtpdNode,
     xmtpd_cli::XmtpdCli,
@@ -30,6 +40,7 @@ pub struct ServiceManager {
     otterscan: Otterscan,
     prometheus: Prometheus,
     grafana: Grafana,
+    pgadmin: PgAdmin,
     nodes: Vec<Xmtpd>,
 }
 
@@ -55,12 +66,14 @@ impl ServiceManager {
         // Create Traefik config manager (loads existing routes from file)
         let traefik_config = TraefikConfig::new(traefik.dynamic_config_path())?;
 
-        // Start monitoring services (Prometheus + Grafana) in parallel
+        // Start monitoring services (Prometheus + Grafana + PgAdmin) in parallel
         let mut prometheus = Prometheus::builder().build();
         let mut grafana = Grafana::builder().build();
+        let mut pgadmin = PgAdmin::builder().build();
         let launch = vec![
             prometheus.start(&proxy).boxed(),
             grafana.start(&proxy).boxed(),
+            pgadmin.start(&proxy).boxed(),
         ];
         futures::future::try_join_all(launch).await?;
 
@@ -68,7 +81,8 @@ impl ServiceManager {
         info!("starting v3");
         let (node_go, svcs) = start_v3(&proxy).await?;
         services.extend(svcs);
-        let (gateway, anvil_external_rpc, svcs) = start_d14n(&proxy).await?;
+        let dns_ip = coredns.container_ip().await?;
+        let (gateway, anvil_external_rpc, svcs) = start_d14n(&proxy, dns_ip).await?;
         services.extend(svcs);
 
         let mut otterscan = Otterscan::builder()
@@ -87,6 +101,7 @@ impl ServiceManager {
             otterscan,
             prometheus,
             grafana,
+            pgadmin,
             nodes: Vec::new(),
         };
 
@@ -154,6 +169,7 @@ impl ServiceManager {
         self.gateway.stop().await?;
         self.node_go.stop().await?;
         self.otterscan.stop().await?;
+        self.pgadmin.stop().await?;
         self.grafana.stop().await?;
         self.prometheus.stop().await?;
         self.coredns.stop().await?;
@@ -198,11 +214,112 @@ impl ServiceManager {
         // Update Prometheus scrape targets with the new node
         self.prometheus.update_targets(&self.nodes)?;
 
+        // Update PgAdmin servers.json with the new node's replication DB
+        self.pgadmin.update_servers(&self.nodes)?;
+
+        Ok(())
+    }
+
+    /// Remove all migrator nodes and restart them without migrator flags.
+    ///
+    /// Uses Docker as the source of truth since the CLI is stateless.
+    /// Inspects running containers for `XMTPD_MIGRATION_SERVER_ENABLE=true`,
+    /// then removes and recreates them without any `XMTPD_MIGRATION_*` env vars.
+    pub async fn remove_migrators(&mut self) -> Result<()> {
+        let docker = Docker::connect_with_socket_defaults()?;
+
+        let mut filters = HashMap::new();
+        filters.insert("network".to_string(), vec![XNET_NETWORK_NAME.to_string()]);
+        let options = ListContainersOptionsBuilder::default()
+            .filters(&filters)
+            .build();
+        let containers = docker.list_containers(Some(options)).await?;
+
+        let mut count = 0;
+        for container in &containers {
+            let names = container
+                .names
+                .as_ref()
+                .map(|n| n.as_slice())
+                .unwrap_or(&[]);
+            // Docker prepends "/" to container names; xmtpd nodes are named xnet-{id}
+            let is_xmtpd = names.iter().any(|n| {
+                let trimmed = n.trim_start_matches('/');
+                trimmed.starts_with("xnet-")
+                    && trimmed[5..].chars().all(|c| c.is_ascii_digit())
+            });
+            if !is_xmtpd {
+                continue;
+            }
+
+            let id = container.id.as_deref().unwrap_or_default();
+            let info = docker.inspect_container(id, None).await?;
+            let env = info.config.as_ref().and_then(|c| c.env.as_ref());
+
+            let is_migrator = env
+                .map(|vars| {
+                    vars.iter()
+                        .any(|v| v == "XMTPD_MIGRATION_SERVER_ENABLE=true")
+                })
+                .unwrap_or(false);
+
+            if !is_migrator {
+                continue;
+            }
+
+            let container_name = names[0].trim_start_matches('/').to_string();
+            info!("Reloading migrator container: {}", container_name);
+
+            // Extract config from existing container for recreation
+            let image = info
+                .config
+                .as_ref()
+                .and_then(|c| c.image.clone())
+                .unwrap_or_default();
+            let cmd = info.config.as_ref().and_then(|c| c.cmd.clone());
+            let filtered_env: Vec<String> = env
+                .map(|vars| {
+                    vars.iter()
+                        .filter(|v| !v.starts_with("XMTPD_MIGRATION_"))
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default();
+            let host_config = info.host_config.clone();
+
+            // Stop and remove the container
+            let stop_opts = StopContainerOptionsBuilder::default().t(10).build();
+            let _ = docker.stop_container(id, Some(stop_opts)).await;
+            let remove_opts = RemoveContainerOptionsBuilder::default()
+                .force(true)
+                .build();
+            docker.remove_container(id, Some(remove_opts)).await?;
+
+            // Recreate without migrator env vars
+            let create_options = CreateContainerOptionsBuilder::default()
+                .name(&container_name)
+                .platform("linux/amd64");
+            let config = ContainerCreateBody {
+                image: Some(image),
+                cmd,
+                env: Some(filtered_env),
+                host_config,
+                ..Default::default()
+            };
+            create_and_start_container(&docker, &container_name, create_options, config).await?;
+            info!("Restarted {} without migrator mode", container_name);
+            count += 1;
+        }
+
+        info!("Reloaded {} migrator node(s)", count);
         Ok(())
     }
 }
 
-async fn start_d14n(proxy: &ToxiProxy) -> Result<(Gateway, url::Url, Vec<Box<dyn Service>>)> {
+async fn start_d14n(
+    proxy: &ToxiProxy,
+    dns_ip: String,
+) -> Result<(Gateway, url::Url, Vec<Box<dyn Service>>)> {
     let mut anvil = services::Anvil::builder().build()?;
     let mut redis = services::Redis::builder().build();
 
@@ -211,6 +328,7 @@ async fn start_d14n(proxy: &ToxiProxy) -> Result<(Gateway, url::Url, Vec<Box<dyn
     let mut gateway = services::Gateway::builder()
         .redis_host(redis.internal_proxy_host()?)
         .anvil_host(anvil.internal_proxy_host()?)
+        .dns_server(dns_ip)
         .build()?;
     gateway.start(proxy).await?;
     let anvil_external_rpc = anvil.external_rpc_url().unwrap_or_else(|| anvil.rpc_url());

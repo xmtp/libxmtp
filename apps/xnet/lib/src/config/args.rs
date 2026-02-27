@@ -38,7 +38,14 @@ pub enum Commands {
 #[derive(Subcommand, Debug, Copy, Clone)]
 pub enum Node {
     Add(AddNode),
-    Remove,
+    Remove(RemoveNode),
+}
+
+#[derive(Args, Debug, Copy, Clone)]
+pub struct RemoveNode {
+    /// Remove all migrator nodes and restart without migrator flags
+    #[arg(long)]
+    pub migrators: bool,
 }
 
 #[derive(Args, Debug, Copy, Clone)]

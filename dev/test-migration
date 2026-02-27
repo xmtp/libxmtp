@@ -1,0 +1,19 @@
+#!/bin/bash
+
+nix build .#xnet-cli
+nix build .#xdbg
+
+
+XDBG="nix run .#xdbg --"
+XNET="nix run .#xnet-cli --"
+
+$XNET delete
+$XNET up
+$XNET node add --migrator
+
+sleep 5
+
+$XDBG -m generate -e identity -a 10
+$XDBG -m generate -e group -a 1 --invite 10
+echo $XDBG export -e identity | jq -c '.[2].inbox_id'
+$XDBG -m generate -e message -a 5 --loop

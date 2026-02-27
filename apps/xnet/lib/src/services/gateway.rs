@@ -50,6 +50,9 @@ pub struct Gateway {
     #[builder(default = "anvil".to_string())]
     contracts_environment: String,
 
+    /// CoreDNS server IP for resolving *.xmtpd.local hostnames
+    dns_server: String,
+
     /// Log level
     #[builder(default = "debug".to_string())]
     log_level: String,
@@ -105,6 +108,7 @@ impl Gateway {
             api_port,
             log_level,
             reflection_enable,
+            dns_server,
             ..
         } = self;
 
@@ -134,6 +138,8 @@ impl Gateway {
             env: Some(env),
             host_config: Some(HostConfig {
                 network_mode: Some(XNET_NETWORK_NAME.to_string()),
+                // Use CoreDNS for DNS resolution so *.xmtpd.local resolves to Traefik
+                dns: Some(vec![dns_server.to_string()]),
                 ..Default::default()
             }),
             ..Default::default()
