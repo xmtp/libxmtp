@@ -7738,7 +7738,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0136791f7c95b1f6dd99f9cc786b91bb81c3800b639b3478e561ddb7be95e5f1"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.1",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -9792,7 +9792,7 @@ dependencies = [
  "futures-timer",
  "futures-util",
  "generic-array",
- "getrandom 0.3.4",
+ "getrandom 0.4.1",
  "hashbrown 0.15.5",
  "hashbrown 0.16.1",
  "hpke-rs 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -9907,6 +9907,7 @@ dependencies = [
  "pin-project",
  "proptest",
  "prost",
+ "regex",
  "rstest",
  "thiserror 2.0.17",
  "tokio",

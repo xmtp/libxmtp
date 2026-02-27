@@ -3,7 +3,7 @@ use prost::bytes::Bytes;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 use xmtp_common::{BoxDynError, MaybeSend, MaybeSync};
-use xmtp_proto::api::{ApiClientError, Client, IsConnectedCheck};
+use xmtp_proto::api::{ApiClientError, BytesStream, Client, IsConnectedCheck};
 
 #[cfg(not(test))]
 use xmtp_common::time::now_secs;
@@ -144,14 +144,14 @@ impl<C> AuthMiddleware<C> {
         }
         Ok(Some(arc_swap))
     }
-    async fn modify_request<E: std::error::Error>(
+    async fn modify_request(
         &self,
         mut request: http::request::Builder,
-    ) -> Result<http::request::Builder, ApiClientError<E>> {
+    ) -> Result<http::request::Builder, ApiClientError> {
         let maybe_credential = self
             .get_credential()
             .await
-            .map_err(ApiClientError::<E>::OtherUnretryable)?;
+            .map_err(ApiClientError::OtherUnretryable)?;
         if let Some(credential) = maybe_credential {
             let credential = credential.load();
             request = request.header(credential.name.clone(), credential.value.clone());
@@ -162,16 +162,12 @@ impl<C> AuthMiddleware<C> {
 
 #[xmtp_common::async_trait]
 impl<C: Client> Client for AuthMiddleware<C> {
-    type Error = C::Error;
-
-    type Stream = C::Stream;
-
     async fn request(
         &self,
         request: http::request::Builder,
         path: http::uri::PathAndQuery,
         body: Bytes,
-    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
+    ) -> Result<http::Response<Bytes>, ApiClientError> {
         let request = self.modify_request(request).await?;
         self.inner.request(request, path, body).await
     }
@@ -181,13 +177,9 @@ impl<C: Client> Client for AuthMiddleware<C> {
         request: http::request::Builder,
         path: http::uri::PathAndQuery,
         body: Bytes,
-    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
         let request = self.modify_request(request).await?;
         self.inner.stream(request, path, body).await
-    }
-
-    fn fake_stream(&self) -> http::Response<Self::Stream> {
-        self.inner.fake_stream()
     }
 }
 
@@ -244,17 +236,12 @@ mod tests {
 
     #[xmtp_common::async_trait]
     impl Client for TestClient {
-        type Error = core::convert::Infallible;
-        type Stream = futures::stream::Once<
-            core::pin::Pin<Box<dyn Future<Output = Result<Bytes, Self::Error>> + Send + Sync>>,
-        >;
-
         async fn request(
             &self,
             request: http::request::Builder,
             _path: http::uri::PathAndQuery,
             body: Bytes,
-        ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
+        ) -> Result<http::Response<Bytes>, ApiClientError> {
             let headers = request.headers_ref().unwrap();
             if let Some(expected_credential) = &self.expected_credential {
                 assert_eq!(
@@ -272,7 +259,7 @@ mod tests {
             request: http::request::Builder,
             _path: http::uri::PathAndQuery,
             body: Bytes,
-        ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
+        ) -> Result<http::Response<BytesStream>, ApiClientError> {
             let headers = request.headers_ref().unwrap();
             if let Some(expected_credential) = &self.expected_credential {
                 assert_eq!(
@@ -282,15 +269,9 @@ mod tests {
             } else {
                 assert!(headers.is_empty());
             }
-            Ok(http::Response::new(futures::stream::once(Box::pin(
-                async move { Ok::<_, Self::Error>(body) },
-            ))))
-        }
-
-        fn fake_stream(&self) -> http::Response<Self::Stream> {
-            http::Response::new(futures::stream::once(Box::pin(async move {
-                Ok::<_, Self::Error>(Default::default())
-            })))
+            Ok(http::Response::new(BytesStream::new(
+                futures::stream::once(Box::pin(async move { Ok(body) })),
+            )))
         }
     }
 

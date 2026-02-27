@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize, Serializer};
 use std::{
     fmt::{Debug, Display},
     ops::Deref,
@@ -69,9 +70,18 @@ impl TopicKind {
 
 /// A topic where the first byte is the kind
 /// https://github.com/xmtp/XIPs/blob/main/XIPs/xip-49-decentralized-backend.md#332-envelopes
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Topic {
+    #[serde(serialize_with = "to_hex")]
     inner: TopicBytes,
+}
+
+fn to_hex<S>(bytes: &TopicBytes, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&hex::encode(bytes.as_slice()))
 }
 
 impl Topic {

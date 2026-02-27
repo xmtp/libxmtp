@@ -88,7 +88,11 @@ async fn new_client_inner(
         .into_os_string()
         .into_string()
         .map_err(|_| eyre::eyre!("Conversion failed from OsString"))?;
-    let db = NativeDb::builder().persistent(path).build_unencrypted()?;
+    let db = NativeDb::builder()
+        .max_pool_size(2)
+        .min_pool_size(2)
+        .persistent(path)
+        .build_unencrypted()?;
     db.db().set_sqlcipher_log("NONE")?;
     let db = EncryptedMessageStore::new(db)?;
     let cursor_store = Arc::new(SqliteCursorStore::new(db.db()));
@@ -148,6 +152,8 @@ fn existing_client_inner(
     let path = db_path.clone().into_os_string().into_string().unwrap();
 
     let db = NativeDb::builder()
+        .max_pool_size(2)
+        .min_pool_size(2)
         .persistent(path)
         .build_unencrypted()
         .wrap_err(format!(

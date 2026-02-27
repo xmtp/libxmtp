@@ -235,8 +235,14 @@ pub async fn create_client(
   );
 
   backend.cursor_store(SqliteCursorStore::new(store.db()));
-  let api_client = backend.clone().build().map_err(ErrorWrapper::js)?;
-  let sync_api_client = backend.clone().build().map_err(ErrorWrapper::js)?;
+  let api_client = backend
+    .clone()
+    .build_optional_d14n()
+    .map_err(ErrorWrapper::js)?;
+  let sync_api_client = backend
+    .clone()
+    .build_optional_d14n()
+    .map_err(ErrorWrapper::js)?;
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
     .api_clients(api_client, sync_api_client)

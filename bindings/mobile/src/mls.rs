@@ -118,7 +118,16 @@ pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
 
 /// the opaque Xmtp Api Client for iOS/Android bindings
 #[derive(uniffi::Object, Clone)]
-pub struct XmtpApiClient(xmtp_mls::XmtpClientBundle);
+pub struct XmtpApiClient {
+    wrapper: ApiClientWrapper<xmtp_mls::XmtpApiClient>,
+    client_bundle: ClientBundle,
+}
+
+impl XmtpApiClient {
+    fn inner(&self) -> ApiClientWrapper<xmtp_mls::XmtpApiClient> {
+        self.wrapper.clone()
+    }
+}
 
 /// connect to the XMTP backend
 /// specifying `gateway_host` enables the D14n backend
@@ -146,10 +155,9 @@ pub async fn connect_to_backend(
         gateway_host,
         is_secure
     );
-    let mut backend = ClientBundle::builder();
-    let backend = backend
+    let mut client_bundle = ClientBundle::builder();
+    let client_bundle = client_bundle
         .v3_host(&v3_host)
-        .maybe_gateway_host(gateway_host)
         .app_version(app_version.clone().unwrap_or_default())
         .is_secure(is_secure)
         .maybe_auth_callback(
@@ -157,14 +165,27 @@ pub async fn connect_to_backend(
                 .map(|callback| Arc::new(gateway_auth::FfiAuthCallbackBridge::new(callback)) as _),
         )
         .readonly(matches!(client_mode, FfiClientMode::Notification))
-        .maybe_auth_handle(auth_handle.map(|handle| handle.as_ref().clone().into()))
-        .build()?;
-    Ok(Arc::new(XmtpApiClient(backend)))
+        .maybe_auth_handle(auth_handle.map(|handle| handle.as_ref().clone().into()));
+    // switch v3/d14n based on presence of gateway host to preserve
+    // previous behavior and avoid breaking changes
+    let client_bundle = if let Some(gw) = gateway_host {
+        client_bundle.gateway_host(gw).build_d14n()
+    } else {
+        client_bundle.build_v3()
+    }?;
+    let backend = MessageBackendBuilder::default().from_bundle(client_bundle.clone())?;
+    let api: ApiClientWrapper<xmtp_mls::XmtpApiClient> =
+        ApiClientWrapper::new(backend, strategies::exponential_cooldown());
+
+    Ok(Arc::new(XmtpApiClient {
+        wrapper: api,
+        client_bundle,
+    }))
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn is_connected(api: Arc<XmtpApiClient>) -> bool {
-    api.0.is_connected().await
+    api.wrapper.api_client.is_connected().await
 }
 
 /**
@@ -175,16 +196,13 @@ pub async fn inbox_state_from_inbox_ids(
     api: Arc<XmtpApiClient>,
     inbox_ids: Vec<String>,
 ) -> Result<Vec<FfiInboxState>, FfiError> {
-    let backend = MessageBackendBuilder::default().from_bundle(api.0.clone())?;
-    let api: ApiClientWrapper<xmtp_mls::XmtpApiClient> =
-        ApiClientWrapper::new(backend, strategies::exponential_cooldown());
-    let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
+    let scw_verifier = Arc::new(Box::new(api.inner()) as Box<dyn SmartContractSignatureVerifier>);
 
     let db = NativeDb::builder().ephemeral().build_unencrypted()?;
     let store = EncryptedMessageStore::new(db)?;
 
     let states = inbox_addresses_with_verifier(
-        &api.clone(),
+        &api.wrapper,
         &store.db(),
         inbox_ids.iter().map(String::as_str).collect(),
         &scw_verifier,
@@ -234,13 +252,12 @@ pub async fn get_newest_message_metadata(
     api: Arc<XmtpApiClient>,
     group_ids: Vec<Vec<u8>>,
 ) -> Result<HashMap<Vec<u8>, FfiMessageMetadata>, FfiError> {
-    let backend = MessageBackendBuilder::default().from_bundle(api.0.clone())?;
-    let api: ApiClientWrapper<xmtp_mls::XmtpApiClient> =
-        ApiClientWrapper::new(backend, strategies::exponential_cooldown());
-
     let group_id_refs: Vec<&[u8]> = group_ids.iter().map(|id| id.as_slice()).collect();
 
-    let metadata = api.get_newest_message_metadata(group_id_refs).await?;
+    let metadata = api
+        .wrapper
+        .get_newest_message_metadata(group_id_refs)
+        .await?;
 
     metadata
         .into_iter()
@@ -258,10 +275,7 @@ pub fn revoke_installations(
     inbox_id: &InboxId,
     installation_ids: Vec<Vec<u8>>,
 ) -> Result<Arc<FfiSignatureRequest>, FfiError> {
-    let backend = MessageBackendBuilder::default().from_bundle(api.0.clone())?;
-    let api: ApiClientWrapper<xmtp_mls::XmtpApiClient> =
-        ApiClientWrapper::new(backend, strategies::exponential_cooldown());
-    let scw_verifier = Arc::new(Box::new(api) as Box<dyn SmartContractSignatureVerifier>);
+    let scw_verifier = Arc::new(Box::new(api.inner()) as Box<dyn SmartContractSignatureVerifier>);
     let ident = recovery_identifier.try_into()?;
 
     let signature_request = revoke_installations_with_verifier(&ident, inbox_id, installation_ids)?;
@@ -280,12 +294,10 @@ pub async fn apply_signature_request(
     api: Arc<XmtpApiClient>,
     signature_request: Arc<FfiSignatureRequest>,
 ) -> Result<(), FfiError> {
-    let backend = MessageBackendBuilder::default().from_bundle(api.0.clone())?;
-    let api = ApiClientWrapper::new(backend, strategies::exponential_cooldown());
     let signature_request = signature_request.inner.lock().await;
-    let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
+    let scw_verifier = Arc::new(Box::new(api.inner()) as Box<dyn SmartContractSignatureVerifier>);
 
-    apply_signature_request_with_verifier(&api.clone(), signature_request.clone(), &scw_verifier)
+    apply_signature_request_with_verifier(&api.wrapper, signature_request.clone(), &scw_verifier)
         .await?;
 
     Ok(())
@@ -401,8 +413,8 @@ pub async fn create_client(
         legacy_signed_private_key_proto,
     );
 
-    let api_client: xmtp_mls::XmtpClientBundle = Arc::unwrap_or_clone(api).0;
-    let sync_api_client: xmtp_mls::XmtpClientBundle = Arc::unwrap_or_clone(sync_api).0;
+    let api_client: xmtp_mls::XmtpClientBundle = Arc::unwrap_or_clone(api).client_bundle;
+    let sync_api_client: xmtp_mls::XmtpClientBundle = Arc::unwrap_or_clone(sync_api).client_bundle;
     let cursor_store = Arc::new(SqliteCursorStore::new(store.db()));
     let mut backend = MessageBackendBuilder::default();
     backend.cursor_store(cursor_store);
@@ -448,12 +460,11 @@ pub async fn get_inbox_id_for_identifier(
     account_identifier: FfiIdentifier,
 ) -> Result<Option<String>, FfiError> {
     init_logger();
-    let backend = MessageBackendBuilder::default().from_bundle(api.0.clone())?;
-    let mut api = ApiClientWrapper::new(backend, strategies::exponential_cooldown());
     let account_identifier: Identifier = account_identifier.try_into()?;
     let api_identifier: ApiIdentifier = account_identifier.into();
 
     let results = api
+        .wrapper
         .get_inbox_ids(vec![api_identifier.clone()])
         .await
         .map_err(GenericError::from_error)?;

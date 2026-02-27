@@ -24,6 +24,7 @@ parking_lot.workspace = true
 pbjson-types.workspace = true
 pin-project.workspace = true
 prost.workspace = true
+regex.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true }
 tracing.workspace = true

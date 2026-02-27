@@ -6,10 +6,11 @@ use crate::{
     args::{self, BackendOpts, ExportOpts},
 };
 
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{OptionExt, Result};
 use serde::{Deserialize, Serialize};
 use std::{fs, io::Write, sync::Arc};
 use xmtp_cryptography::XmtpInstallationCredential;
+use xmtp_proto::types::Topic;
 
 use super::types::{Group, Identity};
 pub struct Export {
@@ -29,7 +30,7 @@ impl Export {
     }
 
     pub fn run(self) -> Result<()> {
-        use args::EntityKind::*;
+        use args::ExportEntityKind::*;
         let Export {
             opts,
             network,
@@ -45,27 +46,65 @@ impl Export {
         match entity {
             Identity => {
                 let store: IdentityStore = store.into();
-                if let Some(ids) = store.load(&network)? {
-                    let ids = ids
-                        .map(|i| IdentityExport::from(i.value()))
-                        .collect::<Vec<_>>();
-                    let json = serde_json::to_string(&ids)?;
-                    writer.write_all(json.as_bytes())?;
-                    writer.flush()?;
-                };
+                let ids = store.load(&network)?.ok_or_eyre("no ids in store")?;
+                let ids = ids
+                    .map(|i| IdentityExport::from(i.value()))
+                    .collect::<Vec<_>>();
+                let json = serde_json::to_string(&ids)?;
+                writer.write_all(json.as_bytes())?;
+                writer.flush()?;
             }
             Group => {
                 let store: GroupStore = store.into();
-                if let Some(groups) = store.load(&network)? {
-                    let groups = groups
-                        .map(|g| GroupExport::from(g.value()))
-                        .collect::<Vec<_>>();
-                    let json = serde_json::to_string(&groups)?;
-                    writer.write_all(json.as_bytes())?;
-                    writer.flush()?;
-                };
+                let groups = store.load(&network)?.ok_or_eyre("no groups in store")?;
+                let groups = groups
+                    .map(|g| GroupExport::from(g.value()))
+                    .collect::<Vec<_>>();
+                let json = serde_json::to_string(&groups)?;
+                writer.write_all(json.as_bytes())?;
+                writer.flush()?;
             }
             Message => todo!(),
+            IdentityTopics => {
+                let store: IdentityStore = store.into();
+                let ids = store.load(&network)?.ok_or_eyre("no identities in store")?;
+                let topics: Vec<Topic> = ids
+                    .map(|i| Topic::new_identity_update(&i.value().inbox_id))
+                    .collect();
+                let json = serde_json::to_string(&topics)?;
+                writer.write_all(json.as_bytes())?;
+                writer.flush()?;
+            }
+            GroupTopics => {
+                let store: GroupStore = store.into();
+                let groups = store.load(&network)?.ok_or_eyre("no groups in store")?;
+                let topics: Vec<Topic> = groups
+                    .map(|g| Topic::new_group_message(g.value().id))
+                    .collect();
+                let json = serde_json::to_string(&topics)?;
+                writer.write_all(json.as_bytes())?;
+                writer.flush()?;
+            }
+            KeyPackageTopics => {
+                let store: IdentityStore = store.into();
+                let ids = store.load(&network)?.ok_or_eyre("no identities in store")?;
+                let topics: Vec<Topic> = ids
+                    .map(|i| Topic::new_key_package(i.value().installation_key))
+                    .collect();
+                let json = serde_json::to_string(&topics)?;
+                writer.write_all(json.as_bytes())?;
+                writer.flush()?;
+            }
+            WelcomeMessageTopics => {
+                let store: IdentityStore = store.into();
+                let ids = store.load(&network)?.ok_or_eyre("no identities in store")?;
+                let topics: Vec<Topic> = ids
+                    .map(|i| Topic::new_welcome_message(i.value().installation_key.into()))
+                    .collect();
+                let json = serde_json::to_string(&topics)?;
+                writer.write_all(json.as_bytes())?;
+                writer.flush()?;
+            }
         }
         Ok(())
     }
