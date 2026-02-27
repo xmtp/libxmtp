@@ -15,6 +15,8 @@ use crate::d14n::FetchD14nCutover;
 use crate::protocol::CursorStore;
 use crate::protocol::FullXmtpApiArc;
 
+mod streams;
+
 type XmtpApiClient = FullXmtpApiArc<ApiClientError<GrpcError>>;
 
 #[derive(Clone)]
