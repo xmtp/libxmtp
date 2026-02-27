@@ -19,17 +19,21 @@ rustflags = [
   'target-feature=+bulk-memory,+mutable-globals',
 ]
 
+# Android targets: 16KB page alignment for Android 15+ compatibility.
+# Stack canary protection via -Z flag requires RUSTC_BOOTSTRAP=1 (set in CI).
+# TODO: Replace "-Zstack-protector=strong" with "-Cstack-protector=strong" once stabilized.
+# Tracking: https://github.com/rust-lang/rust/issues/114903
 [target.aarch64-linux-android]
-rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384"]
+rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384", "-Zstack-protector=strong"]
 
 [target.armv7-linux-androideabi]
-rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384"]
+rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384", "-Zstack-protector=strong"]
 
 [target.i686-linux-android]
-rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384"]
+rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384", "-Zstack-protector=strong"]
 
 [target.x86_64-linux-android]
-rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384"]
+rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384", "-Zstack-protector=strong"]
 
 # Codegen units can also be set if needed
 [profile.dev]

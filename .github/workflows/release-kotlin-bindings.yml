@@ -38,6 +38,16 @@ jobs:
         with:
           tool: cargo-ndk
       - name: Build target
+        env:
+          # Enable stack canary protection for C/C++ dependencies
+          CFLAGS_aarch64_linux_android: "-fstack-protector-strong"
+          CFLAGS_armv7_linux_androideabi: "-fstack-protector-strong"
+          CFLAGS_i686_linux_android: "-fstack-protector-strong"
+          CFLAGS_x86_64_linux_android: "-fstack-protector-strong"
+          # Enable stack canary protection for Rust code
+          # RUSTC_BOOTSTRAP=1 unlocks -Z flags on stable rustc.
+          # Remove once -C stack-protector is stabilized: https://github.com/rust-lang/rust/issues/114903
+          RUSTC_BOOTSTRAP: 1
         run: |
           cargo ndk --platform 23 -o bindings_ffi/jniLibs/ --manifest-path bindings_ffi/Cargo.toml -t ${{ matrix.target }} build --release
       - name: Prepare JNI libs
