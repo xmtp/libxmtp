@@ -1,15 +1,21 @@
-use crate::tasks::TaskWorkerChannels;
-use crate::{context::XmtpSharedContext, groups::device_sync::worker::SyncMetric};
+pub mod device_sync;
+pub mod disappearing_messages;
+pub mod key_package_cleaner;
+pub mod metrics;
+pub mod pending_self_remove;
+pub mod tasks;
+
+use crate::context::XmtpSharedContext;
+use device_sync::worker::SyncMetric;
 use futures::{StreamExt, stream::FuturesUnordered};
 use metrics::WorkerMetrics;
 use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::pin::Pin;
 use std::{any::Any, collections::HashMap, hash::Hash, sync::Arc};
+use tasks::TaskWorkerChannels;
 use xmtp_common::{MaybeSend, MaybeSync, StreamHandle, if_native, if_wasm, time::Duration};
 use xmtp_configuration::WORKER_RESTART_DELAY;
-
-pub mod metrics;
 
 #[derive(PartialEq, Eq, Copy, Clone, Hash, Debug)]
 pub enum WorkerKind {

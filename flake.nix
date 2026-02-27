@@ -1,5 +1,10 @@
 # Flake Shell for building release artifacts for swift and kotlin
 {
+  nixConfig = {
+    http-connections = 128;
+    max-substitution-jobs = 128;
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     fenix = {

@@ -97,4 +97,12 @@ pub mod xmtp {
             include!("xmtp.xmtpv4.payer_api.serde.rs");
         }
     }
+    pub mod migration {
+        pub mod api {
+            pub mod v1 {
+                include!("xmtp.migration.api.v1.rs");
+                include!("xmtp.migration.api.v1.serde.rs");
+            }
+        }
+    }
 }

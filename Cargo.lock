@@ -1328,6 +1328,7 @@ dependencies = [
  "const-hex",
  "futures",
  "js-sys",
+ "owo-colors",
  "pin-project",
  "prost",
  "serde",
@@ -2501,12 +2502,6 @@ dependencies = [
  "quote",
  "syn 2.0.111",
 ]
-
-[[package]]
-name = "dotenvy"
-version = "0.15.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "downcast"
@@ -4750,9 +4745,9 @@ dependencies = [
 
 [[package]]
 name = "keccak"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ecc2af9a1119c51f12a14607e783cb977bde58bc069ff0c3da1095e635d70654"
+checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
 dependencies = [
  "cpufeatures 0.2.17",
 ]
@@ -9728,25 +9723,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "xmtp-db-tools"
-version = "1.9.0"
-dependencies = [
- "anyhow",
- "clap",
- "const-hex",
- "diesel",
- "diesel_migrations",
- "dotenvy",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "xmtp-workspace-hack",
- "xmtp_common",
- "xmtp_db",
- "xmtp_mls",
-]
-
-[[package]]
 name = "xmtp-workspace-hack"
 version = "0.1.0"
 dependencies = [
@@ -9850,8 +9826,6 @@ dependencies = [
  "uniffi_bindgen",
  "uniffi_core",
  "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
  "winnow",
  "zerocopy",
 ]
@@ -9904,6 +9878,7 @@ dependencies = [
  "openmls",
  "openmls_rust_crypto",
  "parking_lot 0.12.5",
+ "pbjson-types",
  "pin-project",
  "proptest",
  "prost",

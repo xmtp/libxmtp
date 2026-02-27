@@ -13,6 +13,7 @@
 pub mod association_state;
 pub mod consent_record;
 pub mod conversation_list;
+pub mod d14n_migration_cutover;
 pub mod database;
 pub mod db_connection;
 pub mod group;
