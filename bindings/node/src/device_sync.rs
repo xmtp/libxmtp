@@ -4,7 +4,7 @@ use napi::bindgen_prelude::{BigInt, Result, Uint8Array};
 use napi_derive::napi;
 use std::sync::Arc;
 use xmtp_id::associations::DeserializationError;
-use xmtp_mls::groups::device_sync::{
+use xmtp_mls::worker::device_sync::{
   ArchiveOptions as XmtpArchiveOptions, AvailableArchive, BackupElementSelection, DeviceSyncError,
   archive::{
     ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter, insert_importer,

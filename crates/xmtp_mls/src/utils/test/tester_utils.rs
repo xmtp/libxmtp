@@ -1,17 +1,17 @@
 #![allow(unused)]
 
 use super::FullXmtpClient;
-use crate::groups::device_sync::{ArchiveOptions, BackupElementSelection};
+use crate::worker::{
+    device_sync::{ArchiveOptions, BackupElementSelection, worker::SyncMetric},
+    key_package_cleaner::KeyPackagesCleanerWorker,
+};
 use crate::{
     Client, MlsContext,
     builder::{ClientBuilder, DeviceSyncMode, ForkRecoveryOpts, ForkRecoveryPolicy},
     client::ClientError,
     context::XmtpSharedContext,
     cursor_store::SqliteCursorStore,
-    groups::{
-        GroupError, device_sync::worker::SyncMetric, intents::UpdateGroupMembershipResult,
-        key_package_cleaner_worker::KeyPackagesCleanerWorker,
-    },
+    groups::{GroupError, intents::UpdateGroupMembershipResult},
     identity::{Identity, IdentityStrategy, pq_key_package_references_key},
     identity_updates::load_identity_updates,
     subscriptions::SubscribeError,

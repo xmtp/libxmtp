@@ -1,7 +1,7 @@
 use crate::consent_state::Consent;
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
-use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate;
+use xmtp_mls::worker::device_sync::preference_sync::PreferenceUpdate;
 
 #[derive(Tsify, Serialize, Deserialize)]
 #[tsify(into_wasm_abi, from_wasm_abi)]

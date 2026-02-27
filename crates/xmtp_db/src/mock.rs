@@ -825,6 +825,18 @@ mock! {
 
         fn run_pending_migrations(&self) -> Result<Vec<String>, crate::ConnectionError>;
     }
+    impl crate::d14n_migration_cutover::QueryMigrationCutover for DbQuery {
+        fn get_migration_cutover(&self) -> Result<crate::d14n_migration_cutover::StoredMigrationCutover, StorageError>;
+
+        fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), StorageError>;
+
+        fn get_last_checked_ns(&self) -> Result<i64, StorageError>;
+
+        fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), StorageError>;
+
+        fn set_has_migrated(&self, has_migrated: bool) -> Result<(), StorageError>;
+    }
+
     impl crate::message_deletion::QueryMessageDeletion for DbQuery {
         fn get_message_deletion(
             &self,

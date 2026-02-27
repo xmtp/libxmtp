@@ -18,6 +18,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    d14n_migration_cutover (id) {
+        id -> Integer,
+        cutover_ns -> BigInt,
+        last_checked_ns -> BigInt,
+        has_migrated -> Bool,
+    }
+}
+
+diesel::table! {
     group_intents (id) {
         id -> Integer,
         kind -> Integer,
@@ -263,6 +272,7 @@ diesel::joinable!(message_deletions -> group_messages (id));
 diesel::allow_tables_to_appear_in_same_query!(
     association_state,
     consent_records,
+    d14n_migration_cutover,
     group_intents,
     group_messages,
     groups,

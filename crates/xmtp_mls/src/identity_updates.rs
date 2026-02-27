@@ -895,7 +895,7 @@ pub(crate) mod tests {
         use xmtp_common::assert_logged;
 
         use crate::{
-            groups::device_sync::DeviceSyncClient, utils::LocalTester,
+            utils::LocalTester, worker::device_sync::DeviceSyncClient,
             worker::metrics::WorkerMetrics,
         };
 

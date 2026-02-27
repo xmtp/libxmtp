@@ -8,7 +8,7 @@ use crate::{
     builder::DeviceSyncMode,
     client::DeviceSync,
     groups::{mls_sync::GroupMessageProcessingError, summary::ProcessSummary},
-    tasks::TaskWorkerChannels,
+    worker::tasks::TaskWorkerChannels,
 };
 
 use super::*;
