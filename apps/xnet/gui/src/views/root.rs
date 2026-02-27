@@ -414,6 +414,44 @@ impl RootView {
         .detach();
     }
 
+    fn action_reload_migrators(&mut self, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        if !actions::can_add_node(self.state.network_status) {
+            warn!("Cannot reload migrators: services are not running.");
+            cx.notify();
+            return;
+        }
+        self.busy = true;
+        info!("Reloading migrators (removing migrator mode)…");
+        cx.notify();
+
+        let result = Tokio::spawn(cx, actions::execute_reload_migrators());
+
+        cx.spawn(async |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = result.await?;
+            cx.update(|cx| {
+                let _ = this.update(cx, |view: &mut RootView, cx: &mut Context<RootView>| {
+                    view.busy = false;
+                    match result {
+                        Ok(()) => {
+                            info!("Migrators reloaded successfully.");
+                        }
+                        Err(msg) => {
+                            let msg = msg.to_string();
+                            view.state.last_error = Some(msg.clone());
+                            error!("{}", msg);
+                        }
+                    }
+                    cx.notify();
+                    Ok::<_, Error>(())
+                });
+            })
+        })
+        .detach();
+    }
+
     // -- Migration Action -----------------------------------------------------
 
     fn action_migrate(&mut self, cutover_offset: Option<String>, cx: &mut Context<Self>) {
@@ -643,6 +681,14 @@ impl RootView {
                 !can_add_node,
                 cx,
                 |view, _, _, cx| view.action_add_migrator(cx),
+            ))
+            .child(self.make_clickable_button(
+                "btn-reload-migrators",
+                "Reload Migrators",
+                ButtonVariant::Warning,
+                !can_add_node,
+                cx,
+                |view, _, _, cx| view.action_reload_migrators(cx),
             ))
             .child(self.make_clickable_button(
                 "btn-toxics",

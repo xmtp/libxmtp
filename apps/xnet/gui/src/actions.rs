@@ -139,6 +139,11 @@ pub async fn execute_add_migrator() -> Result<NodeInfo> {
     })
 }
 
+pub async fn execute_reload_migrators() -> Result<()> {
+    let mut mgr = ServiceManager::start().await?;
+    mgr.remove_migrators().await
+}
+
 /// Helper to check if an action can be executed based on current state.
 pub fn can_add_node(status: NetworkStatus) -> bool {
     status == NetworkStatus::Running

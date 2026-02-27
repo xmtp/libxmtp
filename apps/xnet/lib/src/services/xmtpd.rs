@@ -280,6 +280,7 @@ impl Xmtpd {
     pub fn proxy_port(&self) -> Option<u16> {
         self.container.proxy_port()
     }
+
 }
 
 #[async_trait]

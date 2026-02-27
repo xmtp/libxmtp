@@ -161,6 +161,17 @@ impl Grafana {
     pub const CONTAINER_NAME: &str = "xnet-grafana";
 }
 
+// --- PgAdmin ---
+
+pub struct PgAdmin;
+impl PgAdmin {
+    pub const IMAGE: &str = "dpage/pgadmin4";
+    pub const VERSION: &str = "latest";
+    pub const PORT: u16 = 80;
+    pub const EXTERNAL_PORT: u16 = 5050;
+    pub const CONTAINER_NAME: &str = "xnet-pgadmin";
+}
+
 // --- CoreDNS ---
 
 pub struct CoreDns;

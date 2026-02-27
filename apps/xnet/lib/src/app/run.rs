@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use crate::{
     app::service_manager::ServiceManager,
-    config::{AddNode, AppArgs, Node},
+    config::{AddNode, AppArgs, Node, RemoveNode},
     network::Network,
     services::{self, Service, ToxiProxy},
     types::XmtpdNode,
@@ -115,7 +115,14 @@ impl App {
                 Node::Add(add) => {
                     let _ = self.add_node(add).await?;
                 }
-                _ => todo!(),
+                Node::Remove(remove) => {
+                    if remove.migrators {
+                        let mut mgr = ServiceManager::start().await?;
+                        mgr.remove_migrators().await?;
+                    } else {
+                        eprintln!("No remove operation specified. Use --migrators to remove migrator nodes.");
+                    }
+                }
             },
             crate::config::Commands::Info(info) => self.info().await?,
             crate::config::Commands::Migrate(migrate) => {
