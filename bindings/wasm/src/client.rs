@@ -10,7 +10,7 @@ use tracing_subscriber::{filter, fmt::format::Pretty};
 use tsify::Tsify;
 use wasm_bindgen::{JsValue, prelude::*};
 use xmtp_api_d14n::MessageBackendBuilder;
-use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
+use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::DeviceSyncMode as XmtpDeviceSyncMode;
@@ -28,6 +28,7 @@ use crate::inbox_state::InboxState;
 pub type RustXmtpClient = MlsClient<xmtp_mls::MlsContext>;
 pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
 
+pub mod backend;
 pub mod gateway_auth;
 
 #[wasm_bindgen]
@@ -90,6 +91,31 @@ pub enum ClientMode {
   #[default]
   Default = 0,
   Notification = 1,
+}
+
+#[wasm_bindgen_numbered_enum]
+pub enum XmtpEnv {
+  Local = 0,
+  Dev = 1,
+  Production = 2,
+  TestnetStaging = 3,
+  TestnetDev = 4,
+  Testnet = 5,
+  Mainnet = 6,
+}
+
+impl From<XmtpEnv> for xmtp_configuration::XmtpEnv {
+  fn from(env: XmtpEnv) -> Self {
+    match env {
+      XmtpEnv::Local => Self::Local,
+      XmtpEnv::Dev => Self::Dev,
+      XmtpEnv::Production => Self::Production,
+      XmtpEnv::TestnetStaging => Self::TestnetStaging,
+      XmtpEnv::TestnetDev => Self::TestnetDev,
+      XmtpEnv::Testnet => Self::Testnet,
+      XmtpEnv::Mainnet => Self::Mainnet,
+    }
+  }
 }
 
 /// Specify options for the logger
@@ -170,6 +196,69 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
   Ok(())
 }
 
+pub(crate) async fn build_store(
+  db_path: Option<String>,
+  encryption_key: Option<Uint8Array>,
+) -> Result<EncryptedMessageStore<WasmDb>, JsError> {
+  let storage_option = match db_path {
+    Some(path) => StorageOption::Persistent(path),
+    None => StorageOption::Ephemeral,
+  };
+
+  if encryption_key.is_some() {
+    tracing::warn!("encryption_key is not supported in WASM and will be ignored");
+  }
+
+  let db = WasmDb::new(&storage_option).await?;
+  EncryptedMessageStore::new(db)
+    .map_err(|e| JsError::new(&format!("Error creating message store {e}")))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn create_client_inner(
+  api_client: xmtp_mls::XmtpApiClient,
+  sync_api_client: xmtp_mls::XmtpApiClient,
+  store: EncryptedMessageStore<WasmDb>,
+  inbox_id: String,
+  account_identifier: Identifier,
+  device_sync_worker_mode: Option<DeviceSyncMode>,
+  allow_offline: Option<bool>,
+  app_version: Option<String>,
+  nonce: u64,
+) -> Result<Client, JsError> {
+  let identity_strategy = IdentityStrategy::new(
+    inbox_id,
+    account_identifier.clone().try_into()?,
+    nonce,
+    None,
+  );
+
+  let mut builder = xmtp_mls::Client::builder(identity_strategy)
+    .api_clients(api_client, sync_api_client)
+    .enable_api_stats()?
+    .enable_api_debug_wrapper()?
+    .with_remote_verifier()?
+    .with_allow_offline(allow_offline)
+    .store(store);
+
+  if let Some(device_sync_worker_mode) = device_sync_worker_mode {
+    builder = builder.device_sync_worker_mode(device_sync_worker_mode.into());
+  }
+
+  let xmtp_client = builder
+    .default_mls_store()
+    .map_err(|e| JsError::new(&e.to_string()))?
+    .build()
+    .await
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+  Ok(Client {
+    account_identifier,
+    inner_client: Arc::new(xmtp_client),
+    app_version,
+  })
+}
+
 #[wasm_bindgen(js_name = createClient)]
 #[allow(clippy::too_many_arguments)]
 pub async fn create_client(
@@ -205,63 +294,25 @@ pub async fn create_client(
     .maybe_auth_callback(auth_callback.map(|c| Arc::new(c) as _))
     .maybe_auth_handle(auth_handle.map(|h| h.handle));
 
-  let storage_option = match db_path {
-    Some(path) => StorageOption::Persistent(path),
-    None => StorageOption::Ephemeral,
-  };
+  let store = build_store(db_path, encryption_key).await?;
 
-  let store = match encryption_key {
-    Some(key) => {
-      let key: Vec<u8> = key.to_vec();
-      let _key: EncryptionKey = key
-        .try_into()
-        .map_err(|_| JsError::new("Malformed 32 byte encryption key"))?;
-      let db = WasmDb::new(&storage_option).await?;
-      EncryptedMessageStore::new(db)
-        .map_err(|e| JsError::new(&format!("Error creating encrypted message store {e}")))?
-    }
-    None => {
-      let db = WasmDb::new(&storage_option).await?;
-      EncryptedMessageStore::new(db)
-        .map_err(|e| JsError::new(&format!("Error creating unencrypted message store {e}")))?
-    }
-  };
-
-  let identity_strategy = IdentityStrategy::new(
-    inbox_id.clone(),
-    account_identifier.clone().try_into()?,
-    nonce.unwrap_or(1),
-    None,
-  );
-
-  backend.cursor_store(SqliteCursorStore::new(store.db()));
+  let cursor_store = SqliteCursorStore::new(store.db());
+  backend.cursor_store(cursor_store);
   let api_client = backend.clone().build().map_err(ErrorWrapper::js)?;
   let sync_api_client = backend.clone().build().map_err(ErrorWrapper::js)?;
 
-  let mut builder = xmtp_mls::Client::builder(identity_strategy)
-    .api_clients(api_client, sync_api_client)
-    .enable_api_stats()?
-    .enable_api_debug_wrapper()?
-    .with_remote_verifier()?
-    .with_allow_offline(allow_offline)
-    .store(store);
-
-  if let Some(device_sync_worker_mode) = device_sync_worker_mode {
-    builder = builder.device_sync_worker_mode(device_sync_worker_mode.into());
-  }
-
-  let xmtp_client = builder
-    .default_mls_store()
-    .map_err(ErrorWrapper::js)?
-    .build()
-    .await
-    .map_err(ErrorWrapper::js)?;
-
-  Ok(Client {
+  create_client_inner(
+    api_client,
+    sync_api_client,
+    store,
+    inbox_id,
     account_identifier,
-    inner_client: Arc::new(xmtp_client),
+    device_sync_worker_mode,
+    allow_offline,
     app_version,
-  })
+    nonce.unwrap_or(1),
+  )
+  .await
 }
 
 #[wasm_bindgen]

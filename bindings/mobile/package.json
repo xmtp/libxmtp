@@ -1,0 +1,18 @@
+{
+  "name": "@xmtp/mobile",
+  "version": "1.0.0",
+  "description": "This crate provides cross-platform Uniffi bindings for XMTP v3.",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "directories": {
+    "example": "examples"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "koffi": "^2.15.1"
+  }
+}

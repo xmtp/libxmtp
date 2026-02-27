@@ -1,5 +1,6 @@
 use crate::ErrorWrapper;
 use crate::client::Client;
+use crate::client::backend::Backend;
 use crate::client::gateway_auth::{AuthCallback, AuthHandle};
 use crate::client::options::{ClientMode, LogOptions, SyncWorkerMode};
 use crate::identity::Identifier;
@@ -11,6 +12,7 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_configuration::{MAX_DB_POOL_SIZE, MIN_DB_POOL_SIZE};
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb};
+use xmtp_mls::XmtpApiClient;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::identity::IdentityStrategy;
 
@@ -69,44 +71,7 @@ impl DbOptions {
   }
 }
 
-/**
- * Create a client.
- *
- * Optionally specify a filter for the log level as a string.
- * It can be one of: `debug`, `info`, `warn`, `error` or 'off'.
- * By default, logging is disabled.
- */
-#[allow(clippy::too_many_arguments)]
-#[napi]
-pub async fn create_client(
-  v3_host: String,
-  gateway_host: Option<String>,
-  is_secure: bool,
-  db: DbOptions,
-  inbox_id: String,
-  account_identifier: Identifier,
-  device_sync_worker_mode: Option<SyncWorkerMode>,
-  log_options: Option<LogOptions>,
-  allow_offline: Option<bool>,
-  app_version: Option<String>,
-  nonce: Option<BigInt>,
-  auth_callback: Option<&AuthCallback>,
-  auth_handle: Option<&AuthHandle>,
-  client_mode: Option<ClientMode>,
-) -> Result<Client> {
-  let client_mode = client_mode.unwrap_or_default();
-  let root_identifier = account_identifier.clone();
-  init_logging(log_options.unwrap_or_default())?;
-  let mut backend = MessageBackendBuilder::default();
-  backend
-    .v3_host(&v3_host)
-    .maybe_gateway_host(gateway_host)
-    .readonly(matches!(client_mode, ClientMode::Notification))
-    .maybe_auth_callback(auth_callback.map(|c| Arc::new(c.clone()) as _))
-    .maybe_auth_handle(auth_handle.map(|h| h.clone().into()))
-    .app_version(app_version.clone().unwrap_or_default())
-    .is_secure(is_secure);
-
+fn build_store(db: DbOptions) -> Result<EncryptedMessageStore<NativeDb>> {
   let DbOptions {
     db_path,
     encryption_key,
@@ -142,9 +107,12 @@ pub async fn create_client(
     db.build_unencrypted()
   }
   .map_err(ErrorWrapper::from)?;
-  let store = EncryptedMessageStore::new(db).map_err(ErrorWrapper::from)?;
 
-  let nonce = match nonce {
+  Ok(EncryptedMessageStore::new(db).map_err(ErrorWrapper::from)?)
+}
+
+fn parse_nonce(nonce: Option<BigInt>) -> Result<u64> {
+  match nonce {
     Some(n) => {
       let (signed, value, lossless) = n.get_u64();
       if signed {
@@ -153,23 +121,27 @@ pub async fn create_client(
       if !lossless {
         return Err(Error::from_reason("`nonce` is too large"));
       }
-      value
+      Ok(value)
     }
-    None => 1,
-  };
-  let internal_account_identifier = account_identifier.clone().try_into()?;
-  let identity_strategy = IdentityStrategy::new(
-    inbox_id.clone(),
-    internal_account_identifier,
-    // this is a temporary solution
-    nonce,
-    None,
-  );
+    None => Ok(1),
+  }
+}
 
-  let cursor_store = SqliteCursorStore::new(store.db());
-  backend.cursor_store(cursor_store);
-  let api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
-  let sync_api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
+#[allow(clippy::too_many_arguments)]
+async fn create_client_inner(
+  api_client: XmtpApiClient,
+  sync_api_client: XmtpApiClient,
+  store: EncryptedMessageStore<NativeDb>,
+  inbox_id: String,
+  account_identifier: Identifier,
+  device_sync_worker_mode: Option<SyncWorkerMode>,
+  allow_offline: Option<bool>,
+  app_version: Option<String>,
+  nonce: u64,
+) -> Result<Client> {
+  let root_identifier = account_identifier.clone();
+  let internal_account_identifier = account_identifier.try_into()?;
+  let identity_strategy = IdentityStrategy::new(inbox_id, internal_account_identifier, nonce, None);
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
     .api_clients(api_client, sync_api_client)
@@ -198,4 +170,110 @@ pub async fn create_client(
     account_identifier: root_identifier,
     app_version,
   })
+}
+
+/**
+ * Create a client.
+ *
+ * Optionally specify a filter for the log level as a string.
+ * It can be one of: `debug`, `info`, `warn`, `error` or 'off'.
+ * By default, logging is disabled.
+ */
+#[allow(clippy::too_many_arguments)]
+#[napi]
+pub async fn create_client(
+  v3_host: String,
+  gateway_host: Option<String>,
+  is_secure: bool,
+  db: DbOptions,
+  inbox_id: String,
+  account_identifier: Identifier,
+  device_sync_worker_mode: Option<SyncWorkerMode>,
+  log_options: Option<LogOptions>,
+  allow_offline: Option<bool>,
+  app_version: Option<String>,
+  nonce: Option<BigInt>,
+  auth_callback: Option<&AuthCallback>,
+  auth_handle: Option<&AuthHandle>,
+  client_mode: Option<ClientMode>,
+) -> Result<Client> {
+  let client_mode = client_mode.unwrap_or_default();
+  init_logging(log_options.unwrap_or_default())?;
+
+  let mut backend = MessageBackendBuilder::default();
+  backend
+    .v3_host(&v3_host)
+    .maybe_gateway_host(gateway_host)
+    .readonly(matches!(client_mode, ClientMode::Notification))
+    .maybe_auth_callback(auth_callback.map(|c| Arc::new(c.clone()) as _))
+    .maybe_auth_handle(auth_handle.map(|h| h.clone().into()))
+    .app_version(app_version.clone().unwrap_or_default())
+    .is_secure(is_secure);
+
+  let store = build_store(db)?;
+  let nonce = parse_nonce(nonce)?;
+
+  let cursor_store = SqliteCursorStore::new(store.db());
+  backend.cursor_store(cursor_store);
+  let api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
+  let sync_api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
+
+  create_client_inner(
+    api_client,
+    sync_api_client,
+    store,
+    inbox_id,
+    account_identifier,
+    device_sync_worker_mode,
+    allow_offline,
+    app_version,
+    nonce,
+  )
+  .await
+}
+
+/// Create a client from a pre-built Backend.
+///
+/// The Backend encapsulates all API configuration (env, hosts, auth, TLS).
+/// This function only needs identity and database configuration.
+#[allow(clippy::too_many_arguments)]
+#[napi]
+pub async fn create_client_with_backend(
+  backend: &Backend,
+  db: DbOptions,
+  inbox_id: String,
+  account_identifier: Identifier,
+  device_sync_worker_mode: Option<SyncWorkerMode>,
+  log_options: Option<LogOptions>,
+  allow_offline: Option<bool>,
+  nonce: Option<BigInt>,
+) -> Result<Client> {
+  init_logging(log_options.unwrap_or_default())?;
+
+  let store = build_store(db)?;
+  let nonce = parse_nonce(nonce)?;
+
+  let cursor_store = SqliteCursorStore::new(store.db());
+  let mut mbb = MessageBackendBuilder::default();
+  mbb.cursor_store(cursor_store);
+  let api_client = mbb
+    .clone()
+    .from_bundle(backend.bundle.clone())
+    .map_err(ErrorWrapper::from)?;
+  let sync_api_client = mbb
+    .from_bundle(backend.bundle.clone())
+    .map_err(ErrorWrapper::from)?;
+
+  create_client_inner(
+    api_client,
+    sync_api_client,
+    store,
+    inbox_id,
+    account_identifier,
+    device_sync_worker_mode,
+    allow_offline,
+    Some(backend.app_version()),
+    nonce,
+  )
+  .await
 }
