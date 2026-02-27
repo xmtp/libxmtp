@@ -45,7 +45,11 @@ public struct ConsentRecord: Codable, Hashable {
 	}
 }
 
-/// Provides access to contact bundles.
+/// Manages consent state and user preferences for conversations and contacts.
+///
+/// Use this actor to allow or deny conversations and inbox IDs,
+/// query current consent state, and stream real-time consent updates
+/// that sync across all devices associated with this account.
 public actor PrivatePreferences {
 	var client: Client
 	var ffiClient: FfiXmtpClient
@@ -79,6 +83,10 @@ public actor PrivatePreferences {
 		try await ffiClient.syncPreferences()
 	}
 
+	/// Syncs consent state from the network.
+	///
+	/// - Note: Deprecated. Use ``sync()`` instead, which syncs all preferences
+	///   (not just consent state).
 	@available(
 		*, deprecated,
 		message: "syncConsent is deprecated. Use `sync()` instead."

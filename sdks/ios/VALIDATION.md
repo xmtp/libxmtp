@@ -74,7 +74,7 @@ The following FFI method names changed and required iOS SDK updates:
 ### docs-ios.yaml
 
 - [x] Path filters set correctly
-- [x] Jazzy generation configured
+- [x] DocC generation configured
 
 ## Notes
 
