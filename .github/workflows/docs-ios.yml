@@ -66,18 +66,20 @@ jobs:
             --transform-for-static-hosting \
             --hosting-base-path api-ref/ios
 
-      # Add Vercel SPA routing config
-      - name: Configure Vercel routing
+      # Restructure output to match hosting base path
+      - name: Prepare deploy directory
         if: inputs.update-latest || inputs.version
         run: |
-          echo '{ "rewrites": [{ "source": "/(.*)", "destination": "/" }] }' > .build/docs/vercel.json
+          mkdir -p .build/deploy/api-ref/ios
+          cp -r .build/docs/* .build/deploy/api-ref/ios/
+          echo '{ "rewrites": [{ "source": "/api-ref/ios/(.*)", "destination": "/api-ref/ios/index.html" }] }' > .build/deploy/vercel.json
 
       # Deploy to Vercel
       - name: Deploy to Vercel
         if: inputs.update-latest || inputs.version
         run: |
           npm install -g vercel
-          vercel deploy .build/docs --prod --token $VERCEL_TOKEN
+          vercel deploy .build/deploy --prod --token $VERCEL_TOKEN
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
