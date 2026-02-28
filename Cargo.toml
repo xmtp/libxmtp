@@ -1,7 +1,8 @@
 [workspace]
 members = [
   # Applications
-  "apps/[!android]*",
+  "apps/[!(android|xnet)]*",
+  "apps/xnet/*",
   # Bindings
   "bindings/*",
   # Core crates
@@ -12,12 +13,12 @@ members = [
 
 default-members = [
   # Applications
-  "apps/[!(android)]*",
-  # Bindings
+  "apps/[!(android|xnet)]*",
+  # Bindings (excluding wasm - only for wasm32 target)
   "bindings/*",
   # Core crates
   "crates/*",
-] # Used when cargo commands in the workspace root, such as `cargo test`, are run without flags.
+]
 # Excludes `bindings/wasm` by default, since those bindings only build for the WASM target.
 
 # Make the feature resolver explicit.
@@ -54,6 +55,7 @@ derive_builder = "0.20"
 diesel = { version = "2.3", default-features = false }
 diesel_migrations = { version = "2.2", default-features = false }
 dyn-clone = "1"
+ecdsa = "0.16"
 ed25519-dalek = { version = "2.2", features = ["zeroize"] }
 fdlimit = "0.3"
 futures = { version = "0.3.30", default-features = false }
@@ -126,6 +128,7 @@ vergen-gix = "9.1"
 # zstd = { default-features = false, version = "0.13" } # needed to enable wasm feature for async-compression
 
 # Any changes here need to be made with corresponding changes in .github/workflows
+clap-verbosity-flag = { version = "3.0", features = ["tracing"] }
 http-body-util = { version = "0.1" }
 smallvec = { version = "1.15", features = ["union"] }
 time = "0.3.47"
@@ -154,6 +157,9 @@ xmtp_macro = { path = "crates/xmtp_macro" }
 xmtp_mls = { path = "crates/xmtp_mls" }
 xmtp_mls_common = { path = "crates/xmtp_mls_common" }
 xmtp_proto = { path = "crates/xmtp_proto" }
+xnet-cli = { path = "apps/xnet/cli" }
+xnet-gui = { path = "apps/xnet/gui" }
+xnet-lib = { path = "apps/xnet/lib" }
 
 [profile.dbg]
 debug = true

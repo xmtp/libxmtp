@@ -18,6 +18,7 @@ license.workspace = true
 [dependencies]
 aead = { version = "0.5", default-features = false, features = ["getrandom", "std"] }
 aes-gcm = { version = "0.10", features = ["std"] }
+aho-corasick = { version = "1" }
 alloy = { version = "1", default-features = false, features = ["contract", "provider-anvil-node", "rand", "reqwest-rustls-tls", "signer-mnemonic"] }
 alloy-core = { version = "1", default-features = false, features = ["dyn-abi", "json-abi", "rand", "rlp"] }
 alloy-json-abi = { version = "1", default-features = false, features = ["serde_json", "std"] }
@@ -28,12 +29,17 @@ alloy-signer-local = { version = "1", default-features = false, features = ["mne
 alloy-sol-type-parser = { version = "1", default-features = false, features = ["serde", "std"] }
 alloy-sol-types = { version = "1", default-features = false, features = ["json", "std"] }
 alloy-transport-http = { version = "1", default-features = false, features = ["reqwest", "reqwest-rustls-tls"] }
+arrayvec = { version = "0.7", features = ["serde"] }
+async-compression = { version = "0.4", default-features = false, features = ["deflate", "deflate64", "futures-io", "gzip", "zstd"] }
+bitflags = { version = "2", default-features = false, features = ["std"] }
+bstr = { version = "1" }
 bytes = { version = "1", features = ["serde"] }
 camino = { version = "1", default-features = false, features = ["serde1"] }
 chrono = { version = "0.4", features = ["serde"] }
 cipher = { version = "0.4", default-features = false, features = ["zeroize"] }
 clap = { version = "4", features = ["derive"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "help", "std", "suggestions", "usage"] }
+compression-codecs = { version = "0.4", default-features = false, features = ["deflate", "deflate64", "gzip", "zstd"] }
 const-hex = { version = "1", features = ["core-error", "serde"] }
 crypto-common = { version = "0.1", default-features = false, features = ["getrandom", "std"] }
 derive_more = { version = "2", default-features = false, features = ["add", "add_assign", "as_ref", "deref", "deref_mut", "display", "from", "from_str", "index", "index_mut", "into", "into_iterator", "not", "std"] }
@@ -50,19 +56,24 @@ futures-io = { version = "0.3" }
 futures-timer = { version = "3", default-features = false, features = ["wasm-bindgen"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 generic-array = { version = "0.14", default-features = false, features = ["more_lengths", "zeroize"] }
+half = { version = "2", features = ["num-traits"] }
 hashbrown-3575ec1268b04181 = { package = "hashbrown", version = "0.15" }
 hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16", features = ["serde"] }
+hex = { version = "0.4", features = ["serde"] }
 hpke-rs = { version = "0.4", features = ["hazmat", "libcrux", "serialization"] }
+hyper-dff4ba8e3ae991db = { package = "hyper", version = "1", features = ["client", "http1"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
-itertools = { version = "0.14" }
+itertools-582f2526e08bb6a0 = { package = "itertools", version = "0.14" }
 js-sys = { version = "0.3" }
 k256 = { version = "0.13", features = ["ecdh"] }
 libcrux-ed25519 = { version = "0.0.4", default-features = false, features = ["rand"] }
-log = { version = "0.4", default-features = false, features = ["std"] }
+log = { version = "0.4", default-features = false, features = ["kv_unstable_serde"] }
 memchr = { version = "2" }
+mime_guess = { version = "2" }
+miniz_oxide = { version = "0.8", features = ["simd"] }
 nu-ansi-term = { version = "0.50" }
-num-traits = { version = "0.2", features = ["libm"] }
+num-traits = { version = "0.2", features = ["i128", "libm"] }
 openmls = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", default-features = false, features = ["test-utils"] }
 openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", default-features = false, features = ["clonable", "test-utils"] }
 openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", default-features = false, features = ["test-utils"] }
@@ -70,12 +81,16 @@ openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "beb0884d
 openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", features = ["test-utils"] }
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
-rand = { version = "0.9", features = ["serde"] }
+phf_shared = { version = "0.11" }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+rand-274715c4dabd11b0 = { package = "rand", version = "0.9", features = ["serde"] }
+rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8", features = ["small_rng"] }
 rand_chacha-274715c4dabd11b0 = { package = "rand_chacha", version = "0.9" }
 rand_chacha-468e82937335b1c9 = { package = "rand_chacha", version = "0.3" }
-rand_core = { version = "0.9", default-features = false, features = ["os_rng", "serde", "std"] }
+rand_core-274715c4dabd11b0 = { package = "rand_core", version = "0.9", default-features = false, features = ["os_rng", "serde", "std"] }
+rand_core-3b31131e45eafb45 = { package = "rand_core", version = "0.6", default-features = false, features = ["std"] }
 regex = { version = "1" }
-regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
+regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa", "perf", "std", "unicode"] }
 regex-syntax = { version = "0.8" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 ruint = { version = "1", default-features = false, features = ["alloy-rlp", "rand-09", "serde", "std"] }
@@ -84,12 +99,16 @@ semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value", "unbounded_depth"] }
+serde_spanned = { version = "1", default-features = false, features = ["serde", "std"] }
 sha1 = { version = "0.10", features = ["compress"] }
+simd-adler32 = { version = "0.3" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union", "write"] }
+strum = { version = "0.27", features = ["derive"] }
 sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
 time = { version = "0.3", features = ["formatting", "local-offset", "parsing"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["codec", "compat", "io"] }
+toml = { version = "0.9" }
 toml_datetime = { version = "0.7", features = ["serde"] }
 toml_parser = { version = "1" }
 tonic = { version = "0.14", default-features = false, features = ["codegen"] }
@@ -100,6 +119,7 @@ tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter", "jso
 uniffi = { version = "0.29", features = ["bindgen-tests", "build", "tokio"] }
 uniffi_bindgen = { version = "0.29", features = ["bindgen-tests"] }
 uniffi_core = { version = "0.29", features = ["tokio"] }
+uuid = { version = "1", features = ["fast-rng", "serde", "v4", "v5", "v7"] }
 wasm-bindgen = { version = "0.2" }
 winnow = { version = "0.7", features = ["simd"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
@@ -107,6 +127,7 @@ zerocopy = { version = "0.8", default-features = false, features = ["derive", "s
 [build-dependencies]
 aead = { version = "0.5", default-features = false, features = ["getrandom", "std"] }
 aes-gcm = { version = "0.10", features = ["std"] }
+aho-corasick = { version = "1" }
 alloy = { version = "1", default-features = false, features = ["contract", "provider-anvil-node", "rand", "reqwest-rustls-tls", "signer-mnemonic"] }
 alloy-core = { version = "1", default-features = false, features = ["dyn-abi", "json-abi", "rand", "rlp"] }
 alloy-json-abi = { version = "1", default-features = false, features = ["serde_json", "std"] }
@@ -120,12 +141,18 @@ alloy-sol-macro-input = { version = "1", default-features = false, features = ["
 alloy-sol-type-parser = { version = "1", default-features = false, features = ["serde", "std"] }
 alloy-sol-types = { version = "1", default-features = false, features = ["json", "std"] }
 alloy-transport-http = { version = "1", default-features = false, features = ["reqwest", "reqwest-rustls-tls"] }
+arrayvec = { version = "0.7", features = ["serde"] }
+async-compression = { version = "0.4", default-features = false, features = ["deflate", "deflate64", "futures-io", "gzip", "zstd"] }
+bitflags = { version = "2", default-features = false, features = ["std"] }
+bstr = { version = "1" }
 bytes = { version = "1", features = ["serde"] }
 camino = { version = "1", default-features = false, features = ["serde1"] }
+cc = { version = "1", default-features = false, features = ["parallel"] }
 chrono = { version = "0.4", features = ["serde"] }
 cipher = { version = "0.4", default-features = false, features = ["zeroize"] }
 clap = { version = "4", features = ["derive"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "help", "std", "suggestions", "usage"] }
+compression-codecs = { version = "0.4", default-features = false, features = ["deflate", "deflate64", "gzip", "zstd"] }
 const-hex = { version = "1", features = ["core-error", "serde"] }
 crypto-common = { version = "0.1", default-features = false, features = ["getrandom", "std"] }
 derive_more = { version = "2", default-features = false, features = ["add", "add_assign", "as_ref", "deref", "deref_mut", "display", "from", "from_str", "index", "index_mut", "into", "into_iterator", "not", "std"] }
@@ -142,19 +169,24 @@ futures-io = { version = "0.3" }
 futures-timer = { version = "3", default-features = false, features = ["wasm-bindgen"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 generic-array = { version = "0.14", default-features = false, features = ["more_lengths", "zeroize"] }
+half = { version = "2", features = ["num-traits"] }
 hashbrown-3575ec1268b04181 = { package = "hashbrown", version = "0.15" }
 hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16", features = ["serde"] }
+hex = { version = "0.4", features = ["serde"] }
 hpke-rs = { version = "0.4", features = ["hazmat", "libcrux", "serialization"] }
+hyper-dff4ba8e3ae991db = { package = "hyper", version = "1", features = ["client", "http1"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
-itertools = { version = "0.14" }
+itertools-582f2526e08bb6a0 = { package = "itertools", version = "0.14" }
 js-sys = { version = "0.3" }
 k256 = { version = "0.13", features = ["ecdh"] }
 libcrux-ed25519 = { version = "0.0.4", default-features = false, features = ["rand"] }
-log = { version = "0.4", default-features = false, features = ["std"] }
+log = { version = "0.4", default-features = false, features = ["kv_unstable_serde"] }
 memchr = { version = "2" }
+mime_guess = { version = "2" }
+miniz_oxide = { version = "0.8", features = ["simd"] }
 nu-ansi-term = { version = "0.50" }
-num-traits = { version = "0.2", features = ["libm"] }
+num-traits = { version = "0.2", features = ["i128", "libm"] }
 openmls = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", default-features = false, features = ["test-utils"] }
 openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", default-features = false, features = ["clonable", "test-utils"] }
 openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", default-features = false, features = ["test-utils"] }
@@ -162,13 +194,16 @@ openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "beb0884d
 openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "beb0884db264075aef271b96efbd7e9d102ee374", features = ["test-utils"] }
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
+phf_shared = { version = "0.11" }
 proc-macro2 = { version = "1", features = ["span-locations"] }
-rand = { version = "0.9", features = ["serde"] }
+rand-274715c4dabd11b0 = { package = "rand", version = "0.9", features = ["serde"] }
+rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8", features = ["small_rng"] }
 rand_chacha-274715c4dabd11b0 = { package = "rand_chacha", version = "0.9" }
 rand_chacha-468e82937335b1c9 = { package = "rand_chacha", version = "0.3" }
-rand_core = { version = "0.9", default-features = false, features = ["os_rng", "serde", "std"] }
+rand_core-274715c4dabd11b0 = { package = "rand_core", version = "0.9", default-features = false, features = ["os_rng", "serde", "std"] }
+rand_core-3b31131e45eafb45 = { package = "rand_core", version = "0.6", default-features = false, features = ["std"] }
 regex = { version = "1" }
-regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
+regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa", "perf", "std", "unicode"] }
 regex-syntax = { version = "0.8" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 ruint = { version = "1", default-features = false, features = ["alloy-rlp", "rand-09", "serde", "std"] }
@@ -177,13 +212,17 @@ semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value", "unbounded_depth"] }
+serde_spanned = { version = "1", default-features = false, features = ["serde", "std"] }
 sha1 = { version = "0.10", features = ["compress"] }
+simd-adler32 = { version = "0.3" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union", "write"] }
+strum = { version = "0.27", features = ["derive"] }
 syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
 time = { version = "0.3", features = ["formatting", "local-offset", "parsing"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["codec", "compat", "io"] }
+toml = { version = "0.9" }
 toml_datetime = { version = "0.7", features = ["serde"] }
 toml_parser = { version = "1" }
 tonic = { version = "0.14", default-features = false, features = ["codegen"] }
@@ -194,42 +233,87 @@ tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter", "jso
 uniffi = { version = "0.29", features = ["bindgen-tests", "build", "tokio"] }
 uniffi_bindgen = { version = "0.29", features = ["bindgen-tests"] }
 uniffi_core = { version = "0.29", features = ["tokio"] }
+uuid = { version = "1", features = ["fast-rng", "serde", "v4", "v5", "v7"] }
 wasm-bindgen = { version = "0.2" }
 winnow = { version = "0.7", features = ["simd"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
-bitflags = { version = "2", default-features = false, features = ["std"] }
+aes = { version = "0.8", default-features = false, features = ["zeroize"] }
+bit-set = { version = "0.8" }
+bit-vec = { version = "0.8" }
 byteorder = { version = "1" }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+cipher = { version = "0.4", default-features = false, features = ["block-padding", "rand_core"] }
+codespan-reporting = { version = "0.12" }
+getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["js", "rdrand", "std"] }
+getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+hyper-582f2526e08bb6a0 = { package = "hyper", version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
+inout = { version = "0.1", default-features = false, features = ["block-padding"] }
+lazy_static = { version = "1", default-features = false, features = ["spin_no_std"] }
+libc = { version = "0.2", features = ["extra_traits"] }
+linux-raw-sys = { version = "0.11", default-features = false, features = ["auxvec", "elf", "errno", "general", "if_ether", "ioctl", "net", "netlink", "no_std", "prctl", "system", "xdp"] }
+naga = { version = "25", features = ["spv-out", "wgsl-in"] }
+object = { version = "0.37", default-features = false, features = ["read", "std"] }
+rustix = { version = "1", features = ["event", "net", "pipe", "process", "shm", "system", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+spin = { version = "0.9" }
+subtle = { version = "2" }
+syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
+tiny-keccak = { version = "2", features = ["keccak", "shake"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-native-roots", "tls-ring", "tls-webpki-roots"] }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
+zvariant = { version = "5", features = ["enumflags2", "gvariant", "url"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
-bitflags = { version = "2", default-features = false, features = ["std"] }
+aes = { version = "0.8", default-features = false, features = ["zeroize"] }
+bit-set = { version = "0.8" }
+bit-vec = { version = "0.8" }
 byteorder = { version = "1" }
-cc = { version = "1", default-features = false, features = ["parallel"] }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+cipher = { version = "0.4", default-features = false, features = ["block-padding", "rand_core"] }
+codespan-reporting = { version = "0.12" }
+getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["js", "rdrand", "std"] }
+getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+hyper-582f2526e08bb6a0 = { package = "hyper", version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
+inout = { version = "0.1", default-features = false, features = ["block-padding"] }
+lazy_static = { version = "1", default-features = false, features = ["spin_no_std"] }
+libc = { version = "0.2", features = ["extra_traits"] }
+linux-raw-sys = { version = "0.11", default-features = false, features = ["auxvec", "elf", "errno", "general", "if_ether", "ioctl", "net", "netlink", "no_std", "prctl", "system", "xdp"] }
+naga = { version = "25", features = ["spv-out", "wgsl-in"] }
+object = { version = "0.37", default-features = false, features = ["read", "std"] }
+rustix = { version = "1", features = ["event", "net", "pipe", "process", "shm", "system", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+spin = { version = "0.9" }
+subtle = { version = "2" }
+tiny-keccak = { version = "2", features = ["keccak", "shake"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-native-roots", "tls-ring", "tls-webpki-roots"] }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
+zvariant = { version = "5", features = ["enumflags2", "gvariant", "url"] }
 
 [target.aarch64-apple-darwin.dependencies]
-bitflags = { version = "2", default-features = false, features = ["std"] }
+bit-set = { version = "0.8" }
+bit-vec = { version = "0.8" }
 byteorder = { version = "1" }
+codespan-reporting = { version = "0.12" }
 errno = { version = "0.3" }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
+getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+hyper-582f2526e08bb6a0 = { package = "hyper", version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
+itertools-594e8ee84c453af0 = { package = "itertools", version = "0.13" }
+libc = { version = "0.2", features = ["extra_traits"] }
+naga = { version = "25", features = ["msl-out", "wgsl-in"] }
+nom = { version = "7" }
+object = { version = "0.37", default-features = false, features = ["read", "std"] }
+rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
@@ -237,13 +321,23 @@ tonic = { version = "0.14", features = ["tls-native-roots", "tls-ring", "tls-web
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
-bitflags = { version = "2", default-features = false, features = ["std"] }
+bit-set = { version = "0.8" }
+bit-vec = { version = "0.8" }
 byteorder = { version = "1" }
-cc = { version = "1", default-features = false, features = ["parallel"] }
+codespan-reporting = { version = "0.12" }
 errno = { version = "0.3" }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
+getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+hyper-582f2526e08bb6a0 = { package = "hyper", version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
+itertools-594e8ee84c453af0 = { package = "itertools", version = "0.13" }
+libc = { version = "0.2", features = ["extra_traits"] }
+naga = { version = "25", features = ["msl-out", "wgsl-in"] }
+nom = { version = "7" }
+object = { version = "0.37", default-features = false, features = ["read", "std"] }
+prettyplease = { version = "0.2", default-features = false, features = ["verbatim"] }
+rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
@@ -251,12 +345,19 @@ tonic = { version = "0.14", features = ["tls-native-roots", "tls-ring", "tls-web
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
 
 [target.aarch64-linux-android.dependencies]
-bitflags = { version = "2", default-features = false, features = ["std"] }
+bit-set = { version = "0.8" }
+bit-vec = { version = "0.8" }
 byteorder = { version = "1" }
 errno = { version = "0.3" }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
+getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+hyper-582f2526e08bb6a0 = { package = "hyper", version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
+libc = { version = "0.2", features = ["extra_traits"] }
+linux-raw-sys = { version = "0.11", default-features = false, features = ["general", "if_ether", "ioctl", "net", "netlink", "no_std", "prctl", "xdp"] }
+object = { version = "0.37", default-features = false, features = ["read", "std"] }
+rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
@@ -264,13 +365,19 @@ tonic = { version = "0.14", features = ["tls-ring", "tls-webpki-roots"] }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
 
 [target.aarch64-linux-android.build-dependencies]
-bitflags = { version = "2", default-features = false, features = ["std"] }
+bit-set = { version = "0.8" }
+bit-vec = { version = "0.8" }
 byteorder = { version = "1" }
-cc = { version = "1", default-features = false, features = ["parallel"] }
 errno = { version = "0.3" }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
+getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+hyper-582f2526e08bb6a0 = { package = "hyper", version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
+libc = { version = "0.2", features = ["extra_traits"] }
+linux-raw-sys = { version = "0.11", default-features = false, features = ["general", "if_ether", "ioctl", "net", "netlink", "no_std", "prctl", "xdp"] }
+object = { version = "0.37", default-features = false, features = ["read", "std"] }
+rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
@@ -278,12 +385,19 @@ tonic = { version = "0.14", features = ["tls-ring", "tls-webpki-roots"] }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
 
 [target.x86_64-linux-android.dependencies]
-bitflags = { version = "2", default-features = false, features = ["std"] }
+bit-set = { version = "0.8" }
+bit-vec = { version = "0.8" }
 byteorder = { version = "1" }
 errno = { version = "0.3" }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
+getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+hyper-582f2526e08bb6a0 = { package = "hyper", version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
+libc = { version = "0.2", features = ["extra_traits"] }
+linux-raw-sys = { version = "0.11", default-features = false, features = ["general", "if_ether", "ioctl", "net", "netlink", "no_std", "prctl", "xdp"] }
+object = { version = "0.37", default-features = false, features = ["read", "std"] }
+rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
@@ -291,13 +405,19 @@ tonic = { version = "0.14", features = ["tls-ring", "tls-webpki-roots"] }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
 
 [target.x86_64-linux-android.build-dependencies]
-bitflags = { version = "2", default-features = false, features = ["std"] }
+bit-set = { version = "0.8" }
+bit-vec = { version = "0.8" }
 byteorder = { version = "1" }
-cc = { version = "1", default-features = false, features = ["parallel"] }
 errno = { version = "0.3" }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
+getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+hyper-582f2526e08bb6a0 = { package = "hyper", version = "0.14", features = ["client", "http1", "http2", "runtime", "server", "stream"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
+libc = { version = "0.2", features = ["extra_traits"] }
+linux-raw-sys = { version = "0.11", default-features = false, features = ["general", "if_ether", "ioctl", "net", "netlink", "no_std", "prctl", "xdp"] }
+object = { version = "0.37", default-features = false, features = ["read", "std"] }
+rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
