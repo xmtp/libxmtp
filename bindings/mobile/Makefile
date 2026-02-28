@@ -50,18 +50,21 @@ $(ARCHS_IOS): %:
 	mkdir -p build/$@
 	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 	mv $(TARGET_DIR)/$@/release/$(DYLIB) build/$@/$(DYLIB)
+	install_name_tool -id @rpath/$(DYLIB) build/$@/$(DYLIB)
 
 $(ARCHS_MAC): %:
 	cargo build --target $@ --target-dir $(TARGET_DIR) --release --no-default-features
 	mkdir -p build/$@
 	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 	mv $(TARGET_DIR)/$@/release/$(DYLIB) build/$@/$(DYLIB)
+	install_name_tool -id @rpath/$(DYLIB) build/$@/$(DYLIB)
 
 aarch64-apple-ios:
 	IPHONEOS_DEPLOYMENT_TARGET=14 cargo build --target $@ --target-dir $(TARGET_DIR) --release
 	mkdir -p build/$@
 	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 	mv $(TARGET_DIR)/$@/release/$(DYLIB) build/$@/$(DYLIB)
+	install_name_tool -id @rpath/$(DYLIB) build/$@/$(DYLIB)
 
 $(LIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
 $(DYLIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
@@ -114,6 +117,7 @@ frameworkdyn: lipodyn
 	mkdir -p build/swift
 	chmod -R u+w build/swift/LibXMTPSwiftFFIDynamic.xcframework 2>/dev/null || true
 	rm -rf build/swift/LibXMTPSwiftFFIDynamic.xcframework
+	install_name_tool -id @rpath/$(DYLIB) $(NIX_OUT)/aarch64-apple-ios/$(DYLIB) 2>/dev/null || true
 	xcodebuild -create-xcframework \
 		-library $(NIX_OUT)/aarch64-apple-ios/$(DYLIB) \
 		-headers $(SWIFT_OUT)/include/libxmtp/ \
