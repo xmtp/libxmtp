@@ -1,5 +1,6 @@
 //! Global Config
 
+use alloy::primitives::Address;
 use alloy::signers::k256::SecretKey;
 use alloy::{hex, signers::local::PrivateKeySigner};
 use bon::Builder;
@@ -9,7 +10,7 @@ use std::sync::OnceLock;
 
 use crate::app::App;
 use crate::config::AppArgs;
-use crate::constants::ToxiProxy as ToxiProxyConst;
+use crate::constants::{ToxiProxy as ToxiProxyConst, Xmtpd as XmtpdConst};
 
 use super::toml_config::{ImageConfig, MigrationConfig, NodeToml, TomlConfig};
 
@@ -117,6 +118,26 @@ impl Config {
             }
             None => Ok(TomlConfig::default()),
         }
+    }
+
+    /// Derive the Ethereum address for an xmtpd node from its ID.
+    ///
+    /// Node IDs are assigned in increments of `NODE_ID_INCREMENT` (100).
+    /// Each node uses 3 consecutive signers starting at index `(node_id / 100) * 3 + 1`.
+    /// The first signer (at the base index) is the node's signing key.
+    pub fn address_for_node(&self, node_id: u32) -> Address {
+        let idx = (node_id / XmtpdConst::NODE_ID_INCREMENT) as usize * 3 + 1;
+        self.signers[idx].address()
+    }
+
+    pub fn payer_address_for_node(&self, node_id: u32) -> Address {
+        let idx = (node_id / XmtpdConst::NODE_ID_INCREMENT) as usize * 3 + 2;
+        self.signers[idx].address()
+    }
+
+    pub fn migration_payer_address_for_node(&self, node_id: u32) -> Address {
+        let idx = (node_id / XmtpdConst::NODE_ID_INCREMENT) as usize * 3 + 3;
+        self.signers[idx].address()
     }
 
     fn load_signers() -> [PrivateKeySigner; 100] {

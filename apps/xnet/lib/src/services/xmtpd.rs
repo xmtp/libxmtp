@@ -151,6 +151,7 @@ impl Xmtpd {
             ..
         } = self;
         let private_key = format!("0x{}", hex::encode(node.signer().credential().to_bytes()));
+        let payer_key = format!("0x{}", hex::encode(node.payer().credential().to_bytes()));
 
         let db_connection = self
             .db
@@ -160,7 +161,7 @@ impl Xmtpd {
 
         let mut env = vec![
             format!("XMTPD_SIGNER_PRIVATE_KEY={private_key}"),
-            format!("XMTPD_PAYER_PRIVATE_KEY={private_key}"),
+            format!("XMTPD_PAYER_PRIVATE_KEY={payer_key}"),
             "XMTPD_REPLICATION_ENABLE=true".to_string(),
             "XMTPD_INDEXER_ENABLE=true".to_string(),
             "XMTPD_SYNC_ENABLE=true".to_string(),
@@ -185,9 +186,13 @@ impl Xmtpd {
                 .as_ref()
                 .ok_or_eyre("node go required for migrator")?;
             let mls_db_conn = node_go.mls_db_reader().to_string();
+            let migration_payer_key = format!(
+                "0x{}",
+                hex::encode(node.migration_payer().credential().to_bytes())
+            );
             env.extend(vec![
                 format!("XMTPD_MIGRATION_SERVER_ENABLE=true"),
-                format!("XMTPD_MIGRATION_PAYER_PRIVATE_KEY={private_key}"),
+                format!("XMTPD_MIGRATION_PAYER_PRIVATE_KEY={migration_payer_key}"),
                 format!("XMTPD_MIGRATION_NODE_SIGNING_KEY={private_key}"),
                 format!("XMTPD_MIGRATION_DB_READER_CONNECTION_STRING={mls_db_conn}"),
                 format!("XMTPD_MIGRATION_DB_READER_TIMEOUT=10s"),
@@ -281,6 +286,10 @@ impl Xmtpd {
         self.container.proxy_port()
     }
 
+    /// Get the XmtpdNode for this service.
+    pub fn node(&self) -> &XmtpdNode {
+        &self.node
+    }
 }
 
 #[async_trait]

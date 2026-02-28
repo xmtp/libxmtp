@@ -3,14 +3,6 @@
 use std::collections::HashMap;
 use std::io::stdout;
 
-use bollard::{
-    Docker,
-    models::ContainerCreateBody,
-    query_parameters::{
-        CreateContainerOptionsBuilder, ListContainersOptionsBuilder,
-        RemoveContainerOptionsBuilder, StopContainerOptionsBuilder,
-    },
-};
 use crate::{
     Config,
     config::NodeToml,
@@ -23,6 +15,14 @@ use crate::{
     },
     types::XmtpdNode,
     xmtpd_cli::XmtpdCli,
+};
+use bollard::{
+    Docker,
+    models::ContainerCreateBody,
+    query_parameters::{
+        CreateContainerOptionsBuilder, ListContainersOptionsBuilder, RemoveContainerOptionsBuilder,
+        StopContainerOptionsBuilder,
+    },
 };
 use color_eyre::eyre::Result;
 use futures::FutureExt;
@@ -42,6 +42,8 @@ pub struct ServiceManager {
     grafana: Grafana,
     pgadmin: PgAdmin,
     nodes: Vec<Xmtpd>,
+    /// Anvil RPC URL for funding node wallets
+    anvil_rpc_url: url::Url,
 }
 
 impl ServiceManager {
@@ -103,6 +105,7 @@ impl ServiceManager {
             grafana,
             pgadmin,
             nodes: Vec::new(),
+            anvil_rpc_url: anvil_external_rpc,
         };
 
         let gateway_host = this.gateway.external_url().expect("just created gateway");
@@ -141,8 +144,12 @@ impl ServiceManager {
             };
             let node = node.node_id(id);
             let num_ids = id / XmtpdConst::NODE_ID_INCREMENT;
-            let next_signer = &config.signers[num_ids as usize + 1];
-            let mut node = node.signer(next_signer.clone()).build();
+            let base_idx = num_ids as usize * 3 + 1;
+            let mut node = node
+                .signer(config.signers[base_idx].clone())
+                .payer(config.signers[base_idx + 1].clone())
+                .migration_payer(config.signers[base_idx + 2].clone())
+                .build();
             cli.clone()
                 .build()
                 .register(&this, &mut output, &node)
@@ -200,6 +207,17 @@ impl ServiceManager {
     }
 
     async fn internal_add_xmtpd(&mut self, mut xmtpd: Xmtpd) -> Result<()> {
+        // Fund all node wallets (signer, payer, migration payer) with testnet ETH
+        let rpc = self.anvil_rpc_url.as_str();
+        let node = xmtpd.node();
+        for address in [
+            node.address(),
+            node.payer_address(),
+            node.migration_payer_address(),
+        ] {
+            crate::wallet_funding::fund_wallet(rpc, address, None).await?;
+        }
+
         xmtpd.start(&self.proxy).await?;
 
         // Register with Traefik for unified addressing
@@ -237,16 +255,11 @@ impl ServiceManager {
 
         let mut count = 0;
         for container in &containers {
-            let names = container
-                .names
-                .as_ref()
-                .map(|n| n.as_slice())
-                .unwrap_or(&[]);
+            let names = container.names.as_deref().unwrap_or(&[]);
             // Docker prepends "/" to container names; xmtpd nodes are named xnet-{id}
             let is_xmtpd = names.iter().any(|n| {
                 let trimmed = n.trim_start_matches('/');
-                trimmed.starts_with("xnet-")
-                    && trimmed[5..].chars().all(|c| c.is_ascii_digit())
+                trimmed.starts_with("xnet-") && trimmed[5..].chars().all(|c| c.is_ascii_digit())
             });
             if !is_xmtpd {
                 continue;
@@ -290,9 +303,7 @@ impl ServiceManager {
             // Stop and remove the container
             let stop_opts = StopContainerOptionsBuilder::default().t(10).build();
             let _ = docker.stop_container(id, Some(stop_opts)).await;
-            let remove_opts = RemoveContainerOptionsBuilder::default()
-                .force(true)
-                .build();
+            let remove_opts = RemoveContainerOptionsBuilder::default().force(true).build();
             docker.remove_container(id, Some(remove_opts)).await?;
 
             // Recreate without migrator env vars
@@ -320,11 +331,26 @@ async fn start_d14n(
     proxy: &ToxiProxy,
     dns_ip: String,
 ) -> Result<(Gateway, url::Url, Vec<Box<dyn Service>>)> {
+    use crate::constants::Gateway as GatewayConst;
+    use alloy::signers::local::PrivateKeySigner;
+
     let mut anvil = services::Anvil::builder().build()?;
     let mut redis = services::Redis::builder().build();
 
     let launch = vec![anvil.start(proxy).boxed(), redis.start(proxy).boxed()];
     futures::future::try_join_all(launch).await?;
+
+    // Fund the gateway wallet before starting it
+    let anvil_rpc = anvil.external_rpc_url().unwrap_or_else(|| anvil.rpc_url());
+    let gateway_key: PrivateKeySigner = GatewayConst::PRIVATE_KEY.parse()?;
+    let gateway_address = gateway_key.address();
+    crate::wallet_funding::fund_wallet(
+        anvil_rpc.as_str(),
+        gateway_address,
+        None, // Use default funding amount (1000 ETH)
+    )
+    .await?;
+
     let mut gateway = services::Gateway::builder()
         .redis_host(redis.internal_proxy_host()?)
         .anvil_host(anvil.internal_proxy_host()?)

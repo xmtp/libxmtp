@@ -38,6 +38,7 @@ pub struct NodeInfo {
     pub id: u32,
     pub container_name: String,
     pub url: String,
+    pub address: String,
 }
 
 /// Status of a single dependency check.

@@ -168,7 +168,7 @@ pub async fn ensure_container_running(
 pub async fn ensure_image_exists(docker: &Docker, image: &str) -> Result<()> {
     // Check if image exists locally
     if docker.inspect_image(image).await.is_ok() {
-        info!("Image {} already exists locally", image);
+        debug!("Image {} already exists locally", image);
         return Ok(());
     }
 

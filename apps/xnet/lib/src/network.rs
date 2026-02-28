@@ -37,7 +37,6 @@ impl Network {
     pub async fn new() -> Result<Self> {
         info!("connecting to docker");
         let docker = Docker::connect_with_socket_defaults()?;
-        info!("connected");
 
         match docker
             .inspect_network(XNET_NETWORK_NAME, Some(InspectNetworkOptions::default()))
@@ -47,7 +46,7 @@ impl Network {
                 status_code: 404, ..
             }) => {
                 // Network doesn't exist, create it
-                info!("Creating network '{}'", XNET_NETWORK_NAME);
+                info!("creating network '{}'", XNET_NETWORK_NAME);
                 let config = NetworkCreateRequest {
                     name: XNET_NETWORK_NAME.to_string(),
                     driver: Some("bridge".to_string()),
@@ -59,7 +58,6 @@ impl Network {
             Err(e) => return Err(e.into()),
             _ => (),
         }
-        tracing::info!("Ok");
         Ok(Self { docker })
     }
 

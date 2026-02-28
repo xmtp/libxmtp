@@ -13,7 +13,7 @@ use clap::Parser;
 use color_eyre::eyre::{OptionExt, Result, eyre};
 use futures::FutureExt;
 use tokio::{runtime::EnterGuard, sync::Mutex};
-use xmtp_api_d14n::d14n::FetchD14nCutover;
+use xmtp_api_d14n::d14n::{FetchD14nCutover, GetNodes};
 use xmtp_proto::{prelude::Query, xmtp::migration::api::v1::FetchD14nCutoverResponse};
 
 pub use crate::config::Config;
@@ -49,9 +49,7 @@ impl App {
     }
 
     pub async fn up(&self) -> Result<()> {
-        info!("entered, starting net");
         let network = Network::new().await?;
-        info!("starting service manager");
         let services = ServiceManager::start().await?;
         Ok(())
     }
@@ -95,6 +93,53 @@ impl App {
         mgr.gateway.external_url().ok_or_eyre("no url for gateway")
     }
 
+    pub async fn addresses(&self) -> Result<()> {
+        use ascii_table::AsciiTable;
+
+        let mgr = ServiceManager::start().await?;
+        let gateway_url = mgr
+            .gateway
+            .external_url()
+            .ok_or_eyre("gateway not running")?;
+        let grpc = xmtp_api_grpc::GrpcClient::create(gateway_url.as_str(), false)
+            .map_err(|e| eyre!("{}", e))?;
+        let response = GetNodes::builder()
+            .build()
+            .unwrap()
+            .query(&grpc)
+            .await
+            .map_err(|e| eyre!("{}", e))?;
+
+        let config = Config::load()?;
+        let mut nodes: Vec<_> = response.nodes.into_iter().collect();
+        nodes.sort_by_key(|(id, _)| *id);
+
+        let mut table = AsciiTable::default();
+        table.column(0).set_header("ID");
+        table.column(1).set_header("Name");
+        table.column(2).set_header("Signer");
+        table.column(3).set_header("Payer");
+        table.column(4).set_header("Migration Payer");
+        table.column(5).set_header("URL");
+
+        let rows: Vec<Vec<String>> = nodes
+            .iter()
+            .map(|(id, url)| {
+                vec![
+                    id.to_string(),
+                    format!("xnet-{}", id),
+                    config.address_for_node(*id).to_string(),
+                    config.payer_address_for_node(*id).to_string(),
+                    config.migration_payer_address_for_node(*id).to_string(),
+                    url.to_string(),
+                ]
+            })
+            .collect();
+
+        table.println(rows);
+        Ok(())
+    }
+
     pub async fn info(&self) -> Result<()> {
         let network = Network::new().await?;
         network.list().await?;
@@ -120,7 +165,9 @@ impl App {
                         let mut mgr = ServiceManager::start().await?;
                         mgr.remove_migrators().await?;
                     } else {
-                        eprintln!("No remove operation specified. Use --migrators to remove migrator nodes.");
+                        eprintln!(
+                            "No remove operation specified. Use --migrators to remove migrator nodes."
+                        );
                     }
                 }
             },
@@ -131,6 +178,7 @@ impl App {
                 let mut mgr = ServiceManager::start().await?;
                 mgr.reload_node_go(cutover_ns).await?;
             }
+            crate::config::Commands::Addresses => self.addresses().await?,
             crate::config::Commands::Cutover => {
                 let mgr = ServiceManager::start().await?;
                 let url = mgr

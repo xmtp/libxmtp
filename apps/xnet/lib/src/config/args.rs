@@ -33,6 +33,8 @@ pub enum Commands {
     Migrate(Migrate),
     /// Query the current d14n cutover timestamp from node-go
     Cutover,
+    /// Display the public Ethereum addresses of registered xmtpd nodes
+    Addresses,
 }
 
 #[derive(Subcommand, Debug, Copy, Clone)]

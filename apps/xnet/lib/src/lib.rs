@@ -12,6 +12,7 @@ pub mod dns_setup;
 pub mod network;
 pub mod services;
 pub mod types;
+pub mod wallet_funding;
 pub mod xmtpd_cli;
 
 pub use config::Config;

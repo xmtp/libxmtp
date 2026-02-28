@@ -17,6 +17,8 @@ use crate::{Config, constants::Xmtpd as XmtpdConst, services::allocate_xmtpd_por
 pub struct XmtpdNode {
     port: u16,
     signer: PrivateKeySigner,
+    payer: PrivateKeySigner,
+    migration_payer: PrivateKeySigner,
     node_id: u32,
     name: String,
 }
@@ -34,11 +36,13 @@ impl XmtpdNode {
 
         let config = Config::load()?;
         let num_ids = next_id / XmtpdConst::NODE_ID_INCREMENT;
-        let next_signer = &config.signers[num_ids as usize + 1];
+        let base_idx = num_ids as usize * 3 + 1;
         Ok(Self {
             port,
             node_id: next_id,
-            signer: next_signer.clone(),
+            signer: config.signers[base_idx].clone(),
+            payer: config.signers[base_idx + 1].clone(),
+            migration_payer: config.signers[base_idx + 2].clone(),
             name: format!("xnet-{}", next_id),
         })
     }
@@ -59,8 +63,24 @@ impl XmtpdNode {
         &self.signer
     }
 
+    pub fn payer(&self) -> &PrivateKeySigner {
+        &self.payer
+    }
+
+    pub fn migration_payer(&self) -> &PrivateKeySigner {
+        &self.migration_payer
+    }
+
     pub fn address(&self) -> Address {
         self.signer.address()
+    }
+
+    pub fn payer_address(&self) -> Address {
+        self.payer.address()
+    }
+
+    pub fn migration_payer_address(&self) -> Address {
+        self.migration_payer.address()
     }
     pub fn public_key(&self) -> [u8; 64] {
         *self.signer.public_key()

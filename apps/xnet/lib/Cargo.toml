@@ -9,7 +9,14 @@ description = "test orchestrator for xmtpd"
 default = []
 
 [dependencies]
-alloy = { workspace = true, features = ["signer-local"] }
+alloy = { workspace = true, features = [
+  "signer-local",
+  "provider-http",
+  "network",
+  "rpc-types-eth",
+  "provider-anvil-api",
+] }
+ascii_table = { version = "5", features = ["auto_table_width"] }
 async-trait = "0.1"
 bollard = "0.20.0"
 bon = "3.8"
@@ -32,6 +39,7 @@ tracing-subscriber.workspace = true
 url = "2"
 xmtp_api_d14n.workspace = true
 xmtp_api_grpc.workspace = true
+xmtp_common.workspace = true
 xmtp_proto.workspace = true
 
 [build-dependencies]
