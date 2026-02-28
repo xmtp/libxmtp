@@ -43,7 +43,7 @@ jobs:
           fi
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.features }}-results
           path: test-output.txt
@@ -109,7 +109,7 @@ jobs:
           fi
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wasm-${{ matrix.features }}-results
           path: test-output.txt
@@ -128,7 +128,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
