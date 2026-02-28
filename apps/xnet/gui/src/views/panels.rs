@@ -89,11 +89,12 @@ pub fn render_nodes_panel(nodes: &[NodeInfo]) -> impl IntoElement {
     panel
 }
 
-/// Renders a single node row with ID, container name, and URL.
+/// Renders a single node row with ID, container name, address, and URL.
 fn render_node_row(node: &NodeInfo) -> impl IntoElement {
     let id_str: SharedString = format!("ID {}", node.id).into();
     let name: SharedString = node.container_name.clone().into();
     let url: SharedString = node.url.clone().into();
+    let addr: SharedString = truncate_address(&node.address).into();
 
     div()
         .flex()
@@ -114,5 +115,20 @@ fn render_node_row(node: &NodeInfo) -> impl IntoElement {
                 .text_xs()
                 .child(name),
         )
+        .child(
+            div()
+                .text_color(theme::accent_blue())
+                .text_xs()
+                .child(addr),
+        )
         .child(div().text_color(theme::text_muted()).text_xs().child(url))
+}
+
+/// Truncate an Ethereum address to `0xABCD…1234` format.
+fn truncate_address(addr: &str) -> String {
+    if addr.len() > 10 {
+        format!("{}…{}", &addr[..6], &addr[addr.len() - 4..])
+    } else {
+        addr.to_string()
+    }
 }

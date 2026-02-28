@@ -48,15 +48,14 @@ impl PgAdmin {
     /// Start the PgAdmin container.
     ///
     /// Writes a `servers.json` with the static databases, then starts
-    /// PgAdmin with direct port binding (5050:80).
+    /// PgAdmin with direct port binding (5600:80).
     pub async fn start(&mut self, _toxiproxy: &ToxiProxy) -> Result<()> {
         fs::create_dir_all(PGADMIN_DIR)?;
 
         // Write initial servers.json with static databases
         self.write_servers(&[])?;
 
-        let options =
-            CreateContainerOptionsBuilder::default().name(PgAdminConst::CONTAINER_NAME);
+        let options = CreateContainerOptionsBuilder::default().name(PgAdminConst::CONTAINER_NAME);
 
         let image_ref = format!("{}:{}", self.image, self.version);
 
@@ -72,10 +71,11 @@ impl PgAdmin {
         let config = ContainerCreateBody {
             image: Some(image_ref),
             env: Some(vec![
-                "PGADMIN_DEFAULT_EMAIL=admin@xnet.local".to_string(),
+                "PGADMIN_DEFAULT_EMAIL=admin@xnet.dev".to_string(),
                 "PGADMIN_DEFAULT_PASSWORD=admin".to_string(),
                 "PGADMIN_CONFIG_SERVER_MODE=False".to_string(),
                 "PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED=False".to_string(),
+                "PGADMIN_CONFIG_CHECK_EMAIL_DELIVERABILITY=False".to_string(),
             ]),
             host_config: Some(HostConfig {
                 network_mode: Some(XNET_NETWORK_NAME.to_string()),
@@ -132,7 +132,7 @@ impl PgAdmin {
     }}"#,
             server_id,
             V3DbConst::CONTAINER_NAME,
-            V3DbConst::PORT
+            5432
         ));
 
         server_id += 1;
@@ -148,13 +148,16 @@ impl PgAdmin {
     }}"#,
             server_id,
             MlsDbConst::CONTAINER_NAME,
-            MlsDbConst::PORT
+            5432
         ));
 
         // Dynamic replication databases (one per xmtpd node)
         for node in nodes {
             server_id += 1;
-            let db_name = format!("xmtpd-db-{}", node.container_name().trim_start_matches("xnet-"));
+            let db_name = format!(
+                "xmtpd-db-{}",
+                node.container_name().trim_start_matches("xnet-")
+            );
             entries.push(format!(
                 r#"    "{}": {{
       "Name": "{} (Replication)",
@@ -165,17 +168,11 @@ impl PgAdmin {
       "Username": "postgres",
       "SSLMode": "prefer"
     }}"#,
-                server_id,
-                db_name,
-                db_name,
-                ReplicationDbConst::PORT
+                server_id, db_name, db_name, 5432
             ));
         }
 
-        let json = format!(
-            "{{\n  \"Servers\": {{\n{}\n  }}\n}}",
-            entries.join(",\n")
-        );
+        let json = format!("{{\n  \"Servers\": {{\n{}\n  }}\n}}", entries.join(",\n"));
         fs::write(&servers_path, json)?;
 
         Ok(())
@@ -193,11 +190,7 @@ impl PgAdmin {
 
     /// URL for external access (direct port binding).
     pub fn external_url(&self) -> Url {
-        Url::parse(&format!(
-            "http://localhost:{}",
-            PgAdminConst::EXTERNAL_PORT
-        ))
-        .expect("valid URL")
+        Url::parse(&format!("http://localhost:{}", PgAdminConst::EXTERNAL_PORT)).expect("valid URL")
     }
 
     /// Check if PgAdmin is running.

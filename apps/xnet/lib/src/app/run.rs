@@ -13,7 +13,7 @@ use clap::Parser;
 use color_eyre::eyre::{OptionExt, Result, eyre};
 use futures::FutureExt;
 use tokio::{runtime::EnterGuard, sync::Mutex};
-use xmtp_api_d14n::d14n::FetchD14nCutover;
+use xmtp_api_d14n::d14n::{FetchD14nCutover, GetNodes};
 use xmtp_proto::{prelude::Query, xmtp::migration::api::v1::FetchD14nCutoverResponse};
 
 pub use crate::config::Config;
@@ -95,6 +95,34 @@ impl App {
         mgr.gateway.external_url().ok_or_eyre("no url for gateway")
     }
 
+    pub async fn addresses(&self) -> Result<()> {
+        let mgr = ServiceManager::start().await?;
+        let gateway_url = mgr
+            .gateway
+            .external_url()
+            .ok_or_eyre("gateway not running")?;
+        let grpc = xmtp_api_grpc::GrpcClient::create(gateway_url.as_str(), false)
+            .map_err(|e| eyre!("{}", e))?;
+        let response = GetNodes::builder()
+            .build()
+            .unwrap()
+            .query(&grpc)
+            .await
+            .map_err(|e| eyre!("{}", e))?;
+
+        let config = Config::load()?;
+        let mut nodes: Vec<_> = response.nodes.into_iter().collect();
+        nodes.sort_by_key(|(id, _)| *id);
+
+        println!("{:<8} {:<16} {:<44} {}", "ID", "Name", "Address", "URL");
+        println!("{}", "-".repeat(90));
+        for (id, url) in &nodes {
+            let addr = config.address_for_node(*id);
+            println!("{:<8} {:<16} {:<44} {}", id, format!("xnet-{}", id), addr, url);
+        }
+        Ok(())
+    }
+
     pub async fn info(&self) -> Result<()> {
         let network = Network::new().await?;
         network.list().await?;
@@ -131,6 +159,7 @@ impl App {
                 let mut mgr = ServiceManager::start().await?;
                 mgr.reload_node_go(cutover_ns).await?;
             }
+            crate::config::Commands::Addresses => self.addresses().await?,
             crate::config::Commands::Cutover => {
                 let mgr = ServiceManager::start().await?;
                 let url = mgr

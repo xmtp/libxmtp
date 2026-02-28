@@ -127,6 +127,7 @@ pub async fn execute_add_node() -> Result<NodeInfo> {
         id: *node.id(),
         container_name: format!("xnet-{}", node.id()),
         url: format!("http://node{}.xmtpd.local", node.id()),
+        address: node.address().to_string(),
     })
 }
 
@@ -136,6 +137,7 @@ pub async fn execute_add_migrator() -> Result<NodeInfo> {
         id: *node.id(),
         container_name: format!("xnet-{}", node.id()),
         url: format!("http://node{}.xmtpd.local", node.id()),
+        address: node.address().to_string(),
     })
 }
 
@@ -235,6 +237,7 @@ pub async fn start_node_poller() -> Result<(mpsc::Receiver<Vec<NodeInfo>>, Abort
 
     let gateway_url = App::parse()?.gateway_url().await?;
     let grpc = GrpcClient::create(gateway_url.as_str(), false)?;
+    let config = xnet::Config::load()?;
 
     let handle = tokio::spawn(async move {
         loop {
@@ -250,6 +253,7 @@ pub async fn start_node_poller() -> Result<(mpsc::Receiver<Vec<NodeInfo>>, Abort
                         id,
                         container_name: format!("xnet-{}", id),
                         url,
+                        address: config.address_for_node(id).to_string(),
                     })
                     .collect();
                 infos.sort_by_key(|n| n.id);
