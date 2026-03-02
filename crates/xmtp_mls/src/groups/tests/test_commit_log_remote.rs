@@ -9,7 +9,7 @@ use crate::{context::XmtpSharedContext, tester};
 use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
-use rand::Rng;
+use rand::RngExt;
 use xmtp_configuration::Originators;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::consent_record::ConsentState;
@@ -152,9 +152,7 @@ async fn test_commit_log_publish_and_query_apis() {
     // a new random group_id for each test iteration in case local node state has not been cleared
 
     // Generate a random 20-byte group_id for this test
-    let group_id: Vec<u8> = (0..20)
-        .map(|_| rand::thread_rng().gen_range(0..=255))
-        .collect();
+    let group_id: Vec<u8> = (0..20).map(|_| rand::rng().random_range(0..=255)).collect();
 
     // Test publishing commit log
     let commit_log_entry = PlaintextCommitLogEntry {

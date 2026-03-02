@@ -9,7 +9,7 @@ use std::{
     process::Command,
 };
 
-use rand::distributions::{Alphanumeric, DistString};
+use rand::distr::{Alphanumeric, SampleString};
 use toml::Table;
 
 use xmtp_db::{EncryptedMessageStore, NativeDb};
@@ -36,7 +36,7 @@ fn main() {
 fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> {
     let tmp_db = format!(
         "update-{}.db3",
-        Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
+        Alphanumeric.sample_string(&mut rand::rng(), 16)
     );
 
     {

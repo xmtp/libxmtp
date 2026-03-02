@@ -1,4 +1,5 @@
 use super::{LocalEvents, Result, SubscribeError, process_welcome::ProcessWelcomeResult};
+use crate::subscriptions::StreamKind;
 use crate::subscriptions::stream_utils::{MultiplexedStream, multiplexed};
 use crate::{
     context::XmtpSharedContext, groups::MlsGroup,
@@ -8,7 +9,7 @@ use xmtp_common::task::JoinSet;
 use xmtp_db::{consent_record::ConsentState, group::ConversationType};
 
 use futures::Stream;
-use pin_project_lite::pin_project;
+use pin_project::{pin_project, pinned_drop};
 use std::{
     borrow::Cow,
     collections::HashSet,
@@ -16,8 +17,9 @@ use std::{
     task::{Poll, ready},
 };
 use tokio_stream::wrappers::BroadcastStream;
-use xmtp_common::{BoxDynFuture, MaybeSend};
+use xmtp_common::{BoxDynFuture, Event, MaybeSend};
 use xmtp_db::prelude::*;
+use xmtp_macro::log_event;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::{Cursor, OriginatorId, SequenceId, WelcomeMessage};
 
@@ -55,11 +57,11 @@ impl std::fmt::Debug for WelcomeOrGroup {
     }
 }
 
-pin_project! {
-    /// Broadcast stream filtered + mapped to WelcomeOrGroup
-    pub struct BroadcastGroupStream {
-        #[pin] inner: BroadcastStream<LocalEvents>,
-    }
+#[pin_project]
+/// Broadcast stream filtered + mapped to WelcomeOrGroup
+pub struct BroadcastGroupStream {
+    #[pin]
+    inner: BroadcastStream<LocalEvents>,
 }
 
 impl BroadcastGroupStream {
@@ -97,12 +99,12 @@ impl Stream for BroadcastGroupStream {
     }
 }
 
-pin_project! {
-    /// Subscription Stream mapped to WelcomeOrGroup
-    pub struct SubscriptionStream<S, E> {
-        #[pin] inner: S,
-        _marker: std::marker::PhantomData<E>
-    }
+#[pin_project]
+/// Subscription Stream mapped to WelcomeOrGroup
+pub struct SubscriptionStream<S, E> {
+    #[pin]
+    inner: S,
+    _marker: std::marker::PhantomData<E>,
 }
 
 impl<S, E> SubscriptionStream<S, E> {
@@ -139,50 +141,65 @@ where
     }
 }
 
-pin_project! {
-    /// The stream for conversations.
-    /// Handles the state machine that processes welcome messages and groups. It handles
-    /// two main states:
-    ///
-    /// - `Waiting`: Ready to receive the next message from the inner stream
-    /// - `Processing`: Currently processing a welcome/group through a future
-    ///
-    /// The implementation ensures efficient processing by immediately attempting
-    /// to advance futures when possible, rather than waiting for the next poll cycle.
-    ///
-    /// # Arguments
-    /// * `cx` - The task context for polling
-    ///
-    /// # Returns
-    /// * `Poll<Option<Result<MlsGroup<Context>>>>` - The polling result:
-    ///   - `Ready(Some(Ok(group)))` when a group is successfully processed
-    ///   - `Ready(Some(Err(e)))` when an error occurs
-    ///   - `Pending` when waiting for more data or for future completion
-    ///   - `Ready(None)` when the stream has ended
-    pub struct StreamConversations<'a, Context: Clone, Subscription> {
-        #[pin] inner: Subscription,
-        context: Cow<'a, Context>,
-        #[pin] welcome_syncs: JoinSet<Result<ProcessWelcomeResult<Context>>>,
-        conversation_type: Option<ConversationType>,
-        known_welcome_ids: HashSet<Cursor>,
-        include_duplicated_dms: bool,
-        consent_states: Option<Vec<ConsentState>>,
+/// The stream for conversations.
+/// Handles the state machine that processes welcome messages and groups. It handles
+/// two main states:
+///
+/// - `Waiting`: Ready to receive the next message from the inner stream
+/// - `Processing`: Currently processing a welcome/group through a future
+///
+/// The implementation ensures efficient processing by immediately attempting
+/// to advance futures when possible, rather than waiting for the next poll cycle.
+///
+/// # Arguments
+/// * `cx` - The task context for polling
+///
+/// # Returns
+/// * `Poll<Option<Result<MlsGroup<Context>>>>` - The polling result:
+///   - `Ready(Some(Ok(group)))` when a group is successfully processed
+///   - `Ready(Some(Err(e)))` when an error occurs
+///   - `Pending` when waiting for more data or for future completion
+///   - `Ready(None)` when the stream has ended
+#[pin_project(PinnedDrop)]
+pub struct StreamConversations<'a, Context: Clone + XmtpSharedContext, Subscription> {
+    #[pin]
+    inner: Subscription,
+    context: Cow<'a, Context>,
+    #[pin]
+    welcome_syncs: JoinSet<Result<ProcessWelcomeResult<Context>>>,
+    conversation_type: Option<ConversationType>,
+    known_welcome_ids: HashSet<Cursor>,
+    include_duplicated_dms: bool,
+    consent_states: Option<Vec<ConsentState>>,
+}
+
+#[pinned_drop]
+impl<'a, Context, Subscription> PinnedDrop for StreamConversations<'a, Context, Subscription>
+where
+    Context: Clone + XmtpSharedContext,
+{
+    fn drop(self: Pin<&mut Self>) {
+        log_event!(
+            Event::StreamClosed,
+            self.context.installation_id(),
+            kind = ?StreamKind::Conversations
+        );
     }
 }
 
-pin_project! {
-    #[project = ProcessProject]
-    #[derive(Default)]
-    enum ProcessState<'a, Context> {
-        /// State that indicates the stream is waiting on the next message from the network
-        #[default]
-        Waiting,
-        /// State that indicates the stream is waiting on a IO/Network future to finish processing the current message
-        /// before moving on to the next one
-        Processing {
-            #[pin] future: BoxDynFuture<'a, Result<ProcessWelcomeResult<Context>>>
-        }
-    }
+#[pin_project(project = ProcessProject)]
+#[derive(Default)]
+enum ProcessState<'a, Context> {
+    /// State that indicates the stream is waiting on the next message from the network
+    #[default]
+    Waiting,
+    /// State that indicates the stream is waiting on a IO/Network future to finish processing the current message
+    /// before moving on to the next one
+    #[allow(unused)]
+    Processing {
+        #[pin]
+        future: BoxDynFuture<'a, Result<ProcessWelcomeResult<Context>>>,
+    },
 }
 
 pub(super) type WelcomesApiSubscription<'a, ApiClient> = MultiplexedStream<
@@ -232,6 +249,11 @@ where
         include_duplicate_dms: bool,
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
+        log_event!(
+            Event::StreamOpened,
+            context.installation_id(),
+            kind = ?StreamKind::Conversations
+        );
         Self::from_cow(
             Cow::Borrowed(context),
             conversation_type,

@@ -945,10 +945,10 @@ mod tests {
     use crate::groups::mls_ext::WrapperAlgorithm;
     use crate::{
         builder::ClientBuilder,
-        groups::key_package_cleaner_worker::KeyPackagesCleanerWorker,
         identity::{pq_key_package_references_key, serialize_key_package_hash_ref},
         utils::FullXmtpClient,
         verified_key_package_v2::VerifiedKeyPackageV2,
+        worker::key_package_cleaner::KeyPackagesCleanerWorker,
     };
     use openmls::prelude::{KeyPackageBundle, KeyPackageRef};
     use openmls_traits::{OpenMlsProvider, storage::StorageProvider};

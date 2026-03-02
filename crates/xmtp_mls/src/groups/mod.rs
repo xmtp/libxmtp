@@ -1,18 +1,14 @@
 pub mod commit_log;
 pub mod commit_log_key;
-pub mod device_sync;
-pub mod disappearing_messages;
 mod error;
 pub mod group_membership;
 pub mod group_permissions;
 pub mod intents;
-pub mod key_package_cleaner_worker;
 pub mod members;
 pub mod message_list;
 pub(super) mod mls_ext;
 pub(super) mod mls_sync;
 pub mod oneshot;
-pub(crate) mod pending_self_remove_worker;
 pub mod send_message_opts;
 pub(super) mod subscriptions;
 pub mod summary;
@@ -34,7 +30,6 @@ use self::{
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
 };
-use crate::groups::send_message_opts::SendMessageOpts;
 use crate::groups::{
     intents::{QueueIntent, ReaddInstallationsIntentData},
     mls_ext::CommitLogStorer,
@@ -44,7 +39,10 @@ use crate::messages::enrichment::EnrichMessageError;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::{GroupCommitLock, context::XmtpSharedContext};
 use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
-use device_sync::preference_sync::PreferenceUpdate;
+use crate::{
+    groups::send_message_opts::SendMessageOpts,
+    worker::device_sync::preference_sync::PreferenceUpdate,
+};
 pub use error::*;
 use intents::{SendMessageIntentData, UpdateGroupMembershipResult};
 use openmls::{
@@ -61,7 +59,7 @@ use prost::Message;
 use std::collections::HashMap;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
-use xmtp_common::{Event, fmt::ShortHex, log_event, time::now_ns};
+use xmtp_common::{Event, log_event, time::now_ns};
 use xmtp_configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
     MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID, Originators,
@@ -1156,12 +1154,14 @@ where
             .queue(self)?;
 
         self.sync_until_intent_resolved(intent.id).await?;
+        let epoch = self.epoch().await?;
 
         log_event!(
             Event::AddedMembers,
             self.context.installation_id(),
-            group_id = self.group_id.short_hex(),
-            members = ?ids
+            group_id = self.group_id,
+            members = ?ids,
+            epoch
         );
 
         ok_result
@@ -2043,8 +2043,6 @@ where
 
     /// Get the encryption state of the current epoch. Should match for all installations
     /// in the same epoch.
-    #[cfg(test)]
-    #[allow(unused)]
     pub(crate) async fn epoch_authenticator(&self) -> Result<Vec<u8>, GroupError> {
         self.load_mls_group_with_lock_async(async |mls_group| {
             Ok(mls_group.epoch_authenticator().as_slice().to_vec())

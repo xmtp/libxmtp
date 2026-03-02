@@ -29,7 +29,6 @@ class HistorySyncTests: XCTestCase {
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir1
-				// useDefaultHistorySyncUrl: false
 			)
 		)
 
@@ -45,7 +44,6 @@ class HistorySyncTests: XCTestCase {
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir2
-				//                useDefaultHistorySyncUrl: false
 			)
 		)
 
@@ -257,8 +255,7 @@ class HistorySyncTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir1,
-				useDefaultHistorySyncUrl: false
+				dbDirectory: dbDir1
 			)
 		)
 
@@ -273,8 +270,7 @@ class HistorySyncTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir2,
-				useDefaultHistorySyncUrl: false
+				dbDirectory: dbDir2
 			)
 		)
 
@@ -322,8 +318,7 @@ class HistorySyncTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir1,
-				useDefaultHistorySyncUrl: false
+				dbDirectory: dbDir1
 			)
 		)
 

@@ -1,3 +1,4 @@
+use crate::ErrorWrapper;
 use crate::client::RustMlsGroup;
 use crate::conversation::Conversation;
 use crate::enriched_message::DecodedMessage;
@@ -5,7 +6,7 @@ use crate::messages::Message;
 use crate::user_preferences::UserPreferenceUpdate;
 use futures::Stream;
 use futures::{StreamExt, stream::LocalBoxStream};
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use std::task::Poll;
 use std::task::ready;
 use std::{cell::RefCell, rc::Rc};
@@ -96,7 +97,7 @@ impl StreamCloser {
       match h.end_and_wait().await {
         Err(Cancelled) => Ok(()),
         Err(Panicked(msg)) => Err(JsError::new(&msg)),
-        Ok(t) => t.map_err(|e| JsError::new(&e.to_string())),
+        Ok(t) => t.map_err(ErrorWrapper::js),
         Err(e) => Err(JsError::new(&format!("error joining task {}", e))),
       }
     } else {
@@ -123,10 +124,10 @@ impl StreamCloser {
 }
 
 // JS-Compatible Conversation stream
-pin_project! {
-    pub struct ConversationStream<'a> {
-      #[pin] stream: LocalBoxStream<'a, Result<RustMlsGroup, XmtpSubscribeError>>,
-    }
+#[pin_project]
+pub struct ConversationStream<'a> {
+  #[pin]
+  stream: LocalBoxStream<'a, Result<RustMlsGroup, XmtpSubscribeError>>,
 }
 
 impl<'a> ConversationStream<'a> {
@@ -151,7 +152,7 @@ impl<'a> Stream for ConversationStream<'a> {
     if let Some(item) = ready!(this.stream.poll_next(cx)) {
       match item {
         Ok(group) => Poll::Ready(Some(Ok(JsValue::from(Conversation::from(group))))),
-        Err(e) => Poll::Ready(Some(Err(JsValue::from(JsError::new(&e.to_string()))))),
+        Err(e) => Poll::Ready(Some(Err(JsValue::from(ErrorWrapper::js(e))))),
       }
     } else {
       Poll::Ready(None)

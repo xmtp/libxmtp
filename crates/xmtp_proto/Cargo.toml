@@ -19,7 +19,7 @@ hex.workspace = true
 http = "1.2"
 pbjson.workspace = true
 pbjson-types.workspace = true
-pin-project-lite.workspace = true
+pin-project.workspace = true
 prost = { workspace = true, features = ["derive"] }
 prost-types = "0.14"
 rustc-hash.workspace = true

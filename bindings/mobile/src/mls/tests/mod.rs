@@ -36,7 +36,7 @@ use crate::{
         test_utils::{LocalBuilder, LocalTester, connect_to_backend_test},
     },
     revoke_installations,
-    worker::FfiSyncWorkerMode,
+    worker::FfiDeviceSyncMode,
 };
 use alloy::signers::local::PrivateKeySigner;
 use futures::future::join_all;
@@ -76,8 +76,9 @@ use xmtp_id::associations::{
 };
 use xmtp_mls::{
     InboxOwner,
-    groups::{GroupError, device_sync::worker::SyncMetric},
+    groups::GroupError,
     utils::{PasskeyUser, Tester, TesterBuilder},
+    worker::device_sync::worker::SyncMetric,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     ContentTypeId, EncodedContent,
@@ -361,18 +362,13 @@ pub(crate) async fn register_client_with_wallet_no_panic(
 
 /// Create a new test client with a given wallet.
 pub(crate) async fn new_test_client_with_wallet(wallet: PrivateKeySigner) -> Arc<FfiXmtpClient> {
-    new_test_client_with_wallet_and_history_sync_url(
-        wallet,
-        None,
-        Some(FfiSyncWorkerMode::Disabled),
-    )
-    .await
+    new_test_client_with_wallet_and_history_sync_url(wallet, Some(FfiDeviceSyncMode::Disabled))
+        .await
 }
 
 pub(crate) async fn new_test_client_with_wallet_and_history_sync_url(
     wallet: PrivateKeySigner,
-    history_sync_url: Option<String>,
-    sync_worker_mode: Option<FfiSyncWorkerMode>,
+    sync_worker_mode: Option<FfiDeviceSyncMode>,
 ) -> Arc<FfiXmtpClient> {
     let ffi_inbox_owner = FfiWalletInboxOwner::with_wallet(wallet);
     let ident = ffi_inbox_owner.identifier();
@@ -393,7 +389,6 @@ pub(crate) async fn new_test_client_with_wallet_and_history_sync_url(
         ident,
         nonce,
         None,
-        history_sync_url,
         sync_worker_mode,
         None,
         None,
@@ -411,7 +406,6 @@ pub(crate) async fn new_test_client_with_wallet_and_history_sync_url(
 
 pub(crate) async fn new_test_client_no_panic(
     wallet: PrivateKeySigner,
-    sync_server_url: Option<String>,
 ) -> Result<Arc<FfiXmtpClient>, FfiError> {
     let ffi_inbox_owner = FfiWalletInboxOwner::with_wallet(wallet);
     let ident = ffi_inbox_owner.identifier();
@@ -431,7 +425,6 @@ pub(crate) async fn new_test_client_no_panic(
         ident,
         nonce,
         None,
-        sync_server_url,
         None,
         None,
         None,

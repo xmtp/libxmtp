@@ -1,3 +1,4 @@
+use crate::ErrorWrapper;
 use crate::encoded_content::{ContentTypeId, EncodedContent};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -7,6 +8,8 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::wallet_send_calls::WalletSendCalls as XmtpWalletSendCalls;
 use xmtp_content_types::wallet_send_calls::WalletSendCallsCodec;
+
+use super::ContentTypeError;
 
 #[derive(Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi, hashmap_as_object)]
@@ -81,7 +84,7 @@ impl TryFrom<xmtp_content_types::wallet_send_calls::WalletCall> for WalletCall {
       .metadata
       .map(|meta| serde_json::to_value(meta).and_then(serde_json::from_value))
       .transpose()
-      .map_err(|e| JsError::new(&e.to_string()))?;
+      .map_err(|e| ContentTypeError::InvalidData(e.to_string()).into_js())?;
     Ok(Self {
       to: call.to,
       data: call.data,
@@ -100,7 +103,7 @@ impl TryFrom<WalletCall> for xmtp_content_types::wallet_send_calls::WalletCall {
       .metadata
       .map(|meta| serde_json::to_value(meta).and_then(serde_json::from_value))
       .transpose()
-      .map_err(|e| JsError::new(&e.to_string()))?;
+      .map_err(|e| ContentTypeError::InvalidData(e.to_string()).into_js())?;
     Ok(Self {
       to: call.to,
       data: call.data,
@@ -123,7 +126,7 @@ pub fn encode_wallet_send_calls(
   let wsc: XmtpWalletSendCalls = wallet_send_calls.try_into()?;
   Ok(
     WalletSendCallsCodec::encode(wsc)
-      .map_err(|e| JsError::new(&format!("{}", e)))?
+      .map_err(ErrorWrapper::js)?
       .into(),
   )
 }

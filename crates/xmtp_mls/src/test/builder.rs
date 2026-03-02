@@ -18,7 +18,6 @@ use openmls::credentials::{Credential, CredentialType};
 use prost::Message;
 use xmtp_common::rand_u64;
 use xmtp_cryptography::XmtpInstallationCredential;
-use xmtp_cryptography::rand::rng;
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_id::associations::test_utils::{MockSmartContractSignatureVerifier, WalletTestExt};
 use xmtp_id::associations::unverified::UnverifiedSignature;
@@ -72,7 +71,10 @@ async fn generate_random_legacy_key() -> (Vec<u8>, String) {
     let ident = wallet.get_identifier().unwrap();
     let address = format!("{ident}");
     let created_ns = rand_u64();
-    let secret_key = alloy::signers::k256::ecdsa::SigningKey::random(&mut rng());
+    let secret_key = alloy::signers::k256::ecdsa::SigningKey::from_slice(
+        &xmtp_cryptography::rand::rand_array::<32>(),
+    )
+    .unwrap();
     let public_key = alloy::signers::k256::ecdsa::VerifyingKey::from(&secret_key);
     let public_key_bytes = public_key.to_sec1_bytes().to_vec();
     let mut public_key_buf = vec![];

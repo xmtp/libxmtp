@@ -1094,7 +1094,7 @@ class ClientTest : BaseInstrumentedTest() {
 
             val apiStats2 = alix.debugInformation.apiStatistics
             assertEquals(0, apiStats2.fetchKeyPackage)
-            assertEquals(4, apiStats2.sendGroupMessages)
+            assertEquals(3, apiStats2.sendGroupMessages)
             assertEquals(0, apiStats2.sendWelcomeMessages)
             assertEquals(1, apiStats2.queryWelcomeMessages)
             assertEquals(1, apiStats2.subscribeWelcomes)

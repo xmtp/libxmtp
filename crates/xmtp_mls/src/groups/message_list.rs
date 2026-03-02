@@ -84,7 +84,7 @@ mod tests {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let group = client.create_group(None, Default::default()).unwrap();
 
-        (group, client.context)
+        (group, client.context.clone())
     }
 
     fn create_test_message(
@@ -264,7 +264,7 @@ mod tests {
 
     // ===== Tests =====
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_exclude_content_types_with_custom_exclusions() {
         let (group, context) = setup_test_group().await;
         let conn = context.db();
@@ -311,7 +311,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_find_messages_no_reactions_or_replies() {
         let (group, context) = setup_test_group().await;
         let conn = context.db();
@@ -344,7 +344,7 @@ mod tests {
         assert_reaction_count(&messages[1], 0);
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_find_messages_with_reactions() {
         let (group, context) = setup_test_group().await;
         let conn = context.db();
@@ -393,7 +393,7 @@ mod tests {
         assert_has_reaction(original_msg, "❤️");
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_find_messages_with_replies() {
         let (group, context) = setup_test_group().await;
         let conn = context.db();
@@ -440,7 +440,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_find_messages_invalid_reply_reference() {
         let (group, context) = setup_test_group().await;
         let conn = context.db();
@@ -469,7 +469,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_find_messages_missing_reply_reference() {
         let (group, context) = setup_test_group().await;
         let conn = context.db();
@@ -499,7 +499,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_find_messages_undecodable_messages() {
         let (group, context) = setup_test_group().await;
         let conn = context.db();
@@ -553,7 +553,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_find_messages_invalid_reactions() {
         let (group, context) = setup_test_group().await;
         let conn = context.db();
@@ -607,7 +607,7 @@ mod tests {
         assert_has_reaction(original_msg, "👍");
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_hidden_message_types_are_filtered() {
         let (group, context) = setup_test_group().await;
         let conn = context.db();
@@ -691,7 +691,7 @@ mod tests {
         assert_has_reaction(&messages[0], "👍");
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_find_messages_chain_of_replies() {
         let (group, context) = setup_test_group().await;
         let conn = context.db();
@@ -786,7 +786,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_reply_with_custom_inner_content() {
         let (group, context) = setup_test_group().await;
         let conn = context.db();

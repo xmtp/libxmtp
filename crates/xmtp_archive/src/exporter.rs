@@ -1,38 +1,36 @@
 use super::{BACKUP_VERSION, OptionsToSave, export_stream::BatchExportStream};
+use crate::archive_options::ArchiveOptions;
 use crate::{NONCE_SIZE, util::GenericArrayExt};
 use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
 use async_compression::futures::write::ZstdEncoder;
 use futures::{Stream, pin_mut, ready, task::Context};
 use futures_util::{AsyncRead, AsyncWriteExt};
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use prost::Message;
 #[allow(deprecated)]
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::{future::Future, io, pin::Pin, sync::Arc, task::Poll};
 use xmtp_db::prelude::*;
-use xmtp_proto::xmtp::device_sync::{
-    BackupElement, BackupMetadataSave, BackupOptions, backup_element::Element,
-};
+use xmtp_proto::xmtp::device_sync::{BackupElement, BackupMetadataSave, backup_element::Element};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file_export;
 
-pin_project! {
-    pub struct ArchiveExporter {
-        stage: Stage,
-        metadata: BackupMetadataSave,
-        #[pin] stream: BatchExportStream,
-        position: usize,
-        zstd_encoder: ZstdEncoder<Vec<u8>>,
-        encoder_finished: bool,
+#[pin_project]
+pub struct ArchiveExporter {
+    stage: Stage,
+    metadata: BackupMetadataSave,
+    #[pin]
+    stream: BatchExportStream,
+    position: usize,
+    zstd_encoder: ZstdEncoder<Vec<u8>>,
+    encoder_finished: bool,
 
-        cipher: AesGcm<Aes256, typenum::U12, typenum::U16>,
-        nonce: GenericArray<u8, typenum::U12>,
+    cipher: AesGcm<Aes256, typenum::U12, typenum::U16>,
+    nonce: GenericArray<u8, typenum::U12>,
 
-        // Used to write the nonce, contains the same data as nonce.
-        nonce_buffer: Vec<u8>,
-    }
-
+    // Used to write the nonce, contains the same data as nonce.
+    nonce_buffer: Vec<u8>,
 }
 
 #[derive(Default)]
@@ -46,7 +44,7 @@ pub(super) enum Stage {
 impl ArchiveExporter {
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn export_to_file<D>(
-        options: BackupOptions,
+        options: ArchiveOptions,
         db: D,
         path: impl AsRef<std::path::Path>,
         key: &[u8],
@@ -94,7 +92,7 @@ impl ArchiveExporter {
         Ok(response.text().await?)
     }
 
-    pub fn new<D>(options: BackupOptions, db: D, key: &[u8]) -> Self
+    pub fn new<D>(options: ArchiveOptions, db: D, key: &[u8]) -> Self
     where
         D: DbQuery + 'static,
     {

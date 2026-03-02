@@ -56,7 +56,7 @@ impl ::prost::Name for BackupMetadataSave {
 }
 /// Backup Options
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct BackupOptions {
+pub struct ArchiveOptions {
     #[prost(enumeration = "BackupElementSelection", repeated, tag = "1")]
     pub elements: ::prost::alloc::vec::Vec<i32>,
     #[prost(int64, optional, tag = "2")]
@@ -66,14 +66,14 @@ pub struct BackupOptions {
     #[prost(bool, tag = "4")]
     pub exclude_disappearing_messages: bool,
 }
-impl ::prost::Name for BackupOptions {
-    const NAME: &'static str = "BackupOptions";
+impl ::prost::Name for ArchiveOptions {
+    const NAME: &'static str = "ArchiveOptions";
     const PACKAGE: &'static str = "xmtp.device_sync";
     fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.device_sync.BackupOptions".into()
+        "xmtp.device_sync.ArchiveOptions".into()
     }
     fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.device_sync.BackupOptions".into()
+        "/xmtp.device_sync.ArchiveOptions".into()
     }
 }
 /// Elements selected for backup

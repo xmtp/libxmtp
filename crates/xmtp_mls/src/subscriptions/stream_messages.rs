@@ -9,16 +9,19 @@ pub use test_utils::*;
 
 use types::GroupList;
 pub use types::MessageStreamError;
+use xmtp_macro::log_event;
 
 use super::{
     Result, SubscribeError,
     process_message::{ProcessFutureFactory, ProcessMessageFuture},
 };
 use crate::{
-    context::XmtpSharedContext, groups::MlsGroup, subscriptions::process_message::ProcessedMessage,
+    context::XmtpSharedContext,
+    groups::MlsGroup,
+    subscriptions::{StreamKind, process_message::ProcessedMessage},
 };
 use futures::Stream;
-use pin_project_lite::pin_project;
+use pin_project::{pin_project, pinned_drop};
 use std::{
     borrow::Cow,
     collections::VecDeque,
@@ -26,7 +29,7 @@ use std::{
     pin::Pin,
     task::{Poll, ready},
 };
-use xmtp_common::BoxDynFuture;
+use xmtp_common::{BoxDynFuture, Event};
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId, SequenceId};
 use xmtp_proto::types::{GroupId, Topic};
@@ -41,37 +44,60 @@ impl xmtp_common::RetryableError for MessageStreamError {
     }
 }
 
-pin_project! {
-    pub struct StreamGroupMessages<'a, Context: Clone, Subscription, Factory = ProcessMessageFuture<Context>> {
-        #[pin] inner: Subscription,
-        #[pin] state: State<'a, Subscription>,
-        factory: Factory,
-        context: Cow<'a, Context>,
-        groups: GroupList,
-        add_queue: VecDeque<MlsGroup<Context>>,
-        returned: Vec<Cursor>,
-        got: Vec<Cursor>,
+type AddingResult<Out> = (Out, Vec<u8>, Option<Cursor>);
+
+#[pin_project(PinnedDrop)]
+pub struct StreamGroupMessages<
+    'a,
+    Context: Clone + XmtpSharedContext,
+    Subscription,
+    Factory = ProcessMessageFuture<Context>,
+> {
+    #[pin]
+    inner: Subscription,
+    #[pin]
+    state: State<'a, Subscription>,
+    factory: Factory,
+    context: Cow<'a, Context>,
+    groups: GroupList,
+    add_queue: VecDeque<MlsGroup<Context>>,
+    returned: Vec<Cursor>,
+    got: Vec<Cursor>,
+}
+
+#[pinned_drop]
+impl<'a, Context, Subscription, Factory> PinnedDrop
+    for StreamGroupMessages<'a, Context, Subscription, Factory>
+where
+    Context: Clone + XmtpSharedContext,
+{
+    fn drop(self: Pin<&mut Self>) {
+        log_event!(
+            Event::StreamClosed,
+            self.context.installation_id(),
+            kind = ?StreamKind::Messages
+        );
     }
 }
 
-pin_project! {
-    #[project = ProjectState]
-    #[derive(Default)]
-    enum State<'a, Out> {
-        /// State that indicates the stream is waiting on the next message from the network
-        #[default]
-        Waiting,
-        /// State that indicates the stream is waiting on a IO/Network future to finish processing
-        /// the current message before moving on to the next one
-        Processing {
-            #[pin] future: BoxDynFuture<'a, Result<ProcessedMessage>>,
-            message: Cursor
-        },
-        // State that indicates that the stream is adding a new group to the stream.
-        Adding {
-            #[pin] future: BoxDynFuture<'a, Result<(Out, Vec<u8>, Option<Cursor>)>>
-        }
-    }
+#[pin_project(project = ProjectState)]
+#[derive(Default)]
+enum State<'a, Out> {
+    /// State that indicates the stream is waiting on the next message from the network
+    #[default]
+    Waiting,
+    /// State that indicates the stream is waiting on a IO/Network future to finish processing
+    /// the current message before moving on to the next one
+    Processing {
+        #[pin]
+        future: BoxDynFuture<'a, Result<ProcessedMessage>>,
+        message: Cursor,
+    },
+    // State that indicates that the stream is adding a new group to the stream.
+    Adding {
+        #[pin]
+        future: BoxDynFuture<'a, Result<AddingResult<Out>>>,
+    },
 }
 
 pub(super) type MessagesApiSubscription<'a, ApiClient> =
@@ -99,6 +125,11 @@ where
     /// - Message extraction fails
     /// - Creating the subscription fails
     pub async fn new(context: &'a Context, groups: Vec<GroupId>) -> Result<Self> {
+        log_event!(
+            Event::StreamOpened,
+            context.installation_id(),
+            kind = ?StreamKind::Messages
+        );
         Self::new_with_factory(
             Cow::Borrowed(context),
             groups,

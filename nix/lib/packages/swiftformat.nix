@@ -1,6 +1,10 @@
 # Pre-built SwiftFormat binary from GitHub releases
 # This avoids building the Swift compiler from source in Nix
-{ stdenv, fetchurl, unzip }:
+{
+  stdenv,
+  fetchurl,
+  unzip,
+}:
 
 stdenv.mkDerivation rec {
   pname = "swiftformat";

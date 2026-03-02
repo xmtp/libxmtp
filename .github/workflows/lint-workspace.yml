@@ -2,10 +2,7 @@ name: Lint Workspace
 on:
   workflow_call:
 env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-  RUSTFLAGS: -D warnings --cfg tracing_unstable
-  CARGO_PROFILE_TEST_DEBUG: 0
+  NIX_DEVSHELL: rust
 jobs:
   lint:
     name: Lint (Rust Workspace)
@@ -13,19 +10,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/setup-nix
         with:
-          warp: "true"
-      - name: Run clippy and fail on warnings
-        # Exclude bindings_wasm since it only compiles for wasm32
-        run: cargo clippy --locked --workspace --all-features --all-targets --no-deps --exclude bindings_wasm -- -D warnings
-      - name: Run format check
-        run: cargo fmt --check
-      - name: Install cargo-hakari
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-hakari
-      - name: Check workspace-hack Cargo.toml is up-to-date
-        run: cargo hakari generate --diff
-      - name: Check all crates depend on workspace-hack
-        run: cargo hakari manage-deps --dry-run
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          sccache: "true"
+      - uses: taiki-e/install-action@just
+      - name: Lint Rust workspace
+        run: just lint-rust

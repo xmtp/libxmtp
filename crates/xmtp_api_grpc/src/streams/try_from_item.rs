@@ -1,17 +1,17 @@
 //! Maps a `TryStream` with a different type that implements `TryFrom<T>` for the streams item
 
 use futures::{Stream, TryStream};
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use std::{
     marker::PhantomData,
     task::{Poll, ready},
 };
 
-pin_project! {
-    pub struct TryFromItem<S, T> {
-        #[pin] inner: S,
-        _marker: PhantomData<T>,
-    }
+#[pin_project]
+pub struct TryFromItem<S, T> {
+    #[pin]
+    inner: S,
+    _marker: PhantomData<T>,
 }
 
 /// Wrap a `TryStream<T>` such that it converts its 'item' to T

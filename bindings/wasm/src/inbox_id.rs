@@ -1,3 +1,4 @@
+use crate::ErrorWrapper;
 use crate::identity::Identifier;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_api::{ApiClientWrapper, strategies};
@@ -17,7 +18,7 @@ pub async fn get_inbox_id_for_identifier(
     .maybe_gateway_host(gateway_host)
     .is_secure(is_secure)
     .build()
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    .map_err(ErrorWrapper::js)?;
   let api_client = ApiClientWrapper::new(
     TrackedStatsClient::new(backend),
     strategies::exponential_cooldown(),
@@ -28,7 +29,7 @@ pub async fn get_inbox_id_for_identifier(
   let results = api_client
     .get_inbox_ids(vec![api_ident.clone()])
     .await
-    .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    .map_err(ErrorWrapper::js)?;
 
   Ok(results.get(&api_ident).cloned())
 }
@@ -40,7 +41,5 @@ pub fn generate_inbox_id(
 ) -> Result<String, JsError> {
   let ident: XmtpIdentifier = account_identifier.try_into()?;
 
-  ident
-    .inbox_id(nonce.unwrap_or(1))
-    .map_err(|e| JsError::new(format!("{}", e).as_str()))
+  ident.inbox_id(nonce.unwrap_or(1)).map_err(ErrorWrapper::js)
 }

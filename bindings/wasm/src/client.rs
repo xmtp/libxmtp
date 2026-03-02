@@ -13,12 +13,13 @@ use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::Client as MlsClient;
-use xmtp_mls::builder::SyncWorkerMode;
+use xmtp_mls::builder::DeviceSyncMode as XmtpDeviceSyncMode;
 use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_proto::api_client::AggregateStats;
 
+use crate::ErrorWrapper;
 use crate::conversations::Conversations;
 use crate::device_sync::DeviceSync;
 use crate::identity::{ApiStats, Identifier, IdentityStats};
@@ -69,16 +70,16 @@ impl LogLevel {
 }
 
 #[wasm_bindgen_numbered_enum]
-pub enum DeviceSyncWorkerMode {
+pub enum DeviceSyncMode {
   Enabled = 0,
   Disabled = 1,
 }
 
-impl From<DeviceSyncWorkerMode> for SyncWorkerMode {
-  fn from(value: DeviceSyncWorkerMode) -> Self {
+impl From<DeviceSyncMode> for XmtpDeviceSyncMode {
+  fn from(value: DeviceSyncMode) -> Self {
     match value {
-      DeviceSyncWorkerMode::Enabled => Self::Enabled,
-      DeviceSyncWorkerMode::Disabled => Self::Disabled,
+      DeviceSyncMode::Enabled => Self::Enabled,
+      DeviceSyncMode::Disabled => Self::Disabled,
     }
   }
 }
@@ -177,10 +178,7 @@ pub async fn create_client(
   #[wasm_bindgen(js_name = accountIdentifier)] account_identifier: Identifier,
   #[wasm_bindgen(js_name = dbPath)] db_path: Option<String>,
   #[wasm_bindgen(js_name = encryptionKey)] encryption_key: Option<Uint8Array>,
-  #[wasm_bindgen(js_name = deviceSyncServerUrl)] device_sync_server_url: Option<String>,
-  #[wasm_bindgen(js_name = deviceSyncWorkerMode)] device_sync_worker_mode: Option<
-    DeviceSyncWorkerMode,
-  >,
+  #[wasm_bindgen(js_name = deviceSyncMode)] device_sync_worker_mode: Option<DeviceSyncMode>,
   #[wasm_bindgen(js_name = logOptions)] log_options: Option<LogOptions>,
   #[wasm_bindgen(js_name = allowOffline)] allow_offline: Option<bool>,
   #[wasm_bindgen(js_name = appVersion)] app_version: Option<String>,
@@ -237,14 +235,8 @@ pub async fn create_client(
   );
 
   backend.cursor_store(SqliteCursorStore::new(store.db()));
-  let api_client = backend
-    .clone()
-    .build()
-    .map_err(|e| JsError::new(&e.to_string()))?;
-  let sync_api_client = backend
-    .clone()
-    .build()
-    .map_err(|e| JsError::new(&e.to_string()))?;
+  let api_client = backend.clone().build().map_err(ErrorWrapper::js)?;
+  let sync_api_client = backend.clone().build().map_err(ErrorWrapper::js)?;
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
     .api_clients(api_client, sync_api_client)
@@ -254,20 +246,16 @@ pub async fn create_client(
     .with_allow_offline(allow_offline)
     .store(store);
 
-  if let Some(u) = device_sync_server_url {
-    builder = builder.device_sync_server_url(&u);
-  };
-
   if let Some(device_sync_worker_mode) = device_sync_worker_mode {
     builder = builder.device_sync_worker_mode(device_sync_worker_mode.into());
   }
 
   let xmtp_client = builder
     .default_mls_store()
-    .map_err(|e| JsError::new(&e.to_string()))?
+    .map_err(ErrorWrapper::js)?
     .build()
     .await
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    .map_err(ErrorWrapper::js)?;
 
   Ok(Client {
     account_identifier,
@@ -330,7 +318,7 @@ impl Client {
       .inner_client
       .can_message(&account_identifiers)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     let results: HashMap<_, _> = results
       .into_iter()
@@ -350,7 +338,7 @@ impl Client {
       .inner_client
       .find_inbox_id_from_identifier(&conn, identifier.try_into()?)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(inbox_id)
   }
@@ -368,7 +356,7 @@ impl Client {
         inbox_ids.iter().map(String::as_str).collect(),
       )
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(state.into_iter().map(Into::into).collect())
   }
 
@@ -389,7 +377,7 @@ impl Client {
     let summary = inner
       .sync_all_welcomes_and_device_sync_groups()
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(summary.into())
   }

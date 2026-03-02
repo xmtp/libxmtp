@@ -3,9 +3,9 @@ use super::mls_ext::{UnwrapWelcomeError, WrapWelcomeError};
 use super::mls_sync::GroupMessageProcessingError;
 use super::summary::SyncSummary;
 use super::{intents::IntentError, validated_commit::CommitValidationError};
-use crate::groups::device_sync::DeviceSyncError;
 use crate::identity::IdentityError;
 use crate::mls_store::MlsStoreError;
+use crate::worker::device_sync::DeviceSyncError;
 use crate::{
     client::ClientError, identity_updates::InstallationDiffError, intents::ProcessIntentError,
     subscriptions::LocalEventError,

@@ -10,7 +10,7 @@ use crate::{
 use futures::Stream;
 use http::{StatusCode, request, uri::PathAndQuery};
 use http_body_util::StreamBody;
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use prost::bytes::Bytes;
 use std::{
     pin::Pin,
@@ -111,11 +111,11 @@ impl GrpcClient {
     }
 }
 
-pin_project! {
-    /// A stream of bytes from a GRPC Network Source
-    pub struct GrpcStream {
-        #[pin] inner: crate::streams::NonBlocking
-    }
+#[pin_project]
+/// A stream of bytes from a GRPC Network Source
+pub struct GrpcStream {
+    #[pin]
+    inner: crate::streams::NonBlocking,
 }
 
 impl From<crate::streams::NonBlocking> for GrpcStream {

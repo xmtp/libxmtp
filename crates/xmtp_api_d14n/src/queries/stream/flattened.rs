@@ -1,16 +1,16 @@
 //! Convenience type which changes a stream whos items implement `Paged` to return the inner paged items (Vec<T>)
 
 use futures::{Stream, TryStream};
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use std::task::Poll;
 use xmtp_proto::api_client::Paged;
 
 use crate::protocol::EnvelopeError;
 
-pin_project! {
-    pub struct FlattenedStream<S> {
-        #[pin] inner: S,
-    }
+#[pin_project]
+pub struct FlattenedStream<S> {
+    #[pin]
+    inner: S,
 }
 
 /// Wrap a `TryStream<T>` whos items, TryStream::<T>::Ok, implement

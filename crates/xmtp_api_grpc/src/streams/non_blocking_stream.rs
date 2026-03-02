@@ -27,7 +27,7 @@
 //! this.
 
 use futures::{Stream, TryFuture, TryStream, stream::FusedStream};
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use std::{
     future::Future,
     pin::Pin,
@@ -37,11 +37,11 @@ use tonic::Status;
 
 use crate::streams::{FakeEmptyStream, IntoInner};
 
-pin_project! {
-    /// The establish future for the http post stream
-    struct StreamEstablish<F> {
-        #[pin] inner: F,
-    }
+#[pin_project]
+/// The establish future for the http post stream
+struct StreamEstablish<F> {
+    #[pin]
+    inner: F,
 }
 
 impl<F> StreamEstablish<F> {
@@ -67,24 +67,24 @@ where
     }
 }
 
-pin_project! {
-    /// The establish future for the http post stream
-    #[project = ProjectStream]
-    enum StreamState< F, S> {
-        NotStarted {
-            #[pin] future: StreamEstablish<F>,
-        },
-        Started {
-            #[pin] stream: S,
-        },
-        Terminated
-    }
+#[pin_project(project = ProjectStream)]
+/// The establish future for the http post stream
+enum StreamState<F, S> {
+    NotStarted {
+        #[pin]
+        future: StreamEstablish<F>,
+    },
+    Started {
+        #[pin]
+        stream: S,
+    },
+    Terminated,
 }
 
-pin_project! {
-    pub struct NonBlockingWebStream<F, S> {
-        #[pin] state: StreamState<F, S>,
-    }
+#[pin_project]
+pub struct NonBlockingWebStream<F, S> {
+    #[pin]
+    state: StreamState<F, S>,
 }
 
 impl<F, S> NonBlockingWebStream<F, S>

@@ -1,21 +1,8 @@
 use crate::{
-    groups::welcome_sync::GroupSyncSummary,
-    identity_updates::{batch_get_association_state_with_verifier, get_creation_signature_kind},
-    messages::{
-        decoded_message::DecodedMessage,
-        enrichment::{EnrichMessageError, enrich_messages},
-    },
-};
-use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
-use xmtp_macro::log_event;
-
-use crate::{
-    builder::SyncWorkerMode,
+    builder::DeviceSyncMode,
     context::XmtpSharedContext,
     groups::{
-        ConversationListItem, GroupError, MlsGroup,
-        device_sync::{DeviceSyncClient, preference_sync::PreferenceUpdate, worker::SyncMetric},
-        group_permissions::PolicySet,
+        ConversationListItem, GroupError, MlsGroup, group_permissions::PolicySet,
         welcome_sync::WelcomeService,
     },
     identity::{Identity, IdentityError, parse_credential},
@@ -24,14 +11,26 @@ use crate::{
     subscriptions::{LocalEventError, LocalEvents, SyncWorkerEvent},
     utils::VersionInfo,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+    worker::device_sync::{
+        DeviceSyncClient, preference_sync::PreferenceUpdate, worker::SyncMetric,
+    },
     worker::{WorkerRunner, metrics::WorkerMetrics},
+};
+use crate::{
+    groups::welcome_sync::GroupSyncSummary,
+    identity_updates::{batch_get_association_state_with_verifier, get_creation_signature_kind},
+    messages::{
+        decoded_message::DecodedMessage,
+        enrichment::{EnrichMessageError, enrich_messages},
+    },
 };
 use openmls::prelude::tls_codec::Error as TlsCodecError;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
-use xmtp_common::{ErrorCode, Event, Retry, fmt::ShortHex, retry_async, retryable};
+use xmtp_common::{ErrorCode, Event, Retry, retry_async, retryable};
+use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::{
     ConnectionExt, NotFound, StorageError, XmtpDb,
@@ -51,6 +50,7 @@ use xmtp_id::{
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
+use xmtp_macro::log_event;
 use xmtp_mls_common::{
     group::{DMMetadataOptions, GroupMetadataOptions},
     group_metadata::DmMembers,
@@ -162,14 +162,20 @@ impl From<&str> for ClientError {
 /// Clients manage access to the network, identity, and data store
 pub struct Client<Context> {
     pub context: Context,
+    pub installation_id: InstallationId,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     pub(crate) workers: Arc<WorkerRunner>,
 }
 
+impl<Context> Drop for Client<Context> {
+    fn drop(&mut self) {
+        log_event!(Event::ClientDropped, self.installation_id);
+    }
+}
+
 #[derive(Clone)]
 pub struct DeviceSync {
-    pub(crate) server_url: Option<String>,
-    pub(crate) mode: SyncWorkerMode,
+    pub(crate) mode: DeviceSyncMode,
 }
 
 // most of these things are `Arc`'s
@@ -177,6 +183,7 @@ impl<Context: Clone> Clone for Client<Context> {
     fn clone(&self) -> Self {
         Self {
             context: self.context.clone(),
+            installation_id: self.installation_id,
             local_events: self.local_events.clone(),
             workers: self.workers.clone(),
         }
@@ -280,8 +287,11 @@ where
         self.context.db()
     }
 
-    pub fn device_sync_server_url(&self) -> Option<&String> {
-        self.context.device_sync_server_url()
+    /// This associates an installation_id with a human-readable
+    /// name and makes the logs a little easier to read.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn set_name(&self, name: &str) {
+        log_event!(Event::AssociateName, self.context.installation_id(), name);
     }
 
     pub fn device_sync_worker_enabled(&self) -> bool {
@@ -544,7 +554,7 @@ where
         log_event!(
             Event::CreatedGroup,
             self.context.installation_id(),
-            group_id = group.group_id.short_hex()
+            group_id = group.group_id
         );
 
         // notify streams of our new group
@@ -600,8 +610,8 @@ where
         log_event!(
             Event::CreatedDM,
             self.context.installation_id(),
-            group_id = group.group_id.short_hex(),
-            target_inbox_id
+            group_id = group.group_id,
+            target_inbox = target_inbox_id
         );
         group.add_members(&[target_inbox_id]).await?;
 

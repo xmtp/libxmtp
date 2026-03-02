@@ -1,15 +1,15 @@
-use rand::distributions::Alphanumeric;
-use rand::distributions::DistString;
-use rand::{CryptoRng, RngCore, SeedableRng};
+use rand::distr::Alphanumeric;
+use rand::distr::SampleString;
+use rand::{CryptoRng, Rng, RngExt, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 
 use crate::Secret;
 
-pub fn rng() -> impl CryptoRng + RngCore {
-    ChaCha20Rng::from_entropy()
+pub fn rng() -> impl CryptoRng + RngExt {
+    ChaCha20Rng::try_from_rng(&mut rand::rngs::SysRng).unwrap()
 }
 
-pub fn seeded_rng(seed: u64) -> impl CryptoRng + RngCore {
+pub fn seeded_rng(seed: u64) -> impl CryptoRng + RngExt {
     ChaCha20Rng::seed_from_u64(seed)
 }
 

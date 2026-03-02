@@ -1,0 +1,31 @@
+[package]
+name = "xmtp-db-tools"
+edition = "2024"
+license.workspace = true
+version.workspace = true
+description = "migration/SQLite tools for xmtp databases"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+diesel = { workspace = true, features = ["sqlite"] }
+diesel_migrations = { workspace = true, features = ["sqlite"] }
+dotenvy = "0.15.7"
+hex.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["fmt"] }
+xmtp-workspace-hack = { version = "0.1", path = "../../crates/xmtp-workspace-hack" }
+xmtp_common.workspace = true
+xmtp_db.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+xmtp_mls = { workspace = true, features = ["test-utils"] }
+
+[lints]
+workspace = true
+
+[features]
+default = []
+test-utils = []
+bench = []

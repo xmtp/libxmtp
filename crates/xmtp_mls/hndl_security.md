@@ -207,38 +207,38 @@ The `Commit` messages that are healing MLS to provide PRS are not HNDL secure. W
 
 We believe that the arguments above are sufficient to argue that XMTP-MLS provides HNDL-FS for real-world use. This is similar to the security provided by protocols like PQXDH[^13] (without the post-quantum ratchet). While HNDL-PRS in a group context like MLS, is a relevant security property, HNDL-FS in XMTP-MLS provides a high level of protection against HNDL attackers.
 
-However, this is not a proof of the security of XMTP-MLS. A mechanised cryptographic proof, or a rigorous analysis of the security reductions would be needed to gain full confidence in the desired security guarantee. 
+However, this is not a proof of the security of XMTP-MLS. A mechanised cryptographic proof, or a rigorous analysis of the security reductions would be needed to gain full confidence in the desired security guarantee.
 
 The HNDL security of the initial `Welcome` message allows the protocol to establish an HNDL secure chain. However, as soon as we consider removing clients from the group, the HNDL security fails. This is because the `Commit` messages are not HNDL secure. Other MLS mechanisms like resumption or PSKs would also be able maintain the HNDL chain but are out of scope for XMTP-MLS for now.
 
 To achieve HNDL-PRS for XMTP-MLS, the `Commit` messages could be protected with a post-quantum secure, asymmetric mechanism in the future. This could be done with every commit, or could be amortised as done by PQ3[^14] or Signal’s sparse post-quantum ratchet[^15], or by other mechanisms that may be standardized for MLS.
 
-[^1]:  [XMTP MLS](https://github.com/xmtp/libxmtp/tree/main/xmtp_mls) 
+[^1]:  [XMTP MLS](https://github.com/xmtp/libxmtp/tree/main/xmtp_mls)
 
-[^2]:  [Create post quantum keys in all key packages \#1851](https://github.com/xmtp/libxmtp/pull/1851) 
+[^2]:  [Create post quantum keys in all key packages \#1851](https://github.com/xmtp/libxmtp/pull/1851)
 
-[^3]:  [Messaging security properties with XMTP](https://docs.xmtp.org/protocol/security) 
+[^3]:  [Messaging security properties with XMTP](https://docs.xmtp.org/protocol/security)
 
-[^4]:  [Cryptographic Security of the MLS RFC, Draft 11](https://eprint.iacr.org/2021/137) 
+[^4]:  [Cryptographic Security of the MLS RFC, Draft 11](https://eprint.iacr.org/2021/137)
 
-[^5]:  [TreeKEM: A Modular Machine-Checked Symbolic Security Analysis of Group Key Agreement in Messaging Layer Security](https://eprint.iacr.org/2025/410) 
+[^5]:  [TreeKEM: A Modular Machine-Checked Symbolic Security Analysis of Group Key Agreement in Messaging Layer Security](https://eprint.iacr.org/2025/410)
 
-[^6]:  [Post-Compromise Security](https://eprint.iacr.org/2016/221.pdf) 
+[^6]:  [Post-Compromise Security](https://eprint.iacr.org/2016/221.pdf)
 
-[^7]:  [RFC 9420: The Messaging Layer Security (MLS) Protocol](https://www.rfc-editor.org/rfc/rfc9420.html) 
+[^7]:  [RFC 9420: The Messaging Layer Security (MLS) Protocol](https://www.rfc-editor.org/rfc/rfc9420.html)
 
-[^8]:  [Cryptographic Extraction and Key Derivation: The HKDF Scheme](https://eprint.iacr.org/2010/264) 
+[^8]:  [Cryptographic Extraction and Key Derivation: The HKDF Scheme](https://eprint.iacr.org/2010/264)
 
-[^9]:  [X-Wing: general-purpose hybrid post-quantum KEM](https://www.ietf.org/archive/id/draft-connolly-cfrg-xwing-kem-06.html#name-use-in-hpke) 
+[^9]:  [X-Wing: general-purpose hybrid post-quantum KEM](https://www.ietf.org/archive/id/draft-connolly-cfrg-xwing-kem-06.html#name-use-in-hpke)
 
-[^10]:  [X-Wing: The Hybrid KEM You’ve Been Looking For](https://eprint.iacr.org/2024/039) 
+[^10]:  [X-Wing: The Hybrid KEM You’ve Been Looking For](https://eprint.iacr.org/2024/039)
 
-[^11]:  [FIPS 203, Module-Lattice-Based Key-Encapsulation Mechanism Standard | CSRC](https://csrc.nist.gov/pubs/fips/203/final) 
+[^11]:  [FIPS 203, Module-Lattice-Based Key-Encapsulation Mechanism Standard | CSRC](https://csrc.nist.gov/pubs/fips/203/final)
 
-[^12]:  [When Messages are Keys: Is HMAC a dual-PRF?](https://eprint.iacr.org/2023/861) 
+[^12]:  [When Messages are Keys: Is HMAC a dual-PRF?](https://eprint.iacr.org/2023/861)
 
-[^13]:  [Signal \>\> Specifications \>\> The PQXDH Key Agreement Protocol](https://signal.org/docs/specifications/pqxdh/) 
+[^13]:  [Signal \>\> Specifications \>\> The PQXDH Key Agreement Protocol](https://signal.org/docs/specifications/pqxdh/)
 
-[^14]:  [iMessage with PQ3: The new state of the art in quantum-secure messaging at scale](https://security.apple.com/blog/imessage-pq3/) 
+[^14]:  [iMessage with PQ3: The new state of the art in quantum-secure messaging at scale](https://security.apple.com/blog/imessage-pq3/)
 
-[^15]:  [GitHub \- signalapp/SparsePostQuantumRatchet: Provides SPQR, a chunked post-quantum ratchet usable in parallel with DH ratchets for the libsignal protocol.](https://github.com/signalapp/SparsePostQuantumRatchet) 
+[^15]:  [GitHub \- signalapp/SparsePostQuantumRatchet: Provides SPQR, a chunked post-quantum ratchet usable in parallel with DH ratchets for the libsignal protocol.](https://github.com/signalapp/SparsePostQuantumRatchet)

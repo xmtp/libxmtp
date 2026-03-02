@@ -64,7 +64,6 @@ use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
 use futures::future::join_all;
 use rstest::*;
 use std::sync::Arc;
-use wasm_bindgen_test::wasm_bindgen_test;
 use xmtp_common::RetryableError;
 use xmtp_common::StreamHandle as _;
 use xmtp_common::time::now_ns;
@@ -3624,7 +3623,7 @@ async fn skip_already_processed_intents() {
 
 #[xmtp_common::test(flavor = "multi_thread")]
 async fn test_parallel_syncs() {
-    tester!(alix1, sync_worker, sync_server);
+    tester!(alix1, sync_worker);
 
     let alix1_group = alix1.create_group(None, None).unwrap();
 
@@ -3974,7 +3973,7 @@ async fn test_max_past_epochs() {
     assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3
 }
 
-#[wasm_bindgen_test(unsupported = tokio::test)]
+#[xmtp_common::test]
 async fn test_validate_dm_group() {
     let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let added_by_inbox = "added_by_inbox_id";

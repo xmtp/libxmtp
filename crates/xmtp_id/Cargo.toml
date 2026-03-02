@@ -34,16 +34,13 @@ thiserror.workspace = true
 tracing.workspace = true
 url = { workspace = true, features = ["serde"] }
 xmtp_common.workspace = true
+xmtp_configuration = { workspace = true }
 xmtp_cryptography.workspace = true
 xmtp_db.workspace = true
 xmtp_proto = { workspace = true, features = [] }
 
 rstest = { workspace = true, optional = true }
 xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
-xmtp_configuration = { workspace = true, features = [
-  "test-utils",
-], optional = true }
-
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
 openmls = { workspace = true, features = ["js"] }
@@ -81,11 +78,11 @@ ctor.workspace = true
 [features]
 test-utils = [
   "xmtp_common/test-utils",
+  "xmtp_configuration/test-utils",
   "dep:rstest",
   "alloy/json",
   "alloy/provider-anvil-api",
   "alloy/provider-anvil-node",
   "alloy/contract",
   "alloy/rand",
-  "dep:xmtp_configuration",
 ]

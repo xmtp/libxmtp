@@ -21,7 +21,7 @@ jobs:
       wasm: ${{ steps.filter.outputs.wasm }}
       ios: ${{ steps.filter.outputs.ios }}
       android: ${{ steps.filter.outputs.android }}
-      toml: ${{ steps.filter.outputs.toml }}
+      config: ${{ steps.filter.outputs.config }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v3
@@ -53,9 +53,12 @@ jobs:
               - 'sdks/android/**'
               - 'bindings/mobile/**'
               - '.github/workflows/lint-android*'
-            toml:
+            config:
               - '**/*.toml'
-              - '.github/workflows/lint-toml*'
+              - '**/*.nix'
+              - 'flake.nix'
+              - 'dev/**'
+              - '.github/workflows/lint-config*'
 
   lint-workspace:
     needs: detect-changes
@@ -87,10 +90,10 @@ jobs:
     uses: ./.github/workflows/lint-android.yml
     secrets: inherit
 
-  lint-toml:
+  lint-config:
     needs: detect-changes
-    if: needs.detect-changes.outputs.toml == 'true'
-    uses: ./.github/workflows/lint-toml.yml
+    if: needs.detect-changes.outputs.config == 'true'
+    uses: ./.github/workflows/lint-config.yml
     secrets: inherit
 
   lint:
@@ -103,7 +106,7 @@ jobs:
       - lint-wasm
       # - lint-ios TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       # - lint-android TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
-      - lint-toml
+      - lint-config
     steps:
       - run: |
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || \

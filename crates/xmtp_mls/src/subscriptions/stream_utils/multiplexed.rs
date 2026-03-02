@@ -3,7 +3,7 @@
 use std::{pin::Pin, task::Poll};
 
 use futures::{Stream, stream::FusedStream};
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use std::task::Context;
 
 /// Attempts to pull items from both streams. S1 will always
@@ -19,14 +19,15 @@ pub fn multiplexed<S1, S2>(s1: S1, s2: S2) -> MultiplexedStream<S1, S2> {
     }
 }
 
-pin_project! {
-    /// Stream for the [multiplexed()] function
-    pub struct MultiplexedStream<S1, S2> {
-        #[pin] s1: S1,
-        #[pin] s2: S2,
-        s1_ended: bool,
-        terminated: bool,
-    }
+#[pin_project]
+/// Stream for the [multiplexed()] function
+pub struct MultiplexedStream<S1, S2> {
+    #[pin]
+    s1: S1,
+    #[pin]
+    s2: S2,
+    s1_ended: bool,
+    terminated: bool,
 }
 
 impl<S1, S2> MultiplexedStream<S1, S2>

@@ -1,3 +1,4 @@
+use crate::ErrorWrapper;
 use crate::encoded_content::{ContentTypeId, EncodedContent};
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -76,7 +77,7 @@ pub fn encode_remote_attachment(
 ) -> Result<EncodedContent, JsError> {
   Ok(
     RemoteAttachmentCodec::encode(remote_attachment.into())
-      .map_err(|e| JsError::new(&format!("{}", e)))?
+      .map_err(ErrorWrapper::js)?
       .into(),
   )
 }
@@ -131,7 +132,7 @@ impl From<xmtp_content_types::remote_attachment::EncryptedAttachment> for Encryp
 pub fn encrypt_attachment(attachment: Attachment) -> Result<EncryptedAttachment, JsError> {
   Ok(
     xmtp_encrypt_attachment(attachment.into())
-      .map_err(|e| JsError::new(&format!("{}", e)))?
+      .map_err(ErrorWrapper::js)?
       .into(),
   )
 }
@@ -143,6 +144,6 @@ pub fn decrypt_attachment(
   #[wasm_bindgen(js_name = "remoteAttachment")] remote_attachment: RemoteAttachment,
 ) -> Result<Attachment, JsError> {
   let decrypted = xmtp_decrypt_attachment(encrypted_bytes, &remote_attachment.into())
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+    .map_err(ErrorWrapper::js)?;
   Ok(decrypted.into())
 }

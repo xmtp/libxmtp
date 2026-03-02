@@ -212,6 +212,6 @@ mod tests {
             .is_valid_signature(account_id, hash, signature, block_number)
             .await;
         assert!(result.is_err());
-        assert!(matches!(result, Err(VerifierError::NoVerifier)));
+        assert!(matches!(result, Err(VerifierError::NoVerifier(_))));
     }
 }

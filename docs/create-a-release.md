@@ -15,6 +15,7 @@ Dev releases can be created from **any branch**. They append `-dev.<commit_hash>
 
 1. Go to **Actions > Release** (`release.yml`)
 2. Fill in the inputs:
+
    | Input | Description |
    |-------|-------------|
    | `release-type` | `dev` |
@@ -23,6 +24,7 @@ Dev releases can be created from **any branch**. They append `-dev.<commit_hash>
    | `android` | Check to release Android SDK |
    | `node` | Check to release Node bindings |
    | `wasm` | Check to release WASM bindings |
+
 3. Click **Run workflow**
 
 A Slack notification is sent to `#notify-dev-releases` when complete.
@@ -39,6 +41,7 @@ Final releases go through three phases: **create branch → publish RC → publi
 
 1. Go to **Actions > Create Release Branch** (`create-release-branch.yml`)
 2. Fill in the inputs:
+
    | Input | Description |
    |-------|-------------|
    | `base-ref` | Starting point — commit or branch (default: `main`) |
@@ -47,6 +50,7 @@ Final releases go through three phases: **create branch → publish RC → publi
    | `android-bump` | Version bump for Android SDK: `none`, `patch`, `minor`, or `major` |
    | `node` | Include Node bindings in release |
    | `wasm` | Include WASM bindings in release |
+
 3. Click **Run workflow**
 
 This creates a `release/<version>` branch and opens a PR to `main`.
@@ -65,6 +69,7 @@ To manually edit notes, push changes directly to the release branch. The AI will
 
 1. Go to **Actions > Release** (`release.yml`)
 2. Fill in the inputs:
+
    | Input | Description |
    |-------|-------------|
    | `release-type` | `rc` |
@@ -74,6 +79,7 @@ To manually edit notes, push changes directly to the release branch. The AI will
    | `android` | Check to release Android SDK |
    | `node` | Check to release Node bindings |
    | `wasm` | Check to release WASM bindings |
+
 3. Click **Run workflow**
 
 RC versions are published as `<version>-rc<number>` (e.g. `4.9.0-rc1`).
@@ -84,6 +90,7 @@ Once the RC is validated:
 
 1. Go to **Actions > Release** (`release.yml`)
 2. Fill in the inputs:
+
    | Input | Description |
    |-------|-------------|
    | `release-type` | `final` |
@@ -93,6 +100,7 @@ Once the RC is validated:
    | `node` | Check to release Node bindings |
    | `wasm` | Check to release WASM bindings |
    | `no-merge` | Check to skip auto-merging the release PR to main |
+
 3. Click **Run workflow**
 
 On success, the release PR is automatically merged to `main` and the branch is deleted (unless `no-merge` is checked).

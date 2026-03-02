@@ -1,7 +1,7 @@
 ## Introduction 📟
 <!-- Brief explanation of the problem to be solved / bug to be fixed. -->
 
-## Purpose ℹ️ 
+## Purpose ℹ️
 <!-- What is the goal of the proposed change? -->
 
 ## Scope 🔭

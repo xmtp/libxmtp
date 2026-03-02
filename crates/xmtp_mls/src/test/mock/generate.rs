@@ -5,8 +5,10 @@ use xmtp_db::{MemoryStorage, group_message::StoredGroupMessage, sql_key_store::S
 use xmtp_proto::types::Cursor;
 
 use crate::{
+    builder::DeviceSyncMode,
+    client::DeviceSync,
     groups::{mls_sync::GroupMessageProcessingError, summary::ProcessSummary},
-    tasks::TaskWorkerChannels,
+    worker::tasks::TaskWorkerChannels,
 };
 
 use super::*;
@@ -27,8 +29,7 @@ pub fn context() -> NewMockContext {
         worker_events,
         scw_verifier: Arc::new(Box::new(MockSmartContractSignatureVerifier::new(true))),
         device_sync: DeviceSync {
-            server_url: None,
-            mode: SyncWorkerMode::Disabled,
+            mode: DeviceSyncMode::Disabled,
         },
         fork_recovery_opts: Default::default(),
         mls_storage: SqlKeyStore::new(MemoryStorage::new()),

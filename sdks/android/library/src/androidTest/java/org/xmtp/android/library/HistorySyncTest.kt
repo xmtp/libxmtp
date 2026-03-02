@@ -204,7 +204,6 @@ class HistorySyncTest : BaseInstrumentedTest() {
                             ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                             appContext = context,
                             dbEncryptionKey = dbEncryptionKey,
-                            historySyncUrl = null,
                             dbDirectory = context.filesDir.absolutePath.toString(),
                         ),
                 )

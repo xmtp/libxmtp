@@ -2,7 +2,7 @@
 //! Fully awaits server_streaming request on native
 //! polls server_streaming request once on wasm (requiring Unpin)
 use crate::streams::NonBlockingWebStream;
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use prost::bytes::Bytes;
 use std::{
     future::Future,
@@ -11,10 +11,10 @@ use std::{
 };
 use tonic::{Response, Status};
 
-pin_project! {
-    pub struct NonBlockingStreamRequest<F> {
-        #[pin] inner: F,
-    }
+#[pin_project]
+pub struct NonBlockingStreamRequest<F> {
+    #[pin]
+    inner: F,
 }
 
 impl<F> NonBlockingStreamRequest<F> {

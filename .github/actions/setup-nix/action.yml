@@ -1,24 +1,26 @@
-name: 'Setup Nix'
-description: 'Install Nix with Cachix caching for XMTP'
+name: "Setup Nix"
+description: "Install Nix with Cachix caching for XMTP"
 inputs:
   github-token:
-    description: 'GitHub token for Nix installation'
+    description: "GitHub token for Nix installation"
     required: true
   cachix-auth-token:
-    description: 'Cachix auth token for xmtp cache'
+    description: "Cachix auth token for xmtp cache"
     required: false
   sccache:
-    description: 'Enable sccache with GitHub Actions cache backend'
+    description: "Enable sccache with GitHub Actions cache backend"
     required: false
-    default: 'false'
+    default: "false"
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
     - uses: cachix/install-nix-action@v31
       with:
         github_access_token: ${{ inputs.github-token }}
         extra_nix_config: |
           accept-flake-config = true
+          extra-substituters = https://cache.garnix.io
+          extra-trusted-public-keys = cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=
     - uses: cachix/cachix-action@v16
       if: ${{ inputs.cachix-auth-token != '' }}
       with:

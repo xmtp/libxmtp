@@ -28,22 +28,6 @@ pub fn truncate_hex(hex_string: impl AsRef<str>) -> String {
     )
 }
 
-const SHORT_LEN: usize = 4;
-
-pub trait ShortHex {
-    fn short_hex(&self) -> String;
-}
-impl ShortHex for Vec<u8> {
-    fn short_hex(&self) -> String {
-        self.as_slice().short_hex()
-    }
-}
-impl ShortHex for &[u8] {
-    fn short_hex(&self) -> String {
-        hex::encode(&self[self.len().saturating_sub(SHORT_LEN)..])
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -54,15 +38,5 @@ mod tests {
             truncate_hex("0x5bf078bd83995fe83092d93c5655f059"),
             "0x5bf0...f059"
         );
-    }
-
-    #[test]
-    fn test_short_hex() {
-        let hex = "5bf078bd83995fe83092d93c5655f059";
-        let bytes = hex::decode(hex).unwrap();
-        let short_hex = bytes.short_hex();
-
-        assert_eq!(short_hex.len(), SHORT_LEN * 2);
-        assert_eq!(hex[(hex.len() - short_hex.len())..], short_hex);
     }
 }

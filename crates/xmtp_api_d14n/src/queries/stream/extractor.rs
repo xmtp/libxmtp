@@ -1,7 +1,7 @@
 //! Extracts & flattens items from a `TryStream` whose items implement [`EnvelopeCollection`] with extractor ('T')
 
 use futures::{Stream, TryStream};
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use std::{
     collections::VecDeque,
     marker::PhantomData,
@@ -12,12 +12,12 @@ use crate::protocol::{
     EnvelopeCollection, EnvelopeError, EnvelopeVisitor, TryEnvelopeCollectionExt, TryExtractor,
 };
 
-pin_project! {
-    pub struct TryExtractorStream<S, E: TryExtractor> {
-        #[pin] inner: S,
-        buffered: VecDeque<<E as TryExtractor>::Ok>,
-        _marker: PhantomData<E>,
-    }
+#[pin_project]
+pub struct TryExtractorStream<S, E: TryExtractor> {
+    #[pin]
+    inner: S,
+    buffered: VecDeque<<E as TryExtractor>::Ok>,
+    _marker: PhantomData<E>,
 }
 
 /// Wrap a `TryStream<T>` such that it converts its 'item' to T

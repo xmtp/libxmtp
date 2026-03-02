@@ -5,8 +5,7 @@ use crate::logger::init_logger;
 use crate::message::{
     FfiActions, FfiDecodedMessage, FfiDeliveryStatus, FfiIntent, FfiReactionPayload,
 };
-use crate::worker::FfiSyncWorker;
-use crate::worker::FfiSyncWorkerMode;
+use crate::worker::{FfiDeviceSyncMode, FfiSyncWorker};
 use crate::{FfiError, FfiGroupUpdated, FfiReply, FfiWalletSendCalls, GenericError};
 use futures::future::try_join_all;
 use prost::Message;
@@ -78,7 +77,6 @@ use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
         MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
-        device_sync::preference_sync::PreferenceUpdate,
         group_permissions::{
             BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError,
             MembershipPolicies, MetadataBasePolicies, MetadataPolicies, PermissionsBasePolicies,
@@ -89,6 +87,7 @@ use xmtp_mls::{
     },
     identity::IdentityStrategy,
     subscriptions::SubscribeError,
+    worker::device_sync::preference_sync::PreferenceUpdate,
 };
 use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api_client::AggregateStats;
@@ -345,8 +344,7 @@ pub async fn create_client(
     account_identifier: FfiIdentifier,
     nonce: u64,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
-    device_sync_server_url: Option<String>,
-    device_sync_mode: Option<FfiSyncWorkerMode>,
+    device_sync_mode: Option<FfiDeviceSyncMode>,
     allow_offline: Option<bool>,
     fork_recovery_opts: Option<FfiForkRecoveryOpts>,
 ) -> Result<Arc<FfiXmtpClient>, FfiError> {
@@ -425,10 +423,6 @@ pub async fn create_client(
 
     if let Some(fork_recovery_opts) = fork_recovery_opts {
         builder = builder.fork_recovery_opts(fork_recovery_opts.into());
-    }
-
-    if let Some(url) = &device_sync_server_url {
-        builder = builder.device_sync_server_url(url);
     }
 
     let xmtp_client = builder.default_mls_store()?.build().await?;

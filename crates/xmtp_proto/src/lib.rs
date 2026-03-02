@@ -23,6 +23,7 @@ pub use error::*;
 pub use generated::*;
 pub use impls::update_dedupe::GroupUpdateDeduper;
 pub use proto_cache::*;
+pub use traits::short_hex::ShortHex;
 
 pub mod api {
     pub use super::traits::combinators::*;

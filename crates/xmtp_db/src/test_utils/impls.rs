@@ -1,8 +1,8 @@
 use diesel::result::DatabaseErrorKind;
 /// Extra trait implementations for xmtp_db types
 use rand::{
-    Rng,
-    distributions::{Distribution, Standard},
+    Rng, RngExt,
+    distr::{Distribution, StandardUniform},
     prelude::IteratorRandom,
 };
 use xmtp_proto::types::Cursor;
@@ -14,9 +14,9 @@ use crate::{
 
 // choose a random db error in StorageError
 // only cover errors that can happen in db access
-impl Distribution<StorageError> for Standard {
+impl Distribution<StorageError> for StandardUniform {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> StorageError {
-        match rng.gen_range(0..=13) {
+        match rng.random_range(0..=13) {
             0 => StorageError::DieselConnect(rand_diesel_conn_err(rng)),
             1 => StorageError::DieselResult(rand_diesel_result(rng)),
             2 => StorageError::NotFound(rand::random()),
@@ -37,10 +37,10 @@ impl Distribution<StorageError> for Standard {
     }
 }
 
-impl Distribution<SqlKeyStoreError> for Standard {
+impl Distribution<SqlKeyStoreError> for StandardUniform {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> SqlKeyStoreError {
         use SqlKeyStoreError::*;
-        match rng.gen_range(0..=5) {
+        match rng.random_range(0..=5) {
             0 => UnsupportedValueTypeBytes,
             1 => UnsupportedMethod,
             2 => SerializationError,
@@ -52,9 +52,9 @@ impl Distribution<SqlKeyStoreError> for Standard {
     }
 }
 
-impl Distribution<NotFound> for Standard {
+impl Distribution<NotFound> for StandardUniform {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> NotFound {
-        match rng.gen_range(0..=13) {
+        match rng.random_range(0..=13) {
             0 => NotFound::GroupByWelcome(Cursor::default()),
             1 => NotFound::GroupById(Vec::new()),
             2 => NotFound::InstallationTimeForGroup(Vec::new()),
@@ -78,9 +78,9 @@ impl Distribution<NotFound> for Standard {
     }
 }
 
-impl Distribution<crate::ConnectionError> for Standard {
+impl Distribution<crate::ConnectionError> for StandardUniform {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> crate::ConnectionError {
-        match rng.gen_range(0..=1) {
+        match rng.random_range(0..=1) {
             0 => crate::ConnectionError::Database(rand_diesel_result(rng)),
             1 => crate::ConnectionError::Platform(rand::random()),
             _ => unreachable!(),
@@ -151,9 +151,9 @@ mod native {
     use crate::PlatformStorageError;
 
     use super::*;
-    impl Distribution<PlatformStorageError> for Standard {
+    impl Distribution<PlatformStorageError> for StandardUniform {
         fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> PlatformStorageError {
-            match rng.gen_range(0..=9) {
+            match rng.random_range(0..=9) {
                 0 => PlatformStorageError::DbConnection(rand_r2d2_err(rng)),
                 1 => PlatformStorageError::PoolNeedsConnection,
                 2 => PlatformStorageError::SqlCipherNotLoaded,
@@ -172,7 +172,7 @@ mod native {
     }
 
     fn rand_r2d2_err<R: Rng + ?Sized>(rng: &mut R) -> diesel::r2d2::Error {
-        match rng.gen_range(0..=1) {
+        match rng.random_range(0..=1) {
             0 => diesel::r2d2::Error::ConnectionError(rand_diesel_conn_err(rng)),
             1 => diesel::r2d2::Error::QueryError(rand_diesel_result(rng)),
             _ => unreachable!(),
@@ -185,9 +185,9 @@ mod wasm {
     use crate::PlatformStorageError;
 
     use super::*;
-    impl Distribution<crate::PlatformStorageError> for Standard {
+    impl Distribution<crate::PlatformStorageError> for StandardUniform {
         fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> crate::PlatformStorageError {
-            match rng.gen_range(0..=2) {
+            match rng.random_range(0..=2) {
                 0 => PlatformStorageError::SAH(sqlite_wasm_rs::sahpool_vfs::OpfsSAHError::Generic(
                     "rand test opfs err".to_string(),
                 )),

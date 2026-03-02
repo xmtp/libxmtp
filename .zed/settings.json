@@ -16,11 +16,32 @@
     "JSON": {
       "formatter": "prettier",
     },
+    "Nix": {
+      "language_servers": ["nixd", "nil"],
+      "formatter": "language_server",
+    },
+    "Kotlin": {
+      "language_servers": ["kotlin-language-server", "!kotlin-lsp"],
+      "format_on_save": "off",
+    },
   },
   "lsp": {
+    "kotlin-language-server": {
+      "settings": {
+        "compiler": {
+          "jvm": {
+            "target": "17",
+          },
+        },
+      },
+    },
     "nixd": {
-      "binary": {
-        "path": "~/.nix-profile/bin/nixd",
+      "settings": {
+        "nixd": {
+          "formatting": {
+            "command": ["nixfmt"],
+          },
+        },
       },
     },
     "rust-analyzer": {

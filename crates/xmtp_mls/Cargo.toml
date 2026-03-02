@@ -70,7 +70,7 @@ openmls_rust_crypto = { workspace = true }
 openmls_traits = { workspace = true }
 owo-colors.workspace = true
 parking_lot.workspace = true
-pin-project-lite.workspace = true
+pin-project.workspace = true
 prost = { workspace = true, features = ["derive"] }
 rand = { workspace = true }
 reqwest = { workspace = true }
@@ -173,6 +173,7 @@ url = { workspace = true }
 wasm-bindgen-test.workspace = true
 xmtp_api = { workspace = true, features = ["test-utils"] }
 xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
+xmtp_archive = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_content_types = { path = "../xmtp_content_types", features = [

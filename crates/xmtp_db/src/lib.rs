@@ -36,6 +36,7 @@ pub mod prelude {
     pub use super::association_state::QueryAssociationStateCache;
     pub use super::consent_record::QueryConsentRecord;
     pub use super::conversation_list::QueryConversationList;
+    pub use super::d14n_migration_cutover::QueryMigrationCutover;
     pub use super::group::QueryDms;
     pub use super::group::QueryGroup;
     pub use super::group::QueryGroupVersion;

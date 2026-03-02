@@ -533,29 +533,29 @@ impl serde::Serialize for DeviceSyncRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.request_id.is_empty() {
+        if !self.pin.is_empty() {
             len += 1;
         }
-        if !self.pin_code.is_empty() {
+        if !self.server_url.is_empty() {
             len += 1;
         }
-        if self.kind != 0 {
+        if self.deprecated_kind != 0 {
             len += 1;
         }
         if self.options.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.content.DeviceSyncRequest", len)?;
-        if !self.request_id.is_empty() {
-            struct_ser.serialize_field("request_id", &self.request_id)?;
+        if !self.pin.is_empty() {
+            struct_ser.serialize_field("pin", &self.pin)?;
         }
-        if !self.pin_code.is_empty() {
-            struct_ser.serialize_field("pin_code", &self.pin_code)?;
+        if !self.server_url.is_empty() {
+            struct_ser.serialize_field("server_url", &self.server_url)?;
         }
-        if self.kind != 0 {
-            let v = super::BackupElementSelection::try_from(self.kind)
-                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.kind)))?;
-            struct_ser.serialize_field("kind", &v)?;
+        if self.deprecated_kind != 0 {
+            let v = super::BackupElementSelection::try_from(self.deprecated_kind)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.deprecated_kind)))?;
+            struct_ser.serialize_field("deprecated_kind", &v)?;
         }
         if let Some(v) = self.options.as_ref() {
             struct_ser.serialize_field("options", v)?;
@@ -570,19 +570,19 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "request_id",
-            "requestId",
-            "pin_code",
-            "pinCode",
-            "kind",
+            "pin",
+            "server_url",
+            "serverUrl",
+            "deprecated_kind",
+            "deprecatedKind",
             "options",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            RequestId,
-            PinCode,
-            Kind,
+            Pin,
+            ServerUrl,
+            DeprecatedKind,
             Options,
             __SkipField__,
         }
@@ -606,9 +606,9 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
                         E: serde::de::Error,
                     {
                         match value {
-                            "requestId" | "request_id" => Ok(GeneratedField::RequestId),
-                            "pinCode" | "pin_code" => Ok(GeneratedField::PinCode),
-                            "kind" => Ok(GeneratedField::Kind),
+                            "pin" => Ok(GeneratedField::Pin),
+                            "serverUrl" | "server_url" => Ok(GeneratedField::ServerUrl),
+                            "deprecatedKind" | "deprecated_kind" => Ok(GeneratedField::DeprecatedKind),
                             "options" => Ok(GeneratedField::Options),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -629,29 +629,29 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut request_id__ = None;
-                let mut pin_code__ = None;
-                let mut kind__ = None;
+                let mut pin__ = None;
+                let mut server_url__ = None;
+                let mut deprecated_kind__ = None;
                 let mut options__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::RequestId => {
-                            if request_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("requestId"));
+                        GeneratedField::Pin => {
+                            if pin__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pin"));
                             }
-                            request_id__ = Some(map_.next_value()?);
+                            pin__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::PinCode => {
-                            if pin_code__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("pinCode"));
+                        GeneratedField::ServerUrl => {
+                            if server_url__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("serverUrl"));
                             }
-                            pin_code__ = Some(map_.next_value()?);
+                            server_url__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::Kind => {
-                            if kind__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("kind"));
+                        GeneratedField::DeprecatedKind => {
+                            if deprecated_kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("deprecatedKind"));
                             }
-                            kind__ = Some(map_.next_value::<super::BackupElementSelection>()? as i32);
+                            deprecated_kind__ = Some(map_.next_value::<super::BackupElementSelection>()? as i32);
                         }
                         GeneratedField::Options => {
                             if options__.is_some() {
@@ -665,9 +665,9 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
                     }
                 }
                 Ok(DeviceSyncRequest {
-                    request_id: request_id__.unwrap_or_default(),
-                    pin_code: pin_code__.unwrap_or_default(),
-                    kind: kind__.unwrap_or_default(),
+                    pin: pin__.unwrap_or_default(),
+                    server_url: server_url__.unwrap_or_default(),
+                    deprecated_kind: deprecated_kind__.unwrap_or_default(),
                     options: options__,
                 })
             }

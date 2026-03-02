@@ -55,6 +55,7 @@ where
 
         other.sync_welcomes().await?;
         let other_dm = other.find_or_create_dm(self.inbox_id(), None).await?;
+        other_dm.update_consent_state(xmtp_db::consent_record::ConsentState::Allowed)?;
 
         // Since the other client synced welcomes before creating a DM
         // the group_id should be the same.

@@ -1167,7 +1167,7 @@ async fn rapidfire_duplicate_create() {
     let wallet = generate_local_wallet();
     let mut futs = vec![];
     for _ in 0..10 {
-        futs.push(new_test_client_no_panic(wallet.clone(), None));
+        futs.push(new_test_client_no_panic(wallet.clone()));
     }
 
     let results = join_all(futs).await;

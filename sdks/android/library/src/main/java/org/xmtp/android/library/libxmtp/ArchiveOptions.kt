@@ -1,6 +1,7 @@
 package org.xmtp.android.library.libxmtp
 
 import uniffi.xmtpv3.FfiArchiveOptions
+import uniffi.xmtpv3.FfiAvailableArchive
 import uniffi.xmtpv3.FfiBackupElementSelection
 import uniffi.xmtpv3.FfiBackupMetadata
 
@@ -53,4 +54,12 @@ data class ArchiveMetadata(
     val exportedAtNs: Long get() = ffiBackupMetadata.exportedAtNs
     val startNs: Long? get() = ffiBackupMetadata.startNs
     val endNs: Long? get() = ffiBackupMetadata.endNs
+}
+
+data class AvailableArchive(
+    private val ffiAvailableArchive: FfiAvailableArchive,
+) {
+    val pin: String get() = ffiAvailableArchive.pin
+    val metadata: ArchiveMetadata get() = ArchiveMetadata(ffiAvailableArchive.metadata)
+    val sentByInstallation: ByteArray get() = ffiAvailableArchive.sentByInstallation
 }

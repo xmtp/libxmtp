@@ -18,7 +18,7 @@
 
 use crate::time::Duration;
 use crate::{MaybeSend, MaybeSync};
-use rand::Rng;
+use rand::RngExt;
 use std::error::Error;
 use std::sync::Arc;
 
@@ -209,8 +209,8 @@ impl Strategy for ExponentialBackoff {
                 duration = self.individual_wait_max;
             }
         }
-        let distr = rand::distributions::Uniform::new_inclusive(Duration::ZERO, self.max_jitter);
-        let jitter = rand::thread_rng().sample(distr);
+        let distr = rand::distr::Uniform::new_inclusive(Duration::ZERO, self.max_jitter).unwrap();
+        let jitter = rand::rng().sample(distr);
         let wait = duration + jitter;
         Some(wait)
     }

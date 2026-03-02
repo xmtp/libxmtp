@@ -61,11 +61,13 @@ Bug reports, feature requests, and PRs are welcome in accordance with the [libxm
 This SDK is part of the libxmtp monorepo and uses Nix for reproducible builds.
 
 1. Install [Determinate Nix](https://docs.determinate.systems/):
+
    ```bash
    curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
    ```
 
 2. (Optional) Install [direnv](https://direnv.net/) for automatic environment setup:
+
    ```bash
    # After installing direnv, allow this directory
    direnv allow

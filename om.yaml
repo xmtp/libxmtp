@@ -11,27 +11,18 @@ ci:
         build:
           enable: false
         custom:
-          wasm-test-v3:
+          wasm-test:
             type: devshell
             name: wasm
             command:
-              - ./dev/test/wasm-ci
-              - --v3
-          wasm-test-d14n:
-            type: devshell
-            name: wasm
-            command:
-              - ./dev/test/wasm-ci
-              - --d14n
+              - just
+              - wasm
+              - test
 develop:
   default:
     readme: |
-      🍾 Welcome to **libxmtp** devshell
-
-      refer to ./dev/ for development scripts
+      Welcome to **libxmtp** devshell
 
       🌐 ./dev/docker/up to get a network environment setup
 
-      🦀 ./dev/lint-rust to lint rust
-
-      🕸️ om ci run .#wasm -- --accept-flake-config for webassembly ci tests
+      🦀 run `just` to see all recipes

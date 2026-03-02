@@ -4,6 +4,18 @@
   "rust-analyzer.cargo.target": "wasm32-unknown-unknown",
   "rust-analyzer.procMacro.enable": true,
   "rust-analyzer.diagnostics.enable": true,
+  "rust-analyzer.files.exclude": ["crates/xmtp-workspace-hack"],
+  "rust-analyzer.files.watcherExclude": ["crates/xmtp-workspace-hack"],
+  "rust-analyzer.check.workspace": false,
+  "rust-analyzer.check.overrideCommand": [
+    "cargo",
+    "check",
+    "--target",
+    "wasm32-unknown-unknown",
+    "-p",
+    "bindings_wasm",
+    "--message-format=json"
+  ],
   "rust-analyzer.diagnostics.disabled": [
     "unlinked-file",
     "unresolved-macro-call",
