@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use pest::iterators::Pair;
 
 use crate::Rule;
@@ -101,6 +101,13 @@ impl Value {
         Ok(val)
     }
 
+    pub fn as_array(&self) -> Result<&Vec<Value>> {
+        match self {
+            Self::Array(array) => Ok(array),
+            _ => bail!("Downcasting failed. {self:?} is not an array."),
+        }
+    }
+
     pub fn as_str(&self) -> Result<&str> {
         match self {
             Self::String(str) => Ok(&str),
@@ -119,6 +126,13 @@ impl Value {
         match self {
             Self::Object(obj) => Ok(obj),
             _ => bail!("Downcasting failed. {self:?} is not an obj."),
+        }
+    }
+
+    pub fn as_bool(&self) -> Result<bool> {
+        match self {
+            Self::Boolean(val) => Ok(*val),
+            _ => bail!("Downcasting failed. {self:?} is not a bool."),
         }
     }
 }

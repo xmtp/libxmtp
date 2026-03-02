@@ -32,7 +32,7 @@ pub enum Event {
     AddedMembers,
     /// Received new group from welcome.
     #[context(group_id, conversation_type, epoch, epoch_auth, icon = "🤝")]
-    ProcessedWelcome,
+    ReceivedWelcome,
 
     // ===================== MLS Operations =====================
     /// Received staged commit. Merging and clearing any pending commits.

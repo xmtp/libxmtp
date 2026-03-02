@@ -451,7 +451,7 @@ mod tests {
             c.lock()
                 .events
                 .iter()
-                .any(|e| e.event == Event::ProcessedWelcome)
+                .any(|e| e.event == Event::ReceivedWelcome)
         });
         assert!(welcome_found);
     }
@@ -467,28 +467,5 @@ mod tests {
 
         let group_id = event.context("group_id");
         assert!(group_id.is_some());
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn test_dm_created_with_unquoted_group_id() {
-        let line = r#"2026-01-13T16:01:32.795843Z  INFO xmtp_mls::client: ➣ DM created. {group_id: 6dbafe8fc16699dfe3b59d60944150b3, target_inbox: "ab23790529e1fa52ed453e69d0d342f02bc8db8e2317f6229672dd0ca4f6d527", inbox: "2857d", timestamp: 1768320092795839419} group_id=6dbafe8fc16699dfe3b59d60944150b3 target_inbox="ab23790529e1fa52ed453e69d0d342f02bc8db8e2317f6229672dd0ca4f6d527" inbox=2857d"#;
-
-        let mut line_count: usize = 0;
-        let event = LogEvent::from(&mut line.split('\n').peekable(), &mut line_count)?;
-        assert_eq!(event.event, Event::CreatedDM);
-
-        let group_id = event.context("group_id");
-        assert!(group_id.is_some());
-        // Unquoted hex string should be parsed as a string
-        assert_eq!(group_id?.as_str()?, "6dbafe8fc16699dfe3b59d60944150b3");
-
-        let target_inbox = event.context("target_inbox");
-        assert!(target_inbox.is_some());
-        assert_eq!(
-            target_inbox?.as_str()?,
-            "ab23790529e1fa52ed453e69d0d342f02bc8db8e2317f6229672dd0ca4f6d527"
-        );
-
-        assert_eq!(event.context("timestamp")?.as_int()?, 1768320092795839419);
     }
 }

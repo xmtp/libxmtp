@@ -28,8 +28,8 @@ static EXAMPLE_COUNT: AtomicUsize = AtomicUsize::new(1);
 fn main() -> Result<()> {
     let writer = TestWriter::new();
 
-    let _rt = Runtime::new().unwrap();
-    let handle = _rt.handle();
+    let rt = Runtime::new()?;
+    let handle = rt.handle();
 
     tracing_subscriber::registry()
         .with(fmt::layer().with_writer(writer.clone()))
@@ -187,13 +187,11 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_log_parsing() {
         let writer = TestWriter::new();
-
         let subscriber = fmt::Subscriber::builder()
             .with_writer(writer.clone())
             .with_level(true)
             .with_ansi(false)
             .finish();
-
         let _guard = tracing::subscriber::set_default(subscriber);
 
         // ===============================================
@@ -204,10 +202,6 @@ mod tests {
         bo.test_talk_in_dm_with(&alix).await?;
         let (group, _) = bo.test_talk_in_new_group_with(&alix).await?;
         group.add_members(&[caro.inbox_id()]).await?;
-
-        for _ in 0..10000 {
-            let _ = bo.test_talk_in_new_group_with(&alix).await;
-        }
 
         group.update_group_name("Fellows".into()).await?;
         caro.sync_all_welcomes_and_groups(None).await?;

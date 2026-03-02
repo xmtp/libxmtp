@@ -467,8 +467,7 @@ where
         // 3. The latest stored sequence id
         if let Some(consensus_public_key) = consensus_public_key {
             let mut latest_saved_remote_log = conn.get_latest_remote_log_for_group(&group_id)?;
-            for entry in &commit_log_response.commit_log_entries {
-                let commit_log_entry: &CommitLogEntry = entry;
+            for commit_log_entry in &commit_log_response.commit_log_entries {
                 let log_entry = match PlaintextCommitLogEntry::decode(
                     commit_log_entry.serialized_commit_log_entry.as_slice(),
                 ) {
