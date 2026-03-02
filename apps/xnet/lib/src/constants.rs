@@ -20,6 +20,12 @@ impl Anvil {
     pub const VERSION: &str = "v2026.02.10-1";
     pub const PORT: u16 = 8545;
     pub const CONTAINER_NAME: &str = "xnet-anvil";
+
+    // Contract addresses from anvil.json (tied to VERSION above)
+    pub const PARAMETER_REGISTRY: &str = "0x7b48CF29e46904518eD6512Bcc65127575d57716";
+    pub const IDENTITY_BROADCASTER: &str = "0xCF4dEB9D7dBb100002a97d4E95F667c43c01FC10";
+    pub const GROUP_BROADCASTER: &str = "0x062741d1daE094dcE72A4895462E17A9bAD4d119";
+    pub const APP_CHAIN_GATEWAY: &str = "0x82A7354cF88a527182277bD9c5f728f6CA8354Fd";
 }
 
 // --- XMTPD ---

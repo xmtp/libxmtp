@@ -24,9 +24,11 @@ pub enum Commands {
     /// Bring XNet Services Down
     Down,
     Delete,
-    /// Node Operations (Add, Remove XMTPD Nodes)
+    /// Node Operations (Add XMTPD Nodes)
     #[command(subcommand)]
     Node(Node),
+    /// Activate d14n: remove migrator flags from nodes and unpause broadcaster contracts
+    ActivateD14n,
     /// Print Information about the network
     Info(Info),
     /// Set a migration time
@@ -40,14 +42,6 @@ pub enum Commands {
 #[derive(Subcommand, Debug, Copy, Clone)]
 pub enum Node {
     Add(AddNode),
-    Remove(RemoveNode),
-}
-
-#[derive(Args, Debug, Copy, Clone)]
-pub struct RemoveNode {
-    /// Remove all migrator nodes and restart without migrator flags
-    #[arg(long)]
-    pub migrators: bool,
 }
 
 #[derive(Args, Debug, Copy, Clone)]

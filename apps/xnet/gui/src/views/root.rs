@@ -414,20 +414,20 @@ impl RootView {
         .detach();
     }
 
-    fn action_reload_migrators(&mut self, cx: &mut Context<Self>) {
+    fn action_activate_d14n(&mut self, cx: &mut Context<Self>) {
         if self.busy {
             return;
         }
         if !actions::can_add_node(self.state.network_status) {
-            warn!("Cannot reload migrators: services are not running.");
+            warn!("Cannot activate d14n: services are not running.");
             cx.notify();
             return;
         }
         self.busy = true;
-        info!("Reloading migrators (removing migrator mode)…");
+        info!("Activating d14n (unpausing broadcasters, removing migrator mode)…");
         cx.notify();
 
-        let result = Tokio::spawn(cx, actions::execute_reload_migrators());
+        let result = Tokio::spawn(cx, actions::execute_activate_d14n());
 
         cx.spawn(async |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = result.await?;
@@ -436,7 +436,7 @@ impl RootView {
                     view.busy = false;
                     match result {
                         Ok(()) => {
-                            info!("Migrators reloaded successfully.");
+                            info!("D14N activated successfully.");
                         }
                         Err(msg) => {
                             let msg = msg.to_string();
@@ -683,12 +683,12 @@ impl RootView {
                 |view, _, _, cx| view.action_add_migrator(cx),
             ))
             .child(self.make_clickable_button(
-                "btn-reload-migrators",
-                "Reload Migrators",
-                ButtonVariant::Warning,
+                "btn-activate-d14n",
+                "Activate D14N",
+                ButtonVariant::Danger,
                 !can_add_node,
                 cx,
-                |view, _, _, cx| view.action_reload_migrators(cx),
+                |view, _, _, cx| view.action_activate_d14n(cx),
             ))
             .child(self.make_clickable_button(
                 "btn-toxics",

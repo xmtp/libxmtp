@@ -141,8 +141,14 @@ pub async fn execute_add_migrator() -> Result<NodeInfo> {
     })
 }
 
-pub async fn execute_reload_migrators() -> Result<()> {
+pub async fn execute_activate_d14n() -> Result<()> {
     let mut mgr = ServiceManager::start().await?;
+    xnet::contracts::set_broadcasters_paused(
+        mgr.anvil_rpc_url().as_str(),
+        xnet::constants::Anvil::ADMIN_KEY,
+        false,
+    )
+    .await?;
     mgr.remove_migrators().await
 }
 

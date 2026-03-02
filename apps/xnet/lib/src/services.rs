@@ -146,12 +146,12 @@ pub async fn ensure_container_running(
     let short_id = &container_id[..12.min(container_id.len())];
 
     if is_running {
-        info!(
+        debug!(
             "connected to existing container {}: {}",
             container_name, short_id
         );
     } else {
-        info!(
+        debug!(
             "starting stopped container {}: {}",
             container_name, short_id
         );

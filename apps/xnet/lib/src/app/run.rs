@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use crate::{
     app::service_manager::ServiceManager,
-    config::{AddNode, AppArgs, Node, RemoveNode},
+    config::{AddNode, AppArgs, Node},
     network::Network,
     services::{self, Service, ToxiProxy},
     types::XmtpdNode,
@@ -122,28 +122,79 @@ impl App {
         table.column(4).set_header("Migration Payer");
         table.column(5).set_header("URL");
 
-        let rows: Vec<Vec<String>> = nodes
-            .iter()
-            .map(|(id, url)| {
-                vec![
-                    id.to_string(),
-                    format!("xnet-{}", id),
-                    config.address_for_node(*id).to_string(),
-                    config.payer_address_for_node(*id).to_string(),
-                    config.migration_payer_address_for_node(*id).to_string(),
-                    url.to_string(),
-                ]
-            })
-            .collect();
+        // Gateway row
+        use crate::constants::Gateway as GatewayConst;
+        use alloy::signers::local::PrivateKeySigner;
+        let gateway_key: PrivateKeySigner = GatewayConst::PRIVATE_KEY.parse()?;
+        let mut rows: Vec<Vec<String>> = vec![vec![
+            "-".into(),
+            GatewayConst::CONTAINER_NAME.into(),
+            gateway_key.address().to_string(),
+            "-".into(),
+            "-".into(),
+            gateway_url.to_string(),
+        ]];
+
+        // Node rows
+        rows.extend(nodes.iter().map(|(id, url)| {
+            vec![
+                id.to_string(),
+                format!("xnet-{}", id),
+                config.address_for_node(*id).to_string(),
+                config.payer_address_for_node(*id).to_string(),
+                config.migration_payer_address_for_node(*id).to_string(),
+                url.to_string(),
+            ]
+        }));
 
         table.println(rows);
         Ok(())
     }
 
+    pub async fn activate_d14n(&self) -> Result<()> {
+        use crate::constants::Anvil as AnvilConst;
+        let mut mgr = ServiceManager::start().await?;
+        crate::contracts::set_broadcasters_paused(
+            mgr.anvil_rpc_url().as_str(),
+            AnvilConst::ADMIN_KEY,
+            false,
+        )
+        .await?;
+        mgr.remove_migrators().await?;
+        Ok(())
+    }
+
     pub async fn info(&self) -> Result<()> {
+        use ascii_table::AsciiTable;
+
         let network = Network::new().await?;
         network.list().await?;
         ServiceManager::print_port_allocations();
+
+        let mgr = ServiceManager::start().await?;
+        let statuses =
+            crate::contracts::get_broadcaster_pause_status(mgr.anvil_rpc_url().as_str()).await?;
+
+        println!();
+        let mut table = AsciiTable::default();
+        table.column(0).set_header("Contract");
+        table.column(1).set_header("Status");
+
+        let rows: Vec<Vec<String>> = statuses
+            .iter()
+            .map(|(target, paused)| {
+                vec![
+                    target.to_string(),
+                    if *paused {
+                        "Paused".to_string()
+                    } else {
+                        "Active".to_string()
+                    },
+                ]
+            })
+            .collect();
+
+        table.println(rows);
         Ok(())
     }
     /// Runs the command based on `Commands`
@@ -160,17 +211,8 @@ impl App {
                 Node::Add(add) => {
                     let _ = self.add_node(add).await?;
                 }
-                Node::Remove(remove) => {
-                    if remove.migrators {
-                        let mut mgr = ServiceManager::start().await?;
-                        mgr.remove_migrators().await?;
-                    } else {
-                        eprintln!(
-                            "No remove operation specified. Use --migrators to remove migrator nodes."
-                        );
-                    }
-                }
             },
+            crate::config::Commands::ActivateD14n => self.activate_d14n().await?,
             crate::config::Commands::Info(info) => self.info().await?,
             crate::config::Commands::Migrate(migrate) => {
                 let cutover_ns = migrate.cutover_ns()?;

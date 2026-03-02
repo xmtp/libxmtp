@@ -15,6 +15,8 @@ alloy = { workspace = true, features = [
   "network",
   "rpc-types-eth",
   "provider-anvil-api",
+  "sol-types",
+  "contract",
 ] }
 ascii_table = { version = "5", features = ["auto_table_width"] }
 async-trait = "0.1"
@@ -30,6 +32,7 @@ humantime = "2.3"
 itertools.workspace = true
 map-macro = "0.3"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = { workspace = true }
 serde_yaml = "0.9"
 tokio.workspace = true
 toml = "0.9.11"

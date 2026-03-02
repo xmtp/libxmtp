@@ -42,11 +42,15 @@ pub struct ServiceManager {
     grafana: Grafana,
     pgadmin: PgAdmin,
     nodes: Vec<Xmtpd>,
-    /// Anvil RPC URL for funding node wallets
+    /// Anvil RPC URL for funding node wallets and contract calls
     anvil_rpc_url: url::Url,
 }
 
 impl ServiceManager {
+    pub fn anvil_rpc_url(&self) -> &url::Url {
+        &self.anvil_rpc_url
+    }
+
     /// starts services if not already started
     /// if running connects to them.
     pub async fn start() -> Result<Self> {
@@ -331,8 +335,16 @@ async fn start_d14n(
     proxy: &ToxiProxy,
     dns_ip: String,
 ) -> Result<(Gateway, url::Url, Vec<Box<dyn Service>>)> {
-    use crate::constants::Gateway as GatewayConst;
+    use crate::constants::{Anvil as AnvilConst, Gateway as GatewayConst};
+    use crate::services::{ContainerState, ensure_container_running};
     use alloy::signers::local::PrivateKeySigner;
+
+    // Check if Anvil already exists (i.e., network was previously started)
+    let docker = Docker::connect_with_socket_defaults()?;
+    let anvil_is_new = matches!(
+        ensure_container_running(&docker, AnvilConst::CONTAINER_NAME).await?,
+        ContainerState::NotFound
+    );
 
     let mut anvil = services::Anvil::builder().build()?;
     let mut redis = services::Redis::builder().build();
@@ -357,6 +369,19 @@ async fn start_d14n(
         .dns_server(dns_ip)
         .build()?;
     gateway.start(proxy).await?;
+
+    // Pause broadcaster contracts only on fresh network creation so migrator nodes
+    // can publish identity updates without hitting NotPaused() reverts.
+    if anvil_is_new {
+        let anvil_rpc_str = anvil_rpc.as_str();
+        crate::contracts::set_broadcasters_paused(
+            anvil_rpc_str,
+            AnvilConst::ADMIN_KEY,
+            true,
+        )
+        .await?;
+    }
+
     let anvil_external_rpc = anvil.external_rpc_url().unwrap_or_else(|| anvil.rpc_url());
     Ok((
         gateway,

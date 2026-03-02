@@ -17,7 +17,7 @@ use bollard::query_parameters::WaitContainerOptionsBuilder;
 use bollard::{Docker, config::ContainerCreateBody, models::HostConfig};
 use bon::Builder;
 use color_eyre::eyre::Context;
-use color_eyre::eyre::{OptionExt, Result};
+use color_eyre::eyre::{OptionExt, Result, eyre};
 use futures::StreamExt;
 use futures::TryStreamExt;
 use itertools::Itertools;
@@ -116,7 +116,7 @@ impl XmtpdCli {
         let image = format!("{}:{}", self.image, self.version);
         ensure_image_exists(&docker, &image).await?;
 
-        info!("running xmtpd_cli {}", cmd.iter().join(" "));
+        info!("running xmtpd_cli `{}`", cmd.iter().join(" "));
         let config = ContainerCreateBody {
             image: Some(image.clone()),
             cmd: Some(cmd),
@@ -128,16 +128,13 @@ impl XmtpdCli {
             ..Default::default()
         };
 
-        info!("Running xmtpd-cli command");
         let id = docker
             .create_container(Default::default(), config)
             .await?
             .id;
 
-        info!("starting container");
         docker.start_container(&id, None).await?;
 
-        info!("Attaching to container");
         let bollard::container::AttachContainerResults { mut output, .. } = docker
             .attach_container(
                 &id,

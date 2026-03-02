@@ -8,6 +8,7 @@
 pub mod app;
 pub mod config;
 pub mod constants;
+pub mod contracts;
 pub mod dns_setup;
 pub mod network;
 pub mod services;
