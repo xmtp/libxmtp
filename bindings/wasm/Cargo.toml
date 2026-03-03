@@ -45,6 +45,8 @@ web-sys = { workspace = true, features = [
 ] }
 xmtp_api.workspace = true
 xmtp_api_d14n.workspace = true
+xmtp_common = { workspace = true, features = ["logging"] }
+xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_db.workspace = true
@@ -55,7 +57,6 @@ xmtp_proto = { workspace = true }
 
 alloy = { workspace = true, optional = true }
 wasm-bindgen-test = { workspace = true, optional = true }
-xmtp_configuration = { workspace = true, optional = true }
 
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
@@ -75,6 +76,5 @@ test-utils = [
   "dep:alloy",
   "dep:wasm-bindgen-test",
   "xmtp_common/test-utils",
-  "dep:xmtp_configuration",
   "xmtp_configuration/test-utils",
 ]
