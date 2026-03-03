@@ -1,4 +1,5 @@
 use napi_derive::napi;
+use xmtp_configuration::XmtpEnv as CoreXmtpEnv;
 use xmtp_mls::builder::DeviceSyncMode as XmtpSyncWorkerMode;
 
 #[napi(string_enum)]
@@ -48,6 +49,32 @@ impl std::fmt::Display for LogLevel {
       Trace => "trace",
     };
     write!(f, "{}", s)
+  }
+}
+
+#[napi(string_enum)]
+#[derive(Debug, Clone, Copy)]
+pub enum XmtpEnv {
+  Local,
+  Dev,
+  Production,
+  TestnetStaging,
+  TestnetDev,
+  Testnet,
+  Mainnet,
+}
+
+impl From<XmtpEnv> for CoreXmtpEnv {
+  fn from(env: XmtpEnv) -> Self {
+    match env {
+      XmtpEnv::Local => Self::Local,
+      XmtpEnv::Dev => Self::Dev,
+      XmtpEnv::Production => Self::Production,
+      XmtpEnv::TestnetStaging => Self::TestnetStaging,
+      XmtpEnv::TestnetDev => Self::TestnetDev,
+      XmtpEnv::Testnet => Self::Testnet,
+      XmtpEnv::Mainnet => Self::Mainnet,
+    }
   }
 }
 
