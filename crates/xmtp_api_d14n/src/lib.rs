@@ -3,6 +3,9 @@
 mod endpoints;
 pub use endpoints::*;
 
+pub mod config;
+pub use config::*;
+
 pub mod queries;
 pub use queries::*;
 
