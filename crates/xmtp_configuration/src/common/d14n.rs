@@ -1,3 +1,5 @@
+use xmtp_common::NS_IN_HOUR;
+
 /// Constant Originator IDs for v3 compatibility
 pub struct Originators;
 
@@ -15,3 +17,7 @@ impl Originators {
 }
 
 pub const PAYER_WRITE_FILTER: &str = "xmtp.xmtpv4.payer_api.PayerApi";
+
+/// How often to refresh the cutover time
+/// Set to 6 hours.
+pub const CUTOVER_REFRESH_TIME: i64 = NS_IN_HOUR * 6;

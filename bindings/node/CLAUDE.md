@@ -96,24 +96,15 @@ Create a root-level file in `src/` for types used across multiple modules.
 
 ## Development Commands
 
+From the repository root, use `just` recipes (preferred — they use Nix automatically):
+
 ```bash
-# Install dependencies (required first)
-yarn
-
-# Build release version
-yarn build
-
-# Run linting (clippy + fmt)
-yarn lint
-
-# Run tests (requires local XMTP node via ./dev/up)
-yarn test
-
-# Check TypeScript file formatting=
-yarn format:check
-
-# Format TypeScript files
-yarn format
+just node install       # Install dependencies
+just node check         # Build release NAPI bindings
+just node lint          # Check TypeScript formatting
+just node format        # Format TypeScript files
+just node test          # Run tests (requires just backend up)
+just node build         # Alias for check
 ```
 
 ## Important Patterns

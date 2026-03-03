@@ -1,3 +1,5 @@
+use crate::ErrorWrapper;
+use crate::client::backend::Backend;
 use crate::{
   client::Client,
   identity::{Identifier, IdentifierKind},
@@ -9,7 +11,7 @@ use std::sync::Arc;
 use tsify::Tsify;
 use wasm_bindgen::prelude::{JsError, wasm_bindgen};
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_d14n::{MessageBackendBuilder, TrackedStatsClient};
+use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::{
   AccountId,
@@ -43,32 +45,27 @@ pub fn verify_signed_with_public_key(
     .map_err(|_| JsError::new("public_key is not 32 bytes long."))?;
 
   verify_signed_with_public_context(signature_text, &signature_bytes, &public_key)
-    .map_err(|e| JsError::new(format!("{}", e).as_str()))
+    .map_err(ErrorWrapper::js)
 }
 
 #[wasm_bindgen(js_name = revokeInstallationsSignatureRequest)]
 pub fn revoke_installations_signature_request(
-  #[wasm_bindgen(js_name = host)] v3_host: String,
-  #[wasm_bindgen(js_name = gatewayHost)] gateway_host: Option<String>,
+  backend: &Backend,
   #[wasm_bindgen(js_name = recoveryIdentifier)] recovery_identifier: Identifier,
   #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
   #[wasm_bindgen(js_name = installationIds)] installation_ids: Vec<Uint8Array>,
 ) -> Result<SignatureRequestHandle, JsError> {
-  let backend = MessageBackendBuilder::default()
-    .v3_host(&v3_host)
-    .maybe_gateway_host(gateway_host)
-    .is_secure(true)
-    .build()
-    .map_err(|e| JsError::new(&e.to_string()))?;
-  let backend = TrackedStatsClient::new(backend);
-  let api = ApiClientWrapper::new(Arc::new(backend), strategies::exponential_cooldown());
+  let api_client = MessageBackendBuilder::default()
+    .from_bundle(backend.bundle.clone())
+    .map_err(ErrorWrapper::js)?;
+  let api = ApiClientWrapper::new(api_client, strategies::exponential_cooldown());
   let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
   let ident = recovery_identifier.try_into()?;
   let ids: Vec<Vec<u8>> = installation_ids.into_iter().map(|i| i.to_vec()).collect();
 
-  let sig_req = revoke_installations_with_verifier(&ident, &inbox_id, ids)
-    .map_err(|e| JsError::new(&e.to_string()))?;
+  let sig_req =
+    revoke_installations_with_verifier(&ident, &inbox_id, ids).map_err(ErrorWrapper::js)?;
 
   Ok(SignatureRequestHandle {
     inner: Arc::new(Mutex::new(sig_req)),
@@ -78,29 +75,20 @@ pub fn revoke_installations_signature_request(
 
 #[wasm_bindgen(js_name = applySignatureRequest)]
 pub async fn apply_signature_request(
-  #[wasm_bindgen(js_name = host)] v3_host: String,
-  #[wasm_bindgen(js_name = gatewayHost)] gateway_host: Option<String>,
+  backend: &Backend,
   #[wasm_bindgen(js_name = signatureRequest)] signature_request: &SignatureRequestHandle,
 ) -> Result<(), JsError> {
-  let backend = MessageBackendBuilder::default()
-    .v3_host(&v3_host)
-    .maybe_gateway_host(gateway_host)
-    .is_secure(true)
-    .build()
-    .map_err(|e| JsError::new(&e.to_string()))?;
-  let backend = TrackedStatsClient::new(backend);
-
-  let api = ApiClientWrapper::new(
-    TrackedStatsClient::new(backend),
-    strategies::exponential_cooldown(),
-  );
+  let api_client = MessageBackendBuilder::default()
+    .from_bundle(backend.bundle.clone())
+    .map_err(ErrorWrapper::js)?;
+  let api = ApiClientWrapper::new(api_client, strategies::exponential_cooldown());
   let scw_verifier = Arc::new(api.clone());
 
   let inner = signature_request.inner.lock().await;
 
   apply_signature_request_with_verifier(&api, inner.clone(), &scw_verifier)
     .await
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    .map_err(ErrorWrapper::js)?;
 
   Ok(())
 }
@@ -143,7 +131,7 @@ impl SignatureRequestHandle {
       .await
       .add_signature(sig, &self.scw_verifier)
       .await
-      .map_err(|e| JsError::new(&e.to_string()))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(())
   }
 
@@ -161,7 +149,7 @@ impl SignatureRequestHandle {
       .await
       .add_signature(sig, &self.scw_verifier)
       .await
-      .map_err(|e| JsError::new(&e.to_string()))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(())
   }
 
@@ -189,7 +177,7 @@ impl SignatureRequestHandle {
       .await
       .add_new_unverified_smart_contract_signature(sig, &self.scw_verifier)
       .await
-      .map_err(|e| JsError::new(&e.to_string()))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(())
   }
 }
@@ -224,7 +212,7 @@ impl Client {
       .identity_updates()
       .associate_identity(new_identifier.try_into()?)
       .await
-      .map_err(|e| JsError::new(&e.to_string()))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(SignatureRequestHandle {
       inner: Arc::new(Mutex::new(signature_request)),
       scw_verifier: self.inner_client().scw_verifier().clone(),
@@ -242,7 +230,7 @@ impl Client {
       .identity_updates()
       .revoke_identities(vec![ident])
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(SignatureRequestHandle {
       inner: Arc::new(Mutex::new(signature_request)),
@@ -261,7 +249,7 @@ impl Client {
       .inner_client()
       .inbox_state(true)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
     let other_installation_ids: Vec<Vec<u8>> = inbox_state
       .installation_ids()
       .into_iter()
@@ -275,7 +263,7 @@ impl Client {
       .identity_updates()
       .revoke_installations(other_installation_ids)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(Some(SignatureRequestHandle {
       inner: Arc::new(Mutex::new(signature_request)),
       scw_verifier: self.inner_client().scw_verifier().clone(),
@@ -295,7 +283,7 @@ impl Client {
       .identity_updates()
       .revoke_installations(installation_ids_bytes)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(SignatureRequestHandle {
       inner: Arc::new(Mutex::new(signature_request)),
       scw_verifier: self.inner_client().scw_verifier().clone(),
@@ -312,7 +300,7 @@ impl Client {
       .identity_updates()
       .change_recovery_identifier(new_recovery_identifier.try_into()?)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(SignatureRequestHandle {
       inner: Arc::new(Mutex::new(signature_request)),
       scw_verifier: self.inner_client().scw_verifier().clone(),
@@ -331,7 +319,7 @@ impl Client {
       .identity_updates()
       .apply_signature_request(signature_request.clone())
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -353,7 +341,7 @@ impl Client {
       .inner_client()
       .register_identity(inner.clone())
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -367,7 +355,7 @@ impl Client {
       .inner_client()
       .context
       .sign_with_public_context(signature_text)
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(Uint8Array::from(result.as_slice()))
   }

@@ -1,3 +1,4 @@
+use crate::ErrorWrapper;
 use crate::encoded_content::{ContentTypeId, EncodedContent};
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -31,7 +32,7 @@ pub fn content_type_read_receipt() -> ContentTypeId {
 pub fn encode_read_receipt(read_receipt: ReadReceipt) -> Result<EncodedContent, JsError> {
   Ok(
     ReadReceiptCodec::encode(read_receipt.into())
-      .map_err(|e| JsError::new(&format!("{}", e)))?
+      .map_err(ErrorWrapper::js)?
       .into(),
   )
 }

@@ -11,6 +11,8 @@ use crate::subscriptions::SubscribeError;
 use crate::subscriptions::process_message::{
     ProcessFutureFactory, ProcessMessageFuture, ProcessedMessage,
 };
+use crate::worker::device_sync::worker::SyncMetric;
+use crate::worker::tasks::TaskWorkerChannels;
 use crate::worker::{MetricsCasting, WorkerKind};
 use crate::{
     context::XmtpMlsLocalContext, identity::Identity, mutex_registry::MutexRegistry,
@@ -153,15 +155,11 @@ impl XmtpSharedContext for NewMockContext {
         &self.mutexes
     }
 
-    fn task_channels(&self) -> &crate::tasks::TaskWorkerChannels {
+    fn task_channels(&self) -> &TaskWorkerChannels {
         &self.task_channels
     }
 
-    fn sync_metrics(
-        &self,
-    ) -> Option<
-        Arc<crate::worker::metrics::WorkerMetrics<crate::groups::device_sync::worker::SyncMetric>>,
-    > {
+    fn sync_metrics(&self) -> Option<Arc<crate::worker::metrics::WorkerMetrics<SyncMetric>>> {
         self.worker_metrics
             .lock()
             .get(&WorkerKind::DeviceSync)?

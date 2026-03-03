@@ -952,8 +952,8 @@ describe("EnrichedMessage", () => {
           error = e;
         }
         expect(error).toBeDefined();
-        expect((error as Error).message).toContain(
-          "missing field `description`",
+        expect((error as Error).message).toBe(
+          "[ContentTypeError::InvalidData] missing field `description`",
         );
       });
 
@@ -981,8 +981,8 @@ describe("EnrichedMessage", () => {
           error = e;
         }
         expect(error).toBeDefined();
-        expect((error as Error).message).toContain(
-          "missing field `transactionType`",
+        expect((error as Error).message).toBe(
+          "[ContentTypeError::InvalidData] missing field `transactionType`",
         );
       });
 

@@ -1,3 +1,5 @@
+use crate::ErrorWrapper;
+use crate::client::backend::Backend;
 use crate::{client::Client, identity::Identifier};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -6,7 +8,6 @@ use tsify::Tsify;
 use wasm_bindgen::{JsError, JsValue, prelude::wasm_bindgen};
 use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_d14n::MessageBackendBuilder;
-use xmtp_api_d14n::TrackedStatsClient;
 use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};
 use xmtp_id::associations::{AssociationState, MemberIdentifier, ident};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -99,18 +100,13 @@ impl From<VerifiedKeyPackageV2> for KeyPackageStatus {
 
 #[wasm_bindgen(js_name = inboxStateFromInboxIds)]
 pub async fn inbox_state_from_inbox_ids(
-  #[wasm_bindgen(js_name = host)] v3_host: String,
-  #[wasm_bindgen(js_name = gatewayHost)] gateway_host: Option<String>,
+  backend: &Backend,
   #[wasm_bindgen(js_name = inboxIds)] inbox_ids: Vec<String>,
 ) -> Result<Vec<InboxState>, JsError> {
-  let backend = MessageBackendBuilder::default()
-    .v3_host(&v3_host)
-    .maybe_gateway_host(gateway_host)
-    .is_secure(true)
-    .build()
-    .map_err(|e| JsError::new(&e.to_string()))?;
-  let backend = TrackedStatsClient::new(backend);
-  let api = ApiClientWrapper::new(backend, strategies::exponential_cooldown());
+  let api_client = MessageBackendBuilder::default()
+    .from_bundle(backend.bundle.clone())
+    .map_err(ErrorWrapper::js)?;
+  let api = ApiClientWrapper::new(api_client, strategies::exponential_cooldown());
   let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
   let db = WasmDb::new(&StorageOption::Ephemeral).await?;
@@ -124,7 +120,7 @@ pub async fn inbox_state_from_inbox_ids(
     &scw_verifier,
   )
   .await
-  .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+  .map_err(ErrorWrapper::js)?;
   Ok(state.into_iter().map(Into::into).collect())
 }
 
@@ -145,7 +141,7 @@ impl Client {
       .inner_client()
       .inbox_state(refresh_from_network)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(state.into())
   }
 
@@ -160,7 +156,7 @@ impl Client {
       .identity_updates()
       .get_latest_association_state(&conn, &inbox_id)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
     Ok(state.into())
   }
 
@@ -176,7 +172,7 @@ impl Client {
       .fetch_inbox_updates_count(refresh_from_network, ids)
       .await
       .map(|map| crate::to_value(&map).map_err(JsError::from))
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))
+      .map_err(ErrorWrapper::js)
       .flatten()
   }
 
@@ -207,13 +203,13 @@ impl Client {
       .into_iter()
       .map(hex::decode)
       .collect::<std::result::Result<Vec<Vec<u8>>, _>>()
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     let key_package_results = self
       .inner_client()
       .get_key_packages_for_installation_ids(installation_ids)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(ErrorWrapper::js)?;
 
     // Create a HashMap to store results
     let mut result_map: HashMap<String, KeyPackageStatus> = HashMap::new();

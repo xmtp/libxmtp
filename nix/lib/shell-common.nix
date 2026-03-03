@@ -36,11 +36,14 @@
   curl,
   graphite-cli,
   toxiproxy,
-  omnix,
   rr,
+  markdownlint-cli,
+  chromedriver,
+  google-chrome,
+  chromium,
 }:
 let
-  inherit (stdenv) isDarwin isLinux;
+  inherit (stdenv) isLinux;
 in
 {
   # Core Rust build environment: env vars, hardening, native deps, LD_LIBRARY_PATH
@@ -78,6 +81,12 @@ in
     CC_wasm32_unknown_unknown = "${llvmPackages.clang-unwrapped}/bin/clang";
     AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
     CFLAGS_wasm32_unknown_unknown = "-I ${llvmPackages.clang-unwrapped.lib}/lib/clang/21/include";
+    WASM_BINDGEN_TEST_ONLY_WEB = 1;
+    WASM_BINDGEN_TEST_TIMEOUT = 1024;
+    RSTEST_TIMEOUT = 90;
+    WASM_BINDGEN_TEST_WEBDRIVER_JSON = ./../../webdriver.json;
+    CHROMEDRIVER = "${lib.getBin chromedriver}/bin/chromedriver";
+
   };
 
   # WASM tooling
@@ -86,8 +95,14 @@ in
     wasm-pack
     binaryen
     emscripten
+    chromedriver
     wasm-tools
-  ];
+  ]
+  # chromium unsupported on darwin
+  # google-chrome unsupported on aarch64-linux
+  # Firefox compiles from scratch on everything but x86_64 (unreliable build)
+  ++ lib.optionals stdenv.isDarwin [ google-chrome ]
+  ++ lib.optionals stdenv.isLinux [ chromium ];
 
   # Cargo workflow tools
   cargoTools = [
@@ -108,6 +123,7 @@ in
     buf
     protobuf
     protolint
+    markdownlint-cli
   ];
 
   # Lint tools
@@ -134,6 +150,5 @@ in
     curl
     graphite-cli
     toxiproxy
-    omnix
   ];
 }

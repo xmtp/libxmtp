@@ -15,33 +15,34 @@ DIR="${1:-$TMP}"
 BRANCH="${2:-main}"
 CARGO="nix develop -i.#wasm --command cargo"
 WORKSPACE_MANIFEST="$($CARGO locate-project --workspace --message-format=plain)"
-WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
+WORKSPACE_PATH="$(dirname "$WORKSPACE_MANIFEST")"
+# shellcheck disable=SC2034 # PLAYWRIGHT_VERSION is used externally
 PLAYWRIGHT_VERSION=$(nix develop .#js --command bash -c 'echo $PLAYWRIGHT_VERSION')
 YARN="nix develop -i ${WORKSPACE_PATH}#js --command yarn"
 
 trap ctrl_c INT
 function ctrl_c() {
-  if [ -d $TMP ]; then
-    rm -rf $TMP
+  if [ -d "$TMP" ]; then
+    rm -rf "$TMP"
   fi
 }
 
 function run() {
-  cd $WORKSPACE_PATH
+  cd "$WORKSPACE_PATH"
   nix build .#bindings_wasm
 
-  if [ ! -d $DIR/xmtp-js ]; then
-    git clone git@github.com:xmtp/xmtp-js.git $DIR/xmtp-js
+  if [ ! -d "$DIR/xmtp-js" ]; then
+    git clone git@github.com:xmtp/xmtp-js.git "$DIR/xmtp-js"
   fi
 
-  cd $DIR/xmtp-js
-  git checkout $BRANCH
+  cd "$DIR/xmtp-js"
+  git checkout "$BRANCH"
 
   rm -rf node_modules/@xmtp/wasm-bindings
 
   $YARN install
-  rm -rf $DIR/xmtp-js/node_modules/@xmtp/wasm-bindings/dist
-  cp --no-preserve=mode,ownership -r $WORKSPACE_PATH/result/dist $DIR/xmtp-js/node_modules/@xmtp/wasm-bindings/
+  rm -rf "$DIR/xmtp-js/node_modules/@xmtp/wasm-bindings/dist"
+  cp --no-preserve=mode,ownership -r "$WORKSPACE_PATH/result/dist" "$DIR/xmtp-js/node_modules/@xmtp/wasm-bindings/"
 
   # $YARN build
 
@@ -50,9 +51,9 @@ function run() {
   # $YARN set resolution "playwright@npm:^1.49.1" npm:$PLAYWRIGHT_VERSION
   # $YARN set resolution "playwright-core@npm:^1.49.1" npm:$PLAYWRIGHT_VERSION
 
-  cd $WORKSPACE_PATH
-  $YARN --silent --cwd $DIR/xmtp-js/sdks/browser-sdk
-  $YARN --silent --cwd $DIR/xmtp-js/sdks/browser-sdk test
+  cd "$WORKSPACE_PATH"
+  $YARN --silent --cwd "$DIR/xmtp-js/sdks/browser-sdk"
+  $YARN --silent --cwd "$DIR/xmtp-js/sdks/browser-sdk" test
 
   return 0
 }

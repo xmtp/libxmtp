@@ -1,6 +1,0 @@
-#!/bin/bash
-set -eou pipefail
-
-dev/lint-markdown --fix
-dev/lint-rust
-nixfmt nix/ flake.nix

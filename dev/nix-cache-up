@@ -7,28 +7,9 @@ if ! which nix &>/dev/null; then
   exit 0
 fi
 
-# Configure the XMTP binary cache via cachix
-# cachix automatically chooses the right config approach based on trusted-user status
-if ! grep -qF "xmtp.cachix.org" /etc/nix/nix.conf /etc/nix/nix.custom.conf ~/.config/nix/nix.conf 2>/dev/null; then
-  echo ""
-  echo "Configuring XMTP binary cache (avoids building dependencies from source)..."
-  CURRENT_USER="$(whoami)"
-  TRUSTED_USERS="$(nix config show trusted-users 2>/dev/null || true)"
-  if echo "$TRUSTED_USERS" | grep -qwF "$CURRENT_USER"; then
-    echo "User '$CURRENT_USER' is a trusted Nix user — configuring cache without sudo."
-    nix run nixpkgs#cachix -- use xmtp
-  else
-    echo "User '$CURRENT_USER' is not a trusted Nix user — sudo required to configure cache."
-    sudo nix run nixpkgs#cachix -- use xmtp
-  fi
-  echo "XMTP binary cache configured."
-else
-  echo "XMTP binary cache already configured."
-fi
-
-# Configure the Garnix binary cache
-GARNIX_SUBSTITUTER="https://cache.garnix.io"
-GARNIX_PUBLIC_KEY="cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g="
+# Configure the XMTP binary cache
+XMTP_SUBSTITUTER="https://xmtp.cachix.org"
+XMTP_PUBLIC_KEY="xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0="
 
 # Function to add value to a nix.conf setting if not already present
 add_to_setting() {
@@ -66,6 +47,34 @@ add_to_setting() {
 is_nixos() {
   [ -e /etc/nixos ] && [ -e /etc/NIXOS ]
 }
+
+# Configure XMTP cache
+if ! grep -qF "xmtp.cachix.org" /etc/nix/nix.conf /etc/nix/nix.custom.conf ~/.config/nix/nix.conf 2>/dev/null; then
+  echo ""
+  echo "Configuring XMTP binary cache (avoids building dependencies from source)..."
+  CURRENT_USER="$(whoami)"
+  TRUSTED_USERS="$(nix config show trusted-users 2>/dev/null || true)"
+  if echo "$TRUSTED_USERS" | grep -qwF "$CURRENT_USER"; then
+    echo "User '$CURRENT_USER' is a trusted Nix user — configuring cache without sudo."
+    NIX_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/nix/nix.conf"
+    mkdir -p "$(dirname "$NIX_CONF")"
+    touch "$NIX_CONF"
+    add_to_setting "$NIX_CONF" "extra-substituters" "$XMTP_SUBSTITUTER" "false"
+    add_to_setting "$NIX_CONF" "extra-trusted-public-keys" "$XMTP_PUBLIC_KEY" "false"
+  else
+    echo "User '$CURRENT_USER' is not a trusted Nix user — sudo required to configure cache."
+    NIX_CONF="/etc/nix/nix.conf"
+    add_to_setting "$NIX_CONF" "extra-substituters" "$XMTP_SUBSTITUTER" "true"
+    add_to_setting "$NIX_CONF" "extra-trusted-public-keys" "$XMTP_PUBLIC_KEY" "true"
+  fi
+  echo "XMTP binary cache configured."
+else
+  echo "XMTP binary cache already configured."
+fi
+
+# Configure the Garnix binary cache
+GARNIX_SUBSTITUTER="https://cache.garnix.io"
+GARNIX_PUBLIC_KEY="cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g="
 
 # Create NixOS module for garnix cache (similar to cachix use)
 create_nixos_garnix_module() {

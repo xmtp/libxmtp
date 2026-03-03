@@ -1,4 +1,4 @@
-use log::{kv, LevelFilter, Log, Metadata, Record};
+use log::{LevelFilter, Log, Metadata, Record, kv};
 use std::io::{self, StdoutLock, Write};
 use std::time;
 

@@ -25,6 +25,7 @@ jobs:
           nix_conf: |
             extra-substituters = https://cache.garnix.io https://xmtp.cachix.org
             extra-trusted-public-keys = cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g= xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0=
+            sandbox = relaxed
       - run: nix build --version
       - name: Install omnix
         run: nix profile install nixpkgs#omnix
@@ -48,6 +49,7 @@ jobs:
           nix_conf: |
             extra-substituters = https://cache.garnix.io https://xmtp.cachix.org
             extra-trusted-public-keys = cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g= xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0=
+            sandbox = relaxed
       - run: nix build --version
       - name: build validation service image
         run: nix build .#validation-service-image-aarch64-multiplatform

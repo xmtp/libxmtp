@@ -2,16 +2,16 @@ use crate::{
     GroupCommitLock, StorageError, XmtpApi,
     client::{Client, DeviceSync},
     context::{XmtpMlsLocalContext, XmtpSharedContext},
-    groups::{
-        device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker,
-        key_package_cleaner_worker::KeyPackagesCleanerWorker,
-        pending_self_remove_worker::PendingSelfRemoveWorker,
-    },
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
     utils::{VersionInfo, cleanup_duplicate_updates},
-    worker::WorkerRunner,
+    worker::{WorkerRunner, tasks::TaskWorker},
+    worker::{
+        device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker,
+        key_package_cleaner::KeyPackagesCleanerWorker,
+        pending_self_remove::PendingSelfRemoveWorker,
+    },
 };
 use futures::FutureExt;
 use std::sync::Arc;
@@ -71,7 +71,7 @@ pub enum ClientBuilderError {
     ///
     /// Device sync setup failed. Not retryable.
     #[error(transparent)]
-    DeviceSync(#[from] Box<crate::groups::device_sync::DeviceSyncError>),
+    DeviceSync(#[from] Box<crate::worker::device_sync::DeviceSyncError>),
     /// Offline build failed.
     ///
     /// Builder tried to access the network in offline mode. Not retryable.
@@ -79,8 +79,8 @@ pub enum ClientBuilderError {
     OfflineBuildFailed,
 }
 
-impl From<crate::groups::device_sync::DeviceSyncError> for ClientBuilderError {
-    fn from(value: crate::groups::device_sync::DeviceSyncError) -> Self {
+impl From<crate::worker::device_sync::DeviceSyncError> for ClientBuilderError {
+    fn from(value: crate::worker::device_sync::DeviceSyncError) -> Self {
         ClientBuilderError::DeviceSync(Box::new(value))
     }
 }
@@ -347,10 +347,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 _,
                 >(context.clone());
             }
-            workers
-                .register_new_worker::<crate::tasks::TaskWorker<ContextParts<ApiClient, S, Db>>, _>(
-                    context.clone(),
-                );
+            workers.register_new_worker::<TaskWorker<ContextParts<ApiClient, S, Db>>, _>(
+                context.clone(),
+            );
         }
 
         let workers = Arc::new(workers);

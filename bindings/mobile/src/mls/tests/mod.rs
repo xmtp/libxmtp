@@ -76,8 +76,9 @@ use xmtp_id::associations::{
 };
 use xmtp_mls::{
     InboxOwner,
-    groups::{GroupError, device_sync::worker::SyncMetric},
+    groups::GroupError,
     utils::{PasskeyUser, Tester, TesterBuilder},
+    worker::device_sync::worker::SyncMetric,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     ContentTypeId, EncodedContent,

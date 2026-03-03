@@ -54,7 +54,7 @@ impl From<FfiSyncMetric> for SyncMetric {
     }
 }
 use xmtp_mls::{
-    builder::DeviceSyncMode, groups::device_sync::worker::SyncMetric,
+    builder::DeviceSyncMode, worker::device_sync::worker::SyncMetric,
     worker::metrics::WorkerMetrics,
 };
 

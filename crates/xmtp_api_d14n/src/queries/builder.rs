@@ -27,11 +27,11 @@ pub struct MessageBackendBuilder {
 
 #[derive(Error, Debug, ErrorCode)]
 pub enum MessageBackendBuilderError {
-    /// Missing V3 host.
+    /// Missing host.
     ///
-    /// V3 host URL not set on builder. Not retryable.
-    #[error("V3 Host is required")]
-    MissingV3Host,
+    /// Neither V3 host nor gateway host was set on the builder. Not retryable.
+    #[error("Either v3_host or gateway_host must be provided")]
+    MissingHost,
     /// gRPC builder error.
     ///
     /// gRPC client builder failed. Not retryable.
@@ -93,9 +93,19 @@ impl MessageBackendBuilder {
     /// for d14n this is the replication node
     /// for v3 this is xmtp-node-go
     ///
-    /// Required
+    /// Required for V3 mode; optional when gateway_host is provided (D14n mode).
     pub fn v3_host<S: AsRef<str>>(&mut self, host: S) -> &mut Self {
         self.client_bundle.v3_host(host.as_ref());
+        self
+    }
+
+    /// Specify the node host as an Option<T>
+    /// for d14n this is the replication node
+    /// for v3 this is xmtp-node-go
+    ///
+    /// Required for V3 mode; optional when gateway_host is provided (D14n mode).
+    pub fn maybe_v3_host<S: Into<String>>(&mut self, host: Option<S>) -> &mut Self {
+        self.client_bundle.maybe_v3_host(host);
         self
     }
 

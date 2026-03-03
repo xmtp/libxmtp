@@ -1,5 +1,10 @@
 # Flake Shell for building release artifacts for swift and kotlin
 {
+  nixConfig = {
+    http-connections = 128;
+    max-substitution-jobs = 128;
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     fenix = {
@@ -20,6 +25,7 @@
       url = "https://static.rust-lang.org/dist/channel-rust-1.92.0.toml";
       flake = false;
     };
+    treefmt-nix.url = "github:numtide/treefmt-nix";
   };
 
   outputs =
@@ -35,10 +41,12 @@
         flake-parts.flakeModules.easyOverlay
         inputs.rust-flake.flakeModules.default
         inputs.rust-flake.flakeModules.nixpkgs
+        inputs.treefmt-nix.flakeModule
         ./nix/rust-defaults.nix
         ./nix/rust.nix
         ./nix/musl-docker.nix
         ./nix/ci-checks.nix
+        ./nix/fmt.nix
       ];
       perSystem =
         { pkgs, lib, ... }:
@@ -63,6 +71,7 @@
             {
               inherit (pkgs.xmtp) ffi-uniffi-bindgen;
               wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { }).bin;
+              wasm-bindings-test = (pkgs.callPackage ./nix/package/wasm.nix { test = true; }).bin;
               wasm-bindgen-cli = pkgs.callPackage ./nix/lib/packages/wasm-bindgen-cli.nix { };
               # Android bindings (.so libraries + Kotlin bindings)
               android-libs = android.aggregate;

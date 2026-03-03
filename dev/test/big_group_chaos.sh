@@ -24,13 +24,13 @@ CMD="${TARGET_DIR}/release/xdbg -b $NETWORK"
 
 cargo build --release --bin xdbg
 echo "writing groups to $EXPORT"
-${TARGET_DIR}/release/xdbg --clear
+"${TARGET_DIR}"/release/xdbg --clear
 $CMD --clear
 $CMD generate --entity identity --amount 250
 $CMD generate --entity group --amount 1 --invite 10
-$CMD export --entity group --out $EXPORT
-GROUP_ID=$(jq -r '.[0].id' $EXPORT)
+$CMD export --entity group --out "$EXPORT"
+GROUP_ID=$(jq -r '.[0].id' "$EXPORT")
 echo "group has id $GROUP_ID"
-$CMD modify --inbox-id $INBOX_ID add-external $GROUP_ID
+$CMD modify --inbox-id "$INBOX_ID" add-external "$GROUP_ID"
 # generate 2 message every 1000 milliseconds, and add a new member (up to 200 members) + change the grp description
 $CMD generate --entity message --amount 2 --interval 1000 --loop --add-and-change-description --add-up-to 200

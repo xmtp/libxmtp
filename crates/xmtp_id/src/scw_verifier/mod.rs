@@ -52,9 +52,9 @@ pub enum VerifierError {
     MalformedEipUrl,
     /// No verifier.
     ///
-    /// Verifier not configured. Retryable.
-    #[error("verifier not present")]
-    NoVerifier,
+    /// Verifier not configured for the given chain ID. Retryable.
+    #[error("verifier not present for chain ID {0}")]
+    NoVerifier(String),
     /// Invalid hash.
     ///
     /// Hash has invalid length or format. Not retryable.
@@ -72,7 +72,7 @@ impl RetryableError for VerifierError {
         use VerifierError::*;
         match self {
             Io(_) => true,
-            NoVerifier => true,
+            NoVerifier(_) => true,
             Provider(_) => true,
             Other(o) => o.is_retryable(),
             _ => false,
@@ -256,6 +256,6 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
                 .await;
         }
 
-        Err(VerifierError::NoVerifier)
+        Err(VerifierError::NoVerifier(account_id.chain_id))
     }
 }

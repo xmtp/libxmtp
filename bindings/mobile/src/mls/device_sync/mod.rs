@@ -3,7 +3,7 @@ mod tests;
 
 use crate::{FfiError, FfiGroupSyncSummary, FfiXmtpClient};
 use xmtp_id::associations::DeserializationError;
-use xmtp_mls::groups::device_sync::{
+use xmtp_mls::worker::device_sync::{
     ArchiveOptions, AvailableArchive, BackupElementSelection, DeviceSyncError,
     archive::{
         ArchiveImporter, BACKUP_VERSION, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter,

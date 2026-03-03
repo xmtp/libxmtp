@@ -5,11 +5,10 @@ _: {
     {
       checks.all-packages = pkgs.linkFarm "all-packages" {
         inherit (self'.packages)
-          android-libs
-          android-libs-fast
           wasm-bindings
           wasm-bindgen-cli
           mls_validation_service
+          wasm-bindings-test
           ;
       };
       checks.dev-shells = pkgs.linkFarm "dev-shells" self'.devShells;

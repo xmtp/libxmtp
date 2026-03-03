@@ -52,9 +52,16 @@ _: {
     in
     {
       packages = {
+        mls-validation-service-musl64 =
+          config.rust-project.crates.mls_validation_service.crane.outputs.drv.crate.overrideAttrs
+            (old: old // (env-musl old));
+        # lib.recursiveUpdate lets imageCommon define other attributes in the `config` namesapce
         validation-service-image = pkgs.dockerTools.buildLayeredImage (
           lib.recursiveUpdate imageCommon {
-            config.entrypoint = [ "${self'.packages.mls_validation_service}/bin/mls-validation-service" ];
+            config.entrypoint = [
+              "${self'.packages.mls-validation-service-musl64}/bin/mls-validation-service"
+            ];
+            architecture = "amd64";
           }
         );
       }
@@ -66,19 +73,6 @@ _: {
           lib.recursiveUpdate imageCommon {
             config.entrypoint = [
               "${self'.packages.mls-validation-service-aarch64-multiplatform}/bin/mls-validation-service"
-            ];
-          }
-        );
-      }
-      // lib.optionalAttrs (pkgs.stdenv.system == "x86_64-linux") {
-        mls-validation-service-musl64 =
-          config.rust-project.crates.mls_validation_service.crane.outputs.drv.crate.overrideAttrs
-            (old: old // (env-musl old));
-        # lib.recursiveUpdate lets imageCommon define other attributes in the `config` namesapce
-        validation-service-image-musl64 = pkgs.dockerTools.buildLayeredImage (
-          lib.recursiveUpdate imageCommon {
-            config.entrypoint = [
-              "${self'.packages.mls-validation-service-musl64}/bin/mls-validation-service"
             ];
           }
         );

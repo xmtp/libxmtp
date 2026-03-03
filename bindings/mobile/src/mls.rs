@@ -77,7 +77,6 @@ use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
         MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
-        device_sync::preference_sync::PreferenceUpdate,
         group_permissions::{
             BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError,
             MembershipPolicies, MetadataBasePolicies, MetadataPolicies, PermissionsBasePolicies,
@@ -88,6 +87,7 @@ use xmtp_mls::{
     },
     identity::IdentityStrategy,
     subscriptions::SubscribeError,
+    worker::device_sync::preference_sync::PreferenceUpdate,
 };
 use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api_client::AggregateStats;

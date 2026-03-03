@@ -18,20 +18,20 @@ This SDK lives within the libxmtp monorepo. Use the Nix development environment:
 # From repository root
 nix develop .#ios
 
-# Or run scripts directly (they auto-enter Nix shell)
-./sdks/ios/dev/build
+# Or use just commands (they use Nix automatically)
+just ios build
 ```
 
 ## Development Commands
 
-All scripts auto-detect Nix shell and enter it if needed:
+All commands run through justfile recipes with Nix:
 
 ```bash
-./sdks/ios/dev/build    # Build libxmtp xcframework + Swift package
-./sdks/ios/dev/test     # Run Swift tests
-./sdks/ios/dev/lint     # Run SwiftLint
-./sdks/ios/dev/fmt      # Format code with SwiftFormat
-./sdks/ios/dev/fmt --lint  # Check formatting without changes
+just ios build          # Build libxmtp xcframework
+just ios check          # Build bindings + Swift package
+just ios test           # Run Swift tests
+just ios lint           # Run SwiftLint + SwiftFormat check
+just ios format         # Format code with SwiftFormat
 ```
 
 ## Building the xcframework
@@ -46,10 +46,10 @@ Tests require a running XMTP backend. For CI, tests use ephemeral Fly.io infrast
 
 ```bash
 # Start local backend (from repo root)
-./dev/up
+just backend up
 
-# Run tests
-./sdks/ios/dev/test
+# Run tests (from repo root)
+just ios test
 ```
 
 Environment variables for custom backend:

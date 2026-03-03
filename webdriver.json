@@ -16,10 +16,14 @@
       "--mute-audio",
       "--no-first-run",
       "--safebrowsing-disable-auto-update",
-      "--js-flags=--max-old-space-size=512",
+      "--js-flags=--max-old-space-size=4096",
       "--memory-pressure-off",
       "--disable-ipc-flooding-protection",
-      "--renderer-process-limit=1"
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
+      "--disable-hang-monitor",
+      "--enable-automation"
     ]
   }
 }
