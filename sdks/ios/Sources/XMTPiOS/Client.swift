@@ -37,14 +37,17 @@ public enum ClientError: Error, CustomStringConvertible, LocalizedError {
 
 /// Controls which groups are eligible for automatic MLS fork recovery.
 ///
-/// An MLS "fork" occurs when group state diverges between members. Recovery re-establishes
-/// a consistent state so messages can flow again.
+/// An MLS "fork" occurs when group state diverges between members, preventing
+/// messages from flowing. Fork recovery re-establishes a consistent state, but
+/// it operates outside of OpenMLS and its guarantees. Only super admins can
+/// initiate it. Because recovery can be heavy-handed, some integrators prefer
+/// to accept the fork rather than risk the recovery mechanism.
 public enum ForkRecoveryPolicy {
-	/// Disable fork recovery entirely.
+	/// Disable fork recovery entirely. Forks will be accepted as-is.
 	case none
 	/// Only recover groups that appear in ``ForkRecoveryOptions/groupsToRequestRecovery``.
 	case allowlistedGroups
-	/// Attempt recovery for every forked group.
+	/// Attempt recovery for every forked group. This is the most aggressive option.
 	case all
 
 	func toFfi() -> FfiForkRecoveryPolicy {
@@ -62,7 +65,8 @@ public enum ForkRecoveryPolicy {
 /// Configuration for MLS fork recovery behavior.
 ///
 /// Use this struct to control whether and how the client requests and responds
-/// to fork-recovery operations.
+/// to fork-recovery operations. See ``ForkRecoveryPolicy`` for guidance on
+/// choosing the right level of recovery for your app.
 public struct ForkRecoveryOptions {
 	/// The policy that determines which groups may request fork recovery.
 	public var enableRecoveryRequests: ForkRecoveryPolicy

@@ -47,9 +47,9 @@ public struct ConsentRecord: Codable, Hashable {
 
 /// Manages consent state and user preferences for conversations and contacts.
 ///
-/// Use this actor to allow or deny conversations and inbox IDs,
+/// Use this actor to consent to or deny conversations and inbox IDs,
 /// query current consent state, and stream real-time consent updates
-/// that sync across all devices associated with this account.
+/// that sync across all devices associated with this account using the device sync feature.
 public actor PrivatePreferences {
 	var client: Client
 	var ffiClient: FfiXmtpClient
