@@ -49,32 +49,136 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "16.3"
+
       - name: Build bindings
         run: just ios build
+
       - name: Hide internal symbols from docs
         run: ./sdks/ios/dev/hide-internal-symbols
 
-      # Generate docs
-      - name: Generate docs
-        if: inputs.update-latest || inputs.version
+      - name: Generate latest docs
+        if: inputs.update-latest
         run: |
           swift package \
             --allow-writing-to-package-directory \
             generate-documentation \
             --target XMTPiOS \
-            --output-path ./.build/docs \
+            --output-path .build/docs-latest \
             --transform-for-static-hosting \
-            --hosting-base-path ios
-          mkdir -p .build/deploy/ios
-          cp -r .build/docs/* .build/deploy/ios/
-          echo '{ "rewrites": [{ "source": "/ios/(.*)", "destination": "/ios/index.html" }] }' > .build/deploy/vercel.json
+            --hosting-base-path ios/latest
 
-      # Deploy to Vercel
+      - name: Generate versioned docs
+        if: inputs.version
+        run: |
+          swift package \
+            --allow-writing-to-package-directory \
+            generate-documentation \
+            --target XMTPiOS \
+            --output-path .build/docs-versioned \
+            --transform-for-static-hosting \
+            --hosting-base-path "ios/${{ inputs.version }}"
+
+      - name: Assemble deployment
+        if: inputs.update-latest || inputs.version
+        run: |
+          ARCHIVE_DIR="$(pwd)/.build/archive"
+          BRANCH="ios-docs-versions"
+          REPO_URL="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+
+          # Clone existing archive branch, or init a new one
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            git clone --single-branch --branch "$BRANCH" --depth 1 "$REPO_URL" "$ARCHIVE_DIR"
+          else
+            mkdir -p "$ARCHIVE_DIR"
+            cd "$ARCHIVE_DIR"
+            git init -b "$BRANCH"
+            git remote add origin "$REPO_URL"
+            cd -
+          fi
+
+          cd "$ARCHIVE_DIR"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          cd -
+
+          mkdir -p "$ARCHIVE_DIR/ios"
+          [ -f "$ARCHIVE_DIR/versions.json" ] || echo '[]' > "$ARCHIVE_DIR/versions.json"
+
+          # Copy latest docs into ios/latest/
+          if [ "${{ inputs.update-latest }}" = "true" ] && [ -d .build/docs-latest ]; then
+            rm -rf "$ARCHIVE_DIR/ios/latest"
+            cp -r .build/docs-latest "$ARCHIVE_DIR/ios/latest"
+          fi
+
+          # Copy versioned docs into ios/<version>/
+          VERSION="${{ inputs.version }}"
+          if [ -n "$VERSION" ] && [ -d .build/docs-versioned ]; then
+            rm -rf "$ARCHIVE_DIR/ios/$VERSION"
+            cp -r .build/docs-versioned "$ARCHIVE_DIR/ios/$VERSION"
+
+            python3 -c "
+          import json
+          with open('$ARCHIVE_DIR/versions.json') as f:
+              versions = json.load(f)
+          v = '$VERSION'
+          if v not in versions:
+              versions.insert(0, v)
+          with open('$ARCHIVE_DIR/versions.json', 'w') as f:
+              json.dump(versions, f, indent=2)
+          "
+          fi
+
+          # Generate version index page at /ios/
+          VERSION_ITEMS=""
+          for v in $(python3 -c "import json; [print(v) for v in json.load(open('$ARCHIVE_DIR/versions.json'))]"); do
+            VERSION_ITEMS="${VERSION_ITEMS}<li><a href=\"/ios/${v}/documentation/xmtpios\">${v}</a></li>"
+          done
+
+          cat > "$ARCHIVE_DIR/ios/index.html" << HTMLEOF
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>XMTP iOS SDK — API Reference</title>
+          <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; color: #333; }
+          a { color: #5a5aff; text-decoration: none; }
+          a:hover { text-decoration: underline; }
+          ul { list-style: none; padding: 0; }
+          li { padding: 8px 0; border-bottom: 1px solid #eee; }
+          </style>
+          </head>
+          <body>
+          <h1>XMTP iOS SDK</h1>
+          <h2>API Reference</h2>
+          <p><strong><a href="/ios/latest/documentation/xmtpios">Latest</a></strong></p>
+          <h3>All versions</h3>
+          <ul>${VERSION_ITEMS}</ul>
+          </body>
+          </html>
+          HTMLEOF
+
+          # Vercel config — SPA fallback for DocC client-side routing
+          echo '{"rewrites":[{"source":"/ios/latest/(.*)","destination":"/ios/latest/index.html"},{"source":"/ios/(.*)","destination":"/ios/index.html"}]}' > "$ARCHIVE_DIR/vercel.json"
+
+      - name: Update archive branch
+        if: inputs.update-latest || inputs.version
+        run: |
+          cd .build/archive
+          git add -A
+          if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+            git commit -m "docs: iOS ${{ inputs.version || 'latest' }}"
+            git push origin ios-docs-versions
+          else
+            echo "No changes to archive"
+          fi
+
       - name: Deploy to Vercel
         if: inputs.update-latest || inputs.version
         run: |
           npm install -g vercel
-          vercel deploy .build/deploy --prod --token $VERCEL_TOKEN
+          vercel deploy .build/archive --prod --token $VERCEL_TOKEN
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
