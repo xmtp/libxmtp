@@ -105,11 +105,24 @@ impl State {
                 // allocate a consistent column width so cells align across rows.
 
                 let groups_page = self.groups_page.load(Ordering::Relaxed) as usize;
+                let show_errors_only = self.show_errors_only.load(Ordering::Relaxed);
                 let mut group_rows: Vec<UIGroupRow> = Vec::new();
 
                 let grouped_epochs = self.grouped_epochs.lock();
+                let groups = self.groups.lock();
                 let mut group_ids: Vec<&String> = grouped_epochs.keys().collect();
                 group_ids.sort();
+
+                // Filter groups to only show those with errors if the filter is enabled
+                if show_errors_only {
+                    group_ids.retain(|group_id| {
+                        if let Some(group) = groups.get(*group_id) {
+                            group.lock().has_errors.load(Ordering::Relaxed)
+                        } else {
+                            false
+                        }
+                    });
+                }
 
                 let total_groups = group_ids.len();
                 let groups_total_pages = if total_groups == 0 {
@@ -237,9 +250,10 @@ impl State {
                     });
                 }
 
-                // Set pagination state for groups
+                // Set pagination and filter state for groups
                 ui.set_groups_page(groups_page as i32);
                 ui.set_groups_total_pages(groups_total_pages as i32);
+                ui.set_show_errors_only(show_errors_only);
 
                 let epoch_groups = ModelRc::new(VecModel::from(group_rows));
                 ui.set_epoch_groups(epoch_groups);
@@ -252,9 +266,19 @@ impl State {
 
                 let mut timeline_groups: Vec<UITimelineGroup> = Vec::new();
 
-                let groups = self.groups.lock();
                 let mut timeline_group_ids: Vec<&String> = groups.keys().collect();
                 timeline_group_ids.sort();
+
+                // Filter groups to only show those with errors if the filter is enabled
+                if show_errors_only {
+                    timeline_group_ids.retain(|group_id| {
+                        if let Some(group) = groups.get(*group_id) {
+                            group.lock().has_errors.load(Ordering::Relaxed)
+                        } else {
+                            false
+                        }
+                    });
+                }
 
                 // Use the same pagination as epochs tab
                 let start = groups_page * PAGE_SIZE;

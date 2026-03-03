@@ -15,6 +15,8 @@ use xmtp_common::TestWriter;
 use xmtp_mls::tester;
 
 mod state;
+#[cfg(test)]
+mod tests;
 mod ui;
 
 #[derive(Parser)]
@@ -65,8 +67,8 @@ fn main() -> Result<()> {
                     let (group, _) = bo.test_talk_in_new_group_with(&alix).await?;
                     group.add_members(&[caro.inbox_id()]).await?;
 
-                    // alix.save_snapshot_to_file("alix.db3");
-                    // tester!(alix2, snapshot_file: "alix.db3", stream);
+                    alix.save_snapshot_to_file("alix.db3");
+                    tester!(alix2, snapshot_file: "alix.db3", stream);
 
                     group.update_group_name("Fellows".into()).await?;
                     caro.sync_all_welcomes_and_groups(None).await?;
@@ -172,64 +174,14 @@ fn main() -> Result<()> {
         }
     });
 
+    ui.on_show_errors_only_changed({
+        let state = state.clone();
+        move |checked| {
+            tracing::info!("Show errors only changed to: {}", checked);
+            state.set_show_errors_only(checked);
+        }
+    });
+
     ui.run()?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use tracing_subscriber::fmt;
-    use xmtp_common::TestWriter;
-    use xmtp_mls::tester;
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn test_log_parsing() {
-        let writer = TestWriter::new();
-        let subscriber = fmt::Subscriber::builder()
-            .with_writer(writer.clone())
-            .with_level(true)
-            .with_ansi(false)
-            .finish();
-        let _guard = tracing::subscriber::set_default(subscriber);
-
-        // ===============================================
-
-        tester!(bo, stream, disable_workers);
-        tester!(alix, stream, disable_workers);
-        tester!(caro, stream, disable_workers);
-        bo.test_talk_in_dm_with(&alix).await?;
-        let (group, _) = bo.test_talk_in_new_group_with(&alix).await?;
-        group.add_members(&[caro.inbox_id()]).await?;
-
-        group.update_group_name("Fellows".into()).await?;
-        caro.sync_all_welcomes_and_groups(None).await?;
-        bo.sync_all_welcomes_and_groups(None).await?;
-
-        // =================================================
-
-        std::thread::sleep(Duration::from_millis(500));
-
-        let log = writer.as_string();
-        tokio::fs::write("logs.txt", log).await?;
-
-        // let lines = log.split('\n');
-
-        // let inst_regex = regex::Regex::new(r#"inst: "([^"]+)""#).unwrap();
-        // let mut logs: HashMap<String, Vec<&str>> = HashMap::new();
-
-        // for line in lines {
-        //     if let Some(caps) = inst_regex.captures(line) {
-        //         let inst = caps.get(1).unwrap().as_str();
-        //         let lines = logs.entry(inst.to_string()).or_default();
-        //         lines.push(line);
-        //     }
-        // }
-
-        // for (inst, logs) in logs {
-        //     let log = logs.join("\n");
-        //     std::fs::write(format!("log-{inst}.txt"), log).unwrap();
-        // }
-    }
 }

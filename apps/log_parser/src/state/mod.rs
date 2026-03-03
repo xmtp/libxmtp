@@ -11,6 +11,7 @@ use crate::{
             LogAssertion, account_for_drift::AccountForDrift, build_group_order::BuildGroupOrder,
             build_timeline::BuildTimeline, epoch_auth_consistency::EpochAuthConsistency,
             epoch_continuity::EpochContinuityAssertion,
+            flag_groups_for_errors::FlagGroupsForErrors,
         },
         state_or_event::StateOrEvent,
     },
@@ -57,6 +58,8 @@ pub struct State {
     pub events_page: AtomicU32,
     /// Current page for groups (0-indexed), shared between Epochs and Timeline tabs
     pub groups_page: AtomicU32,
+    /// Filter to show only groups with errors
+    pub show_errors_only: AtomicBool,
 }
 
 #[derive(Default)]
@@ -78,8 +81,6 @@ pub struct ClientState {
     pub all_groups: Arc<Mutex<HashMap<GroupId, Arc<Mutex<Group>>>>>,
     pub groups: HashMap<GroupId, Arc<Mutex<Group>>>,
     pub num_clients: isize,
-    pub inst: String,
-    pub inbox_id: String,
 }
 
 impl State {
@@ -93,7 +94,17 @@ impl State {
             ui,
             events_page: AtomicU32::new(0),
             groups_page: AtomicU32::new(0),
+            show_errors_only: AtomicBool::new(false),
         })
+    }
+
+    /// Set the show_errors_only filter and trigger a UI update
+    pub fn set_show_errors_only(self: &Arc<Self>, show_errors_only: bool) {
+        self.show_errors_only
+            .store(show_errors_only, Ordering::Relaxed);
+        // Reset to first page when filter changes
+        self.groups_page.store(0, Ordering::Relaxed);
+        self.clone().update_ui();
     }
 
     /// Set the events page and trigger a UI update
@@ -166,6 +177,9 @@ impl State {
         if let Err(err) = BuildGroupOrder::assert(self) {
             tracing::error!("Build group order error: {err}");
         };
+        if let Err(err) = FlagGroupsForErrors::assert(self) {
+            tracing::error!("Flag groups for errors error: {err}");
+        };
 
         // sort everything by time
         // self.clients.lock().values().for_each(|c| c.lock().sort());
@@ -184,17 +198,9 @@ impl State {
         let installation = &event.installation;
         let mut clients = self.clients.lock();
         let mut client = match event.event {
-            Event::ClientCreated => {
-                let inbox_id = ctx("inbox_id")?.as_str()?;
-                clients.entry(installation.to_string()).or_insert_with(|| {
-                    Arc::new(Mutex::new(ClientState::new(
-                        &installation,
-                        inbox_id,
-                        None,
-                        self.groups.clone(),
-                    )))
-                })
-            }
+            Event::ClientCreated => clients.entry(installation.to_string()).or_insert_with(|| {
+                Arc::new(Mutex::new(ClientState::new(None, self.groups.clone())))
+            }),
             _ => clients.get_mut(installation).context("Missing client")?,
         }
         .lock();
@@ -263,27 +269,16 @@ impl State {
 
 impl ClientState {
     fn new(
-        inst: &str,
-        inbox_id: &str,
         name: Option<String>,
         all_groups: Arc<Mutex<HashMap<GroupId, Arc<Mutex<Group>>>>>,
     ) -> Self {
         Self {
             name,
             events: Vec::new(),
-            inst: inst.to_string(),
-            inbox_id: inbox_id.to_string(),
+
             num_clients: 0,
             all_groups,
             groups: HashMap::default(),
-        }
-    }
-
-    fn key(&self) -> String {
-        if let Some(name) = &self.name {
-            format!("{name}-{}", self.inst)
-        } else {
-            self.inst.clone()
         }
     }
 
@@ -307,7 +302,6 @@ impl ClientState {
 
 pub struct Group {
     pub has_errors: AtomicBool,
-    pub installation_id: String,
     pub timeline: Vec<StateOrEvent>,
     pub states: Vec<HashMap<InstallationId, Arc<Mutex<GroupState>>>>,
 }
@@ -320,20 +314,10 @@ impl Group {
             Arc::new(Mutex::new(GroupState::new(event))),
         );
         Arc::new(Mutex::new(Self {
-            installation_id: event.installation.clone(),
             states: vec![states_map],
             has_errors: AtomicBool::new(false),
             timeline: Vec::new(),
         }))
-    }
-
-    fn sort(&mut self) {
-        // Sort states by the earliest event time in each HashMap
-        self.states.sort_by(|a, b| {
-            let a_time = a.values().next().map(|s| s.lock().event.time());
-            let b_time = b.values().next().map(|s| s.lock().event.time());
-            a_time.cmp(&b_time)
-        });
     }
 }
 
@@ -403,69 +387,5 @@ impl Group {
             .get(&installation_id)
             .expect("Just inserted")
             .lock()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use crate::state::{LogEvent, State};
-    use tracing_subscriber::fmt;
-    use xmtp_common::{Event, TestWriter};
-    use xmtp_mls::tester;
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn test_logging() {
-        let writer = TestWriter::new();
-
-        let subscriber = fmt::Subscriber::builder()
-            .with_writer(writer.clone())
-            .with_level(true)
-            .with_ansi(false)
-            .finish();
-
-        let _guard = tracing::subscriber::set_default(subscriber);
-
-        tester!(bo);
-        tester!(alix);
-        let (group, _) = bo.test_talk_in_new_group_with(&alix).await?;
-        tester!(caro);
-        group.add_members(&[caro.inbox_id()]).await?;
-        group.update_group_name("Rocking".to_string()).await?;
-
-        for client in &[&alix, &bo, &caro] {
-            client.sync_all_welcomes_and_groups(None).await?;
-        }
-
-        xmtp_common::time::sleep(Duration::from_millis(200)).await;
-
-        let log = writer.as_string();
-        let lines = log.split("\n").peekable();
-
-        let state = State::new(None);
-        let events = LogEvent::parse(lines);
-        state.add_source("anon", events);
-
-        let welcome_found = state.clients.lock().iter().any(|(_inst_id, c)| {
-            c.lock()
-                .events
-                .iter()
-                .any(|e| e.event == Event::ReceivedWelcome)
-        });
-        assert!(welcome_found);
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn test_log_parse() {
-        let line = r#"2026-02-12T21:04:02.542222Z  INFO sync_with_conn{self=Group { id: [0x52db...7067], created: [21:04:02], client: [dce8901bbeb060ab6eeb05fa52c27bd1232e9a68a2759cdab430d029854d225e], installation: [1919c3ba4b4ff946372cf004c718810bfb8747732397369c9ce67b40c0d8ca8e] } who=dce8901bbeb060ab6eeb05fa52c27bd1232e9a68a2759cdab430d029854d225e}:process_messages{who=dce8901bbeb060ab6eeb05fa52c27bd1232e9a68a2759cdab430d029854d225e}:process_message{trust_message_order=true envelope=GroupMessage { cursor [sid( 52773):oid(  0)], depends on                          , created at 21:04:02.492156, group 52dbb036fa67ad5b7c1f90f55f787067 }}: xmtp_mls::groups::mls_sync: ➣ Received staged commit. Merging and clearing any pending commits. {group_id: "52dbb036", sender_installation_id: "cbedac3e", msg_epoch: 1, epoch: 1, time: 1770930242542, inst: "1919c3ba"} inbox_id="dce8901bbeb060ab6eeb05fa52c27bd1232e9a68a2759cdab430d029854d225e" sender_inbox="46c640424325059475531d54205ac3f635d75125d79dd8cfe37e303bcbb24cdc" sender_installation_id=cbedac3e group_id=52dbb036 epoch=1 msg_epoch=1 msg_group_id=52dbb036 cursor=[sid( 52773):oid(  0)]"#;
-        let mut line = line.split('\n').peekable();
-
-        let mut line_count: usize = 0;
-        let event = LogEvent::from(&mut line, &mut line_count)?;
-        assert_eq!(event.event, Event::MLSReceivedStagedCommit);
-
-        let group_id = event.context("group_id");
-        assert!(group_id.is_some());
     }
 }

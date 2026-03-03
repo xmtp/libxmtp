@@ -1,10 +1,11 @@
 use crate::state::{GroupState, LogEvent};
-use parking_lot::{Mutex, MutexGuard};
+use parking_lot::Mutex;
 use std::sync::Arc;
 
 pub enum StateOrEvent {
     // States contain events
     State(Arc<Mutex<GroupState>>),
+    #[allow(unused)]
     Event(Arc<LogEvent>),
 }
 

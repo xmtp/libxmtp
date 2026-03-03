@@ -4,6 +4,7 @@ import {
     HorizontalBox,
     ScrollView,
     TabWidget,
+    CheckBox,
 } from "std-widgets.slint";
 
 import {
@@ -182,6 +183,7 @@ export component AppWindow inherits Window {
     in-out property <int> events-total-pages: 1;
     in-out property <int> groups-page: 0;
     in-out property <int> groups-total-pages: 1;
+    in-out property <bool> show-errors-only: false;
 
     // Selected state detail (set by Rust when state-clicked callback fires)
     in-out property <UIGroupStateDetail> selected-state-detail;
@@ -200,6 +202,7 @@ export component AppWindow inherits Window {
     callback remove-source(/* source-name */ string);
     callback events-page-changed(/* page */ int);
     callback groups-page-changed(/* page */ int);
+    callback show-errors-only-changed(/* checked */ bool);
 
     MenuBar {
         Menu {
@@ -444,8 +447,8 @@ export component AppWindow inherits Window {
             padding: 0px;
             spacing: 0px;
 
-            // Pagination controls for Groups (Epochs tab)
-            if root.groups-total-pages > 1: Rectangle {
+            // Filter and pagination controls for Groups (Epochs tab)
+            Rectangle {
                 height: 40px;
                 background: #f0f0f0;
 
@@ -453,61 +456,80 @@ export component AppWindow inherits Window {
                     padding-left: 12px;
                     padding-right: 12px;
                     spacing: 8px;
-                    alignment: center;
+                    alignment: start;
+
+                    // Show errors only checkbox
+                    CheckBox {
+                        text: "Groups with errors only";
+                        checked: root.show-errors-only;
+                        toggled => {
+                            root.show-errors-only = self.checked;
+                            root.show-errors-only-changed(self.checked);
+                        }
+                    }
 
                     Rectangle {
-                        width: prev-groups-text.preferred-width + 20px;
-                        height: 28px;
-                        background: root.groups-page > 0 ? (prev-groups-touch.has-hover ? #4a72c4 : #5a82d4) : #cccccc;
-                        border-radius: 4px;
+                        horizontal-stretch: 1;
+                    }
 
-                        prev-groups-text := Text {
-                            text: "← Prev";
-                            font-size: 12px;
-                            font-weight: 600;
-                            color: #ffffff;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
+                    // Pagination controls (only show if more than 1 page)
+                    if root.groups-total-pages > 1: HorizontalLayout {
+                        spacing: 8px;
 
-                        prev-groups-touch := TouchArea {
-                            mouse-cursor: root.groups-page > 0 ? pointer : default;
-                            clicked => {
-                                if root.groups-page > 0 {
-                                    root.groups-page-changed(root.groups-page - 1);
+                        Rectangle {
+                            width: prev-groups-text.preferred-width + 20px;
+                            height: 28px;
+                            background: root.groups-page > 0 ? (prev-groups-touch.has-hover ? #4a72c4 : #5a82d4) : #cccccc;
+                            border-radius: 4px;
+
+                            prev-groups-text := Text {
+                                text: "← Prev";
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: #ffffff;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            prev-groups-touch := TouchArea {
+                                mouse-cursor: root.groups-page > 0 ? pointer : default;
+                                clicked => {
+                                    if root.groups-page > 0 {
+                                        root.groups-page-changed(root.groups-page - 1);
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    Text {
-                        text: "Page " + (root.groups-page + 1) + " of " + root.groups-total-pages;
-                        font-size: 12px;
-                        font-weight: 500;
-                        color: #555555;
-                        vertical-alignment: center;
-                    }
-
-                    Rectangle {
-                        width: next-groups-text.preferred-width + 20px;
-                        height: 28px;
-                        background: root.groups-page < root.groups-total-pages - 1 ? (next-groups-touch.has-hover ? #4a72c4 : #5a82d4) : #cccccc;
-                        border-radius: 4px;
-
-                        next-groups-text := Text {
-                            text: "Next →";
+                        Text {
+                            text: "Page " + (root.groups-page + 1) + " of " + root.groups-total-pages;
                             font-size: 12px;
-                            font-weight: 600;
-                            color: #ffffff;
-                            horizontal-alignment: center;
+                            font-weight: 500;
+                            color: #555555;
                             vertical-alignment: center;
                         }
 
-                        next-groups-touch := TouchArea {
-                            mouse-cursor: root.groups-page < root.groups-total-pages - 1 ? pointer : default;
-                            clicked => {
-                                if root.groups-page < root.groups-total-pages - 1 {
-                                    root.groups-page-changed(root.groups-page + 1);
+                        Rectangle {
+                            width: next-groups-text.preferred-width + 20px;
+                            height: 28px;
+                            background: root.groups-page < root.groups-total-pages - 1 ? (next-groups-touch.has-hover ? #4a72c4 : #5a82d4) : #cccccc;
+                            border-radius: 4px;
+
+                            next-groups-text := Text {
+                                text: "Next →";
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: #ffffff;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            next-groups-touch := TouchArea {
+                                mouse-cursor: root.groups-page < root.groups-total-pages - 1 ? pointer : default;
+                                clicked => {
+                                    if root.groups-page < root.groups-total-pages - 1 {
+                                        root.groups-page-changed(root.groups-page + 1);
+                                    }
                                 }
                             }
                         }
