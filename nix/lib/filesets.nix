@@ -4,8 +4,17 @@
 }:
 let
   inherit (xmtp.craneLib.fileset) commonCargoSources;
+  inherit (lib.fileset) unions;
+  inherit (lib.lists) flatten;
   src = ./../..;
-
+  # List directores in a folder and apply `commonCargoSources`
+  crateSources =
+    cratesDir:
+    let
+      entries = builtins.readDir cratesDir;
+      crateDirs = builtins.filter (name: entries.${name} == "directory") (builtins.attrNames entries);
+    in
+    map (name: commonCargoSources (cratesDir + "/${name}")) crateDirs;
   # Narrow fileset for buildDepsOnly — only includes files that affect
   # dependency compilation. Cargo.toml/Cargo.lock for resolution, build.rs
   # for build scripts, plus files referenced by build scripts.
@@ -13,7 +22,7 @@ let
   # them with dummies anyway.
   #
   # Used by both iOS and Android package derivations for consistent caching.
-  depsOnly = lib.fileset.unions [
+  depsOnly = unions [
     (src + /Cargo.lock)
     (src + /.cargo/config.toml)
     # All Cargo.toml and build.rs files in the workspace
@@ -26,18 +35,13 @@ let
     (src + /crates/xmtp_db/migrations)
     (src + /crates/xmtp_proto/src/gen/proto_descriptor.bin)
   ];
-  libraries = lib.fileset.unions [
+  libraries = unions (flatten [
     (src + /Cargo.toml)
     (src + /Cargo.lock)
-    # Workspace member Cargo.toml files for resolution (bindings + apps)
-    (lib.fileset.fileFilter (file: file.name == "Cargo.toml") (src + /bindings))
-    (lib.fileset.fileFilter (file: file.name == "Cargo.toml") (src + /apps))
-    # Rust sources for binding/app crates (filtered — no TS/Swift/Kotlin/JSON)
-    (commonCargoSources (src + /bindings/node))
-    (commonCargoSources (src + /bindings/wasm))
-    (commonCargoSources (src + /bindings/mobile))
-    (commonCargoSources (src + /apps/cli))
-    (commonCargoSources (src + /apps/mls_validation_service))
+    # include folders for apps/bindings so cargo workspace globs are satisfied
+    (src + /bindings)
+    (src + /apps)
+    # One-off files that are needed outside of cargo sources
     (src + /crates/xmtp_id/src/scw_verifier/chain_urls_default.json)
     (src + /crates/xmtp_id/artifact)
     (src + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
@@ -46,41 +50,27 @@ let
     (src + /webdriver.json)
     (src + /.cargo/config.toml)
     (src + /.config/nextest.toml)
-    (commonCargoSources (src + /crates/xmtp_api_grpc))
-    (commonCargoSources (src + /crates/xmtp_cryptography))
-    (commonCargoSources (src + /crates/xmtp_id))
-    (commonCargoSources (src + /crates/xmtp_mls))
-    (commonCargoSources (src + /crates/xmtp_api))
-    (commonCargoSources (src + /crates/xmtp_api_d14n))
-    (commonCargoSources (src + /crates/xmtp_proto))
-    (commonCargoSources (src + /crates/xmtp_common))
-    (commonCargoSources (src + /crates/xmtp_content_types))
-    (commonCargoSources (src + /crates/xmtp_configuration))
-    (commonCargoSources (src + /crates/xmtp_macro))
-    (commonCargoSources (src + /crates/xmtp_db))
-    (commonCargoSources (src + /crates/xmtp_db_test))
-    (commonCargoSources (src + /crates/xmtp_archive))
-    (commonCargoSources (src + /crates/xmtp_mls_common))
-    (commonCargoSources (src + /crates/wasm_macros))
-    (commonCargoSources (src + /crates/xmtp-workspace-hack))
-  ];
-  binaries = lib.fileset.unions [
+    # all crates in `crates/` are treated as required library crates
+    (crateSources (src + /crates))
+  ]);
+  binaries = unions (flatten [
     (src + /bindings/mobile/Makefile)
-    (commonCargoSources (src + /apps/cli))
-    (commonCargoSources (src + /apps/mls_validation_service))
     (commonCargoSources (src + /apps/android/xmtpv3_example))
-    (commonCargoSources (src + /bindings/node))
-    (commonCargoSources (src + /bindings/wasm))
-    (commonCargoSources (src + /bindings/mobile))
-    (commonCargoSources (src + /crates/xmtp_debug))
-    (commonCargoSources (src + /crates/db_tools))
-  ];
+    (crateSources (src + /bindings))
+    (crateSources (src + /apps))
+
+  ]);
   forCrate =
     crate:
-    lib.fileset.unions [
-      libraries
-      crate
-    ];
+    let
+      crates = if (builtins.isList crate) then crate else [ crate ];
+    in
+    lib.fileset.unions (
+      [
+        libraries
+      ]
+      ++ crates
+    );
   workspace = lib.fileset.unions [
     binaries
     libraries
