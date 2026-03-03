@@ -23,8 +23,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     content_types::{
-        DeleteMessage, LeaveRequest, MultiRemoteAttachment, ReactionAction, ReactionSchema,
-        ReactionV2,
+        DeleteMessage, EditMessage, LeaveRequest, MultiRemoteAttachment, ReactionAction,
+        ReactionSchema, ReactionV2,
     },
     group_updated::Inbox,
 };
@@ -285,6 +285,12 @@ pub struct FfiLeaveRequest {
 pub struct FfiDeleteMessage {
     /// The ID of the message to delete
     pub message_id: String,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiEditMessage {
+    pub message_id: String,
+    pub edited_content: Option<FfiEncodedContent>,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -723,6 +729,24 @@ impl From<FfiDeleteMessage> for DeleteMessage {
     fn from(value: FfiDeleteMessage) -> Self {
         DeleteMessage {
             message_id: value.message_id,
+        }
+    }
+}
+
+impl From<EditMessage> for FfiEditMessage {
+    fn from(value: EditMessage) -> Self {
+        FfiEditMessage {
+            message_id: value.message_id,
+            edited_content: value.edited_content.map(Into::into),
+        }
+    }
+}
+
+impl From<FfiEditMessage> for EditMessage {
+    fn from(value: FfiEditMessage) -> Self {
+        EditMessage {
+            message_id: value.message_id,
+            edited_content: value.edited_content.map(Into::into),
         }
     }
 }

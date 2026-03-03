@@ -20,6 +20,7 @@ use xmtp_content_types::actions::{Actions, ActionsCodec};
 use xmtp_content_types::attachment::Attachment;
 use xmtp_content_types::attachment::AttachmentCodec;
 use xmtp_content_types::delete_message::DeleteMessageCodec;
+use xmtp_content_types::edit_message::EditMessageCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_content_types::intent::{Intent, IntentCodec};
 use xmtp_content_types::leave_request::LeaveRequestCodec;
@@ -97,13 +98,14 @@ use xmtp_proto::types::Cursor;
 use xmtp_proto::types::{ApiIdentifier, GroupMessageMetadata};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
+use xmtp_proto::xmtp::mls::message_contents::content_types::EditMessage;
 use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
 use xmtp_proto::xmtp::mls::message_contents::content_types::{MultiRemoteAttachment, ReactionV2};
 
 // Re-export types from message module that are used in public APIs
 pub use crate::message::{
-    FfiAttachment, FfiDeleteMessage, FfiLeaveRequest, FfiMultiRemoteAttachment, FfiReadReceipt,
-    FfiRemoteAttachment, FfiTransactionReference,
+    FfiAttachment, FfiDeleteMessage, FfiEditMessage, FfiLeaveRequest, FfiMultiRemoteAttachment,
+    FfiReadReceipt, FfiRemoteAttachment, FfiTransactionReference,
 };
 
 pub mod device_sync;
@@ -3154,7 +3156,6 @@ pub fn decode_leave_request(bytes: Vec<u8>) -> Result<FfiLeaveRequest, FfiError>
         .map_err(|e| FfiError::generic(e.to_string()))
 }
 
-// DeleteMessage FFI encode function
 #[uniffi::export]
 pub fn encode_delete_message(request: FfiDeleteMessage) -> Result<Vec<u8>, FfiError> {
     let delete_message: DeleteMessage = request.into();
@@ -3170,13 +3171,37 @@ pub fn encode_delete_message(request: FfiDeleteMessage) -> Result<Vec<u8>, FfiEr
     Ok(buf)
 }
 
-// DeleteMessage FFI decode function
 #[uniffi::export]
 pub fn decode_delete_message(bytes: Vec<u8>) -> Result<FfiDeleteMessage, FfiError> {
     let encoded_content =
         EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
 
     DeleteMessageCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| FfiError::generic(e.to_string()))
+}
+
+#[uniffi::export]
+pub fn encode_edit_message(request: FfiEditMessage) -> Result<Vec<u8>, FfiError> {
+    let edit_message: EditMessage = request.into();
+
+    let encoded =
+        EditMessageCodec::encode(edit_message).map_err(|e| FfiError::generic(e.to_string()))?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| FfiError::generic(e.to_string()))?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_edit_message(bytes: Vec<u8>) -> Result<FfiEditMessage, FfiError> {
+    let encoded_content =
+        EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
+
+    EditMessageCodec::decode(encoded_content)
         .map(Into::into)
         .map_err(|e| FfiError::generic(e.to_string()))
 }

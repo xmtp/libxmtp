@@ -13,6 +13,7 @@ import {
   Conversation,
   ConversationType,
   DecodedMessage,
+  encodeText,
   GroupPermissionsOptions,
   IdentifierKind,
   Message,
@@ -1034,6 +1035,52 @@ describe('Conversations', () => {
     expect(messages4[0].content.type).toEqual(contentTypeGroupUpdated())
     expect(messages4[1].content.type).toEqual(contentTypeGroupUpdated())
     expect(messages4[2].content.type).toEqual(contentTypeText())
+  })
+
+  it('should stream edited messages', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+
+    // Create a group
+    const group = await client1.conversations().createGroupByIdentity([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
+
+    // Send a message
+    const messageId = await group.sendText('Hello, world!')
+
+    // Set up the edit stream
+    const editedMessages: DecodedMessage[] = []
+    const stream = await client1
+      .conversations()
+      .streamMessageEdits((err, message) => {
+        if (message) {
+          editedMessages.push(message)
+        }
+      })
+
+    // Wait for stream to be ready
+    await sleep(500)
+
+    // Edit the message
+    const newContent = encodeText('Hello, edited world!')
+    const editId = group.editMessage(messageId, newContent)
+    expect(editId).toBeTruthy()
+
+    // Wait for stream to receive the edited message
+    await sleep(1000)
+
+    // Verify the stream received the edited message
+    expect(editedMessages.length).toBe(1)
+    expect(editedMessages[0].senderInboxId).toBe(client1.inboxId())
+    expect(editedMessages[0].conversationId).toBe(group.id())
+
+    stream.end()
   })
 
   it('should stream deleted messages', async () => {
