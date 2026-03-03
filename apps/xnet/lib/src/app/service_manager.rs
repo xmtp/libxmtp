@@ -370,16 +370,33 @@ async fn start_d14n(
         .build()?;
     gateway.start(proxy).await?;
 
-    // Pause broadcaster contracts only on fresh network creation so migrator nodes
-    // can publish identity updates without hitting NotPaused() reverts.
+    // On fresh network creation: pause broadcaster contracts and set the payload
+    // bootstrapper so migrator nodes can publish identity updates.
     if anvil_is_new {
         let anvil_rpc_str = anvil_rpc.as_str();
-        crate::contracts::set_broadcasters_paused(
-            anvil_rpc_str,
-            AnvilConst::ADMIN_KEY,
-            true,
-        )
-        .await?;
+        crate::contracts::set_broadcasters_paused(anvil_rpc_str, AnvilConst::ADMIN_KEY, true)
+            .await?;
+
+        // Find the first migrator node's migration payer address to set as bootstrapper
+        let config = Config::load()?;
+        let mut node_id = 0u32;
+        for node_toml in &config.xmtpd_nodes {
+            node_id += XmtpdConst::NODE_ID_INCREMENT;
+            if node_toml.migrator && node_toml.enable {
+                let num_ids = node_id / XmtpdConst::NODE_ID_INCREMENT;
+                let base_idx = num_ids as usize * 3 + 1;
+                let migration_payer = &config.signers[base_idx + 2];
+                let bootstrapper_addr = migration_payer.address();
+                info!("Setting payload bootstrapper to migrator node migration payer: {}", bootstrapper_addr);
+                crate::contracts::set_payload_bootstrapper(
+                    anvil_rpc_str,
+                    AnvilConst::ADMIN_KEY,
+                    bootstrapper_addr,
+                )
+                .await?;
+                break;
+            }
+        }
     }
 
     let anvil_external_rpc = anvil.external_rpc_url().unwrap_or_else(|| anvil.rpc_url());

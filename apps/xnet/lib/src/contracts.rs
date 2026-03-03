@@ -4,7 +4,7 @@
 //! via alloy, avoiding the xmtpd-cli Docker container overhead.
 
 use alloy::{
-    primitives::{Address, FixedBytes},
+    primitives::{Address, B256},
     providers::ProviderBuilder,
     signers::local::PrivateKeySigner,
     sol,
@@ -25,6 +25,8 @@ sol! {
     interface IBroadcaster {
         function paused() external view returns (bool);
         function updatePauseStatus() external;
+        function updatePayloadBootstrapper() external;
+        function payloadBootstrapper() external view returns (address);
     }
 }
 
@@ -47,14 +49,19 @@ const BROADCASTER_TARGETS: &[(&str, &str, &str)] = &[
     ),
 ];
 
-/// Encode a bool as a `bytes32` value (matching Go's `packBool`).
-fn encode_bool(value: bool) -> FixedBytes<32> {
-    let mut bytes = [0u8; 32];
-    if value {
-        bytes[31] = 1;
-    }
-    FixedBytes::from(bytes)
-}
+/// Bootstrapper targets: (name, registry_key, broadcaster_address).
+const BOOTSTRAPPER_TARGETS: &[(&str, &str, &str)] = &[
+    (
+        "identity",
+        "xmtp.identityUpdateBroadcaster.payloadBootstrapper",
+        AnvilConst::IDENTITY_BROADCASTER,
+    ),
+    (
+        "group",
+        "xmtp.groupMessageBroadcaster.payloadBootstrapper",
+        AnvilConst::GROUP_BROADCASTER,
+    ),
+];
 
 /// Set the pause state of all broadcaster contracts.
 ///
@@ -80,7 +87,11 @@ pub async fn set_broadcasters_paused(
         .wrap_err("Failed to parse parameter registry address")?;
     let registry = IParameterRegistry::new(registry_addr, &provider);
 
-    let value = encode_bool(paused);
+    let value = if paused {
+        B256::left_padding_from(&[1u8])
+    } else {
+        B256::ZERO
+    };
 
     // Set pause flag in the parameter registry for each broadcaster
     for &(name, key, _) in BROADCASTER_TARGETS {
@@ -127,6 +138,92 @@ pub async fn set_broadcasters_paused(
             ));
         }
         info!("{} broadcaster verified: paused={}", name, actual);
+    }
+
+    Ok(())
+}
+
+/// Set the payload bootstrapper address on the identity and group broadcaster contracts.
+///
+/// The payload bootstrapper is the address authorized to call `bootstrapIdentityUpdates()`
+/// and `bootstrapGroupMessages()` during migration. This must be the migration payer's address.
+pub async fn set_payload_bootstrapper(
+    rpc_url: &str,
+    admin_key: &str,
+    bootstrapper: Address,
+) -> Result<()> {
+    info!(
+        "Setting payload bootstrapper to {} on broadcaster contracts",
+        bootstrapper
+    );
+
+    let rpc: Url = rpc_url.parse().wrap_err("Failed to parse RPC URL")?;
+    let signer: PrivateKeySigner = admin_key.parse().wrap_err("Failed to parse admin key")?;
+    let provider = ProviderBuilder::new()
+        .wallet(signer)
+        .connect_http(rpc);
+
+    let registry_addr: Address = AnvilConst::PARAMETER_REGISTRY
+        .parse()
+        .wrap_err("Failed to parse parameter registry address")?;
+    let registry = IParameterRegistry::new(registry_addr, &provider);
+
+    let value = bootstrapper.into_word();
+
+    for &(name, key, _) in BOOTSTRAPPER_TARGETS {
+        info!("Setting {} payloadBootstrapper in registry", name);
+        registry
+            .set(key.to_string(), value)
+            .send()
+            .await
+            .wrap_err_with(|| format!("Failed to send set() for {} bootstrapper", name))?
+            .get_receipt()
+            .await
+            .wrap_err_with(|| format!("Failed to confirm set() for {} bootstrapper", name))?;
+    }
+
+    // Call updatePayloadBootstrapper() on each broadcaster to sync from registry
+    for &(name, _, addr_str) in BOOTSTRAPPER_TARGETS {
+        let addr: Address = addr_str
+            .parse()
+            .wrap_err_with(|| format!("Failed to parse {} address", name))?;
+        let broadcaster = IBroadcaster::new(addr, &provider);
+
+        info!("Calling updatePayloadBootstrapper() on {}", name);
+        broadcaster
+            .updatePayloadBootstrapper()
+            .send()
+            .await
+            .wrap_err_with(|| {
+                format!(
+                    "Failed to send updatePayloadBootstrapper() for {}",
+                    name
+                )
+            })?
+            .get_receipt()
+            .await
+            .wrap_err_with(|| {
+                format!(
+                    "Failed to confirm updatePayloadBootstrapper() for {}",
+                    name
+                )
+            })?;
+    }
+
+    // Verify
+    for &(name, _, addr_str) in BOOTSTRAPPER_TARGETS {
+        let addr: Address = addr_str.parse()?;
+        let broadcaster = IBroadcaster::new(addr, &provider);
+        let actual = broadcaster.payloadBootstrapper().call().await?;
+        if actual != bootstrapper {
+            return Err(eyre!(
+                "{} bootstrapper mismatch: expected={}, actual={}",
+                name,
+                bootstrapper,
+                actual
+            ));
+        }
+        info!("{} bootstrapper verified: {}", name, actual);
     }
 
     Ok(())
