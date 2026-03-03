@@ -19,8 +19,17 @@ runs:
         github_access_token: ${{ inputs.github-token }}
         extra_nix_config: |
           accept-flake-config = true
-          extra-substituters = https://cache.garnix.io
-          extra-trusted-public-keys = cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=
+    - name: Nix store cache (WarpBuild)
+      if: startsWith(runner.name, 'warp-')
+      uses: WarpBuilds/cache@v1
+      with:
+        path: |
+          /nix/store
+          /nix/var/nix/db
+          /nix/var/nix/profiles
+        key: nix-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock') }}
+        restore-keys: |
+          nix-store-${{ runner.os }}-${{ runner.arch }}-
     - uses: cachix/cachix-action@v16
       if: ${{ inputs.cachix-auth-token != '' }}
       with:
