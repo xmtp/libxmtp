@@ -68,7 +68,7 @@ data class EditMessageCodec(
                         }
                         putAllParameters(ffiContent.parameters)
                         ffiContent.fallback?.let { setFallback(it) }
-                        ffiContent.compression?.let { setCompression(Compression.forNumber(it)) }
+                        ffiContent.compression?.let { setCompression(Content.Compression.forNumber(it)) }
                         setContent(
                             com.google.protobuf.ByteString
                                 .copyFrom(ffiContent.content),

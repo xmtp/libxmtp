@@ -27,17 +27,17 @@ public struct EditMessageCodec: ContentCodec {
 	public func encode(content: EditMessageRequest) throws -> EncodedContent {
 		let ffiEditedContent: FfiEncodedContent? = try content.editedContent.map { encoded in
 			FfiEncodedContent(
-				typeId: encoded.type.map { type in
-					FfiContentTypeId(
-						authorityId: type.authorityID,
-						typeId: type.typeID,
-						versionMajor: UInt32(type.versionMajor),
-						versionMinor: UInt32(type.versionMinor)
+				typeId: encoded.hasType
+					? FfiContentTypeId(
+						authorityId: encoded.type.authorityID,
+						typeId: encoded.type.typeID,
+						versionMajor: UInt32(encoded.type.versionMajor),
+						versionMinor: UInt32(encoded.type.versionMinor)
 					)
-				},
+					: nil,
 				parameters: encoded.parameters,
-				fallback: encoded.fallback,
-				compression: encoded.compression.map { Int32($0) },
+				fallback: encoded.hasFallback ? encoded.fallback : nil,
+				compression: encoded.hasCompression ? Int32(encoded.compression.rawValue) : nil,
 				content: encoded.content
 			)
 		}
