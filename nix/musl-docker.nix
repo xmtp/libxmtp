@@ -52,23 +52,18 @@ _: {
     in
     {
       packages = {
-        validation-service-image =
-          let
-            # On Linux, use the native binary (fastest — no cross-compilation).
-            # On macOS, cross-compile to x86_64-linux-musl for Docker.
-            binary =
-              if pkgs.stdenv.isLinux then
-                self'.packages.mls_validation_service
-              else
-                config.rust-project.crates.mls_validation_service.crane.outputs.drv.crate.overrideAttrs (
-                  old: old // (env-musl old)
-                );
-          in
-          pkgs.dockerTools.buildLayeredImage (
-            lib.recursiveUpdate imageCommon {
-              config.entrypoint = [ "${binary}/bin/mls-validation-service" ];
-            }
-          );
+        mls-validation-service-musl64 =
+          config.rust-project.crates.mls_validation_service.crane.outputs.drv.crate.overrideAttrs
+            (old: old // (env-musl old));
+        # lib.recursiveUpdate lets imageCommon define other attributes in the `config` namesapce
+        validation-service-image = pkgs.dockerTools.buildLayeredImage (
+          lib.recursiveUpdate imageCommon {
+            config.entrypoint = [
+              "${self'.packages.mls-validation-service-musl64}/bin/mls-validation-service"
+            ];
+            architecture = "amd64";
+          }
+        );
       }
       // lib.optionalAttrs (pkgs.stdenv.system == "aarch64-linux") {
         mls-validation-service-aarch64-multiplatform =
@@ -78,19 +73,6 @@ _: {
           lib.recursiveUpdate imageCommon {
             config.entrypoint = [
               "${self'.packages.mls-validation-service-aarch64-multiplatform}/bin/mls-validation-service"
-            ];
-          }
-        );
-      }
-      // lib.optionalAttrs (pkgs.stdenv.system == "x86_64-linux") {
-        mls-validation-service-musl64 =
-          config.rust-project.crates.mls_validation_service.crane.outputs.drv.crate.overrideAttrs
-            (old: old // (env-musl old));
-        # lib.recursiveUpdate lets imageCommon define other attributes in the `config` namesapce
-        validation-service-image-musl64 = pkgs.dockerTools.buildLayeredImage (
-          lib.recursiveUpdate imageCommon {
-            config.entrypoint = [
-              "${self'.packages.mls-validation-service-musl64}/bin/mls-validation-service"
             ];
           }
         );

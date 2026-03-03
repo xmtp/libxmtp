@@ -115,9 +115,20 @@ if_native! {
 /// GRPC URLS corresponding to production environments
 pub struct GrpcUrlsProduction;
 impl GrpcUrlsProduction {
-    pub const NODE: &'static str = "https://grpc.production.xmtp.network:443";
     pub const XMTPD: &'static str = "https://grpc.testnet.xmtp.network:443";
     pub const GATEWAY: &'static str = "https://payer.testnet.xmtp.network:443";
+}
+
+if_wasm! {
+    impl GrpcUrlsProduction {
+        pub const NODE: &'static str = "https://api.production.xmtp.network:5558";
+    }
+}
+
+if_native! {
+    impl GrpcUrlsProduction {
+        pub const NODE: &'static str = "https://grpc.production.xmtp.network:443";
+    }
 }
 
 // URLs connected to toxiproxy

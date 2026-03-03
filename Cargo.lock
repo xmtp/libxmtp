@@ -1831,6 +1831,7 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
+ "xmtp_macro",
  "xmtp_mls",
  "xmtp_proto",
 ]
@@ -1873,6 +1874,7 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
+ "xmtp_macro",
  "xmtp_mls",
  "xmtp_proto",
 ]
@@ -3403,12 +3405,6 @@ checksum = "ab8ecd87370524b461f8557c119c405552c396ed91fc0a8eec68679eab26f94a"
 dependencies = [
  "libloading 0.8.9",
 ]
-
-[[package]]
-name = "dotenvy"
-version = "0.15.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "downcast"
@@ -13832,25 +13828,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
-name = "xmtp-db-tools"
-version = "1.9.0"
-dependencies = [
- "anyhow",
- "clap",
- "const-hex",
- "diesel",
- "diesel_migrations",
- "dotenvy",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "xmtp-workspace-hack",
- "xmtp_common",
- "xmtp_db",
- "xmtp_mls",
-]
-
-[[package]]
 name = "xmtp-workspace-hack"
 version = "0.1.0"
 dependencies = [
@@ -14510,6 +14487,7 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
+ "xmtp_macro",
  "xmtp_mls",
  "xmtp_proto",
 ]
