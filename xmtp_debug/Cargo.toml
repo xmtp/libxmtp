@@ -34,7 +34,9 @@ num_cpus = "1.16.0"
 openmls.workspace = true
 openmls_rust_crypto.workspace = true
 owo-colors.workspace = true
+prometheus = "0.14.0"
 prost.workspace = true
+reqwest.workspace = true
 rand = { workspace = true, features = ["small_rng"] }
 redb = { version = "3.1", features = ["logging"] }
 serde = { workspace = true, features = ["derive"] }

@@ -20,8 +20,12 @@ mod send;
 mod store;
 /// Message/Conversation Streaming
 mod stream;
+/// Test scenarios
+mod test;
 /// Types shared between App Functions
 mod types;
+/// Per-identity async locks
+pub mod identity_lock;
 
 use clap::CommandFactory;
 use color_eyre::eyre::{self, Result};
@@ -87,8 +91,17 @@ impl App {
         Ok(Arc::new(redb::Database::create(Self::redb()?)?))
     }
 
-    /// All data stored here
+    /// All data stored here.
+    ///
+    /// When `XDBG_DB_ROOT` is set the database lives under that directory instead of
+    /// the XDG data dir.  This is used by `concurrent-runner.sh` to give each
+    /// long-running daemon an isolated storage root so they don't share the redb file.
     fn data_directory() -> Result<PathBuf> {
+        if let Ok(root) = std::env::var("XDBG_DB_ROOT") {
+            let path = PathBuf::from(root);
+            debug!(path = %path.display(), "using XDBG_DB_ROOT override");
+            return Ok(path);
+        }
         let data = if let Some(dir) = ProjectDirs::from("org", "xmtp", "xdbg") {
             Ok::<_, eyre::Report>(dir.data_dir().to_path_buf())
         } else {
@@ -138,6 +151,7 @@ impl App {
                 Export(e) => export::Export::new(e, backend)?.run(),
                 Modify(m) => modify::Modify::new(m, backend)?.run().await,
                 Stream(s) => stream::Stream::new(s, backend)?.run().await,
+                Test(t) => test::Test::new(t, backend).run().await,
             }?;
         }
 

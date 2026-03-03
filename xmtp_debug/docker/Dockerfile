@@ -1,0 +1,37 @@
+FROM rust:1-bookworm AS builder
+WORKDIR /src
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY . .
+
+ARG FORCE_REBUILD=0
+RUN echo "FORCE_REBUILD=$FORCE_REBUILD"
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    cargo build --release --package xdbg
+
+FROM debian:trixie-slim
+
+WORKDIR /work
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tini bash ca-certificates procps libssl3 curl \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /src/target/release/xdbg /usr/local/bin/xdbg
+COPY xmtp_debug/newrunner.sh /usr/local/bin/newrunner.sh
+COPY xmtp_debug/concurrent-runner.sh /usr/local/bin/concurrent-runner.sh
+COPY xmtp_debug/web_healthcheck.sh /usr/local/bin/web_healthcheck.sh
+RUN chmod +x /usr/local/bin/xdbg \
+             /usr/local/bin/newrunner.sh \
+             /usr/local/bin/concurrent-runner.sh \
+             /usr/local/bin/web_healthcheck.sh
+
+# Liveness: confirm xdbg is still running (newrunner.sh loops it continuously)
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
+  CMD pgrep -x xdbg || exit 1
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/newrunner.sh"]

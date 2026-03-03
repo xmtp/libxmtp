@@ -328,7 +328,7 @@ where
             let mut table = w.open_table(Self::table())?;
             let mut total = 0;
             table.retain(|k: NetworkKey<N>, _| {
-                if !k.network == network {
+                if k.network == network {
                     total += 1;
                     return false;
                 }
@@ -421,19 +421,29 @@ where
         // items aren't loaded into memory until `value()` is called on `AccessGuard`.
         let mut random = Vec::with_capacity(n);
         let uninit = random.spare_capacity_mut();
+        let mut written = 0usize;
         for chunk in uninit.chunks_mut(len) {
+            // choose_multiple returns exactly min(chunk.len(), items.count()) items.
+            // Each chunk is at most `len` elements and the store has `len` items,
+            // so every slot in the chunk is guaranteed to be written.
             items
                 .choose_multiple(rng, chunk.len())
                 .into_iter()
                 .enumerate()
                 .for_each(|(idx, i)| {
                     chunk[idx].write(i);
+                    written += 1;
                 });
             items = self
                 .load(network)?
                 .ok_or(eyre!("no items found, try generating some"))?;
         }
-        // safe because we ensure that every item is set/written to.
+        // Safety: every slot [0..n] has been initialised in the loop above.
+        // Invariant: chunks_mut covers all n slots; each chunk of k elements
+        // receives exactly k items from choose_multiple because the store
+        // always has `len >= k` items (len was counted from the same store
+        // before the loop and the store is not modified during iteration).
+        debug_assert_eq!(written, n, "random_n: not all slots were initialised");
         unsafe {
             random.set_len(n);
         }

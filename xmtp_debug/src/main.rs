@@ -2,6 +2,7 @@ mod app;
 mod args;
 mod constants;
 mod logger;
+mod metrics;
 
 use clap::Parser;
 use color_eyre::eyre::Result;
@@ -22,6 +23,7 @@ extern crate tracing;
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
+    metrics::init_metrics();
 
     let opts = args::AppOpts::parse();
     let mut logger = logger::Logger::from(&opts.log);
