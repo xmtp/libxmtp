@@ -98,6 +98,10 @@ jobs:
 
   release-notes:
     needs: create-branch
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
     uses: ./.github/workflows/release-notes.yml
     with:
       release-branch: release/${{ inputs.version }}
