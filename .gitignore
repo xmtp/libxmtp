@@ -189,4 +189,6 @@ om.json
 /.build
 /.swiftpm
 **/.direnv/**
-.netlify/
+
+# Superpowers
+docs/plans

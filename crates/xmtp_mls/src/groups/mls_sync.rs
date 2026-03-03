@@ -1208,6 +1208,7 @@ where
                     msg_epoch,
                     msg_group_id,
                     cursor = %cursor,
+                    hash = #message_envelope.payload_hash
                 );
 
                 identifier.group_context(staged_commit.group_context().clone());
@@ -2433,7 +2434,12 @@ where
                         }
 
                         if has_staged_commit {
-                            log_event!(Event::GroupSyncStagedCommitPresent, self.context.installation_id(), group_id = intent.group_id);
+                            log_event!(
+                                Event::GroupSyncStagedCommitPresent,
+                                self.context.installation_id(),
+                                group_id = intent.group_id,
+                                hash = #intent_hash
+                            );
                             return Ok(());
                         }
                     }
