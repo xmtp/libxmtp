@@ -58,7 +58,7 @@ impl Value {
     pub fn from(pair: Pair<'_, Rule>) -> Result<Self> {
         let pair_str = pair.as_str();
         let val = match pair.as_rule() {
-            Rule::quoted_string => Self::String(pair_str.replace("\"", "").to_string()),
+            Rule::quoted_string => Self::String(pair_str[1..pair_str.len() - 1].to_string()),
             Rule::number => Self::Int(pair_str.parse()?),
             Rule::array | Rule::braced_array => {
                 let mut array = Vec::new();
