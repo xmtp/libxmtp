@@ -3,7 +3,7 @@ use crate::client::gateway_auth::{AuthCallback, AuthHandle};
 use crate::client::options::XmtpEnv;
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use xmtp_api_d14n::{ClientBundleBuilder, validate_and_resolve};
 
 #[xmtp_macro::napi_builder]
@@ -20,35 +20,53 @@ pub struct BackendBuilder {
   pub app_version: Option<String>,
 
   #[builder(skip)]
-  auth_callback: Option<AuthCallback>,
+  auth_callback: Mutex<Option<AuthCallback>>,
 
   #[builder(skip)]
-  auth_handle: Option<AuthHandle>,
+  auth_handle: Mutex<Option<AuthHandle>>,
 
   #[builder(skip)]
-  consumed: bool,
+  consumed: Mutex<bool>,
 }
 
 #[napi]
 impl BackendBuilder {
   #[napi]
   pub fn auth_callback(&mut self, callback: &AuthCallback) {
-    self.auth_callback = Some(callback.clone());
+    *self.auth_callback.lock().expect("lock poisoned") = Some(callback.clone());
   }
 
   #[napi(js_name = "authHandle")]
   pub fn auth_handle(&mut self, handle: &AuthHandle) {
-    self.auth_handle = Some(handle.clone());
+    *self.auth_handle.lock().expect("lock poisoned") = Some(handle.clone());
   }
 
   #[napi]
-  pub fn build(&mut self) -> Result<Backend> {
-    if self.consumed {
-      return Err(napi::Error::from_reason(
-        "BackendBuilder has already been consumed by build()",
-      ));
+  pub async fn build(&self) -> Result<Backend> {
+    {
+      let mut consumed = self
+        .consumed
+        .lock()
+        .map_err(|_| napi::Error::from_reason("BackendBuilder lock poisoned"))?;
+      if *consumed {
+        return Err(napi::Error::from_reason(
+          "BackendBuilder has already been consumed by build()",
+        ));
+      }
+      *consumed = true;
     }
-    self.consumed = true;
+
+    let has_auth = {
+      let cb = self
+        .auth_callback
+        .lock()
+        .map_err(|_| napi::Error::from_reason("BackendBuilder lock poisoned"))?;
+      let ah = self
+        .auth_handle
+        .lock()
+        .map_err(|_| napi::Error::from_reason("BackendBuilder lock poisoned"))?;
+      cb.is_some() || ah.is_some()
+    };
 
     let config = validate_and_resolve(
       self.env.into(),
@@ -56,9 +74,20 @@ impl BackendBuilder {
       self.gateway_host.clone(),
       self.readonly.unwrap_or(false),
       self.app_version.clone(),
-      self.auth_callback.is_some() || self.auth_handle.is_some(),
+      has_auth,
     )
     .map_err(ErrorWrapper::from)?;
+
+    let auth_callback = self
+      .auth_callback
+      .lock()
+      .map_err(|_| napi::Error::from_reason("BackendBuilder lock poisoned"))?
+      .take();
+    let auth_handle = self
+      .auth_handle
+      .lock()
+      .map_err(|_| napi::Error::from_reason("BackendBuilder lock poisoned"))?
+      .take();
 
     let app_version = config.app_version.clone();
     let mut builder = ClientBundleBuilder::default();
@@ -73,12 +102,9 @@ impl BackendBuilder {
       .readonly(config.readonly)
       .app_version(config.app_version)
       .maybe_auth_callback(
-        self
-          .auth_callback
-          .take()
-          .map(|c| Arc::new(c) as Arc<dyn xmtp_api_d14n::AuthCallback>),
+        auth_callback.map(|c| Arc::new(c) as Arc<dyn xmtp_api_d14n::AuthCallback>),
       )
-      .maybe_auth_handle(self.auth_handle.take().map(|h: AuthHandle| h.into()));
+      .maybe_auth_handle(auth_handle.map(|h: AuthHandle| h.into()));
 
     let bundle = builder.build().map_err(ErrorWrapper::from)?;
     Ok(Backend {
