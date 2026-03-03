@@ -1,8 +1,9 @@
 use crate::state::{GroupState, LogEvent};
-use parking_lot::Mutex;
+use parking_lot::{Mutex, MutexGuard};
 use std::sync::Arc;
 
 pub enum StateOrEvent {
+    // States contain events
     State(Arc<Mutex<GroupState>>),
     Event(Arc<LogEvent>),
 }
@@ -12,6 +13,13 @@ impl StateOrEvent {
         match self {
             Self::State(state) => state.lock().event.time(),
             Self::Event(event) => event.time(),
+        }
+    }
+
+    pub fn event<'a>(&'a self) -> Arc<LogEvent> {
+        match self {
+            Self::State(state) => state.lock().event.clone(),
+            Self::Event(event) => event.clone(),
         }
     }
 }

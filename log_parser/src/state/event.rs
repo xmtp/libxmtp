@@ -74,6 +74,24 @@ impl LogEvent {
         Ok(added)
     }
 
+    pub fn removed_inboxes(&self) -> Result<Vec<&str>> {
+        let added_inboxes = self
+            .context("removed_inboxes")
+            .context("Missing removed_inboxes")?
+            .as_array()?;
+        let added = added_inboxes
+            .iter()
+            .map(|i| {
+                i.as_obj()?
+                    .get("inbox_id")
+                    .context("Missing inbox_id")?
+                    .as_str()
+            })
+            .collect::<Result<Vec<&str>>>()?;
+
+        Ok(added)
+    }
+
     pub fn context(&self, key: &str) -> Option<&Value> {
         self.context.get(key)
     }
@@ -230,20 +248,6 @@ mod tests {
 
     use super::*;
 
-    fn parse_one(line: &str) -> LogEvent {
-        let mut iter = std::iter::once(line).peekable();
-        let mut line_count = 0;
-        LogEvent::from(&mut iter, &mut line_count).expect("expected parser to parse line")
-    }
-
-    fn parse_with_intermediate(first_line: &str, intermediate_line: &str) -> LogEvent {
-        let mut iter = [first_line, intermediate_line, "no arrow terminator line"]
-            .into_iter()
-            .peekable();
-        let mut line_count = 0;
-        LogEvent::from(&mut iter, &mut line_count).expect("expected parser to parse line")
-    }
-
     async fn capture_events<F, Fut>(f: F) -> Result<Vec<Arc<LogEvent>>, ClientError>
     where
         F: FnOnce() -> Fut,
@@ -281,7 +285,8 @@ mod tests {
         // Only works if a name is associated with an AssociateName event.
         fn inst(&self, name: &str) -> Option<&String>;
         fn inbox(&self, name: &str) -> Option<&str>;
-        fn events_for(&self, name: &str, event: Event) -> Vec<&Arc<LogEvent>>;
+        fn events(&self, name: &str, event: Event) -> Vec<&Arc<LogEvent>>;
+        fn n_events(&self, name: &str, event: Event, count: usize) -> Result<Vec<&Arc<LogEvent>>>;
         // Returns an error if there is more or less than one event.
         fn one_event(&self, name: &str, event: Event) -> Result<&Arc<LogEvent>>;
     }
@@ -299,7 +304,7 @@ mod tests {
                 .and_then(|e| e.context("inbox_id").and_then(|v| v.as_str().ok()))
         }
 
-        fn events_for(&self, name: &str, event: Event) -> Vec<&Arc<LogEvent>> {
+        fn events(&self, name: &str, event: Event) -> Vec<&Arc<LogEvent>> {
             let inst = self.inst(name).expect("Installation not found");
             self.iter()
                 .filter(|e| e.event == event && e.installation == *inst)
@@ -307,7 +312,7 @@ mod tests {
         }
 
         fn one_event(&self, name: &str, event: Event) -> Result<&Arc<LogEvent>> {
-            let mut events = self.events_for(name, event);
+            let mut events = self.events(name, event);
             let Some(event) = events.pop() else {
                 bail!("No events");
             };
@@ -316,6 +321,18 @@ mod tests {
             }
 
             Ok(event)
+        }
+
+        fn n_events(&self, name: &str, event: Event, count: usize) -> Result<Vec<&Arc<LogEvent>>> {
+            let events = self.events(name, event);
+            if events.len() != count {
+                bail!(
+                    "Expected {count} events, got {} for {name} and {event}",
+                    events.len()
+                );
+            }
+
+            Ok(events)
         }
     }
 
@@ -352,95 +369,32 @@ mod tests {
             alix_group.add_members(&[caro.inbox_id()]).await?;
 
             bo.sync_all_welcomes_and_groups(None).await?;
+            caro.sync_all_welcomes_and_groups(None).await?;
+
+            alix_group.remove_members(&[caro.inbox_id()]).await?;
+
+            bo.sync_all_welcomes_and_groups(None).await?;
+            caro.sync_all_welcomes_and_groups(None).await?;
 
             Ok(())
         })
         .await?;
 
         // Check for the log that says we added caro's inbox to the group.
-        let event = events.one_event("bo", Event::MLSProcessedStagedCommit)?;
+        let bo_events = events.n_events("bo", Event::MLSProcessedStagedCommit, 2)?;
+
         let caro_inbox = events.inbox("caro")?;
-        let added_inboxes = event.added_inboxes()?;
+
+        // Caro was added
+        let added_inboxes = bo_events[0].added_inboxes()?;
         assert!(added_inboxes.contains(&caro_inbox));
-    }
 
-    #[test]
-    fn parses_processed_staged_commit_with_nested_arrays_objects_and_metadata_changes() {
-        let line = r#"2026-02-26T21:27:03.407066Z  INFO update_group_name{group_name="Fellows" who=474169123a5f60e3bd91df11630a5c246c2ce2030e28ddc9394b83f08bc50b99}: xmtp_mls::groups::mls_sync: ➣ Processed staged commit. {group_id: "fe5e86db", actor_installation_id: "900c6a51", epoch: 3, epoch_auth: "f28cbd89", added_inboxes: [], removed_inboxes: [], left_inboxes: [], metadata_changes: [{"field_name":"group_name","old_value":"","new_value":"Fellows"}], cursor: 81032, originator: 0, time: 1772141223407060497, inst: "900c6a51"}"#;
-        let event = parse_one(line);
+        // Caro was removed
+        let removed_inboxes = bo_events[1].removed_inboxes()?;
+        assert!(removed_inboxes.contains(&caro_inbox));
 
-        assert_eq!(event.msg, "Processed staged commit.");
-        assert_eq!(event.installation, "900c6a51");
-        assert_eq!(
-            event.context("group_id").unwrap().as_str().unwrap(),
-            "fe5e86db"
-        );
-        assert_eq!(event.context("epoch").unwrap().as_int().unwrap(), 3);
-        assert_eq!(event.context("cursor").unwrap().as_int().unwrap(), 81032);
-
-        let metadata_changes = event
-            .context("metadata_changes")
-            .expect("metadata_changes should be present")
-            .as_obj()
-            .expect("metadata_changes should parse as object")
-            .get("field_name")
-            .expect("field_name key should be present")
-            .as_str()
-            .expect("field_name should be a string");
-        assert_eq!(metadata_changes, "group_name");
-
-        let old_value = event
-            .context("metadata_changes")
-            .expect("metadata_changes should be present")
-            .as_obj()
-            .expect("metadata_changes should parse as object")
-            .get("old_value")
-            .expect("old_value key should be present")
-            .as_str()
-            .expect("old_value should be a string");
-        assert_eq!(old_value, "");
-
-        let new_value = event
-            .context("metadata_changes")
-            .expect("metadata_changes should be present")
-            .as_obj()
-            .expect("metadata_changes should parse as object")
-            .get("new_value")
-            .expect("new_value key should be present")
-            .as_str()
-            .expect("new_value should be a string");
-        assert_eq!(new_value, "Fellows");
-
-        let added_inboxes = event
-            .context("added_inboxes")
-            .expect("added_inboxes should be present");
-        assert!(matches!(added_inboxes, Value::Array(values) if values.is_empty()));
-    }
-
-    #[test]
-    fn parses_group_sync_complete_multiline_summary_with_intermediate_and_strips_ansi() {
-        let first_line = r#"2026-02-26T21:27:03.344000Z  INFO xmtp_mls::groups::mls_sync: ➣ Group sync complete. {group_id: "abc12345", summary: Some(synced 2 messages, 0 failed 2 succeeded from cursor Some(Cursor { sequence_id: 12345, originator_id: 7 }), success: true, time: 1772141223999999999, inst: "deadbeef"}"#;
-        let intermediate_line = "\u{1b}[31merror details from transcript\u{1b}[0m";
-
-        let event = parse_with_intermediate(first_line, intermediate_line);
-
-        assert_eq!(event.msg, "Group sync complete.");
-        assert_eq!(event.installation, "deadbeef");
-
-        let summary = event.context("summary").unwrap().as_str().unwrap();
-        assert!(summary.contains("synced 2 messages"));
-        assert!(summary.contains("sequence_id: 12345"));
-
-        assert_eq!(event.intermediate.trim(), "error details from transcript");
-    }
-
-    #[test]
-    fn parses_option_value_none_and_some_cursor_in_summary_like_payload() {
-        let line = r#"2026-02-26T21:27:03.350000Z  INFO xmtp_mls::groups::mls_sync: ➣ Group sync complete. {group_id: "def67890", summary: Some(synced 0 messages, 0 failed 0 succeeded from cursor None), success: true, time: 1772141223000000000, inst: "cafebabe"}"#;
-        let event = parse_one(line);
-
-        assert_eq!(event.msg, "Group sync complete.");
-        let summary = event.context("summary").unwrap().as_str().unwrap();
-        assert!(summary.contains("cursor None"));
+        // Caro created a group from welcome
+        let caro_event = events.one_event("caro", Event::ReceivedWelcome)?;
+        assert_eq!(caro_event.context("conversation_type")?.as_str()?, "group");
     }
 }

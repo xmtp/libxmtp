@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+#![allow(unused)]
 
 use anyhow::{Result, bail};
 use pest::iterators::Pair;
+use std::collections::HashMap;
 
 use crate::Rule;
 
