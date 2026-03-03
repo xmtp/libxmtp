@@ -1,32 +1,25 @@
 use crate::ErrorWrapper;
+use crate::client::backend::Backend;
 use crate::identity::Identifier;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_d14n::{MessageBackendBuilder, TrackedStatsClient};
+use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_proto::types::ApiIdentifier;
 
 #[wasm_bindgen(js_name = getInboxIdForIdentifier)]
 pub async fn get_inbox_id_for_identifier(
-  #[wasm_bindgen(js_name = host)] v3_host: String,
-  #[wasm_bindgen(js_name = gatewayHost)] gateway_host: Option<String>,
-  #[wasm_bindgen(js_name = isSecure)] is_secure: bool,
+  backend: &Backend,
   #[wasm_bindgen(js_name = accountIdentifier)] account_identifier: Identifier,
 ) -> Result<Option<String>, JsError> {
-  let backend = MessageBackendBuilder::default()
-    .v3_host(&v3_host)
-    .maybe_gateway_host(gateway_host)
-    .is_secure(is_secure)
-    .build()
+  let api_client = MessageBackendBuilder::default()
+    .from_bundle(backend.bundle.clone())
     .map_err(ErrorWrapper::js)?;
-  let api_client = ApiClientWrapper::new(
-    TrackedStatsClient::new(backend),
-    strategies::exponential_cooldown(),
-  );
+  let api = ApiClientWrapper::new(api_client, strategies::exponential_cooldown());
 
   let ident: XmtpIdentifier = account_identifier.clone().try_into()?;
   let api_ident: ApiIdentifier = ident.into();
-  let results = api_client
+  let results = api
     .get_inbox_ids(vec![api_ident.clone()])
     .await
     .map_err(ErrorWrapper::js)?;
