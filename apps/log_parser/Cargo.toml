@@ -8,11 +8,11 @@ version.workspace = true
 anyhow.workspace = true
 arboard = { version = "3.6.1", features = ["wayland-data-control"] }
 futures.workspace = true
-rfd = "0.15"
 parking_lot.workspace = true
 pest = "2.8.5"
 pest_derive = "2.8.5"
 regex.workspace = true
+rfd = "0.15"
 slint = "1.14.1"
 tokio.workspace = true
 tracing.workspace = true
