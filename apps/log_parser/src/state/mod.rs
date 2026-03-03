@@ -125,7 +125,7 @@ impl State {
         let group = groups.get(group_id)?;
         let group = group.lock();
         for states_by_installation in &group.states {
-            for (_installation_id, state) in states_by_installation {
+            for state in states_by_installation.values() {
                 let state = state.lock();
                 if state.unique_id == unique_id {
                     return Some(state.clone());
@@ -153,7 +153,7 @@ impl State {
 
         {
             let sources = self.sources.lock();
-            for (_source, events) in &*sources {
+            for events in sources.values() {
                 for event in events {
                     if let Err(err) = self.ingest(event) {
                         tracing::error!("Event ingest error: {err}");
@@ -231,8 +231,8 @@ impl State {
                     }
                 }
 
-                let mut group = client.group(group_id, &event);
-                let mut group_state = group.new_event(&event);
+                let mut group = client.group(group_id, event);
+                let mut group_state = group.new_event(event);
 
                 if let Ok(epoch) = ctx("epoch").and_then(|e| e.as_int()) {
                     // Reset the auth.
@@ -251,11 +251,8 @@ impl State {
                     group_state.originator = Some(originator);
                 }
 
-                match raw_event {
-                    Event::CreatedDM => {
-                        group_state.dm_target = Some(ctx("target_inbox")?.as_str()?.to_string());
-                    }
-                    _ => {}
+                if raw_event == Event::CreatedDM {
+                    group_state.dm_target = Some(ctx("target_inbox")?.as_str()?.to_string());
                 }
             }
             _ => {}

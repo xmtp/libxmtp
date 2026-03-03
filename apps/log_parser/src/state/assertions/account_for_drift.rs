@@ -14,7 +14,7 @@ impl LogAssertion for AccountForDrift {
         let mut drift: HashMap<InstallationId, i64> = HashMap::new();
 
         // Collect when all of the commits went out.
-        for (_source, events) in &*sources {
+        for events in sources.values() {
             for event in events {
                 if !matches!(event.event, Event::GroupSyncStagedCommitPresent) {
                     continue;
@@ -31,7 +31,7 @@ impl LogAssertion for AccountForDrift {
 
         // Now find all commits that were received, and push the timeline forward until
         // they are AFTER when the commit is sent.
-        for (_source, events) in &*sources {
+        for events in sources.values() {
             for event in events {
                 if !matches!(event.event, Event::MLSReceivedStagedCommit) {
                     continue;
@@ -54,7 +54,7 @@ impl LogAssertion for AccountForDrift {
             }
         }
 
-        for (_source, events) in &*sources {
+        for events in sources.values() {
             for event in events {
                 let Some(&drift) = drift.get(&event.installation) else {
                     continue;

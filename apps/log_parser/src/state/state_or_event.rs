@@ -17,7 +17,7 @@ impl StateOrEvent {
         }
     }
 
-    pub fn event<'a>(&'a self) -> Arc<LogEvent> {
+    pub fn event(&self) -> Arc<LogEvent> {
         match self {
             Self::State(state) => state.lock().event.clone(),
             Self::Event(event) => event.clone(),
@@ -53,24 +53,7 @@ impl Eq for StateOrEvent {}
 
 impl PartialOrd for StateOrEvent {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        let state;
-        let event = match self {
-            Self::Event(event) => event,
-            Self::State(s) => {
-                state = s.lock();
-                &state.event
-            }
-        };
-
-        let other_state;
-        let other_event = match other {
-            Self::Event(e) => e,
-            Self::State(s) => {
-                other_state = s.lock();
-                &other_state.event
-            }
-        };
-        event.partial_cmp(other_event)
+        Some(self.cmp(other))
     }
 }
 impl PartialEq for StateOrEvent {

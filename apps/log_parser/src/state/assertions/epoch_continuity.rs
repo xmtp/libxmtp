@@ -81,7 +81,7 @@ impl LogAssertion for EpochContinuityAssertion {
 
         // Add the important non-group events.
         let mut outer_events = HashMap::new();
-        for (_group_id, installation) in &mut *state.grouped_epochs.lock() {
+        for installation in &mut state.grouped_epochs.lock().values_mut() {
             for (installation_id, epochs) in installation {
                 let outer_events = outer_events
                     .entry(installation_id.to_string())

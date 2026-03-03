@@ -111,7 +111,7 @@ impl Value {
 
     pub fn as_str(&self) -> Result<&str> {
         match self {
-            Self::String(str) => Ok(&str),
+            Self::String(str) => Ok(str),
             _ => bail!("Downcasting failed. {self:?} is not a string."),
         }
     }

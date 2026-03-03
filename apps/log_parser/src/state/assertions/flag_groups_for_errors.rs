@@ -8,7 +8,7 @@ impl LogAssertion for FlagGroupsForErrors {
     fn assert(state: &State) -> Result<()> {
         let groups = state.groups.lock();
 
-        for (_group_id, group) in &*groups {
+        for group in groups.values() {
             let group = group.lock();
 
             for event in &*group.timeline {

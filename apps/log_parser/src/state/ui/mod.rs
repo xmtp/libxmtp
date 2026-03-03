@@ -55,7 +55,12 @@ impl State {
                     let start = events_page * PAGE_SIZE;
                     let end = ((events_page + 1) * PAGE_SIZE).min(total_events);
 
-                    for event in client.events.iter().skip(start).take(end - start) {
+                    for event in client
+                        .events
+                        .iter()
+                        .skip(start)
+                        .take(end.saturating_sub(start))
+                    {
                         let color = event.ui_group_color();
                         stream.push(UIEvent {
                             event: SharedString::from(event.msg),
@@ -83,7 +88,7 @@ impl State {
                 let events_total_pages = if max_events_count == 0 {
                     1
                 } else {
-                    (max_events_count + PAGE_SIZE - 1) / PAGE_SIZE
+                    max_events_count.div_ceil(PAGE_SIZE)
                 };
                 ui.set_events_page(events_page as i32);
                 ui.set_events_total_pages(events_total_pages as i32);
@@ -128,7 +133,7 @@ impl State {
                 let groups_total_pages = if total_groups == 0 {
                     1
                 } else {
-                    (total_groups + PAGE_SIZE - 1) / PAGE_SIZE
+                    total_groups.div_ceil(PAGE_SIZE)
                 };
 
                 let start = groups_page * PAGE_SIZE;
@@ -139,7 +144,7 @@ impl State {
 
                     // Sort epochs by epoch number
                     let mut epoch_numbers = BTreeSet::new();
-                    for (_inst, epochs) in inst_epochs_map {
+                    for epochs in inst_epochs_map.values() {
                         epoch_numbers.extend(epochs.epochs.keys());
                     }
 
@@ -215,7 +220,7 @@ impl State {
                             } else {
                                 // No epoch data, but still drain outer events if this is the last epoch
                                 if i + 1 == epoch_numbers.len() {
-                                    while let Some(event) = outer_events.next() {
+                                    for event in outer_events.by_ref() {
                                         ui_states.push(event.ui_group_state());
                                     }
                                 }
@@ -390,7 +395,7 @@ impl State {
                         group_id_short: SharedString::from(short_id(group_id)),
                         group_color,
                         installation_rows: ModelRc::new(VecModel::from(installation_rows)),
-                        total_entries: total_entries as i32,
+                        total_entries,
                         total_slots,
                     });
                 }
@@ -434,7 +439,7 @@ impl LogEvent {
             .problems
             .lock()
             .iter()
-            .map(|p| SharedString::from(p))
+            .map(SharedString::from)
             .collect();
 
         UITimelineEntry {
@@ -459,7 +464,7 @@ impl LogEvent {
             .problems
             .lock()
             .iter()
-            .map(|p| SharedString::from(p))
+            .map(SharedString::from)
             .collect();
 
         UIGroupState {
@@ -483,7 +488,7 @@ impl GroupState {
             .problems
             .lock()
             .iter()
-            .map(|p| SharedString::from(p))
+            .map(SharedString::from)
             .collect();
 
         UIGroupState {
@@ -511,7 +516,7 @@ impl GroupState {
             .problems
             .lock()
             .iter()
-            .map(|p| SharedString::from(p))
+            .map(SharedString::from)
             .collect();
 
         UITimelineEntry {
@@ -538,7 +543,7 @@ impl GroupState {
             .problems
             .lock()
             .iter()
-            .map(|p| SharedString::from(p))
+            .map(SharedString::from)
             .collect();
 
         UIGroupStateDetail {

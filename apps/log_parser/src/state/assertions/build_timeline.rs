@@ -8,12 +8,12 @@ impl LogAssertion for BuildTimeline {
         let groups = state.groups.lock();
 
         // Collect the states
-        for (_group_id, group) in &*groups {
+        for group in groups.values() {
             let mut group = group.lock();
 
             let mut timeline = Vec::new();
             for state_map in &group.states {
-                for (_installation_id, state) in state_map {
+                for state in state_map.values() {
                     timeline.push(StateOrEvent::State(state.clone()));
                 }
             }
