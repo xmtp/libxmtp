@@ -128,14 +128,13 @@ jobs:
           "
           fi
 
-          # Generate version index page at /ios/versions/
-          mkdir -p "$ARCHIVE_DIR/ios/versions"
+          # Generate version index page at /ios/
           VERSION_ITEMS=""
           for v in $(python3 -c "import json; [print(v) for v in json.load(open('$ARCHIVE_DIR/versions.json'))]"); do
             VERSION_ITEMS="${VERSION_ITEMS}<li><a href=\"/ios/${v}/documentation/xmtpios\">${v}</a></li>"
           done
 
-          cat > "$ARCHIVE_DIR/ios/versions/index.html" << HTMLEOF
+          cat > "$ARCHIVE_DIR/ios/index.html" << HTMLEOF
           <!DOCTYPE html>
           <html lang="en">
           <head>
