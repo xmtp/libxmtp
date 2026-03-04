@@ -173,11 +173,7 @@ fn extract_doc_comment(attrs: &[syn::Attribute]) -> Option<String> {
         .trim()
         .to_string();
 
-    if text.is_empty() {
-        None
-    } else {
-        Some(text)
-    }
+    if text.is_empty() { None } else { Some(text) }
 }
 
 struct ErrorCodeAttrParsed {
