@@ -1,0 +1,155 @@
+name: "Setup Nix Store Cache"
+description: "Cache and restore /nix/store on WarpBuild runners using WarpBuilds/cache with SQLite DB merge"
+inputs:
+  gc-max-store-size:
+    description: "Max Nix store size before garbage collection (e.g. 5G, 10G)"
+    required: false
+    default: "20G"
+runs:
+  using: "composite"
+  steps:
+    - name: Check Nix store cache
+      id: nix-cache-check
+      if: startsWith(runner.name, 'warp-')
+      uses: WarpBuilds/cache/restore@v1
+      with:
+        path: |
+          /nix/store
+          /nix/var/nix/db
+          /nix/var/nix/profiles
+        key: nix-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock') }}-${{ github.job }}-${{ github.run_id }}
+        restore-keys: |
+          nix-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock') }}-${{ github.job }}-
+          nix-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock') }}-
+          nix-store-${{ runner.os }}-${{ runner.arch }}-
+        lookup-only: true
+
+    - name: Prepare Nix store for cache restore
+      if: startsWith(runner.name, 'warp-') && steps.nix-cache-check.outputs.cache-matched-key != ''
+      run: |
+        # Back up the installer's DB so we can merge it after restore.
+        sudo cp /nix/var/nix/db/db.sqlite /tmp/nix-db-pre-cache.sqlite
+        # Stop the daemon so it doesn't hold locks on the DB during restore.
+        if [ "$(uname)" = "Darwin" ]; then
+          sudo launchctl bootout system/org.nixos.nix-daemon 2>/dev/null || true
+        else
+          sudo systemctl stop nix-daemon.socket nix-daemon.service || true
+        fi
+        # Give the runner user ownership of the store so tar can overwrite.
+        # Nix store paths are root-owned and read-only; tar runs as runner
+        # and needs both write access and ownership to create/overwrite files.
+        sudo chown -R $USER /nix/store /nix/var/nix/db /nix/var/nix/profiles
+        sudo chmod -R u+w /nix/store
+      shell: bash
+
+    - name: Restore Nix store cache
+      if: startsWith(runner.name, 'warp-')
+      uses: WarpBuilds/cache@v1
+      with:
+        path: |
+          /nix/store
+          /nix/var/nix/db
+          /nix/var/nix/profiles
+        key: nix-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock') }}-${{ github.job }}-${{ github.run_id }}
+        restore-keys: |
+          nix-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock') }}-${{ github.job }}-
+          nix-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock') }}-
+          nix-store-${{ runner.os }}-${{ runner.arch }}-
+
+    - name: Merge Nix databases and restart daemon
+      if: startsWith(runner.name, 'warp-') && steps.nix-cache-check.outputs.cache-matched-key != ''
+      run: |
+        # Merge the installer's DB (has paths like busybox, nix itself) with
+        # the cached DB (has all previously-built packages). This ensures no
+        # store paths are "forgotten" — both sets of paths are registered.
+        # Uses INSERT OR IGNORE since the cached DB is the primary source.
+        if [ -f /tmp/nix-db-pre-cache.sqlite ]; then
+          sqlite3 /nix/var/nix/db/db.sqlite <<'SQL'
+        ATTACH DATABASE '/tmp/nix-db-pre-cache.sqlite' AS old;
+        INSERT OR IGNORE INTO ValidPaths (path, hash, registrationTime, deriver, narSize, ultimate, sigs, ca)
+          SELECT path, hash, registrationTime, deriver, narSize, ultimate, sigs, ca FROM old.ValidPaths;
+        INSERT OR IGNORE INTO Refs (referrer, reference)
+          SELECT vp_new_referrer.id, vp_new_reference.id
+          FROM old.Refs AS r
+          JOIN old.ValidPaths AS vp_old_referrer ON r.referrer = vp_old_referrer.id
+          JOIN old.ValidPaths AS vp_old_reference ON r.reference = vp_old_reference.id
+          JOIN ValidPaths AS vp_new_referrer ON vp_new_referrer.path = vp_old_referrer.path
+          JOIN ValidPaths AS vp_new_reference ON vp_new_reference.path = vp_old_reference.path;
+        INSERT OR IGNORE INTO DerivationOutputs (drv, id, path)
+          SELECT vp_new.id, d.id, d.path
+          FROM old.DerivationOutputs AS d
+          JOIN old.ValidPaths AS vp_old ON d.drv = vp_old.id
+          JOIN ValidPaths AS vp_new ON vp_new.path = vp_old.path;
+        DETACH DATABASE old;
+        SQL
+          sudo rm /tmp/nix-db-pre-cache.sqlite
+        fi
+        # Restore root ownership on DB and restart daemon.
+        if [ "$(uname)" = "Darwin" ]; then
+          sudo chown -R root:wheel /nix/var/nix/db
+          sudo launchctl bootstrap system /Library/LaunchDaemons/org.nixos.nix-daemon.plist 2>/dev/null || true
+          sudo launchctl kickstart -k system/org.nixos.nix-daemon || true
+        else
+          sudo chown -R root:root /nix/var/nix/db
+          sudo systemctl start nix-daemon.socket nix-daemon.service
+        fi
+      shell: bash
+
+    - name: Fix Nix directory ownership for cache save
+      if: startsWith(runner.name, 'warp-') && steps.nix-cache-check.outputs.cache-matched-key == ''
+      run: |
+        # On cache miss the store is still root-owned from the installer.
+        # Fix ownership so the post-step cache save can read all files.
+        sudo chown -R $USER /nix/store /nix/var/nix/db /nix/var/nix/profiles
+      shell: bash
+
+    - name: Write Nix GC script
+      if: startsWith(runner.name, 'warp-')
+      run: |
+        mkdir -p "${{ github.workspace }}/.github/scripts"
+        cat > "${{ github.workspace }}/.github/scripts/nix-store-gc.sh" << 'NIXGCEOF'
+        #!/usr/bin/env bash
+        set -euo pipefail
+        parse_size() {
+          local val="${1%[GgMmKk]*}"
+          local unit="${1: -1}"
+          case "$unit" in
+            G|g) echo $(( val * 1073741824 )) ;;
+            M|m) echo $(( val * 1048576 )) ;;
+            K|k) echo $(( val * 1024 )) ;;
+            *)   echo "$1" ;;
+          esac
+        }
+        THRESHOLD="${1:-20G}"
+        THRESHOLD_BYTES=$(parse_size "$THRESHOLD")
+        if du -sb /nix/store >/dev/null 2>&1; then
+          STORE_BYTES=$(du -sb /nix/store | cut -f1)
+        else
+          STORE_BYTES=$(( $(du -sk /nix/store | cut -f1) * 1024 ))
+        fi
+        STORE_MB=$(( STORE_BYTES / 1048576 ))
+        echo "Nix store size: ${STORE_MB}MB, threshold: $THRESHOLD"
+        if [ "$STORE_BYTES" -gt "$THRESHOLD_BYTES" ]; then
+          echo "Store exceeds threshold, running garbage collection..."
+          nix store gc 2>&1 || true
+          if du -sb /nix/store >/dev/null 2>&1; then
+            NEW_BYTES=$(du -sb /nix/store | cut -f1)
+          else
+            NEW_BYTES=$(( $(du -sk /nix/store | cut -f1) * 1024 ))
+          fi
+          echo "Store size after GC: $(( NEW_BYTES / 1048576 ))MB"
+        else
+          echo "Store is within limit, skipping GC"
+        fi
+        # Fix ownership of files Nix daemon created as root during the build
+        # so the cache save post-step can read them (especially db/reserved)
+        sudo chown -R "$USER" /nix/store /nix/var/nix/db /nix/var/nix/profiles 2>/dev/null || true
+        NIXGCEOF
+        chmod +x "${{ github.workspace }}/.github/scripts/nix-store-gc.sh"
+      shell: bash
+
+    - name: Register post-step Nix store GC
+      if: startsWith(runner.name, 'warp-')
+      uses: webiny/action-post-run@3.1.0
+      with:
+        run: bash ${{ github.workspace }}/.github/scripts/nix-store-gc.sh ${{ inputs.gc-max-store-size }}
