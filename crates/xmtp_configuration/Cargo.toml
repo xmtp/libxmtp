@@ -9,7 +9,6 @@ publish.workspace = true
 
 [dependencies]
 openmls.workspace = true
-url.workspace = true
 xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
 xmtp_cryptography.workspace = true

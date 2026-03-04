@@ -20,6 +20,7 @@ use tonic::{
     client::Grpc,
     metadata::{self, MetadataMap, MetadataValue},
 };
+use url::Url;
 use xmtp_common::Retry;
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
 use xmtp_proto::{
@@ -59,7 +60,7 @@ impl<T> ToHttp for tonic::Response<T> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct GrpcClient {
     inner: tonic::client::Grpc<crate::GrpcService>,
     app_version: MetadataValue<metadata::Ascii>,
@@ -203,13 +204,11 @@ impl GrpcClient {
 
 #[derive(Default, Clone)]
 pub struct ClientBuilder {
-    pub host: Option<String>,
+    pub host: Option<Url>,
     /// version of the app
     pub app_version: Option<MetadataValue<metadata::Ascii>>,
     /// Version of the libxmtp core library
     pub libxmtp_version: Option<MetadataValue<metadata::Ascii>>,
-    /// Whether or not the channel should use TLS
-    pub tls_channel: bool,
     /// Rate per minute
     pub limit: Option<u64>,
     /// retry strategy for this client
@@ -227,12 +226,8 @@ impl NetConnectConfig for ClientBuilder {
         Ok(())
     }
 
-    fn set_host(&mut self, host: String) {
+    fn set_host(&mut self, host: Url) {
         self.host = Some(host);
-    }
-
-    fn set_tls(&mut self, tls: bool) {
-        self.tls_channel = tls;
     }
 
     fn rate_per_minute(&mut self, limit: u32) {
@@ -241,15 +236,14 @@ impl NetConnectConfig for ClientBuilder {
 
     fn port(&self) -> Result<Option<String>, Self::Error> {
         if let Some(h) = &self.host {
-            let u = url::Url::parse(h)?;
-            Ok(u.port().map(|u| u.to_string()))
+            Ok(h.port().map(|u| u.to_string()))
         } else {
             Err(GrpcBuilderError::MissingHostUrl)
         }
     }
 
     fn host(&self) -> Option<&str> {
-        self.host.as_deref()
+        self.host.as_ref().map(|s| s.as_str())
     }
 
     fn set_retry(&mut self, retry: xmtp_common::Retry) {
@@ -263,7 +257,7 @@ impl ApiBuilder for ClientBuilder {
 
     fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
-        let channel = crate::GrpcService::new(host, self.limit, self.tls_channel)?;
+        let channel = crate::GrpcService::new(host, self.limit)?;
         Ok(GrpcClient {
             inner: tonic::client::Grpc::new(channel)
                 .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
@@ -279,22 +273,19 @@ impl ApiBuilder for ClientBuilder {
 }
 
 impl GrpcClient {
-    pub fn create(host: &str, is_secure: bool) -> Result<Self, GrpcBuilderError> {
+    pub fn create(host: Url) -> Result<Self, GrpcBuilderError> {
         let mut builder = Self::builder();
-        builder.set_host(host.to_string());
-        builder.set_tls(is_secure);
+        builder.set_host(host);
         builder.build()
     }
 
     /// Create a grpc client with `app_version` attached
     pub fn create_with_version(
-        host: &str,
-        is_secure: bool,
+        host: Url,
         app_version: AppVersion,
     ) -> Result<Self, GrpcBuilderError> {
         let mut builder = Self::builder();
-        builder.set_host(host.to_string());
-        builder.set_tls(is_secure);
+        builder.set_host(host);
         builder.set_app_version(app_version)?;
         builder.build()
     }

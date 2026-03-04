@@ -4,7 +4,7 @@ use crate::client::options::XmtpEnv;
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use std::sync::{Arc, Mutex};
-use xmtp_api_d14n::{ClientBundleBuilder, validate_and_resolve};
+use xmtp_api_d14n::ClientBundleBuilder;
 
 #[xmtp_macro::napi_builder]
 pub struct BackendBuilder {
@@ -55,29 +55,6 @@ impl BackendBuilder {
       }
       *consumed = true;
     }
-
-    let has_auth = {
-      let cb = self
-        .auth_callback
-        .lock()
-        .map_err(|_| napi::Error::from_reason("BackendBuilder lock poisoned"))?;
-      let ah = self
-        .auth_handle
-        .lock()
-        .map_err(|_| napi::Error::from_reason("BackendBuilder lock poisoned"))?;
-      cb.is_some() || ah.is_some()
-    };
-
-    let config = validate_and_resolve(
-      self.env.into(),
-      self.api_url.clone(),
-      self.gateway_host.clone(),
-      self.readonly.unwrap_or(false),
-      self.app_version.clone(),
-      has_auth,
-    )
-    .map_err(ErrorWrapper::from)?;
-
     let auth_callback = self
       .auth_callback
       .lock()
@@ -89,29 +66,26 @@ impl BackendBuilder {
       .map_err(|_| napi::Error::from_reason("BackendBuilder lock poisoned"))?
       .take();
 
-    let app_version = config.app_version.clone();
+    let app_version = self.app_version.clone().unwrap_or_default();
     let mut builder = ClientBundleBuilder::default();
-    if let Some(url) = &config.api_url {
-      builder.v3_host(url);
-    }
-    if let Some(host) = &config.gateway_host {
-      builder.gateway_host(host);
-    }
     builder
-      .is_secure(config.is_secure)
-      .readonly(config.readonly)
-      .app_version(config.app_version)
+      .env(self.env.into())
+      .maybe_v3_host(self.api_url.clone())
+      .maybe_gateway_host(self.gateway_host.clone())
+      .readonly(self.readonly.unwrap_or(false))
+      .app_version(app_version.clone())
       .maybe_auth_callback(
         auth_callback.map(|c| Arc::new(c) as Arc<dyn xmtp_api_d14n::AuthCallback>),
       )
       .maybe_auth_handle(auth_handle.map(|h: AuthHandle| h.into()));
 
+    let v3_host = builder.get_v3_host().map(ToString::to_string);
     let bundle = builder.build_optional_d14n().map_err(ErrorWrapper::from)?;
     Ok(Backend {
       bundle,
       env: self.env,
-      v3_host: config.api_url,
-      gateway_host: config.gateway_host,
+      v3_host,
+      gateway_host: self.gateway_host.clone(),
       app_version,
     })
   }

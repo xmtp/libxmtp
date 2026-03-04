@@ -5,7 +5,7 @@ use crate::{
 };
 use derive_builder::Builder;
 use xmtp_api_grpc::GrpcClient;
-use xmtp_configuration::PAYER_WRITE_FILTER;
+use xmtp_configuration::{PAYER_WRITE_FILTER, XmtpEnv};
 use xmtp_proto::{
     api::{ArcClient, ToBoxedClient},
     prelude::{ApiBuilder, NetConnectConfig},
@@ -75,11 +75,11 @@ impl ClientBundle {
 }
 
 // we aren't using any of the generated build fns by derive_builder here
-// instead we are just using it to generate the setters on the impl for us.
+// instead we are just using it to generate some setters on the impl for us.
 #[derive(Builder, Clone)]
 #[builder(public, name = "ClientBundleBuilder", build_fn(skip))]
 struct __ClientBundleBuilder {
-    #[builder(setter(into))]
+    #[builder(setter(into), default)]
     app_version: AppVersion,
     #[builder(setter(into))]
     v3_host: String,
@@ -89,35 +89,70 @@ struct __ClientBundleBuilder {
     auth_callback: Arc<dyn AuthCallback>,
     #[builder(setter(into))]
     auth_handle: AuthHandle,
-    is_secure: bool,
     readonly: bool,
 }
 
+// getters
 impl ClientBundleBuilder {
+    pub fn get_v3_host(&self) -> Option<&String> {
+        self.v3_host.as_ref()
+    }
+
+    pub fn get_gateway_host(&self) -> Option<&String> {
+        self.gateway_host.as_ref()
+    }
+
+    pub fn get_app_version(&self) -> Option<&AppVersion> {
+        self.app_version.as_ref()
+    }
+}
+
+// setters
+impl ClientBundleBuilder {
+    /// Set the v3 host if `host` is `Some`
+    /// Overwrites any value that may already be set
     pub fn maybe_v3_host<U: Into<String>>(&mut self, host: Option<U>) -> &mut Self {
-        self.v3_host = host.map(Into::into);
+        self.v3_host = host.map(Into::into).or_else(|| self.v3_host.take());
         self
     }
 
+    /// Set the gateway host if `host` is `Some`
+    /// Overwrites any value that may already be set
     pub fn maybe_gateway_host<U: Into<String>>(&mut self, host: Option<U>) -> &mut Self {
-        self.gateway_host = host.map(Into::into);
+        self.gateway_host = host.map(Into::into).or_else(|| self.gateway_host.take());
         self
     }
 
+    /// Set the auth callback if `callback` is `Some`
+    /// Overwrites any value that may already be set
     pub fn maybe_auth_callback(&mut self, callback: Option<Arc<dyn AuthCallback>>) -> &mut Self {
-        self.auth_callback = callback;
+        self.auth_callback = callback.or_else(|| self.auth_callback.take());
         self
     }
 
+    /// Set the handle if `handle` is `Some`
+    /// Overwrites any value that may already be set
     pub fn maybe_auth_handle(&mut self, handle: Option<AuthHandle>) -> &mut Self {
-        self.auth_handle = handle;
+        self.auth_handle = handle.or_else(|| self.auth_handle.take());
         self
     }
 
-    fn inner_build_d14n(
-        &mut self,
-        is_secure: bool,
-    ) -> Result<ArcClient, MessageBackendBuilderError> {
+    pub fn maybe_app_version<V: Into<AppVersion>>(&mut self, version: Option<V>) -> &mut Self {
+        self.app_version = version.map(Into::into).or_else(|| self.app_version.take());
+        self
+    }
+    /// Specify a fallback value for the V3 Host. Only used as a fallback.
+    /// `v3_host()` always takes precedence. Never overwrites `v3_host` if already set.
+    pub fn env(&mut self, env: XmtpEnv) -> &mut Self {
+        // self.v3_host is prioritized if already set over default Env
+        self.v3_host = self
+            .v3_host
+            .take()
+            .or_else(|| env.default_api_url().map(Into::into));
+        self
+    }
+
+    fn inner_build_d14n(&mut self) -> Result<ArcClient, MessageBackendBuilderError> {
         let Self {
             app_version,
             auth_callback,
@@ -131,8 +166,11 @@ impl ClientBundleBuilder {
         let readonly = self.readonly.unwrap_or_default();
 
         let mut gateway_client_builder = GrpcClient::builder();
-        gateway_client_builder.set_host(gw_host.to_string());
-        gateway_client_builder.set_tls(is_secure);
+        gateway_client_builder.set_host(
+            gw_host
+                .parse()
+                .map_err(|e| MessageBackendBuilderError::invalid_url(e, gw_host.clone()))?,
+        );
 
         if let Some(ref version) = app_version {
             gateway_client_builder.set_app_version(version.clone())?;
@@ -148,7 +186,6 @@ impl ClientBundleBuilder {
         let mut multi_node = crate::middleware::MultiNodeClient::builder();
         let multi_node = multi_node.gateway_client(gateway_client.clone());
         let mut template = GrpcClient::builder();
-        template.set_tls(is_secure);
         if let Some(ref version) = app_version {
             template.set_app_version(version.clone())?;
         }
@@ -171,19 +208,21 @@ impl ClientBundleBuilder {
     /// Errors:
     /// * if the gateway_host is missing.
     pub fn build_d14n(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
-        let is_secure = self.is_secure.unwrap_or_default();
-        Ok(ClientBundle::d14n(self.inner_build_d14n(is_secure)?))
+        Ok(ClientBundle::d14n(self.inner_build_d14n()?))
     }
 
-    fn inner_build_v3(&mut self, is_secure: bool) -> Result<ArcClient, MessageBackendBuilderError> {
+    fn inner_build_v3(&mut self) -> Result<ArcClient, MessageBackendBuilderError> {
         let v3_host = self
             .v3_host
             .as_ref()
             .ok_or(MessageBackendBuilderError::MissingV3Host)?;
         let readonly = self.readonly.unwrap_or_default();
         let mut v3_client = GrpcClient::builder();
-        v3_client.set_host(v3_host.to_string());
-        v3_client.set_tls(is_secure);
+        v3_client.set_host(
+            v3_host
+                .parse()
+                .map_err(|e| MessageBackendBuilderError::invalid_url(e, v3_host.clone()))?,
+        );
         if let Some(ref version) = self.app_version {
             v3_client.set_app_version(version.clone())?;
         }
@@ -197,34 +236,49 @@ impl ClientBundleBuilder {
 
     /// build a client that is v3 only
     /// Errors:
-    /// * if the gateway_host is missing.
+    /// * if v3_host is missing.
     pub fn build_v3(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
-        let is_secure = self.is_secure.unwrap_or_default();
-        Ok(ClientBundle::v3(self.inner_build_v3(is_secure)?))
+        Ok(ClientBundle::v3(self.inner_build_v3()?))
     }
 
     /// Build the default client
     /// The default client will migrate to v3 on cutover
+    /// Errors if either V3 or Gateway host are missing
     pub fn build(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
-        let is_secure = self.is_secure.unwrap_or_default();
-        let d14n = self.inner_build_d14n(is_secure)?;
-        let v3 = self.inner_build_v3(is_secure)?;
+        let d14n = self.inner_build_d14n()?;
+        let v3 = self.inner_build_v3()?;
         Ok(ClientBundle::migration(v3, d14n))
     }
 
     /// If a gateway is present, build a d14n-only client
-    /// otherwise build a v3 client
+    /// otherwise build a v3 client.
+    /// Errors if V3 host is missing
     pub fn build_optional_d14n(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
         let Self {
-            is_secure,
             gateway_host: ref gw,
             ..
         } = self.clone();
-        let is_secure = is_secure.unwrap_or_default();
         if gw.is_some() {
-            Ok(ClientBundle::d14n(self.inner_build_d14n(is_secure)?))
+            Ok(ClientBundle::d14n(self.inner_build_d14n()?))
         } else {
-            Ok(ClientBundle::v3(self.inner_build_v3(is_secure)?))
+            Ok(ClientBundle::v3(self.inner_build_v3()?))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use xmtp_configuration::GrpcUrlsDev;
+
+    use super::*;
+
+    #[xmtp_common::test]
+    fn env_cannot_be_overridden_by_none() {
+        let mut builder = ClientBundle::builder();
+        builder
+            .env(XmtpEnv::Dev)
+            .maybe_v3_host(Option::<String>::None);
+        assert!(builder.v3_host.is_some());
+        assert_eq!(builder.v3_host, Some(GrpcUrlsDev::NODE.to_string()))
     }
 }
