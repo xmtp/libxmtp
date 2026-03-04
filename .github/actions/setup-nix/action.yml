@@ -41,6 +41,9 @@ runs:
     - name: Prepare Nix directories for cache restore
       if: startsWith(runner.name, 'warp-') && steps.nix-cache-check.outputs.cache-matched-key != ''
       run: |
+        # Stop Nix daemon before wiping the store — it holds references
+        # to the old DB and store paths.
+        sudo systemctl stop nix-daemon.socket nix-daemon.service || true
         # Clear store so cache restore doesn't conflict with paths the
         # Nix installer already created. The cached archive includes
         # Nix itself, so it will be fully restored from cache.
@@ -63,6 +66,14 @@ runs:
           nix-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock') }}-${{ github.job }}-
           nix-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock') }}-
           nix-store-${{ runner.os }}-${{ runner.arch }}-
+    - name: Restart Nix daemon after cache restore
+      if: startsWith(runner.name, 'warp-') && steps.nix-cache-check.outputs.cache-matched-key != ''
+      run: |
+        # Restore root ownership on DB so the daemon can operate on it,
+        # then restart so it picks up the restored store and database.
+        sudo chown -R root:root /nix/var/nix/db
+        sudo systemctl start nix-daemon.socket nix-daemon.service
+      shell: bash
     - name: Fix Nix directory ownership for cache save
       if: startsWith(runner.name, 'warp-') && steps.nix-cache-check.outputs.cache-matched-key == ''
       run: |
