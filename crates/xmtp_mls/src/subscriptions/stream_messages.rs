@@ -9,7 +9,7 @@ pub use test_utils::*;
 
 use types::GroupList;
 pub use types::MessageStreamError;
-use xmtp_macro::log_event;
+use xmtp_macro_logging::log_event;
 
 use super::{
     Result, SubscribeError,

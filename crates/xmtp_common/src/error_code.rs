@@ -88,7 +88,7 @@ impl ErrorCode for hex::FromHexError {
 mod tests {
     use super::ErrorCode;
     use thiserror::Error;
-    use xmtp_macro::ErrorCode;
+    use xmtp_macro_error_code::ErrorCode;
 
     #[derive(Debug, Error, ErrorCode)]
     #[error("inner error")]

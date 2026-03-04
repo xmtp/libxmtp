@@ -6,7 +6,7 @@ use napi_derive::napi;
 use std::sync::{Arc, Mutex};
 use xmtp_api_d14n::{ClientBundleBuilder, validate_and_resolve};
 
-#[xmtp_macro::napi_builder]
+#[xmtp_macro_builder::napi_builder]
 pub struct BackendBuilder {
   #[builder(required)]
   pub env: XmtpEnv,

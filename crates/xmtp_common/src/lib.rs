@@ -8,7 +8,7 @@ mod error_code;
 pub use error_code::ErrorCode;
 
 #[doc(inline)]
-pub use xmtp_macro::ErrorCode;
+pub use xmtp_macro_error_code::ErrorCode;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod test;
@@ -49,7 +49,7 @@ pub use event_logging::*;
 pub use xmtp_cryptography::hash::*;
 pub use xmtp_cryptography::rand::*;
 
-pub use xmtp_macro::log_event;
+pub use xmtp_macro_logging::log_event;
 
 #[cfg(feature = "logging")]
 pub mod logging;

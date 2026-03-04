@@ -1,7 +1,7 @@
 mod utils;
 pub use utils::*;
 
-#[xmtp_macro::build_logging_metadata]
+#[xmtp_macro_logging::build_logging_metadata]
 pub enum Event {
     // ===================== General Client =====================
     /// Client created.

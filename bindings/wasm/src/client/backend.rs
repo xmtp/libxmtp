@@ -4,7 +4,7 @@ use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 use xmtp_api_d14n::{ClientBundleBuilder, validate_and_resolve};
 
-#[xmtp_macro::wasm_builder]
+#[xmtp_macro_builder::wasm_builder]
 pub struct BackendBuilder {
   #[builder(required)]
   pub env: XmtpEnv,

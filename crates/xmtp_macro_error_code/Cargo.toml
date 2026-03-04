@@ -1,0 +1,25 @@
+[package]
+name = "xmtp_macro_error_code"
+edition = "2024"
+license.workspace = true
+version.workspace = true
+description = "XMTP ErrorCode derive macro"
+
+[lints]
+workspace = true
+
+[dependencies]
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "2.0", default-features = false, features = [
+  "parsing",
+  "proc-macro",
+  "derive",
+  "printing",
+  "full",
+  "clone-impls",
+] }
+xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
+
+[lib]
+proc-macro = true

@@ -9,7 +9,7 @@ use prost::Message;
 use std::sync::Arc;
 use xmtp_common::Event;
 use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask};
-use xmtp_macro::log_event;
+use xmtp_macro_logging::log_event;
 use xmtp_proto::{
     types::{WelcomeMessage, WelcomeMessageType},
     xmtp::mls::database::Task as TaskProto,

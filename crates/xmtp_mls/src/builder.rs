@@ -28,7 +28,7 @@ use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::{DbConnection, XmtpMlsStorageProvider};
 use xmtp_db::{XmtpDb, sql_key_store::SqlKeyStore};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_macro::log_event;
+use xmtp_macro_logging::log_event;
 
 type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
 

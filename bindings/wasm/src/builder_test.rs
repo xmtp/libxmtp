@@ -8,7 +8,7 @@
 /// verify constructor parameters, setter chaining, and default values.
 
 // -- Combined test struct exercising all field modes -----------------------
-#[xmtp_macro::wasm_builder]
+#[xmtp_macro_builder::wasm_builder]
 pub struct WasmTestBuilder {
   #[builder(required)]
   pub name: String,

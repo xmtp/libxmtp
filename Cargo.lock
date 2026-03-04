@@ -1312,7 +1312,7 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
- "xmtp_macro",
+ "xmtp_macro_builder",
  "xmtp_mls",
  "xmtp_proto",
 ]
@@ -1355,7 +1355,7 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
- "xmtp_macro",
+ "xmtp_macro_builder",
  "xmtp_mls",
  "xmtp_proto",
 ]
@@ -10033,6 +10033,8 @@ dependencies = [
  "xmtp_common",
  "xmtp_cryptography",
  "xmtp_macro",
+ "xmtp_macro_error_code",
+ "xmtp_macro_logging",
 ]
 
 [[package]]
@@ -10203,6 +10205,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmtp_macro_builder"
+version = "1.9.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
+ "xmtp-workspace-hack",
+]
+
+[[package]]
+name = "xmtp_macro_error_code"
+version = "1.9.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
+ "xmtp-workspace-hack",
+]
+
+[[package]]
+name = "xmtp_macro_logging"
+version = "1.9.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
+ "xmtp-workspace-hack",
+]
+
+[[package]]
 name = "xmtp_mls"
 version = "1.9.0"
 dependencies = [
@@ -10279,7 +10311,7 @@ dependencies = [
  "xmtp_db",
  "xmtp_db_test",
  "xmtp_id",
- "xmtp_macro",
+ "xmtp_macro_logging",
  "xmtp_mls_common",
  "xmtp_proto",
  "zeroize",
@@ -10384,7 +10416,7 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
- "xmtp_macro",
+ "xmtp_macro_builder",
  "xmtp_mls",
  "xmtp_proto",
 ]

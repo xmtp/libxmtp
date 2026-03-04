@@ -151,6 +151,9 @@ xmtp_db = { path = "crates/xmtp_db" }
 xmtp_db_test = { path = "crates/xmtp_db_test" }
 xmtp_id = { path = "crates/xmtp_id" }
 xmtp_macro = { path = "crates/xmtp_macro" }
+xmtp_macro_builder = { path = "crates/xmtp_macro_builder" }
+xmtp_macro_error_code = { path = "crates/xmtp_macro_error_code" }
+xmtp_macro_logging = { path = "crates/xmtp_macro_logging" }
 xmtp_mls = { path = "crates/xmtp_mls" }
 xmtp_mls_common = { path = "crates/xmtp_mls_common" }
 xmtp_proto = { path = "crates/xmtp_proto" }

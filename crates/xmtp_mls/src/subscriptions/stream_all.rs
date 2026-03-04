@@ -25,7 +25,7 @@ use xmtp_db::{
     group_message::StoredGroupMessage,
     prelude::*,
 };
-use xmtp_macro::log_event;
+use xmtp_macro_logging::log_event;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::GroupId;
 

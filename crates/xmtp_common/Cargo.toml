@@ -33,6 +33,8 @@ wasm-bindgen-test = { workspace = true, optional = true }
 xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
 xmtp_cryptography.workspace = true
 xmtp_macro.workspace = true
+xmtp_macro_error_code.workspace = true
+xmtp_macro_logging.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }

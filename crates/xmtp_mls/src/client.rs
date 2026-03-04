@@ -50,7 +50,7 @@ use xmtp_id::{
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
-use xmtp_macro::log_event;
+use xmtp_macro_logging::log_event;
 use xmtp_mls_common::{
     group::{DMMetadataOptions, GroupMetadataOptions},
     group_metadata::DmMembers,

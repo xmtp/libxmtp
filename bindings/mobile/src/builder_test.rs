@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 // -- Primitive types -------------------------------------------------------
-#[xmtp_macro::uniffi_builder]
+#[xmtp_macro_builder::uniffi_builder]
 pub struct UniffiPrimitive {
     #[builder(required)]
     pub name: String,
@@ -17,7 +17,7 @@ pub struct UniffiPrimitive {
 
 // -- Default values --------------------------------------------------------
 #[allow(dead_code)]
-#[xmtp_macro::uniffi_builder]
+#[xmtp_macro_builder::uniffi_builder]
 pub struct UniffiDefaults {
     #[builder(required)]
     pub id: u32,
@@ -42,7 +42,7 @@ impl Callback for TestCallback {
 }
 
 #[allow(dead_code)]
-#[xmtp_macro::uniffi_builder]
+#[xmtp_macro_builder::uniffi_builder]
 pub struct UniffiSkip {
     #[builder(required)]
     pub name: String,
@@ -55,7 +55,7 @@ pub struct UniffiSkip {
 }
 
 // -- All modes combined ----------------------------------------------------
-#[xmtp_macro::uniffi_builder]
+#[xmtp_macro_builder::uniffi_builder]
 pub struct UniffiMixed {
     #[builder(required)]
     pub host: String,

@@ -23,7 +23,7 @@ use xmtp_archive::{ArchiveImporter, BackupMetadata, exporter::ArchiveExporter};
 use xmtp_common::{Event, NS_IN_DAY, time::now_ns};
 use xmtp_db::group_message::{MsgQueryArgs, StoredGroupMessage};
 use xmtp_db::{prelude::*, tasks::NewTask};
-use xmtp_macro::log_event;
+use xmtp_macro_logging::log_event;
 use xmtp_proto::{
     ConversionError,
     xmtp::{

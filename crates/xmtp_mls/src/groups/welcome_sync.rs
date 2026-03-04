@@ -17,7 +17,7 @@ use xmtp_common::Event;
 use xmtp_common::{Retry, retry_async};
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
-use xmtp_macro::log_event;
+use xmtp_macro_logging::log_event;
 use xmtp_proto::types::GlobalCursor;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::types::GroupMessageMetadata;

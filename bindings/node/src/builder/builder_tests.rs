@@ -7,7 +7,7 @@
 /// The TypeScript tests in `test/Builder.test.ts` import these structs and
 /// verify constructor parameters, setter chaining, and default values.
 #[allow(dead_code)]
-#[xmtp_macro::napi_builder]
+#[xmtp_macro_builder::napi_builder]
 pub struct NapiTestBuilder {
   #[builder(required)]
   pub name: String,

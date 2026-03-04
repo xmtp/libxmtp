@@ -19,7 +19,7 @@ use std::{
 use tokio_stream::wrappers::BroadcastStream;
 use xmtp_common::{BoxDynFuture, Event, MaybeSend};
 use xmtp_db::prelude::*;
-use xmtp_macro::log_event;
+use xmtp_macro_logging::log_event;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::{Cursor, OriginatorId, SequenceId, WelcomeMessage};
 
