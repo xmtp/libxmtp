@@ -89,7 +89,6 @@ pin-project = "1.1"
 proptest = { version = "1.9", default-features = false }
 prost = { version = "0.14", default-features = false }
 prost-types = { version = "0.14", default-features = false }
-rustc-hash = "2.1.1"
 # updating crates are blocked on https://github.com/dalek-cryptography/curve25519-dalek/pull/729
 rand = "0.10.0"
 rand_chacha = "0.10.0"

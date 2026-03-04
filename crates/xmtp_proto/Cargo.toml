@@ -22,7 +22,6 @@ pbjson-types.workspace = true
 pin-project.workspace = true
 prost = { workspace = true, features = ["derive"] }
 prost-types = "0.14"
-rustc-hash.workspace = true
 serde = { workspace = true }
 smallvec.workspace = true
 thiserror.workspace = true
