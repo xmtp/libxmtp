@@ -1,6 +1,6 @@
 [package]
 name = "error_glossary"
-edition = "2021"
+edition = "2024"
 version.workspace = true
 license.workspace = true
 description = "Generates a markdown error glossary from ErrorCode-deriving types"
