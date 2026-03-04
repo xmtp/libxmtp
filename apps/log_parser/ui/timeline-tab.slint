@@ -7,7 +7,6 @@ import {
 import {
     UIContextEntry,
     InstallationLabel,
-    FocusBanner,
     IntermediateLogsPanel,
 } from "epoch-tab.slint";
 
@@ -102,6 +101,7 @@ component TimelineEntryCard inherits Rectangle {
                 text: root.entry.icon;
                 font-size: 14px;
                 font-weight: 700;
+                font-family: "Noto Sans Symbols 2";
                 color: #333333;
             }
 
@@ -162,6 +162,7 @@ component TimelineEntryCard inherits Rectangle {
                     text: "⚠ " + root.entry.problems.length;
                     font-size: 8px;
                     font-weight: 600;
+                    font-family: "Noto Sans Symbols 2";
                     color: #cc4444;
                     horizontal-alignment: center;
                     vertical-alignment: center;
@@ -380,11 +381,16 @@ export component TimelineTab inherits Rectangle {
     // Callback when an entry card is clicked
     callback entry-clicked(/* group-id */ string, /* installation-id */ string, /* unique-id */ int);
 
-    // Focus state
-    property <string> focused-group-id: "";
-    property <string> focus-mode: "";
-    property <string> focused-intermediate: "";
-    property <bool> has-focus: root.focused-group-id != "";
+    // Callbacks for focus management (bubble up to AppWindow -> Rust)
+    callback focus-group(/* group-id */ string);
+    callback unfocus-group(/* group-id */ string);
+    callback clear-focused-groups();
+
+    // Local expansion state (UI-only, for expanding problems/logs sections)
+    property <string> expanded-group-id: "";
+    property <string> expansion-mode: "";
+    property <string> expanded-intermediate: "";
+    property <bool> has-expansion: root.expanded-group-id != "";
 
     if root.timeline-groups.length == 0: Rectangle {
         background: #f5f5f5;
@@ -404,39 +410,31 @@ export component TimelineTab inherits Rectangle {
             spacing: 16px;
             alignment: start;
 
-            // ─── Focus Banner ───
-            if root.has-focus: FocusBanner {
-                focus-mode: root.focus-mode;
-                back-clicked => {
-                    root.focused-group-id = "";
-                    root.focus-mode = "";
-                    root.focused-intermediate = "";
-                }
-            }
-
             // ─── Group Timeline Containers ───
+            // Note: filtering is now done in Rust, so all groups in timeline-groups should be shown
             for group in root.timeline-groups: GroupTimelineContainer {
-                property <bool> is-visible: !root.has-focus || group.group-id == root.focused-group-id;
                 vertical-stretch: 0;
-                visible: is-visible;
-                height: is-visible ? self.preferred-height : 0;
                 group: group;
-                group-focused: root.has-focus && group.group-id == root.focused-group-id && root.focus-mode == "problems";
-                focused-intermediate: (root.has-focus && group.group-id == root.focused-group-id && root.focus-mode == "logs") ? root.focused-intermediate : "";
+                group-focused: root.has-expansion && group.group-id == root.expanded-group-id && root.expansion-mode == "problems";
+                focused-intermediate: (root.has-expansion && group.group-id == root.expanded-group-id && root.expansion-mode == "logs") ? root.expanded-intermediate : "";
                 focus-group(gid) => {
-                    root.focused-group-id = gid;
-                    root.focus-mode = "problems";
-                    root.focused-intermediate = "";
+                    root.expanded-group-id = gid;
+                    root.expansion-mode = "problems";
+                    root.expanded-intermediate = "";
+                    // Also add to focused groups in Rust
+                    root.focus-group(gid);
                 }
                 focus-group-logs(gid, intermediate) => {
-                    root.focused-group-id = gid;
-                    root.focus-mode = "logs";
-                    root.focused-intermediate = intermediate;
+                    root.expanded-group-id = gid;
+                    root.expansion-mode = "logs";
+                    root.expanded-intermediate = intermediate;
+                    // Also add to focused groups in Rust
+                    root.focus-group(gid);
                 }
                 entry-clicked(group-id, installation-id, unique-id) => {
-                    root.focused-group-id = group-id;
-                    root.focus-mode = "";
-                    root.focused-intermediate = "";
+                    root.expanded-group-id = group-id;
+                    root.expansion-mode = "";
+                    root.expanded-intermediate = "";
                     root.entry-clicked(group-id, installation-id, unique-id);
                 }
             }

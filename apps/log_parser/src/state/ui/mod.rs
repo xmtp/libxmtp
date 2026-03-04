@@ -1,17 +1,62 @@
 use crate::{
-    UIEpochHeader, UIEvent, UIGroupRow, UIGroupState, UIGroupStateDetail, UIInstallationCell,
-    UIInstallationRow, UISource, UIStream, UITimelineEntry, UITimelineGroup,
+    UIEpochHeader, UIEvent, UIFocusedGroup, UIGroupRow, UIGroupState, UIGroupStateDetail,
+    UIInstallationCell, UIInstallationRow, UISource, UIStream, UITimelineEntry, UITimelineGroup,
     UITimelineInstallationRow,
-    state::{GroupState, LogEvent, State, StateOrEvent},
+    state::{Group, GroupState, LogEvent, State, StateOrEvent},
     ui::file_open::color_from_string,
 };
+use parking_lot::Mutex;
 use slint::{Color, ModelRc, SharedString, VecModel};
 use std::collections::HashMap as StdHashMap;
+use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::{collections::BTreeSet, sync::Arc};
 
 /// Maximum number of events or groups to display per page in the UI
 const PAGE_SIZE: usize = 1000;
+
+/// Filter and paginate group IDs based on focus and error filters.
+/// Returns (filtered_group_ids, total_pages).
+fn filter_group_ids<'a>(
+    group_ids: impl Iterator<Item = &'a String>,
+    groups: &StdHashMap<String, Arc<Mutex<Group>>>,
+    focused_group_ids: &HashSet<String>,
+    show_errors_only: bool,
+    page: usize,
+) -> (Vec<&'a String>, usize) {
+    let has_focus = !focused_group_ids.is_empty();
+
+    let mut filtered: Vec<&'a String> = group_ids.collect();
+    filtered.sort();
+
+    // Filter groups to only show focused groups (if any are focused)
+    if has_focus {
+        filtered.retain(|group_id| focused_group_ids.contains(*group_id));
+    }
+
+    // Filter groups to only show those with errors if the filter is enabled
+    if show_errors_only {
+        filtered.retain(|group_id| {
+            groups
+                .get(*group_id)
+                .map(|g| g.lock().has_errors.load(Ordering::Relaxed))
+                .unwrap_or(false)
+        });
+    }
+
+    let total = filtered.len();
+    let total_pages = if total == 0 {
+        1
+    } else {
+        total.div_ceil(PAGE_SIZE)
+    };
+
+    let start = page * PAGE_SIZE;
+    let end = ((page + 1) * PAGE_SIZE).min(total);
+    let paginated: Vec<&'a String> = filtered.into_iter().skip(start).take(end - start).collect();
+
+    (paginated, total_pages)
+}
 
 fn short_id(id: &str) -> String {
     if id.len() > 12 {
@@ -111,35 +156,22 @@ impl State {
 
                 let groups_page = self.groups_page.load(Ordering::Relaxed) as usize;
                 let show_errors_only = self.show_errors_only.load(Ordering::Relaxed);
+                let focused_group_ids = self.focused_group_ids.lock().clone();
+                let has_focus = !focused_group_ids.is_empty();
                 let mut group_rows: Vec<UIGroupRow> = Vec::new();
 
                 let grouped_epochs = self.grouped_epochs.lock();
                 let groups = self.groups.lock();
-                let mut group_ids: Vec<&String> = grouped_epochs.keys().collect();
-                group_ids.sort();
 
-                // Filter groups to only show those with errors if the filter is enabled
-                if show_errors_only {
-                    group_ids.retain(|group_id| {
-                        if let Some(group) = groups.get(*group_id) {
-                            group.lock().has_errors.load(Ordering::Relaxed)
-                        } else {
-                            false
-                        }
-                    });
-                }
+                let (group_ids, groups_total_pages) = filter_group_ids(
+                    grouped_epochs.keys(),
+                    &groups,
+                    &focused_group_ids,
+                    show_errors_only,
+                    groups_page,
+                );
 
-                let total_groups = group_ids.len();
-                let groups_total_pages = if total_groups == 0 {
-                    1
-                } else {
-                    total_groups.div_ceil(PAGE_SIZE)
-                };
-
-                let start = groups_page * PAGE_SIZE;
-                let end = ((groups_page + 1) * PAGE_SIZE).min(total_groups);
-
-                for group_id in group_ids.into_iter().skip(start).take(end - start) {
+                for group_id in group_ids {
                     let inst_epochs_map = &grouped_epochs[group_id];
 
                     // Sort epochs by epoch number
@@ -260,6 +292,17 @@ impl State {
                 ui.set_groups_total_pages(groups_total_pages as i32);
                 ui.set_show_errors_only(show_errors_only);
 
+                // Set focus state
+                let focused_groups: Vec<UIFocusedGroup> = focused_group_ids
+                    .iter()
+                    .map(|id| UIFocusedGroup {
+                        group_id: SharedString::from(id.as_str()),
+                        group_id_short: SharedString::from(short_id(id)),
+                    })
+                    .collect();
+                ui.set_has_focused_groups(has_focus);
+                ui.set_focused_groups(ModelRc::new(VecModel::from(focused_groups)));
+
                 let epoch_groups = ModelRc::new(VecModel::from(group_rows));
                 ui.set_epoch_groups(epoch_groups);
 
@@ -271,25 +314,15 @@ impl State {
 
                 let mut timeline_groups: Vec<UITimelineGroup> = Vec::new();
 
-                let mut timeline_group_ids: Vec<&String> = groups.keys().collect();
-                timeline_group_ids.sort();
+                let (timeline_group_ids, _) = filter_group_ids(
+                    groups.keys(),
+                    &groups,
+                    &focused_group_ids,
+                    show_errors_only,
+                    groups_page,
+                );
 
-                // Filter groups to only show those with errors if the filter is enabled
-                if show_errors_only {
-                    timeline_group_ids.retain(|group_id| {
-                        if let Some(group) = groups.get(*group_id) {
-                            group.lock().has_errors.load(Ordering::Relaxed)
-                        } else {
-                            false
-                        }
-                    });
-                }
-
-                // Use the same pagination as epochs tab
-                let start = groups_page * PAGE_SIZE;
-                let end = ((groups_page + 1) * PAGE_SIZE).min(timeline_group_ids.len());
-
-                for group_id in timeline_group_ids.into_iter().skip(start).take(end - start) {
+                for group_id in timeline_group_ids {
                     let group = groups[group_id].lock();
                     let entries = &group.timeline;
 

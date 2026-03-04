@@ -66,8 +66,8 @@ fn main() -> Result<()> {
                 let (group, _) = bo.test_talk_in_new_group_with(&alix).await?;
                 group.add_members(&[caro.inbox_id()]).await?;
 
-                // alix.save_snapshot_to_file("alix.db3");
-                // tester!(alix2, snapshot_file: "alix.db3", stream);
+                alix.save_snapshot_to_file("alix.db3");
+                tester!(alix2, snapshot_file: "alix.db3", stream);
 
                 group.update_group_name("Fellows".into()).await?;
                 caro.sync_all_welcomes_and_groups(None).await?;
@@ -183,6 +183,32 @@ fn main() -> Result<()> {
         move |checked| {
             tracing::info!("Show errors only changed to: {}", checked);
             state.set_show_errors_only(checked);
+        }
+    });
+
+    ui.on_focus_group({
+        let state = state.clone();
+        move |group_id| {
+            let group_id = group_id.to_string();
+            tracing::info!("Focus group: {}", group_id);
+            state.focus_group(group_id);
+        }
+    });
+
+    ui.on_unfocus_group({
+        let state = state.clone();
+        move |group_id| {
+            let group_id = group_id.to_string();
+            tracing::info!("Unfocus group: {}", group_id);
+            state.unfocus_group(&group_id);
+        }
+    });
+
+    ui.on_clear_focused_groups({
+        let state = state.clone();
+        move || {
+            tracing::info!("Clear focused groups");
+            state.clear_focused_groups();
         }
     });
 

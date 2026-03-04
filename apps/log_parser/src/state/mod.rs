@@ -21,7 +21,7 @@ pub use event::LogEvent;
 use parking_lot::{Mutex, MutexGuard};
 use slint::Weak as SlintWeak;
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::{
         Arc, Weak,
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -60,6 +60,8 @@ pub struct State {
     pub groups_page: AtomicU32,
     /// Filter to show only groups with errors
     pub show_errors_only: AtomicBool,
+    /// Set of group IDs to focus on (when non-empty, only these groups are shown)
+    pub focused_group_ids: Mutex<HashSet<String>>,
 }
 
 #[derive(Default)]
@@ -95,14 +97,59 @@ impl State {
             events_page: AtomicU32::new(0),
             groups_page: AtomicU32::new(0),
             show_errors_only: AtomicBool::new(false),
+            focused_group_ids: Mutex::new(HashSet::new()),
         })
     }
 
     /// Set the show_errors_only filter and trigger a UI update
+    /// When enabled, focuses on all groups with errors
+    /// When disabled, clears all focused groups
     pub fn set_show_errors_only(self: &Arc<Self>, show_errors_only: bool) {
         self.show_errors_only
             .store(show_errors_only, Ordering::Relaxed);
+
+        // Update focused groups based on the filter
+        let mut focused = self.focused_group_ids.lock();
+        if show_errors_only {
+            // Populate with all groups that have errors
+            let groups = self.groups.lock();
+            focused.clear();
+            for (group_id, group) in groups.iter() {
+                if group.lock().has_errors.load(Ordering::Relaxed) {
+                    focused.insert(group_id.clone());
+                }
+            }
+        } else {
+            // Clear all focused groups
+            focused.clear();
+        }
+        drop(focused);
+
         // Reset to first page when filter changes
+        self.groups_page.store(0, Ordering::Relaxed);
+        self.clone().update_ui();
+    }
+
+    /// Add a group ID to the focused set
+    pub fn focus_group(self: &Arc<Self>, group_id: String) {
+        self.focused_group_ids.lock().insert(group_id);
+        // Reset to first page when focus changes
+        self.groups_page.store(0, Ordering::Relaxed);
+        self.clone().update_ui();
+    }
+
+    /// Remove a group ID from the focused set
+    pub fn unfocus_group(self: &Arc<Self>, group_id: &str) {
+        self.focused_group_ids.lock().remove(group_id);
+        // Reset to first page when focus changes
+        self.groups_page.store(0, Ordering::Relaxed);
+        self.clone().update_ui();
+    }
+
+    /// Clear all focused groups
+    pub fn clear_focused_groups(self: &Arc<Self>) {
+        self.focused_group_ids.lock().clear();
+        // Reset to first page when focus changes
         self.groups_page.store(0, Ordering::Relaxed);
         self.clone().update_ui();
     }

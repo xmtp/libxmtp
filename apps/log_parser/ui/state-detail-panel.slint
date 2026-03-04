@@ -86,6 +86,7 @@ export component StateDetailPanel inherits Rectangle {
                     text: root.detail.icon;
                     font-size: 18px;
                     font-weight: 700;
+                    font-family: "Noto Sans Symbols 2";
                 }
 
                 Text {
@@ -107,6 +108,7 @@ export component StateDetailPanel inherits Rectangle {
                         text: "✕";
                         font-size: 12px;
                         font-weight: 600;
+                        font-family: "Noto Sans Symbols 2";
                         color: #666666;
                         horizontal-alignment: center;
                         vertical-alignment: center;
@@ -257,6 +259,7 @@ export component StateDetailPanel inherits Rectangle {
                                 text: "⚠ Problems (" + root.detail.problems.length + ")";
                                 font-size: 12px;
                                 font-weight: 700;
+                                font-family: "Noto Sans Symbols 2";
                                 color: #cc3333;
                             }
 
@@ -300,6 +303,7 @@ export component StateDetailPanel inherits Rectangle {
                                     Text {
                                         text: root.copied ? "✓ Copied!" : (intermediate-touch.has-hover ? "📋 Click to copy" : "");
                                         font-size: 10px;
+                                        font-family: "Noto Sans Symbols 2";
                                         color: root.copied ? #44aa44 : #6688cc;
                                     }
                                 }
