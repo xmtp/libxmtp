@@ -16,7 +16,7 @@ pub enum GrpcBuilderError {
     Metadata(#[from] tonic::metadata::errors::InvalidMetadataValue),
     #[error("Invalid URI during channel creation")]
     InvalidUri(#[from] http::uri::InvalidUri),
-    #[error(transparent)]
+    #[error("Invalid XMTP API gRPC URL {0}")]
     Url(#[from] url::ParseError),
     #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     #[error(transparent)]

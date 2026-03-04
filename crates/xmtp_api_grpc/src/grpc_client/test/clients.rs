@@ -9,11 +9,6 @@ use crate::{ClientBuilder, GrpcClient};
 
 fn build_client(host: &str) -> ClientBuilder {
     let mut client = GrpcClient::builder();
-    let url = url::Url::parse(host).unwrap();
-    match url.scheme() {
-        "https" => client.set_tls(true),
-        _ => client.set_tls(false),
-    }
     client.set_host(host.to_string());
     client
 }

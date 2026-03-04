@@ -5,7 +5,7 @@ use crate::{
 };
 use derive_builder::Builder;
 use xmtp_api_grpc::GrpcClient;
-use xmtp_configuration::PAYER_WRITE_FILTER;
+use xmtp_configuration::{PAYER_WRITE_FILTER, XmtpEnv};
 use xmtp_proto::{
     api::{ArcClient, ToBoxedClient},
     prelude::{ApiBuilder, NetConnectConfig},
@@ -89,7 +89,6 @@ struct __ClientBundleBuilder {
     auth_callback: Arc<dyn AuthCallback>,
     #[builder(setter(into))]
     auth_handle: AuthHandle,
-    is_secure: bool,
     readonly: bool,
 }
 
@@ -114,10 +113,16 @@ impl ClientBundleBuilder {
         self
     }
 
-    fn inner_build_d14n(
-        &mut self,
-        is_secure: bool,
-    ) -> Result<ArcClient, MessageBackendBuilderError> {
+    /// Specify a fallback value for the V3 Host. Only used as a fallback.
+    /// `v3_host()` always takes precedence.
+    pub fn env(&mut self, env: XmtpEnv) -> &mut Self {
+        if self.v3_host.is_none() {
+            self.v3_host = env.default_api_url().map(Into::into);
+        }
+        self
+    }
+
+    fn inner_build_d14n(&mut self) -> Result<ArcClient, MessageBackendBuilderError> {
         let Self {
             app_version,
             auth_callback,
@@ -132,7 +137,6 @@ impl ClientBundleBuilder {
 
         let mut gateway_client_builder = GrpcClient::builder();
         gateway_client_builder.set_host(gw_host.to_string());
-        gateway_client_builder.set_tls(is_secure);
 
         if let Some(ref version) = app_version {
             gateway_client_builder.set_app_version(version.clone())?;
@@ -148,7 +152,6 @@ impl ClientBundleBuilder {
         let mut multi_node = crate::middleware::MultiNodeClient::builder();
         let multi_node = multi_node.gateway_client(gateway_client.clone());
         let mut template = GrpcClient::builder();
-        template.set_tls(is_secure);
         if let Some(ref version) = app_version {
             template.set_app_version(version.clone())?;
         }
@@ -171,11 +174,10 @@ impl ClientBundleBuilder {
     /// Errors:
     /// * if the gateway_host is missing.
     pub fn build_d14n(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
-        let is_secure = self.is_secure.unwrap_or_default();
-        Ok(ClientBundle::d14n(self.inner_build_d14n(is_secure)?))
+        Ok(ClientBundle::d14n(self.inner_build_d14n()?))
     }
 
-    fn inner_build_v3(&mut self, is_secure: bool) -> Result<ArcClient, MessageBackendBuilderError> {
+    fn inner_build_v3(&mut self) -> Result<ArcClient, MessageBackendBuilderError> {
         let v3_host = self
             .v3_host
             .as_ref()
@@ -183,7 +185,6 @@ impl ClientBundleBuilder {
         let readonly = self.readonly.unwrap_or_default();
         let mut v3_client = GrpcClient::builder();
         v3_client.set_host(v3_host.to_string());
-        v3_client.set_tls(is_secure);
         if let Some(ref version) = self.app_version {
             v3_client.set_app_version(version.clone())?;
         }
@@ -199,33 +200,30 @@ impl ClientBundleBuilder {
     /// Errors:
     /// * if the gateway_host is missing.
     pub fn build_v3(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
-        let is_secure = self.is_secure.unwrap_or_default();
-        Ok(ClientBundle::v3(self.inner_build_v3(is_secure)?))
+        Ok(ClientBundle::v3(self.inner_build_v3()?))
     }
 
     /// Build the default client
     /// The default client will migrate to v3 on cutover
+    /// Errors if either V3 or Gateway host are missing
     pub fn build(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
-        let Self { is_secure, .. } = self.clone();
-        let is_secure = is_secure.unwrap_or_default();
-        let d14n = self.inner_build_d14n(is_secure)?;
-        let v3 = self.inner_build_v3(is_secure)?;
+        let d14n = self.inner_build_d14n()?;
+        let v3 = self.inner_build_v3()?;
         Ok(ClientBundle::migration(v3, d14n))
     }
 
     /// If a gateway is present, build a d14n-only client
-    /// otherwise build a v3 client
+    /// otherwise build a v3 client.
+    /// Errors if V3 host is missing
     pub fn build_optional_d14n(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
         let Self {
-            is_secure,
             gateway_host: ref gw,
             ..
         } = self.clone();
-        let is_secure = is_secure.unwrap_or_default();
         if gw.is_some() {
-            Ok(ClientBundle::d14n(self.inner_build_d14n(is_secure)?))
+            Ok(ClientBundle::d14n(self.inner_build_d14n()?))
         } else {
-            Ok(ClientBundle::v3(self.inner_build_v3(is_secure)?))
+            Ok(ClientBundle::v3(self.inner_build_v3()?))
         }
     }
 }
