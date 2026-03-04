@@ -13,32 +13,40 @@
 { lib }:
 let
   # Cross-compilation targets for the iOS release:
-  #   x86_64-apple-darwin    — macOS Intel (for universal macOS binary)
-  #   aarch64-apple-darwin   — macOS Apple Silicon (for universal macOS binary)
-  #   aarch64-apple-ios      — iOS device (arm64)
-  #   aarch64-apple-ios-sim  — iOS simulator on Apple Silicon
+  #   x86_64-apple-darwin         — macOS Intel (for universal macOS binary)
+  #   aarch64-apple-darwin        — macOS Apple Silicon (for universal macOS binary)
+  #   aarch64-apple-ios           — iOS device (arm64)
+  #   aarch64-apple-ios-sim       — iOS simulator on Apple Silicon
+  #   aarch64-apple-ios-macabi    — Mac Catalyst on Apple Silicon
+  #   x86_64-apple-ios-macabi     — Mac Catalyst on Intel
   iosTargets = [
     "x86_64-apple-darwin"
     "aarch64-apple-darwin"
     "aarch64-apple-ios"
     "aarch64-apple-ios-sim"
+    "aarch64-apple-ios-macabi"
+    "x86_64-apple-ios-macabi"
   ];
 
   # Default Xcode path — used as fallback when /usr/bin/xcode-select is unavailable.
   defaultDeveloperDir = "/Applications/Xcode.app/Contents/Developer";
 
-  # iOS targets need explicit CC/CXX overrides to bypass Nix's cc-wrapper,
+  # iOS/Catalyst targets need explicit CC/CXX overrides to bypass Nix's cc-wrapper,
   # which injects macOS-specific flags (e.g., -mmacos-version-min) that break
-  # iOS compilation. macOS targets don't need this — Nix's cc-wrapper is
+  # iOS/Catalyst compilation. macOS targets don't need this — Nix's cc-wrapper is
   # compatible with macOS builds.
   isIosTarget =
     target:
     builtins.elem target [
       "aarch64-apple-ios"
       "aarch64-apple-ios-sim"
+      "aarch64-apple-ios-macabi"
+      "x86_64-apple-ios-macabi"
     ];
 
   # SDK path suffix for a given target (relative to DEVELOPER_DIR).
+  # Mac Catalyst targets use the macOS SDK (not the iOS SDK) because Catalyst
+  # binaries are Mach-O executables that run on macOS with iOS API compatibility.
   sdkSuffixForTarget =
     target:
     {
@@ -46,6 +54,8 @@ let
       "aarch64-apple-ios-sim" = "Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk";
       "x86_64-apple-darwin" = "Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk";
       "aarch64-apple-darwin" = "Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk";
+      "aarch64-apple-ios-macabi" = "Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk";
+      "x86_64-apple-ios-macabi" = "Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk";
     }
     .${target};
 
@@ -109,6 +119,18 @@ let
       export CXX_aarch64_apple_ios_sim="$_XCODE_CLANGXX"
       export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER="$_XCODE_CLANG"
       export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios_sim="--target=arm64-apple-ios-simulator --sysroot=$SDKROOT"
+    ''
+    + lib.optionalString (target == "aarch64-apple-ios-macabi") ''
+      export CC_aarch64_apple_ios_macabi="$_XCODE_CLANG"
+      export CXX_aarch64_apple_ios_macabi="$_XCODE_CLANGXX"
+      export CARGO_TARGET_AARCH64_APPLE_IOS_MACABI_LINKER="$_XCODE_CLANG"
+      export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios_macabi="--target=arm64-apple-ios-macabi --sysroot=$SDKROOT"
+    ''
+    + lib.optionalString (target == "x86_64-apple-ios-macabi") ''
+      export CC_x86_64_apple_ios_macabi="$_XCODE_CLANG"
+      export CXX_x86_64_apple_ios_macabi="$_XCODE_CLANGXX"
+      export CARGO_TARGET_X86_64_APPLE_IOS_MACABI_LINKER="$_XCODE_CLANG"
+      export BINDGEN_EXTRA_CLANG_ARGS_x86_64_apple_ios_macabi="--target=x86_64-apple-ios-macabi --sysroot=$SDKROOT"
     '';
 
   # Shell snippet that sets all cross-compilation env vars for the dev shell.
@@ -130,14 +152,23 @@ let
     _XCODE_CLANGXX="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"
     _IOS_SDK="$_XCODE_DEV/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk"
     _IOS_SIM_SDK="$_XCODE_DEV/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk"
+    _MACOS_SDK="$_XCODE_DEV/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
     export CC_aarch64_apple_ios="$_XCODE_CLANG"
     export CXX_aarch64_apple_ios="$_XCODE_CLANGXX"
     export CC_aarch64_apple_ios_sim="$_XCODE_CLANG"
     export CXX_aarch64_apple_ios_sim="$_XCODE_CLANGXX"
+    export CC_aarch64_apple_ios_macabi="$_XCODE_CLANG"
+    export CXX_aarch64_apple_ios_macabi="$_XCODE_CLANGXX"
+    export CC_x86_64_apple_ios_macabi="$_XCODE_CLANG"
+    export CXX_x86_64_apple_ios_macabi="$_XCODE_CLANGXX"
     export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER="$_XCODE_CLANG"
     export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER="$_XCODE_CLANG"
+    export CARGO_TARGET_AARCH64_APPLE_IOS_MACABI_LINKER="$_XCODE_CLANG"
+    export CARGO_TARGET_X86_64_APPLE_IOS_MACABI_LINKER="$_XCODE_CLANG"
     export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios="--target=arm64-apple-ios --sysroot=$_IOS_SDK"
     export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios_sim="--target=arm64-apple-ios-simulator --sysroot=$_IOS_SIM_SDK"
+    export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios_macabi="--target=arm64-apple-ios-macabi --sysroot=$_MACOS_SDK"
+    export BINDGEN_EXTRA_CLANG_ARGS_x86_64_apple_ios_macabi="--target=x86_64-apple-ios-macabi --sysroot=$_MACOS_SDK"
     export PATH="$_XCODE_DEV/usr/bin:$PATH"
   '';
 

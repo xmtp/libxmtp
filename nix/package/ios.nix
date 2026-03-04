@@ -2,12 +2,13 @@
 # Builds static and dynamic libraries for 4 targets + Swift bindings, cacheable in Cachix.
 # Uses shared config from nix/lib/ios-env.nix and nix/lib/mobile-common.nix.
 #
-# This file produces 6 derivations:
-#   1-4. Per-target static+dynamic libraries (impure — need Xcode SDK):
-#        xmtpv3-{x86_64-apple-darwin,aarch64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim}
-#   5.   Swift bindings (impure — needs Xcode SDK for native host build):
+# This file produces 8 derivations:
+#   1-6. Per-target static+dynamic libraries (impure — need Xcode SDK):
+#        xmtpv3-{x86_64-apple-darwin,aarch64-apple-darwin,aarch64-apple-ios,
+#                 aarch64-apple-ios-sim,aarch64-apple-ios-macabi,x86_64-apple-ios-macabi}
+#   7.   Swift bindings (impure — needs Xcode SDK for native host build):
 #        xmtpv3-swift-bindings (runs uniffi-bindgen, outputs .swift + .h + .modulemap)
-#   6.   Aggregate (pure — just symlinks):
+#   8.   Aggregate (pure — just symlinks):
 #        xmtpv3-ios-libs (combines all outputs into a single derivation)
 #
 # All impure derivations use __noChroot = true to access the system Xcode SDK.

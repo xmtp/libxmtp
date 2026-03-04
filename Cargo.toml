@@ -188,6 +188,12 @@ lto = true
 [patch.crates-io]
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
 diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
+# Mac Catalyst (macabi) support: openssl-src doesn't know how to configure OpenSSL
+# for aarch64-apple-ios-macabi or x86_64-apple-ios-macabi targets. This patch adds
+# the target mappings (darwin64-arm64-cc / darwin64-x86_64-cc).
+# TODO: Replace with upstream once https://github.com/alexcrichton/openssl-src-rs
+# merges macabi support, then remove this patch.
+# openssl-src = { git = "https://github.com/xmtp/openssl-src-rs", branch = "macabi-support" }
 
 [workspace.lints.clippy]
 arc_with_non_send_sync = "allow"
