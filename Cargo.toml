@@ -193,7 +193,7 @@ diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "co
 # the target mappings (darwin64-arm64-cc / darwin64-x86_64-cc).
 # TODO: Replace with upstream once https://github.com/alexcrichton/openssl-src-rs
 # merges macabi support, then remove this patch.
-# openssl-src = { git = "https://github.com/xmtp/openssl-src-rs", branch = "macabi-support" }
+openssl-src = { git = "https://github.com/xmtp/openssl-src-rs", branch = "macabi-support" }
 
 [workspace.lints.clippy]
 arc_with_non_send_sync = "allow"
