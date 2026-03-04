@@ -28,22 +28,6 @@ pub fn open_file_dialog(handle: Weak<AppWindow>) {
     .unwrap();
 }
 
-fn _format_duration_ns(duration_ns: i64) -> String {
-    if duration_ns < 0 {
-        return String::new();
-    }
-
-    if duration_ns >= 1_000_000_000 {
-        format!("+{:.2}s", duration_ns as f64 / 1_000_000_000.0)
-    } else if duration_ns >= 1_000_000 {
-        format!("+{:.2}ms", duration_ns as f64 / 1_000_000.0)
-    } else if duration_ns >= 1_000 {
-        format!("+{:.2}µs", duration_ns as f64 / 1_000.0)
-    } else {
-        format!("+{}ns", duration_ns)
-    }
-}
-
 /// Generate a color from a string by hashing it
 pub fn color_from_string(s: &str) -> Color {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
