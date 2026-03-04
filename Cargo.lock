@@ -9839,8 +9839,6 @@ dependencies = [
  "uniffi_bindgen",
  "uniffi_core",
  "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
  "winnow",
  "zerocopy",
 ]
