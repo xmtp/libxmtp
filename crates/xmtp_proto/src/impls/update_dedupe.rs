@@ -1,11 +1,10 @@
 use crate::xmtp::mls::message_contents::GroupUpdated;
-use rustc_hash::FxHasher;
-use std::hash::{Hash, Hasher};
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 macro_rules! hash_arm {
     ($self:ident, $update:ident, $field:ident) => {
         if !$update.$field.is_empty() {
-            let mut hasher = FxHasher::default();
+            let mut hasher = DefaultHasher::new();
             $update.$field.hash(&mut hasher);
             $self.$field = Some(hasher.finish());
         }
