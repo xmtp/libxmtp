@@ -40,13 +40,14 @@ impl LogAssertion for EpochAuthConsistency {
                         }
 
                         if let Some(auth) = auths.get(&format!("{group_id}-{epoch_id}"))
-                            && auth.len() > 1 {
-                                state
-                                    .event
-                                    .problems
-                                    .lock()
-                                    .push("Multiple epoch auths among clients detected.".to_string());
-                            }
+                            && auth.len() > 1
+                        {
+                            state
+                                .event
+                                .problems
+                                .lock()
+                                .push("Multiple epoch auths among clients detected.".to_string());
+                        }
                     }
                 }
             }

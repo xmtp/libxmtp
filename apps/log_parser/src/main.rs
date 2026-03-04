@@ -58,30 +58,32 @@ fn main() -> Result<()> {
         move || {
             writer.clear();
 
-            runtime_handle
-                .block_on(async {
-                    tester!(bo, stream);
-                    tester!(alix, stream);
-                    tester!(caro, stream);
-                    bo.test_talk_in_dm_with(&alix).await?;
-                    let (group, _) = bo.test_talk_in_new_group_with(&alix).await?;
-                    group.add_members(&[caro.inbox_id()]).await?;
+            let result = runtime_handle.block_on(async {
+                tester!(bo, stream);
+                tester!(alix, stream);
+                tester!(caro, stream);
+                bo.test_talk_in_dm_with(&alix).await?;
+                let (group, _) = bo.test_talk_in_new_group_with(&alix).await?;
+                group.add_members(&[caro.inbox_id()]).await?;
 
-                    // alix.save_snapshot_to_file("alix.db3");
-                    // tester!(alix2, snapshot_file: "alix.db3", stream);
+                // alix.save_snapshot_to_file("alix.db3");
+                // tester!(alix2, snapshot_file: "alix.db3", stream);
 
-                    group.update_group_name("Fellows".into()).await?;
-                    caro.sync_all_welcomes_and_groups(None).await?;
-                    bo.sync_all_welcomes_and_groups(None).await?;
+                group.update_group_name("Fellows".into()).await?;
+                caro.sync_all_welcomes_and_groups(None).await?;
+                bo.sync_all_welcomes_and_groups(None).await?;
 
-                    anyhow::Ok(())
-                })
-                .unwrap();
+                anyhow::Ok(())
+            });
+
+            if let Err(err) = result {
+                tracing::error!("{err}");
+            }
 
             std::thread::sleep(Duration::from_millis(500));
 
             let file = writer.as_string();
-            std::fs::write("logs.txt", &file).unwrap();
+            std::fs::write("logs.txt", &file)?;
 
             let lines = file.split('\n').peekable();
             let events = LogEvent::parse(lines);
