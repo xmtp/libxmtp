@@ -83,7 +83,9 @@ fn main() -> Result<()> {
             std::thread::sleep(Duration::from_millis(500));
 
             let file = writer.as_string();
-            std::fs::write("logs.txt", &file)?;
+            if let Err(err) = std::fs::write("logs.txt", &file) {
+                tracing::error!("{err:?}");
+            }
 
             let lines = file.split('\n').peekable();
             let events = LogEvent::parse(lines);
