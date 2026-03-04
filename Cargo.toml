@@ -91,6 +91,8 @@ prost = { version = "0.14", default-features = false }
 prost-types = { version = "0.14", default-features = false }
 rustc-hash = "2.1.1"
 # updating crates are blocked on https://github.com/dalek-cryptography/curve25519-dalek/pull/729
+proc-macro2 = "1.0"
+quote = "1.0"
 rand = "0.10.0"
 rand_chacha = "0.10.0"
 regex = "1.10.4"
@@ -104,6 +106,7 @@ rstest_reuse = "0.7.0"
 serde = { version = "1.0", default-features = false }
 serde_json = { version = "1.0", default-features = false }
 sha2 = "0.10.8"
+syn = { version =  "2.0", default-features = false }
 thiserror = "2.0"
 tls_codec = "0.4.1"
 tokio = { version = "1.47.0", default-features = false }
