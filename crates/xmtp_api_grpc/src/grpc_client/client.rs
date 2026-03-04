@@ -208,8 +208,6 @@ pub struct ClientBuilder {
     pub app_version: Option<MetadataValue<metadata::Ascii>>,
     /// Version of the libxmtp core library
     pub libxmtp_version: Option<MetadataValue<metadata::Ascii>>,
-    /// Whether or not the channel should use TLS
-    pub tls_channel: bool,
     /// Rate per minute
     pub limit: Option<u64>,
     /// retry strategy for this client
@@ -229,10 +227,6 @@ impl NetConnectConfig for ClientBuilder {
 
     fn set_host(&mut self, host: String) {
         self.host = Some(host);
-    }
-
-    fn set_tls(&mut self, tls: bool) {
-        self.tls_channel = tls;
     }
 
     fn rate_per_minute(&mut self, limit: u32) {
@@ -263,7 +257,7 @@ impl ApiBuilder for ClientBuilder {
 
     fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
-        let channel = crate::GrpcService::new(host, self.limit, self.tls_channel)?;
+        let channel = crate::GrpcService::new(host.parse()?, self.limit)?;
         Ok(GrpcClient {
             inner: tonic::client::Grpc::new(channel)
                 .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
@@ -279,22 +273,19 @@ impl ApiBuilder for ClientBuilder {
 }
 
 impl GrpcClient {
-    pub fn create(host: &str, is_secure: bool) -> Result<Self, GrpcBuilderError> {
+    pub fn create(host: &str) -> Result<Self, GrpcBuilderError> {
         let mut builder = Self::builder();
         builder.set_host(host.to_string());
-        builder.set_tls(is_secure);
         builder.build()
     }
 
     /// Create a grpc client with `app_version` attached
     pub fn create_with_version(
         host: &str,
-        is_secure: bool,
         app_version: AppVersion,
     ) -> Result<Self, GrpcBuilderError> {
         let mut builder = Self::builder();
         builder.set_host(host.to_string());
-        builder.set_tls(is_secure);
         builder.set_app_version(app_version)?;
         builder.build()
     }
