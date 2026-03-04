@@ -40,7 +40,7 @@ function generate_identities() {
     log "Generating identities at $db_root"
     # Fast pass (no delay), then a conservative retry with 5s pause if needed
     XDBG_LOOP_PAUSE=0 XDBG_DB_ROOT="$db_root" xdbg -d -b "${BACKEND}" generate --entity identity --amount 10 --concurrency 1 \
-        || { log "Identity generation failed, clearing and retrying"; clear_db "$db_root"; XDBG_LOOP_PAUSE=5 XDBG_DB_ROOT="$db_root" xdbg -d -b "${BACKEND}" generate --entity identity --amount 10 --concurrency 1; }
+        || { log "Identity generation failed, clearing and retrying"; clear_db "$db_root"; XDBG_LOOP_PAUSE=5 XDBG_DB_ROOT="$db_root" xdbg -d -b "${BACKEND}" generate --entity identity --amount 10 --concurrency 1 || true; }
 }
 
 function generate_groups_with_retry() {
