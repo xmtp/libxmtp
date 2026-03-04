@@ -2,7 +2,7 @@ use super::XmtpEnv;
 use super::gateway_auth::{AuthCallback, AuthHandle};
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
-use xmtp_api_d14n::{ClientBundleBuilder, validate_and_resolve};
+use xmtp_api_d14n::ClientBundleBuilder;
 
 #[xmtp_macro::wasm_builder]
 pub struct BackendBuilder {
@@ -38,28 +38,14 @@ impl BackendBuilder {
 
   #[wasm_bindgen]
   pub fn build(mut self) -> Result<Backend, JsError> {
-    let config = validate_and_resolve(
-      self.env.into(),
-      self.api_url.clone(),
-      self.gateway_host.clone(),
-      self.readonly.unwrap_or(false),
-      self.app_version.clone(),
-      self.auth_callback.is_some() || self.auth_handle.is_some(),
-    )
-    .map_err(|e| JsError::new(&e.to_string()))?;
-
-    let app_version = config.app_version.clone();
+    let app_version = self.app_version.clone().unwrap_or_default();
     let mut builder = ClientBundleBuilder::default();
-    if let Some(url) = &config.api_url {
-      builder.v3_host(url);
-    }
-    if let Some(host) = &config.gateway_host {
-      builder.gateway_host(host);
-    }
     builder
-      .is_secure(config.is_secure)
-      .readonly(config.readonly)
-      .app_version(config.app_version)
+      .env(self.env.into())
+      .maybe_v3_host(self.api_url.clone())
+      .maybe_gateway_host(self.gateway_host.clone())
+      .readonly(self.readonly.unwrap_or_default())
+      .app_version(app_version.clone())
       .maybe_auth_callback(
         self
           .auth_callback
@@ -74,8 +60,8 @@ impl BackendBuilder {
     Ok(Backend {
       bundle,
       env: self.env,
-      v3_host: config.api_url,
-      gateway_host: config.gateway_host,
+      v3_host: self.api_url.clone(),
+      gateway_host: self.gateway_host.clone(),
       app_version,
     })
   }

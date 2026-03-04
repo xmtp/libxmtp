@@ -137,7 +137,6 @@ impl XmtpApiClient {
 pub async fn connect_to_backend(
     v3_host: String,
     gateway_host: Option<String>,
-    is_secure: bool,
     client_mode: Option<FfiClientMode>,
     app_version: Option<String>,
     auth_callback: Option<Arc<dyn gateway_auth::FfiAuthCallback>>,
@@ -149,18 +148,15 @@ pub async fn connect_to_backend(
 
     log::info!(
         v3_host,
-        is_secure,
-        "Creating API client for host: {}, gateway: {:?}, isSecure: {}",
+        "Creating API client for host: {}, gateway: {:?}",
         v3_host,
         gateway_host,
-        is_secure
     );
     let mut client_bundle = ClientBundle::builder();
     let client_bundle = client_bundle
         .v3_host(&v3_host)
         .maybe_gateway_host(gateway_host)
         .app_version(app_version.clone().unwrap_or_default())
-        .is_secure(is_secure)
         .maybe_auth_callback(
             auth_callback
                 .map(|callback| Arc::new(gateway_auth::FfiAuthCallbackBridge::new(callback)) as _),

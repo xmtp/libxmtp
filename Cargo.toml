@@ -137,7 +137,7 @@ tracing-subscriber = { version = "0.3", default-features = false }
 tracing-web = "0.1"
 trait-variant = "0.1.2"
 tsify = { version = "0.5", default-features = false, features = ["js"] }
-url = "2.5.0"
+url = { version = "2.5.0", default-features = false }
 uuid = "1.12"
 valuable = { version = "0.1", features = ["derive"] }
 vergen-gix = "9.1"
@@ -158,7 +158,7 @@ zeroize = "1.8"
 # Internal Crate Dependencies
 bindings-wasm = { path = "bindings/wasm" }
 bindings_wasm_macros = { path = "crates/wasm_macros" }
-xmtp-workspace-hack = { path = "crates/xmtp-workspace-hack" }
+xmtp-workspace-hack = "0.1.0"
 xmtp_api = { path = "crates/xmtp_api" }
 xmtp_api_d14n = { path = "crates/xmtp_api_d14n" }
 xmtp_api_grpc = { path = "crates/xmtp_api_grpc" }

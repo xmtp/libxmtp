@@ -356,64 +356,53 @@ impl BackendOpts {
 
     pub fn connect(&self) -> eyre::Result<crate::DbgClientApi> {
         let network = self.network_url();
-        let is_secure = network.scheme() == "https";
-
         let mut builder = MessageBackendBuilder::default();
-        builder.v3_host(network.as_str()).is_secure(is_secure);
+        builder.v3_host(network.as_str());
         if self.enable_migration {
             let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
-            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
+            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host,  "create grpc");
             return Ok(builder.gateway_host(xmtpd_gateway_host.as_str()).build()?);
         }
         if self.d14n {
             let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
-            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
+            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host,  "create grpc");
             Ok(builder
                 .gateway_host(xmtpd_gateway_host.as_str())
                 .build_d14n()?)
         } else {
-            trace!(url = %network, is_secure, "create grpc");
+            trace!(url = %network,  "create grpc");
             Ok(builder.build_v3()?)
         }
     }
 
     pub fn client_bundle(&self) -> eyre::Result<xmtp_mls::XmtpClientBundle> {
         let network = self.network_url();
-        let is_secure = network.scheme() == "https";
-
         let mut builder = ClientBundle::builder();
-        builder.v3_host(network.as_str()).is_secure(is_secure);
+        builder.v3_host(network.as_str());
         if self.enable_migration {
             let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
-            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
+            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, "create grpc");
             return Ok(builder.gateway_host(xmtpd_gateway_host.as_str()).build()?);
         }
         if self.d14n {
             let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
-            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
+            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, "create grpc");
             Ok(builder
                 .gateway_host(xmtpd_gateway_host.as_str())
                 .build_d14n()?)
         } else {
-            trace!(url = %network, is_secure, "create grpc");
+            trace!(url = %network, "create grpc");
             Ok(builder.build_v3()?)
         }
     }
 
     pub fn xmtpd(&self) -> eyre::Result<impl Client> {
-        let network = self.network_url();
-        let is_secure = network.scheme() == "https";
-
         let mut gateway_client_builder = GrpcClient::builder();
         gateway_client_builder.set_host(self.xmtpd_gateway_url()?.to_string());
-        gateway_client_builder.set_tls(is_secure);
         let gateway_client = gateway_client_builder.build()?;
-        let mut node_builder = GrpcClient::builder();
-        node_builder.set_tls(is_secure);
-
         let multi_node = xmtp_api_d14n::middleware::MultiNodeClient::builder()
             .gateway_client(gateway_client.clone())
-            .node_client_template(node_builder)
+            .node_client_template(GrpcClient::builder())
             .build()?;
 
         let rw = ReadWriteClient::builder()
