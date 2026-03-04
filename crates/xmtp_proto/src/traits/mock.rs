@@ -33,7 +33,7 @@ impl NetConnectConfig for MockApiBuilder {
         Ok(())
     }
     fn set_host(&mut self, _host: String) {}
-    fn set_tls(&mut self, _tls: bool) {}
+
     fn rate_per_minute(&mut self, _limit: u32) {}
 
     fn port(&self) -> Result<Option<String>, Self::Error> {

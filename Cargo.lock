@@ -14163,7 +14163,6 @@ name = "xmtp_configuration"
 version = "1.9.0"
 dependencies = [
  "openmls",
- "url",
  "xmtp-workspace-hack",
  "xmtp_common",
  "xmtp_cryptography",

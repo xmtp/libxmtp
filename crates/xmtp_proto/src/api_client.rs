@@ -206,9 +206,6 @@ pub trait NetConnectConfig: ApiBuilder + MaybeSend + MaybeSync {
     /// Set the libxmtp host (required)
     fn set_host(&mut self, host: String);
 
-    /// indicate tls (default: false)
-    fn set_tls(&mut self, tls: bool);
-
     /// Set the retry strategy for this client
     fn set_retry(&mut self, retry: Retry);
 

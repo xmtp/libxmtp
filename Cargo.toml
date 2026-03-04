@@ -117,7 +117,7 @@ tracing-forest = { version = "0.3", features = ["chrono"] }
 tracing-logfmt = "0.3"
 tracing-subscriber = { version = "0.3", default-features = false }
 trait-variant = "0.1.2"
-url = "2.5.0"
+url = { version = "2.5.0", default-features = false }
 uuid = "1.12"
 vergen-gix = "9.1"
 # zstd = { default-features = false, version = "0.13" } # needed to enable wasm feature for async-compression
