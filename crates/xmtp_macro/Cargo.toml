@@ -20,7 +20,7 @@ syn = { version = "2.0", default-features = false, features = [
   "full",
   "clone-impls",
 ] }
-xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
+xmtp-workspace-hack.workspace = true
 
 [lib]
 proc-macro = true

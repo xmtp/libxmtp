@@ -40,7 +40,7 @@ xmtp_db.workspace = true
 xmtp_proto = { workspace = true, features = [] }
 
 rstest = { workspace = true, optional = true }
-xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
+xmtp-workspace-hack.workspace = true
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
 openmls = { workspace = true, features = ["js"] }
