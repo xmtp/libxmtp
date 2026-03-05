@@ -2419,6 +2419,8 @@ where
                                     intent_kind = ?kind,
                                     err = ?err
                                 );
+                                // Reset so the next retry re-encrypts at the current epoch.
+                                let _ = db.set_group_intent_to_publish(intent.id);
                                 return Err(err)?;
                             }
                             (kind, Ok(_)) => {
