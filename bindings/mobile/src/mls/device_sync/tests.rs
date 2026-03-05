@@ -807,13 +807,16 @@ async fn test_new_installation_group_message_visibility() {
         .await
         .unwrap();
 
+    // Alix creates a second installation and client
+    let alix2 = alix.builder.build().await;
+
     // Alix syncs all their conversations and uploads a sync archive
     alix.conversations()
         .sync_all_conversations(None)
         .await
         .unwrap();
     group.sync().await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
     alix.send_sync_archive(
         FfiArchiveOptions::default(),
         DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
@@ -821,16 +824,12 @@ async fn test_new_installation_group_message_visibility() {
     )
     .await
     .unwrap();
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     alix.worker()
         .register_interest(SyncMetric::PayloadSent, 1)
         .wait()
         .await
         .unwrap();
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    // Alix creates a second installation and client
-    let alix2 = alix.builder.build().await;
 
     // Bo syncs their groups and sends a message in the group with Alix
     bo.conversations().sync().await.unwrap();
