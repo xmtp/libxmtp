@@ -20,9 +20,7 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-
-# XMTP/Local
-xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
+xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
 xmtp_proto.workspace = true
 

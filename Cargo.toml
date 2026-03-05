@@ -1,24 +1,22 @@
 [workspace]
 members = [
   # Applications
-  "apps/[!android]*",
+  "apps/*",
   # Bindings
   "bindings/*",
   # Core crates
   "crates/*",
-  # Core crates
-  "crates/xmtp-workspace-hack",
 ]
+exclude = ["apps/android"]
 
 default-members = [
   # Applications
-  "apps/[!(android)]*",
+  "apps/mls_validation_service",
   # Bindings
   "bindings/*",
   # Core crates
   "crates/*",
-] # Used when cargo commands in the workspace root, such as `cargo test`, are run without flags.
-# Excludes `bindings/wasm` by default, since those bindings only build for the WASM target.
+]
 
 # Make the feature resolver explicit.
 # See https://doc.rust-lang.org/edition-guide/rust-2021/default-cargo-resolver.html#details
@@ -138,6 +136,7 @@ zeroize = "1.8"
 # Internal Crate Dependencies
 bindings-wasm = { path = "bindings/wasm" }
 bindings_wasm_macros = { path = "crates/wasm_macros" }
+xmtp-workspace-hack = "0.1.0"
 xmtp_api = { path = "crates/xmtp_api" }
 xmtp_api_d14n = { path = "crates/xmtp_api_d14n" }
 xmtp_api_grpc = { path = "crates/xmtp_api_grpc" }
@@ -187,6 +186,9 @@ lto = true
 [patch.crates-io]
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
 diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
+
+[patch.crates-io.xmtp-workspace-hack]
+path = "crates/xmtp-workspace-hack"
 
 [workspace.lints.clippy]
 arc_with_non_send_sync = "allow"
