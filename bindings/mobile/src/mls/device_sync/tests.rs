@@ -1,11 +1,15 @@
 //! Tests for multi-device operations, installations, syncing, and fork recovery
 
 use crate::{
-    FfiConsent, FfiConsentEntityType, FfiConsentState, FfiCreateGroupOptions, FfiDecodedMessage, FfiListConversationsOptions, FfiListMessagesOptions, FfiSendMessageOpts, device_sync::FfiArchiveOptions, test_utils::{LocalBuilder, LocalTester}, tests::{RustStreamCallback, SignWithWallet, new_test_client, new_test_client_with_wallet}
+    FfiConsent, FfiConsentEntityType, FfiConsentState, FfiCreateGroupOptions, FfiDecodedMessage,
+    FfiListConversationsOptions, FfiListMessagesOptions, FfiSendMessageOpts,
+    device_sync::FfiArchiveOptions,
+    test_utils::{LocalBuilder, LocalTester},
+    tests::{RustStreamCallback, SignWithWallet, new_test_client, new_test_client_with_wallet},
 };
 use alloy::signers::local::PrivateKeySigner;
-use xmtp_configuration::DeviceSyncUrls;
 use std::sync::Arc;
+use xmtp_configuration::DeviceSyncUrls;
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes, text::TextCodec};
 use xmtp_mls::{utils::Tester, worker::device_sync::worker::SyncMetric};
 
@@ -804,13 +808,26 @@ async fn test_new_installation_group_message_visibility() {
         .unwrap();
 
     // Alix syncs all their conversations and uploads a sync archive
-    alix.conversations().sync_all_conversations(None).await.unwrap();
+    alix.conversations()
+        .sync_all_conversations(None)
+        .await
+        .unwrap();
     group.sync().await.unwrap();
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    alix.send_sync_archive(FfiArchiveOptions::default(), DeviceSyncUrls::LOCAL_ADDRESS.to_string(), "123".to_string()).await.unwrap();
+    alix.send_sync_archive(
+        FfiArchiveOptions::default(),
+        DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
+        "123".to_string(),
+    )
+    .await
+    .unwrap();
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
-    alix.worker().register_interest(SyncMetric::PayloadSent, 1).wait().await.unwrap();
+    alix.worker()
+        .register_interest(SyncMetric::PayloadSent, 1)
+        .wait()
+        .await
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     // Alix creates a second installation and client
     let alix2 = alix.builder.build().await;
@@ -863,7 +880,11 @@ async fn test_new_installation_group_message_visibility() {
     );
 
     // Now Alix attempts to sync the archive
-    alix2.conversations().sync_all_conversations(None).await.unwrap();
+    alix2
+        .conversations()
+        .sync_all_conversations(None)
+        .await
+        .unwrap();
     alix2.sync_all_device_sync_groups().await.unwrap();
 
     // Both ways of processing the sync archive fail with the error Error(DeviceSync(MissingPayload(Some("123")))) or Error(DeviceSync(MissingPayload(None)))
