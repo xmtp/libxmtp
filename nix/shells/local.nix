@@ -47,7 +47,7 @@ let
   ];
 
 in
-mkShell {
+mkShell ({
   meta.description = "Full libXMTP local development environment";
 
   XMTP_DEV_SHELL = "local";
@@ -78,8 +78,6 @@ mkShell {
   ANDROID_NDK_HOME = androidEnv.devPaths.ndkHome;
   ANDROID_NDK_ROOT = androidEnv.devPaths.ndkHome;
   NDK_HOME = androidEnv.devPaths.ndkHome;
-  EMULATOR = "${androidEnv.emulator}";
-
   buildInputs =
     shellCommon.rustBase.buildInputs
     ++ [
@@ -94,7 +92,6 @@ mkShell {
       # Android
       androidEnv.devComposition.androidsdk
       cargo-ndk
-      androidEnv.emulator
       gnused
 
       # Kotlin / JDK
@@ -117,6 +114,10 @@ mkShell {
     # Debug & profiling
     ++ shellCommon.debugTools
     ++ shellCommon.miscDevTools
+    # Emulator (not available on aarch64-linux)
+    ++ lib.optionals androidEnv.hasEmulator [
+      androidEnv.emulator
+    ]
     # Darwin-specific
     ++ lib.optionals isDarwin [
       darwin.cctools
@@ -155,4 +156,6 @@ mkShell {
         command swift "$@"
     }
   '';
-}
+} // lib.optionalAttrs androidEnv.hasEmulator {
+  EMULATOR = "${androidEnv.emulator}";
+})

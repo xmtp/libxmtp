@@ -21,7 +21,7 @@ let
     "rustfmt-preview"
   ];
 in
-mkShell {
+mkShell ({
   meta.description = "Android Development environment for Android SDK and Emulator";
 
   XMTP_DEV_SHELL = "android";
@@ -31,7 +31,6 @@ mkShell {
   ANDROID_NDK_HOME = androidEnv.devPaths.ndkHome;
   ANDROID_NDK_ROOT = androidEnv.devPaths.ndkHome;
   NDK_HOME = androidEnv.devPaths.ndkHome;
-  EMULATOR = "${androidEnv.emulator}";
   LD_LIBRARY_PATH = lib.makeLibraryPath [
     openssl
     zlib
@@ -48,10 +47,14 @@ mkShell {
       androidEnv.devComposition.androidsdk
       jdk17
       cargo-ndk
-      androidEnv.emulator
       gnused
+    ]
+    ++ lib.optionals androidEnv.hasEmulator [
+      androidEnv.emulator
     ]
     ++ lib.optionals stdenv.isDarwin [
       darwin.cctools
     ];
-}
+} // lib.optionalAttrs androidEnv.hasEmulator {
+  EMULATOR = "${androidEnv.emulator}";
+})
