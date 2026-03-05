@@ -8,6 +8,7 @@ TARGET_DIR=$(shell cargo metadata --format-version 1 --no-deps | jq -r '.target_
 # simulator testing. Would require adding it to iosTargets in ios-env.nix too.
 ARCHS_IOS = aarch64-apple-ios-sim
 ARCHS_MAC = x86_64-apple-darwin aarch64-apple-darwin
+ARCHS_CATALYST = aarch64-apple-ios-macabi x86_64-apple-ios-macabi
 LIB=libxmtpv3.a
 DYLIB=libxmtpv3.dylib
 JAR_DIR=$(shell pwd)/tests/jar
@@ -38,6 +39,7 @@ echo-jar:
 download-toolchains:
 	rustup target add $(ARCHS_IOS)
 	rustup target add $(ARCHS_MAC)
+	rustup target add $(ARCHS_CATALYST)
 	rustup target add aarch64-apple-ios
 
 all: framework
@@ -63,23 +65,33 @@ aarch64-apple-ios:
 	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
 	mv $(TARGET_DIR)/$@/release/$(DYLIB) build/$@/$(DYLIB)
 
-$(LIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
-$(DYLIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
+# Mac Catalyst targets use the macOS SDK but produce iOS-platform-variant binaries.
+$(ARCHS_CATALYST): %:
+	SDKROOT=$$(xcrun --sdk macosx --show-sdk-path) cargo build --target $@ --target-dir $(TARGET_DIR) --release --no-default-features
+	mkdir -p build/$@
+	mv $(TARGET_DIR)/$@/release/$(LIB) build/$@/$(LIB)
+	mv $(TARGET_DIR)/$@/release/$(DYLIB) build/$@/$(DYLIB)
+
+$(LIB): $(ARCHS_IOS) $(ARCHS_MAC) $(ARCHS_CATALYST) aarch64-apple-ios
+$(DYLIB): $(ARCHS_IOS) $(ARCHS_MAC) $(ARCHS_CATALYST) aarch64-apple-ios
 
 # lipo combines libs for different architectures (aarch64, x86_64, ...) into one fat lib
 lipo:
-	mkdir -p build/lipo_macos build/lipo_ios_sim
+	mkdir -p build/lipo_macos build/lipo_ios_sim build/lipo_maccatalyst
 	lipo -create -output build/lipo_ios_sim/$(LIB) $(foreach arch,$(ARCHS_IOS),$(wildcard $(NIX_OUT)/$(arch)/$(LIB)))
 	lipo -create -output build/lipo_macos/$(LIB) $(foreach arch,$(ARCHS_MAC),$(wildcard $(NIX_OUT)/$(arch)/$(LIB)))
+	lipo -create -output build/lipo_maccatalyst/$(LIB) $(foreach arch,$(ARCHS_CATALYST),$(wildcard $(NIX_OUT)/$(arch)/$(LIB)))
 
 lipodyn:
-	mkdir -p build/lipo_macos build/lipo_ios_sim
+	mkdir -p build/lipo_macos build/lipo_ios_sim build/lipo_maccatalyst
 	lipo -create -output build/lipo_ios_sim/$(DYLIB) $(foreach arch,$(ARCHS_IOS),$(wildcard $(NIX_OUT)/$(arch)/$(DYLIB)))
 	lipo -create -output build/lipo_macos/$(DYLIB) $(foreach arch,$(ARCHS_MAC),$(wildcard $(NIX_OUT)/$(arch)/$(DYLIB)))
+	lipo -create -output build/lipo_maccatalyst/$(DYLIB) $(foreach arch,$(ARCHS_CATALYST),$(wildcard $(NIX_OUT)/$(arch)/$(DYLIB)))
 	install_name_tool -id @rpath/libxmtpv3.dylib build/lipo_ios_sim/$(DYLIB)
 	install_name_tool -id @rpath/libxmtpv3.dylib build/lipo_macos/$(DYLIB)
+	install_name_tool -id @rpath/libxmtpv3.dylib build/lipo_maccatalyst/$(DYLIB)
 
-# xcframework combines libs for different platforms (iOS, iOS-simulator, macOS, ...) into one framework that can be used in Xcode
+# xcframework combines libs for different platforms (iOS, iOS-simulator, macOS, Mac Catalyst, ...) into one framework that can be used in Xcode
 framework: lipo
 	mkdir -p build/swift
 	mkdir -p $(IOS_SDK_SWIFT_DIR)
@@ -91,6 +103,8 @@ framework: lipo
 		-library build/lipo_ios_sim/$(LIB) \
 		-headers $(SWIFT_OUT)/include/libxmtp/ \
 		-library build/lipo_macos/$(LIB) \
+		-headers $(SWIFT_OUT)/include/libxmtp/ \
+		-library build/lipo_maccatalyst/$(LIB) \
 		-headers $(SWIFT_OUT)/include/libxmtp/ \
 		-output build/swift/LibXMTPSwiftFFI.xcframework
 	cp -f $(SWIFT_OUT)/xmtpv3.swift $(IOS_SDK_SWIFT_DIR)/xmtpv3.swift
@@ -121,6 +135,8 @@ frameworkdyn: lipodyn
 		-headers $(SWIFT_OUT)/include/libxmtp/ \
 		-library build/lipo_macos/$(DYLIB) \
 		-headers $(SWIFT_OUT)/include/libxmtp/ \
+		-library build/lipo_maccatalyst/$(DYLIB) \
+		-headers $(SWIFT_OUT)/include/libxmtp/ \
 		-output build/swift/LibXMTPSwiftFFIDynamic.xcframework
 
 bindgenstatic:
@@ -148,6 +164,6 @@ swiftlocal: libxmtpv3.a bindgenstatic swift framework
 # in a CONTRIBUTING or README section for iOS developers.
 local: NIX_OUT = build
 local: SWIFT_OUT = build/swift/static
-local: $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios bindgenstatic swift lipo framework lipodyn frameworkdyn
+local: $(ARCHS_IOS) $(ARCHS_MAC) $(ARCHS_CATALYST) aarch64-apple-ios bindgenstatic swift lipo framework lipodyn frameworkdyn
 
-.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework framework-fast all aarch64-apple-ios install-jar echo-jar download-toolchains swift bindgenstatic frameworkdyn lipo lipodyn local
+.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) $(ARCHS_CATALYST) framework framework-fast all aarch64-apple-ios install-jar echo-jar download-toolchains swift bindgenstatic frameworkdyn lipo lipodyn local
