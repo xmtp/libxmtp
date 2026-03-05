@@ -11,6 +11,10 @@ inputs:
     description: "Enable sccache with GitHub Actions cache backend"
     required: false
     default: "false"
+  gc-max-store-size:
+    description: "Max Nix store size before garbage collection (e.g. 5G, 10G). Only applies on WarpBuild runners."
+    required: false
+    default: "20G"
 runs:
   using: "composite"
   steps:
@@ -19,17 +23,9 @@ runs:
         github_access_token: ${{ inputs.github-token }}
         extra_nix_config: |
           accept-flake-config = true
-    - name: Nix store cache (WarpBuild)
-      if: startsWith(runner.name, 'warp-')
-      uses: WarpBuilds/cache@v1
+    - uses: ./.github/actions/setup-nix-cache
       with:
-        path: |
-          /nix/store
-          /nix/var/nix/db
-          /nix/var/nix/profiles
-        key: nix-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock') }}
-        restore-keys: |
-          nix-store-${{ runner.os }}-${{ runner.arch }}-
+        gc-max-store-size: ${{ inputs.gc-max-store-size }}
     - uses: cachix/cachix-action@v16
       if: ${{ inputs.cachix-auth-token != '' }}
       with:

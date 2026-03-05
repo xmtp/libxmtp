@@ -9,9 +9,10 @@ use std::sync::Arc;
 use xmtp_mls::Client as MlsClient;
 use xmtp_mls::groups::MlsGroup;
 
+pub mod backend;
 mod consent_state;
 pub mod create_client;
-mod gateway_auth;
+pub(crate) mod gateway_auth;
 mod identity;
 mod inbox_state;
 pub mod options;

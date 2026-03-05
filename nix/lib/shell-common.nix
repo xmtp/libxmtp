@@ -8,6 +8,7 @@
   sqlite,
   zstd,
   zlib,
+  fontconfig,
   llvmPackages,
   wasm-bindgen-cli,
   wasm-pack,
@@ -64,6 +65,7 @@ in
       zstd
       openssl
       zlib
+      fontconfig
     ];
     buildInputs = [
       openssl

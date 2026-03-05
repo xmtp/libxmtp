@@ -3,10 +3,10 @@ import { toBytes } from 'viem'
 import { describe, expect, it } from 'vitest'
 import {
   createClient,
+  createLocalBackend,
   createRegisteredClient,
   createUser,
   sleep,
-  TEST_API_URL,
 } from '@test/helpers'
 import {
   applySignatureRequest,
@@ -234,9 +234,9 @@ describe('Client', () => {
     expect(state2.installations.length).toBe(5)
 
     // Revoke just client2's installation
+    const backend = await createLocalBackend()
     const signatureRequest = await revokeInstallationsSignatureRequest(
-      TEST_API_URL,
-      undefined,
+      backend,
       client1.accountIdentifier,
       client1.inboxId(),
       [client2.installationIdBytes()]
@@ -250,7 +250,7 @@ describe('Client', () => {
 
     await signatureRequest.addEcdsaSignature(toBytes(signature))
 
-    await applySignatureRequest(TEST_API_URL, undefined, signatureRequest)
+    await applySignatureRequest(backend, signatureRequest)
 
     const stateAfter1 = await client1.inboxState(true)
     const stateAfter2 = await client2.inboxState(true)
@@ -343,9 +343,8 @@ describe('Client', () => {
     const client2 = await createRegisteredClient(user)
     user.uuid = v4()
 
-    const state = await fetchInboxStatesByInboxIds(TEST_API_URL, undefined, [
-      client1.inboxId(),
-    ])
+    const backend = await createLocalBackend()
+    const state = await fetchInboxStatesByInboxIds(backend, [client1.inboxId()])
     expect(state[0].inboxId).toBe(client1.inboxId())
     expect(state[0].installations.length).toEqual(2)
   })

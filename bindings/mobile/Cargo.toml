@@ -43,7 +43,7 @@ xmtp_proto.workspace = true
 alloy = { workspace = true, optional = true }
 criterion = { workspace = true, optional = true }
 fdlimit = { version = "0.3", optional = true }
-xmtp-workspace-hack = { version = "0.1", path = "../../crates/xmtp-workspace-hack" }
+xmtp-workspace-hack.workspace = true
 
 
 [target.'cfg(target_os = "android")'.dependencies]
@@ -82,6 +82,7 @@ xmtp_archive = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
+xmtp_macro.workspace = true
 xmtp_mls = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 
