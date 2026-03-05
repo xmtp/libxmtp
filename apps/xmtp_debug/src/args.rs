@@ -43,6 +43,7 @@ pub enum Commands {
     Info(InfoOpts),
     Export(ExportOpts),
     Stream(StreamOpts),
+    Test(TestOpts),
 }
 
 /// Send Data on the network
@@ -186,8 +187,7 @@ pub struct InfoOpts {
     pub random: bool,
     /// Show information about the app
     #[arg(long)]
-    pub app: bool, // /// Show information about a specific identity, like its id and storage
-                   // pub identity: IdentityInfo
+    pub app: bool,
 }
 
 /// Export information to JSON
@@ -332,26 +332,10 @@ impl BackendOpts {
     }
 
     pub fn network_url(&self) -> url::Url {
-        use BackendKind::*;
-
         if let Some(n) = &self.url {
             return n.clone();
         }
-
-        match (self.backend, self.d14n, self.enable_migration) {
-            (Dev, false, false) => (*crate::constants::XMTP_DEV).clone(),
-            (Staging, false, false) => (*crate::constants::XMTP_DEV).clone(),
-            (Production, false, false) => (*crate::constants::XMTP_PRODUCTION).clone(),
-            (Local, false, false) => (*crate::constants::XMTP_LOCAL).clone(),
-            (Dev, true, false) => (*crate::constants::XMTP_DEV_D14N).clone(),
-            (Staging, true, false) => (*crate::constants::XMTP_STAGING_D14N).clone(),
-            (Production, true, false) => (*crate::constants::XMTP_PRODUCTION_D14N).clone(),
-            (Local, true, false) => (*crate::constants::XMTP_LOCAL_D14N).clone(),
-            (Local, _, true) => (*crate::constants::XMTP_LOCAL).clone(),
-            (Dev, _, true) => (*crate::constants::XMTP_DEV).clone(),
-            (Staging, _, true) => (*crate::constants::XMTP_DEV).clone(),
-            (Production, _, true) => (*crate::constants::XMTP_PRODUCTION).clone(),
-        }
+        self.backend.to_network_url(self.d14n)
     }
 
     pub fn connect(&self) -> eyre::Result<crate::DbgClientApi> {
@@ -480,11 +464,11 @@ pub enum BackendKind {
 }
 
 impl BackendKind {
-    fn to_network_url(self, d14n: bool) -> url::Url {
+    pub fn to_network_url(self, d14n: bool) -> url::Url {
         use BackendKind::*;
         match (self, d14n) {
             (Dev, false) => (*crate::constants::XMTP_DEV).clone(),
-            (Staging, false) => (*crate::constants::XMTP_DEV).clone(),
+            (Staging, false) => (*crate::constants::XMTP_STAGING).clone(),
             (Production, false) => (*crate::constants::XMTP_PRODUCTION).clone(),
             (Local, false) => (*crate::constants::XMTP_LOCAL).clone(),
             (Dev, true) => (*crate::constants::XMTP_DEV_D14N).clone(),
@@ -497,14 +481,30 @@ impl BackendKind {
 
 impl From<BackendKind> for url::Url {
     fn from(value: BackendKind) -> Self {
-        use BackendKind::*;
-        match value {
-            Dev => (*crate::constants::XMTP_DEV).clone(),
-            Staging => (*crate::constants::XMTP_DEV).clone(),
-            Production => (*crate::constants::XMTP_PRODUCTION).clone(),
-            Local => (*crate::constants::XMTP_LOCAL).clone(),
-        }
+        value.to_network_url(false)
     }
+}
+
+/// Test scenarios for e2e latency measurement
+#[derive(Args, Debug)]
+pub struct TestOpts {
+    /// Test scenario to run
+    #[arg(value_enum)]
+    pub scenario: TestScenario,
+    /// Number of iterations
+    #[arg(long, short, default_value = "1")]
+    pub iterations: usize,
+    /// Number of messages for group-sync scenario
+    #[arg(long, short, default_value = "10")]
+    pub message_count: usize,
+}
+
+#[derive(ValueEnum, Debug, Clone)]
+pub enum TestScenario {
+    /// Measure message stream delivery latency (sender → receiver)
+    MessageVisibility,
+    /// Measure group sync latency after N messages
+    GroupSync,
 }
 
 #[cfg(test)]
