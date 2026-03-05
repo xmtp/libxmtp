@@ -786,6 +786,68 @@ async fn test_revoke_installation_for_one_user_and_group_modification() {
 }
 
 #[tokio::test]
+async fn test_send_sync_request_flow() {
+    let alix = Tester::builder().sync_worker().build().await;
+    let bo = Tester::new().await;
+
+    let (dm, msg) = alix
+        .inner_client
+        .test_talk_in_dm_with(&bo.inner_client)
+        .await
+        .unwrap();
+
+    let alix2 = alix.builder.build().await;
+    alix2
+        .send_sync_request(
+            FfiArchiveOptions::default(),
+            DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
+        )
+        .await
+        .unwrap();
+    alix2
+        .worker()
+        .register_interest(SyncMetric::RequestSent, 1)
+        .wait()
+        .await
+        .unwrap();
+
+    alix.conversations()
+        .sync_all_conversations(None)
+        .await
+        .unwrap();
+    alix.worker()
+        .register_interest(SyncMetric::PayloadSent, 1)
+        .wait()
+        .await
+        .unwrap();
+
+    alix2
+        .conversations()
+        .sync_all_conversations(None)
+        .await
+        .unwrap();
+    alix2
+        .worker()
+        .register_interest(SyncMetric::PayloadProcessed, 1)
+        .wait()
+        .await
+        .unwrap();
+
+    let dm2 = alix2.conversation(dm.group_id);
+    assert!(dm2.is_ok());
+    let dm2 = dm2.unwrap();
+
+    assert_eq!(dm2.consent_state().unwrap(), FfiConsentState::Allowed);
+
+    // Ensure old message was synced
+    let msgs2 = dm2
+        .find_messages(FfiListMessagesOptions::default())
+        .await
+        .unwrap();
+    assert!(msgs2.iter().any(|m| m.content == msg.as_bytes()));
+}
+
+#[tokio::test]
 async fn test_new_installation_group_message_visibility() {
     // Creates two clients, alix and bo
     let alix = Tester::builder().sync_worker().build().await;
