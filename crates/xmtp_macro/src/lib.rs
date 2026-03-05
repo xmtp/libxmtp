@@ -6,6 +6,7 @@ mod builders;
 mod error_code;
 mod log_macros;
 mod logging;
+mod parse_logs_macro;
 mod test_macro;
 
 #[cfg(test)]
@@ -108,6 +109,14 @@ pub fn test(
     body: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     test_macro::test(attr, body)
+}
+
+#[proc_macro_attribute]
+pub fn parser(
+    attr: proc_macro::TokenStream,
+    body: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    parse_logs_macro::parser(attr, body)
 }
 
 #[proc_macro_attribute]
