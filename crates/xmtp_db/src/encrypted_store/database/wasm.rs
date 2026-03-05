@@ -5,7 +5,7 @@ use crate::PersistentOrMem;
 use crate::{ConnectionExt, StorageOption, XmtpDb};
 use diesel::prelude::SqliteConnection;
 use diesel::{connection::SimpleConnection, prelude::*};
-use sqlite_wasm_rs::sahpool_vfs::OpfsSAHPoolCfg;
+use sqlite_wasm_vfs::sahpool::OpfsSAHPoolCfg;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -39,9 +39,27 @@ pub struct WasmDb {
     opts: StorageOption,
 }
 
-pub static SQLITE: tokio::sync::OnceCell<Result<OpfsSAHPoolUtil, String>> =
-    tokio::sync::OnceCell::const_new();
-pub use sqlite_wasm_rs::sahpool_vfs::{OpfsSAHError, OpfsSAHPoolUtil};
+pub use sqlite_wasm_vfs::sahpool::{OpfsSAHError, OpfsSAHPoolUtil};
+
+/// Wrapper to allow OpfsSAHPoolUtil in a static OnceCell on wasm (single-threaded).
+pub struct SyncOpfsUtil(Result<OpfsSAHPoolUtil, String>);
+// SAFETY: wasm32 is single-threaded; these are never accessed across threads.
+unsafe impl Send for SyncOpfsUtil {}
+unsafe impl Sync for SyncOpfsUtil {}
+
+impl std::ops::Deref for SyncOpfsUtil {
+    type Target = Result<OpfsSAHPoolUtil, String>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+pub static SQLITE: tokio::sync::OnceCell<SyncOpfsUtil> = tokio::sync::OnceCell::const_new();
+
+/// Get a reference to the initialized OPFS util, if available.
+pub fn get_sqlite() -> Option<Result<&'static OpfsSAHPoolUtil, &'static String>> {
+    SQLITE.get().map(|w| w.0.as_ref())
+}
 
 /// Initialize the SQLite WebAssembly Library
 /// Generally this should not be required to call, since it
@@ -49,13 +67,14 @@ pub use sqlite_wasm_rs::sahpool_vfs::{OpfsSAHError, OpfsSAHPoolUtil};
 /// However, if opfs needs to be used before client creation, this should
 /// be called.
 pub async fn init_sqlite() {
-    if let Err(e) = SQLITE.get_or_init(init_opfs).await {
+    let wrapper = SQLITE.get_or_init(init_opfs).await;
+    if let Err(e) = wrapper.as_ref() {
         tracing::error!("{e}");
     }
 }
 
 async fn maybe_resize() -> Result<(), PlatformStorageError> {
-    if let Some(Ok(util)) = SQLITE.get() {
+    if let Some(Ok(util)) = get_sqlite() {
         let capacity = util.get_capacity();
         let used = util.count();
         if used >= capacity / 2 {
@@ -70,7 +89,7 @@ async fn maybe_resize() -> Result<(), PlatformStorageError> {
     Ok(())
 }
 
-async fn init_opfs() -> Result<OpfsSAHPoolUtil, String> {
+async fn init_opfs() -> SyncOpfsUtil {
     let cfg = OpfsSAHPoolCfg {
         vfs_name: xmtp_configuration::WASM_VFS_NAME.into(),
         directory: xmtp_configuration::WASM_VFS_DIRECTORY.into(),
@@ -78,7 +97,7 @@ async fn init_opfs() -> Result<OpfsSAHPoolUtil, String> {
         initial_capacity: 6,
     };
 
-    let r = sqlite_wasm_rs::sahpool_vfs::install(&cfg, true).await;
+    let r = sqlite_wasm_vfs::sahpool::install::<sqlite_wasm_rs::WasmOsCallback>(&cfg, true).await;
     if let Err(ref e) = r {
         match e {
             OpfsSAHError::CreateSyncAccessHandle(e) => log_exception(e),
@@ -95,7 +114,7 @@ async fn init_opfs() -> Result<OpfsSAHPoolUtil, String> {
         tracing::warn!("Encountered possible vfs error {e}");
     }
     // the error is not send or sync as required by tokio OnceCell
-    r.map_err(|e| format!("{e}"))
+    SyncOpfsUtil(r.map_err(|e| format!("{e}")))
 }
 
 fn log_exception(e: &wasm_bindgen::JsValue) {
@@ -240,39 +259,34 @@ mod tests {
     {
         let util = init_opfs().await;
         let o: Option<&'a str> = path.into();
-        let p = o
-            .map(|o| String::from(o))
-            .unwrap_or(xmtp_common::tmp_path());
+        let p = o.map(String::from).unwrap_or(xmtp_common::tmp_path());
         let db = crate::database::WasmDb::new(&StorageOption::Persistent(p))
             .await
             .unwrap();
         let store = EncryptedMessageStore::new(db).unwrap();
         let conn = store.conn();
         let r = f(DbConnection::new(conn));
-        if let Ok(u) = util {
+        if let SyncOpfsUtil(Ok(u)) = util {
             u.clear_all().await.unwrap();
         }
         r
     }
 
     #[allow(unused)]
-    pub async fn with_opfs_async<'a, F, T, R>(path: impl Into<Option<&'a str>>, f: F) -> R
-    where
-        F: FnOnce(crate::DefaultDbConnection) -> T,
-        T: Future<Output = R>,
-    {
+    pub async fn with_opfs_async<'a, R>(
+        path: impl Into<Option<&'a str>>,
+        f: impl AsyncFnOnce(crate::DefaultDbConnection) -> R,
+    ) -> R {
         let util = init_opfs().await;
         let o: Option<&'a str> = path.into();
-        let p = o
-            .map(|o| String::from(o))
-            .unwrap_or(xmtp_common::tmp_path());
+        let p = o.map(String::from).unwrap_or(xmtp_common::tmp_path());
         let db = crate::database::WasmDb::new(&StorageOption::Persistent(p))
             .await
             .unwrap();
         let store = EncryptedMessageStore::new(db).unwrap();
         let conn = store.conn();
         let r = f(DbConnection::new(conn)).await;
-        if let Ok(u) = util {
+        if let SyncOpfsUtil(Ok(u)) = util {
             u.clear_all().await.unwrap();
         }
         r
@@ -300,7 +314,7 @@ mod tests {
     async fn opfs_dynamically_resizes() {
         use xmtp_common::tmp_path as path;
         init_sqlite().await;
-        if let Some(Ok(util)) = SQLITE.get() {
+        if let Some(Ok(util)) = get_sqlite() {
             util.clear_all().await.unwrap();
             let current_capacity = util.get_capacity();
             if current_capacity > 6 {
@@ -312,7 +326,7 @@ mod tests {
                 with_opfs_async(&*path(), async move |_| {
                     with_opfs(&*path(), |_| {
                         // should have been resized here
-                        if let Some(Ok(util)) = SQLITE.get() {
+                        if let Some(Ok(util)) = get_sqlite() {
                             let cap = util.get_capacity();
                             assert_eq!(cap, 12);
                         } else {

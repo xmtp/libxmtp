@@ -240,6 +240,8 @@ pub enum MetadataPermissionsError {
     DmGroupMetadataForbidden,
     #[error(transparent)]
     DmValidation(#[from] DmValidationError),
+    #[error("invalid extension: {0}")]
+    InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
 }
 
 impl RetryableError for MetadataPermissionsError {

@@ -51,7 +51,7 @@ use openmls::{
         Extension, ExtensionType, Extensions, Metadata, RequiredCapabilitiesExtension,
         UnknownExtension,
     },
-    group::MlsGroupCreateConfig,
+    group::{GroupContext, MlsGroupCreateConfig},
     messages::proposals::ProposalType,
     prelude::{Capabilities, GroupId, MlsGroup as OpenMlsGroup, WireFormatPolicy},
 };
@@ -2270,7 +2270,7 @@ pub fn build_extensions_for_metadata_update(
     group: &OpenMlsGroup,
     field_name: String,
     field_value: String,
-) -> Result<Extensions, MetadataPermissionsError> {
+) -> Result<Extensions<GroupContext>, MetadataPermissionsError> {
     let existing_metadata: GroupMutableMetadata = group.try_into()?;
     let mut attributes = existing_metadata.attributes.clone();
     attributes.insert(field_name, field_value);
@@ -2283,7 +2283,7 @@ pub fn build_extensions_for_metadata_update(
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
     let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
     let mut extensions = group.extensions().clone();
-    extensions.add_or_replace(extension);
+    extensions.add_or_replace(extension)?;
     Ok(extensions)
 }
 
@@ -2291,7 +2291,7 @@ pub fn build_extensions_for_metadata_update(
 pub fn build_extensions_for_permissions_update(
     group: &OpenMlsGroup,
     update_permissions_intent: UpdatePermissionIntentData,
-) -> Result<Extensions, MetadataPermissionsError> {
+) -> Result<Extensions<GroupContext>, MetadataPermissionsError> {
     let existing_permissions: GroupMutablePermissions = group.try_into()?;
     let existing_policy_set = existing_permissions.policies.clone();
     let new_policy_set = match update_permissions_intent.update_type {
@@ -2349,7 +2349,7 @@ pub fn build_extensions_for_permissions_update(
     let unknown_gc_extension = UnknownExtension(new_group_permissions);
     let extension = Extension::Unknown(GROUP_PERMISSIONS_EXTENSION_ID, unknown_gc_extension);
     let mut extensions = group.extensions().clone();
-    extensions.add_or_replace(extension);
+    extensions.add_or_replace(extension)?;
     Ok(extensions)
 }
 
@@ -2357,7 +2357,7 @@ pub fn build_extensions_for_permissions_update(
 pub fn build_extensions_for_admin_lists_update(
     group: &OpenMlsGroup,
     admin_lists_update: UpdateAdminListIntentData,
-) -> Result<Extensions, MetadataPermissionsError> {
+) -> Result<Extensions<GroupContext>, MetadataPermissionsError> {
     let existing_metadata: GroupMutableMetadata = group.try_into()?;
     let attributes = existing_metadata.attributes.clone();
     let mut admin_list = existing_metadata.admin_list;
@@ -2383,7 +2383,7 @@ pub fn build_extensions_for_admin_lists_update(
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
     let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
     let mut extensions = group.extensions().clone();
-    extensions.add_or_replace(extension);
+    extensions.add_or_replace(extension)?;
     Ok(extensions)
 }
 
@@ -2441,7 +2441,7 @@ pub(crate) fn build_group_config(
     ])?;
 
     Ok(MlsGroupCreateConfig::builder()
-        .with_group_context_extensions(extensions)?
+        .with_group_context_extensions(extensions)
         .capabilities(capabilities)
         .ciphersuite(CIPHERSUITE)
         .wire_format_policy(WireFormatPolicy::default())
