@@ -296,16 +296,4 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[xmtp_common::test]
-    fn regex_does_not_panic() {
-        assert!(!ERROR_REGEX.is_match("hi"))
-    }
-
-    #[xmtp_common::test]
-    fn regex_works() {
-        assert!(ERROR_REGEX.is_match("Please upgrade your client to XMTP D14N."))
-    }
-}
+mod tests;
