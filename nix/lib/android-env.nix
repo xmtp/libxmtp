@@ -63,18 +63,21 @@ let
   };
 
   # Compose Android packages for dev shell (includes emulator where available)
-  composeDevPackages = androidenv.composeAndroidPackages ({
-    platformVersions = sdkConfig.platforms;
-    platformToolsVersion = sdkConfig.platformTools;
-    buildToolsVersions = sdkConfig.buildTools;
-    includeNDK = true;
-  } // lib.optionalAttrs hasEmulator {
-    inherit (emulatorConfig) emulatorVersion;
-    includeEmulator = true;
-    includeSystemImages = true;
-    systemImageTypes = [ emulatorConfig.systemImageType ];
-    abiVersions = [ emulatorConfig.abiVersion ];
-  });
+  composeDevPackages = androidenv.composeAndroidPackages (
+    {
+      platformVersions = sdkConfig.platforms;
+      platformToolsVersion = sdkConfig.platformTools;
+      buildToolsVersions = sdkConfig.buildTools;
+      includeNDK = true;
+    }
+    // lib.optionalAttrs hasEmulator {
+      inherit (emulatorConfig) emulatorVersion;
+      includeEmulator = true;
+      includeSystemImages = true;
+      systemImageTypes = [ emulatorConfig.systemImageType ];
+      abiVersions = [ emulatorConfig.abiVersion ];
+    }
+  );
 
   # Helper to extract paths from an android composition
   mkAndroidPaths = composition: rec {
@@ -183,6 +186,7 @@ in
     devPaths
     hasEmulator
     ;
-} // lib.optionalAttrs hasEmulator {
+}
+// lib.optionalAttrs hasEmulator {
   inherit emulator;
 }
