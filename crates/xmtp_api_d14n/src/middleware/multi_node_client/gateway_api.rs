@@ -118,21 +118,21 @@ pub async fn get_fastest_node(
                 .await
                 .map_err(|_| {
                     tracing::error!("node {} timed out after {}ms", node_id, timeout.as_millis());
-                    ApiClientError::new(
+                    Box::new(ApiClientError::new(
                         ApiEndpoint::HealthCheck,
                         MultiNodeClientError::NodeTimedOut {
                             node_id,
                             latency: timeout.as_millis() as u64,
                         },
-                    )
+                    ))
                 })
                 .and_then(|r| {
                     r.map_err(|e| {
                         tracing::error!("node {} is unhealthy: {}", node_id, e);
-                        ApiClientError::new(
+                        Box::new(ApiClientError::new(
                             ApiEndpoint::HealthCheck,
                             MultiNodeClientError::GrpcError(e),
-                        )
+                        ))
                     })
                 })
                 .map(|_| (node_id, client, start.elapsed().as_millis() as u64))
