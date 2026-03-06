@@ -24,6 +24,10 @@ let
     }
     .${hostArch} or (throw "Unsupported host architecture for Android: ${hostArch}");
 
+  # The Android emulator is only available for x86_64-linux and *-darwin.
+  # aarch64-linux has no emulator binary in the Android SDK.
+  hasEmulator = !stdenv.isLinux || hostArch == "x86_64";
+
   # SDK configuration - keep in sync with sdks/android/library/build.gradle
   # Library: compileSdk 35, Example: compileSdk 34
   # Gradle auto-selects buildTools matching compileSdk when not specified.
@@ -58,18 +62,22 @@ let
     emulatorVersion = "35.3.11";
   };
 
-  # Compose Android packages for dev shell (includes emulator)
-  composeDevPackages = androidenv.composeAndroidPackages {
-    platformVersions = sdkConfig.platforms;
-    platformToolsVersion = sdkConfig.platformTools;
-    buildToolsVersions = sdkConfig.buildTools;
-    includeNDK = true;
-    inherit (emulatorConfig) emulatorVersion;
-    includeEmulator = true;
-    includeSystemImages = true;
-    systemImageTypes = [ emulatorConfig.systemImageType ];
-    abiVersions = [ emulatorConfig.abiVersion ];
-  };
+  # Compose Android packages for dev shell (includes emulator where available)
+  composeDevPackages = androidenv.composeAndroidPackages (
+    {
+      platformVersions = sdkConfig.platforms;
+      platformToolsVersion = sdkConfig.platformTools;
+      buildToolsVersions = sdkConfig.buildTools;
+      includeNDK = true;
+    }
+    // lib.optionalAttrs hasEmulator {
+      inherit (emulatorConfig) emulatorVersion;
+      includeEmulator = true;
+      includeSystemImages = true;
+      systemImageTypes = [ emulatorConfig.systemImageType ];
+      abiVersions = [ emulatorConfig.abiVersion ];
+    }
+  );
 
   # Helper to extract paths from an android composition
   mkAndroidPaths = composition: rec {
@@ -85,6 +93,7 @@ let
   androidSdk = "${composeDevPackages.androidsdk}/libexec/android-sdk";
 
   # Custom emulator launch script replacing nixpkgs' androidenv.emulateApp.
+  # Only defined on platforms where the Android emulator is available.
   #
   # Why: In CI, ./dev/docker/up starts Docker services on ports that overlap
   # with the Android emulator's default port scan range (5554-5584):
@@ -175,6 +184,9 @@ in
     mkAndroidPaths
     devComposition
     devPaths
-    emulator
+    hasEmulator
     ;
+}
+// lib.optionalAttrs hasEmulator {
+  inherit emulator;
 }
