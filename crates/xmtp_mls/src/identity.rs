@@ -5,8 +5,8 @@ use crate::identity_updates::{get_association_state_with_verifier, load_identity
 use crate::worker::NeedsDbReconnect;
 use crate::{XmtpApi, verified_key_package_v2::KeyPackageVerificationError};
 use derive_builder::Builder;
-use openmls::prelude::HpkeKeyPair;
 use openmls::prelude::hash_ref::HashReference;
+use openmls::prelude::{HpkeKeyPair, LeafNode};
 use openmls::{
     credentials::{BasicCredential, CredentialWithKey, errors::BasicCredentialError},
     extensions::{
@@ -757,7 +757,7 @@ impl XmtpKeyPackageBuilder {
 
         let application_id =
             Extension::ApplicationId(ApplicationIdExtension::new(this.inbox_id.as_bytes()));
-        let leaf_node_extensions = Extensions::single(application_id);
+        let leaf_node_extensions = Extensions::<LeafNode>::single(application_id)?;
 
         let capabilities = Capabilities::new(
             None,
@@ -779,7 +779,6 @@ impl XmtpKeyPackageBuilder {
         let kp_builder = KeyPackage::builder()
             .leaf_node_capabilities(capabilities)
             .leaf_node_extensions(leaf_node_extensions)
-            .expect("application id extension is always valid in leaf nodes")
             .key_package_extensions(key_package_extensions);
 
         let kp_builder = {

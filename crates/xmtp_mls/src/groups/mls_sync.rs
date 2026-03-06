@@ -42,7 +42,6 @@ use openmls::group::{ProcessMessageError, ValidationError};
 use openmls::prelude::BasicCredentialError;
 use openmls::{
     credentials::BasicCredential,
-    extensions::Extensions,
     framing::ProtocolMessage,
     group::{GroupEpoch, StagedCommit},
     key_packages::KeyPackage,
@@ -2772,7 +2771,7 @@ where
 
                         Ok(updates)
                     })?;
-            let extensions: Extensions = mls_group.extensions().clone();
+            let extensions = mls_group.extensions().clone();
             let old_group_membership = extract_group_membership(&extensions)?;
             let mut new_membership = old_group_membership.clone();
             for (inbox_id, sequence_id) in changed_inbox_ids.iter() {
