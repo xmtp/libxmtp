@@ -14,14 +14,14 @@ use crate::protocol::InMemoryCursorStore;
 /// Wrapper around `Arc<MockNetworkClient>` that also implements [`IsConnectedCheck`].
 /// `Arc<MockNetworkClient>` already implements `Client` + `Clone`.
 #[derive(Clone)]
-struct TestNetworkClient(Arc<MockNetworkClient>);
+pub(super) struct TestNetworkClient(Arc<MockNetworkClient>);
 
 impl TestNetworkClient {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self(Arc::new(MockNetworkClient::new()))
     }
 
-    fn from_mock(mock: MockNetworkClient) -> Self {
+    pub(super) fn from_mock(mock: MockNetworkClient) -> Self {
         Self(Arc::new(mock))
     }
 }
@@ -54,13 +54,13 @@ impl IsConnectedCheck for TestNetworkClient {
     }
 }
 
-type TestMigrationClient =
+pub(super) type TestMigrationClient =
     MigrationClient<TestNetworkClient, TestNetworkClient, InMemoryCursorStore>;
 
 /// Build a `MigrationClient` for testing by constructing fields directly.
 /// `v3_client` and `xmtpd_client` are `XmtpApiClient` (type-erased `Arc<dyn ...>`),
 /// built from two separate `V3Client` instances so we can compare pointers.
-fn build_test_client(
+pub(super) fn build_test_client(
     v3: TestNetworkClient,
     d14n: TestNetworkClient,
     store: InMemoryCursorStore,
@@ -79,7 +79,7 @@ fn build_test_client(
 
 /// Create a `TestNetworkClient` that returns a `FetchD14nCutoverResponse` with the given
 /// `timestamp_ns` when `request()` is called.
-fn mock_v3_with_cutover(timestamp_ns: u64) -> TestNetworkClient {
+pub(super) fn mock_v3_with_cutover(timestamp_ns: u64) -> TestNetworkClient {
     let mut mock = MockNetworkClient::new();
     let body = FetchD14nCutoverResponse { timestamp_ns }.encode_to_vec();
     mock.expect_request()
@@ -90,7 +90,7 @@ fn mock_v3_with_cutover(timestamp_ns: u64) -> TestNetworkClient {
 /// A retryable error type for constructing migration-matching errors.
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
-struct FakeNetworkError(String);
+pub(super) struct FakeNetworkError(pub(super) String);
 
 impl RetryableError for FakeNetworkError {
     fn is_retryable(&self) -> bool {
