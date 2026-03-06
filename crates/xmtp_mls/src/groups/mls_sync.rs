@@ -2419,8 +2419,22 @@ where
                                     intent_kind = ?kind,
                                     err = ?err
                                 );
-                                // Reset so the next retry re-encrypts at the current epoch.
-                                let _ = db.set_group_intent_to_publish(intent.id);
+
+                                if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
+                                    tracing::error!(
+                                        intent.id,
+                                        intent.kind = %intent.kind,
+                                        inbox_id = self.context.inbox_id(),
+                                        installation_id = %self.context.installation_id(),group_id = hex::encode(&self.group_id),
+                                        "intent {} has reached max publish attempts", intent.id);
+                                    // TODO: Eventually clean up errored attempts
+                                    let id = utils::id::calculate_message_id_for_intent(&intent)?;
+                                    db.set_group_intent_error_and_fail_msg(&intent, id)?;
+                                } else {
+                                    // Reset so the next retry re-encrypts at the current epoch.
+                                    db.increment_intent_publish_attempt_count(intent.id)?;
+                                    db.set_group_intent_to_publish(intent.id)?;
+                                }
                                 return Err(err)?;
                             }
                             (kind, Ok(_)) => {
