@@ -412,6 +412,9 @@ where
             .load(network)?
             .ok_or(eyre!("no items found, try generating some"))?
             .fold(0, |acc, _| acc + 1);
+        if len == 0 {
+            return Err(eyre!("no items found, try generating some"));
+        }
         let mut items = self
             .load(network)?
             .ok_or(eyre!("no items found, try generating some"))?;

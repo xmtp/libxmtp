@@ -30,8 +30,9 @@ RUN chmod +x /usr/local/bin/xdbg \
              /usr/local/bin/concurrent-runner.sh \
              /usr/local/bin/web_healthcheck.sh
 
-# Liveness: confirm xdbg is still running (newrunner.sh loops it continuously)
+# Liveness: confirm the runner is alive (xdbg sleeps between iterations,
+# so check for the runner script rather than the xdbg binary itself)
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
-  CMD pgrep -x xdbg || exit 1
+  CMD pgrep -f "bash.*newrunner.sh" || exit 1
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/newrunner.sh"]
