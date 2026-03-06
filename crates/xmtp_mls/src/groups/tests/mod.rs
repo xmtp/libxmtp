@@ -30,7 +30,6 @@ use xmtp_configuration::Originators;
 use xmtp_db::XmtpOpenMlsProviderRef;
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_id::InboxOwner;
-use xmtp_macro::parser;
 use xmtp_proto::types::{Cursor, TopicKind};
 
 #[cfg(target_arch = "wasm32")]
@@ -4801,7 +4800,6 @@ async fn test_when_processing_message_return_future_wrong_epoch_group_marked_pro
 }
 
 #[xmtp_common::test(flavor = "multi_thread")]
-#[parser]
 async fn can_stream_out_of_order_without_forking() {
     tester!(client_a1);
     tester!(client_b);

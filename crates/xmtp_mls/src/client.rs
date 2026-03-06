@@ -1132,11 +1132,9 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn test_group_member_recovery() {
-        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bola_wallet = generate_local_wallet();
-        // Add two separate installations for Bola
-        let bola_a = ClientBuilder::new_test_client(&bola_wallet).await;
-        let bola_b = ClientBuilder::new_test_client(&bola_wallet).await;
+        tester!(amal);
+        tester!(bola_a);
+        tester!(bola_b, from: bola_a);
 
         let group = amal.create_group(None, None).unwrap();
 
@@ -1157,7 +1155,7 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn test_mls_error() {
-        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        tester!(client);
         let result = client
             .context
             .api()
@@ -1171,9 +1169,8 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn test_register_installation() {
-        let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(&wallet).await;
-        let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        tester!(client);
+        tester!(client_2);
         // Make sure the installation is actually on the network
         let association_state = client_2
             .identity_updates()
@@ -1190,8 +1187,7 @@ pub(crate) mod tests {
         tokio::test(flavor = "multi_thread", worker_threads = 1)
     )]
     async fn test_rotate_key_package() {
-        let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(&wallet).await;
+        tester!(client);
 
         let installation_public_key = client.installation_public_key().to_vec();
         // Get original KeyPackage.
@@ -1225,7 +1221,7 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn test_find_groups() {
-        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        tester!(client);
         let group_1 = client.create_group(None, None).unwrap();
         let group_2 = client.create_group(None, None).unwrap();
 
@@ -1237,11 +1233,10 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn test_find_inbox_id() {
-        let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(&wallet).await;
+        tester!(client);
         assert_eq!(
             client
-                .find_inbox_id_from_identifier(&client.context.db(), wallet.identifier())
+                .find_inbox_id_from_identifier(&client.context.db(), client.identifier())
                 .await
                 .unwrap(),
             Some(client.inbox_id().to_string())
@@ -1337,11 +1332,11 @@ pub(crate) mod tests {
         use crate::utils::test_mocks_helpers::set_test_mode_limit_key_package_lifetime;
 
         // Create a client with default KP lifetime
-        let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        tester!(alice);
 
         // Create a client with default KP lifetime
         set_test_mode_limit_key_package_lifetime(false, 0);
-        let cat = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        tester!(cat);
 
         let alice_bob_group = alice.create_group(None, None).unwrap();
         alice_bob_group
@@ -1358,7 +1353,7 @@ pub(crate) mod tests {
 
         // Create a client with a KP that expires in 5 seconds
         set_test_mode_limit_key_package_lifetime(true, 5);
-        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        tester!(bob);
 
         // Alice invites Bob with short living KP
         alice_bob_group
@@ -1384,7 +1379,7 @@ pub(crate) mod tests {
         assert_eq!(cat_duplicate_received_groups.len(), 0);
 
         set_test_mode_limit_key_package_lifetime(false, 0);
-        let dave = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        tester!(dave);
         alice_bob_group
             .add_members(&[dave.inbox_id()])
             .await
@@ -1408,8 +1403,8 @@ pub(crate) mod tests {
     #[rstest::rstest]
     #[xmtp_common::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_sync_all_groups() {
-        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        tester!(alix);
+        tester!(bo);
 
         let alix_bo_group1 = alix.create_group(None, None).unwrap();
         let alix_bo_group2 = alix.create_group(None, None).unwrap();
@@ -2028,8 +2023,8 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn test_delete_message() {
-        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        tester!(alix);
+        tester!(bo);
 
         // Create a group with both users
         let group = alix
