@@ -1095,7 +1095,7 @@ __metadata:
     "@vitest/browser-playwright": "npm:^4.0.8"
     "@xmtp/content-type-remote-attachment": "npm:^2.0.3"
     binaryen: "npm:^125.0.0"
-    playwright: "npm:=1.57"
+    playwright: "npm:=1.58"
     prettier: "npm:^3.7.4"
     prettier-plugin-packagejson: "npm:^3.0.0"
     tsx: "npm:^4.20.6"
@@ -2130,9 +2130,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ox@npm:0.12.4":
-  version: 0.12.4
-  resolution: "ox@npm:0.12.4"
+"ox@npm:0.14.0":
+  version: 0.14.0
+  resolution: "ox@npm:0.14.0"
   dependencies:
     "@adraffy/ens-normalize": "npm:^1.11.0"
     "@noble/ciphers": "npm:^1.3.0"
@@ -2147,7 +2147,7 @@ __metadata:
   peerDependenciesMeta:
     typescript:
       optional: true
-  checksum: 10/077509b841658693a411df505d0bdbbee2d68734aa19736ccff5a6087c119c4aebc1d8d8c2039ca9f16ae7430cb44812e4c182f858cab67c9a755dd0e9914178
+  checksum: 10/b5cea2f9ce562f808a64b07e1f3f0527ca7eb6c840fbc704a035f89b65afeb42cc4ac518504525b9c59ceabc4bf08a16b80f42c2054ff766df7fff78eb52b3fa
   languageName: node
   linkType: hard
 
@@ -2221,27 +2221,27 @@ __metadata:
   languageName: node
   linkType: hard
 
-"playwright-core@npm:1.57.0":
-  version: 1.57.0
-  resolution: "playwright-core@npm:1.57.0"
+"playwright-core@npm:1.58.2":
+  version: 1.58.2
+  resolution: "playwright-core@npm:1.58.2"
   bin:
     playwright-core: cli.js
-  checksum: 10/ec066602f0196f036006caee14a30d0a57533a76673bb9a0c609ef56e21decf018f0e8d402ba2fb18251393be6a1c9e193c83266f1670fe50838c5340e220de0
+  checksum: 10/8a98fcf122167e8703d525db2252de0e3da4ab9110ab6ea9951247e52d846310eb25ea2c805e1b7ccb54b4010c44e5adc3a76aae6da02f34324ccc3e76683bb1
   languageName: node
   linkType: hard
 
-"playwright@npm:=1.57":
-  version: 1.57.0
-  resolution: "playwright@npm:1.57.0"
+"playwright@npm:=1.58":
+  version: 1.58.2
+  resolution: "playwright@npm:1.58.2"
   dependencies:
     fsevents: "npm:2.3.2"
-    playwright-core: "npm:1.57.0"
+    playwright-core: "npm:1.58.2"
   dependenciesMeta:
     fsevents:
       optional: true
   bin:
     playwright: cli.js
-  checksum: 10/241559210f98ef11b6bd6413f2d29da7ef67c7865b72053192f0d164fab9e0d3bd47913b3351d5de6433a8aff2d8424d4b8bd668df420bf4dda7ae9fcd37b942
+  checksum: 10/d89d6c8a32388911b9aff9ee0f1a90076219f15c804f2b287db048b9e9cde182aea3131fac1959051d25189ed4218ec4272b137c83cd7f9cd24781cbc77edd86
   languageName: node
   linkType: hard
 
@@ -2788,8 +2788,8 @@ __metadata:
   linkType: hard
 
 "viem@npm:^2.31.3":
-  version: 2.46.2
-  resolution: "viem@npm:2.46.2"
+  version: 2.47.0
+  resolution: "viem@npm:2.47.0"
   dependencies:
     "@noble/curves": "npm:1.9.1"
     "@noble/hashes": "npm:1.8.0"
@@ -2797,14 +2797,14 @@ __metadata:
     "@scure/bip39": "npm:1.6.0"
     abitype: "npm:1.2.3"
     isows: "npm:1.0.7"
-    ox: "npm:0.12.4"
+    ox: "npm:0.14.0"
     ws: "npm:8.18.3"
   peerDependencies:
     typescript: ">=5.0.4"
   peerDependenciesMeta:
     typescript:
       optional: true
-  checksum: 10/dd763503c9fc7c3c2908f8cd403f375a0c313d0ded7aeeef87e1672553fc75cca070ed02e2d811ccc5d3cfb7a589be23e45cb147a556a0a0751adbb3f77be265
+  checksum: 10/bc32f71fbd3d3d9386cd5a0e715868df9c65d861c6d5b6974c6ff65c77226e088abd42f4cd5ce1ace2f8dadb305470e2d6df26607e7ff6356cac93f63b0c3454
   languageName: node
   linkType: hard
 
