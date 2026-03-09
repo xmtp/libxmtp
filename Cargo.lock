@@ -14334,6 +14334,7 @@ dependencies = [
  "pin-project",
  "proptest",
  "prost",
+ "regex",
  "rstest",
  "thiserror 2.0.18",
  "tokio",

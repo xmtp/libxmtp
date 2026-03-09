@@ -106,7 +106,7 @@ impl BackendBuilder {
       )
       .maybe_auth_handle(auth_handle.map(|h: AuthHandle| h.into()));
 
-    let bundle = builder.build().map_err(ErrorWrapper::from)?;
+    let bundle = builder.build_optional_d14n().map_err(ErrorWrapper::from)?;
     Ok(Backend {
       bundle,
       env: self.env,

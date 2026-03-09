@@ -38,10 +38,12 @@ impl Endpoint for PublishClientEnvelopes {
 
 #[cfg(test)]
 mod test {
+    use std::error::Error;
+
     use xmtp_proto::types::Topic;
 
     use super::*;
-    use xmtp_api_grpc::{error::GrpcError, test::GatewayClient};
+    use xmtp_api_grpc::test::GatewayClient;
     use xmtp_common::rand_vec;
     use xmtp_proto::{
         api,
@@ -91,13 +93,10 @@ mod test {
         // the request will fail b/c we're using dummy data but
         // we just care if the endpoint is working
         match err {
-            ApiClientError::<GrpcError>::ClientWithEndpoint {
-                source: GrpcError::Status(ref s),
-                ..
-            } => {
+            ApiClientError::ClientWithEndpoint { source: ref s, .. } => {
                 assert!(
-                    s.message().contains("invalid payload")
-                        || s.message().contains("invalid topic"),
+                    s.to_string().contains("invalid payload")
+                        || s.source().unwrap().to_string().contains("invalid topic"),
                     "{}",
                     err
                 );
