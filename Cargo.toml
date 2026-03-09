@@ -12,6 +12,7 @@ exclude = ["apps/android"]
 default-members = [
   # Applications
   "apps/mls_validation_service",
+  "apps/xmtp_debug",
   # Bindings
   "bindings/*",
   # Core crates
