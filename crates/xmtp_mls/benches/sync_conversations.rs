@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 //! Benchmarks for sync_all_conversations operations with fresh setup per iteration
 //!
 //! This benchmark measures the performance of sync_all_groups under various conditions:
