@@ -22,17 +22,15 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /src/target/release/xdbg /usr/local/bin/xdbg
-COPY apps/xmtp_debug/newrunner.sh /usr/local/bin/newrunner.sh
-COPY apps/xmtp_debug/concurrent-runner.sh /usr/local/bin/concurrent-runner.sh
-COPY apps/xmtp_debug/web_healthcheck.sh /usr/local/bin/web_healthcheck.sh
+COPY apps/xmtp_debug/client-monitor/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY apps/xmtp_debug/client-monitor/web-healthcheck.sh /usr/local/bin/web-healthcheck.sh
 RUN chmod +x /usr/local/bin/xdbg \
-             /usr/local/bin/newrunner.sh \
-             /usr/local/bin/concurrent-runner.sh \
-             /usr/local/bin/web_healthcheck.sh
+             /usr/local/bin/entrypoint.sh \
+             /usr/local/bin/web-healthcheck.sh
 
 # Liveness: confirm the runner is alive (xdbg sleeps between iterations,
 # so check for the runner script rather than the xdbg binary itself)
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
-  CMD pgrep -f "bash.*newrunner.sh" || exit 1
+  CMD pgrep -f "bash.*entrypoint.sh" || exit 1
 
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/newrunner.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]

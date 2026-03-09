@@ -46,7 +46,7 @@ while true; do
     XDBG_LOOP_PAUSE=0 xdbg -d -b "${BACKEND}" generate --entity message --amount 1 --concurrency 1 \
       || log "WARNING: message step $x failed"
     log "Running health checks..."
-    bash "$(dirname "$0")/web_healthcheck.sh" || log "WARNING: health check failed"
+    bash "$(dirname "$0")/web-healthcheck.sh" || log "WARNING: health check failed"
     log "Sleeping ${XDBG_LOOP_PAUSE} seconds..."
     sleep "${XDBG_LOOP_PAUSE}"
   done
