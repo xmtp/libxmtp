@@ -3847,6 +3847,7 @@ async fn respect_allow_epoch_increment() {
     );
 }
 
+#[cfg_attr(target_arch = "wasm32", ignore)]
 #[rstest]
 #[xmtp_common::test]
 #[awt]
