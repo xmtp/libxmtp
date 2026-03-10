@@ -22,8 +22,8 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /src/target/release/xdbg /usr/local/bin/xdbg
-COPY apps/xmtp_debug/client-monitor/entrypoint.sh /usr/local/bin/entrypoint.sh
-COPY apps/xmtp_debug/client-monitor/web-healthcheck.sh /usr/local/bin/web-healthcheck.sh
+COPY apps/xmtp_debug/docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY apps/xmtp_debug/docker/web-healthcheck.sh /usr/local/bin/web-healthcheck.sh
 RUN chmod +x /usr/local/bin/xdbg \
              /usr/local/bin/entrypoint.sh \
              /usr/local/bin/web-healthcheck.sh
