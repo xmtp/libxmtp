@@ -110,9 +110,11 @@ pub struct StoredGroup {
     pub has_pending_leave_request: Option<bool>,
     /// Installation_id of the fork-admin. This installation is the provider
     /// of the primary remote commit log.
+    #[builder(default = None)]
     pub fork_admin: Option<Vec<u8>>,
     /// Used to prevent replay attacks on fork admin changes.
     /// This field should only increase in value.
+    #[builder(default = None)]
     pub fork_admin_change_sequence_id: Option<i64>,
 }
 
