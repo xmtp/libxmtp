@@ -19,7 +19,7 @@ diesel::table! {
 
 diesel::table! {
     d14n_migration_cutover (id) {
-        id -> Nullable<Integer>,
+        id -> Integer,
         cutover_ns -> BigInt,
         last_checked_ns -> BigInt,
         has_migrated -> Bool,
