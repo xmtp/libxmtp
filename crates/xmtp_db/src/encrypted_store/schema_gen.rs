@@ -155,7 +155,6 @@ diesel::table! {
         rowid -> Integer,
         group_id -> Binary,
         commit_sequence_id -> BigInt,
-        last_epoch_authenticator -> Binary,
         commit_result -> Integer,
         applied_epoch_number -> BigInt,
         applied_epoch_authenticator -> Binary,
@@ -235,6 +234,7 @@ diesel::table! {
         commit_result -> Integer,
         applied_epoch_number -> BigInt,
         applied_epoch_authenticator -> Binary,
+        installation_id -> Binary,
     }
 }
 

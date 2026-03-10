@@ -132,6 +132,8 @@ pub async fn create_dm_with_consent(
             rotated_at_ns: now_ns(),
             sequence_id: None,
             should_publish_commit_log: false,
+            fork_admin: None,
+            fork_admin_change_sequence_id: None,
         };
         group.store(&client.db()).unwrap();
 

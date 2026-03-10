@@ -389,6 +389,8 @@ mod tests {
             commit_log_public_key: None,
             is_commit_log_forked: None,
             has_pending_leave_request: None,
+            fork_admin: None,
+            fork_admin_change_sequence_id: None,
         };
         group.store(conn).unwrap();
         group_id

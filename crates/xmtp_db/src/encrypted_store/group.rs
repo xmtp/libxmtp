@@ -108,7 +108,12 @@ pub struct StoredGroup {
     /// NULL if the pending-remove didn't receive an update yet
     #[builder(default = None)]
     pub has_pending_leave_request: Option<bool>,
-    //todo: store member role?
+    /// Installation_id of the fork-admin. This installation is the provider
+    /// of the primary remote commit log.
+    pub fork_admin: Option<Vec<u8>>,
+    /// Used to prevent replay attacks on fork admin changes.
+    /// This field should only increase in value.
+    pub fork_admin_change_sequence_id: Option<i64>,
 }
 
 impl StoredGroupBuilder {
