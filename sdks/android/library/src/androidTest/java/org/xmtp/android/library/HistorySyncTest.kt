@@ -7,6 +7,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Ignore
@@ -32,7 +33,6 @@ class HistorySyncTest : BaseInstrumentedTest() {
         alixWallet = fixtures.alixAccount
     }
 
-    @Ignore("Flaky: consent sync timing is non-deterministic")
     @Test
     fun testSyncConsent() =
         runBlocking {
@@ -62,11 +62,32 @@ class HistorySyncTest : BaseInstrumentedTest() {
 
             alixGroup.updateConsentState(ConsentState.DENIED)
             alixClient.preferences.sync()
-            delay(1000)
             alixClient2.preferences.sync()
-            delay(4000)
 
-            assertEquals(alixGroup2.consentState(), ConsentState.DENIED)
+            // Poll until alixClient2 observes the denied consent state.
+            val timeoutMs = 15_000L
+            val intervalMs = 500L
+            var elapsedMs = 0L
+            var latestConsent = alixGroup2.consentState()
+
+            while (elapsedMs < timeoutMs) {
+                alixClient2.sendSyncRequest()
+                alixClient.preferences.sync()
+                alixClient2.preferences.sync()
+                alixClient2.conversations.sync()
+
+                val refreshedGroup2 =
+                    alixClient2.conversations.findGroup(alixGroup.id)
+                        ?: throw AssertionError("Failed to find group with ID: ${alixGroup.id}")
+                refreshedGroup2.sync()
+                latestConsent = refreshedGroup2.consentState()
+                if (latestConsent == ConsentState.DENIED) break
+
+                delay(intervalMs)
+                elapsedMs += intervalMs
+            }
+
+            assertEquals(ConsentState.DENIED, latestConsent)
         }
 
     @Test
@@ -281,35 +302,36 @@ class HistorySyncTest : BaseInstrumentedTest() {
     @Test
     fun testDisablingHistoryTransferDoesNotTransfer() =
         runBlocking {
+            val localApi = ClientOptions.Api(XMTPEnvironment.LOCAL, false)
+            val alixClient =
+                Client.create(
+                    account = alixWallet,
+                    options = createClientOptions(api = localApi, deviceSyncEnabled = false),
+                )
             val alixGroup = alixClient.conversations.newGroup(listOf(boClient.inboxId))
+            val messageIdNotExpectedOnClient2 = alixGroup.send("hi")
+            delay(2000)
             val initialMessageCount = alixGroup.messages().size
-            assertEquals(initialMessageCount, 1)
+            assertEquals(initialMessageCount, 2)
             val alixClient2 =
                 Client.create(
                     account = alixWallet,
-                    options =
-                        ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
-                            appContext = context,
-                            dbEncryptionKey = dbEncryptionKey,
-                            dbDirectory = context.filesDir.absolutePath.toString(),
-                        ),
+                    options = createClientOptions(api = localApi, deviceSyncEnabled = true),
                 )
 
             val state = alixClient2.inboxState(true)
-            assertEquals(state.installations.size, 2)
+            assertEquals(state.installations.size, 3)
 
-            alixGroup.send("hi")
+            // This sync request will not be obeyed because device sync is disabled
+            alixClient2.sendSyncRequest()
 
             // Sync all conversations
+            delay(6000)
+            alixGroup.send("this message will add alix2 to the group")
             alixClient.conversations.syncAllConversations()
-            delay(2000)
+            delay(1000)
             alixClient2.conversations.syncAllConversations()
-            delay(2000)
-            alixClient.preferences.sync()
-            delay(2000)
-            alixClient2.preferences.sync()
-            delay(2000)
+            delay(1000)
 
             val alixGroup2 =
                 alixClient2.conversations.findGroup(alixGroup.id)
@@ -317,7 +339,10 @@ class HistorySyncTest : BaseInstrumentedTest() {
 
             alixGroup2.sync()
 
-            val messageCount2 = alixGroup2.messages().size
-            assertEquals(messageCount2, 2)
+            val messages2 = alixGroup2.messages()
+            assertFalse(
+                messages2.any { it.id == messageIdNotExpectedOnClient2 },
+            )
+            assertEquals(messages2.size, initialMessageCount)
         }
 }
