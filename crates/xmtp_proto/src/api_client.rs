@@ -22,9 +22,8 @@ use crate::xmtp::mls::api::v1::{
     UploadKeyPackageRequest, WelcomeMessage as ProtoWelcomeMessage,
 };
 use futures::Stream;
-use std::pin::Pin;
 use std::sync::Arc;
-use xmtp_common::{MaybeSend, MaybeSync};
+use xmtp_common::{BoxDynStream, MaybeSend, MaybeSync};
 use xmtp_common::{Retry, RetryableError};
 
 mod impls;
@@ -41,15 +40,8 @@ pub type BoxedXmtpApi<Error> = Box<dyn BoxableXmtpApi<Error>>;
 /// A type-erased version of the Xntp Api in a [`Arc`]
 pub type ArcedXmtpApi<Error> = Arc<dyn BoxableXmtpApi<Error>>;
 
-xmtp_common::if_native! {
-    pub type BoxedGroupS<Err> = Pin<Box<dyn Stream<Item = Result<GroupMessage, Err>> + Send>>;
-    pub type BoxedWelcomeS<Err> = Pin<Box<dyn Stream<Item = Result<WelcomeMessage, Err>> + Send>>;
-}
-
-xmtp_common::if_wasm! {
-    pub type BoxedGroupS<Err> = Pin<Box<dyn Stream<Item = Result<GroupMessage, Err>>>>;
-    pub type BoxedWelcomeS<Err> = Pin<Box<dyn Stream<Item = Result<WelcomeMessage, Err>>>>;
-}
+pub type BoxedGroupS<Err> = BoxDynStream<'static, Result<GroupMessage, Err>>;
+pub type BoxedWelcomeS<Err> = BoxDynStream<'static, Result<WelcomeMessage, Err>>;
 
 pub trait BoxableXmtpApi<Err>
 where
