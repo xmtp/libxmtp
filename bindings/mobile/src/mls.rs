@@ -50,6 +50,7 @@ use xmtp_db::{
     group_message::{GroupMessageKind, StoredGroupMessage},
 };
 use xmtp_id::associations::{Identifier, ident, verify_signed_with_public_context};
+use xmtp_id::key_package::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     InboxId,
@@ -72,7 +73,6 @@ use xmtp_mls::mls_common::group::GroupMetadataOptions;
 use xmtp_mls::mls_common::group_metadata::GroupMetadata;
 use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
-use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
     client::Client as MlsClient,
     groups::{

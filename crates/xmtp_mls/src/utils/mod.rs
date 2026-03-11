@@ -80,10 +80,6 @@ pub mod id {
 
         Ok(Some(calculate_message_id(&intent.group_id, &message, &key)))
     }
-
-    pub fn serialize_group_id(group_id: &[u8]) -> String {
-        hex::encode(group_id)
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

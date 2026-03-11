@@ -1,7 +1,6 @@
 use crate::context::XmtpSharedContext;
 use crate::groups::mls_ext::{
-    WelcomePointersExtension, WrapperAlgorithm, unwrap_welcome_symmetric, wrap_welcome,
-    wrap_welcome_symmetric,
+    WelcomePointersExtension, unwrap_welcome_symmetric, wrap_welcome, wrap_welcome_symmetric,
 };
 use crate::groups::welcome_pointer::resolve_welcome_pointer;
 use crate::identity::ENABLE_WELCOME_POINTERS;
@@ -12,6 +11,7 @@ use prost::Message;
 use std::time::Duration;
 use xmtp_db::group::QueryGroup;
 use xmtp_db::tasks::QueryTasks;
+use xmtp_id::key_package::WrapperAlgorithm;
 use xmtp_proto::mls_v1::WelcomeMetadata;
 use xmtp_proto::types::{DecryptedWelcomePointer, WelcomeMessage, WelcomeMessageType};
 use xmtp_proto::xmtp::mls::message_contents::welcome_pointer::WelcomeV1Pointer;
