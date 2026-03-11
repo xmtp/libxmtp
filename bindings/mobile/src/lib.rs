@@ -214,7 +214,12 @@ fn stringify_error_chain<T: Error>(error: &T) -> String {
 
 #[uniffi::export]
 pub fn get_version_info() -> String {
-    include_str!("../libxmtp-version.txt").to_string()
+    format!(
+        "Version: {}\nBranch: {}\nDate: {}",
+        env!("VERGEN_GIT_SHA"),
+        env!("VERGEN_GIT_BRANCH"),
+        env!("VERGEN_GIT_COMMIT_DATE")
+    )
 }
 
 #[cfg(test)]

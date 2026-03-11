@@ -99,12 +99,7 @@ let
         })
         pname
         ;
-      inherit
-        (rust.crateNameFromCargoToml {
-          cargoToml = ./../../Cargo.toml;
-        })
-        version
-        ;
+      version = xmtp.mkVersion rust;
       buildPhaseCargoCommand = ''
         mkdir -p $out/dist
         cargoBuildLog=$(mktemp cargoBuildLogXXXX.json)

@@ -318,14 +318,13 @@ mod tests {
     use xmtp_common::{rand_string, rand_u64};
     use xmtp_configuration::CIPHERSUITE;
     use xmtp_cryptography::XmtpInstallationCredential;
-    use xmtp_id::utils::test::smart_wallet;
     use xmtp_id::{
         associations::{
             Identifier,
             test_utils::{MockSmartContractSignatureVerifier, WalletTestExt},
             unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
         },
-        utils::test::{SignatureWithNonce, SmartWalletContext},
+        utils::test::{SignatureWithNonce, SmartWalletContext, docker_smart_wallet},
     };
     use xmtp_proto::xmtp::{
         identity::{
@@ -494,14 +493,14 @@ mod tests {
     #[rstest::rstest]
     #[timeout(std::time::Duration::from_secs(30))]
     #[tokio::test]
-    async fn test_validate_scw(#[future] smart_wallet: SmartWalletContext) {
+    async fn test_validate_scw(#[future] docker_smart_wallet: SmartWalletContext) {
         let SmartWalletContext {
             owner0: wallet,
             factory,
             sw,
             sw_address,
             ..
-        } = smart_wallet.await;
+        } = docker_smart_wallet.await;
 
         let provider = factory.provider();
         let chain_id = provider.get_chain_id().await.unwrap();
