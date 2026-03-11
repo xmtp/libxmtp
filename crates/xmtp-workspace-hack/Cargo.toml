@@ -67,6 +67,7 @@ openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "382a4649
 openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "382a4649ae4e937ce933adb259e26d6381745731", features = ["test-utils"] }
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
+proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = { version = "1" }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9", features = ["serde"] }
 rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
@@ -90,6 +91,7 @@ sha3 = { version = "0.10", default-features = false, features = ["asm", "std"] }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union", "write"] }
 subtle = { version = "2", default-features = false, features = ["const-generics", "i128"] }
+syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
 time = { version = "0.3", features = ["formatting", "local-offset", "parsing"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
@@ -164,6 +166,7 @@ openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "382a4649ae4e9
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
 proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = { version = "1" }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9", features = ["serde"] }
 rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
 rand_chacha-274715c4dabd11b0 = { package = "rand_chacha", version = "0.9" }
