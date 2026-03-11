@@ -1,7 +1,11 @@
 //! Tests for multi-device operations, installations, syncing, and fork recovery
 
 use crate::{
-    FfiConsent, FfiConsentEntityType, FfiConsentState, FfiCreateGroupOptions, FfiDecodedMessage, FfiListConversationsOptions, FfiListMessagesOptions, FfiMessage, FfiSendMessageOpts, device_sync::FfiArchiveOptions, test_utils::{LocalBuilder, LocalTester}, tests::{RustStreamCallback, SignWithWallet, new_test_client, new_test_client_with_wallet}
+    FfiConsent, FfiConsentEntityType, FfiConsentState, FfiCreateGroupOptions, FfiDecodedMessage,
+    FfiListConversationsOptions, FfiListMessagesOptions, FfiMessage, FfiSendMessageOpts,
+    device_sync::FfiArchiveOptions,
+    test_utils::{LocalBuilder, LocalTester},
+    tests::{RustStreamCallback, SignWithWallet, new_test_client, new_test_client_with_wallet},
 };
 use alloy::signers::local::PrivateKeySigner;
 use std::sync::Arc;
@@ -939,13 +943,16 @@ async fn test_new_installation_group_message_visibility() {
 
     // Can also pass in None for the pin and it will process that last archive sent
     // alix2.process_sync_archive(None).await.unwrap();
-    alix2.process_sync_archive(Some("123".to_string())).await.unwrap();
-    
+    alix2
+        .process_sync_archive(Some("123".to_string()))
+        .await
+        .unwrap();
 
     let group2 = alix2.conversation(group.id()).unwrap();
     let messages: Vec<FfiMessage> = group2
         .find_messages(FfiListMessagesOptions::default())
-        .await.unwrap();
+        .await
+        .unwrap();
 
     assert_eq!(
         messages.len(),
