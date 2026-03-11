@@ -170,7 +170,11 @@ fn resolve_invitees(
         );
         ids.push(inbox_id);
     }
-    debug!(owner = hex::encode(owner), member_count = ids.len(), "group owner");
+    debug!(
+        owner = hex::encode(owner),
+        member_count = ids.len(),
+        "group owner"
+    );
     Ok((ids, first_invitee))
 }
 

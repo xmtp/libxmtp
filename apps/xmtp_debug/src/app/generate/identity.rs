@@ -248,10 +248,7 @@ impl GenerateIdentity {
 }
 
 /// Poll until the identity's association state has members, or timeout after 30s.
-async fn poll_association_readiness(
-    network: &args::BackendOpts,
-    inbox_id_hex: &str,
-) -> Result<()> {
+async fn poll_association_readiness(network: &args::BackendOpts, inbox_id_hex: &str) -> Result<()> {
     let reader = Arc::new(app::temp_client(network, None).await?);
     let conn = Arc::new(reader.context.store().db());
 

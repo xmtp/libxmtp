@@ -51,7 +51,11 @@ impl Test {
                 "message_visibility",
                 "xdbg_test",
             );
-            info!(iteration = i + 1, latency_ms = latency, "iteration complete");
+            info!(
+                iteration = i + 1,
+                latency_ms = latency,
+                "iteration complete"
+            );
         }
 
         // Print summary statistics
@@ -191,7 +195,11 @@ impl Test {
                 "group_sync",
                 "xdbg_test",
             );
-            info!(iteration = i + 1, sync_latency_ms = latency, "iteration complete");
+            info!(
+                iteration = i + 1,
+                sync_latency_ms = latency,
+                "iteration complete"
+            );
         }
 
         // Print summary statistics
@@ -254,7 +262,10 @@ impl Test {
                     welcome_attempts
                 ));
             }
-            info!(attempt = welcome_attempts, "welcome not yet received, retrying");
+            info!(
+                attempt = welcome_attempts,
+                "welcome not yet received, retrying"
+            );
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
 
