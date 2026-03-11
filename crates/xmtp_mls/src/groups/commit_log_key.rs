@@ -47,9 +47,6 @@ impl CommitLogKeyCrypto for RustCrypto {
         entry: &CommitLogEntryProto,
         expected_public_key: &[u8],
     ) -> Result<(), Self::Error> {
-        let Some(signature) = &entry.signature else {
-            return Err(openmls_traits::types::CryptoError::InvalidSignature);
-        };
         if signature.public_key != expected_public_key {
             return Err(openmls_traits::types::CryptoError::InvalidSignature);
         }

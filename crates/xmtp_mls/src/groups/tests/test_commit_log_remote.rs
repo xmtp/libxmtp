@@ -158,10 +158,13 @@ async fn test_commit_log_publish_and_query_apis() {
     let commit_log_entry = PlaintextCommitLogEntry {
         group_id: group_id.clone(),
         commit_sequence_id: 123,
-        last_epoch_authenticator: vec![5, 6, 7, 8],
         commit_result: 1, // Success
         applied_epoch_number: 456,
         applied_epoch_authenticator: vec![9, 10, 11, 12],
+        installation_hmac: vec![6, 7, 8],
+
+        #[allow(deprecated)]
+        last_epoch_authenticator: vec![],
     };
 
     // Sign the commit log entry since backend now requires signatures
@@ -214,11 +217,13 @@ async fn test_commit_log_publish_and_query_apis() {
 
     // Verify the backend preserved the signature
     assert!(
-        returned_entry.signature.is_some(),
+        !returned_entry.signature.is_empty(),
         "Backend should preserve signature"
     );
-    let sig = returned_entry.signature.as_ref().unwrap();
-    assert_eq!(sig.public_key, public_key, "Public key should match");
+    assert_eq!(
+        returned_entry.signature, public_key,
+        "Public key should match"
+    );
 
     // TODO(cvoell): this will require decryption once encrypted key is added
     let entry = PlaintextCommitLogEntry::decode(raw_bytes.as_slice()).unwrap();
@@ -226,10 +231,6 @@ async fn test_commit_log_publish_and_query_apis() {
     assert_eq!(
         entry.commit_sequence_id,
         commit_log_entry.commit_sequence_id
-    );
-    assert_eq!(
-        entry.last_epoch_authenticator,
-        commit_log_entry.last_epoch_authenticator
     );
     assert_eq!(entry.commit_result, commit_log_entry.commit_result);
     assert_eq!(
