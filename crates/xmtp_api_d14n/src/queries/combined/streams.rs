@@ -149,3 +149,189 @@ where
         })))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::tests::{FakeNetworkError, TestNetworkClient, build_test_client};
+    use super::*;
+    use crate::protocol::InMemoryCursorStore;
+    use futures::StreamExt;
+
+    fn migration_error() -> ApiClientError {
+        ApiClientError::client(FakeNetworkError(
+            "XMTP V3 streaming is no longer available. Please upgrade your client to XMTP D14N."
+                .to_string(),
+        ))
+    }
+
+    fn other_error() -> ApiClientError {
+        ApiClientError::client(FakeNetworkError("some unrelated error".to_string()))
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn stream_fallback_yields_v3_items_without_error() {
+        let store = InMemoryCursorStore::new();
+        let client = build_test_client(TestNetworkClient::new(), TestNetworkClient::new(), store);
+
+        let v3_stream: BoxDynStream<'static, Result<i32, ApiClientError>> =
+            Box::pin(futures::stream::iter(vec![Ok(1), Ok(2), Ok(3)]));
+
+        let fallback_stream = client.with_d14n_fallback(v3_stream, || async {
+            panic!("d14n factory should not be called when v3 stream succeeds")
+        });
+        futures::pin_mut!(fallback_stream);
+
+        let items: Vec<i32> = fallback_stream.map(|r| r.unwrap()).collect().await;
+
+        assert_eq!(items, vec![1, 2, 3]);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn stream_fallback_switches_on_migration_error() {
+        let store = InMemoryCursorStore::new();
+        let client = build_test_client(TestNetworkClient::new(), TestNetworkClient::new(), store);
+
+        let v3_stream: BoxDynStream<'static, Result<i32, ApiClientError>> =
+            Box::pin(futures::stream::iter(vec![Ok(1), Err(migration_error())]));
+
+        let fallback_stream = client.with_d14n_fallback(v3_stream, || async {
+            let d14n: BoxDynStream<'static, Result<i32, ApiClientError>> =
+                Box::pin(futures::stream::iter(vec![Ok(10), Ok(11)]));
+            Ok(d14n)
+        });
+        futures::pin_mut!(fallback_stream);
+
+        let item = fallback_stream.next().await.unwrap();
+        assert_eq!(item.unwrap(), 1);
+
+        let item = fallback_stream.next().await.unwrap();
+        assert!(item.is_err());
+
+        let item = fallback_stream.next().await.unwrap();
+        assert_eq!(item.unwrap(), 10);
+
+        let item = fallback_stream.next().await.unwrap();
+        assert_eq!(item.unwrap(), 11);
+
+        assert!(fallback_stream.next().await.is_none());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn stream_fallback_does_not_switch_on_non_migration_error() {
+        let store = InMemoryCursorStore::new();
+        let client = build_test_client(TestNetworkClient::new(), TestNetworkClient::new(), store);
+
+        let v3_stream: BoxDynStream<'static, Result<i32, ApiClientError>> =
+            Box::pin(futures::stream::iter(vec![Ok(1), Err(other_error())]));
+
+        let fallback_stream = client.with_d14n_fallback(v3_stream, || async {
+            panic!("d14n factory should not be called for non-migration errors")
+        });
+        futures::pin_mut!(fallback_stream);
+
+        let item = fallback_stream.next().await.unwrap();
+        assert_eq!(item.unwrap(), 1);
+
+        let item = fallback_stream.next().await.unwrap();
+        assert!(item.is_err());
+
+        assert!(fallback_stream.next().await.is_none());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn stream_fallback_empty_v3_stream() {
+        let store = InMemoryCursorStore::new();
+        let client = build_test_client(TestNetworkClient::new(), TestNetworkClient::new(), store);
+
+        let v3_stream: BoxDynStream<'static, Result<i32, ApiClientError>> =
+            Box::pin(futures::stream::empty());
+
+        let fallback_stream = client.with_d14n_fallback(v3_stream, || async {
+            panic!("d14n factory should not be called for empty stream")
+        });
+        futures::pin_mut!(fallback_stream);
+
+        assert!(fallback_stream.next().await.is_none());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn stream_fallback_d14n_factory_error() {
+        let store = InMemoryCursorStore::new();
+        let client = build_test_client(TestNetworkClient::new(), TestNetworkClient::new(), store);
+
+        let v3_stream: BoxDynStream<'static, Result<i32, ApiClientError>> =
+            Box::pin(futures::stream::iter(vec![Err(migration_error())]));
+
+        let fallback_stream = client.with_d14n_fallback(v3_stream, || async {
+            Err::<BoxDynStream<'static, Result<i32, ApiClientError>>, _>(other_error())
+        });
+        futures::pin_mut!(fallback_stream);
+
+        let item = fallback_stream.next().await.unwrap();
+        assert!(item.is_err());
+
+        let item = fallback_stream.next().await.unwrap();
+        assert!(item.is_err());
+
+        assert!(fallback_stream.next().await.is_none());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn stream_fallback_migration_error_mid_stream() {
+        let store = InMemoryCursorStore::new();
+        let client = build_test_client(TestNetworkClient::new(), TestNetworkClient::new(), store);
+
+        let v3_stream: BoxDynStream<'static, Result<i32, ApiClientError>> =
+            Box::pin(futures::stream::iter(vec![
+                Ok(1),
+                Ok(2),
+                Ok(3),
+                Err(migration_error()),
+                Ok(99),
+            ]));
+
+        let fallback_stream = client.with_d14n_fallback(v3_stream, || async {
+            let d14n: BoxDynStream<'static, Result<i32, ApiClientError>> =
+                Box::pin(futures::stream::iter(vec![Ok(20), Ok(21)]));
+            Ok(d14n)
+        });
+        futures::pin_mut!(fallback_stream);
+
+        assert_eq!(fallback_stream.next().await.unwrap().unwrap(), 1);
+        assert_eq!(fallback_stream.next().await.unwrap().unwrap(), 2);
+        assert_eq!(fallback_stream.next().await.unwrap().unwrap(), 3);
+
+        let item = fallback_stream.next().await.unwrap();
+        assert!(item.is_err());
+
+        assert_eq!(fallback_stream.next().await.unwrap().unwrap(), 20);
+        assert_eq!(fallback_stream.next().await.unwrap().unwrap(), 21);
+
+        assert!(fallback_stream.next().await.is_none());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn stream_fallback_multiple_non_migration_errors_no_switch() {
+        let store = InMemoryCursorStore::new();
+        let client = build_test_client(TestNetworkClient::new(), TestNetworkClient::new(), store);
+
+        let v3_stream: BoxDynStream<'static, Result<i32, ApiClientError>> =
+            Box::pin(futures::stream::iter(vec![
+                Ok(1),
+                Err(other_error()),
+                Ok(2),
+                Err(other_error()),
+            ]));
+
+        let fallback_stream = client.with_d14n_fallback(v3_stream, || async {
+            panic!("d14n factory should not be called for non-migration errors")
+        });
+        futures::pin_mut!(fallback_stream);
+
+        assert_eq!(fallback_stream.next().await.unwrap().unwrap(), 1);
+        assert!(fallback_stream.next().await.unwrap().is_err());
+        assert_eq!(fallback_stream.next().await.unwrap().unwrap(), 2);
+        assert!(fallback_stream.next().await.unwrap().is_err());
+        assert!(fallback_stream.next().await.is_none());
+    }
+}
