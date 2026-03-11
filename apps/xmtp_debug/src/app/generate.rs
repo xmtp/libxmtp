@@ -45,9 +45,12 @@ impl Generate {
                     .await?;
                 let elapsed = start.elapsed();
                 let per_op = elapsed.as_millis() as f64 / amount as f64;
-                println!("Groups generated: {} in {} ms", amount, elapsed.as_millis());
-                println!("Per-group latency: {:.1} ms", per_op);
-                info!("groups generated");
+                info!(
+                    count = amount,
+                    elapsed_ms = elapsed.as_millis() as u64,
+                    per_group_ms = format!("{:.1}", per_op),
+                    "groups generated"
+                );
                 Ok(())
             }
             Message => {
@@ -63,16 +66,12 @@ impl Generate {
                     0.0
                 };
 
-                println!(
-                    "Messages sent: {} in {} ms (total with sync overhead)",
-                    amount,
-                    elapsed.as_millis()
+                info!(
+                    count = amount,
+                    elapsed_ms = elapsed.as_millis() as u64,
+                    avg_send_ms = format!("{:.1}", avg_send_ms),
+                    "messages sent (elapsed includes sync overhead, avg_send_ms excludes it)"
                 );
-                println!(
-                    "Per-message send_message() latency: {:.1} ms (excludes sync overhead)",
-                    avg_send_ms
-                );
-                info!("messages generated");
                 Ok(())
             }
             Identity => {
@@ -83,13 +82,12 @@ impl Generate {
                     .await?;
                 let elapsed = start.elapsed();
                 let per_op = elapsed.as_millis() as f64 / amount as f64;
-                println!(
-                    "Identities created: {} in {} ms",
-                    amount,
-                    elapsed.as_millis()
+                info!(
+                    count = amount,
+                    elapsed_ms = elapsed.as_millis() as u64,
+                    per_identity_ms = format!("{:.1}", per_op),
+                    "identities created"
                 );
-                println!("Per-identity latency: {:.1} ms", per_op);
-                info!("identities generated");
                 Ok(())
             }
         }

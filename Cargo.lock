@@ -9235,7 +9235,7 @@ dependencies = [
  "memchr",
  "parking_lot 0.12.5",
  "protobuf",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -14187,7 +14187,7 @@ dependencies = [
  "prost",
  "rand 0.10.0",
  "redb",
- "reqwest 0.12.24",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "speedy",
