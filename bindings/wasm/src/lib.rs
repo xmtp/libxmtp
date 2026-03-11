@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 //! This crate only compiles for webassembly
 
 xmtp_common::if_wasm! {

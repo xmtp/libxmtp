@@ -22,7 +22,6 @@ pbjson-types.workspace = true
 pin-project.workspace = true
 prost = { workspace = true, features = ["derive"] }
 prost-types = "0.14"
-rustc-hash.workspace = true
 serde = { workspace = true }
 smallvec.workspace = true
 thiserror.workspace = true
@@ -32,12 +31,13 @@ tracing.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 
+# optional
 mockall = { workspace = true, optional = true }
 tokio = { workspace = true, default-features = false, features = [
   "sync",
 ], optional = true }
 toxiproxy_rust = { workspace = true, optional = true }
-xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
+xmtp-workspace-hack.workspace = true
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

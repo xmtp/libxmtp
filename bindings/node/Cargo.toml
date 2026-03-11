@@ -33,8 +33,10 @@ tracing-subscriber = { workspace = true, features = [
   "json",
   "chrono",
 ] }
+xmtp-workspace-hack.workspace = true
 xmtp_api.workspace = true
 xmtp_api_d14n.workspace = true
+xmtp_api_grpc = { workspace = true, optional = true }
 xmtp_common = { workspace = true, features = ["logging"] }
 xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
@@ -44,10 +46,6 @@ xmtp_id.workspace = true
 xmtp_macro.workspace = true
 xmtp_mls.workspace = true
 xmtp_proto.workspace = true
-
-# For some reason these don't work when added as dev-dependencies
-xmtp-workspace-hack = { version = "0.1", path = "../../crates/xmtp-workspace-hack" }
-xmtp_api_grpc = { workspace = true, optional = true }
 
 [build-dependencies]
 napi-build = "2.0.1"

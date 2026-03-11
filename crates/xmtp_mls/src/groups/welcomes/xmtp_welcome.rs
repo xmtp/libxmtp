@@ -332,13 +332,30 @@ where
             )?;
             return Ok(None);
         }
+
+        // Extract group_id before consuming staged_welcome
+        let group_id = staged_welcome.public_group().group_id().to_vec();
+        let existing_group = db.find_group(group_id.as_slice())?;
+
+        // Check if this is a re-add scenario:
+        // - Self-removal (PendingRemove): user left voluntarily, then gets re-added
+        // - Removal by others: user was removed by another member (membership state stays Allowed
+        //   but MLS group is inactive)
+        // We verify it's a NEW welcome by checking that:
+        // 1. The existing group has a valid sequence_id (Some)
+        // 2. The new welcome's sequence_id is GREATER than the existing one
+        // This prevents incorrectly treating backup/restore or groups without sequence_ids as re-adds
+        let is_readd_after_leaving = existing_group.as_ref().is_some_and(|g| {
+            g.membership_state == GroupMembershipState::PendingRemove
+                && matches!(g.sequence_id, Some(seq) if (welcome.cursor.sequence_id as i64) > seq)
+        });
+
         let mls_group = OpenMlsGroup::from_welcome_logged(
             &provider,
             staged_welcome,
             &added_by_inbox_id,
             &added_by_installation_id,
         )?;
-        let group_id = mls_group.group_id().to_vec();
         let dm_members = metadata.dm_members;
         let conversation_type = metadata.conversation_type;
         let mutable_metadata = extract_group_mutable_metadata(&mls_group).ok();
@@ -370,22 +387,6 @@ where
             } else {
                 None
             }
-        });
-
-        let existing_group = db.find_group(group_id.as_slice())?;
-
-        // Check if this is a re-add scenario (user was in PENDING_REMOVE state)
-        // This happens when a user leaves or is removed, then gets re-added with a NEW welcome
-        // We verify it's a NEW welcome by checking that:
-        // 1. The existing group has a valid sequence_id (Some)
-        // 2. The new welcome's sequence_id is GREATER than the existing one
-        // This prevents incorrectly treating backup/restore or groups without sequence_ids as re-adds:
-        // - True re-add: existing group has sequence_id AND new welcome has HIGHER sequence_id
-        // - Backup/restore: welcome might have different but not necessarily higher sequence_id
-        // - Groups without sequence_id: should not be treated as re-adds
-        let is_readd_after_leaving = existing_group.as_ref().is_some_and(|g| {
-            g.membership_state == GroupMembershipState::PendingRemove
-                && matches!(g.sequence_id, Some(seq) if (welcome.cursor.sequence_id as i64) > seq)
         });
 
         // Determine the membership state
