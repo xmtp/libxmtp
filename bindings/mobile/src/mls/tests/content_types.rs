@@ -1546,6 +1546,43 @@ async fn test_delete_message_encode_decode() {
     assert!(result.is_err());
 }
 
+#[tokio::test]
+async fn test_edit_message_encode_decode() {
+    // Test basic edit message encoding/decoding
+    let ffi_edit_message = FfiEditMessage {
+        message_id: "test-message-id-123".to_string(),
+        edited_content: None,
+    };
+    let encoded = encode_edit_message(ffi_edit_message).unwrap();
+    let decoded = decode_edit_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, "test-message-id-123");
+    assert!(decoded.edited_content.is_none());
+
+    // Test with empty message_id
+    let ffi_edit_empty = FfiEditMessage {
+        message_id: "".to_string(),
+        edited_content: None,
+    };
+    let encoded = encode_edit_message(ffi_edit_empty).unwrap();
+    let decoded = decode_edit_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, "");
+
+    // Test with long message_id (hex string format)
+    let long_message_id = "a".repeat(64);
+    let ffi_edit_long = FfiEditMessage {
+        message_id: long_message_id.clone(),
+        edited_content: None,
+    };
+    let encoded = encode_edit_message(ffi_edit_long).unwrap();
+    let decoded = decode_edit_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, long_message_id);
+
+    // Test decoding invalid bytes
+    let invalid_bytes = vec![0xFF, 0xFF, 0xFF, 0xFF];
+    let result = decode_edit_message(invalid_bytes);
+    assert!(result.is_err());
+}
+
 /// Test basic edit message functionality in FFI layer
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn test_edit_message_ffi() {

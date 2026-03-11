@@ -7,6 +7,9 @@ public let ContentTypeEditMessageRequest = ContentTypeID(
 	versionMinor: 0
 )
 
+/// Represents a request to edit a message.
+/// This content type is used to request an edit of a specific message in a conversation.
+/// Only the original sender can edit their own messages.
 public struct EditMessageRequest: Codable, Equatable {
 	public var messageId: String
 	public var editedContent: EncodedContent?

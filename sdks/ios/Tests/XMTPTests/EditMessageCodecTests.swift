@@ -18,7 +18,9 @@ class EditMessageCodecTests: XCTestCase {
 		let encoded = try codec.encode(content: original)
 		let decoded = try codec.decode(content: encoded)
 
+		XCTAssertEqual(original, decoded)
 		XCTAssertEqual(original.messageId, decoded.messageId)
+		XCTAssertEqual(original.editedContent, decoded.editedContent)
 	}
 
 	func testEditMessageCodecFallback() throws {

@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -67,7 +68,9 @@ class EditMessageCodecTest : BaseInstrumentedTest() {
         val encoded = codec.encode(original)
         val decoded = codec.decode(encoded)
 
+        assertEquals(original, decoded)
         assertEquals(original.messageId, decoded.messageId)
+        assertEquals(original.editedContent, decoded.editedContent)
     }
 
     @Test
@@ -172,5 +175,15 @@ class EditMessageCodecTest : BaseInstrumentedTest() {
         val decoded: EditMessageRequest? = editMsg?.content()
         assertNotNull(decoded)
         assertEquals("test-msg-789", decoded?.messageId)
+    }
+
+    @Test
+    fun testEditMessageRequestEquality() {
+        val request1 = EditMessageRequest(messageId = "id-1", editedContent = null)
+        val request2 = EditMessageRequest(messageId = "id-1", editedContent = null)
+        val request3 = EditMessageRequest(messageId = "id-2", editedContent = null)
+
+        assertEquals(request1, request2)
+        assertNotEquals(request1, request3)
     }
 }

@@ -1,5 +1,14 @@
 package org.xmtp.android.library.codecs
 
+/**
+ * Represents a request to edit a message.
+ *
+ * This content type is used to request an edit of a specific message in a conversation.
+ * Only the original sender can edit their own messages.
+ *
+ * @property messageId The ID of the message to edit
+ * @property editedContent The new content to replace the original message content
+ */
 data class EditMessageRequest(
     val messageId: String,
     val editedContent: EncodedContent?,

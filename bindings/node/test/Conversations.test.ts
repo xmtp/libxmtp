@@ -1079,6 +1079,8 @@ describe('Conversations', () => {
     expect(editedMessages.length).toBe(1)
     expect(editedMessages[0].senderInboxId).toBe(client1.inboxId())
     expect(editedMessages[0].conversationId).toBe(group.id())
+    expect(editedMessages[0].isEdited).toBe(true)
+    expect(editedMessages[0].editedAtNs).toBeTruthy()
 
     stream.end()
   })

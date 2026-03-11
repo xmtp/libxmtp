@@ -1335,6 +1335,7 @@ describe("EnrichedMessage", () => {
       expect(originalMessage).toBeDefined();
       expect(originalMessage?.content.content).toBe("Original message");
       expect(originalMessage?.editedAtNs).toBeUndefined();
+      expect(originalMessage?.isEdited).toBe(false);
 
       // Edit the message
       const editId = conversation.editMessage(
@@ -1353,6 +1354,7 @@ describe("EnrichedMessage", () => {
       expect(editedMessage?.content.content).toBe("Edited message");
       expect(editedMessage?.editedAtNs).toBeDefined();
       expect(editedMessage?.editedAtNs).toBeGreaterThan(0);
+      expect(editedMessage?.isEdited).toBe(true);
       expect(editedMessage?.senderInboxId).toBe(client1.inboxId);
     });
 
