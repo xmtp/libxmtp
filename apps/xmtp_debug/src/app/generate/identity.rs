@@ -4,13 +4,16 @@ use crate::app::register_client;
 use crate::app::store::{Database, IdentityStore};
 use crate::app::{self, types::Identity};
 use crate::args;
+use crate::metrics::{
+    csv_metric, push_metrics, record_latency, record_phase_metric, record_throughput,
+};
 
 use color_eyre::eyre::{self, Result, WrapErr, bail, eyre};
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt, future, stream};
 use indicatif::{ProgressBar, ProgressStyle};
 use openmls_rust_crypto::RustCrypto;
 use tokio::sync::Mutex;
-use tokio::time::timeout;
+use tokio::time::{Instant, timeout};
 use xmtp_api_d14n::d14n::SubscribeEnvelopes;
 use xmtp_api_d14n::protocol::{CollectionExtractor, Extractor, KeyPackagesExtractor};
 use xmtp_proto::api::QueryStreamExt;
@@ -30,22 +33,16 @@ impl GenerateIdentity {
         }
     }
 
-    #[allow(unused)]
-    pub fn load_identities(
-        &self,
-    ) -> Result<Option<impl Iterator<Item = Result<Identity>> + use<'_>>> {
-        Ok(self
-            .identity_store
-            .load(&self.network)?
-            .map(|i| i.map(|i| Ok(i.value()))))
-    }
-
     pub async fn create_identities(
         &self,
         n: usize,
         concurrency: usize,
         ryow: bool,
     ) -> Result<Vec<Identity>> {
+        let loop_pause_secs: Option<u64> = std::env::var("XDBG_LOOP_PAUSE")
+            .ok()
+            .and_then(|v| v.parse().ok());
+
         let style = ProgressStyle::with_template("{bar} {pos}/{len} elapsed {elapsed} | {msg}");
         let bar = ProgressBar::new(n as u64)
             .with_style(style.unwrap())
@@ -79,7 +76,17 @@ impl GenerateIdentity {
                     async move {
                         let _permit = sem.acquire().await?;
                         let wallet = crate::app::generate_wallet();
+                        let t_init = Instant::now();
                         let c = app::new_unregistered_client(&network, Some(&wallet)).await?;
+                        let init_secs = t_init.elapsed().as_secs_f64();
+
+                        record_phase_metric(
+                            "identity_client_init",
+                            init_secs,
+                            "client_init",
+                            "xdbg_debug",
+                        );
+
                         bar_pointer
                             .set_message(format!("generated client {}", c.identity().inbox_id()));
                         let mut s = s.lock().await;
@@ -120,7 +127,6 @@ impl GenerateIdentity {
                 bar_ref.set_message("waiting for identities to be written");
                 futures::pin_mut!(s);
                 while let Some(kp) = timeout(n.ryow_timeout.into(), s.try_next()).await.wrap_err("timeout reached for reading writes on key package published")?? {
-                    // TODO: we can deserialize key packages in extractors possibly
                     let extractor =
                         CollectionExtractor::new(kp.envelopes, KeyPackagesExtractor::new());
                     let key_packages = extractor.get()?;
@@ -161,7 +167,17 @@ impl GenerateIdentity {
                     async move {
                         let _permit = sem.acquire().await?;
                         let identity = Identity::from_libxmtp(c.identity(), wallet.clone())?;
+                        let t_register = Instant::now();
                         register_client(&c, wallet.into_alloy()).await?;
+                        let register_secs = t_register.elapsed().as_secs_f64();
+
+                        record_phase_metric(
+                            "identity_register",
+                            register_secs,
+                            "register",
+                            "xdbg_debug",
+                        );
+
                         Ok(identity)
                     }
                 })
@@ -177,22 +193,29 @@ impl GenerateIdentity {
 
         //TODO: this can be removed once we're d14n-only
         let tmp = Arc::new(app::temp_client(network, None).await?);
-        let conn = Arc::new(tmp.context.store().db());
         let states = stream::iter(identities.iter().copied().map(Ok))
             .map_ok(|identity| {
                 let tmp = tmp.clone();
-                let conn = conn.clone();
                 tokio::spawn({
                     let sem = semaphore.clone();
+                    let network_clone = network.clone();
                     async move {
                         let _permit = sem.acquire().await?;
-                        let id = hex::encode(identity.inbox_id);
-                        trace!(inbox_id = id, "getting association state");
-                        let state = tmp
-                            .identity_updates()
-                            .get_latest_association_state(&conn, &id)
+                        let inbox_id_hex = hex::encode(identity.inbox_id);
+                        trace!(inbox_id = inbox_id_hex, "getting association state");
+
+                        poll_association_readiness(&network_clone, &inbox_id_hex).await?;
+
+                        measure_sync_and_lookup(&network_clone, &identity, &tmp, &inbox_id_hex)
                             .await?;
-                        Ok(state)
+
+                        // -- XDBG_LOOP_PAUSE --
+                        if let Some(secs) = loop_pause_secs {
+                            tracing::debug!(secs, "sleeping XDBG_LOOP_PAUSE after identity");
+                            tokio::time::sleep(tokio::time::Duration::from_secs(secs)).await;
+                        }
+
+                        Ok(())
                     }
                 })
                 .map_err(|_| eyre!("failed to register identities"))
@@ -215,7 +238,123 @@ impl GenerateIdentity {
             }
             bail!("Error generation failed");
         }
+
+        // -- verify all identities are readable from a fresh temp client --
+        verify_identities_readable(network, &identities).await?;
+
         read_writes.await?;
         Ok(identities)
     }
+}
+
+/// Poll until the identity's association state has members, or timeout after 30s.
+async fn poll_association_readiness(network: &args::BackendOpts, inbox_id_hex: &str) -> Result<()> {
+    let reader = Arc::new(app::temp_client(network, None).await?);
+    let conn = Arc::new(reader.context.store().db());
+
+    let assoc_start = Instant::now();
+    let assoc_deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
+    let poll_interval = tokio::time::Duration::from_millis(50);
+    let mut assoc_ready = false;
+
+    loop {
+        let state = reader
+            .identity_updates()
+            .get_latest_association_state(&conn, inbox_id_hex)
+            .await?;
+        if !state.members().is_empty() {
+            assoc_ready = true;
+            break;
+        }
+        if tokio::time::Instant::now() >= assoc_deadline {
+            break;
+        }
+        tokio::time::sleep(poll_interval).await;
+    }
+    let assoc_secs = assoc_start.elapsed().as_secs_f64();
+    let assoc_ok = if assoc_ready { "true" } else { "false" };
+
+    record_latency("identity_assoc_ready", assoc_secs);
+    record_throughput("identity_assoc_ready");
+    csv_metric(
+        "latency_seconds",
+        "identity_assoc_ready",
+        assoc_secs,
+        &[("phase", "assoc_ready"), ("success", assoc_ok)],
+    );
+    csv_metric(
+        "throughput_events",
+        "identity_assoc_ready",
+        1.0,
+        &[("phase", "assoc_ready"), ("success", assoc_ok)],
+    );
+    push_metrics("xdbg_debug");
+
+    Ok(())
+}
+
+/// Measure welcome-sync latency and identity-lookup latency for a registered identity.
+async fn measure_sync_and_lookup(
+    network: &args::BackendOpts,
+    identity: &Identity,
+    tmp: &crate::DbgClient,
+    inbox_id_hex: &str,
+) -> Result<()> {
+    let conn = Arc::new(tmp.context.store().db());
+
+    // -- welcome sync latency --
+    let t_sync = Instant::now();
+    let c = app::client_from_identity(identity, network)?;
+    c.sync_welcomes().await?;
+    let sync_secs = t_sync.elapsed().as_secs_f64();
+
+    record_phase_metric(
+        "identity_read_sync_latency",
+        sync_secs,
+        "identity_read_sync",
+        "xdbg_debug",
+    );
+
+    // -- identity lookup latency --
+    let t_lookup = Instant::now();
+    let _ = tmp
+        .identity_updates()
+        .get_latest_association_state(&conn, inbox_id_hex)
+        .await?;
+    let lookup_secs = t_lookup.elapsed().as_secs_f64();
+
+    record_phase_metric(
+        "read_identity_lookup_latency",
+        lookup_secs,
+        "identity_read",
+        "xdbg_debug",
+    );
+
+    Ok(())
+}
+
+/// Verify all identities are readable from a fresh temp client.
+async fn verify_identities_readable(
+    network: &args::BackendOpts,
+    identities: &[Identity],
+) -> Result<()> {
+    let verify_client = Arc::new(app::temp_client(network, None).await?);
+    let verify_conn = Arc::new(verify_client.context.store().db());
+    for identity in identities {
+        let inbox_id_hex = hex::encode(identity.inbox_id);
+        let t_verify = Instant::now();
+        let _ = verify_client
+            .identity_updates()
+            .get_latest_association_state(&verify_conn, &inbox_id_hex)
+            .await?;
+        let verify_secs = t_verify.elapsed().as_secs_f64();
+
+        record_phase_metric(
+            "verify_identity_lookup_latency",
+            verify_secs,
+            "verify_identity_read",
+            "xdbg_debug",
+        );
+    }
+    Ok(())
 }

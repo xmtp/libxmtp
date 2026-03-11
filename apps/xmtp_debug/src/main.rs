@@ -4,6 +4,7 @@ mod app;
 mod args;
 mod constants;
 mod logger;
+mod metrics;
 
 use clap::Parser;
 use color_eyre::eyre::Result;
@@ -28,6 +29,7 @@ async fn main() -> Result<()> {
     let opts = args::AppOpts::parse();
     let mut logger = logger::Logger::from(&opts.log);
     logger.init()?;
+    metrics::init_metrics();
 
     if opts.version {
         info!("Version: {0}", get_version());

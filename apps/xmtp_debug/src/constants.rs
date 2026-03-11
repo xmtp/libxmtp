@@ -7,6 +7,8 @@ use xmtp_configuration::{GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsProduction, GrpcUrl
 pub static XMTP_PRODUCTION: LazyLock<Url> =
     LazyLock::new(|| Url::parse(GrpcUrlsProduction::NODE).unwrap());
 pub static XMTP_DEV: LazyLock<Url> = LazyLock::new(|| Url::parse(GrpcUrlsDev::NODE).unwrap());
+pub static XMTP_STAGING: LazyLock<Url> =
+    LazyLock::new(|| Url::parse(GrpcUrlsStaging::NODE).unwrap());
 pub static XMTP_LOCAL: LazyLock<Url> = LazyLock::new(|| Url::parse(GrpcUrlsLocal::NODE).unwrap());
 
 pub static XMTP_PRODUCTION_D14N: LazyLock<Url> =

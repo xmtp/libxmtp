@@ -41,12 +41,6 @@ pub async fn fund_user(user: PrivateKeySigner, anvil: impl AnvilApi<Ethereum>) {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[fixture]
-pub async fn smart_wallet(#[future] spawned_provider: EthereumProvider) -> SmartWalletContext {
-    deploy_wallets(spawned_provider.await).await
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[fixture]
 pub async fn docker_smart_wallet(
     #[future] docker_provider: EthereumProvider,
 ) -> SmartWalletContext {
