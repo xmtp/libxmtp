@@ -223,7 +223,6 @@ impl CommitLogStorer for MlsGroup {
         NewLocalCommitLog {
             group_id: group_id.to_vec(),
             commit_sequence_id: commit_sequence_id as i64,
-            last_epoch_authenticator: last_epoch_authenticator.as_slice().to_vec(),
             commit_result: error.commit_result(),
             applied_epoch_number: last_epoch_number.as_u64() as i64,
             applied_epoch_authenticator: last_epoch_authenticator.as_slice().to_vec(),

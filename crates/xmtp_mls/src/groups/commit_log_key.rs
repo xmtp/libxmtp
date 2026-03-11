@@ -10,7 +10,7 @@ use xmtp_db::group::StoredGroupCommitLogPublicKey;
 use xmtp_db::prelude::QueryGroup;
 use xmtp_db::{
     XmtpMlsStorageProvider,
-    sql_key_store::{COMMIT_LOG_SIGNER_PRIVATE_KEY, SqlKeyStoreError},
+    sql_key_store::{COMMIT_LOG_SALT, SqlKeyStoreError},
 };
 use xmtp_proto::xmtp::mls::api::v1::QueryCommitLogResponse;
 use xmtp_proto::xmtp::mls::message_contents::CommitLogEntry as CommitLogEntryProto;
@@ -75,7 +75,7 @@ impl<KeyStore: XmtpMlsStorageProvider> CommitLogKeyStore for KeyStore {
     fn read_commit_log_key(&self, group_id: &[u8]) -> Result<Option<Secret>, Self::Error> {
         let key = bincode::serialize(group_id)?;
         let value = self
-            .read::<Vec<u8>>(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key)?
+            .read::<Vec<u8>>(COMMIT_LOG_SALT, &key)?
             .map(Secret::new);
         Ok(value)
     }
@@ -83,7 +83,7 @@ impl<KeyStore: XmtpMlsStorageProvider> CommitLogKeyStore for KeyStore {
     fn write_commit_log_key(&self, group_id: &[u8], value: &Secret) -> Result<(), Self::Error> {
         let key = bincode::serialize(group_id)?;
         let value = Secret::new(bincode::serialize(value.as_slice())?);
-        self.write(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key, value.as_slice())
+        self.write(COMMIT_LOG_SALT, &key, value.as_slice())
     }
 }
 
@@ -597,7 +597,7 @@ mod tests {
         // Clear the key store to ensure no stored key exists
         key_store
             .delete::<1>(
-                xmtp_db::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+                xmtp_db::sql_key_store::COMMIT_LOG_SALT,
                 &bincode::serialize(&group_id).unwrap(),
             )
             .ok();

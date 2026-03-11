@@ -325,7 +325,7 @@ const SIGNATURE_KEY_PAIR_LABEL: &[u8] = b"SignatureKeyPair";
 const EPOCH_KEY_PAIRS_LABEL: &[u8] = b"EpochKeyPairs";
 pub const KEY_PACKAGE_REFERENCES: &[u8] = b"KeyPackageReferences";
 pub const KEY_PACKAGE_WRAPPER_PRIVATE_KEY: &[u8] = b"KeyPackageWrapperPrivateKey";
-pub const COMMIT_LOG_SIGNER_PRIVATE_KEY: &[u8] = b"CommitLogSignerPrivateKey";
+pub const COMMIT_LOG_SALT: &[u8] = b"CommitLogSignerPrivateKey";
 
 // related to PublicGroup
 const TREE_LABEL: &[u8] = b"Tree";
@@ -1178,23 +1178,19 @@ pub(crate) mod tests {
         let value_1 = bincode::serialize(&raw_value)?;
 
         key_store.write::<CURRENT_VERSION>(
-            crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+            crate::sql_key_store::COMMIT_LOG_SALT,
             &group_1,
             &value_1,
         )?;
 
         // Query on a value that hasn't been written
-        let result = key_store.read::<CURRENT_VERSION, Vec<u8>>(
-            crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
-            &group_2,
-        );
+        let result = key_store
+            .read::<CURRENT_VERSION, Vec<u8>>(crate::sql_key_store::COMMIT_LOG_SALT, &group_2);
         assert!(result.is_ok(), "{}", result.err().unwrap());
         assert!(result.unwrap().is_none());
 
-        let result = key_store.read::<CURRENT_VERSION, Vec<u8>>(
-            crate::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
-            &group_1,
-        );
+        let result = key_store
+            .read::<CURRENT_VERSION, Vec<u8>>(crate::sql_key_store::COMMIT_LOG_SALT, &group_1);
         assert!(result.is_ok(), "{}", result.err().unwrap());
         assert_eq!(result.unwrap(), Some(raw_value));
     }

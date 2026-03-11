@@ -75,6 +75,8 @@ use xmtp_configuration::{
 };
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
+#[cfg(feature = "commit-log")]
+use xmtp_db::remote_commit_log::CommitResult;
 use xmtp_db::{
     Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
     group::{ConversationType, StoredGroup},
@@ -93,8 +95,6 @@ use xmtp_db::{
 };
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
-#[cfg(feature = "commit-log")]
-use xmtp_proto::xmtp::mls::message_contents::CommitResult;
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
