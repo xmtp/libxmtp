@@ -3807,6 +3807,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dea2df4cf52843e0452895c455a1a2cfbb842a1e7329671acf418fdc53ed4c59"
 
 [[package]]
+name = "error_glossary"
+version = "1.9.0"
+dependencies = [
+ "clap",
+ "syn 2.0.117",
+ "walkdir",
+ "xmtp-workspace-hack",
+]
+
+[[package]]
 name = "euclid"
 version = "0.22.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3849,16 +3859,6 @@ dependencies = [
  "rayon-core",
  "smallvec",
  "zune-inflate",
-]
-
-[[package]]
-name = "error_glossary"
-version = "1.9.0"
-dependencies = [
- "clap",
- "syn 2.0.111",
- "walkdir",
- "xmtp-workspace-hack",
 ]
 
 [[package]]
