@@ -9,6 +9,7 @@ members = [
 ]
 exclude = ["apps/android"]
 
+# Default members must be part of workspace hack to maximize cache hits in CI/nix/crane
 default-members = [
   # Applications
   "apps/mls_validation_service",

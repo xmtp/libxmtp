@@ -3,6 +3,7 @@
   nixConfig = {
     http-connections = 128;
     max-substitution-jobs = 128;
+    sandbox = "relaxed";
   };
 
   inputs = {
