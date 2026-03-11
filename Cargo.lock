@@ -14881,7 +14881,6 @@ dependencies = [
  "xmtp_common",
  "xmtp_configuration",
  "xmtp_cryptography",
- "xmtp_db",
  "xmtp_proto",
 ]
 

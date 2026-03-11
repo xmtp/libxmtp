@@ -23,6 +23,7 @@ use crate::{
         enrichment::{EnrichMessageError, enrich_messages},
     },
 };
+use itertools::Itertools;
 use openmls::prelude::tls_codec::Error as TlsCodecError;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
@@ -39,6 +40,7 @@ use xmtp_db::{
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
     identity::StoredIdentity,
+    identity_cache::StoredIdentityKind,
 };
 use xmtp_db::{group::GroupQueryOrderBy, prelude::*};
 use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
@@ -56,11 +58,12 @@ use xmtp_mls_common::{
     group_metadata::DmMembers,
     group_mutable_metadata::MessageDisappearingSettings,
 };
-use xmtp_proto::types::InstallationId;
 use xmtp_proto::{
+    ConversionError,
     api::HasStats,
     api_client::{ApiStats, IdentityStats},
 };
+use xmtp_proto::{types::InstallationId, xmtp::identity::associations::IdentifierKind};
 
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
@@ -162,6 +165,11 @@ pub enum ClientError {
     /// Failed to enrich message content. Not retryable.
     #[error(transparent)]
     EnrichMessage(#[from] EnrichMessageError),
+    /// Conversion Error
+    ///
+    /// Data type failed to convert. Not retryable.
+    #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
 }
 
 impl ClientError {
@@ -372,7 +380,16 @@ where
         conn: &impl DbQuery,
         identifiers: &[Identifier],
     ) -> Result<Vec<Option<String>>, ClientError> {
-        let mut cached_inbox_ids = conn.fetch_cached_inbox_ids(identifiers)?;
+        let ids: Vec<(String, StoredIdentityKind)> = identifiers
+            .iter()
+            .map(|i| {
+                Ok::<_, ConversionError>((
+                    i.clone().to_string(),
+                    StoredIdentityKind::try_from(IdentifierKind::from(i))?,
+                ))
+            })
+            .try_collect()?;
+        let mut cached_inbox_ids = conn.fetch_cached_inbox_ids(&ids)?;
         let mut new_inbox_ids = HashMap::default();
 
         let missing: Vec<_> = identifiers

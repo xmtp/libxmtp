@@ -3,7 +3,7 @@ use crate::{
     client::ClientError,
     context::XmtpSharedContext,
     groups::group_membership::{GroupMembership, MembershipDiff},
-    identity::IdentityError,
+    identity::{IdentityError, IdentityExt},
     subscriptions::SyncWorkerEvent,
 };
 use futures::{StreamExt, future::try_join_all, stream::FuturesUnordered};
@@ -106,7 +106,7 @@ pub async fn get_association_state_with_verifier(
     let unverified_updates = updates
         .into_iter()
         // deserialize identity update payload
-        .map(UnverifiedIdentityUpdate::try_from)
+        .map(StoredIdentityUpdate::to_unverified)
         .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
     let updates = verify_updates(unverified_updates, scw_verifier).await?;
 
@@ -281,7 +281,7 @@ where
 
         let unverified_incremental_updates: Vec<UnverifiedIdentityUpdate> = incremental_updates
             .into_iter()
-            .map(|update| update.try_into())
+            .map(|update| update.to_unverified())
             .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
 
         let incremental_updates =
@@ -699,7 +699,7 @@ pub async fn get_creation_signature_kind(
         .first()
         .ok_or_else(|| ClientError::Identity(IdentityError::RequiredIdentityNotFound))?;
 
-    let unverified_update: UnverifiedIdentityUpdate = first_update.clone().try_into()?;
+    let unverified_update: UnverifiedIdentityUpdate = first_update.clone().to_unverified()?;
 
     let verified = unverified_update.to_verified(scw_verifier).await?;
 

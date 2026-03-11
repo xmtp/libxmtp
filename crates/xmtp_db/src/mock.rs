@@ -507,25 +507,18 @@ mock! {
     }
 
     impl QueryIdentityCache for DbQuery {
-        #[mockall::concretize]
-        fn fetch_cached_inbox_ids<T>(
+        fn fetch_cached_inbox_ids(
             &self,
-            identifiers: &[T],
-        ) -> Result<std::collections::HashMap<String, String>, StorageError>
-        where
-            T: std::fmt::Display,
-            for<'a> &'a T: Into<crate::identity_cache::StoredIdentityKind>;
+            identifiers: &[(String, crate::identity_cache::StoredIdentityKind)],
+        ) -> Result<HashMap<String, String>, StorageError>;
 
         #[mockall::concretize]
-        fn cache_inbox_id<T, S>(
+        fn cache_inbox_id<S: ToString>(
             &self,
-            identifier: &T,
+            kind: crate::identity_cache::StoredIdentityKind,
+            identity: String,
             inbox_id: S,
-        ) -> Result<(), StorageError>
-        where
-            T: std::fmt::Display,
-            S: ToString,
-            for<'a> &'a T: Into<crate::identity_cache::StoredIdentityKind>;
+        ) -> Result<(), StorageError>;
     }
 
     impl QueryKeyPackageHistory for DbQuery {
