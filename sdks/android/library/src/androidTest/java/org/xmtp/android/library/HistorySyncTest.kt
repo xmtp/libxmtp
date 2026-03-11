@@ -7,6 +7,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Ignore
 import org.junit.Test
@@ -66,6 +67,93 @@ class HistorySyncTest : BaseInstrumentedTest() {
             delay(4000)
 
             assertEquals(alixGroup2.consentState(), ConsentState.DENIED)
+        }
+
+    @Test
+    fun testSyncMessages() =
+        runBlocking {
+            val wallet = createWallet()
+            val client1 = createClient(wallet)
+
+            val group = client1.conversations.newGroup(listOf(boClient.inboxId))
+
+            // Send a message before second installation is created
+            val msgId = group.send("hi")
+            val messageCount = group.messages().size
+            assertEquals(messageCount, 2)
+
+            val client2 = createClient(wallet)
+            val state = client2.inboxState(true)
+            assertEquals(state.installations.size, 2)
+
+            client2.sendSyncRequest()
+
+            client1.syncAllDeviceSyncGroups()
+            delay(1000)
+            client2.syncAllDeviceSyncGroups()
+            delay(1000)
+
+            val client1MessageCount = group.messages().size
+            val group2 =
+                client2.conversations.findGroup(group.id)
+                    ?: throw AssertionError("Failed to find group with ID: ${group.id}")
+
+            val messages = group2.messages()
+            val containsMessage = messages.any { it.id == msgId }
+            val client2MessageCount = messages.size
+            assertTrue(containsMessage)
+            assertEquals(client1MessageCount, client2MessageCount)
+        }
+
+    @Test
+    fun testSyncDeviceArchive() =
+        runBlocking {
+            val wallet = createWallet()
+            val client1 = createClient(wallet)
+
+            val group = client1.conversations.newGroup(listOf(boClient.inboxId))
+            val msgFromAlix = group.send("hello from alix")
+
+            delay(1000)
+            val client2 = createClient(wallet)
+            delay(1000)
+
+            client1.syncAllDeviceSyncGroups()
+            client1.sendSyncArchive(pin = "123")
+            delay(1000)
+
+            boClient.conversations.syncAllConversations()
+            val boGroup =
+                boClient.conversations.findGroup(group.id)
+                    ?: throw AssertionError("Failed to find group with ID: ${group.id}")
+            boGroup.send("hello from bo")
+
+            client1.conversations.syncAllConversations()
+            client2.conversations.syncAllConversations()
+
+            val group2Before =
+                client2.conversations.findGroup(group.id)
+                    ?: throw AssertionError("Failed to find group with ID: ${group.id}")
+            val messagesBefore = group2Before.messages()
+            assertEquals(messagesBefore.size, 2)
+
+            delay(1000)
+            client1.syncAllDeviceSyncGroups()
+            delay(1000)
+            client2.syncAllDeviceSyncGroups()
+
+            // Mirrors current Swift test flow where archive listing is observed but not asserted.
+            client2.listAvailableArchives(daysCutoff = 7)
+
+            client2.processSyncArchive("123")
+            client2.conversations.syncAllConversations()
+
+            val group2After =
+                client2.conversations.findGroup(group.id)
+                    ?: throw AssertionError("Failed to find group with ID: ${group.id}")
+            val messagesAfter = group2After.messages()
+            assertEquals(messagesAfter.size, 3)
+            assertTrue(messagesAfter.any { it.id == msgFromAlix })
         }
 
     @Test

@@ -51,9 +51,9 @@ class HistorySyncTests: XCTestCase {
 		XCTAssertEqual(state.installations.count, 2)
 
 		try await alixClient2.preferences.sync()
-		try await alixClient.conversations.syncAllConversations()
+		_ = try await alixClient.conversations.syncAllConversations()
 		sleep(2)
-		try await alixClient2.conversations.syncAllConversations()
+		_ = try await alixClient2.conversations.syncAllConversations()
 		sleep(2)
 
 		if let dm2 = try await alixClient2.conversations.findConversation(
@@ -120,10 +120,10 @@ class HistorySyncTests: XCTestCase {
 
 		// Without the alixClient2.sendSyncRequest() a delay is needed before alixClient syncAllDeviceSyncGroups()
 		// in order for alixClient to see the new installation and add it to the group
-		//sleep(1)
-		let _ = try await alixClient.syncAllDeviceSyncGroups()
+		// sleep(1)
+		_ = try await alixClient.syncAllDeviceSyncGroups()
 		sleep(1)
-		let _ = try await alixClient2.syncAllDeviceSyncGroups()
+		_ = try await alixClient2.syncAllDeviceSyncGroups()
 		sleep(1)
 
 		let client1MessageCount = try await group.messages().count
@@ -140,7 +140,7 @@ class HistorySyncTests: XCTestCase {
 		}
 	}
 
-	func testSyncHistoryArchive() async throws {
+	func testSyncDeviceArchive() async throws {
 		let fixtures = try await fixtures()
 
 		let key = try Crypto.secureRandomBytes(count: 32)
@@ -177,26 +177,26 @@ class HistorySyncTests: XCTestCase {
 		sleep(1)
 
 		// Alix syncs and uploads a sync archive with a known pin.
-		try await alixClient.syncAllDeviceSyncGroups()
+		_ = try await alixClient.syncAllDeviceSyncGroups()
 		try await alixClient.sendSyncArchive(pin: "123")
 
 		// Give the archive upload a brief moment to become available.
 		sleep(1)
 
 		// Bo sends a new message after Alix2 was created.
-		try await fixtures.boClient.conversations.syncAllConversations()
-		let maybeBoGroup = try await fixtures.boClient.conversations.findGroup(
+		_ = try await fixtures.boClient.conversations.syncAllConversations()
+		let maybeBoGroup = try fixtures.boClient.conversations.findGroup(
 			groupId: group.id
 		)
 		let boGroup = try XCTUnwrap(maybeBoGroup)
-		let _ = try await boGroup.send(content: "hello from bo")
+		_ = try await boGroup.send(content: "hello from bo")
 
 		// Sync both Alix clients.
-		try await alixClient.conversations.syncAllConversations()
-		try await alixClient2.conversations.syncAllConversations()
+		_ = try await alixClient.conversations.syncAllConversations()
+		_ = try await alixClient2.conversations.syncAllConversations()
 
 		// Before importing archive, Alix2 should only have post-installation visibility.
-		let maybeGroup2Before = try await alixClient2.conversations.findGroup(
+		let maybeGroup2Before = try alixClient2.conversations.findGroup(
 			groupId: group.id
 		)
 		let group2Before = try XCTUnwrap(maybeGroup2Before)
@@ -209,20 +209,20 @@ class HistorySyncTests: XCTestCase {
 
 		// Pull sync-group updates and verify the archive pin is visible.
 		sleep(2)
-		let _ = try await alixClient.syncAllDeviceSyncGroups()
+		_ = try await alixClient.syncAllDeviceSyncGroups()
 		sleep(2)
-		let _ = try await alixClient2.syncAllDeviceSyncGroups()
+		_ = try await alixClient2.syncAllDeviceSyncGroups()
 		let availableArchives = try alixClient2.listAvailableArchives(daysCutoff: 7)
-//		XCTAssertTrue(
-//			availableArchives.contains(where: { $0.pin == "123" }),
-//			"Expected archive pin 123 to be available before import"
-//		)
+		XCTAssertTrue(
+			availableArchives.contains(where: { $0.pin == "123" }),
+			"Expected archive pin 123 to be available before import"
+		)
 
 		// Import archive and verify Alix's original message becomes visible.
 		try await alixClient2.processSyncArchive(archivePin: "123")
-		try await alixClient2.conversations.syncAllConversations()
+		_ = try await alixClient2.conversations.syncAllConversations()
 
-		let maybeGroup2After = try await alixClient2.conversations.findGroup(
+		let maybeGroup2After = try alixClient2.conversations.findGroup(
 			groupId: group.id
 		)
 		let group2After = try XCTUnwrap(maybeGroup2After)
