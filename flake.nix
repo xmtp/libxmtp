@@ -22,7 +22,7 @@
     };
     rust-flake.url = "github:juspay/rust-flake";
     rust-manifest = {
-      url = "https://static.rust-lang.org/dist/channel-rust-1.92.0.toml";
+      url = "https://static.rust-lang.org/dist/channel-rust-1.94.0.toml";
       flake = false;
     };
     treefmt-nix.url = "github:numtide/treefmt-nix";

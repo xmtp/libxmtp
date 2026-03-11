@@ -317,6 +317,24 @@ impl CommitResult {
         }
     }
 }
+/// Extension data for proposal support in group context.
+/// When present in the group context extensions, indicates the group
+/// uses proposal-by-reference flow.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ProposalSupport {
+    #[prost(uint32, tag = "1")]
+    pub version: u32,
+}
+impl ::prost::Name for ProposalSupport {
+    const NAME: &'static str = "ProposalSupport";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.ProposalSupport".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.ProposalSupport".into()
+    }
+}
 /// ContentTypeId is used to identify the type of content stored in a Message.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ContentTypeId {

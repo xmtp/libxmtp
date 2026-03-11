@@ -1,9 +1,11 @@
 [package]
 name = "xmtp_archive"
-edition = "2024"
+description = "archive and backup features for xmtp"
 license.workspace = true
 version.workspace = true
-description = "archive and backup features for xmtp"
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
 
 [lints]
 workspace = true

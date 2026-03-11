@@ -33,7 +33,7 @@ services:
     networks:
       - proxynet
     ports:
-      - 5432:5432
+      - "${REPLICATION_DB_PORT:-127.0.0.1:5432}:5432"
 
   chain:
     platform: linux/amd64

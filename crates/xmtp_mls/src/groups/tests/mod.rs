@@ -13,6 +13,7 @@ mod test_message_disappearing_settings;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_network;
 mod test_prepare_message_for_later_publish;
+mod test_proposals;
 mod test_send_message_opts;
 mod test_welcome_pointers;
 mod test_welcomes;
@@ -381,7 +382,8 @@ fn test_create_from_welcome_validation() {
                 let mut group_membership = GroupMembership::new();
                 group_membership.add("deadbeef".to_string(), 1);
                 existing_extensions
-                    .add_or_replace(build_group_membership_extension(&group_membership));
+                    .add_or_replace(build_group_membership_extension(&group_membership))
+                    .unwrap();
 
                 mls_group
                     .update_group_context_extensions(
@@ -3847,6 +3849,7 @@ async fn respect_allow_epoch_increment() {
     );
 }
 
+#[cfg_attr(target_arch = "wasm32", ignore)]
 #[rstest]
 #[xmtp_common::test]
 #[awt]

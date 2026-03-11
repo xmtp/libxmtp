@@ -526,6 +526,123 @@ impl ::prost::Name for PostCommitAction {
         "/xmtp.mls.database.PostCommitAction".into()
     }
 }
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ProposeMemberUpdateData {
+    #[prost(oneof = "propose_member_update_data::Version", tags = "1")]
+    pub version: ::core::option::Option<propose_member_update_data::Version>,
+}
+/// Nested message and enum types in `ProposeMemberUpdateData`.
+pub mod propose_member_update_data {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct V1 {
+        /// Not hex encoded
+        #[prost(bytes = "vec", repeated, tag = "1")]
+        pub add_inbox_ids: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+        #[prost(bytes = "vec", repeated, tag = "2")]
+        pub remove_inbox_ids: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    }
+    impl ::prost::Name for V1 {
+        const NAME: &'static str = "V1";
+        const PACKAGE: &'static str = "xmtp.mls.database";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.database.ProposeMemberUpdateData.V1".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.database.ProposeMemberUpdateData.V1".into()
+        }
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Version {
+        #[prost(message, tag = "1")]
+        V1(V1),
+    }
+}
+impl ::prost::Name for ProposeMemberUpdateData {
+    const NAME: &'static str = "ProposeMemberUpdateData";
+    const PACKAGE: &'static str = "xmtp.mls.database";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.database.ProposeMemberUpdateData".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.database.ProposeMemberUpdateData".into()
+    }
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ProposeGroupContextExtensionData {
+    #[prost(oneof = "propose_group_context_extension_data::Version", tags = "1")]
+    pub version: ::core::option::Option<propose_group_context_extension_data::Version>,
+}
+/// Nested message and enum types in `ProposeGroupContextExtensionData`.
+pub mod propose_group_context_extension_data {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct V1 {
+        #[prost(bytes = "vec", tag = "1")]
+        pub group_context_extension: ::prost::alloc::vec::Vec<u8>,
+    }
+    impl ::prost::Name for V1 {
+        const NAME: &'static str = "V1";
+        const PACKAGE: &'static str = "xmtp.mls.database";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.database.ProposeGroupContextExtensionData.V1".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.database.ProposeGroupContextExtensionData.V1".into()
+        }
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Version {
+        #[prost(message, tag = "1")]
+        V1(V1),
+    }
+}
+impl ::prost::Name for ProposeGroupContextExtensionData {
+    const NAME: &'static str = "ProposeGroupContextExtensionData";
+    const PACKAGE: &'static str = "xmtp.mls.database";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.database.ProposeGroupContextExtensionData".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.database.ProposeGroupContextExtensionData".into()
+    }
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CommitPendingProposalsData {
+    #[prost(oneof = "commit_pending_proposals_data::Version", tags = "1")]
+    pub version: ::core::option::Option<commit_pending_proposals_data::Version>,
+}
+/// Nested message and enum types in `CommitPendingProposalsData`.
+pub mod commit_pending_proposals_data {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct V1 {
+        #[prost(bytes = "vec", repeated, tag = "1")]
+        pub proposal_hashes: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    }
+    impl ::prost::Name for V1 {
+        const NAME: &'static str = "V1";
+        const PACKAGE: &'static str = "xmtp.mls.database";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.database.CommitPendingProposalsData.V1".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.database.CommitPendingProposalsData.V1".into()
+        }
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Version {
+        #[prost(message, tag = "1")]
+        V1(V1),
+    }
+}
+impl ::prost::Name for CommitPendingProposalsData {
+    const NAME: &'static str = "CommitPendingProposalsData";
+    const PACKAGE: &'static str = "xmtp.mls.database";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.database.CommitPendingProposalsData".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.database.CommitPendingProposalsData".into()
+    }
+}
 /// Type of update to admin lists
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

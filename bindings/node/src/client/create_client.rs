@@ -215,8 +215,14 @@ pub async fn create_client(
 
   let cursor_store = SqliteCursorStore::new(store.db());
   backend.cursor_store(cursor_store);
-  let api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
-  let sync_api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
+  let api_client = backend
+    .clone()
+    .build_optional_d14n()
+    .map_err(ErrorWrapper::from)?;
+  let sync_api_client = backend
+    .clone()
+    .build_optional_d14n()
+    .map_err(ErrorWrapper::from)?;
 
   create_client_inner(
     api_client,

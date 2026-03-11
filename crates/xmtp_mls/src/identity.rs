@@ -5,8 +5,8 @@ use crate::identity_updates::{get_association_state_with_verifier, load_identity
 use crate::worker::NeedsDbReconnect;
 use crate::{XmtpApi, verified_key_package_v2::KeyPackageVerificationError};
 use derive_builder::Builder;
-use openmls::prelude::HpkeKeyPair;
 use openmls::prelude::hash_ref::HashReference;
+use openmls::prelude::{HpkeKeyPair, LeafNode};
 use openmls::{
     credentials::{BasicCredential, CredentialWithKey, errors::BasicCredentialError},
     extensions::{
@@ -31,9 +31,10 @@ use xmtp_common::ErrorCode;
 use xmtp_common::time::now_ns;
 use xmtp_common::{RetryableError, retryable};
 use xmtp_configuration::{
-    CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
-    GROUP_PERMISSIONS_EXTENSION_ID, KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX,
-    MUTABLE_METADATA_EXTENSION_ID, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+    BROADCAST_PROPOSAL_SUPPORT, CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION,
+    GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID,
+    KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX, MUTABLE_METADATA_EXTENSION_ID,
+    PROPOSAL_SUPPORT_EXTENSION_ID, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
     WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
 use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
@@ -187,10 +188,19 @@ impl IdentityStrategy {
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum IdentityError {
+    /// Credential serialization error.
+    ///
+    /// Failed to encode MLS credential. Not retryable.
     #[error(transparent)]
     CredentialSerialization(#[from] prost::EncodeError),
+    /// Decode error.
+    ///
+    /// Protobuf decoding failed. Not retryable.
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
+    /// Installation not found.
+    ///
+    /// Installation ID not found in network association state. Not retryable.
     #[error("installation not found: {0}")]
     InstallationIdNotFound(String),
     #[error(transparent)]
@@ -199,22 +209,49 @@ pub enum IdentityError {
     #[error(transparent)]
     #[error_code(inherit)]
     Signature(#[from] xmtp_id::associations::SignatureError),
+    /// Basic credential error.
+    ///
+    /// MLS basic credential validation failed. Not retryable.
     #[error(transparent)]
     BasicCredential(#[from] BasicCredentialError),
+    /// Legacy key re-use.
+    ///
+    /// Attempted to reuse a legacy key. Not retryable.
     #[error("Legacy key re-use")]
     LegacyKeyReuse,
+    /// Uninitialized identity.
+    ///
+    /// Identity not yet initialized. Not retryable.
     #[error("Uninitialized identity")]
     UninitializedIdentity,
+    /// Installation key error.
+    ///
+    /// Problem with installation key. Not retryable.
     #[error("Installation key {0}")]
     InstallationKey(String),
+    /// Malformed legacy key.
+    ///
+    /// Legacy key format is invalid. Not retryable.
     #[error("Malformed legacy key: {0}")]
     MalformedLegacyKey(String),
+    /// Legacy signature error.
+    ///
+    /// Legacy signature is invalid. Not retryable.
     #[error("Legacy signature: {0}")]
     LegacySignature(String),
+    /// Crypto error.
+    ///
+    /// Cryptographic operation failed. Not retryable.
     #[error(transparent)]
     Crypto(#[from] CryptoError),
+    /// Legacy key mismatch.
+    ///
+    /// Legacy key does not match address. Not retryable.
     #[error("legacy key does not match address")]
     LegacyKeyMismatch,
+    /// OpenMLS error.
+    ///
+    /// OpenMLS library error. Not retryable.
     #[error(transparent)]
     OpenMls(#[from] openmls::prelude::Error),
     #[error(transparent)]
@@ -223,22 +260,40 @@ pub enum IdentityError {
     #[error(transparent)]
     #[error_code(inherit)]
     OpenMlsStorageError(#[from] SqlKeyStoreError),
+    /// Key package generation error.
+    ///
+    /// Failed to generate MLS key package. Not retryable.
     #[error(transparent)]
     KeyPackageGenerationError(#[from] openmls::key_packages::errors::KeyPackageNewError),
     #[error(transparent)]
     #[error_code(inherit)]
     KeyPackageVerificationError(#[from] KeyPackageVerificationError),
+    /// Inbox ID mismatch.
+    ///
+    /// Associated InboxID does not match stored value. Not retryable.
     #[error("The InboxID {id}, associated does not match the stored InboxId {stored}.")]
     InboxIdMismatch { id: InboxId, stored: InboxId },
+    /// No associated Inbox ID.
+    ///
+    /// Address has no associated InboxID. Not retryable.
     #[error("The address {0} has no associated InboxID")]
     NoAssociatedInboxId(String),
+    /// Required identity not found.
+    ///
+    /// Identity was not found in cache. Not retryable.
     #[error("Required identity was not found in cache.")]
     RequiredIdentityNotFound,
+    /// New identity creation error.
+    ///
+    /// Error creating a new identity. Not retryable.
     #[error("error creating new identity: {0}")]
     NewIdentity(String),
     #[error(transparent)]
     #[error_code(inherit)]
     Association(#[from] AssociationError),
+    /// Signer error.
+    ///
+    /// Cryptographic signer failed. Not retryable.
     #[error(transparent)]
     Signer(#[from] xmtp_cryptography::SignerError),
     #[error(transparent)]
@@ -250,6 +305,9 @@ pub enum IdentityError {
     #[error(transparent)]
     #[error_code(inherit)]
     Db(#[from] xmtp_db::ConnectionError),
+    /// Too many installations.
+    ///
+    /// InboxID has reached max installation count. Not retryable.
     #[error(
         "Cannot register a new installation because the InboxID {inbox_id} has already registered {count}/{max} installations. Please revoke existing installations first."
     )]
@@ -261,12 +319,24 @@ pub enum IdentityError {
     #[error(transparent)]
     #[error_code(inherit)]
     GeneratePostQuantumKey(#[from] GeneratePostQuantumKeyError),
+    /// Invalid extension error.
+    ///
+    /// MLS extension validation failed. Not retryable.
     #[error(transparent)]
     InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
+    /// Missing PQ public key.
+    ///
+    /// Post-quantum public key not found. Not retryable.
     #[error("Missing post quantum public key")]
     MissingPostQuantumPublicKey,
+    /// Bincode serialization error.
+    ///
+    /// Binary serialization failed. Not retryable.
     #[error("Bincode serialization error")]
     Bincode,
+    /// Uninitialized field.
+    ///
+    /// Builder field not initialized. Not retryable.
     #[error(transparent)]
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
 }
@@ -705,6 +775,7 @@ impl Identity {
 #[cfg(any(test, feature = "test-utils"))]
 tokio::task_local! {
     pub static ENABLE_WELCOME_POINTERS: bool;
+    pub static ENABLE_PROPOSAL_SUPPORT: bool;
 }
 
 #[derive(Builder, Debug)]
@@ -757,21 +828,35 @@ impl XmtpKeyPackageBuilder {
 
         let application_id =
             Extension::ApplicationId(ApplicationIdExtension::new(this.inbox_id.as_bytes()));
-        let leaf_node_extensions = Extensions::single(application_id);
+        let leaf_node_extensions = Extensions::<LeafNode>::single(application_id)?;
 
+        let mut capability_extensions = vec![
+            ExtensionType::LastResort,
+            ExtensionType::ApplicationId,
+            ExtensionType::ImmutableMetadata,
+            ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
+            ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
+            ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
+            ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
+            ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
+        ];
+        if BROADCAST_PROPOSAL_SUPPORT {
+            capability_extensions.push(ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID));
+        }
+        #[cfg(any(test, feature = "test-utils"))]
+        {
+            const {
+                assert!(BROADCAST_PROPOSAL_SUPPORT);
+            }
+            if !ENABLE_PROPOSAL_SUPPORT.try_with(|v| *v).unwrap_or(true) {
+                capability_extensions
+                    .retain(|e| *e != ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID));
+            }
+        }
         let capabilities = Capabilities::new(
             None,
             Some(&[CIPHERSUITE]),
-            Some(&[
-                ExtensionType::LastResort,
-                ExtensionType::ApplicationId,
-                ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
-                ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
-                ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
-                ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
-                ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
-                ExtensionType::ImmutableMetadata,
-            ]),
+            Some(&capability_extensions),
             Some(&[ProposalType::GroupContextExtensions]),
             None,
         );
@@ -779,7 +864,6 @@ impl XmtpKeyPackageBuilder {
         let kp_builder = KeyPackage::builder()
             .leaf_node_capabilities(capabilities)
             .leaf_node_extensions(leaf_node_extensions)
-            .expect("application id extension is always valid in leaf nodes")
             .key_package_extensions(key_package_extensions);
 
         let kp_builder = {

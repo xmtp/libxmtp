@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 use crate::{
     state::{LogEvent, State},
     ui::file_open::{file_selected, open_file_dialog},

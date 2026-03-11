@@ -13,8 +13,14 @@ pub struct ResolvedBackendConfig {
 
 #[derive(Error, Debug, ErrorCode)]
 pub enum BackendConfigError {
+    /// Missing gateway host.
+    ///
+    /// D14n environment requires `gateway_host` to be set. Not retryable.
     #[error("D14n environment '{0:?}' requires gateway_host to be set")]
     MissingGatewayHost(XmtpEnv),
+    /// Auth requires gateway.
+    ///
+    /// Authentication (auth_callback or auth_handle) requires `gateway_host` to be set. Not retryable.
     #[error("Authentication (auth_callback or auth_handle) requires gateway_host to be set")]
     AuthRequiresGateway,
 }

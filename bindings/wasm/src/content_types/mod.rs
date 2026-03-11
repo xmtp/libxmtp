@@ -13,12 +13,24 @@ use crate::ErrorWrapper;
 /// when surfaced to JavaScript.
 #[derive(Debug, Error, ErrorCode)]
 pub enum ContentTypeError {
+  /// Invalid data.
+  ///
+  /// Content type data failed validation. Not retryable.
   #[error("{0}")]
   InvalidData(String),
+  /// Timestamp out of range.
+  ///
+  /// Timestamp value is outside the representable range. Not retryable.
   #[error("{0}")]
   TimestampOutOfRange(String),
+  /// Codec error.
+  ///
+  /// Content type codec encoding or decoding failed. Not retryable.
   #[error("{0}")]
   Codec(String),
+  /// Crypto error.
+  ///
+  /// Cryptographic operation for content type failed. Not retryable.
   #[error("{0}")]
   Crypto(String),
 }

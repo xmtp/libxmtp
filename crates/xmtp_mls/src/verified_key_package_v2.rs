@@ -18,10 +18,19 @@ use xmtp_proto::xmtp::identity::MlsCredential;
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum KeyPackageVerificationError {
+    /// TLS codec error.
+    ///
+    /// MLS TLS encoding/decoding failed. Not retryable.
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
+    /// MLS validation error.
+    ///
+    /// Key package verification failed. Not retryable.
     #[error("mls validation: {0}")]
     MlsValidation(#[from] KeyPackageVerifyError),
+    /// Wrong credential type.
+    ///
+    /// Unexpected MLS credential type. Not retryable.
     #[error("wrong credential type")]
     WrongCredentialType(#[from] BasicCredentialError),
     #[error(transparent)]

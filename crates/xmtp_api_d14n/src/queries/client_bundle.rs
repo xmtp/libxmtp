@@ -1,130 +1,76 @@
-use std::{error::Error, sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use crate::{
-    AuthCallback, AuthHandle, MessageBackendBuilderError, MiddlewareBuilder, ReadWriteClient,
-    ReadonlyClient,
+    AuthCallback, AuthHandle, MessageBackendBuilderError, ReadWriteClient, ReadonlyClient,
 };
 use derive_builder::Builder;
-use http::{request, uri::PathAndQuery};
-use prost::bytes::Bytes;
-use xmtp_api_grpc::{GrpcClient, error::GrpcError};
-use xmtp_common::{MaybeSend, MaybeSync};
-use xmtp_configuration::{MULTI_NODE_TIMEOUT_MS, PAYER_WRITE_FILTER};
+use xmtp_api_grpc::GrpcClient;
+use xmtp_configuration::PAYER_WRITE_FILTER;
 use xmtp_proto::{
-    api::{ApiClientError, ArcClient, Client, IsConnectedCheck, ToBoxedClient},
+    api::{ArcClient, ToBoxedClient},
     prelude::{ApiBuilder, NetConnectConfig},
     types::AppVersion,
 };
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone)]
 #[non_exhaustive]
-pub enum ClientKind {
-    D14n,
-    V3,
-    Hybrid,
+pub enum ClientBundle {
+    D14n(ArcClient),
+    V3(ArcClient),
+    Migration { v3: ArcClient, xmtpd: ArcClient },
 }
 
-impl std::fmt::Display for ClientKind {
+impl std::fmt::Display for ClientBundle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use ClientKind::*;
+        use ClientBundle::*;
         match self {
-            D14n => write!(f, "D14n"),
-            V3 => write!(f, "V3"),
-            Hybrid => write!(f, "Hybrid"),
+            D14n(_) => write!(f, "D14n"),
+            V3(_) => write!(f, "V3"),
+            Migration { .. } => write!(f, "Migration"),
         }
     }
 }
 
-pub struct ClientBundle<Err> {
-    client: ArcClient<Err>,
-    kind: ClientKind,
-}
-
-impl<Err> Clone for ClientBundle<Err> {
-    fn clone(&self) -> Self {
-        Self {
-            client: self.client.clone(),
-            kind: self.kind,
-        }
+impl std::fmt::Debug for ClientBundle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self) // delegate to the display impl
     }
 }
 
-impl ClientBundle<()> {
+impl ClientBundle {
     pub fn builder() -> ClientBundleBuilder {
         ClientBundleBuilder::default()
     }
 }
 
-#[xmtp_common::async_trait]
-impl<Err> Client for ClientBundle<Err>
-where
-    Err: Error + MaybeSend + MaybeSync + 'static,
-{
-    type Error = Err;
-
-    type Stream = <ArcClient<Err> as Client>::Stream;
-
-    async fn request(
-        &self,
-        request: request::Builder,
-        path: PathAndQuery,
-        body: Bytes,
-    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
-        self.client.request(request, path, body).await
-    }
-
-    async fn stream(
-        &self,
-        request: request::Builder,
-        path: PathAndQuery,
-        body: Bytes,
-    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
-        self.client.stream(request, path, body).await
-    }
-
-    fn fake_stream(&self) -> http::Response<Self::Stream> {
-        self.client.fake_stream()
-    }
-}
-
-#[xmtp_common::async_trait]
-impl<Err> IsConnectedCheck for ClientBundle<Err> {
-    async fn is_connected(&self) -> bool {
-        self.client.is_connected().await
-    }
-}
-
-impl<Err> ClientBundle<Err> {
-    pub fn new(client: ArcClient<Err>, kind: ClientKind) -> Self {
-        Self { client, kind }
-    }
-
+impl ClientBundle {
     /// create a d14n client bundle
-    pub fn d14n(client: ArcClient<Err>) -> Self {
-        Self {
-            client,
-            kind: ClientKind::D14n,
-        }
+    pub fn d14n(client: ArcClient) -> Self {
+        ClientBundle::D14n(client)
     }
 
     /// Create a v3 client bundle
-    pub fn v3(client: ArcClient<Err>) -> Self {
-        Self {
-            client,
-            kind: ClientKind::V3,
+    pub fn v3(client: ArcClient) -> Self {
+        ClientBundle::V3(client)
+    }
+
+    /// Create a migration client
+    pub fn migration(v3: ArcClient, xmtpd: ArcClient) -> Self {
+        ClientBundle::Migration { v3, xmtpd }
+    }
+
+    pub fn get_v3(&self) -> Option<ArcClient> {
+        match self {
+            Self::D14n(_) => None,
+            Self::V3(v3) | Self::Migration { v3, .. } => Some(v3.clone()),
         }
     }
 
-    /// Create a hybrid client
-    pub fn hybrid(client: ArcClient<Err>) -> Self {
-        Self {
-            client,
-            kind: ClientKind::Hybrid,
+    pub fn get_d14n(&self) -> Option<ArcClient> {
+        match self {
+            Self::D14n(xmtpd) | Self::Migration { xmtpd, .. } => Some(xmtpd.clone()),
+            Self::V3(_) => None,
         }
-    }
-
-    pub fn kind(&self) -> &ClientKind {
-        &self.kind
     }
 }
 
@@ -168,131 +114,117 @@ impl ClientBundleBuilder {
         self
     }
 
-    pub fn build(&mut self) -> Result<ClientBundle<GrpcError>, MessageBackendBuilderError> {
+    fn inner_build_d14n(
+        &mut self,
+        is_secure: bool,
+    ) -> Result<ArcClient, MessageBackendBuilderError> {
         let Self {
-            v3_host,
-            gateway_host,
             app_version,
             auth_callback,
             auth_handle,
-            is_secure,
-            readonly,
+            ..
         } = self.clone();
-        let is_secure = is_secure.unwrap_or_default();
-        let readonly = readonly.unwrap_or_default();
+        let gw_host = self
+            .gateway_host
+            .as_ref()
+            .ok_or(MessageBackendBuilderError::MissingGatewayHost)?;
+        let readonly = self.readonly.unwrap_or_default();
 
-        match (v3_host, gateway_host) {
-            // D14n mode: gateway_host is set (v3_host is ignored)
-            (_, Some(gateway)) => {
-                let mut gateway_client_builder = GrpcClient::builder();
-                gateway_client_builder.set_host(gateway.to_string());
-                gateway_client_builder.set_tls(is_secure);
+        let mut gateway_client_builder = GrpcClient::builder();
+        gateway_client_builder.set_host(gw_host.to_string());
+        gateway_client_builder.set_tls(is_secure);
 
-                if let Some(version) = app_version {
-                    gateway_client_builder.set_app_version(version)?;
-                }
+        if let Some(ref version) = app_version {
+            gateway_client_builder.set_app_version(version.clone())?;
+        }
 
-                let mut multi_node = crate::middleware::MultiNodeClientBuilder::default();
-                multi_node.set_timeout(Duration::from_millis(MULTI_NODE_TIMEOUT_MS))?;
-                multi_node.set_gateway_builder(gateway_client_builder.clone())?;
-                let mut template = GrpcClient::builder();
-                template.set_tls(is_secure);
-                multi_node.set_node_client_builder(template)?;
+        let gateway_client = gateway_client_builder.build()?;
+        let gateway_client = if auth_callback.is_some() || auth_handle.is_some() {
+            crate::AuthMiddleware::new(gateway_client, auth_callback, auth_handle).arced()
+        } else {
+            gateway_client.arced()
+        };
 
-                let gateway_client = gateway_client_builder.build()?;
-                let multi_node = multi_node.build()?;
+        let mut multi_node = crate::middleware::MultiNodeClient::builder();
+        let multi_node = multi_node.gateway_client(gateway_client.clone());
+        let mut template = GrpcClient::builder();
+        template.set_tls(is_secure);
+        if let Some(ref version) = app_version {
+            template.set_app_version(version.clone())?;
+        }
+        let multi_node = multi_node.node_client_template(template).build()?;
 
-                let client = if auth_callback.is_some() || auth_handle.is_some() {
-                    let auth =
-                        crate::AuthMiddleware::new(gateway_client, auth_callback, auth_handle);
-                    let client = ReadWriteClient::builder()
-                        .read(multi_node)
-                        .write(auth)
-                        .filter(PAYER_WRITE_FILTER)
-                        .build()?;
-                    if readonly {
-                        ReadonlyClient::builder().inner(client).build()?.arced()
-                    } else {
-                        client.arced()
-                    }
-                } else {
-                    let client = ReadWriteClient::builder()
-                        .read(multi_node)
-                        .write(gateway_client)
-                        .filter(PAYER_WRITE_FILTER)
-                        .build()?;
-                    if readonly {
-                        ReadonlyClient::builder().inner(client).build()?.arced()
-                    } else {
-                        client.arced()
-                    }
-                };
+        if readonly {
+            return Ok(ReadonlyClient::builder().inner(multi_node).build()?.arced());
+        }
 
-                Ok(ClientBundle::d14n(client))
-            }
-            // V3 mode: only v3_host is set
-            (Some(v3_host), None) => {
-                let mut v3_client = GrpcClient::builder();
-                v3_client.set_host(v3_host.to_string());
-                v3_client.set_tls(is_secure);
-                if let Some(ref version) = app_version {
-                    v3_client.set_app_version(version.clone())?;
-                }
+        let client = ReadWriteClient::builder()
+            .read(multi_node)
+            .write(gateway_client)
+            .filter(PAYER_WRITE_FILTER)
+            .build()?;
 
-                let v3_client = v3_client.build()?;
-                let client = v3_client.arced();
-                Ok(ClientBundle::v3(client))
-            }
-            // Neither host provided
-            (None, None) => Err(MessageBackendBuilderError::MissingHost),
+        Ok(client.arced())
+    }
+
+    /// build a client that is d14n only
+    /// Errors:
+    /// * if the gateway_host is missing.
+    pub fn build_d14n(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
+        let is_secure = self.is_secure.unwrap_or_default();
+        Ok(ClientBundle::d14n(self.inner_build_d14n(is_secure)?))
+    }
+
+    fn inner_build_v3(&mut self, is_secure: bool) -> Result<ArcClient, MessageBackendBuilderError> {
+        let v3_host = self
+            .v3_host
+            .as_ref()
+            .ok_or(MessageBackendBuilderError::MissingV3Host)?;
+        let readonly = self.readonly.unwrap_or_default();
+        let mut v3_client = GrpcClient::builder();
+        v3_client.set_host(v3_host.to_string());
+        v3_client.set_tls(is_secure);
+        if let Some(ref version) = self.app_version {
+            v3_client.set_app_version(version.clone())?;
+        }
+        let v3_client = v3_client.build()?;
+        if readonly {
+            Ok(ReadonlyClient::builder().inner(v3_client).build()?.arced())
+        } else {
+            Ok(v3_client.arced())
         }
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn test_build_v3_only() {
-        let bundle = ClientBundle::builder()
-            .v3_host("http://localhost:5050")
-            .is_secure(false)
-            .build()?;
-
-        assert!(matches!(bundle.kind(), ClientKind::V3));
+    /// build a client that is v3 only
+    /// Errors:
+    /// * if the gateway_host is missing.
+    pub fn build_v3(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
+        let is_secure = self.is_secure.unwrap_or_default();
+        Ok(ClientBundle::v3(self.inner_build_v3(is_secure)?))
     }
 
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn test_build_d14n_with_gateway_only() {
-        let bundle = ClientBundle::builder()
-            .gateway_host("http://localhost:5050")
-            .is_secure(false)
-            .build()?;
-
-        assert!(matches!(bundle.kind(), ClientKind::D14n));
+    /// Build the default client
+    /// The default client will migrate to v3 on cutover
+    pub fn build(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
+        let is_secure = self.is_secure.unwrap_or_default();
+        let d14n = self.inner_build_d14n(is_secure)?;
+        let v3 = self.inner_build_v3(is_secure)?;
+        Ok(ClientBundle::migration(v3, d14n))
     }
 
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn test_build_d14n_with_both_hosts() {
-        let bundle = ClientBundle::builder()
-            .v3_host("http://localhost:5050")
-            .gateway_host("http://localhost:6060")
-            .is_secure(false)
-            .build()?;
-
-        // When gateway_host is provided, D14n mode is used regardless of v3_host
-        assert!(matches!(bundle.kind(), ClientKind::D14n));
-    }
-
-    #[xmtp_common::test]
-    async fn test_build_no_hosts_fails() {
-        let result = ClientBundle::builder().is_secure(false).build();
-
-        match result {
-            Err(MessageBackendBuilderError::MissingHost) => {} // expected
-            Err(other) => panic!("Expected MissingHost error, got: {other:?}"),
-            Ok(_) => panic!("Expected error when neither host is provided"),
+    /// If a gateway is present, build a d14n-only client
+    /// otherwise build a v3 client
+    pub fn build_optional_d14n(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
+        let Self {
+            is_secure,
+            gateway_host: ref gw,
+            ..
+        } = self.clone();
+        let is_secure = is_secure.unwrap_or_default();
+        if gw.is_some() {
+            Ok(ClientBundle::d14n(self.inner_build_d14n(is_secure)?))
+        } else {
+            Ok(ClientBundle::v3(self.inner_build_v3(is_secure)?))
         }
     }
 }

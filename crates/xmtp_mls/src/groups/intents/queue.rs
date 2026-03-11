@@ -147,6 +147,27 @@ impl QueueIntent {
         this
     }
 
+    /// Create an intent to propose member updates (adds and/or removes)
+    pub fn propose_member_update() -> QueueIntentBuilder {
+        let mut this = QueueIntent::builder();
+        this.kind = Some(IntentKind::ProposeMemberUpdate);
+        this
+    }
+
+    /// Create an intent to propose group context extensions update
+    pub fn propose_group_context_extensions() -> QueueIntentBuilder {
+        let mut this = QueueIntent::builder();
+        this.kind = Some(IntentKind::ProposeGroupContextExtensions);
+        this
+    }
+
+    /// Create an intent to commit pending proposals
+    pub fn commit_pending_proposals() -> QueueIntentBuilder {
+        let mut this = QueueIntent::builder();
+        this.kind = Some(IntentKind::CommitPendingProposals);
+        this
+    }
+
     fn builder() -> QueueIntentBuilder {
         QueueIntentBuilder::default()
     }

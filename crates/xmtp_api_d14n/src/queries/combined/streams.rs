@@ -1,23 +1,22 @@
-use crate::CombinedD14nClient;
+use crate::MigrationClient;
 use crate::protocol::CursorStore;
 
-use xmtp_api_grpc::error::GrpcError;
 use xmtp_proto::api::{ApiClientError, Client};
 use xmtp_proto::api_client::{BoxedGroupS, BoxedWelcomeS, XmtpMlsStreams};
 use xmtp_proto::types::{GroupId, InstallationId, TopicCursor};
 
 #[xmtp_common::async_trait]
-impl<C, Store> XmtpMlsStreams for CombinedD14nClient<C, Store>
+impl<V3, D14n, Store> XmtpMlsStreams for MigrationClient<V3, D14n, Store>
 where
-    C: Client<Error = GrpcError>,
-    <C as Client>::Stream: 'static,
+    V3: Client,
+    D14n: Client,
     Store: CursorStore + Clone,
 {
-    type Error = ApiClientError<GrpcError>;
+    type Error = ApiClientError;
 
-    type GroupMessageStream = BoxedGroupS<ApiClientError<GrpcError>>;
+    type GroupMessageStream = BoxedGroupS<ApiClientError>;
 
-    type WelcomeMessageStream = BoxedWelcomeS<ApiClientError<GrpcError>>;
+    type WelcomeMessageStream = BoxedWelcomeS<ApiClientError>;
 
     async fn subscribe_group_messages(
         &self,

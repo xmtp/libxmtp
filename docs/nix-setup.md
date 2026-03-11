@@ -94,13 +94,13 @@ sudo nix run nixpkgs#cachix -- use xmtp
 
 ## Available Dev Shells
 
-| Shell     | Command                | Description                                       |
-| --------- | ---------------------- | ------------------------------------------------- |
-| `default` | `nix develop`          | General Rust development for libxmtp               |
-| `android` | `nix develop .#android`| Android cross-compilation (NDK, cargo-ndk)         |
-| `ios`     | `nix develop .#ios`    | iOS/Swift builds (macOS only)                      |
-| `js`      | `nix develop .#js`     | Node.js bindings development                       |
-| `wasm`    | `nix develop .#wasm`   | WebAssembly builds (wasm-pack, wasm-bindgen)       |
+| Shell     | Command                 | Description                                  |
+| --------- | ----------------------- | -------------------------------------------- |
+| `default` | `nix develop`           | General Rust development for libxmtp         |
+| `android` | `nix develop .#android` | Android cross-compilation (NDK, cargo-ndk)   |
+| `ios`     | `nix develop .#ios`     | iOS/Swift builds (macOS only)                |
+| `js`      | `nix develop .#js`      | Node.js bindings development                 |
+| `wasm`    | `nix develop .#wasm`    | WebAssembly builds (wasm-pack, wasm-bindgen) |
 
 ## Common Commands
 
@@ -120,7 +120,7 @@ nix flake show
 
 ## How Nix is Used in This Repo
 
-- **Reproducible Rust toolchain** — Rust 1.92.0 is pinned via
+- **Reproducible Rust toolchain** — Rust 1.94.0 is pinned via
   [fenix](https://github.com/nix-community/fenix), ensuring every developer and
   CI runner uses the exact same compiler
 - **Platform-specific cross-compilation** — dedicated dev shells provide
