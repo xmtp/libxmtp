@@ -76,14 +76,10 @@ use xmtp_configuration::{
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::{
-    Fetch,
-    MlsProviderExt,
-    StorageError,
-    StoreOrIgnore,
+    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
     group::{ConversationType, StoredGroup},
     group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-    // remote_commit_log::CommitResult,
     sql_key_store,
     user_preferences::StoredUserPreferences,
 };
@@ -97,6 +93,8 @@ use xmtp_db::{
 };
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
+#[cfg(feature = "commit-log")]
+use xmtp_proto::xmtp::mls::message_contents::CommitResult;
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
