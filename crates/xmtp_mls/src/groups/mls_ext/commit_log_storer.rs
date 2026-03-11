@@ -75,11 +75,11 @@ impl CommitLogStorer for MlsGroup {
             },
         )?;
 
-        if xmtp_configuration::ENABLE_COMMIT_LOG {
+        #[cfg(feature = "commit-log")]
+        {
             NewLocalCommitLog {
                 group_id: mls_group.group_id().to_vec(),
                 commit_sequence_id: 0,
-                last_epoch_authenticator: vec![],
                 commit_result: CommitResult::Success,
                 applied_epoch_number: mls_group.epoch().as_u64() as i64,
                 applied_epoch_authenticator: mls_group.epoch_authenticator().as_slice().to_vec(),
@@ -111,13 +111,13 @@ impl CommitLogStorer for MlsGroup {
             },
         )?;
 
-        if xmtp_configuration::ENABLE_COMMIT_LOG {
+        #[cfg(feature = "commit-log")]
+        {
             // It is safe to log this stubbed encryption state, because we will not upload anything
             // to the remote commit log with a sequence ID of 0.
             NewLocalCommitLog {
                 group_id: mls_group.group_id().to_vec(),
                 commit_sequence_id: 0,
-                last_epoch_authenticator: vec![],
                 commit_result: CommitResult::Success,
                 applied_epoch_number: mls_group.epoch().as_u64() as i64,
                 applied_epoch_authenticator: mls_group.epoch_authenticator().as_slice().to_vec(),

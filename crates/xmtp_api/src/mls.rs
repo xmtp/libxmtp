@@ -383,6 +383,7 @@ pub mod tests {
     use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::api_client::NetConnectConfig;
     use xmtp_proto::api_client::XmtpTestClient;
+    use xmtp_proto::mls_v1::MessageType;
     use xmtp_proto::mls_v1::PagingInfo;
     use xmtp_proto::mls_v1::QueryGroupMessagesRequest;
     use xmtp_proto::mls_v1::QueryGroupMessagesResponse;
@@ -414,6 +415,8 @@ pub mod tests {
                         .unwrap(),
                     sender_hmac: vec![],
                     should_push: true,
+                    message_type: MessageType::Application as i32,
+                    #[allow(deprecated)]
                     is_commit: false,
                 })),
             })

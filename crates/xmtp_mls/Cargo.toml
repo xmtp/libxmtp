@@ -48,10 +48,11 @@ bench = [
   "dep:alloy",
   "xmtp_common/bench",
 ]
-default = []
+default = ["commit-log"]
 d14n = ["xmtp_api_d14n/d14n"]
 v3 = ["xmtp_api_d14n/v3"]
 dev = ["xmtp_configuration/dev", "xmtp_proto/dev", "xmtp_api_d14n/dev"]
+commit-log = []
 
 [dependencies]
 aes-gcm.workspace = true
