@@ -797,13 +797,22 @@ pub(crate) mod tests {
             .unwrap();
 
         let conn = client.context.db();
-        let state = client_identity_updates
-            .get_latest_association_state(&conn, client.inbox_id())
-            .await
-            .unwrap();
 
         // The installation, wallet1 address, and the newly associated wallet2 address
-        assert_eq!(state.members().len(), 3);
+        // Use wait_for_eq to handle eventual consistency after apply_signature_request
+        xmtp_common::wait_for_eq(
+            || async {
+                client_identity_updates
+                    .get_latest_association_state(&conn, client.inbox_id())
+                    .await
+                    .unwrap()
+                    .members()
+                    .len()
+            },
+            3,
+        )
+        .await
+        .unwrap();
 
         let api_client = client.context.api();
 
