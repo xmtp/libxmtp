@@ -284,3 +284,6 @@ where
             .await
     }
 }
+
+#[cfg(test)]
+mod tests;
