@@ -31,18 +31,39 @@ use xmtp_mls_common::group_mutable_metadata::{GroupMutableMetadata, MetadataFiel
 /// Errors that can occur when working with GroupMutablePermissions.
 #[derive(Debug, Error, ErrorCode)]
 pub enum GroupMutablePermissionsError {
+    /// Serialization error.
+    ///
+    /// Failed to encode permissions protobuf. Not retryable.
     #[error("serialization: {0}")]
     Serialization(#[from] prost::EncodeError),
+    /// Deserialization error.
+    ///
+    /// Failed to decode permissions protobuf. Not retryable.
     #[error("deserialization: {0}")]
     Deserialization(#[from] prost::DecodeError),
+    /// Policy error.
+    ///
+    /// Permission policy validation failed. Not retryable.
     #[error("policy error {0}")]
     Policy(#[from] PolicyError),
+    /// Invalid conversation type.
+    ///
+    /// Wrong conversation type for this operation. Not retryable.
     #[error("invalid conversation type")]
     InvalidConversationType,
+    /// Missing policies.
+    ///
+    /// Required permission policies not present. Not retryable.
     #[error("missing policies")]
     MissingPolicies,
+    /// Missing extension.
+    ///
+    /// Required MLS extension not found. Not retryable.
     #[error("missing extension")]
     MissingExtension,
+    /// Invalid permission policy option.
+    ///
+    /// Invalid permission policy configuration. Not retryable.
     #[error("invalid permission policy option")]
     InvalidPermissionPolicyOption,
 }

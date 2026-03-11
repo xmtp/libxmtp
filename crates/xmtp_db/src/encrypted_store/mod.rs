@@ -138,19 +138,37 @@ impl std::fmt::Display for StorageOption {
 
 #[derive(thiserror::Error, Debug, ErrorCode)]
 pub enum ConnectionError {
+    /// Database error.
+    ///
+    /// Diesel database query error. May be retryable.
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
     #[error(transparent)]
     #[error_code(inherit)]
     Platform(#[from] PlatformStorageError),
+    /// Decode error.
+    ///
+    /// Protobuf decode failed within DB layer. Not retryable.
     #[error(transparent)]
     DecodeError(#[from] DecodeError),
+    /// Disconnect in transaction.
+    ///
+    /// Cannot disconnect while transaction is active. Retryable.
     #[error("disconnect not possible in transaction")]
     DisconnectInTransaction,
+    /// Reconnect in transaction.
+    ///
+    /// Cannot reconnect while transaction is active. Retryable.
     #[error("reconnect not possible in transaction")]
     ReconnectInTransaction,
+    /// Invalid query.
+    ///
+    /// Invalid query parameters or configuration. Not retryable.
     #[error("invalid query: {0}")]
     InvalidQuery(String),
+    /// Invalid version.
+    ///
+    /// DB migration version mismatch -- running a newer DB on older LibXMTP. Not retryable.
     #[error(
         "Applied migrations does not match available migrations.\n\
     This is likely due to running a database that is newer than this version of libxmtp.\n\
