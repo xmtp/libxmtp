@@ -391,6 +391,9 @@ pub enum GroupError {
     /// Device sync operation failed. May be retryable.
     #[error(transparent)]
     DeviceSync(#[from] Box<DeviceSyncError>),
+    /// Edit message error.
+    ///
+    /// Failed to edit message. Not retryable.
     #[error(transparent)]
     EditMessage(#[from] EditMessageError),
 }

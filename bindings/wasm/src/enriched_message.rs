@@ -38,6 +38,7 @@ pub struct DecodedMessage {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[tsify(optional)]
   pub edited_at_ns: Option<i64>,
+  pub is_edited: bool,
 }
 
 impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
@@ -105,6 +106,7 @@ impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
       delivery_status: msg.metadata.delivery_status.into(),
       num_replies: msg.num_replies as i64,
       expires_at_ns: msg.metadata.expires_at_ns,
+      is_edited: edited_at_ns.is_some(),
       edited_at_ns,
     })
   }
