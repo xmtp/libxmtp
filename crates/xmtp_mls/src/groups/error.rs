@@ -222,20 +222,38 @@ pub enum GroupError {
     CreateGroupContextExtProposalError(
         #[from] CreateGroupContextExtProposalError<sql_key_store::SqlKeyStoreError>,
     ),
+    /// Propose add member error.
+    ///
+    /// Failed to create an add-member proposal. May be retryable.
     #[error("propose add member error: {0}")]
     ProposeAddMember(#[from] ProposeAddMemberError<sql_key_store::SqlKeyStoreError>),
+    /// Propose remove member error.
+    ///
+    /// Failed to create a remove-member proposal. May be retryable.
     #[error("propose remove member error: {0}")]
     ProposeRemoveMember(#[from] ProposeRemoveMemberError<sql_key_store::SqlKeyStoreError>),
+    /// Proposal error.
+    ///
+    /// Generic MLS proposal creation/handling failure. May be retryable.
     #[error("proposal error: {0}")]
     Proposal(#[from] ProposalError<sql_key_store::SqlKeyStoreError>),
+    /// Commit to pending proposals error.
+    ///
+    /// Failed to commit pending proposals into an MLS commit. May be retryable.
     #[error("commit to pending proposals error: {0}")]
     CommitToPendingProposals(
         #[from] CommitToPendingProposalsError<sql_key_store::SqlKeyStoreError>,
     ),
+    /// Merge pending commit error.
+    ///
+    /// Failed to merge a pending commit into local state. May be retryable.
     #[error("merge pending commit error: {0}")]
     MergePendingCommit(
         #[from] openmls::group::MergePendingCommitError<sql_key_store::SqlKeyStoreError>,
     ),
+    /// Proposals not supported.
+    ///
+    /// Encountered a proposal when our client does not support proposals. Not retryable.
     #[error("Proposals not supported: {0}")]
     ProposalsNotSupported(String),
     /// Credential error.

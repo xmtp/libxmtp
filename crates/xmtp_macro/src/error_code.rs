@@ -53,6 +53,8 @@ struct ErrorCodeAttr {
     inherit: bool,
     /// Implement for a remote type path: #[error_code(remote = "path::Type")]
     remote: Option<Path>,
+    /// Mark as internal (not surfaced to SDK consumers): #[error_code(internal)]
+    internal: bool,
 }
 
 impl ErrorCodeAttr {
@@ -75,6 +77,9 @@ impl ErrorCodeAttr {
                 if meta.path.is_ident("inherit") {
                     result.inherit = true;
                     Ok(())
+                } else if meta.path.is_ident("internal") {
+                    result.internal = true;
+                    Ok(())
                 } else if meta.path.is_ident("remote") {
                     let value = meta.value()?;
                     let lit: syn::LitStr = value.parse()?;
@@ -85,7 +90,7 @@ impl ErrorCodeAttr {
                     Ok(())
                 } else {
                     Err(meta.error(
-                        "expected `inherit`, `remote = \"path::Type\"`, or a string literal",
+                        "expected `inherit`, `internal`, `remote = \"path::Type\"`, or a string literal",
                     ))
                 }
             });
@@ -112,6 +117,8 @@ pub fn derive_error_code(input: proc_macro::TokenStream) -> proc_macro::TokenStr
         .remote
         .clone()
         .unwrap_or_else(|| syn::parse_quote!(#name));
+
+    let is_remote = container_attr.remote.is_some();
 
     let expanded = match &input.data {
         Data::Enum(data_enum) => {
@@ -142,6 +149,23 @@ pub fn derive_error_code(input: proc_macro::TokenStream) -> proc_macro::TokenStr
                         }
                     }
                 } else {
+                    // Require doc comments on non-inherited, non-remote variants
+                    if !is_remote {
+                        let has_doc = variant.attrs.iter().any(|a| a.path().is_ident("doc"));
+                        if !has_doc {
+                            let msg = format!(
+                                "Missing doc comment on error variant `{}::{}`. \
+                                 All ErrorCode variants require a `///` doc comment \
+                                 describing the error.",
+                                name_str, variant_name
+                            );
+                            let span = variant_name.span();
+                            return quote_spanned! {span=>
+                                compile_error!(#msg);
+                            };
+                        }
+                    }
+
                     // Use custom code if provided, otherwise use default
                     let code = attr.code.unwrap_or(default_code);
 
@@ -177,6 +201,22 @@ pub fn derive_error_code(input: proc_macro::TokenStream) -> proc_macro::TokenStr
             }
         }
         Data::Struct(_) => {
+            // Require doc comments on non-remote structs
+            if !is_remote {
+                let has_doc = input.attrs.iter().any(|a| a.path().is_ident("doc"));
+                if !has_doc {
+                    let msg = format!(
+                        "Missing doc comment on error struct `{}`. \
+                         All ErrorCode types require a `///` doc comment \
+                         describing the error.",
+                        name_str
+                    );
+                    return syn::Error::new_spanned(&input.ident, msg)
+                        .to_compile_error()
+                        .into();
+                }
+            }
+
             // Check for custom code on struct
             let code = container_attr.code.unwrap_or_else(|| name_str.clone());
 

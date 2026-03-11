@@ -32,6 +32,9 @@ pub enum MessageBackendBuilderError {
     /// V3 host was not set on the builder. Not retryable.
     #[error("V3 Host is Required")]
     MissingV3Host,
+    /// gRPC builder error.
+    ///
+    /// gRPC client builder failed. Not retryable.
     #[error(transparent)]
     GrpcBuilder(#[from] GrpcBuilderError),
     /// Multi-node error.
