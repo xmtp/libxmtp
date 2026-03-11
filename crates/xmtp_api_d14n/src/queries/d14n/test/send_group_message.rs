@@ -106,14 +106,10 @@ pub struct TestCursorStore {
 }
 
 impl CursorStore for TestCursorStore {
-    fn latest(&self, _: &Topic) -> Result<GlobalCursor, CursorStoreError> {
-        unreachable!()
-    }
-
-    fn latest_per_originator(
+    fn latest(
         &self,
         _: &Topic,
-        _: &[&OriginatorId],
+        _: Option<&[&OriginatorId]>,
     ) -> Result<GlobalCursor, CursorStoreError> {
         unreachable!()
     }

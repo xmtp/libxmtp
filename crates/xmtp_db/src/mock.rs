@@ -626,14 +626,6 @@ mock! {
             originators: Option<&[&xmtp_proto::types::OriginatorId]>
         ) -> Result<xmtp_proto::types::GlobalCursor, StorageError>;
 
-        #[mockall::concretize]
-        fn latest_cursor_combined<Id: AsRef<[u8]>>(
-            &self,
-            entity_id: Id,
-            entities: &[crate::refresh_state::EntityKind],
-            originators: Option<&[&xmtp_proto::types::OriginatorId]>,
-        ) -> Result<GlobalCursor, StorageError>;
-
     }
 
     impl QueryIdentityUpdates for DbQuery {

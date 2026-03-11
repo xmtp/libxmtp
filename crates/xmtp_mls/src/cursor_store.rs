@@ -34,50 +34,22 @@ where
         + MaybeSend
         + MaybeSync,
 {
-    fn latest(&self, topic: &Topic) -> Result<GlobalCursor, CursorStoreError> {
-        match topic.kind() {
-            TopicKind::WelcomeMessagesV1 => {
-                let ids = vec![EntityKind::Welcome];
-                self.db
-                    .latest_cursor_for_id(topic.identifier(), &ids, None)
-                    .map_err(CursorStoreError::other)
-            }
-            TopicKind::GroupMessagesV1 => {
-                let ids = vec![EntityKind::ApplicationMessage, EntityKind::CommitMessage];
-                self.db
-                    .latest_cursor_for_id(topic.identifier(), &ids, None)
-                    .map_err(CursorStoreError::other)
-            }
-            TopicKind::IdentityUpdatesV1 => {
-                let sid = self
-                    .db
-                    .get_latest_sequence_id_for_inbox(&hex::encode(topic.identifier()))
-                    .map_err(CursorStoreError::other)?;
-                let mut map = GlobalCursor::default();
-                map.insert(Originators::INBOX_LOG, sid as u64);
-                Ok(map)
-            }
-            TopicKind::KeyPackagesV1 => Ok(GlobalCursor::default()),
-            _ => Err(CursorStoreError::UnhandledTopicKind(topic.kind())),
-        }
-    }
-
-    fn latest_per_originator(
+    fn latest(
         &self,
         topic: &Topic,
-        originators: &[&OriginatorId],
+        originators: Option<&[&OriginatorId]>,
     ) -> Result<GlobalCursor, CursorStoreError> {
         match topic.kind() {
             TopicKind::WelcomeMessagesV1 => {
                 let entities = vec![EntityKind::Welcome];
                 self.db
-                    .latest_cursor_for_id(topic.identifier(), &entities, Some(originators))
+                    .latest_cursor_for_id(topic.identifier(), &entities, originators)
                     .map_err(CursorStoreError::other)
             }
             TopicKind::GroupMessagesV1 => {
                 let entities = vec![EntityKind::ApplicationMessage, EntityKind::CommitMessage];
                 self.db
-                    .latest_cursor_for_id(topic.identifier(), &entities, Some(originators))
+                    .latest_cursor_for_id(topic.identifier(), &entities, originators)
                     .map_err(CursorStoreError::other)
             }
             TopicKind::IdentityUpdatesV1 => {
