@@ -7,7 +7,7 @@ use std::sync::{
 };
 use std::task::Poll;
 
-use futures::{Stream, TryStream};
+use futures::{Stream, TryStream, stream::FusedStream};
 use pin_project::pin_project;
 use xmtp_proto::xmtp::xmtpv4::{
     envelopes::OriginatorEnvelope,
@@ -105,36 +105,42 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
-        loop {
-            match this.inner.as_mut().try_poll_next(cx) {
-                Poll::Ready(Some(Ok(response))) => {
-                    this.status.touch();
-                    match response.response {
-                        Some(Response::Envelopes(e)) => {
-                            return Poll::Ready(Some(Ok(e.envelopes)));
-                        }
-                        Some(Response::StatusUpdate(u)) => {
-                            match SubscriptionStatus::try_from(u.status) {
-                                Ok(SubscriptionStatus::Started) => {
-                                    this.status.mark_started();
-                                }
-                                Ok(SubscriptionStatus::CatchupComplete) => {
-                                    this.status.mark_catchup_complete();
-                                }
-                                _ => {}
+        match std::task::ready!(this.inner.as_mut().try_poll_next(cx)) {
+            Some(Ok(response)) => {
+                this.status.touch();
+                match response.response {
+                    Some(Response::Envelopes(e)) => Poll::Ready(Some(Ok(e.envelopes))),
+                    Some(Response::StatusUpdate(u)) => {
+                        match SubscriptionStatus::try_from(u.status) {
+                            Ok(SubscriptionStatus::Started) => {
+                                this.status.mark_started();
                             }
-                            // Continue polling — don't yield status updates
+                            Ok(SubscriptionStatus::CatchupComplete) => {
+                                this.status.mark_catchup_complete();
+                            }
+                            _ => {}
                         }
-                        None => {
-                            // Continue polling — skip None responses
-                        }
+                        cx.waker().wake_by_ref();
+                        Poll::Pending
+                    }
+                    None => {
+                        cx.waker().wake_by_ref();
+                        Poll::Pending
                     }
                 }
-                Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e))),
-                Poll::Ready(None) => return Poll::Ready(None),
-                Poll::Pending => return Poll::Pending,
             }
+            Some(Err(e)) => Poll::Ready(Some(Err(e))),
+            None => Poll::Ready(None),
         }
+    }
+}
+
+impl<S> FusedStream for StatusAwareStream<S>
+where
+    S: TryStream<Ok = SubscribeTopicsResponse> + FusedStream,
+{
+    fn is_terminated(&self) -> bool {
+        self.inner.is_terminated()
     }
 }
 
@@ -142,6 +148,7 @@ where
 mod tests {
     use super::*;
     use futures::{StreamExt, stream};
+    use futures_test::stream::StreamTestExt;
     use rstest::rstest;
     use xmtp_proto::xmtp::xmtpv4::message_api::subscribe_topics_response::{
         Envelopes, StatusUpdate, SubscriptionStatus,
@@ -189,12 +196,11 @@ mod tests {
         let items: Vec<Result<SubscribeTopicsResponse, EnvelopeError>> =
             vec![Ok(envelope_resp(&[b"msg1", b"msg2"]))];
 
-        let (mut stream, _status) = status_aware(stream::iter(items));
+        let (stream, _status) = status_aware(stream::iter(items));
+        let mut stream = stream.map(Result::unwrap).interleave_pending();
 
-        let result = stream.next().await.unwrap()?;
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].unsigned_originator_envelope, b"msg1");
-        assert_eq!(result[1].unsigned_originator_envelope, b"msg2");
+        let result = stream.next().await.unwrap();
+        assert_eq!(result, vec![envelope(b"msg1"), envelope(b"msg2")]);
         assert!(stream.next().await.is_none());
     }
 
@@ -207,11 +213,11 @@ mod tests {
             Ok(envelope_resp(&[b"payload"])),
         ];
 
-        let (mut stream, _status) = status_aware(stream::iter(items));
+        let (stream, _status) = status_aware(stream::iter(items));
+        let mut stream = stream.map(Result::unwrap).interleave_pending();
 
-        let result = stream.next().await.unwrap()?;
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].unsigned_originator_envelope, b"payload");
+        let result = stream.next().await.unwrap();
+        assert_eq!(result, vec![envelope(b"payload")]);
         assert!(stream.next().await.is_none());
     }
 
@@ -225,10 +231,11 @@ mod tests {
     async fn test_last_ping_updated(
         #[case] items: Vec<Result<SubscribeTopicsResponse, EnvelopeError>>,
     ) {
-        let (mut stream, status) = status_aware(stream::iter(items));
+        let (stream, status) = status_aware(stream::iter(items));
+        let mut stream = stream.map(Result::unwrap).interleave_pending();
         assert_eq!(status.last_ping_ms(), 0);
 
-        let _result = stream.next().await.unwrap().unwrap();
+        let _result = stream.next().await.unwrap();
         assert!(status.last_ping_ms() > 0);
     }
 
@@ -245,11 +252,12 @@ mod tests {
         let items: Vec<Result<SubscribeTopicsResponse, EnvelopeError>> =
             vec![Ok(status_resp(status_msg)), Ok(envelope_resp(&[b"end"]))];
 
-        let (mut stream, status) = status_aware(stream::iter(items));
+        let (stream, status) = status_aware(stream::iter(items));
+        let mut stream = stream.map(Result::unwrap).interleave_pending();
         assert!(!status.has_started());
         assert!(!status.catchup_complete());
 
-        let _result = stream.next().await.unwrap().unwrap();
+        let _result = stream.next().await.unwrap();
         assert_eq!(status.has_started(), expect_started);
         assert_eq!(status.catchup_complete(), expect_catchup);
     }
@@ -265,19 +273,20 @@ mod tests {
             Ok(status_resp(SubscriptionStatus::Waiting)),
         ];
 
-        let (mut stream, status) = status_aware(stream::iter(items));
+        let (stream, status) = status_aware(stream::iter(items));
+        let mut stream = stream.map(Result::unwrap).interleave_pending();
 
         // First yield: batch 1 (Started is consumed, not yielded)
-        let batch1 = stream.next().await.unwrap()?;
-        assert_eq!(batch1.len(), 2);
-        assert_eq!(batch1[0].unsigned_originator_envelope, b"batch1_msg1");
-        assert_eq!(batch1[1].unsigned_originator_envelope, b"batch1_msg2");
+        let batch1 = stream.next().await.unwrap();
+        assert_eq!(
+            batch1,
+            vec![envelope(b"batch1_msg1"), envelope(b"batch1_msg2")]
+        );
         assert!(status.has_started());
 
         // Second yield: batch 2 (CatchupComplete + None consumed)
-        let batch2 = stream.next().await.unwrap()?;
-        assert_eq!(batch2.len(), 1);
-        assert_eq!(batch2[0].unsigned_originator_envelope, b"batch2_msg1");
+        let batch2 = stream.next().await.unwrap();
+        assert_eq!(batch2, vec![envelope(b"batch2_msg1")]);
         assert!(status.catchup_complete());
 
         // Stream ends after consuming the final Waiting status
