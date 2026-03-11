@@ -294,10 +294,6 @@ where
         log_event!(Event::AssociateName, self.context.installation_id(), name);
     }
 
-    pub fn device_sync_worker_enabled(&self) -> bool {
-        self.context.device_sync_worker_enabled()
-    }
-
     pub fn device_sync_client(&self) -> DeviceSyncClient<Context> {
         let metrics = self.context.sync_metrics();
         DeviceSyncClient::new(
