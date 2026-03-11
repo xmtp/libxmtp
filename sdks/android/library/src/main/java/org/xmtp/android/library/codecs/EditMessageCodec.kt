@@ -1,5 +1,7 @@
 package org.xmtp.android.library.codecs
 
+import org.xmtp.proto.message.contents.Content
+
 /**
  * Represents a request to edit a message.
  *

@@ -2254,3 +2254,71 @@ async fn test_edit_message_filtered_ffi() {
         panic!("Expected Text content");
     }
 }
+
+/// Test that editing with empty content fails
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_edit_message_empty_content_ffi() {
+    let alix = Tester::new().await;
+    let bo = Tester::new().await;
+
+    let alix_dm = alix
+        .client
+        .conversations()
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .await
+        .unwrap();
+
+    bo.client.conversations().sync().await.unwrap();
+
+    let text = TextCodec::encode("Original".to_string()).unwrap();
+    let msg_id = alix_dm
+        .send(
+            encoded_content_to_bytes(text),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+
+    alix_dm.sync().await.unwrap();
+
+    // Create an EncodedContent with empty content bytes
+    let empty_encoded = xmtp_proto::xmtp::mls::message_contents::EncodedContent {
+        r#type: Some(xmtp_proto::xmtp::mls::message_contents::ContentTypeId {
+            authority_id: "xmtp.org".to_string(),
+            type_id: "text".to_string(),
+            version_major: 1,
+            version_minor: 0,
+        }),
+        parameters: HashMap::new(),
+        fallback: None,
+        compression: None,
+        content: vec![],
+    };
+    let mut buf = Vec::new();
+    empty_encoded.encode(&mut buf).unwrap();
+
+    let result = alix_dm.edit_message(msg_id, buf);
+    assert!(result.is_err(), "Editing with empty content should fail");
+}
+
+/// Test that editing a nonexistent message fails
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_edit_nonexistent_message_ffi() {
+    let alix = Tester::new().await;
+    let bo = Tester::new().await;
+
+    let alix_dm = alix
+        .client
+        .conversations()
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .await
+        .unwrap();
+
+    bo.client.conversations().sync().await.unwrap();
+
+    let fake_msg_id = vec![0xDE, 0xAD, 0xBE, 0xEF];
+    let edited_text = TextCodec::encode("Edited".to_string()).unwrap();
+    let result = alix_dm.edit_message(fake_msg_id, encoded_content_to_bytes(edited_text));
+
+    assert!(result.is_err(), "Editing a nonexistent message should fail");
+}

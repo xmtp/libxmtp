@@ -107,20 +107,26 @@ pub(crate) fn is_edit_valid(
     }
 
     // Content type must match
-    if let Ok(edited_content) = EncodedContent::decode(edit.edited_content.as_slice()) {
-        let edited_type_id = edited_content
-            .r#type
-            .as_ref()
-            .map(|t| t.type_id.as_str())
-            .unwrap_or("unknown");
-        let original_type_str = message.content_type.to_string();
+    match EncodedContent::decode(edit.edited_content.as_slice()) {
+        Ok(edited_content) => {
+            let edited_type_id = edited_content
+                .r#type
+                .as_ref()
+                .map(|t| t.type_id.as_str())
+                .unwrap_or("unknown");
+            let original_type_str = message.content_type.to_string();
 
-        if edited_type_id != original_type_str {
-            tracing::warn!(
-                "Edit content type mismatch: original={}, edited={}",
-                original_type_str,
-                edited_type_id
-            );
+            if edited_type_id != original_type_str {
+                tracing::warn!(
+                    "Edit content type mismatch: original={}, edited={}",
+                    original_type_str,
+                    edited_type_id
+                );
+                return false;
+            }
+        }
+        Err(err) => {
+            tracing::warn!(error = ?err, "Failed to decode edit content during validation");
             return false;
         }
     }

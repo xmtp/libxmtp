@@ -10,13 +10,39 @@ public let ContentTypeEditMessageRequest = ContentTypeID(
 /// Represents a request to edit a message.
 /// This content type is used to request an edit of a specific message in a conversation.
 /// Only the original sender can edit their own messages.
-public struct EditMessageRequest: Codable, Equatable {
+public struct EditMessageRequest: Equatable {
 	public var messageId: String
 	public var editedContent: EncodedContent?
 
 	public init(messageId: String, editedContent: EncodedContent? = nil) {
 		self.messageId = messageId
 		self.editedContent = editedContent
+	}
+}
+
+extension EditMessageRequest: Codable {
+	enum CodingKeys: String, CodingKey {
+		case messageId
+		case editedContentBytes
+	}
+
+	public func encode(to encoder: Encoder) throws {
+		var container = encoder.container(keyedBy: CodingKeys.self)
+		try container.encode(messageId, forKey: .messageId)
+		if let editedContent {
+			let bytes = try editedContent.serializedData()
+			try container.encode(bytes, forKey: .editedContentBytes)
+		}
+	}
+
+	public init(from decoder: Decoder) throws {
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		messageId = try container.decode(String.self, forKey: .messageId)
+		if let bytes = try container.decodeIfPresent(Data.self, forKey: .editedContentBytes) {
+			editedContent = try EncodedContent(serializedData: bytes)
+		} else {
+			editedContent = nil
+		}
 	}
 }
 
