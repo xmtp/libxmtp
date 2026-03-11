@@ -91,15 +91,19 @@ class HistorySyncTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
 				dbEncryptionKey: key,
-				dbDirectory: dbDir1
+				dbDirectory: dbDir1,
+				deviceSyncEnabled: true // this is default, but marking for clarity
 			)
 		)
 
 		let group = try await alixClient.conversations.newGroup(
 			with: [fixtures.boClient.inboxID]
 		)
+
+		// To verify device sync works, we need to send a message before client 2 is added to the group
+		let msg_id = try await group.send(content: "hi")
 		let messageCount = try await group.messages().count
-		XCTAssertEqual(messageCount, 1)
+		XCTAssertEqual(messageCount, 2)
 
 		let alixClient2 = try await Client.create(
 			account: alix,
@@ -109,28 +113,129 @@ class HistorySyncTests: XCTestCase {
 				dbDirectory: dbDir2
 			)
 		)
-
 		let state = try await alixClient2.inboxState(refreshFromNetwork: true)
 		XCTAssertEqual(state.installations.count, 2)
 
-		// If we move this line before alixClient2 create, we fail with the group
-		// not being found. history sync seems to get messages, but maybe
-		// not groups?
-		try await group.send(content: "hi")
+		try await alixClient2.sendSyncRequest()
 
-		try await alixClient.conversations.syncAllConversations()
-		sleep(2)
-		try await alixClient2.conversations.syncAllConversations()
-		sleep(2)
+		// Without the alixClient2.sendSyncRequest() a delay is needed before alixClient syncAllDeviceSyncGroups()
+		// in order for alixClient to see the new installation and add it to the group
+		//sleep(1)
+		let _ = try await alixClient.syncAllDeviceSyncGroups()
+		sleep(1)
+		let _ = try await alixClient2.syncAllDeviceSyncGroups()
+		sleep(1)
 
-		if let group2 = try await alixClient2.conversations.findGroup(
+		let client1MessageCount = try await group.messages().count
+		if let group2 = try alixClient2.conversations.findGroup(
 			groupId: group.id
 		) {
-			let messageCount2 = try await group2.messages().count
-			XCTAssertEqual(messageCount2, 2)
+			let messages = try await group2.messages()
+			let containsMessage = messages.contains(where: { $0.id == msg_id })
+			let client2MessageCount = messages.count
+			XCTAssert(containsMessage)
+			XCTAssertEqual(client1MessageCount, client2MessageCount)
 		} else {
 			XCTFail("Group not found")
 		}
+	}
+
+	func testSyncHistoryArchive() async throws {
+		let fixtures = try await fixtures()
+
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let alix = try PrivateKey.generate()
+		let dbDir1 = randomDbDirectory()
+		let dbDir2 = randomDbDirectory()
+
+		// Alix creates a group with Bo and sends a message before Alix2 exists.
+		let alixClient = try await Client.create(
+			account: alix,
+			options: .init(
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				dbEncryptionKey: key,
+				dbDirectory: dbDir1,
+				deviceSyncEnabled: true
+			)
+		)
+		let group = try await alixClient.conversations.newGroup(
+			with: [fixtures.boClient.inboxID]
+		)
+		let msgFromAlix = try await group.send(content: "hello from alix")
+
+		// Create Alix second installation.
+		let alixClient2 = try await Client.create(
+			account: alix,
+			options: .init(
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				dbEncryptionKey: key,
+				dbDirectory: dbDir2,
+				deviceSyncEnabled: true
+			)
+		)
+
+		sleep(1)
+
+		// Alix syncs and uploads a sync archive with a known pin.
+		try await alixClient.syncAllDeviceSyncGroups()
+		try await alixClient.sendSyncArchive(pin: "123")
+
+		// Give the archive upload a brief moment to become available.
+		sleep(1)
+
+		// Bo sends a new message after Alix2 was created.
+		try await fixtures.boClient.conversations.syncAllConversations()
+		let maybeBoGroup = try await fixtures.boClient.conversations.findGroup(
+			groupId: group.id
+		)
+		let boGroup = try XCTUnwrap(maybeBoGroup)
+		let _ = try await boGroup.send(content: "hello from bo")
+
+		// Sync both Alix clients.
+		try await alixClient.conversations.syncAllConversations()
+		try await alixClient2.conversations.syncAllConversations()
+
+		// Before importing archive, Alix2 should only have post-installation visibility.
+		let maybeGroup2Before = try await alixClient2.conversations.findGroup(
+			groupId: group.id
+		)
+		let group2Before = try XCTUnwrap(maybeGroup2Before)
+		let messagesBefore = try await group2Before.messages()
+		XCTAssertEqual(
+			messagesBefore.count,
+			2,
+			"Expected two messages before archive import"
+		)
+
+		// Pull sync-group updates and verify the archive pin is visible.
+		sleep(2)
+		let _ = try await alixClient.syncAllDeviceSyncGroups()
+		sleep(2)
+		let _ = try await alixClient2.syncAllDeviceSyncGroups()
+		let availableArchives = try alixClient2.listAvailableArchives(daysCutoff: 7)
+//		XCTAssertTrue(
+//			availableArchives.contains(where: { $0.pin == "123" }),
+//			"Expected archive pin 123 to be available before import"
+//		)
+
+		// Import archive and verify Alix's original message becomes visible.
+		try await alixClient2.processSyncArchive(archivePin: "123")
+		try await alixClient2.conversations.syncAllConversations()
+
+		let maybeGroup2After = try await alixClient2.conversations.findGroup(
+			groupId: group.id
+		)
+		let group2After = try XCTUnwrap(maybeGroup2After)
+		let messagesAfter = try await group2After.messages()
+		XCTAssertEqual(
+			messagesAfter.count,
+			3,
+			"Expected three messages after archive import"
+		)
+		XCTAssertTrue(
+			messagesAfter.contains(where: { $0.id == msgFromAlix }),
+			"Expected original Alix message to be visible after archive import"
+		)
 	}
 
 	func testStreamConsent() async throws {

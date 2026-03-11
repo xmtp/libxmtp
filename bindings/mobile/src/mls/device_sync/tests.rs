@@ -1,11 +1,7 @@
 //! Tests for multi-device operations, installations, syncing, and fork recovery
 
 use crate::{
-    FfiConsent, FfiConsentEntityType, FfiConsentState, FfiCreateGroupOptions, FfiDecodedMessage,
-    FfiListConversationsOptions, FfiListMessagesOptions, FfiSendMessageOpts,
-    device_sync::FfiArchiveOptions,
-    test_utils::{LocalBuilder, LocalTester},
-    tests::{RustStreamCallback, SignWithWallet, new_test_client, new_test_client_with_wallet},
+    FfiConsent, FfiConsentEntityType, FfiConsentState, FfiCreateGroupOptions, FfiDecodedMessage, FfiListConversationsOptions, FfiListMessagesOptions, FfiMessage, FfiSendMessageOpts, device_sync::FfiArchiveOptions, test_utils::{LocalBuilder, LocalTester}, tests::{RustStreamCallback, SignWithWallet, new_test_client, new_test_client_with_wallet}
 };
 use alloy::signers::local::PrivateKeySigner;
 use std::sync::Arc;
@@ -861,7 +857,7 @@ async fn test_new_installation_group_message_visibility() {
         .unwrap();
 
     let text_message_alix = TextCodec::encode("hello from alix".to_string()).unwrap();
-    group
+    let msg_from_alix = group
         .send(
             encoded_content_to_bytes(text_message_alix.clone()),
             FfiSendMessageOpts::default(),
@@ -927,13 +923,6 @@ async fn test_new_installation_group_message_visibility() {
         .find_enriched_messages(FfiListMessagesOptions::default())
         .unwrap();
 
-    // print the content of the messages
-    println!("SYNCCHECK Messages: ");
-    for message in &messages {
-        println!("Message type: {:?}", message.content_type_id().type_id);
-        println!("Message content: {:?}", message.content());
-    }
-
     assert_eq!(
         messages.len(),
         2,
@@ -948,65 +937,25 @@ async fn test_new_installation_group_message_visibility() {
         .unwrap();
     alix2.sync_all_device_sync_groups().await.unwrap();
 
-    // Both ways of processing the sync archive fail with the error Error(DeviceSync(MissingPayload(Some("123")))) or Error(DeviceSync(MissingPayload(None)))
-    // alix2.process_sync_archive(Some("123".to_string())).await.unwrap();
-    alix2.process_sync_archive(None).await.unwrap();
+    // Can also pass in None for the pin and it will process that last archive sent
+    // alix2.process_sync_archive(None).await.unwrap();
+    alix2.process_sync_archive(Some("123".to_string())).await.unwrap();
+    
 
     let group2 = alix2.conversation(group.id()).unwrap();
-    let messages: Vec<Arc<FfiDecodedMessage>> = group2
-        .find_enriched_messages(FfiListMessagesOptions::default())
-        .unwrap();
-
-    // print the content of the messages
-    println!("SYNCCHECK Messages 2: ");
-    for message in &messages {
-        println!("Message type: {:?}", message.content_type_id().type_id);
-        println!("Message content: {:?}", message.content());
-    }
+    let messages: Vec<FfiMessage> = group2
+        .find_messages(FfiListMessagesOptions::default())
+        .await.unwrap();
 
     assert_eq!(
         messages.len(),
         3,
         "Expected three message to be visible for our group after we sync the archive"
     );
-
-    // let text_message_alix2 = TextCodec::encode("hi from alix2".to_string()).unwrap();
-    // let msg_from_alix2 = group2
-    //     .send(
-    //         encoded_content_to_bytes(text_message_alix2.clone()),
-    //         FfiSendMessageOpts::default(),
-    //     )
-    //     .await
-    //     .unwrap();
-
-    // bo.conversations()
-    //     .sync_all_conversations(None)
-    //     .await
-    //     .unwrap();
-    // let bob_group = bo.conversation(group.id()).unwrap();
-    // let bob_msgs = bob_group
-    //     .find_messages(FfiListMessagesOptions::default())
-    //     .await
-    //     .unwrap();
-
-    // assert!(
-    //     bob_msgs.iter().any(|m| m.id == msg_from_alix2),
-    //     "Bob should see the message sent by alix2"
-    // );
-
-    // alix.conversations()
-    //     .sync_all_conversations(None)
-    //     .await
-    //     .unwrap();
-    // let alice_msgs = group
-    //     .find_messages(FfiListMessagesOptions::default())
-    //     .await
-    //     .unwrap();
-
-    // assert!(
-    //     alice_msgs.iter().any(|m| m.id == msg_from_alix2),
-    //     "Original Alix should see the message from alix2"
-    // );
+    assert!(
+        messages.iter().any(|m| m.id == msg_from_alix),
+        "Original Alix should see the message from alix2"
+    );
 }
 
 #[tokio::test]
