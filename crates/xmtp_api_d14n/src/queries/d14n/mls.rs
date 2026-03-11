@@ -138,7 +138,7 @@ where
         group_id: GroupId,
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
         let topic = TopicKind::GroupMessagesV1.create(&group_id);
-        let cursor = self.cursor_store.latest(&topic)?;
+        let cursor = self.cursor_store.latest(&topic, None)?;
         tracing::debug!(%topic, %cursor, "querying messages");
         let mut topic_cursor = TopicCursor::default();
         topic_cursor.insert(topic.clone(), cursor.clone());
@@ -192,7 +192,7 @@ where
         installation_key: InstallationId,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         let topic = TopicKind::WelcomeMessagesV1.create(installation_key);
-        let cursor = self.cursor_store.latest(&topic)?;
+        let cursor = self.cursor_store.latest(&topic, None)?;
         tracing::info!("querying welcomes @{:?}", cursor);
         let response = QueryEnvelope::builder()
             .topic(topic)
