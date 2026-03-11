@@ -1,9 +1,11 @@
 [package]
-edition = "2024"
 name = "xmtp_content_types"
-version.workspace = true
-license.workspace = true
 description = "xmtp content types"
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
 
 [features]
 test-utils = []

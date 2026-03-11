@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 mod cached_signature_verifier;
 mod config;
 mod handlers;

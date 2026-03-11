@@ -1,13 +1,18 @@
 [package]
 default-run = "xmtp_cli"
-edition = "2024"
 keywords = ["xmtp", "messaging", "web3", "group-chat"]
-license.workspace = true
 name = "xmtp_cli"
+description = "cli that can send and receive messages on XMTP"
 readme = "README.md"
 repository = "https://github.com/xmtp/libxmtp"
+license.workspace = true
 version.workspace = true
-description = "cli that can send and receive messages on XMTP"
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
 
 [[bin]]
 name = "xmtp_cli"
@@ -20,13 +25,13 @@ clap.workspace = true
 color-eyre = "0.6"
 futures.workspace = true
 hex.workspace = true
-openmls = { workspace = true }
+openmls.workspace = true
 owo-colors.workspace = true
 prost.workspace = true
-serde = { workspace = true, features = ["derive"] }
+serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-timeago = "0.4.1"
+timeago = "0.6.0"
 tokio.workspace = true
 tracing = { workspace = true, features = ["valuable"] }
 tracing-subscriber = { workspace = true, features = [
@@ -36,14 +41,14 @@ tracing-subscriber = { workspace = true, features = [
   "ansi",
   "chrono",
 ] }
-valuable = { version = "0.1", features = ["derive"] }
-xmtp_api = { workspace = true }
+valuable.workspace = true
+xmtp_api.workspace = true
 xmtp_api_d14n.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
-xmtp_content_types = { workspace = true }
-xmtp_cryptography = { workspace = true }
-xmtp_db = { workspace = true }
-xmtp_id = { workspace = true }
-xmtp_mls = { workspace = true }
-xmtp_proto = { workspace = true }
+xmtp_content_types.workspace = true
+xmtp_cryptography.workspace = true
+xmtp_db.workspace = true
+xmtp_id.workspace = true
+xmtp_mls.workspace = true
+xmtp_proto.workspace = true

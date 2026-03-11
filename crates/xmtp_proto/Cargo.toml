@@ -1,9 +1,11 @@
 [package]
-edition = "2024"
-license.workspace = true
 name = "xmtp_proto"
-version.workspace = true
 description = "xmtp protobuf definitions for rust"
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
 
 [lints]
 workspace = true
@@ -14,15 +16,16 @@ bytes.workspace = true
 chrono.workspace = true
 derive_builder.workspace = true
 ed25519-dalek.workspace = true
-futures = { workspace = true }
+futures.workspace = true
 hex.workspace = true
 http = "1.2"
+openmls.workspace = true
 pbjson.workspace = true
 pbjson-types.workspace = true
 pin-project.workspace = true
 prost = { workspace = true, features = ["derive"] }
 prost-types = "0.14"
-serde = { workspace = true }
+serde.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true
 tonic = { workspace = true, default-features = false }
@@ -39,20 +42,17 @@ tokio = { workspace = true, default-features = false, features = [
 toxiproxy_rust = { workspace = true, optional = true }
 xmtp-workspace-hack.workspace = true
 
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-openmls = { workspace = true }
 tonic = { workspace = true, features = ["codegen", "server", "channel"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-openmls = { workspace = true, features = ["js"] }
-wasm-bindgen-test = { workspace = true }
+wasm-bindgen-test.workspace = true
 
 [dev-dependencies]
-mockall = { workspace = true }
+mockall.workspace = true
 rstest.workspace = true
 tokio = { workspace = true, default-features = false, features = ["sync"] }
-toxiproxy_rust = { workspace = true }
+toxiproxy_rust.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
 
@@ -66,7 +66,7 @@ walkdir = "2.5"
 color-eyre.workspace = true
 relative-path = "2"
 xshell = "0.2"
-pbjson-build = "0.8"
+pbjson-build = "0.9"
 tonic = { workspace = true, features = ["codegen"] }
 # this puts protoc on path with std::env::set_var("PROTOC", protobuf_src::protoc());
 # but takes forever to compile

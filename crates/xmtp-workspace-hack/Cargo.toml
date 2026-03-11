@@ -4,12 +4,14 @@
 
 [package]
 name = "xmtp-workspace-hack"
-version = "0.1.0"
-edition = "2021"
 description = "workspace-hack package, managed by hakari"
+license.workspace = true
+# must stay at 0.1.0 so that `cargo hakari manage-deps` doesn't want to update all the crates dependencies
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
 # You can choose to publish this crate: see https://docs.rs/cargo-hakari/latest/cargo_hakari/publishing.
 publish = ["crates-io"]
-license.workspace = true
 
 # The parts of the file between the BEGIN HAKARI SECTION and END HAKARI SECTION comments
 # are managed by hakari.
@@ -28,7 +30,6 @@ alloy-sol-type-parser = { version = "1", default-features = false, features = ["
 alloy-sol-types = { version = "1", default-features = false, features = ["json", "std"] }
 alloy-transport-http = { version = "1", default-features = false, features = ["reqwest", "reqwest-rustls-tls"] }
 bytes = { version = "1", features = ["serde"] }
-camino = { version = "1", default-features = false, features = ["serde1"] }
 chrono = { version = "0.4", features = ["serde"] }
 cipher = { version = "0.4", default-features = false, features = ["zeroize"] }
 clap = { version = "4", features = ["derive"] }
@@ -45,7 +46,6 @@ futures-channel = { version = "0.3", features = ["sink"] }
 futures-core = { version = "0.3" }
 futures-executor = { version = "0.3" }
 futures-io = { version = "0.3" }
-futures-timer = { version = "3", default-features = false, features = ["wasm-bindgen"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 generic-array = { version = "0.14", default-features = false, features = ["more_lengths", "zeroize"] }
 hashbrown = { version = "0.16", features = ["serde"] }
@@ -53,7 +53,6 @@ hpke-rs = { version = "0.6", features = ["hazmat", "libcrux", "serialization"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
 itertools = { version = "0.14" }
-js-sys = { version = "0.3" }
 k256 = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "std"] }
 libcrux-ed25519 = { version = "0.0.6", default-features = false, features = ["rand"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
@@ -76,14 +75,13 @@ rand_core = { version = "0.9", default-features = false, features = ["os_rng", "
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8" }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 ruint = { version = "1", default-features = false, features = ["alloy-rlp", "rand-09", "serde", "std"] }
 rustc-hash = { version = "2", features = ["rand"] }
 sec1 = { version = "0.7", features = ["pem", "serde", "std", "subtle"] }
-semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
-serde_core = { version = "1", features = ["alloc", "rc"] }
-serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value", "unbounded_depth"] }
+serde_core = { version = "1", default-features = false, features = ["alloc", "rc", "result", "std"] }
+serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
+serde_spanned = { version = "1", default-features = false, features = ["serde", "std"] }
 sha1 = { version = "0.10", features = ["compress"] }
 sha3 = { version = "0.10", default-features = false, features = ["asm", "std"] }
 slab = { version = "0.4" }
@@ -93,17 +91,14 @@ sync_wrapper = { version = "1", default-features = false, features = ["futures"]
 time = { version = "0.3", features = ["formatting", "local-offset", "parsing"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["codec", "compat", "io"] }
+toml_datetime = { version = "1", features = ["serde"] }
 toml_parser = { version = "1" }
 tonic = { version = "0.14", default-features = false, features = ["codegen"] }
 tracing = { version = "0.1", features = ["log", "release_max_level_debug"] }
 tracing-core = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter", "json"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
-uniffi = { version = "0.29", features = ["bindgen-tests", "build", "tokio"] }
-uniffi_bindgen = { version = "0.29", features = ["bindgen-tests"] }
-uniffi_core = { version = "0.29", features = ["tokio"] }
 url = { version = "2", features = ["serde"] }
-wasm-bindgen = { version = "0.2" }
 winnow = { version = "0.7", features = ["simd"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 
@@ -123,7 +118,6 @@ alloy-sol-type-parser = { version = "1", default-features = false, features = ["
 alloy-sol-types = { version = "1", default-features = false, features = ["json", "std"] }
 alloy-transport-http = { version = "1", default-features = false, features = ["reqwest", "reqwest-rustls-tls"] }
 bytes = { version = "1", features = ["serde"] }
-camino = { version = "1", default-features = false, features = ["serde1"] }
 chrono = { version = "0.4", features = ["serde"] }
 cipher = { version = "0.4", default-features = false, features = ["zeroize"] }
 clap = { version = "4", features = ["derive"] }
@@ -140,7 +134,6 @@ futures-channel = { version = "0.3", features = ["sink"] }
 futures-core = { version = "0.3" }
 futures-executor = { version = "0.3" }
 futures-io = { version = "0.3" }
-futures-timer = { version = "3", default-features = false, features = ["wasm-bindgen"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 generic-array = { version = "0.14", default-features = false, features = ["more_lengths", "zeroize"] }
 hashbrown = { version = "0.16", features = ["serde"] }
@@ -148,7 +141,6 @@ hpke-rs = { version = "0.6", features = ["hazmat", "libcrux", "serialization"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
 itertools = { version = "0.14" }
-js-sys = { version = "0.3" }
 k256 = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "std"] }
 libcrux-ed25519 = { version = "0.0.6", default-features = false, features = ["rand"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
@@ -172,14 +164,13 @@ rand_core = { version = "0.9", default-features = false, features = ["os_rng", "
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8" }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 ruint = { version = "1", default-features = false, features = ["alloy-rlp", "rand-09", "serde", "std"] }
 rustc-hash = { version = "2", features = ["rand"] }
 sec1 = { version = "0.7", features = ["pem", "serde", "std", "subtle"] }
-semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
-serde_core = { version = "1", features = ["alloc", "rc"] }
-serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value", "unbounded_depth"] }
+serde_core = { version = "1", default-features = false, features = ["alloc", "rc", "result", "std"] }
+serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
+serde_spanned = { version = "1", default-features = false, features = ["serde", "std"] }
 sha1 = { version = "0.10", features = ["compress"] }
 sha3 = { version = "0.10", default-features = false, features = ["asm", "std"] }
 slab = { version = "0.4" }
@@ -190,17 +181,14 @@ sync_wrapper = { version = "1", default-features = false, features = ["futures"]
 time = { version = "0.3", features = ["formatting", "local-offset", "parsing"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["codec", "compat", "io"] }
+toml_datetime = { version = "1", features = ["serde"] }
 toml_parser = { version = "1" }
 tonic = { version = "0.14", default-features = false, features = ["codegen"] }
 tracing = { version = "0.1", features = ["log", "release_max_level_debug"] }
 tracing-core = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter", "json"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
-uniffi = { version = "0.29", features = ["bindgen-tests", "build", "tokio"] }
-uniffi_bindgen = { version = "0.29", features = ["bindgen-tests"] }
-uniffi_core = { version = "0.29", features = ["tokio"] }
 url = { version = "2", features = ["serde"] }
-wasm-bindgen = { version = "0.2" }
 winnow = { version = "0.7", features = ["simd"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 
@@ -210,6 +198,9 @@ byteorder = { version = "1" }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+rustls-pki-types = { version = "1", features = ["std"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
+serde_core = { version = "1" }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-native-roots", "tls-ring", "tls-webpki-roots"] }
@@ -222,6 +213,9 @@ cc = { version = "1", default-features = false, features = ["parallel"] }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+rustls-pki-types = { version = "1", features = ["std"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
+serde_core = { version = "1" }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-native-roots", "tls-ring", "tls-webpki-roots"] }
@@ -235,6 +229,10 @@ getrandom = { version = "0.4", default-features = false, features = ["std", "sys
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
 libc = { version = "0.2" }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+rustls-pki-types = { version = "1", features = ["std"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
+security-framework-sys = { version = "2" }
+serde_core = { version = "1" }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-native-roots", "tls-ring", "tls-webpki-roots"] }
@@ -249,6 +247,10 @@ getrandom = { version = "0.4", default-features = false, features = ["std", "sys
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
 libc = { version = "0.2" }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+rustls-pki-types = { version = "1", features = ["std"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
+security-framework-sys = { version = "2" }
+serde_core = { version = "1" }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-native-roots", "tls-ring", "tls-webpki-roots"] }
@@ -262,6 +264,9 @@ getrandom = { version = "0.4", default-features = false, features = ["std", "sys
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
 libc = { version = "0.2" }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+rustls-pki-types = { version = "1", features = ["std"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
+serde_core = { version = "1" }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-ring", "tls-webpki-roots"] }
@@ -276,6 +281,9 @@ getrandom = { version = "0.4", default-features = false, features = ["std", "sys
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
 libc = { version = "0.2" }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+rustls-pki-types = { version = "1", features = ["std"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
+serde_core = { version = "1" }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-ring", "tls-webpki-roots"] }
@@ -288,6 +296,9 @@ errno = { version = "0.3" }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+rustls-pki-types = { version = "1", features = ["std"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
+serde_core = { version = "1" }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-ring", "tls-webpki-roots"] }
@@ -301,6 +312,9 @@ errno = { version = "0.3" }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+rustls-pki-types = { version = "1", features = ["std"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
+serde_core = { version = "1" }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-stream = { version = "0.1", default-features = false, features = ["net"] }
 tonic = { version = "0.14", features = ["tls-ring", "tls-webpki-roots"] }

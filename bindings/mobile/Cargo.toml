@@ -1,9 +1,14 @@
 [package]
-edition = "2024"
 name = "xmtpv3"
-version.workspace = true
-license.workspace = true
 description = "iOS/Android bindings to the XMTP mls libraries"
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
 
 [lib]
 crate-type = ["lib", "cdylib", "staticlib"]
@@ -26,7 +31,7 @@ tracing-subscriber = { workspace = true, features = [
   "fmt",
   "json",
 ] }
-uniffi = { version = "0.29.0", default-features = false, features = ["tokio"] }
+uniffi = { version = "0.31.0", default-features = false, features = ["tokio"] }
 xmtp_api.workspace = true
 xmtp_api_d14n.workspace = true
 xmtp_api_grpc.workspace = true
@@ -51,10 +56,10 @@ paranoid-android = "0.2"
 tracing_android_trace = "0.1"
 
 [target.'cfg(target_os = "ios")'.dependencies]
-tracing-oslog = "0.2"
+tracing-oslog = "0.3"
 
 [build-dependencies]
-uniffi = { version = "0.29.0", features = ["build"] }
+uniffi = { version = "0.31.0", features = ["build"] }
 vergen-gix = { workspace = true, features = ["build"] }
 
 [[bin]]
@@ -70,12 +75,12 @@ required-features = ["uniffi/cli"]
 [dev-dependencies]
 alloy.workspace = true
 async-trait.workspace = true
-chrono = { workspace = true }
+chrono.workspace = true
 ctor.workspace = true
-fdlimit = { workspace = true }
+fdlimit.workspace = true
 rand.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
-uniffi = { version = "0.29.0", features = ["bindgen-tests"] }
+uniffi = { version = "0.31.0", features = ["bindgen-tests"] }
 uuid = { workspace = true, features = ["v4", "fast-rng"] }
 xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_archive = { workspace = true, features = ["test-utils"] }
@@ -102,6 +107,3 @@ dev = ["xmtp_configuration/dev", "xmtp_mls/dev"]
 harness = false
 name = "create_client"
 required-features = ["bench"]
-
-[lints]
-workspace = true
