@@ -3,33 +3,11 @@ use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::api::{BodyError, Endpoint};
-use xmtp_proto::types::{GlobalCursor, Topic};
+use xmtp_proto::types::TopicCursor;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     SubscribeTopicsRequest, SubscribeTopicsResponse,
     subscribe_topics_request::TopicFilter as TopicFilterProto,
 };
-
-/// A topic paired with an optional cursor, representing a per-topic subscription filter.
-#[derive(Debug, Clone)]
-pub struct TopicFilterInput {
-    pub topic: Topic,
-    pub last_seen: Option<GlobalCursor>,
-}
-
-impl From<(Topic, Option<GlobalCursor>)> for TopicFilterInput {
-    fn from((topic, last_seen): (Topic, Option<GlobalCursor>)) -> Self {
-        Self { topic, last_seen }
-    }
-}
-
-impl From<(Topic, GlobalCursor)> for TopicFilterInput {
-    fn from((topic, cursor): (Topic, GlobalCursor)) -> Self {
-        Self {
-            topic,
-            last_seen: Some(cursor),
-        }
-    }
-}
 
 /// Subscribe to topics with per-topic cursors.
 ///
@@ -38,8 +16,8 @@ impl From<(Topic, GlobalCursor)> for TopicFilterInput {
 #[derive(Debug, Builder, Default, Clone)]
 #[builder(build_fn(error = "BodyError"))]
 pub struct SubscribeTopics {
-    #[builder(setter(each(name = "filter", into)), default)]
-    filters: Vec<TopicFilterInput>,
+    #[builder(setter(into), default)]
+    topics: TopicCursor,
 }
 
 impl SubscribeTopics {
@@ -57,13 +35,13 @@ impl Endpoint for SubscribeTopics {
 
     fn body(&self) -> Result<Bytes, BodyError> {
         let filters = self
-            .filters
+            .topics
             .iter()
-            .map(|f| {
-                tracing::info!("subscribing to {}", f.topic.clone());
+            .map(|(topic, cursor)| {
+                tracing::info!("subscribing to {}", topic);
                 TopicFilterProto {
-                    topic: f.topic.cloned_vec(),
-                    last_seen: f.last_seen.clone().map(Into::into),
+                    topic: topic.cloned_vec(),
+                    last_seen: Some(cursor.clone().into()),
                 }
             })
             .collect();
@@ -77,7 +55,7 @@ impl Endpoint for SubscribeTopics {
 mod test {
     use super::*;
     use xmtp_api_grpc::test::XmtpdClient;
-    use xmtp_proto::types::TopicKind;
+    use xmtp_proto::types::{GlobalCursor, TopicKind};
     use xmtp_proto::{api::QueryStreamExt as _, prelude::*};
 
     #[xmtp_common::test]
@@ -94,10 +72,10 @@ mod test {
         let topic = TopicKind::GroupMessagesV1.create(vec![1, 2, 3]);
         let cursor = GlobalCursor::default();
 
-        let endpoint = SubscribeTopics::builder()
-            .filter((topic.clone(), cursor.clone()))
-            .build()
-            .unwrap();
+        let mut topics = TopicCursor::default();
+        topics.add(topic.clone(), cursor);
+
+        let endpoint = SubscribeTopics::builder().topics(topics).build().unwrap();
 
         let body = endpoint.body().unwrap();
         let decoded = SubscribeTopicsRequest::decode(body).unwrap();

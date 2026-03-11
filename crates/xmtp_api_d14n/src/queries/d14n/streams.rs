@@ -45,16 +45,16 @@ where
             .cursor_store
             .latest_for_topics(&mut topics.iter())?
             .into();
-        let mut builder = SubscribeTopics::builder();
         for (topic, cursor) in &topic_cursor {
             tracing::debug!(
                 "subscribing to messages for topic {} @cursor={}",
                 topic,
                 cursor
             );
-            builder.filter((topic.clone(), cursor.clone()));
         }
-        let mut endpoint = builder.build()?;
+        let mut endpoint = SubscribeTopics::builder()
+            .topics(topic_cursor.clone())
+            .build()?;
         let s = endpoint.stream(&self.client).await?;
         let (s, _status) = stream::status_aware(s);
         let s = stream::ordered(s, self.cursor_store.clone(), topic_cursor);
@@ -72,16 +72,14 @@ where
             let s = stream::ordered(s, self.cursor_store.clone(), TopicCursor::default());
             return Ok(stream::try_extractor(s));
         }
-        let mut builder = SubscribeTopics::builder();
         for (topic, cursor) in topics {
             tracing::debug!(
                 "subscribing to messages with provided cursor for topic {} @cursor={}",
                 topic,
                 cursor
             );
-            builder.filter((topic.clone(), cursor.clone()));
         }
-        let mut endpoint = builder.build()?;
+        let mut endpoint = SubscribeTopics::builder().topics(topics.clone()).build()?;
         let s = endpoint.stream(&self.client).await?;
         let (s, _status) = stream::status_aware(s);
         let s = stream::ordered(s, self.cursor_store.clone(), topics.clone());
@@ -102,7 +100,7 @@ where
             .iter()
             .map(|ins| TopicKind::WelcomeMessagesV1.create(ins))
             .collect::<Vec<_>>();
-        let mut builder = SubscribeTopics::builder();
+        let mut topic_cursor = TopicCursor::default();
         for topic in &topics {
             let cursor = self.cursor_store.latest(topic)?;
             tracing::debug!(
@@ -110,9 +108,9 @@ where
                 topic,
                 cursor
             );
-            builder.filter((topic.clone(), cursor));
+            topic_cursor.add(topic.clone(), cursor);
         }
-        let mut endpoint = builder.build()?;
+        let mut endpoint = SubscribeTopics::builder().topics(topic_cursor).build()?;
         let s = endpoint.stream(&self.client).await?;
         let (s, _status) = stream::status_aware(s);
         Ok(stream::try_extractor(s))

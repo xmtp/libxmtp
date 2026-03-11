@@ -17,7 +17,7 @@ use tokio::time::{Instant, timeout};
 use xmtp_api_d14n::d14n::SubscribeTopics;
 use xmtp_api_d14n::protocol::{CollectionExtractor, Extractor, KeyPackagesExtractor};
 use xmtp_proto::api::QueryStreamExt;
-use xmtp_proto::types::{InstallationId, TopicKind};
+use xmtp_proto::types::{InstallationId, TopicCursor, TopicKind};
 use xmtp_proto::xmtp::xmtpv4::message_api::subscribe_topics_response::Response as SubscribeTopicsResponse;
 
 /// Identity Generation
@@ -64,7 +64,7 @@ impl GenerateIdentity {
         let network = &self.network;
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
-        let s = Arc::new(Mutex::new(SubscribeTopics::builder()));
+        let s = Arc::new(Mutex::new(TopicCursor::default()));
 
         tracing::info!("creating clients");
         let clients = stream::iter((0..n).collect::<Vec<_>>())
@@ -91,10 +91,10 @@ impl GenerateIdentity {
                         bar_pointer
                             .set_message(format!("generated client {}", c.identity().inbox_id()));
                         let mut s = s.lock().await;
-                        s.filter((
+                        s.add(
                             TopicKind::KeyPackagesV1.create(c.identity().installation_id()),
-                            None,
-                        ));
+                            Default::default(),
+                        );
                         bar_pointer.inc(1);
                         Ok::<_, eyre::Report>((c, wallet))
                     }
@@ -110,8 +110,9 @@ impl GenerateIdentity {
         bar.finish();
         bar.reset();
 
-        let s = Arc::into_inner(s).expect("only one reference exists after tasks finish");
-        let s = Mutex::into_inner(s);
+        let topic_cursor =
+            Arc::into_inner(s).expect("only one reference exists after tasks finish");
+        let topic_cursor = Mutex::into_inner(topic_cursor);
         // try to read a key package for each installation id we created
         // only for D14n
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -124,7 +125,7 @@ impl GenerateIdentity {
                 .collect::<HashSet<_>>();
             tokio::spawn(async move {
                 let api = n.xmtpd()?;
-                let mut s = s.build()?;
+                let mut s = SubscribeTopics::builder().topics(topic_cursor).build()?;
                 let s = s.subscribe(&api).await?;
                 let bar_ref = bar.clone();
                 let _ = tx.send(());

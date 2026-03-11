@@ -112,6 +112,7 @@ async fn test_stream_all_messages_unchanging_group_list() {
     assert_msg!(stream, "fourth");
 }
 
+#[xmtp_common::timeout(Duration::from_secs(30))]
 #[rstest::rstest]
 #[xmtp_common::test]
 async fn test_dm_stream_all_messages() {
@@ -407,6 +408,7 @@ async fn test_stream_all_messages_filters_by_consent_state(
     assert_msg!(stream, expected_message);
 }
 
+#[xmtp_common::timeout(Duration::from_secs(30))]
 #[rstest]
 #[xmtp_common::test]
 async fn stream_messages_keeps_track_of_cursor() {
@@ -850,6 +852,7 @@ async fn test_stream_all_concurrent_writes() {
     );
 }
 
+#[xmtp_common::timeout(Duration::from_secs(30))]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_new_group_does_not_duplicate_messages() {
