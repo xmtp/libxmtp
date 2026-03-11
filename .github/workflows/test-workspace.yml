@@ -25,7 +25,7 @@ jobs:
         uses: jwalton/gh-docker-logs@v2
       - name: Run tests (v3 + d14n with coverage)
         # use `nix build` instead of `nix flake check` because we need the resulting coverage
-        run: nix build .#checks.x86_64-linux.nextest-v3 .#checks.x86_64-linux.nextest-d14n
+        run: nix build .#nextest.x86_64-linux.v3 .#nextest.x86_64-linux.d14n
 
       - name: merge coverage files
         run: nix run nixpkgs#lcov -- --add-tracefile result/coverage --add-tracefile result-1/coverage --output-file lcov.info

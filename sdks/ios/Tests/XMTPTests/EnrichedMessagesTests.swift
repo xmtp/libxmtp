@@ -167,22 +167,23 @@ class EnrichedMessagesTests: XCTestCase {
 		let fixtures = try await fixtures()
 		let group = try await fixtures.alixClient.conversations.newGroup(with: [fixtures.boClient.inboxID])
 
-		// Send messages with delays for timestamp testing
-		var messageTimestamps: [Int64] = []
+		// Send 5 messages
 		for i in 1 ... 5 {
 			try await group.send(content: "Message \(i)")
-			messageTimestamps.append(Int64(Date().timeIntervalSince1970 * 1_000_000_000))
-			if i < 5 {
-				try await Task.sleep(nanoseconds: 100_000_000)
-			}
 		}
 
 		// Test limit
 		let limited = try await group.enrichedMessages(limit: 3)
 		XCTAssertLessThanOrEqual(limited.count, 4) // 3 + possible membership message
 
-		// Test beforeNs (messages before middle timestamp)
-		let middleTimestamp = messageTimestamps[2]
+		// Get actual server timestamps from sent messages
+		let allMessages = try await group.enrichedMessages(direction: .ascending)
+		// Filter to only our sent messages (exclude membership changes)
+		let sentMessages = allMessages.filter { $0.contentTypeId.typeID == "text" }
+		XCTAssertEqual(sentMessages.count, 5)
+
+		// Use the 3rd message's actual sentAtNs as the pivot
+		let middleTimestamp = sentMessages[2].sentAtNs
 		let beforeMessages = try await group.enrichedMessages(beforeNs: middleTimestamp)
 		let afterMessages = try await group.enrichedMessages(afterNs: middleTimestamp)
 
