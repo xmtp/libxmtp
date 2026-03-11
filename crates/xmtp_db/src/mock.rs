@@ -3,7 +3,9 @@ use crate::association_state::QueryAssociationStateCache;
 use crate::group::ConversationType;
 use crate::group::StoredGroupCommitLogPublicKey;
 use crate::group_message::StoredGroupMessage;
+#[cfg(feature = "commit-log")]
 use crate::local_commit_log::{LocalCommitLog, LocalCommitLogOrder};
+#[cfg(feature = "commit-log")]
 use crate::remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -678,6 +680,7 @@ mock! {
         ) -> Result<std::collections::HashMap<String, i64>, crate::ConnectionError>;
     }
 
+    #[cfg(feature = "commit-log")]
     impl QueryLocalCommitLog for DbQuery {
         fn get_group_logs(
             &self,
@@ -704,6 +707,7 @@ mock! {
         ) -> Result<Option<i32>, crate::ConnectionError>;
     }
 
+    #[cfg(feature = "commit-log")]
     impl QueryRemoteCommitLog for DbQuery {
         fn get_latest_remote_log_for_group(&self, group_id: &[u8]) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
 

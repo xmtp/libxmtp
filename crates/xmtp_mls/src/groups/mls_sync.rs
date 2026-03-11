@@ -76,11 +76,14 @@ use xmtp_configuration::{
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::{
-    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
+    Fetch,
+    MlsProviderExt,
+    StorageError,
+    StoreOrIgnore,
     group::{ConversationType, StoredGroup},
     group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-    remote_commit_log::CommitResult,
+    // remote_commit_log::CommitResult,
     sql_key_store,
     user_preferences::StoredUserPreferences,
 };
@@ -231,6 +234,7 @@ impl RetryableError for GroupMessageProcessingError {
     }
 }
 
+#[cfg(feature = "commit-log")]
 impl GroupMessageProcessingError {
     pub(crate) fn commit_result(&self) -> CommitResult {
         match self {

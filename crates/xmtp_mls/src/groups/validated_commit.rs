@@ -26,6 +26,7 @@ use std::collections::HashSet;
 use thiserror::Error;
 use xmtp_common::{retry::RetryableError, retryable};
 use xmtp_db::StorageError;
+#[cfg(feature = "commit-log")]
 use xmtp_db::local_commit_log::CommitType;
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
@@ -492,6 +493,7 @@ impl ValidatedCommit {
 
     // Reuse intent kind here to represent the commit type, even if it's an external commit
     // This is for debugging purposes only, so an approximation is fine
+    #[cfg(feature = "commit-log")]
     pub fn debug_commit_type(&self) -> CommitType {
         let metadata_info = &self.metadata_validation_info;
         if !self.added_inboxes.is_empty()

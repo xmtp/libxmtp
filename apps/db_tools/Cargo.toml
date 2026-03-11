@@ -26,5 +26,6 @@ workspace = true
 
 [features]
 default = []
+commit-log = []
 test-utils = []
 bench = []

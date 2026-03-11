@@ -97,6 +97,7 @@ tokio = { workspace = true, features = [
 wasm-bindgen-test.workspace = true
 
 [features]
+default = []
 update-schema = ["dep:toml"]
 test-utils = [
   "dep:futures",
@@ -106,3 +107,4 @@ test-utils = [
   "xmtp_configuration/test-utils",
   "xmtp_cryptography/test-utils",
 ]
+commit-log = []

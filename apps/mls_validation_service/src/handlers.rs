@@ -84,12 +84,16 @@ impl ValidationApi for ValidationService {
                         group_id: res.group_id,
                         error_message: "".to_string(),
                         is_ok: true,
+
+                        #[allow(deprecated)]
                         is_commit: res.is_commit,
                     },
                     Err(e) => ValidateGroupMessageValidationResponse {
                         group_id: "".to_string(),
                         error_message: e,
                         is_ok: false,
+
+                        #[allow(deprecated)]
                         is_commit: false,
                     },
                 }

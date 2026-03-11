@@ -1,6 +1,10 @@
+#[cfg(feature = "commit-log")]
 mod test_commit_log_fork_detection;
+#[cfg(feature = "commit-log")]
 mod test_commit_log_local;
+#[cfg(feature = "commit-log")]
 mod test_commit_log_readd_requests;
+#[cfg(feature = "commit-log")]
 mod test_commit_log_remote;
 mod test_consent;
 mod test_delete_message;
