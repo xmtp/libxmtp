@@ -65,7 +65,7 @@ pub enum MessageBackendBuilderError {
     #[error(transparent)]
     Builder(#[from] UninitializedFieldError),
     /// Missing XMTP Gateway host.
-    /// 
+    ///
     /// XMTP Gateway host was not set on the builder. Not retryable.
     #[error("XMTP Gateway host is required")]
     MissingGatewayHost,
