@@ -5,34 +5,28 @@ use crate::{
 use futures::StreamExt;
 use std::collections::HashMap;
 use xmtp_api_grpc::{ClientBuilder, GrpcClient};
-use xmtp_common::{
-    BoxDynError,
-    time::{Duration, Instant},
-};
-use xmtp_proto::api::Query;
+use xmtp_common::time::{Duration, Instant};
+use xmtp_proto::api::{Client, Query};
 use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig};
 use xmtp_proto::{ApiEndpoint, api::ApiClientError};
 
 /// Get the nodes from the gateway server and build the clients for each node.
-pub async fn get_nodes(
-    gateway_client: &GrpcClient,
+pub(super) async fn get_nodes<C: Client>(
+    gateway_client: &C,
     template: &ClientBuilder,
-) -> Result<HashMap<u32, GrpcClient>, ApiClientError<MultiNodeClientError>> {
+) -> Result<HashMap<u32, GrpcClient>, ApiClientError> {
     let response = GetNodes::builder()
         .build()?
         .query(gateway_client)
         .await
         .map_err(|e| {
             tracing::error!("failed to get nodes from gateway: {}", e);
-            ApiClientError::new(ApiEndpoint::GetNodes, MultiNodeClientError::GrpcError(e))
+            e.endpoint(ApiEndpoint::GetNodes)
         })?;
 
     let max_concurrency = if response.nodes.is_empty() {
         tracing::warn!("no nodes found");
-        Err(ApiClientError::new(
-            ApiEndpoint::GetNodes,
-            MultiNodeClientError::NoNodesFound,
-        ))
+        Err(ApiClientError::from(MultiNodeClientError::NoNodesFound))
     } else {
         Ok(response.nodes.len())
     }?;
@@ -55,7 +49,7 @@ pub async fn get_nodes(
 
             let client = client_builder.build().map_err(|e| (node_id, e.into()))?;
 
-            Ok::<_, (u32, BoxDynError)>((node_id, client, url))
+            Ok::<_, (u32, MultiNodeClientError)>((node_id, client, url))
         }))
         .buffer_unordered(max_concurrency);
 
@@ -73,10 +67,7 @@ pub async fn get_nodes(
 
     if clients.is_empty() {
         tracing::error!("all node clients failed to build");
-        return Err(ApiClientError::new(
-            ApiEndpoint::GetNodes,
-            MultiNodeClientError::AllNodeClientsFailedToBuild,
-        ));
+        return Err(MultiNodeClientError::AllNodeClientsFailedToBuild.into());
     }
 
     tracing::debug!("built clients for nodes: {:?}", clients.keys());
@@ -88,17 +79,15 @@ pub async fn get_nodes(
 pub async fn get_fastest_node(
     clients: HashMap<u32, GrpcClient>,
     timeout: Duration,
-) -> Result<GrpcClient, ApiClientError<MultiNodeClientError>> {
+) -> Result<GrpcClient, ApiClientError> {
     let endpoint = HealthCheck::builder().build().map_err(|e| {
         tracing::error!("failed to build healthcheck endpoint: {}", e);
-        ApiClientError::new(ApiEndpoint::HealthCheck, MultiNodeClientError::BodyError(e))
+        MultiNodeClientError::BodyError(e)
     })?;
 
     let max_concurrency = if clients.is_empty() {
         tracing::warn!("no nodes found");
-        Err(ApiClientError::Other(Box::new(
-            MultiNodeClientError::NoNodesFound,
-        )))
+        Err(ApiClientError::other(MultiNodeClientError::NoNodesFound))
     } else {
         Ok(clients.len())
     }?;
@@ -118,21 +107,16 @@ pub async fn get_fastest_node(
                 .await
                 .map_err(|_| {
                     tracing::error!("node {} timed out after {}ms", node_id, timeout.as_millis());
-                    ApiClientError::new(
-                        ApiEndpoint::HealthCheck,
-                        MultiNodeClientError::NodeTimedOut {
-                            node_id,
-                            latency: timeout.as_millis() as u64,
-                        },
-                    )
+                    MultiNodeClientError::NodeTimedOut {
+                        node_id,
+                        latency: timeout.as_millis() as u64,
+                    }
+                    .into()
                 })
                 .and_then(|r| {
                     r.map_err(|e| {
                         tracing::error!("node {} is unhealthy: {}", node_id, e);
-                        ApiClientError::new(
-                            ApiEndpoint::HealthCheck,
-                            MultiNodeClientError::GrpcError(e),
-                        )
+                        e.endpoint(ApiEndpoint::HealthCheck)
                     })
                 })
                 .map(|_| (node_id, client, start.elapsed().as_millis() as u64))
@@ -164,12 +148,9 @@ pub async fn get_fastest_node(
             "no responsive nodes found, {} node(s) failed health checks",
             failed_nodes.len()
         );
-        ApiClientError::new(
-            ApiEndpoint::HealthCheck,
-            MultiNodeClientError::NoResponsiveNodesFound {
-                latency: timeout.as_millis() as u64,
-            },
-        )
+        ApiClientError::from(MultiNodeClientError::NoResponsiveNodesFound {
+            latency: timeout.as_millis() as u64,
+        })
     })?;
 
     tracing::info!("chosen node is {} with latency {}ms", node_id, latency);
@@ -178,19 +159,13 @@ pub async fn get_fastest_node(
 }
 
 /// Validate that the template's TLS configuration matches the URL scheme.
-pub fn validate_tls_guard(template: &ClientBuilder, url: &str) -> Result<(), BoxDynError> {
-    let url_is_tls = url
-        .parse::<url::Url>()
-        .map_err(|e| -> BoxDynError { Box::new(e) })?
-        .scheme()
-        == "https";
+pub fn validate_tls_guard(template: &ClientBuilder, url: &str) -> Result<(), MultiNodeClientError> {
+    let url_is_tls = url.parse::<url::Url>()?.scheme() == "https";
 
     (template.tls_channel == url_is_tls)
         .then_some(())
-        .ok_or_else(|| -> BoxDynError {
-            Box::new(MultiNodeClientError::TlsChannelMismatch {
-                url_is_tls,
-                client_builder_tls_channel: template.tls_channel,
-            })
+        .ok_or_else(|| MultiNodeClientError::TlsChannelMismatch {
+            url_is_tls,
+            client_builder_tls_channel: template.tls_channel,
         })
 }

@@ -37,6 +37,7 @@
           nodeEnv = pkgs.callPackage ./node-env.nix { };
           ffi-uniffi-bindgen = pkgs.callPackage ./packages/uniffi-bindgen.nix { };
           shellCommon = pkgs.callPackage ./shell-common.nix { };
+          mkVersion = import ./mkVersion.nix;
         };
         wasm-bindgen-cli = pkgs.callPackage ./packages/wasm-bindgen-cli.nix { };
         swiftformat = pkgs.callPackage ./packages/swiftformat.nix { };

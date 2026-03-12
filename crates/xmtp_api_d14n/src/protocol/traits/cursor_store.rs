@@ -36,7 +36,7 @@ impl RetryableError for CursorStoreError {
     }
 }
 
-impl<E: std::error::Error> From<CursorStoreError> for ApiClientError<E> {
+impl From<CursorStoreError> for ApiClientError {
     fn from(value: CursorStoreError) -> Self {
         ApiClientError::Other(Box::new(value) as Box<_>)
     }

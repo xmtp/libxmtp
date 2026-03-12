@@ -291,16 +291,34 @@ where
 /// General error type for Mls Storage Trait
 #[derive(thiserror::Error, Debug, ErrorCode)]
 pub enum SqlKeyStoreError {
+    /// Unsupported value type.
+    ///
+    /// Key store does not allow storing serialized values. Not retryable.
     #[error("The key store does not allow storing serialized values.")]
     UnsupportedValueTypeBytes,
+    /// Unsupported method.
+    ///
+    /// PSK operations not supported by this key store. Not retryable.
     #[error("Updating is not supported by this key store.")]
     UnsupportedMethod,
+    /// Serialization error.
+    ///
+    /// Failed to serialize value for key store. Not retryable.
     #[error("Error serializing value.")]
     SerializationError,
+    /// Value not found.
+    ///
+    /// Requested key not in OpenMLS key store. Not retryable.
     #[error("Value does not exist.")]
     NotFound,
+    /// Database error.
+    ///
+    /// Underlying Diesel database error. May be retryable.
     #[error("database error: {0}")]
     Storage(#[from] diesel::result::Error),
+    /// Connection error.
+    ///
+    /// Database connection error. Retryable.
     #[error("connection {0}")]
     Connection(#[from] crate::ConnectionError),
 }

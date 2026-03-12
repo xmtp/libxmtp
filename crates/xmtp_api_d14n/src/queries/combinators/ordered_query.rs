@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use xmtp_common::RetryableError;
 use xmtp_proto::{
     api::{ApiClientError, Client, Query},
     api_client::Paged,
@@ -24,14 +23,13 @@ impl<E, C, R, T, S> Query<C> for OrderedQuery<E, R, T, S>
 where
     E: Query<C, Output = T>,
     C: Client,
-    C::Error: RetryableError,
     R: ResolveDependencies<ResolvedEnvelope = <T as Paged>::Message> + Clone,
     T: Default + prost::Message + Paged + 'static,
     S: CursorStore,
     for<'a> T::Message: ProtocolEnvelope<'a> + prost::Message + Default + Clone,
 {
     type Output = Vec<T::Message>;
-    async fn query(&mut self, client: &C) -> Result<Self::Output, ApiClientError<C::Error>> {
+    async fn query(&mut self, client: &C) -> Result<Self::Output, ApiClientError> {
         let envelopes = Query::<C>::query(&mut self.endpoint, client)
             .await?
             .messages();

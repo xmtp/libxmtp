@@ -57,30 +57,69 @@ pub enum DeserializationError {
     #[error(transparent)]
     #[error_code(inherit)]
     SignatureError(#[from] crate::associations::SignatureError),
+    /// Missing action.
+    ///
+    /// Identity action not present in update. Not retryable.
     #[error("Missing action")]
     MissingAction,
+    /// Missing update.
+    ///
+    /// Identity update not present. Not retryable.
     #[error("Missing update")]
     MissingUpdate,
+    /// Missing member identifier.
+    ///
+    /// Member identifier field empty. Not retryable.
     #[error("Missing member identifier")]
     MissingMemberIdentifier,
+    /// Missing signature.
+    ///
+    /// Signature field not present. Not retryable.
     #[error("Missing signature")]
     Signature,
+    /// Missing member.
+    ///
+    /// Member field not present. Not retryable.
     #[error("Missing Member")]
     MissingMember,
+    /// Decode error.
+    ///
+    /// Protobuf decoding failed. Not retryable.
     #[error("Decode error {0}")]
     Decode(#[from] DecodeError),
+    /// Invalid account ID.
+    ///
+    /// CAIP-10 account ID is malformed. Not retryable.
     #[error("Invalid account id")]
     InvalidAccountId,
+    /// Invalid passkey.
+    ///
+    /// Passkey data is malformed. Not retryable.
     #[error("Invalid passkey")]
     InvalidPasskey,
+    /// Invalid hash.
+    ///
+    /// Hash must be 32 bytes. Not retryable.
     #[error("Invalid hash (needs to be 32 bytes)")]
     InvalidHash,
+    /// Unspecified value.
+    ///
+    /// An unrecognized or unsupported value was encountered. Not retryable.
     #[error("A required field is unspecified: {0}")]
     Unspecified(&'static str),
+    /// Deprecated field.
+    ///
+    /// A deprecated field was used. Not retryable.
     #[error("Field is deprecated: {0}")]
     Deprecated(&'static str),
+    /// Ed25519 key error.
+    ///
+    /// Failed to create public key from bytes. Not retryable.
     #[error("Error creating public key from proto bytes")]
     Ed25519(#[from] ed25519_dalek::ed25519::Error),
+    /// Unable to deserialize.
+    ///
+    /// Bincode deserialization failed. Not retryable.
     #[error("Unable to deserialize")]
     Bincode,
     #[error(transparent)]
