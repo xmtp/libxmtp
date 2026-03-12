@@ -4609,7 +4609,7 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
         ClientBuilder::new_test_client_with_version(&generate_local_wallet(), amal_version.clone())
             .await;
     assert!(amal.context.version_info() != &VersionInfo::default());
-    tester!(bo);
+    let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
     // Amal creates a group and adds bo
     let amal_group = amal.create_group(None, None).unwrap();
@@ -4669,7 +4669,11 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
             .unwrap()
             .as_str(),
     );
-    tester!(bo, from: bo, version: bo_version);
+    let bo = ClientBuilder::from_client(bo)
+        .version(bo_version)
+        .build()
+        .await
+        .unwrap();
 
     // Need to get fresh group reference after version update
     let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();

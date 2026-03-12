@@ -48,6 +48,9 @@ pub fn parser(
                                 .arg("--")
                                 .arg(&log_file)
                                 .status();
+
+                            // Remove the tempfile when done
+                            let _ = ::std::fs::remove_file(&log_file);
                         }
                     } else {
                         ::tracing::warn!("Logs are empty. Nothing to show in log_parser.");
