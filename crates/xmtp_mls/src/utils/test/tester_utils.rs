@@ -136,6 +136,10 @@ where
         let snapshot = self.db_snapshot();
         std::fs::write(path, &snapshot).unwrap();
     }
+
+    pub fn identifier(&self) -> Identifier {
+        self.builder.owner.get_identifier().unwrap()
+    }
 }
 
 #[derive(QueryableByName)]
