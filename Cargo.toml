@@ -77,11 +77,17 @@ libcrux-ed25519 = "0.0.6"
 mockall = { version = "0.14" }
 mockall_double = "0.3.1"
 once_cell = "1.2"
-openmls = { git = "https://github.com/xmtp/openmls", rev = "382a4649ae4e937ce933adb259e26d6381745731", default-features = false }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "382a4649ae4e937ce933adb259e26d6381745731" }
-openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "382a4649ae4e937ce933adb259e26d6381745731" }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "382a4649ae4e937ce933adb259e26d6381745731" }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "382a4649ae4e937ce933adb259e26d6381745731" }
+# This git hash does not point to main because the single line change to it (rusqlite = 0.37) has a conflict
+# with sqlx that doesn't allow cargo to resolve crates and so all of CI fails. To ensure that ongoing changes
+# to main work, we will keep it on a separate branch until this can get resolved. xmtp/openmls/main is currently
+# at 382a4649ae4e937ce933adb259e26d6381745731
+openmls = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14", default-features = false, features = [
+  "extensions-draft-08",
+] }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14" }
+openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14" }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14" }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14" }
 owo-colors = { version = "4.1" }
 p256 = { version = "0.13.2", features = ["ecdsa"] }
 parking_lot = "0.12.3"
