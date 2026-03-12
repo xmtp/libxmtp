@@ -15,7 +15,7 @@ use openmls::{
     credentials::{BasicCredential, Credential as OpenMlsCredential, errors::BasicCredentialError},
     extensions::{Extension, Extensions, UnknownExtension},
     group::{GroupContext, MlsGroup as OpenMlsGroup, QueuedProposal, StagedCommit},
-    messages::proposals::Proposal,
+    messages::proposals::{Proposal, ProposalType},
     prelude::{LeafNodeIndex, Sender},
     treesync::LeafNode,
 };
@@ -90,14 +90,10 @@ pub enum CommitValidationError {
     InstallationDiff(#[from] InstallationDiffError),
     #[error("Failed to parse group mutable permissions: {0}")]
     GroupMutablePermissions(#[from] GroupMutablePermissionsError),
-    #[error("PSKs are not support")]
+    #[error("PSKs are not supported")]
     NoPSKSupport,
-    #[error("External init proposals are not supported")]
-    ExternalInitProposalNotSupported,
-    #[error("ReInit proposals are not supported")]
-    ReInitProposalNotSupported,
-    #[error("SelfRemove proposals are not supported")]
-    SelfRemoveProposalNotSupported,
+    #[error("Unsupported proposal type: {0:?}")]
+    UnsupportedProposalType(ProposalType),
     #[error(transparent)]
     StorageError(#[from] StorageError),
     #[error("Exceeded max characters for this field. Must be under: {length}")]
@@ -1265,6 +1261,9 @@ pub fn validate_proposal(
         }
     };
 
+    let unsupported_error =
+        || CommitValidationError::UnsupportedProposalType(proposal.proposal().proposal_type());
+
     // Validate based on proposal type
     match proposal.proposal() {
         Proposal::Add(add_proposal) => {
@@ -1414,24 +1413,42 @@ pub fn validate_proposal(
                 return Err(CommitValidationError::InsufficientPermissions);
             }
         }
-        Proposal::Update(_) => {
-            // Update proposals (key updates) are always allowed for the member themselves
+        Proposal::Update(update_proposal) => {
+            // Update proposals are allowed for the member themselves, but the new leaf node's
+            // credential must match the proposer's identity to prevent identity swaps.
+            let new_inbox_id = inbox_id_from_credential(update_proposal.leaf_node().credential())?;
+            if new_inbox_id != proposer.inbox_id {
+                tracing::warn!(
+                    proposer_inbox_id = %proposer.inbox_id,
+                    proposer_installation_id = hex::encode(&proposer.installation_id),
+                    leaf_index = ?proposal.sender(),
+                    new_inbox_id = %new_inbox_id,
+                    new_installation_id = hex::encode(update_proposal.leaf_node().signature_key().as_slice()),
+                    "Update proposal rejected: new leaf node credential does not match proposer"
+                );
+                return Err(CommitValidationError::ActorNotMember);
+            }
         }
         Proposal::PreSharedKey(_) => {
-            // PSK proposals are not supported
-            return Err(CommitValidationError::NoPSKSupport);
+            return Err(unsupported_error());
         }
         Proposal::ReInit(_) => {
-            return Err(CommitValidationError::ReInitProposalNotSupported);
+            return Err(unsupported_error());
         }
         Proposal::ExternalInit(_) => {
-            return Err(CommitValidationError::ExternalInitProposalNotSupported);
+            return Err(unsupported_error());
         }
         Proposal::Custom(_) => {
-            // Custom proposals - allow by default, will be validated at commit time
+            return Err(unsupported_error());
+        }
+        Proposal::AppDataUpdate(_) => {
+            return Err(unsupported_error());
+        }
+        Proposal::AppEphemeral(_) => {
+            return Err(unsupported_error());
         }
         Proposal::SelfRemove => {
-            return Err(CommitValidationError::SelfRemoveProposalNotSupported);
+            return Err(unsupported_error());
         }
     }
 

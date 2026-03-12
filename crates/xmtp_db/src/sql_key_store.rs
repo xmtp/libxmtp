@@ -364,6 +364,9 @@ const QUEUED_PROPOSAL_LABEL: &[u8] = b"QueuedProposal";
 const PROPOSAL_QUEUE_REFS_LABEL: &[u8] = b"ProposalQueueRefs";
 const RESUMPTION_PSK_STORE_LABEL: &[u8] = b"ResumptionPskStore";
 
+// related to ApplicationExportTree
+const APPLICATION_EXPORT_TREE_LABEL: &[u8] = b"ApplicationExportTree";
+
 impl<C> StorageProvider<CURRENT_VERSION> for SqlKeyStore<C>
 where
     C: ConnectionExt,
@@ -1063,6 +1066,44 @@ where
         let key = bincode::serialize(&(group_id, proposal_ref))?;
         self.delete::<CURRENT_VERSION>(QUEUED_PROPOSAL_LABEL, &key)
     }
+
+    fn write_application_export_tree<
+        GroupId: traits::GroupId<CURRENT_VERSION>,
+        ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,
+    >(
+        &self,
+        group_id: &GroupId,
+        application_export_tree: &ApplicationExportTree,
+    ) -> Result<(), Self::Error> {
+        let key = build_key::<CURRENT_VERSION, &GroupId>(APPLICATION_EXPORT_TREE_LABEL, group_id)?;
+        self.write::<CURRENT_VERSION>(
+            APPLICATION_EXPORT_TREE_LABEL,
+            &key,
+            &bincode::serialize(application_export_tree)?,
+        )
+    }
+
+    fn application_export_tree<
+        GroupId: traits::GroupId<CURRENT_VERSION>,
+        ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,
+    >(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<Option<ApplicationExportTree>, Self::Error> {
+        let key = build_key::<CURRENT_VERSION, &GroupId>(APPLICATION_EXPORT_TREE_LABEL, group_id)?;
+        self.read(APPLICATION_EXPORT_TREE_LABEL, &key)
+    }
+
+    fn delete_application_export_tree<
+        GroupId: traits::GroupId<CURRENT_VERSION>,
+        ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,
+    >(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<(), Self::Error> {
+        let key = build_key::<CURRENT_VERSION, &GroupId>(APPLICATION_EXPORT_TREE_LABEL, group_id)?;
+        self.delete::<CURRENT_VERSION>(APPLICATION_EXPORT_TREE_LABEL, &key)
+    }
 }
 
 /// Build a key with version and label.
@@ -1318,5 +1359,131 @@ pub(crate) mod tests {
         // Read group state
         let group_state: Option<GroupState> = provider.storage().group_state(&group_id).unwrap();
         assert_eq!(GroupState(77), group_state.unwrap());
+    }
+
+    #[xmtp_common::test]
+    async fn application_export_tree() {
+        let store = crate::TestDb::create_persistent_store(None).await;
+        let conn = store.conn();
+        let store = SqlKeyStore::new(conn);
+        let provider = XmtpOpenMlsProvider::new(store);
+
+        #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+        struct AppExportTree {
+            nodes: Vec<Vec<u8>>,
+            leaf_count: u32,
+            root_hash: [u8; 32],
+        }
+        impl traits::ApplicationExportTree<CURRENT_VERSION> for AppExportTree {}
+        impl Entity<CURRENT_VERSION> for AppExportTree {}
+
+        fn random_tree(rand: &impl openmls_traits::random::OpenMlsRand) -> AppExportTree {
+            let leaf_count = 3 + (rand.random_vec(1).unwrap()[0] % 10) as u32;
+            let nodes: Vec<Vec<u8>> = (0..leaf_count)
+                .map(|_| rand.random_vec(64).unwrap())
+                .collect();
+            AppExportTree {
+                nodes,
+                leaf_count,
+                root_hash: xmtp_common::rand_array(),
+            }
+        }
+
+        let group_id_1 = GroupId::random(provider.rand());
+        let group_id_2 = GroupId::random(provider.rand());
+        let tree_1 = random_tree(provider.rand());
+        let tree_2 = random_tree(provider.rand());
+
+        // Read before write should return None
+        let result: Option<AppExportTree> = provider
+            .storage()
+            .application_export_tree(&group_id_1)
+            .unwrap();
+        assert!(result.is_none());
+
+        // Write tree for group 1
+        provider
+            .storage()
+            .write_application_export_tree(&group_id_1, &tree_1)
+            .unwrap();
+
+        // Read back group 1
+        let result: Option<AppExportTree> = provider
+            .storage()
+            .application_export_tree(&group_id_1)
+            .unwrap();
+        assert_eq!(result.unwrap(), tree_1);
+
+        // Group 2 should still be None
+        let result: Option<AppExportTree> = provider
+            .storage()
+            .application_export_tree(&group_id_2)
+            .unwrap();
+        assert!(result.is_none());
+
+        // Write tree for group 2
+        provider
+            .storage()
+            .write_application_export_tree(&group_id_2, &tree_2)
+            .unwrap();
+        let result: Option<AppExportTree> = provider
+            .storage()
+            .application_export_tree(&group_id_2)
+            .unwrap();
+        assert_eq!(result.unwrap(), tree_2);
+
+        // Overwrite group 1 with new data
+        let tree_1_updated = random_tree(provider.rand());
+        provider
+            .storage()
+            .write_application_export_tree(&group_id_1, &tree_1_updated)
+            .unwrap();
+        let result: Option<AppExportTree> = provider
+            .storage()
+            .application_export_tree(&group_id_1)
+            .unwrap();
+        assert_eq!(result.unwrap(), tree_1_updated);
+
+        // Group 2 should be unaffected
+        let result: Option<AppExportTree> = provider
+            .storage()
+            .application_export_tree(&group_id_2)
+            .unwrap();
+        assert_eq!(result.unwrap(), tree_2);
+
+        // Delete group 1
+        provider
+            .storage()
+            .delete_application_export_tree::<GroupId, AppExportTree>(&group_id_1)
+            .unwrap();
+        let result: Option<AppExportTree> = provider
+            .storage()
+            .application_export_tree(&group_id_1)
+            .unwrap();
+        assert!(result.is_none());
+
+        // Group 2 should still exist
+        let result: Option<AppExportTree> = provider
+            .storage()
+            .application_export_tree(&group_id_2)
+            .unwrap();
+        assert_eq!(result.unwrap(), tree_2);
+
+        // Delete group 2
+        provider
+            .storage()
+            .delete_application_export_tree::<GroupId, AppExportTree>(&group_id_2)
+            .unwrap();
+        let result: Option<AppExportTree> = provider
+            .storage()
+            .application_export_tree(&group_id_2)
+            .unwrap();
+        assert!(result.is_none());
+
+        // Deleting again should not error
+        provider
+            .storage()
+            .delete_application_export_tree::<GroupId, AppExportTree>(&group_id_1)
+            .unwrap();
     }
 }
