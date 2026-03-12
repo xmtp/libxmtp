@@ -831,7 +831,9 @@ impl UserValidationMethod for PkUserValidationMethod {
 #[macro_export]
 macro_rules! tester {
     ($name:ident, from: $existing:expr $(, $k:ident $(: $v:expr)?)*) => {
-        tester!(@process $existing.builder.clone() ; $name $(, $k $(: $v)?)*)
+        let builder = $existing.builder.clone();
+        let builder = builder.with_name(stringify!($name));
+        tester!(@process builder ; $name $(, $k $(: $v)?)*)
     };
 
     ($name:ident $(, $k:ident $(: $v:expr)?)*) => {

@@ -5,7 +5,7 @@ use tracing_subscriber::fmt;
 use xmtp_common::{Event, TestWriter};
 use xmtp_mls::{client::ClientError, tester};
 
-async fn capture_events<F, Fut>(f: F) -> Result<Vec<Arc<LogEvent>>, ClientError>
+pub(crate) async fn capture_events<F, Fut>(f: F) -> Result<Vec<Arc<LogEvent>>, ClientError>
 where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<(), ClientError>>,
@@ -37,7 +37,7 @@ where
     Ok(events)
 }
 
-trait EventLogs {
+pub(crate) trait EventLogs {
     // Get the installation id from the logs for the given name.
     // Only works if a name is associated with an AssociateName event.
     fn inst(&self, name: &str) -> Option<&String>;

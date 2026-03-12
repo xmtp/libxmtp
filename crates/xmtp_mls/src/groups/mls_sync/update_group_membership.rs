@@ -38,7 +38,7 @@ pub(crate) async fn apply_update_group_membership_intent(
         get_removed_leaf_nodes(openmls_group, &changes_with_kps.removed_installations);
 
     if leaf_nodes_to_remove.contains(&openmls_group.own_leaf_index()) {
-        tracing::info!("Cannot remove own leaf node");
+        tracing::warn!("Cannot remove own leaf node");
         return Ok(None);
     }
 

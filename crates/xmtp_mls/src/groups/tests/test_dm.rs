@@ -2,6 +2,7 @@ use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::consent_record::{ConsentState, ConsentType};
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::prelude::*;
+use xmtp_macro::parser;
 
 use crate::context::XmtpSharedContext;
 use crate::tester;
@@ -35,6 +36,7 @@ async fn auto_consent_dms_for_new_installations() {
 /// before processing the welcome, the welcome should succeed rather than
 /// aborting on a unique constraint error.
 #[xmtp_common::test(unwrap_try = true)]
+#[parser]
 async fn test_dm_welcome_with_preexisting_consent() {
     tester!(alix);
     tester!(bo1);

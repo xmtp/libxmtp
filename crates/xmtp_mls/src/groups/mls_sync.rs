@@ -2579,8 +2579,8 @@ where
                                     group_id = intent.group_id,
                                     intent_id = intent.id,
                                     intent_kind = ?kind,
-                                    commit_hash = hex::encode(&intent_hash)
-                                )
+                                    hash = #intent_hash
+                                );
                             }
                         }
 

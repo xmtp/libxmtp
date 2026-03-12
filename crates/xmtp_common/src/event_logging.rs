@@ -91,7 +91,7 @@ pub enum Event {
     #[context(group_id, intent_id, icon = "📤")]
     GroupSyncApplicationMessagePublishSuccess,
     /// Commit published successfully.
-    #[context(group_id, intent_id, intent_kind, commit_hash, icon = "✨")]
+    #[context(group_id, intent_id, intent_kind, hash, icon = "✨")]
     GroupSyncCommitPublishSuccess,
     /// Commit sent. Staged commit is present. Stopping further publishes for this round.
     #[context(group_id, hash, icon = "🛑")]

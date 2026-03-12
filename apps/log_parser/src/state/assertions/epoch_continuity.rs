@@ -108,3 +108,56 @@ impl LogAssertion for EpochContinuityAssertion {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use xmtp_mls::tester;
+
+    use crate::{
+        state::State,
+        tests::{EventLogs, capture_events},
+    };
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_epoch_continuity_is_propagated() {
+        let events = capture_events(|| async {
+            tester!(alix, disable_workers);
+            tester!(bo, disable_workers);
+
+            let (alix_group, _) = alix.test_talk_in_new_group_with(&bo).await?;
+            let bo_group = bo.group(&alix_group.group_id)?;
+
+            alix_group.update_group_name("My pals".into()).await?;
+            alix_group.sync().await?;
+
+            tester!(caro, disable_workers);
+            alix_group.add_members(&[caro.inbox_id()]).await?;
+            bo_group.sync().await?;
+
+            Ok(())
+        })
+        .await?;
+
+        let alix_inst = events.inst("alix")?.to_string();
+
+        let state = State::new(None);
+        state.add_source("test", events);
+
+        let grouped_epochs = state.grouped_epochs.lock();
+        let inst_epochs = grouped_epochs.values().nth(0)?;
+        let epochs = inst_epochs.get(&alix_inst)?;
+        let mut event_epoch = None;
+        for (num, epoch) in &epochs.epochs {
+            for state in &epoch.states {
+                let state = state.lock();
+                if let Some(n) = state.epoch {
+                    if let Some(t) = event_epoch {
+                        assert_eq!(*num, n);
+                        assert!(n >= t);
+                    };
+                    event_epoch = state.epoch;
+                }
+            }
+        }
+    }
+}
