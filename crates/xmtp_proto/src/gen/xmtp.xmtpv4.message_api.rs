@@ -191,11 +191,8 @@ impl ::prost::Name for SubscribeEnvelopesResponse {
     }
 }
 /// Batch subscribe to all envelopes
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SubscribeAllEnvelopesRequest {
-    #[prost(message, optional, tag = "1")]
-    pub last_seen: ::core::option::Option<super::envelopes::Cursor>,
-}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SubscribeAllEnvelopesRequest {}
 impl ::prost::Name for SubscribeAllEnvelopesRequest {
     const NAME: &'static str = "SubscribeAllEnvelopesRequest";
     const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
