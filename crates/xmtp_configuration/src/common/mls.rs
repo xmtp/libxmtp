@@ -51,7 +51,6 @@ pub const INSTALLATION_THRESHOLD_FOR_WELCOME_POINTER_SENDING: usize = 2;
 // Exponential Backoff constants for Intent Sync
 // With 5 retries, 50ms base, 3x multiplier, and 25ms max jitter, the maximum
 // total sleep is ~2100ms (50+150+450+1350 + 4×25ms jitter), well under the 10s limit.
-// 5 retries gives the server enough time to make published messages queryable.
 
 /// the base backoff time that is multiplied by 3
 pub const SYNC_BACKOFF_WAIT_MS: u16 = 50;
