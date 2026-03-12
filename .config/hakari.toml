@@ -6,6 +6,8 @@ hakari-package = "xmtp-workspace-hack"
 # Format version for hakari's output. Version 4 requires cargo-hakari 0.9.22 or above.
 dep-format-version = "4"
 
+workspace-hack-line-style = "workspace-dotted"
+
 # Setting workspace.resolver = "2" or higher in the root Cargo.toml is HIGHLY recommended.
 # Hakari works much better with the v2 resolver. (The v2 and v3 resolvers are identical from
 # hakari's perspective, so you're welcome to set either.)
@@ -27,7 +29,32 @@ platforms = [
 
 # Including mio/tokio breaks webassembly builds since net features are mutually exclusive with wasm
 [traversal-excludes]
-third-party = [{ name = "mio" }, { name = "tokio" }]
+third-party = [
+  { name = "hyper" },
+  { name = "mio" },
+  { name = "tokio" },
+  { name = "uniffi" },
+  { name = "wasm-bindgen" },
+]
+workspace-members = [
+  "bindings_wasm",
+  "xmtp_cli",
+  "log_parser",
+  "xmtp-db-tools",
+  "xdbg",
+]
 [final-excludes]
-workspace-members = ["bindings_wasm"]
-third-party = [{ name = "mio" }, { name = "tokio" }]
+third-party = [
+  { name = "hyper" },
+  { name = "mio" },
+  { name = "tokio" },
+  { name = "uniffi" },
+  { name = "wasm-bindgen" },
+]
+workspace-members = [
+  "bindings_wasm",
+  "xmtp_cli",
+  "log_parser",
+  "xmtp-db-tools",
+  "xdbg",
+]

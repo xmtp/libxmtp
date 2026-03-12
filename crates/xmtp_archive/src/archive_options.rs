@@ -16,6 +16,7 @@ pub enum BackupElementSelection {
 }
 
 impl From<BackupElementSelectionProto> for BackupElementSelection {
+    #[allow(deprecated)]
     fn from(proto: BackupElementSelectionProto) -> Self {
         match proto {
             BackupElementSelectionProto::Unspecified => Self::Unspecified,
@@ -27,6 +28,7 @@ impl From<BackupElementSelectionProto> for BackupElementSelection {
 }
 
 impl From<BackupElementSelection> for BackupElementSelectionProto {
+    #[allow(deprecated)]
     fn from(selection: BackupElementSelection) -> Self {
         match selection {
             BackupElementSelection::Unspecified => Self::Unspecified,

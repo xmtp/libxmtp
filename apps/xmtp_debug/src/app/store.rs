@@ -328,7 +328,7 @@ where
             let mut table = w.open_table(Self::table())?;
             let mut total = 0;
             table.retain(|k: NetworkKey<N>, _| {
-                if !k.network == network {
+                if k.network == network {
                     total += 1;
                     return false;
                 }
@@ -412,6 +412,9 @@ where
             .load(network)?
             .ok_or(eyre!("no items found, try generating some"))?
             .fold(0, |acc, _| acc + 1);
+        if len == 0 {
+            return Err(eyre!("no items found, try generating some"));
+        }
         let mut items = self
             .load(network)?
             .ok_or(eyre!("no items found, try generating some"))?;
@@ -421,6 +424,7 @@ where
         // items aren't loaded into memory until `value()` is called on `AccessGuard`.
         let mut random = Vec::with_capacity(n);
         let uninit = random.spare_capacity_mut();
+        let mut written = 0usize;
         for chunk in uninit.chunks_mut(len) {
             items
                 .sample(rng, chunk.len())
@@ -428,12 +432,17 @@ where
                 .enumerate()
                 .for_each(|(idx, i)| {
                     chunk[idx].write(i);
+                    written += 1;
                 });
             items = self
                 .load(network)?
                 .ok_or(eyre!("no items found, try generating some"))?;
         }
-        // safe because we ensure that every item is set/written to.
+        // Safety: every slot [0..n] has been initialised in the loop above.
+        // `sample(rng, chunk.len())` returns exactly `chunk.len()` items
+        // when the iterator has at least that many, which is guaranteed
+        // because `len` is the full store size and `chunk.len() <= len`.
+        debug_assert_eq!(written, n, "random_n: not all slots were initialised");
         unsafe {
             random.set_len(n);
         }

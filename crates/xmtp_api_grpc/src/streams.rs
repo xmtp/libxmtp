@@ -15,8 +15,8 @@ pub use non_blocking_stream::*;
 mod try_from_item;
 pub use try_from_item::*;
 
-mod fake_empty;
-pub use fake_empty::*;
+mod multiplexed;
+pub use multiplexed::*;
 
 use prost::bytes::Bytes;
 use tonic::{Response, Status, Streaming};

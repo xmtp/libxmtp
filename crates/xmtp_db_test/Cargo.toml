@@ -1,9 +1,11 @@
 [package]
 name = "xmtp_db_test"
-edition = "2024"
+description = "local db chaos testing"
 license.workspace = true
 version.workspace = true
-description = "local db chaos testing"
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
 
 [lints]
 workspace = true
@@ -14,6 +16,6 @@ diesel.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
 tracing.workspace = true
-xmtp-workspace-hack = { version = "0.1", path = "../xmtp-workspace-hack" }
+xmtp-workspace-hack.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
