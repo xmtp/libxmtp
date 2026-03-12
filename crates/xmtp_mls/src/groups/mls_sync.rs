@@ -1643,8 +1643,6 @@ where
                 Err(err) => {
                     tracing::warn!(
                         error = ?err,
-                        edit_rejected = true,
-                        reason = "decode_encoded_content",
                         "Failed to decode EncodedContent for edit message, skipping"
                     );
                     return Ok(());
@@ -1654,7 +1652,7 @@ where
         let edit_msg = match EditMessage::decode(encoded_content.content.as_slice()) {
             Ok(msg) => msg,
             Err(err) => {
-                tracing::warn!(error = ?err, edit_rejected = true, reason = "decode_edit_message", "Failed to decode EditMessage, skipping");
+                tracing::warn!(error = ?err, "Failed to decode EditMessage, skipping");
                 return Ok(());
             }
         };
@@ -1662,33 +1660,20 @@ where
         let edited_content = match &edit_msg.edited_content {
             Some(content) => content,
             None => {
-                tracing::warn!(
-                    edit_rejected = true,
-                    reason = "missing_edited_content",
-                    "EditMessage missing edited_content, skipping"
-                );
+                tracing::warn!("EditMessage missing edited_content, skipping");
                 return Ok(());
             }
         };
 
         if edited_content.content.is_empty() {
-            tracing::warn!(
-                edit_rejected = true,
-                reason = "empty_edited_content",
-                "EditMessage has empty edited_content, skipping"
-            );
+            tracing::warn!("EditMessage has empty edited_content, skipping");
             return Ok(());
         }
 
         let target_message_id = match hex::decode(&edit_msg.message_id) {
             Ok(id) => id,
             Err(_) => {
-                tracing::warn!(
-                    edit_rejected = true,
-                    reason = "invalid_hex_message_id",
-                    "Invalid edit message_id: {}",
-                    edit_msg.message_id
-                );
+                tracing::warn!("Invalid edit message_id: {}", edit_msg.message_id);
                 return Ok(());
             }
         };
@@ -1696,21 +1681,13 @@ where
         let original_msg_opt = storage.db().get_group_message(&target_message_id)?;
 
         if storage.db().is_message_deleted(&target_message_id)? {
-            tracing::warn!(
-                edit_rejected = true,
-                reason = "message_deleted",
-                "Edit rejected for deleted message {}",
-                edit_msg.message_id
-            );
+            tracing::warn!("Edit rejected for deleted message {}", edit_msg.message_id);
             return Ok(());
         }
 
         if let Some(ref original_msg) = original_msg_opt {
-            // Validate the edit is for the same group
             if original_msg.group_id != self.group_id {
                 tracing::warn!(
-                    edit_rejected = true,
-                    reason = "cross_group",
                     "Cross-group edit attempt: message {} from group {}",
                     edit_msg.message_id,
                     hex::encode(&original_msg.group_id)
@@ -1718,11 +1695,8 @@ where
                 return Ok(());
             }
 
-            // Only the original sender can edit their own messages
             if original_msg.sender_inbox_id != message.sender_inbox_id {
                 tracing::warn!(
-                    edit_rejected = true,
-                    reason = "unauthorized",
                     "Unauthorized edit by {} for message {} (original sender: {})",
                     message.sender_inbox_id,
                     edit_msg.message_id,
@@ -1731,11 +1705,8 @@ where
                 return Ok(());
             }
 
-            // Check if the message type is editable
             if !original_msg.kind.is_editable() || !original_msg.content_type.is_editable() {
                 tracing::warn!(
-                    edit_rejected = true,
-                    reason = "non_editable",
                     "Non-editable message {} (kind: {:?}, content_type: {:?})",
                     edit_msg.message_id,
                     original_msg.kind,
@@ -1744,13 +1715,11 @@ where
                 return Ok(());
             }
         }
-        // If the original message doesn't exist yet (out-of-order delivery),
-        // we still store the edit. Authorization is validated at enrichment time.
-
-        // Serialize the edited content to bytes for storage
+        // Out-of-order: edit may arrive before the message. Store it anyway;
+        // authorization is validated at enrichment time.
         let mut edited_content_bytes = Vec::new();
         if let Err(err) = edited_content.encode(&mut edited_content_bytes) {
-            tracing::warn!(error = ?err, edit_rejected = true, reason = "encode_edited_content", "Failed to encode edited_content, skipping");
+            tracing::warn!(error = ?err, "Failed to encode edited_content, skipping");
             return Ok(());
         }
 
@@ -1767,7 +1736,6 @@ where
 
         let out_of_order = original_msg_opt.is_none();
 
-        // Emit MessageEdited event if we have the original message
         if let Some(original_msg) = original_msg_opt {
             match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
                 Ok(mut decoded_message) => {

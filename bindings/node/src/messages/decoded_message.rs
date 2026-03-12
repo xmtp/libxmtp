@@ -14,7 +14,6 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 #[napi]
 pub struct DecodedMessage {
   inner: Box<XmtpDecodedMessage>,
-  /// The content to display (edited content if edited, otherwise original)
   content_body: MessageBody,
   pub id: String,
   sent_at_ns: BigInt,
@@ -80,7 +79,6 @@ impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
     let edited_at_ns = msg.edited.as_ref().map(|e| BigInt::from(e.edited_at_ns));
     let original_content_type: ContentTypeId = msg.metadata.content_type.clone().into();
 
-    // If the message has been edited, use the edited content instead of the original
     let (content_body, content_type) = if let Some(edited) = &msg.edited {
       match EncodedContent::decode(&mut edited.content.as_slice()) {
         Ok(encoded_content) => {
@@ -94,13 +92,13 @@ impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
             Ok(mut edited_body) => {
               let mut final_content_type = edited_content_type;
 
-              // If both original and edited content are Replies, preserve in_reply_to
+              // Preserve in_reply_to from the original Reply
               if let (MessageBody::Reply(original_reply), MessageBody::Reply(edited_reply)) =
                 (&msg.content, &mut edited_body)
               {
                 edited_reply.in_reply_to = original_reply.in_reply_to.clone();
               }
-              // If original is a Reply but edited content is not, wrap in Reply
+              // Wrap non-Reply edited content in Reply if original was a Reply
               else if let MessageBody::Reply(original_reply) = &msg.content {
                 edited_body = MessageBody::Reply(ProcessedReply {
                   in_reply_to: original_reply.in_reply_to.clone(),

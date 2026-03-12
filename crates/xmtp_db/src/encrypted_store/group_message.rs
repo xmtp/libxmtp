@@ -302,7 +302,6 @@ impl Deletable for ContentType {
 impl Editable for ContentType {
     fn is_editable(&self) -> bool {
         match self {
-            // These content types cannot be edited
             ContentType::GroupMembershipChange
             | ContentType::GroupUpdated
             | ContentType::LeaveRequest
@@ -312,10 +311,8 @@ impl Editable for ContentType {
             | ContentType::Intent
             | ContentType::DeleteMessage
             | ContentType::EditMessage
-            // Unknown content types default to non-editable for safety
             | ContentType::Unknown => false,
 
-            // These content types can be edited
             ContentType::Text
             | ContentType::Markdown
             | ContentType::Reply

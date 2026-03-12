@@ -104,12 +104,9 @@ pub struct DecodedMessageMetadata {
     pub expires_at_ns: Option<i64>,
 }
 
-/// Info about an edit applied to a message
 #[derive(Debug, Clone)]
 pub struct EditedContent {
-    /// The edited content (serialized EncodedContent)
     pub content: Vec<u8>,
-    /// Timestamp when the edit was made
     pub edited_at_ns: i64,
 }
 
