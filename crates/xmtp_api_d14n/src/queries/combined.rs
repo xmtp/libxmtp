@@ -23,6 +23,7 @@ use crate::definitions::XmtpApiClient;
 use crate::protocol::CursorStore;
 
 mod connected_check;
+mod cutover_stream;
 mod streams;
 mod to_dyn_api;
 mod xmtp_query;
@@ -59,12 +60,25 @@ where
     }
 }
 
+fn is_d14n_migration_error(e: &ApiClientError) -> bool {
+    if let Some(network) = e.network_error() {
+        let s = network.to_string();
+        ERROR_REGEX.is_match(&s)
+    } else {
+        false
+    }
+}
+
 impl<V3, D14n, S> MigrationClient<V3, D14n, S>
 where
     V3: Client,
     D14n: Client,
     S: CursorStore,
 {
+    fn has_migrated(&self) -> Result<bool, ApiClientError> {
+        self.store.has_migrated().map_err(Into::into)
+    }
+
     pub async fn choose_client(&self) -> Result<&XmtpApiClient, ApiClientError> {
         if self.store.has_migrated()? {
             return Ok(&self.xmtpd_client);
@@ -83,7 +97,6 @@ where
         };
 
         if now >= cutover_ns {
-            self.store.set_has_migrated(true)?;
             Ok(&self.xmtpd_client)
         } else {
             Ok(&self.v3_client)
@@ -95,6 +108,10 @@ where
         self.store.set_cutover_ns(cutover_ns)?;
         self.store
             .set_last_checked_ns(xmtp_common::time::now_ns())?;
+        let now = xmtp_common::time::now_ns();
+        if now >= cutover_ns {
+            self.store.set_has_migrated(true)?;
+        }
         Ok(cutover_ns)
     }
 
@@ -106,13 +123,10 @@ where
     {
         let out = f().await;
         if let Err(ref e) = out
-            && let Some(network) = e.network_error()
+            && is_d14n_migration_error(e)
         {
-            let s = network.to_string();
-            if ERROR_REGEX.is_match(&s) {
-                self.store.set_has_migrated(true)?;
-                return f().await;
-            }
+            self.store.set_has_migrated(true)?;
+            return f().await;
         }
         out
     }
@@ -173,6 +187,7 @@ where
         })
         .await
     }
+
     async fn query_group_messages(
         &self,
         group_id: GroupId,
@@ -284,3 +299,6 @@ where
             .await
     }
 }
+
+#[cfg(test)]
+mod tests;

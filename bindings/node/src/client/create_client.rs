@@ -184,7 +184,6 @@ async fn create_client_inner(
 pub async fn create_client(
   v3_host: String,
   gateway_host: Option<String>,
-  is_secure: bool,
   db: DbOptions,
   inbox_id: String,
   account_identifier: Identifier,
@@ -207,8 +206,7 @@ pub async fn create_client(
     .readonly(matches!(client_mode, ClientMode::Notification))
     .maybe_auth_callback(auth_callback.map(|c| Arc::new(c.clone()) as _))
     .maybe_auth_handle(auth_handle.map(|h| h.clone().into()))
-    .app_version(app_version.clone().unwrap_or_default())
-    .is_secure(is_secure);
+    .app_version(app_version.clone().unwrap_or_default());
 
   let store = build_store(db)?;
   let nonce = parse_nonce(nonce)?;
