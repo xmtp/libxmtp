@@ -21,6 +21,8 @@ xmtp_common::if_d14n! {
     mod test_message_dependencies;
 }
 
+use std::sync::Arc;
+
 use crate::groups::send_message_opts::SendMessageOpts;
 use chrono::DateTime;
 use openmls::prelude::MlsMessageIn;
@@ -806,10 +808,8 @@ async fn test_dm_creation_with_user_all_malformed_installations() {
 #[tokio::test(flavor = "current_thread")]
 async fn test_add_inbox_with_bad_installation_to_group() {
     use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
-    use xmtp_id::associations::test_utils::WalletTestExt;
 
     tester!(alix);
-    let bo_wallet = generate_local_wallet();
     tester!(caro);
     tester!(bo_1);
     tester!(bo_2, from: bo_1);
@@ -824,9 +824,7 @@ async fn test_add_inbox_with_bad_installation_to_group() {
         .await
         .unwrap();
 
-    let _ = group
-        .add_members_by_identity(&[bo_wallet.identifier()])
-        .await;
+    let _ = group.add_members_by_identity(&[bo_1.identifier()]).await;
 
     bo_2.sync_welcomes().await.unwrap();
     caro.sync_welcomes().await.unwrap();
@@ -844,8 +842,6 @@ async fn test_add_inbox_with_bad_installation_to_group() {
 async fn test_add_inbox_with_good_installation_to_group_with_bad_installation() {
     use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
 
-    let bo_wallet = generate_local_wallet();
-    let caro_wallet = generate_local_wallet();
     tester!(alix);
     tester!(bo_1);
     tester!(bo_2, from: bo_1);
@@ -857,13 +853,11 @@ async fn test_add_inbox_with_good_installation_to_group_with_bad_installation() 
     );
 
     let group = alix
-        .create_group_with_identifiers(&[bo_wallet.identifier()], None, None)
+        .create_group_with_identifiers(&[bo_1.identifier()], None, None)
         .await
         .unwrap();
 
-    let _ = group
-        .add_members_by_identity(&[caro_wallet.identifier()])
-        .await;
+    let _ = group.add_members_by_identity(&[caro.identifier()]).await;
 
     caro.sync_welcomes().await.unwrap();
     bo_2.sync_welcomes().await.unwrap();
@@ -2336,7 +2330,7 @@ async fn test_add_missing_installations() {
     // Finished with setup
 
     // add a second installation for amal using the same wallet
-    tester!(_amal_2nd);
+    tester!(_amal_2nd, from: amal);
 
     // test if adding the new installation(s) worked
     let new_installations_were_added = group.add_missing_installations().await;
@@ -3658,7 +3652,7 @@ async fn add_missing_installs_reentrancy() {
     tester!(alix1);
     let alix1_group = alix1.create_group(None, None).unwrap();
 
-    tester!(alix2);
+    tester!(alix2, from: alix1);
 
     // We are going to run add_missing_installations TWICE
     // which will create two intents to add the installations
@@ -4458,7 +4452,9 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
             .as_str(),
     );
 
-    tester!(caro, from: caro, version: caro_version);
+    let snapshot = Arc::new(caro.db_snapshot());
+    drop(caro);
+    tester!(caro, snapshot: snapshot, version: caro_version);
     let binding = caro.find_groups(GroupQueryArgs::default()).unwrap();
     let caro_group = binding.first().unwrap();
     assert!(caro_group.group_id == amal_group.group_id);
@@ -4725,7 +4721,7 @@ async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
     assert!(result.is_err());
 
     // 5) Add a second installation for bola and try and re-add them
-    tester!(bola_2);
+    tester!(bola_2, from: bola);
     let result = amal_group.add_members(&[bola.inbox_id()]).await;
     assert!(result.is_ok());
 
