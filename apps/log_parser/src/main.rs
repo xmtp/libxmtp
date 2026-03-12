@@ -43,6 +43,17 @@ fn main() -> Result<()> {
     let ui = AppWindow::new()?;
     let state = State::new(Some(ui.as_weak()));
 
+    if let Some(path) = std::env::args().nth(1) {
+        match std::fs::read_to_string(&path) {
+            Ok(log) => {
+                let lines = log.split('\n').peekable();
+                let events = LogEvent::parse(lines);
+                state.add_source(path, events);
+            }
+            Err(e) => tracing::error!("Failed to read log file {path}: {e}"),
+        }
+    };
+
     ui.on_request_open_file({
         let ui_handle = ui.as_weak();
         move || open_file_dialog(ui_handle.clone())
