@@ -111,6 +111,22 @@ pub fn test(
     test_macro::test(attr, body)
 }
 
+/// Attribute macro that wraps a function to capture tracing logs and automatically
+/// run the `log_parser` tool on them when the function completes.
+///
+/// This macro sets up a tracing subscriber that captures all log output to a buffer.
+/// When the function returns (or panics), a drop guard writes the captured logs to
+/// a temporary file and invokes `cargo run --release -p log_parser` to analyze them.
+///
+/// # Example
+///
+/// ```ignore
+/// #[parser]
+/// fn test_with_log_parsing() {
+///     tracing::info!("This log will be captured and parsed");
+///     // ... test code ...
+/// }
+/// ```
 #[proc_macro_attribute]
 pub fn parser(
     attr: proc_macro::TokenStream,
