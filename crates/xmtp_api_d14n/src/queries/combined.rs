@@ -131,10 +131,11 @@ where
         &self,
         request: mls_v1::UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
-        self.choose_client()
-            .await?
-            .upload_key_package(request)
-            .await
+        self.write_with_refresh(|| {
+            let value = request.clone();
+            async move { self.choose_client().await?.upload_key_package(value).await }
+        })
+        .await
     }
 
     async fn fetch_key_packages(

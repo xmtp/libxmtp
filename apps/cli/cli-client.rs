@@ -235,34 +235,27 @@ async fn main() -> color_eyre::eyre::Result<()> {
         (true, Env::Local) => MessageBackendBuilder::default()
             .v3_host(GrpcUrlsLocal::NODE)
             .gateway_host(GrpcUrlsLocal::GATEWAY)
-            .is_secure(false)
             .build()?,
         (true, Env::Production) => MessageBackendBuilder::default()
             .v3_host(GrpcUrlsProduction::NODE)
             .gateway_host(GrpcUrlsProduction::GATEWAY)
-            .is_secure(true)
             .build()?,
         (true, Env::Staging) => MessageBackendBuilder::default()
             .v3_host(GrpcUrlsStaging::NODE)
             .gateway_host(GrpcUrlsStaging::GATEWAY)
-            .is_secure(true)
             .build()?,
         (true, Env::Dev) => MessageBackendBuilder::default()
             .v3_host(GrpcUrlsDev::NODE)
             .gateway_host(GrpcUrlsDev::GATEWAY)
-            .is_secure(true)
             .build()?,
         (false, Env::Local) => MessageBackendBuilder::default()
             .v3_host(GrpcUrlsLocal::NODE)
-            .is_secure(false)
             .build()?,
         (false, Env::Dev) | (false, Env::Staging) => MessageBackendBuilder::default()
             .v3_host(GrpcUrlsDev::NODE)
-            .is_secure(true)
             .build()?,
         (false, Env::Production) => MessageBackendBuilder::default()
             .v3_host(GrpcUrlsProduction::NODE)
-            .is_secure(true)
             .build()?,
     };
 

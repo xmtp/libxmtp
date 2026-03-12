@@ -33,6 +33,7 @@ let
   };
 
   commonArgs = {
+    inherit src;
     strictDeps = true;
     nativeBuildInputs = [
       pkg-config
@@ -46,7 +47,6 @@ let
   cargoArtifacts = rust.buildDepsOnly (
     commonArgs
     // {
-      src = craneLib.cleanCargoSource root;
       buildPhaseCargoCommand = "cargo llvm-cov --locked --profile $CARGO_PROFILE --no-report";
     }
   );
@@ -55,7 +55,8 @@ in
 rust.cargoNextest (
   commonArgs
   // {
-    inherit cargoArtifacts src;
+    inherit cargoArtifacts;
+    pnameSuffix = if d14n then "nextest-d14n" else "nextest-v3";
     partitions = 1;
     partitionType = "count";
     cargoNextestPartitionsExtraArgs = "--no-tests=pass";

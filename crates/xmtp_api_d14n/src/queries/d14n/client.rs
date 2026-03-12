@@ -13,6 +13,15 @@ pub struct D14nClient<C, Store> {
     pub(super) scw_verifier: Arc<MultiSmartContractSignatureVerifier>,
 }
 
+impl<C: std::fmt::Debug, Store> std::fmt::Debug for D14nClient<C, Store> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("D14nClient")
+            .field("client", &self.client)
+            .field("scw_verifier", &self.scw_verifier)
+            .finish()
+    }
+}
+
 impl<C, Store> D14nClient<C, Store> {
     pub fn new(client: C, cursor_store: Store) -> Result<Self, VerifierError> {
         Ok(Self {

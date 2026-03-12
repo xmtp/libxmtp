@@ -14731,7 +14731,6 @@ name = "xmtp_configuration"
 version = "1.9.0"
 dependencies = [
  "openmls",
- "url",
  "xmtp-workspace-hack",
  "xmtp_common",
  "xmtp_cryptography",
@@ -15031,6 +15030,7 @@ dependencies = [
  "tonic-prost-build",
  "toxiproxy_rust",
  "tracing",
+ "url",
  "walkdir",
  "wasm-bindgen-test",
  "xmtp-workspace-hack",

@@ -8,6 +8,14 @@ pub struct V3Client<C, Store> {
     pub(super) cursor_store: Store,
 }
 
+impl<C: std::fmt::Debug, Store> std::fmt::Debug for V3Client<C, Store> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("V3Client")
+            .field("client", &self.client)
+            .finish()
+    }
+}
+
 impl<C, Store> V3Client<C, Store> {
     pub fn new(client: C, cursor_store: Store) -> Self {
         Self {
