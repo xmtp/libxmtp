@@ -1,4 +1,4 @@
-use crate::groups::mls_ext::WrapperEncryptionExtension;
+use super::WrapperEncryptionExtension;
 use openmls::{
     credentials::{BasicCredential, errors::BasicCredentialError},
     key_packages::Lifetime,

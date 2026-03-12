@@ -10,7 +10,6 @@ use crate::{
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{LocalEventError, LocalEvents, SyncWorkerEvent},
     utils::VersionInfo,
-    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     worker::device_sync::{
         DeviceSyncClient, preference_sync::PreferenceUpdate, worker::SyncMetric,
     },
@@ -42,6 +41,7 @@ use xmtp_db::{
     identity::StoredIdentity,
 };
 use xmtp_db::{group::GroupQueryOrderBy, prelude::*};
+use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use xmtp_id::{
     AsIdRef, InboxId, InboxIdRef,
     associations::{

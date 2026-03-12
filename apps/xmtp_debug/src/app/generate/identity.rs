@@ -126,24 +126,35 @@ impl GenerateIdentity {
                 let _ = tx.send(());
                 bar_ref.set_message("waiting for identities to be written");
                 futures::pin_mut!(s);
-                while let Some(kp) = timeout(n.ryow_timeout.into(), s.try_next()).await.wrap_err("timeout reached for reading writes on key package published")?? {
+                while let Some(kp) = timeout(n.ryow_timeout.into(), s.try_next())
+                    .await
+                    .wrap_err("timeout reached for reading writes on key package published")??
+                {
                     let extractor =
                         CollectionExtractor::new(kp.envelopes, KeyPackagesExtractor::new());
                     let key_packages = extractor.get()?;
                     let key_packages = key_packages
                         .into_iter()
                         .map(|kp| {
-                            let inst = xmtp_mls::verified_key_package_v2::VerifiedKeyPackageV2::from_bytes(
+                            let inst = xmtp_id::key_package::VerifiedKeyPackageV2::from_bytes(
                                 &RustCrypto::default(),
                                 kp.key_package_tls_serialized.as_slice(),
                             )?
                             .installation_public_key;
                             Ok(InstallationId::try_from(inst)?)
                         })
-                        .inspect(|v| { let _ = v.as_ref().inspect(|v| { bar_ref.set_message(format!("got key package for installation {}", v)); }); })
+                        .inspect(|v| {
+                            let _ = v.as_ref().inspect(|v| {
+                                bar_ref
+                                    .set_message(format!("got key package for installation {}", v));
+                            });
+                        })
                         .collect::<Result<HashSet<_>, eyre::Report>>()?;
                     bar.inc(key_packages.len() as u64);
-                    needed_installations = needed_installations.difference(&key_packages).copied().collect();
+                    needed_installations = needed_installations
+                        .difference(&key_packages)
+                        .copied()
+                        .collect();
                     if needed_installations.is_empty() {
                         break;
                     }

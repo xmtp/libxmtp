@@ -7512,6 +7512,7 @@ dependencies = [
  "alloy",
  "async-trait",
  "clap",
+ "const-hex",
  "futures",
  "lru",
  "openmls",
@@ -7531,7 +7532,6 @@ dependencies = [
  "xmtp_configuration",
  "xmtp_cryptography",
  "xmtp_id",
- "xmtp_mls",
  "xmtp_proto",
 ]
 
@@ -14861,7 +14861,9 @@ dependencies = [
  "ed25519-dalek",
  "futures",
  "gloo-timers 0.3.0",
+ "hpke-rs",
  "openmls",
+ "openmls_rust_crypto",
  "openmls_traits",
  "p256",
  "prost",
