@@ -1,4 +1,6 @@
+#[cfg(feature = "commit-log")]
 pub mod commit_log;
+#[cfg(feature = "commit-log")]
 pub mod commit_log_key;
 mod error;
 pub mod group_membership;
@@ -30,9 +32,9 @@ use self::{
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
 };
+use crate::groups::mls_ext::CommitLogStorer;
 use crate::groups::{
     intents::{QueueIntent, ReaddInstallationsIntentData},
-    mls_ext::CommitLogStorer,
     validated_commit::LibXMTPVersion,
 };
 use crate::messages::enrichment::EnrichMessageError;
@@ -73,8 +75,11 @@ use xmtp_content_types::{
     reaction::{LegacyReaction, ReactionCodec},
     reply::ReplyCodec,
 };
+#[cfg(feature = "commit-log")]
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
+use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::group_message::Deletable;
+use xmtp_db::group_message::LatestMessageTimeBySender;
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
@@ -87,15 +92,15 @@ use xmtp_db::{
 };
 use xmtp_db::{Store, StoreOrIgnore};
 use xmtp_db::{
-    XmtpMlsStorageProvider,
-    remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder},
-};
-use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
     group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
 };
-use xmtp_db::{group_message::LatestMessageTimeBySender, local_commit_log::LocalCommitLog};
+#[cfg(feature = "commit-log")]
+use xmtp_db::{
+    local_commit_log::LocalCommitLog,
+    remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder},
+};
 use xmtp_id::associations::Identifier;
 use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
 use xmtp_mls_common::{
@@ -2158,10 +2163,16 @@ where
         Ok([msgs, commits])
     }
 
+    #[cfg(feature = "commit-log")]
     pub async fn local_commit_log(&self) -> Result<Vec<LocalCommitLog>, GroupError> {
         Ok(self.context.db().get_group_logs(&self.group_id)?)
     }
+    #[cfg(not(feature = "commit-log"))]
+    pub async fn local_commit_log(&self) -> Result<&str, GroupError> {
+        Ok("Commit log feature disabled.")
+    }
 
+    #[cfg(feature = "commit-log")]
     pub async fn remote_commit_log(&self) -> Result<Vec<RemoteCommitLog>, GroupError> {
         Ok(self.context.db().get_remote_commit_log_after_cursor(
             &self.group_id,
@@ -2169,12 +2180,16 @@ where
             RemoteCommitLogOrder::AscendingByRowid,
         )?)
     }
+    #[cfg(not(feature = "commit-log"))]
+    pub async fn remote_commit_log(&self) -> Result<&str, GroupError> {
+        Ok("Commit log feature disabled.")
+    }
 
     pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
         let epoch = self.epoch().await?;
         let cursor = self.cursor().await?;
-        let commit_log = self.local_commit_log().await?;
-        let remote_commit_log = self.remote_commit_log().await?;
+        let local_commit_log = format!("{:?}", self.local_commit_log().await?);
+        let remote_commit_log = format!("{:?}", self.remote_commit_log().await?);
         let db = self.context.db();
 
         let stored_group = match db.find_group(&self.group_id)? {
@@ -2191,8 +2206,8 @@ where
             maybe_forked: stored_group.maybe_forked,
             fork_details: stored_group.fork_details,
             is_commit_log_forked: stored_group.is_commit_log_forked,
-            local_commit_log: format!("{:?}", commit_log),
-            remote_commit_log: format!("{:?}", remote_commit_log),
+            local_commit_log,
+            remote_commit_log,
             cursor: cursor.to_vec(),
         })
     }
@@ -2431,11 +2446,15 @@ pub fn build_mutable_metadata_extension_default(
     creator_inbox_id: &str,
     opts: GroupMetadataOptions,
 ) -> Result<Extension, GroupError> {
+    #[allow(unused_mut)]
     let mut commit_log_signer = None;
-    if xmtp_configuration::ENABLE_COMMIT_LOG {
+
+    #[cfg(feature = "commit-log")]
+    {
         // Optional TODO(rich): Plumb in provider and use traits in commit_log_key.rs to generate and store secret
-        commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>());
+        commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>())
     }
+
     let mutable_metadata: Vec<u8> =
         GroupMutableMetadata::new_default(creator_inbox_id.to_string(), commit_log_signer, opts)
             .try_into()
@@ -2453,8 +2472,10 @@ pub fn build_dm_mutable_metadata_extension_default(
     dm_target_inbox_id: &str,
     opts: DMMetadataOptions,
 ) -> Result<Extension, MetadataPermissionsError> {
+    #[allow(unused_mut)]
     let mut commit_log_signer = None;
-    if xmtp_configuration::ENABLE_COMMIT_LOG {
+    #[cfg(feature = "commit-log")]
+    {
         commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>());
     }
     let mutable_metadata: Vec<u8> = GroupMutableMetadata::new_dm_default(

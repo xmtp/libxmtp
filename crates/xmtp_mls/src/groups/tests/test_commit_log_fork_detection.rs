@@ -19,7 +19,6 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
     let local_entry_1 = NewLocalCommitLog {
         group_id: group_id.clone(),
         commit_sequence_id: 1,
-        last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
         error_message: None,
         applied_epoch_number: 1,
@@ -32,7 +31,6 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
     let local_entry_2 = NewLocalCommitLog {
         group_id: group_id.clone(),
         commit_sequence_id: 2,
-        last_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
         commit_result: CommitResult::Success,
         error_message: None,
         applied_epoch_number: 2,
@@ -94,7 +92,6 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
     let local_entry_1 = NewLocalCommitLog {
         group_id: group_id.clone(),
         commit_sequence_id: 200,
-        last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
         error_message: None,
         applied_epoch_number: 1,
@@ -107,7 +104,6 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
     let local_entry_2 = NewLocalCommitLog {
         group_id: group_id.clone(),
         commit_sequence_id: 201,
-        last_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
         commit_result: CommitResult::Success,
         error_message: None,
         applied_epoch_number: 2,
@@ -169,7 +165,6 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     let local_entry = NewLocalCommitLog {
         group_id: group_id.clone(),
         commit_sequence_id: 1,
-        last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
         error_message: None,
         applied_epoch_number: 1,
@@ -252,7 +247,6 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     let local_entry = NewLocalCommitLog {
         group_id: group_id.clone(),
         commit_sequence_id: 2,
-        last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
         error_message: None,
         applied_epoch_number: 2,
@@ -339,7 +333,6 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
     let local_entry_1 = NewLocalCommitLog {
         group_id: group_id.clone(),
         commit_sequence_id: 1,
-        last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
         error_message: None,
         applied_epoch_number: 1,
@@ -352,7 +345,6 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
     let local_entry_2 = NewLocalCommitLog {
         group_id: group_id.clone(),
         commit_sequence_id: 2,
-        last_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
         commit_result: CommitResult::Success,
         error_message: None,
         applied_epoch_number: 2,
@@ -410,7 +402,6 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     let local_entry_1 = NewLocalCommitLog {
         group_id: group_id.clone(),
         commit_sequence_id: 1,
-        last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
         error_message: None,
         applied_epoch_number: 1,
@@ -423,7 +414,6 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     let local_entry_2 = NewLocalCommitLog {
         group_id: group_id.clone(),
         commit_sequence_id: 2,
-        last_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
         commit_result: CommitResult::Success,
         error_message: None,
         applied_epoch_number: 2,

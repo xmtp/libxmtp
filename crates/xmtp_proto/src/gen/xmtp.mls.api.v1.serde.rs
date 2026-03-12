@@ -1682,6 +1682,9 @@ impl serde::Serialize for group_message::V1 {
         if self.is_commit {
             len += 1;
         }
+        if self.message_type != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GroupMessage.V1", len)?;
         if self.id != 0 {
             #[allow(clippy::needless_borrow)]
@@ -1714,6 +1717,11 @@ impl serde::Serialize for group_message::V1 {
         if self.is_commit {
             struct_ser.serialize_field("is_commit", &self.is_commit)?;
         }
+        if self.message_type != 0 {
+            let v = MessageType::try_from(self.message_type)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.message_type)))?;
+            struct_ser.serialize_field("message_type", &v)?;
+        }
         struct_ser.end()
     }
 }
@@ -1736,6 +1744,8 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
             "shouldPush",
             "is_commit",
             "isCommit",
+            "message_type",
+            "messageType",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1747,6 +1757,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
             SenderHmac,
             ShouldPush,
             IsCommit,
+            MessageType,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1776,6 +1787,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                             "senderHmac" | "sender_hmac" => Ok(GeneratedField::SenderHmac),
                             "shouldPush" | "should_push" => Ok(GeneratedField::ShouldPush),
                             "isCommit" | "is_commit" => Ok(GeneratedField::IsCommit),
+                            "messageType" | "message_type" => Ok(GeneratedField::MessageType),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1802,6 +1814,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                 let mut sender_hmac__ = None;
                 let mut should_push__ = None;
                 let mut is_commit__ = None;
+                let mut message_type__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -1856,6 +1869,12 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                             }
                             is_commit__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::MessageType => {
+                            if message_type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("messageType"));
+                            }
+                            message_type__ = Some(map_.next_value::<MessageType>()? as i32);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1869,6 +1888,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                     sender_hmac: sender_hmac__.unwrap_or_default(),
                     should_push: should_push__.unwrap_or_default(),
                     is_commit: is_commit__.unwrap_or_default(),
+                    message_type: message_type__.unwrap_or_default(),
                 })
             }
         }
@@ -2212,6 +2232,83 @@ impl<'de> serde::Deserialize<'de> for KeyPackageUpload {
             }
         }
         deserializer.deserialize_struct("xmtp.mls.api.v1.KeyPackageUpload", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for MessageType {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unspecified => "MESSAGE_TYPE_UNSPECIFIED",
+            Self::Application => "MESSAGE_TYPE_APPLICATION",
+            Self::Commit => "MESSAGE_TYPE_COMMIT",
+            Self::ForkAdminChange => "MESSAGE_TYPE_FORK_ADMIN_CHANGE",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for MessageType {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "MESSAGE_TYPE_UNSPECIFIED",
+            "MESSAGE_TYPE_APPLICATION",
+            "MESSAGE_TYPE_COMMIT",
+            "MESSAGE_TYPE_FORK_ADMIN_CHANGE",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = MessageType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "MESSAGE_TYPE_UNSPECIFIED" => Ok(MessageType::Unspecified),
+                    "MESSAGE_TYPE_APPLICATION" => Ok(MessageType::Application),
+                    "MESSAGE_TYPE_COMMIT" => Ok(MessageType::Commit),
+                    "MESSAGE_TYPE_FORK_ADMIN_CHANGE" => Ok(MessageType::ForkAdminChange),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
     }
 }
 impl serde::Serialize for PagingInfo {

@@ -25,6 +25,7 @@ pub mod identity_cache;
 pub mod identity_update;
 pub mod key_package_history;
 pub mod key_store_entry;
+#[cfg(feature = "commit-log")]
 pub mod local_commit_log;
 pub mod message_deletion;
 pub mod migrations;
@@ -33,6 +34,7 @@ pub mod pragmas;
 pub mod processed_device_sync_messages;
 pub mod readd_status;
 pub mod refresh_state;
+#[cfg(feature = "commit-log")]
 pub mod remote_commit_log;
 pub mod schema;
 mod schema_gen;

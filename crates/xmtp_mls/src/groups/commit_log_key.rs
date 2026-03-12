@@ -10,7 +10,7 @@ use xmtp_db::group::StoredGroupCommitLogPublicKey;
 use xmtp_db::prelude::QueryGroup;
 use xmtp_db::{
     XmtpMlsStorageProvider,
-    sql_key_store::{COMMIT_LOG_SIGNER_PRIVATE_KEY, SqlKeyStoreError},
+    sql_key_store::{SALT, SqlKeyStoreError},
 };
 use xmtp_proto::xmtp::mls::api::v1::QueryCommitLogResponse;
 use xmtp_proto::xmtp::mls::message_contents::CommitLogEntry as CommitLogEntryProto;
@@ -47,17 +47,11 @@ impl CommitLogKeyCrypto for RustCrypto {
         entry: &CommitLogEntryProto,
         expected_public_key: &[u8],
     ) -> Result<(), Self::Error> {
-        let Some(signature) = &entry.signature else {
-            return Err(openmls_traits::types::CryptoError::InvalidSignature);
-        };
-        if signature.public_key != expected_public_key {
-            return Err(openmls_traits::types::CryptoError::InvalidSignature);
-        }
         self.verify_signature(
             SignatureScheme::ED25519,
             entry.serialized_commit_log_entry.as_slice(),
             expected_public_key,
-            &signature.bytes,
+            &entry.signature,
         )?;
         Ok(())
     }
@@ -74,16 +68,14 @@ impl<KeyStore: XmtpMlsStorageProvider> CommitLogKeyStore for KeyStore {
 
     fn read_commit_log_key(&self, group_id: &[u8]) -> Result<Option<Secret>, Self::Error> {
         let key = bincode::serialize(group_id)?;
-        let value = self
-            .read::<Vec<u8>>(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key)?
-            .map(Secret::new);
+        let value = self.read::<Vec<u8>>(SALT, &key)?.map(Secret::new);
         Ok(value)
     }
 
     fn write_commit_log_key(&self, group_id: &[u8], value: &Secret) -> Result<(), Self::Error> {
         let key = bincode::serialize(group_id)?;
         let value = Secret::new(bincode::serialize(value.as_slice())?);
-        self.write(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key, value.as_slice())
+        self.write(SALT, &key, value.as_slice())
     }
 }
 
@@ -597,7 +589,7 @@ mod tests {
         // Clear the key store to ensure no stored key exists
         key_store
             .delete::<1>(
-                xmtp_db::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+                xmtp_db::sql_key_store::SALT,
                 &bincode::serialize(&group_id).unwrap(),
             )
             .ok();

@@ -180,11 +180,6 @@ impl Query {
                 }
                 println!("    sequence_id: {}", commit.sequence_id);
                 println!("      commit_sequence_id: {}", entry.commit_sequence_id);
-                println!(
-                    "      last_epoch_authenticator: {}",
-                    hex::encode(entry.last_epoch_authenticator)
-                );
-
                 println!("      commit_result: {commit_result:?}");
                 println!("      applied_epoch_number: {}", entry.applied_epoch_number);
                 println!(

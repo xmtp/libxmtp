@@ -234,7 +234,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             fork_recovery_opts,
             version_info,
             allow_offline,
-            disable_commit_log_worker,
+            disable_commit_log_worker: _disable_commit_log_worker,
             mut mls_storage,
             mut sync_api_client,
             // cursor_store,
@@ -341,7 +341,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     context.clone(),
                 );
             // Enable CommitLogWorker based on configuration
-            if xmtp_configuration::ENABLE_COMMIT_LOG && !disable_commit_log_worker {
+            #[cfg(feature = "commit-log")]
+            if !_disable_commit_log_worker {
                 workers.register_new_worker::<
                 crate::groups::commit_log::CommitLogWorker<ContextParts<ApiClient, S, Db>>,
                 _,

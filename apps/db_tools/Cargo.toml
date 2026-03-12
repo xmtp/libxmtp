@@ -28,5 +28,6 @@ xmtp_mls = { workspace = true, features = ["test-utils"] }
 
 [features]
 default = []
+commit-log = []
 test-utils = []
 bench = []
