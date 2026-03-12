@@ -37,7 +37,9 @@ pub fn parser(
                                 .map(|d| d.as_millis())
                                 .unwrap_or(0)
                         ));
-                        if ::std::fs::write(&log_file, &captured_logs).is_ok() {
+                        if let Err(e) = ::std::fs::write(&log_file, &captured_logs) {
+                            ::tracing::error!("Failed to write logs to file: {}", e);
+                        } else {
                             let _ = ::std::process::Command::new("cargo")
                                 .arg("run")
                                 .arg("--release")
@@ -47,7 +49,10 @@ pub fn parser(
                                 .arg(&log_file)
                                 .status();
                         }
+                    } else {
+                        ::tracing::warn!("Logs are empty. Nothing to show in log_parser.");
                     }
+
                 }
             }
 
