@@ -1,3 +1,6 @@
+mod identity_ext;
+pub use identity_ext::*;
+
 use crate::XmtpApi;
 use crate::groups::mls_ext::WelcomePointersExtension;
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
