@@ -1949,10 +1949,10 @@ pub(crate) mod tests {
         assert_eq!(item[0].state, ConsentState::Allowed);
     }
 
+    #[xmtp_common::timeout(Duration::from_secs(50))]
     #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = true)]
     // Set to 50 seconds to safely account for the 16 second keepalive interval and 10 second timeout
-    #[timeout(Duration::from_secs(50))]
     #[cfg_attr(any(target_arch = "wasm32"), ignore)]
     async fn should_reconnect() {
         toxiproxy_test(async || {

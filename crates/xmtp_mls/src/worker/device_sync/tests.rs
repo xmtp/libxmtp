@@ -374,9 +374,9 @@ async fn test_only_added_to_correct_groups() {
     assert!(alix2_bo_group_denied.is_err());
 }
 
+#[xmtp_common::timeout(std::time::Duration::from_secs(15))]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
-#[timeout(std::time::Duration::from_secs(15))]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_new_devices_not_added_to_old_sync_groups() {
     use diesel::prelude::*;
@@ -413,9 +413,9 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
     assert_eq!(alix2_sync_groups.len(), 1);
 }
 
+#[xmtp_common::timeout(std::time::Duration::from_secs(60))]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
-#[timeout(std::time::Duration::from_secs(60))]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_manual_sync_flow() {
     tester!(alix, sync_worker);
@@ -468,9 +468,9 @@ async fn test_manual_sync_flow() {
     assert!(alix2.group(&dm.group_id).is_ok());
 }
 
+#[xmtp_common::timeout(std::time::Duration::from_secs(60))]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
-#[timeout(std::time::Duration::from_secs(60))]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_incremental_consent() {
     tester!(alix1, sync_worker);
