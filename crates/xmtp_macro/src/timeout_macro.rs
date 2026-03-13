@@ -20,15 +20,17 @@ pub fn timeout(
     body: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let duration_expr = TokenStream::from(attr);
-    let mut input_fn = parse_macro_input!(body as syn::ItemFn);
+    let input_fn = parse_macro_input!(body as syn::ItemFn);
+    expand_timeout(duration_expr, input_fn).into()
+}
 
+pub(crate) fn expand_timeout(duration_expr: TokenStream, mut input_fn: syn::ItemFn) -> TokenStream {
     if input_fn.sig.asyncness.is_none() {
         return syn::Error::new_spanned(
             input_fn.sig.fn_token,
             "#[xmtp_common::timeout] can only be applied to async functions",
         )
-        .to_compile_error()
-        .into();
+        .to_compile_error();
     }
 
     let fn_name_str = input_fn.sig.ident.to_string();
@@ -50,5 +52,5 @@ pub fn timeout(
 
     *input_fn.block = new_block;
 
-    proc_macro::TokenStream::from(quote! { #input_fn })
+    quote! { #input_fn }
 }

@@ -12,6 +12,8 @@ mod timeout_macro;
 
 #[cfg(test)]
 mod builder_test;
+#[cfg(test)]
+mod timeout_macro_test;
 
 /// A proc macro attribute that wraps the input in an `async_trait` implementation,
 /// delegating to the appropriate `async_trait` implementation based on the target architecture.
