@@ -60,25 +60,18 @@ impl CursorStore for InMemoryCursorStore {
     fn latest(
         &self,
         topic: &xmtp_proto::types::Topic,
+        originators: Option<&[&OriginatorId]>,
     ) -> Result<GlobalCursor, crate::protocol::CursorStoreError> {
-        Ok(self
-            .get_latest(topic)
-            .cloned()
-            .unwrap_or_else(GlobalCursor::default))
-    }
-
-    fn latest_per_originator(
-        &self,
-        topic: &xmtp_proto::types::Topic,
-        originators: &[&OriginatorId],
-    ) -> Result<GlobalCursor, crate::protocol::CursorStoreError> {
-        Ok(self
-            .get_latest(topic)
-            .unwrap_or(&Default::default())
-            .iter()
-            .filter(|(k, _)| originators.contains(k))
-            .map(|(&k, &v)| (k, v))
-            .collect())
+        let cursor = self.get_latest(topic).cloned().unwrap_or_default();
+        if let Some(oids) = originators {
+            Ok(cursor
+                .iter()
+                .filter(|(k, _)| oids.contains(k))
+                .map(|(&k, &v)| (k, v))
+                .collect())
+        } else {
+            Ok(cursor)
+        }
     }
 
     fn latest_for_topics(
@@ -86,7 +79,7 @@ impl CursorStore for InMemoryCursorStore {
         topics: &mut dyn Iterator<Item = &Topic>,
     ) -> Result<HashMap<Topic, GlobalCursor>, super::CursorStoreError> {
         Ok(topics
-            .map(|topic| (topic.clone(), self.latest(topic).unwrap_or_default()))
+            .map(|topic| (topic.clone(), self.latest(topic, None).unwrap_or_default()))
             .collect())
     }
 

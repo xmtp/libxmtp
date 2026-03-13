@@ -102,7 +102,7 @@ where
             .collect::<Vec<_>>();
         let mut topic_cursor = TopicCursor::default();
         for topic in &topics {
-            let cursor = self.cursor_store.latest(topic)?;
+            let cursor = self.cursor_store.latest(topic, None)?;
             tracing::debug!(
                 "subscribing to welcome messages for topic {} @cursor={}",
                 topic,

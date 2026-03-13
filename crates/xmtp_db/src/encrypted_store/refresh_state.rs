@@ -2,14 +2,12 @@ use std::collections::HashMap;
 
 use diesel::{
     backend::Backend,
-    connection::DefaultLoadingMode,
     deserialize::{self, FromSql, FromSqlRow},
     expression::AsExpression,
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
-    sql_types::{BigInt, Binary, Integer},
+    sql_types::Integer,
 };
-use itertools::Itertools;
 use xmtp_configuration::Originators;
 use xmtp_proto::types::{Cursor, GlobalCursor, OriginatorId};
 
@@ -111,15 +109,6 @@ pub struct RefreshState {
 
 impl_store_or_ignore!(RefreshState, refresh_state);
 
-#[derive(QueryableByName, Selectable)]
-#[diesel(check_for_backend(Sqlite), table_name = super::schema::refresh_state)]
-struct SingleCursor {
-    #[diesel(sql_type = Integer)]
-    originator_id: i32,
-    #[diesel(sql_type = BigInt)]
-    sequence_id: i64,
-}
-
 /// Helper function to convert rows of (entity_id, originator_id, sequence_id) into a HashMap
 /// where each entity_id maps to a GlobalCursor containing all its originator->sequence_id pairs.
 /// Null sequence_id values are coalesced to 0.
@@ -185,13 +174,6 @@ pub trait QueryRefreshState {
         originators: Option<&[&OriginatorId]>,
     ) -> Result<GlobalCursor, StorageError>;
 
-    fn latest_cursor_combined<Id: AsRef<[u8]>>(
-        &self,
-        entity_id: Id,
-        entities: &[EntityKind],
-        originators: Option<&[&OriginatorId]>,
-    ) -> Result<GlobalCursor, StorageError>;
-
     fn get_remote_log_cursors(
         &self,
         conversation_ids: &[&Vec<u8>],
@@ -248,15 +230,6 @@ impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
         originators: Option<&[&OriginatorId]>,
     ) -> Result<GlobalCursor, StorageError> {
         (**self).latest_cursor_for_id(entity_id, entities, originators)
-    }
-
-    fn latest_cursor_combined<Id: AsRef<[u8]>>(
-        &self,
-        entity_id: Id,
-        entities: &[EntityKind],
-        originators: Option<&[&OriginatorId]>,
-    ) -> Result<GlobalCursor, StorageError> {
-        (**self).latest_cursor_combined(entity_id, entities, originators)
     }
 }
 
@@ -462,109 +435,6 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
                 .into_iter()
                 .filter_map(|(orig_id, seq_id)| seq_id.map(|seq| (orig_id as u32, seq as u64)))
                 .collect::<GlobalCursor>())
-        })?;
-
-        Ok(cursor_map)
-    }
-
-    // _NOTE:_ TEMP until reliable streams
-    // and cursor can be updated from streams
-    fn latest_cursor_combined<Id: AsRef<[u8]>>(
-        &self,
-        entity_id: Id,
-        entities: &[EntityKind],
-        originators: Option<&[&OriginatorId]>,
-    ) -> Result<GlobalCursor, StorageError> {
-        let entity_ref = entity_id.as_ref();
-
-        // Build entity_kind placeholders for refresh_state
-        let entity_kind_placeholders = entities.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-
-        // Map EntityKind to GroupMessageKind
-        let group_message_kinds: Vec<i32> = entities
-            .iter()
-            .filter_map(|e| match e {
-                EntityKind::ApplicationMessage => Some(1), // GroupMessageKind::Application
-                EntityKind::CommitMessage => Some(2),      // GroupMessageKind::MembershipChange
-                _ => None,
-            })
-            .collect();
-
-        // Build a query that unions refresh_state and (optionally) group_messages
-        let mut query = if group_message_kinds.is_empty() {
-            format!(
-                "SELECT originator_id, MAX(sequence_id) AS sequence_id
-                FROM (
-                    SELECT originator_id, sequence_id
-                    FROM refresh_state
-                    WHERE entity_id = ? AND entity_kind IN ({})",
-                entity_kind_placeholders
-            )
-        } else {
-            let kind_placeholders = group_message_kinds
-                .iter()
-                .map(|_| "?")
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!(
-                "SELECT originator_id, MAX(sequence_id) AS sequence_id
-                FROM (
-                    SELECT originator_id, sequence_id
-                    FROM refresh_state
-                    WHERE entity_id = ? AND entity_kind IN ({})
-                    UNION ALL
-                    SELECT originator_id, sequence_id
-                    FROM group_messages
-                    WHERE group_id = ? AND kind IN ({})",
-                entity_kind_placeholders, kind_placeholders
-            )
-        };
-
-        // Add originator filter if provided
-        if let Some(oids) = originators {
-            let originator_placeholders = oids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-            query.push_str(&format!(
-                "
-            ) WHERE originator_id IN ({})
-            GROUP BY originator_id",
-                originator_placeholders
-            ));
-        } else {
-            query.push_str(
-                "
-            ) GROUP BY originator_id",
-            );
-        }
-
-        let cursor_map = self.raw_query_read(|conn| {
-            let mut q = diesel::sql_query(query).into_boxed();
-
-            // Bind entity_id for refresh_state
-            q = q.bind::<Binary, _>(entity_ref);
-
-            // Bind entity_kinds for refresh_state
-            for kind in entities {
-                q = q.bind::<Integer, _>(*kind);
-            }
-
-            // Bind group_id and group_message_kinds for group_messages (only when UNION clause is present)
-            if !group_message_kinds.is_empty() {
-                q = q.bind::<Binary, _>(entity_ref);
-                for kind in &group_message_kinds {
-                    q = q.bind::<Integer, _>(*kind);
-                }
-            }
-
-            // Bind originators if provided
-            if let Some(oids) = originators {
-                for oid in oids {
-                    q = q.bind::<Integer, _>(**oid as i32);
-                }
-            }
-
-            q.load_iter::<SingleCursor, DefaultLoadingMode>(conn)?
-                .map_ok(|c| (c.originator_id as u32, c.sequence_id as u64))
-                .collect::<QueryResult<GlobalCursor>>()
         })?;
 
         Ok(cursor_map)
