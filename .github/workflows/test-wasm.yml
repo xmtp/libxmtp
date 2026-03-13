@@ -15,12 +15,13 @@ jobs:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "true"
+          gc-max-store-size: "10G"
       - uses: taiki-e/install-action@just
       - name: Install dependencies
         run: just wasm install-ci
       - name: Start backend
         run: just backend up
       - name: Run WASM tests
-        run: just wasm test
+        run: nix build .#nextest.x86_64-linux.wasm-v3 .#nextest.x86_64-linux.wasm-d14n
       - name: Run WASM integration tests
         run: just wasm test-integration

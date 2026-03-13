@@ -112,11 +112,6 @@ let
     }
   );
 
-  # this allows re-using build artifacts
-  # nextest-libs = nextest "-E 'kind(lib)'";
-  # nextest-d14n = nextest "--features d14n -E 'kind(lib)'";
-  # nextest-integration = nextest "-E 'package(bindings_wasm)'";
-
   devShell = mkShell (
     commonEnv
     // {
