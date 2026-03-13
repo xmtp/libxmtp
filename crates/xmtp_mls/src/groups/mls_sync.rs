@@ -524,14 +524,6 @@ where
                 .backoff(attempt + 1, time_spent)
                 .unwrap_or(Duration::from_millis(50));
 
-            log_event!(
-                Event::GroupSyncAttempt,
-                self.context.installation_id(),
-                group_id = self.group_id,
-                attempt,
-                backoff = ?wait_for
-            );
-
             match self.sync_with_conn().await {
                 Ok(s) => summary.extend(s),
                 Err(s) => {
@@ -559,23 +551,37 @@ where
                 Ok(Some(StoredGroupIntent {
                     state: IntentState::Error,
                     kind,
+                    payload_hash,
+                    data,
                     ..
                 })) => {
+                    let hash = payload_hash.unwrap_or_else(|| sha256(&data));
                     log_event!(
                         Event::GroupSyncIntentErrored,
                         self.context.installation_id(),
                         level = warn,
-                        group_id = self.group_id, intent_id = intent_id,
-                        summary = ?summary, intent_kind = ?kind
+                        group_id = self.group_id,
+                        summary = ?summary,
+                        intent_kind = ?kind,
+                        hash = #hash
                     );
                     return Err(GroupError::from(summary));
                 }
-                Ok(Some(StoredGroupIntent { state, kind, .. })) => {
+                Ok(Some(StoredGroupIntent {
+                    state,
+                    kind,
+                    payload_hash,
+                    data,
+                    ..
+                })) => {
+                    let hash = payload_hash.unwrap_or_else(|| sha256(&data));
                     log_event!(
                         Event::GroupSyncIntentRetry,
                         self.context.installation_id(),
                         level = warn, group_id = self.group_id,
-                        intent_id = intent_id, state = ?state, intent_kind = ?kind
+                        state = ?state,
+                        intent_kind = ?kind,
+                        hash = #hash
                     );
                 }
                 Err(err) => {
@@ -2471,7 +2477,13 @@ where
                 match result {
                     Err(err) => {
                         tracing::error!(error = %err, "error getting publish intent data {:?}", err);
-                        if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
+                        if intent.publish_attempts + 1 >= MAX_INTENT_PUBLISH_ATTEMPTS {
+                            log_event!(
+                                Event::GroupSyncTooManyAttempts,
+                                self.context.installation_id(),
+                                group_id = intent.group_id,
+
+                            );
                             tracing::error!(
                                 intent.id,
                                 intent.kind = %intent.kind,
@@ -2542,7 +2554,7 @@ where
                                     Event::GroupSyncApplicationMessagePublishSuccess,
                                     self.context.installation_id(),
                                     group_id = intent.group_id,
-                                    intent_id = intent.id
+                                    hash = #intent_hash
                                 );
                             }
                             (kind, Err(err)) => {
@@ -2550,12 +2562,12 @@ where
                                     Event::GroupSyncPublishFailed,
                                     self.context.installation_id(),
                                     group_id = intent.group_id,
-                                    intent_id = intent.id,
+                                    hash = #intent_hash,
                                     intent_kind = ?kind,
                                     err = ?err
                                 );
 
-                                if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
+                                if intent.publish_attempts + 1 >= MAX_INTENT_PUBLISH_ATTEMPTS {
                                     tracing::error!(
                                         intent.id,
                                         intent.kind = %intent.kind,

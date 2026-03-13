@@ -77,9 +77,9 @@ pub(crate) async fn apply_update_group_membership_intent(
         }
     }
 
-    if proposals_currently_enabled {
+    let publish_intent_data = if proposals_currently_enabled {
         // Batched proposal path: proposals + GCE + commit in one publish
-        let publish_intent_data = compute_publish_data_for_proposal_based_update(
+        compute_publish_data_for_proposal_based_update(
             context,
             openmls_group,
             changes_with_kps.new_installations,
@@ -88,11 +88,10 @@ pub(crate) async fn apply_update_group_membership_intent(
             new_extensions,
             signer,
         )
-        .await?;
-        Ok(Some(publish_intent_data))
+        .await?
     } else {
         // Direct commit path (no proposals)
-        let publish_intent_data = compute_publish_data_for_group_membership_update(
+        compute_publish_data_for_group_membership_update(
             context,
             openmls_group,
             changes_with_kps.new_installations,
@@ -101,9 +100,10 @@ pub(crate) async fn apply_update_group_membership_intent(
             new_extensions,
             signer,
         )
-        .await?;
-        Ok(Some(publish_intent_data))
-    }
+        .await?
+    };
+
+    Ok(Some(publish_intent_data))
 }
 
 #[tracing::instrument(level = "trace", skip_all)]

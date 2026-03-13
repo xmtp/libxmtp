@@ -79,22 +79,25 @@ pub enum Event {
     #[context(group_id, icon = "⏸️")]
     GroupSyncGroupInactive,
     /// Intent failed to sync but did not error. This can happen for a variety of reasons.
-    #[context(group_id, intent_id, intent_kind, state, icon = "🔁")]
+    #[context(group_id, hash, intent_kind, state, icon = "🔁")]
     GroupSyncIntentRetry,
     /// Intent was found to be in error after attempting to sync.
-    #[context(group_id, intent_id, intent_kind, summary, icon = "⚠️")]
+    #[context(group_id, hash, intent_kind, summary, icon = "⚠️")]
     GroupSyncIntentErrored,
     /// Attempt to publish intent failed.
-    #[context(group_id, intent_id, intent_kind, err, icon = "❌")]
+    #[context(group_id, hash, intent_kind, err, icon = "❌")]
     GroupSyncPublishFailed,
+    /// Number of intent publish attemps exceeded limit.
+    #[context(group_id, hash, intent_kind, icon = "🛑")]
+    GroupSyncTooManyAttempts,
     /// Application message published successfully.
-    #[context(group_id, intent_id, icon = "📤")]
+    #[context(group_id, hash, icon = "📤")]
     GroupSyncApplicationMessagePublishSuccess,
     /// Commit published successfully.
-    #[context(group_id, intent_id, intent_kind, hash, icon = "✨")]
+    #[context(group_id, hash, intent_kind, icon = "✨")]
     GroupSyncCommitPublishSuccess,
     /// Commit sent. Staged commit is present. Stopping further publishes for this round.
-    #[context(group_id, hash, icon = "🛑")]
+    #[context(group_id, hash, icon = "⏸️")]
     GroupSyncStagedCommitPresent,
     /// Updating group cursor.
     #[context(group_id, cursor, originator, icon = "📍")]
