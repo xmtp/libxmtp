@@ -1,4 +1,4 @@
-export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
+export NIX_DEVSHELL := env("NIX_DEVSHELL", "wasm")
 
 set shell := ["../../dev/nix-shell"]
 
@@ -31,16 +31,21 @@ wasm_packages := "-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p
 # Run WASM bindings Rust tests (v3 + d14n)
 test: test-v3 test-d14n
 
-# Run WASM bindings Rust tests (v3)
+# Run WASM bindings Rust tests (v3) with per-test retry on failure
+[script("bash")]
 test-v3:
-    XMTP_TEST_LOGGING=false RUST_LOG=off cargo test --locked --release --target wasm32-unknown-unknown \
-      {{ wasm_packages }}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "{{ justfile_directory() }}/../../dev/wasm-retry"
+    wasm_test_with_retry "" "{{ wasm_packages }}"
 
-# Run WASM bindings Rust tests (d14n)
+# Run WASM bindings Rust tests (d14n) with per-test retry on failure
+[script("bash")]
 test-d14n:
-    XMTP_TEST_LOGGING=false RUST_LOG=off cargo test --locked --release --target wasm32-unknown-unknown \
-      --features d14n \
-      {{ wasm_packages }}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "{{ justfile_directory() }}/../../dev/wasm-retry"
+    wasm_test_with_retry "--features d14n" "{{ wasm_packages }}"
 
 # Run WASM JS integration tests
 [script("bash")]

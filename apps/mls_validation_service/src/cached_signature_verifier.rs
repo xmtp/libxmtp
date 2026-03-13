@@ -73,7 +73,7 @@ mod tests {
     use xmtp_id::utils::test::{SignatureWithNonce, SmartWalletContext, docker_smart_wallet};
 
     #[rstest::rstest]
-    #[timeout(Duration::from_secs(60))]
+    #[xmtp_common::timeout(Duration::from_secs(60))]
     #[tokio::test]
     async fn test_is_valid_signature(#[future] docker_smart_wallet: SmartWalletContext) {
         let SmartWalletContext {
