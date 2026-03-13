@@ -37,7 +37,7 @@ wasm_test_with_retry() {
     fi
 
     echo ""
-    echo "==> Retrying ${#failed_tests} failed test(s) (up to $MAX_RETRIES attempts each)"
+    echo "==> Retrying $(echo "$failed_tests" | wc -l) failed test(s) (up to $MAX_RETRIES attempts each)"
 
     local persistent_failures=()
 
