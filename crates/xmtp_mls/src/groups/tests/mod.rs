@@ -5,6 +5,7 @@ mod test_commit_log_remote;
 mod test_consent;
 mod test_delete_message;
 mod test_dm;
+mod test_edit_message;
 mod test_extract_readded_installations;
 mod test_group_updated;
 mod test_libxmtp_version;

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use prost::Message;
 use xmtp_content_types::{
     actions::{Action, ActionStyle, Actions},
     attachment::Attachment,
@@ -22,8 +23,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     content_types::{
-        DeleteMessage, LeaveRequest, MultiRemoteAttachment, ReactionAction, ReactionSchema,
-        ReactionV2,
+        DeleteMessage, EditMessage, LeaveRequest, MultiRemoteAttachment, ReactionAction,
+        ReactionSchema, ReactionV2,
     },
     group_updated::Inbox,
 };
@@ -284,6 +285,12 @@ pub struct FfiLeaveRequest {
 pub struct FfiDeleteMessage {
     /// The ID of the message to delete
     pub message_id: String,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiEditMessage {
+    pub message_id: String,
+    pub edited_content: Option<FfiEncodedContent>,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -722,6 +729,24 @@ impl From<FfiDeleteMessage> for DeleteMessage {
     fn from(value: FfiDeleteMessage) -> Self {
         DeleteMessage {
             message_id: value.message_id,
+        }
+    }
+}
+
+impl From<EditMessage> for FfiEditMessage {
+    fn from(value: EditMessage) -> Self {
+        FfiEditMessage {
+            message_id: value.message_id,
+            edited_content: value.edited_content.map(Into::into),
+        }
+    }
+}
+
+impl From<FfiEditMessage> for EditMessage {
+    fn from(value: FfiEditMessage) -> Self {
+        EditMessage {
+            message_id: value.message_id,
+            edited_content: value.edited_content.map(Into::into),
         }
     }
 }
@@ -1201,6 +1226,7 @@ pub struct FfiDecodedMessage {
     num_replies: u64,
     inserted_at_ns: i64,
     expires_at_ns: Option<i64>,
+    edited_at_ns: Option<i64>,
 }
 
 #[uniffi::export]
@@ -1270,6 +1296,14 @@ impl FfiDecodedMessage {
     pub fn expires_at_ns(&self) -> Option<i64> {
         self.expires_at_ns
     }
+
+    pub fn edited_at_ns(&self) -> Option<i64> {
+        self.edited_at_ns
+    }
+
+    pub fn is_edited(&self) -> bool {
+        self.edited_at_ns.is_some()
+    }
 }
 
 impl From<DecodedMessage> for FfiDecodedMessage {
@@ -1278,8 +1312,49 @@ impl From<DecodedMessage> for FfiDecodedMessage {
         // Extract metadata fields directly, consuming the metadata
         let metadata: FfiDecodedMessageMetadata = item.metadata.into();
 
+        let edited_at_ns = item.edited.as_ref().map(|e| e.edited_at_ns);
+
+        let (content, content_type) = if let Some(edited) = item.edited {
+            match EncodedContent::decode(&mut edited.content.as_slice()) {
+                Ok(encoded_content) => {
+                    let edited_content_type = encoded_content
+                        .r#type
+                        .clone()
+                        .map(|ct| ct.into())
+                        .unwrap_or(metadata.content_type.clone());
+                    match MessageBody::try_from(encoded_content) {
+                        Ok(mut edited_body) => {
+                            let mut final_content_type = edited_content_type;
+
+                            // Preserve in_reply_to from the original Reply
+                            if let (
+                                MessageBody::Reply(original_reply),
+                                MessageBody::Reply(edited_reply),
+                            ) = (&item.content, &mut edited_body)
+                            {
+                                edited_reply.in_reply_to = original_reply.in_reply_to.clone();
+                            }
+                            // Wrap non-Reply edited content in Reply if original was a Reply
+                            else if let MessageBody::Reply(original_reply) = &item.content {
+                                edited_body = MessageBody::Reply(ProcessedReply {
+                                    in_reply_to: original_reply.in_reply_to.clone(),
+                                    content: Box::new(edited_body),
+                                    reference_id: original_reply.reference_id.clone(),
+                                });
+                                final_content_type = metadata.content_type.clone();
+                            }
+                            (edited_body.into(), final_content_type)
+                        }
+                        Err(_) => (item.content.into(), metadata.content_type.clone()),
+                    }
+                }
+                Err(_) => (item.content.into(), metadata.content_type.clone()),
+            }
+        } else {
+            (item.content.into(), metadata.content_type.clone())
+        };
+
         FfiDecodedMessage {
-            // Take ownership of all the data - no clones!
             id: metadata.id,
             sent_at_ns: metadata.sent_at_ns,
             kind: metadata.kind,
@@ -1287,8 +1362,8 @@ impl From<DecodedMessage> for FfiDecodedMessage {
             sender_installation_id: metadata.sender_installation_id,
             sender_inbox_id: metadata.sender_inbox_id,
             delivery_status,
-            content_type: metadata.content_type,
-            content: item.content.into(),
+            content_type,
+            content,
             fallback_text: item.fallback_text,
             reactions: item
                 .reactions
@@ -1299,6 +1374,7 @@ impl From<DecodedMessage> for FfiDecodedMessage {
             num_replies: item.num_replies as u64,
             inserted_at_ns: metadata.inserted_at_ns,
             expires_at_ns: metadata.expires_at_ns,
+            edited_at_ns,
         }
     }
 }
