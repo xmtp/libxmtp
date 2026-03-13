@@ -36,7 +36,7 @@ test: test-v3 test-d14n
 test-v3:
     #!/usr/bin/env bash
     set -euo pipefail
-    source "{{ justfile_directory() }}/../../dev/wasm-retry"
+    source "{{ source_directory() }}/../../dev/wasm-retry"
     wasm_test_with_retry "" "{{ wasm_packages }}"
 
 # Run WASM bindings Rust tests (d14n) with per-test retry on failure
@@ -44,7 +44,7 @@ test-v3:
 test-d14n:
     #!/usr/bin/env bash
     set -euo pipefail
-    source "{{ justfile_directory() }}/../../dev/wasm-retry"
+    source "{{ source_directory() }}/../../dev/wasm-retry"
     wasm_test_with_retry "--features d14n" "{{ wasm_packages }}"
 
 # Run WASM JS integration tests
