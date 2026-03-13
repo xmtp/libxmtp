@@ -32,30 +32,18 @@ wasm_packages := "-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p
 test: test-v3 test-d14n
 
 # Run WASM bindings Rust tests (v3) with per-test retry on failure
-[script("bash")]
 test-v3:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    source "{{ source_directory() }}/../../dev/wasm-retry"
-    wasm_test_with_retry "" "{{ wasm_packages }}"
+    source "{{ source_directory() }}/../../dev/wasm-retry" && wasm_test_with_retry "" "{{ wasm_packages }}"
 
 # Run WASM bindings Rust tests (d14n) with per-test retry on failure
-[script("bash")]
 test-d14n:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    source "{{ source_directory() }}/../../dev/wasm-retry"
-    wasm_test_with_retry "--features d14n" "{{ wasm_packages }}"
+    source "{{ source_directory() }}/../../dev/wasm-retry" && wasm_test_with_retry "--features d14n" "{{ wasm_packages }}"
 
 # Run WASM JS integration tests
-[script("bash")]
 test-integration: _build-test install
-    set -euo pipefail
-    cd {{ source_directory() }}
-    nix develop .#js --command bash -euc 'yarn tsc --noEmit && yarn vitest run'
+    cd {{ source_directory() }} && nix develop .#js --command bash -euc 'yarn tsc --noEmit && yarn vitest run'
 
 # Build WASM bindings
-[script("bash")]
 build:
     nix build .#wasm-bindings
 
