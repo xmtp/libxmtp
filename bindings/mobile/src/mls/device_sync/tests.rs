@@ -1,13 +1,15 @@
 //! Tests for multi-device operations, installations, syncing, and fork recovery
 
 use crate::{
-    FfiConsent, FfiConsentEntityType, FfiConsentState, FfiCreateGroupOptions,
-    FfiListConversationsOptions, FfiListMessagesOptions, FfiSendMessageOpts,
+    FfiConsent, FfiConsentEntityType, FfiConsentState, FfiCreateGroupOptions, FfiDecodedMessage,
+    FfiListConversationsOptions, FfiListMessagesOptions, FfiMessage, FfiSendMessageOpts,
+    device_sync::FfiArchiveOptions,
     test_utils::{LocalBuilder, LocalTester},
     tests::{RustStreamCallback, SignWithWallet, new_test_client, new_test_client_with_wallet},
 };
 use alloy::signers::local::PrivateKeySigner;
 use std::sync::Arc;
+use xmtp_configuration::DeviceSyncUrls;
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes, text::TextCodec};
 use xmtp_mls::{utils::Tester, worker::device_sync::worker::SyncMetric};
 
@@ -784,10 +786,74 @@ async fn test_revoke_installation_for_one_user_and_group_modification() {
 }
 
 #[tokio::test]
-async fn test_new_installation_group_message_visibility() {
+async fn test_send_sync_request_flow() {
     let alix = Tester::builder().sync_worker().build().await;
     let bo = Tester::new().await;
 
+    let (dm, msg) = alix
+        .inner_client
+        .test_talk_in_dm_with(&bo.inner_client)
+        .await
+        .unwrap();
+
+    let alix2 = alix.builder.build().await;
+    alix2
+        .send_sync_request(
+            FfiArchiveOptions::default(),
+            DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
+        )
+        .await
+        .unwrap();
+    alix2
+        .worker()
+        .register_interest(SyncMetric::RequestSent, 1)
+        .wait()
+        .await
+        .unwrap();
+
+    alix.conversations()
+        .sync_all_conversations(None)
+        .await
+        .unwrap();
+    alix.worker()
+        .register_interest(SyncMetric::PayloadSent, 1)
+        .wait()
+        .await
+        .unwrap();
+
+    alix2
+        .conversations()
+        .sync_all_conversations(None)
+        .await
+        .unwrap();
+    alix2
+        .worker()
+        .register_interest(SyncMetric::PayloadProcessed, 1)
+        .wait()
+        .await
+        .unwrap();
+
+    let dm2 = alix2.conversation(dm.group_id);
+    assert!(dm2.is_ok());
+    let dm2 = dm2.unwrap();
+
+    assert_eq!(dm2.consent_state().unwrap(), FfiConsentState::Allowed);
+
+    // Ensure old message was synced
+    let msgs2 = dm2
+        .find_messages(FfiListMessagesOptions::default())
+        .await
+        .unwrap();
+    assert!(msgs2.iter().any(|m| m.content == msg.as_bytes()));
+}
+
+#[tokio::test]
+async fn test_new_installation_group_message_visibility() {
+    // Creates two clients, alix and bo
+    let alix = Tester::builder().sync_worker().build().await;
+    let bo = Tester::new().await;
+
+    // Alix creates a group with bo and sends a message
     let group = alix
         .conversations()
         .create_group(vec![bo.inbox_id()], Default::default())
@@ -795,7 +861,7 @@ async fn test_new_installation_group_message_visibility() {
         .unwrap();
 
     let text_message_alix = TextCodec::encode("hello from alix".to_string()).unwrap();
-    group
+    let msg_from_alix = group
         .send(
             encoded_content_to_bytes(text_message_alix.clone()),
             FfiSendMessageOpts::default(),
@@ -803,8 +869,31 @@ async fn test_new_installation_group_message_visibility() {
         .await
         .unwrap();
 
+    // Alix creates a second installation and client
     let alix2 = alix.builder.build().await;
 
+    // Alix syncs all their conversations and uploads a sync archive
+    alix.conversations()
+        .sync_all_conversations(None)
+        .await
+        .unwrap();
+    group.sync().await.unwrap();
+
+    alix.send_sync_archive(
+        FfiArchiveOptions::default(),
+        DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
+        "123".to_string(),
+    )
+    .await
+    .unwrap();
+
+    alix.worker()
+        .register_interest(SyncMetric::PayloadSent, 1)
+        .wait()
+        .await
+        .unwrap();
+
+    // Bo syncs their groups and sends a message in the group with Alix
     bo.conversations().sync().await.unwrap();
     let bo_group = bo.conversation(group.id()).unwrap();
     let text_message_bo = TextCodec::encode("hello from bo".to_string()).unwrap();
@@ -815,6 +904,8 @@ async fn test_new_installation_group_message_visibility() {
         )
         .await
         .unwrap();
+
+    // Both Alix clients sync and verify that have a matching sync group
     alix.conversations()
         .sync_all_conversations(None)
         .await
@@ -830,53 +921,46 @@ async fn test_new_installation_group_message_visibility() {
         .await
         .unwrap();
 
+    // Initially Alix2 group only has two messages, the group created message and the message from Bo (sent after the installation was created)
     let group2 = alix2.conversation(group.id()).unwrap();
-    let messages = group2
+    let messages: Vec<Arc<FfiDecodedMessage>> = group2
+        .find_enriched_messages(FfiListMessagesOptions::default())
+        .unwrap();
+
+    assert_eq!(
+        messages.len(),
+        2,
+        "Expected two message to be visible to new installation before sync"
+    );
+
+    // Now Alix attempts to sync the archive
+    alix2
+        .conversations()
+        .sync_all_conversations(None)
+        .await
+        .unwrap();
+    alix2.sync_all_device_sync_groups().await.unwrap();
+
+    // Can also pass in None for the pin and it will process that last archive sent
+    // alix2.process_sync_archive(None).await.unwrap();
+    alix2
+        .process_sync_archive(Some("123".to_string()))
+        .await
+        .unwrap();
+
+    let group2 = alix2.conversation(group.id()).unwrap();
+    let messages: Vec<FfiMessage> = group2
         .find_messages(FfiListMessagesOptions::default())
         .await
         .unwrap();
 
     assert_eq!(
         messages.len(),
-        2,
-        "Expected two message to be visible to new installation"
+        3,
+        "Expected three message to be visible for our group after we sync the archive"
     );
-
-    let text_message_alix2 = TextCodec::encode("hi from alix2".to_string()).unwrap();
-    let msg_from_alix2 = group2
-        .send(
-            encoded_content_to_bytes(text_message_alix2.clone()),
-            FfiSendMessageOpts::default(),
-        )
-        .await
-        .unwrap();
-
-    bo.conversations()
-        .sync_all_conversations(None)
-        .await
-        .unwrap();
-    let bob_group = bo.conversation(group.id()).unwrap();
-    let bob_msgs = bob_group
-        .find_messages(FfiListMessagesOptions::default())
-        .await
-        .unwrap();
-
     assert!(
-        bob_msgs.iter().any(|m| m.id == msg_from_alix2),
-        "Bob should see the message sent by alix2"
-    );
-
-    alix.conversations()
-        .sync_all_conversations(None)
-        .await
-        .unwrap();
-    let alice_msgs = group
-        .find_messages(FfiListMessagesOptions::default())
-        .await
-        .unwrap();
-
-    assert!(
-        alice_msgs.iter().any(|m| m.id == msg_from_alix2),
+        messages.iter().any(|m| m.id == msg_from_alix),
         "Original Alix should see the message from alix2"
     );
 }
