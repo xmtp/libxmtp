@@ -316,6 +316,18 @@ public struct Group: Identifiable, Equatable, Hashable {
 		)
 	}
 
+	public func updateAppDataPermission(
+		newPermissionOption: PermissionOption
+	) async throws {
+		try await ffiGroup.updatePermissionPolicy(
+			permissionUpdateType: FfiPermissionUpdateType.updateMetadata,
+			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
+				option: newPermissionOption
+			),
+			metadataField: FfiMetadataField.appData
+		)
+	}
+
 	public func updateDisappearingMessageSettings(
 		_ disappearingMessageSettings: DisappearingMessageSettings?
 	) async throws {
