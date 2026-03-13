@@ -1583,10 +1583,7 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
 
     // Additional verification: the consensus key should be set in the database
     let stored_group = alix.context.db().find_group(&group.group_id)?.unwrap();
-    assert_eq!(
-        stored_group.commit_log_public_key,
-        Some(new_public_key.clone())
-    );
+    assert_eq!(stored_group.salt, Some(new_public_key.clone()));
 
     println!("✓ Consensus public key correctly stored in database");
 

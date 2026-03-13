@@ -118,7 +118,7 @@ pub async fn create_dm_with_consent(
             created_at_ns: now_ns(),
             conversation_type: ConversationType::Dm,
             fork_details: Default::default(),
-            commit_log_public_key: None,
+            salt: None,
             has_pending_leave_request: None,
             installations_last_checked: now_ns(),
             is_commit_log_forked: None,

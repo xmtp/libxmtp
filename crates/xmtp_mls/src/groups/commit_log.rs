@@ -23,7 +23,7 @@ use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
 use xmtp_db::{
     DbQuery, StorageError, Store,
-    group::{StoredGroupCommitLogPublicKey, StoredGroupForReaddRequest},
+    group::{StoredGroupForReaddRequest, StoredGroupSalt},
     local_commit_log::LocalCommitLogOrder,
     prelude::*,
     readd_status::QueryReaddStatus,
@@ -290,7 +290,7 @@ where
     fn prepare_publish_commit_log_info(
         &self,
         conn: &impl DbQuery,
-        conversation_keys: &[StoredGroupCommitLogPublicKey],
+        conversation_keys: &[StoredGroupSalt],
     ) -> Result<(Vec<ConversationCursorInfo>, Vec<PublishCommitLogRequest>), CommitLogError> {
         let mut conversation_cursor_info: Vec<ConversationCursorInfo> = Vec::new();
         let mut all_entries = Vec::new();
@@ -325,6 +325,7 @@ where
                     LocalCommitLogOrder::AscendingByRowid,
                 )?
                 .iter()
+                // Todo: from impl no longer exists. Needs to add local installation_id as well.
                 .map(|log| (PlaintextCommitLogEntry::from(log), log.rowid))
                 .unzip();
 
@@ -349,7 +350,7 @@ where
 
     fn sign_group_logs(
         &self,
-        conversation: &StoredGroupCommitLogPublicKey,
+        conversation: &StoredGroupSalt,
         plaintext_commit_log_entries: &[PlaintextCommitLogEntry],
     ) -> Result<Vec<PublishCommitLogRequest>, CommitLogError> {
         let Some(private_key) = get_or_create_signing_key(&self.context, conversation)? else {

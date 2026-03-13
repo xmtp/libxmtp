@@ -6,7 +6,7 @@ use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use xmtp_cryptography::Secret;
 use xmtp_db::MlsProviderExt;
-use xmtp_db::group::StoredGroupCommitLogPublicKey;
+use xmtp_db::group::StoredGroupSalt;
 use xmtp_db::prelude::QueryGroup;
 use xmtp_db::{
     XmtpMlsStorageProvider,
@@ -139,7 +139,7 @@ pub(crate) async fn derive_consensus_public_key(
 
 pub(crate) fn get_or_create_signing_key(
     context: &impl XmtpSharedContext,
-    conversation: &StoredGroupCommitLogPublicKey,
+    conversation: &StoredGroupSalt,
 ) -> Result<Option<Secret>, CommitLogError> {
     let provider = context.mls_provider();
     let key_store = provider.key_store();
@@ -481,7 +481,7 @@ mod tests {
         let metadata = group.mutable_metadata().unwrap();
         let mutable_metadata_key = metadata.commit_log_signer().unwrap();
 
-        let conversation = StoredGroupCommitLogPublicKey {
+        let conversation = StoredGroupSalt {
             id: group.group_id.clone(),
             commit_log_public_key: None, // No consensus key
         };
@@ -513,7 +513,7 @@ mod tests {
             .unwrap()
             .to_vec();
 
-        let conversation = StoredGroupCommitLogPublicKey {
+        let conversation = StoredGroupSalt {
             id: group.group_id.clone(),
             commit_log_public_key: Some(consensus_public_key),
         };
@@ -542,7 +542,7 @@ mod tests {
             .unwrap();
 
         // Set consensus key that matches the stored key
-        let conversation = StoredGroupCommitLogPublicKey {
+        let conversation = StoredGroupSalt {
             id: group.group_id.clone(),
             commit_log_public_key: Some(stored_public_key),
         };
@@ -565,7 +565,7 @@ mod tests {
             .to_vec();
 
         // Set consensus key that matches the mutable metadata key
-        let conversation = StoredGroupCommitLogPublicKey {
+        let conversation = StoredGroupSalt {
             id: group.group_id.clone(),
             commit_log_public_key: Some(metadata_public_key),
         };
@@ -600,7 +600,7 @@ mod tests {
             .unwrap()
             .to_vec();
 
-        let conversation = StoredGroupCommitLogPublicKey {
+        let conversation = StoredGroupSalt {
             id: group_id,
             commit_log_public_key: Some(consensus_public_key),
         };
