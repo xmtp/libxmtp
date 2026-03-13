@@ -31,13 +31,16 @@ wasm_packages := "-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p
 # Run WASM bindings Rust tests (v3 + d14n)
 test: test-v3 test-d14n
 
-# Run WASM bindings Rust tests (v3) with per-test retry on failure
+# Run WASM bindings Rust tests (v3)
 test-v3:
-    source "{{ source_directory() }}/../../dev/wasm-retry" && wasm_test_with_retry "" "{{ wasm_packages }}"
+    XMTP_TEST_LOGGING=false RUST_LOG=off cargo nextest run --locked --profile ci --cargo-profile wasm-test --target wasm32-unknown-unknown \
+      {{ wasm_packages }}
 
-# Run WASM bindings Rust tests (d14n) with per-test retry on failure
+# Run WASM bindings Rust tests (d14n)
 test-d14n:
-    source "{{ source_directory() }}/../../dev/wasm-retry" && wasm_test_with_retry "--features d14n" "{{ wasm_packages }}"
+    XMTP_TEST_LOGGING=false RUST_LOG=off cargo nextest run --locked --profile ci-d14n --cargo-profile wasm-test --target wasm32-unknown-unknown \
+      --features d14n \
+      {{ wasm_packages }}
 
 # Run WASM JS integration tests
 test-integration: _build-test install
