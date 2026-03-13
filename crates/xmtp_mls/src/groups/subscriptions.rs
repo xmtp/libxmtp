@@ -181,9 +181,6 @@ where
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::groups::send_message_opts::SendMessageOpts;
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
     use futures::StreamExt;
     use std::sync::Arc;
 

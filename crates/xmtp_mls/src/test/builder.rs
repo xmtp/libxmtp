@@ -1,5 +1,3 @@
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 use std::sync::atomic::AtomicBool;
 
 use crate::builder::ClientBuilderError;

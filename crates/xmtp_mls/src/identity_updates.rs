@@ -709,8 +709,6 @@ pub async fn get_creation_signature_kind(
 #[cfg(test)]
 pub(crate) mod tests {
     #![allow(unused)] // b/c wasm & native
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use crate::{
         Client, XmtpApi,
         builder::ClientBuilder,

@@ -36,13 +36,7 @@ third-party = [
   { name = "uniffi" },
   { name = "wasm-bindgen" },
 ]
-workspace-members = [
-  "bindings_wasm",
-  "xmtp_cli",
-  "log_parser",
-  "xmtp-db-tools",
-  "xdbg",
-]
+workspace-members = ["xmtp_cli", "log_parser", "xmtp-db-tools", "xdbg"]
 [final-excludes]
 third-party = [
   { name = "hyper" },
@@ -51,10 +45,4 @@ third-party = [
   { name = "uniffi" },
   { name = "wasm-bindgen" },
 ]
-workspace-members = [
-  "bindings_wasm",
-  "xmtp_cli",
-  "log_parser",
-  "xmtp-db-tools",
-  "xdbg",
-]
+workspace-members = ["xmtp_cli", "log_parser", "xmtp-db-tools", "xdbg"]
