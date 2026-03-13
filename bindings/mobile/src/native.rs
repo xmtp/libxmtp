@@ -1,21 +1,4 @@
-#![recursion_limit = "256"]
-#![warn(clippy::unwrap_used)]
-pub mod crypto;
-pub mod fork_recovery;
-pub mod identity;
-pub mod inbox_owner;
-pub mod logger;
-pub mod message;
-pub mod mls;
-pub mod worker;
-
-#[cfg(test)]
-mod builder_test;
-
 pub use crate::inbox_owner::SigningError;
-pub use logger::{enter_debug_writer, exit_debug_writer};
-pub use message::*;
-pub use mls::*;
 use std::error::Error;
 use xmtp_api_d14n::MessageBackendBuilderError;
 use xmtp_common::ErrorCode;

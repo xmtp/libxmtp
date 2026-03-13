@@ -1,26 +1,3 @@
-#![recursion_limit = "256"]
-#![warn(clippy::unwrap_used)]
-
-pub mod builder;
-pub mod client;
-mod consent_state;
-pub mod content_types;
-pub mod conversation;
-pub mod conversations;
-pub mod device_sync;
-pub mod hmac_key;
-mod identity;
-pub mod inbox_id;
-mod inbox_state;
-mod messages;
-mod permissions;
-mod signatures;
-pub mod stats;
-mod streams;
-xmtp_common::if_test! {
-  pub mod test_utils;
-}
-
 use napi::bindgen_prelude::Error;
 use xmtp_common::ErrorCode;
 

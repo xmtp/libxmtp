@@ -1,17 +1,9 @@
-#![recursion_limit = "256"]
-
-mod cached_signature_verifier;
-mod config;
-mod handlers;
-mod health_check;
-mod version;
-
 use crate::cached_signature_verifier::CachedSmartContractSignatureVerifier;
+use crate::config::Args;
+use crate::handlers::ValidationService;
+use crate::health_check::health_check_server;
 use crate::version::get_version;
 use clap::Parser;
-use config::Args;
-use handlers::ValidationService;
-use health_check::health_check_server;
 use tokio::signal::unix::{SignalKind, signal};
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
@@ -19,11 +11,8 @@ use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberI
 use xmtp_id::scw_verifier::MultiSmartContractSignatureVerifier;
 use xmtp_proto::xmtp::mls_validation::v1::validation_api_server::ValidationApiServer;
 
-#[macro_use]
-extern crate tracing;
-
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn native_main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::registry()
         .with(fmt::layer())
         .with(
