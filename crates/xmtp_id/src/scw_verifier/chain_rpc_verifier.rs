@@ -110,7 +110,7 @@ pub(crate) mod tests {
     use std::time::Duration;
 
     #[rstest::rstest]
-    #[timeout(Duration::from_secs(30))]
+    #[xmtp_common::timeout(Duration::from_secs(30))]
     #[tokio::test]
     async fn test_coinbase_smart_wallet(#[future] docker_smart_wallet: SmartWalletContext) {
         let SmartWalletContext {
@@ -169,7 +169,7 @@ pub(crate) mod tests {
     }
 
     #[rstest::rstest]
-    #[timeout(Duration::from_secs(60))]
+    #[xmtp_common::timeout(Duration::from_secs(60))]
     #[tokio::test]
     async fn test_smart_wallet_time_travel(#[future] docker_smart_wallet: SmartWalletContext) {
         let SmartWalletContext {
@@ -228,7 +228,7 @@ pub(crate) mod tests {
 
     // Testing ERC-6492 with deployed / undeployed coinbase smart wallet(ERC-1271) contracts, and EOA.
     #[rstest::rstest]
-    #[timeout(Duration::from_secs(60))]
+    #[xmtp_common::timeout(Duration::from_secs(60))]
     #[tokio::test]
     async fn test_is_valid_signature(#[future] docker_smart_wallet: SmartWalletContext) {
         let SmartWalletContext {
