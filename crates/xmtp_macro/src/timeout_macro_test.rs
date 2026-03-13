@@ -16,6 +16,7 @@ fn test_async_function_wraps_with_timeout() {
     assert!(output_str.contains("xmtp_common :: time :: timeout"));
     assert!(output_str.contains("test_something"));
     assert!(output_str.contains("unwrap_or_else"));
+    assert!(output_str.contains("timed out after"));
 }
 
 #[test]

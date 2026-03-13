@@ -48,7 +48,7 @@ wasm_test_with_retry() {
             echo "  --> Retry $attempt/$MAX_RETRIES: $test_name"
             local retry_output
             local retry_exit
-            retry_output=$(eval "$base_cmd -- --exact '$test_name'" 2>&1)
+            retry_output=$(eval "$base_cmd -- --exact \"$test_name\"" 2>&1)
             retry_exit=$?
             if [ "$retry_exit" -eq 0 ]; then
                 echo "      PASSED on attempt $attempt"

@@ -44,7 +44,8 @@ pub(crate) fn expand_timeout(duration_expr: TokenStream, mut input_fn: syn::Item
             )
             .await
             .unwrap_or_else(|_| panic!(
-                "test timed out: {}",
+                "test timed out after {:?}: {}",
+                #duration_expr,
                 #fn_name_str
             ))
         }
