@@ -10,9 +10,9 @@ use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};
 use xmtp_id::associations::{AssociationState, MemberIdentifier, ident};
+use xmtp_id::key_package::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_mls::client::inbox_addresses_with_verifier;
-use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 
 #[derive(Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]

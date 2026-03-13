@@ -25,7 +25,9 @@ chrono.workspace = true
 ed25519-dalek = { workspace = true, features = ["digest"] }
 futures.workspace = true
 hex.workspace = true
+hpke-rs.workspace = true
 openmls.workspace = true
+openmls_rust_crypto.workspace = true
 openmls_traits.workspace = true
 p256.workspace = true
 prost.workspace = true
@@ -41,7 +43,6 @@ xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true
-xmtp_db.workspace = true
 xmtp_proto.workspace = true
 
 [dev-dependencies]

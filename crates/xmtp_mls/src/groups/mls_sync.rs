@@ -3053,7 +3053,7 @@ where
                 }))
             }
             IntentKind::CommitPendingProposals => {
-                use crate::verified_key_package_v2::VerifiedKeyPackageV2;
+                use xmtp_id::key_package::VerifiedKeyPackageV2;
 
                 let _intent_data =
                     CommitPendingProposalsIntentData::try_from(intent.data.as_slice())?;
@@ -3905,8 +3905,8 @@ async fn inject_failed_installations_for_test(
     key_packages: &mut HashMap<
         Vec<u8>,
         Result<
-            crate::verified_key_package_v2::VerifiedKeyPackageV2,
-            crate::verified_key_package_v2::KeyPackageVerificationError,
+            xmtp_id::key_package::VerifiedKeyPackageV2,
+            xmtp_id::key_package::KeyPackageVerificationError,
         >,
     >,
     failed_installations: &mut Vec<Vec<u8>>,

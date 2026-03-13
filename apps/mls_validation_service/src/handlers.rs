@@ -4,16 +4,13 @@ use openmls::prelude::{MlsMessageIn, ProtocolMessage, tls_codec::Deserialize};
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
+use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use xmtp_id::{
     associations::{
         self, AssociationError, DeserializationError, SignatureError, try_map_vec,
         unverified::UnverifiedIdentityUpdate,
     },
     scw_verifier::{SmartContractSignatureVerifier, ValidationResponse},
-};
-use xmtp_mls::{
-    utils::id::serialize_group_id,
-    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use xmtp_proto::xmtp::{
     identity::{
@@ -292,7 +289,7 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
         .map_err(|e| e.to_string())?;
 
     Ok(ValidateGroupMessageResult {
-        group_id: serialize_group_id(protocol_message.group_id().as_slice()),
+        group_id: hex::encode(protocol_message.group_id().as_slice()),
         is_commit: matches!(
             protocol_message.content_type(),
             ContentType::Commit | ContentType::Proposal

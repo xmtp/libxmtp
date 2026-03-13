@@ -1,9 +1,10 @@
-use crate::groups::mls_ext::{
-    WelcomePointersExtension, WrapperAlgorithm, WrapperEncryptionExtension,
-};
+mod identity_ext;
+pub use identity_ext::*;
+
+use crate::XmtpApi;
+use crate::groups::mls_ext::WelcomePointersExtension;
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
 use crate::worker::NeedsDbReconnect;
-use crate::{XmtpApi, verified_key_package_v2::KeyPackageVerificationError};
 use derive_builder::Builder;
 use openmls::prelude::hash_ref::HashReference;
 use openmls::prelude::{HpkeKeyPair, LeafNode};
@@ -50,6 +51,8 @@ use xmtp_db::{Fetch, StorageError, Store};
 use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
+use xmtp_id::key_package::KeyPackageVerificationError;
+use xmtp_id::key_package::{WrapperAlgorithm, WrapperEncryptionExtension};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     InboxId, InboxIdRef,
@@ -1026,14 +1029,14 @@ pub(crate) fn store_key_package_references(
 #[cfg(test)]
 mod tests {
     use crate::context::XmtpSharedContext;
-    use crate::groups::mls_ext::WrapperAlgorithm;
     use crate::{
         builder::ClientBuilder,
         identity::{pq_key_package_references_key, serialize_key_package_hash_ref},
         utils::FullXmtpClient,
-        verified_key_package_v2::VerifiedKeyPackageV2,
         worker::key_package_cleaner::KeyPackagesCleanerWorker,
     };
+    use xmtp_id::key_package::VerifiedKeyPackageV2;
+
     use openmls::prelude::{KeyPackageBundle, KeyPackageRef};
     use openmls_traits::{OpenMlsProvider, storage::StorageProvider};
     use tls_codec::Serialize;
@@ -1046,6 +1049,7 @@ mod tests {
         group::{ConversationType, GroupQueryArgs},
         sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
     };
+    use xmtp_id::key_package::WrapperAlgorithm;
     use xmtp_mls_common::group::DMMetadataOptions;
     use xmtp_proto::types::TopicKind;
 

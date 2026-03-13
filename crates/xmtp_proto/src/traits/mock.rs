@@ -32,8 +32,8 @@ impl NetConnectConfig for MockApiBuilder {
     fn set_app_version(&mut self, _version: AppVersion) -> Result<(), Self::Error> {
         Ok(())
     }
-    fn set_host(&mut self, _host: String) {}
-    fn set_tls(&mut self, _tls: bool) {}
+    fn set_host(&mut self, _host: url::Url) {}
+
     fn rate_per_minute(&mut self, _limit: u32) {}
 
     fn port(&self) -> Result<Option<String>, Self::Error> {

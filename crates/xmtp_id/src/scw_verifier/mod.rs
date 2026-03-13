@@ -163,6 +163,14 @@ pub struct MultiSmartContractSignatureVerifier {
     verifiers: HashMap<String, Box<dyn SmartContractSignatureVerifier>>,
 }
 
+impl std::fmt::Debug for MultiSmartContractSignatureVerifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MultiSmartContractSignatureVerifier")
+            .field("verifiers", &self.verifiers.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
 impl MultiSmartContractSignatureVerifier {
     pub fn new(urls: HashMap<String, url::Url>) -> Result<Self, VerifierError> {
         let verifiers = urls
