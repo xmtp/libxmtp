@@ -19,6 +19,10 @@ path = "src/main.rs"
 vergen-gix = { workspace = true, features = ["build"] }
 
 [dependencies]
+xmtp-workspace-hack.workspace = true
+xmtp_common.workspace = true
+
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
 alloy.workspace = true
 # used b/c of xmtp_common::async_trait
 async-trait.workspace = true
@@ -35,15 +39,13 @@ tonic = { workspace = true, features = ["router"] }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "ansi"] }
 warp = "0.3.6"
-xmtp-workspace-hack.workspace = true
-xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_id.workspace = true
 xmtp_proto = { workspace = true, features = ["grpc_server_impls"] }
 
 
-[dev-dependencies]
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
 rand.workspace = true
 rstest.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }

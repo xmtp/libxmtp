@@ -1,8 +1,14 @@
 use std::error::Error;
-use std::process::Command;
-use vergen_gix::{BuildBuilder, Emitter, GixBuilder};
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let target_family = std::env::var("CARGO_CFG_TARGET_FAMILY").unwrap_or_default();
+    if target_family == "wasm" {
+        return Ok(());
+    }
+
+    use std::process::Command;
+    use vergen_gix::{BuildBuilder, Emitter, GixBuilder};
+
     Command::new("make")
         .args(["libxmtp-version"])
         .status()

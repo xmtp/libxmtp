@@ -37,7 +37,7 @@ third-party = [
   { name = "wasm-bindgen" },
 ]
 workspace-members = [
-  "bindings_wasm",
+  # "bindings_wasm",
   "xmtp_cli",
   "log_parser",
   "xmtp-db-tools",
@@ -52,7 +52,7 @@ third-party = [
   { name = "wasm-bindgen" },
 ]
 workspace-members = [
-  "bindings_wasm",
+  # "bindings_wasm",
   "xmtp_cli",
   "log_parser",
   "xmtp-db-tools",
