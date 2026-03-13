@@ -54,7 +54,7 @@ fn assert_commit_sequence(logs: &[LocalCommitLog], expected: &[CommitType]) {
     );
 }
 
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_signer_on_group_creation() {
     tester!(alix);
@@ -99,7 +99,7 @@ async fn test_commit_log_signer_on_group_creation() {
     );
 }
 
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_device_sync_mutable_metadata_is_overwritten() {
     tester!(alix);
@@ -140,7 +140,7 @@ async fn test_device_sync_mutable_metadata_is_overwritten() {
     );
 }
 
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_publish_and_query_apis() {
     use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
@@ -242,7 +242,7 @@ async fn test_commit_log_publish_and_query_apis() {
     );
 }
 
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_should_publish_commit_log() {
     tester!(alix);
@@ -274,7 +274,7 @@ async fn test_should_publish_commit_log() {
     assert_eq!(bo_should_publish_commit_log_groups.len(), 0);
 }
 
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_publish_commit_log_to_remote() {
     // Disable background CommitLogWorker for deterministic testing
@@ -358,7 +358,7 @@ async fn test_publish_commit_log_to_remote() {
     );
 }
 
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_download_commit_log_from_remote() {
     // Disable background CommitLogWorker for deterministic testing
@@ -663,7 +663,7 @@ async fn test_download_commit_log_from_remote() {
     );
 }
 
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_should_skip_remote_log_entry() {
     // Disable background CommitLogWorker for deterministic testing
@@ -935,7 +935,7 @@ async fn test_should_skip_remote_log_entry() {
     ));
 }
 
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_all_users_use_same_signing_key_for_publishing() {
     tester!(alix);
@@ -1017,7 +1017,7 @@ async fn test_all_users_use_same_signing_key_for_publishing() {
     );
 }
 
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_consecutive_entries_verification_happy_case() {
     // Disable background CommitLogWorker for deterministic testing
@@ -1151,7 +1151,7 @@ async fn test_consecutive_entries_verification_happy_case() {
 /// Covers two scenarios:
 /// 1. Entry where signature doesn't match the claimed public key (should fail)
 /// 2.
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_bad_signature_handling() {
     use crate::groups::commit_log_key::CommitLogKeyCrypto;
@@ -1265,7 +1265,7 @@ async fn test_bad_signature_handling() {
     );
 }
 
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_update_commit_log_signer_sync_across_parties() {
     tester!(alix);
@@ -1399,7 +1399,7 @@ async fn test_update_commit_log_signer_sync_across_parties() {
     println!("Test passed: update_commit_log_signer properly syncs across all parties");
 }
 
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_updating_group_name_preserves_commit_log_signer() {
     tester!(alix);
@@ -1467,7 +1467,7 @@ async fn test_updating_group_name_preserves_commit_log_signer() {
     println!("Test passed: Updating group name preserves commit log signing key");
 }
 
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
     // Disable background CommitLogWorker for deterministic testing

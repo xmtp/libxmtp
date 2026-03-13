@@ -43,7 +43,7 @@ async fn last_commit_type_matches(
         && log_2.commit_type.unwrap() == expected.to_string()
 }
 
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_successful_commit_log_types() {
     tester!(alix);
@@ -105,7 +105,7 @@ async fn test_successful_commit_log_types() {
     assert_eq!(b.local_commit_log().await?.len(), 7);
 }
 
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_failed_application_message_not_added_to_commit_log() {
     tester!(alix);
@@ -150,7 +150,7 @@ async fn test_failed_application_message_not_added_to_commit_log() {
     );
 }
 
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_welcome_commit_log() {
     tester!(alix);
@@ -237,7 +237,7 @@ async fn test_commit_log_retriable_error() {
     .await;
 }
 
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_non_retriable_error() {
     tester!(alix);
