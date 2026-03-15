@@ -295,6 +295,9 @@ pub struct BackendOpts {
     /// Enable the decentralization backend
     #[arg(short, long)]
     pub d14n: bool,
+    /// Use the perf gateway (closest-node selection) instead of the default gateway
+    #[arg(short, long)]
+    pub perf: bool,
     /// enable the v3 -> d14n cutover client
     #[arg(short = 'm', long, conflicts_with_all = &["d14n"])]
     pub enable_migration: bool,
@@ -313,6 +316,15 @@ impl BackendOpts {
 
         if let Some(p) = &self.xmtpd_gateway_url {
             return Ok(p.clone());
+        }
+
+        if self.perf {
+            return match self.backend {
+                Dev => Ok((*crate::constants::XMTP_DEV_PERF_GATEWAY).clone()),
+                Staging => Ok((*crate::constants::XMTP_STAGING_PERF_GATEWAY).clone()),
+                Production => Ok((*crate::constants::XMTP_PRODUCTION_PERF_GATEWAY).clone()),
+                Local => Ok((*crate::constants::XMTP_LOCAL_PERF_GATEWAY).clone()),
+            };
         }
 
         match (self.backend, self.d14n, self.enable_migration) {
