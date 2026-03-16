@@ -320,6 +320,7 @@ impl BackendOpts {
         }
 
         if self.perf {
+            debug_assert!(self.d14n, "--perf requires --d14n");
             return match self.backend {
                 Dev => Ok((*crate::constants::XMTP_DEV_PERF_GATEWAY).clone()),
                 Staging => Ok((*crate::constants::XMTP_STAGING_PERF_GATEWAY).clone()),
@@ -607,9 +608,12 @@ mod tests {
 
     #[test]
     fn explicit_gateway_url_overrides_perf() {
-        // --xmtpd-gateway-url conflicts with --backend (not --perf), so we
-        // verify the override behavior via the url-based path instead
+        // --xmtpd-gateway-url conflicts with --backend, so we use --url to
+        // avoid that conflict and verify the explicit URL takes precedence
+        // over the perf gateway resolution
         let opts = parse_backend_args(&[
+            "--perf",
+            "--d14n",
             "--url",
             "http://localhost:5050",
             "--xmtpd-gateway-url",
@@ -617,7 +621,12 @@ mod tests {
         ]);
         assert!(opts.is_ok());
         let backend = opts.unwrap();
+        assert!(backend.perf, "perf flag should be set");
         let url = backend.xmtpd_gateway_url().unwrap();
-        assert_eq!(url.as_str(), "http://custom:5052/");
+        assert_eq!(
+            url.as_str(),
+            "http://custom:5052/",
+            "explicit --xmtpd-gateway-url should override perf gateway"
+        );
     }
 }
