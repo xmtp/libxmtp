@@ -22,7 +22,7 @@ vergen-gix = { workspace = true, features = ["build"] }
 alloy.workspace = true
 # used b/c of xmtp_common::async_trait
 async-trait.workspace = true
-clap.workspace = true
+clap = { workspace = true, features = ["env"] }
 futures.workspace = true
 hex.workspace = true
 lru = "0.16.0"
@@ -33,7 +33,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["signal", "rt-multi-thread"] }
 tonic = { workspace = true, features = ["router"] }
 tracing.workspace = true
-tracing-subscriber = { workspace = true, features = ["env-filter", "ansi"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "ansi", "json"] }
 warp = "0.3.6"
 xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
