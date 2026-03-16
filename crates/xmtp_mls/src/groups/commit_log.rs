@@ -388,19 +388,20 @@ where
     async fn save_remote_commit_log(&mut self) -> Result<HashMap<Vec<u8>, usize>, CommitLogError> {
         let conn = &self.context.db();
         // This should be all groups we are in, and all dms are in except sync groups
-        let conversation_id_to_public_key: HashMap<Vec<u8>, Option<Vec<u8>>> = conn
+        let conversation_id_to_salt: HashMap<Vec<u8>, Option<Vec<u8>>> = conn
             .get_conversation_ids_for_remote_log_download()?
             .into_iter()
-            .map(|c| (c.id, c.commit_log_public_key))
+            .map(|c| (c.id, c.salt))
             .collect();
 
         // Step 1 is to collect a list of remote log cursors for all conversations and convert them into query log requests
         let remote_log_cursors = conn.get_remote_log_cursors(
-            conversation_id_to_public_key
+            conversation_id_to_salt
                 .keys()
                 .collect::<Vec<_>>()
                 .as_slice(),
         )?;
+
         // For now we will rely on next iteration of the worker to download the next batch of commit log entries
         // if there is more than MAX_PAGE_SIZE entries to download per group
         let query_log_requests: Vec<QueryCommitLogRequest> = remote_log_cursors
@@ -432,12 +433,15 @@ where
                 continue;
             }
             let group_id = response.group_id.clone();
-            let mut consensus_public_key: Option<Vec<u8>> = conversation_id_to_public_key
+
+            let _consensus_public_key;
+            let mut consensus_public_key = conversation_id_to_salt
                 .get(&group_id)
-                .and_then(Option::clone);
+                .and_then(Option::as_ref);
             if consensus_public_key.is_none() {
-                consensus_public_key =
+                _consensus_public_key =
                     derive_consensus_public_key(&self.context, &response).await?;
+                consensus_public_key = _consensus_public_key.as_ref();
             }
             tracing::info!(
                 group_id = hex::encode(&response.group_id),
@@ -458,7 +462,7 @@ where
         &self,
         conn: &impl DbQuery,
         commit_log_response: QueryCommitLogResponse,
-        consensus_public_key: Option<Vec<u8>>,
+        consensus_public_key: Option<&Vec<u8>>,
     ) -> Result<usize, CommitLogError> {
         let group_id = commit_log_response.group_id;
         let mut num_entries_saved = 0;
@@ -487,7 +491,7 @@ where
                     latest_saved_remote_log.clone(),
                     commit_log_entry,
                     &log_entry,
-                    &consensus_public_key,
+                    consensus_public_key,
                 ) {
                     continue;
                 }

@@ -1051,6 +1051,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         let query = dsl::groups
             .filter(dsl::conversation_type.ne_all(ConversationType::virtual_types()))
             .inner_join(consent_dsl::consent_records.on(
+                // This is a full table scan.
                 sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
             ))
             .filter(consent_dsl::state.eq(ConsentState::Allowed))

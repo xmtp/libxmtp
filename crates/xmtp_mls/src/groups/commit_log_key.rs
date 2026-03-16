@@ -110,12 +110,7 @@ pub(crate) async fn derive_consensus_public_key(
     let provider = context.mls_provider();
     // Find the first entry with a valid signature and extract its public key
     for entry in &commit_log_response.commit_log_entries {
-        if let Some(signature) = &entry.signature
-            && provider
-                .crypto()
-                .verify_commit_log_signature(entry, &signature.public_key)
-                .is_ok()
-        {
+        if provider.crypto().verify_commit_log_signature(entry).is_ok() {
             maybe_share_private_key(
                 context,
                 &commit_log_response.group_id,
