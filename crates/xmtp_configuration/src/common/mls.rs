@@ -11,7 +11,7 @@ pub const MLS_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::Mls10;
 
 pub const WELCOME_HPKE_LABEL: &str = "MLS_WELCOME";
 
-pub const MAX_GROUP_SYNC_RETRIES: usize = 5;
+pub const MAX_GROUP_SYNC_RETRIES: usize = 3;
 
 pub const MAX_INTENT_PUBLISH_ATTEMPTS: usize = 3;
 
@@ -47,10 +47,6 @@ pub const MIN_RECOVERY_REQUEST_VERSION: &str = "1.6.0";
 // ingested by the nodes and stored. There is a slight penalty for egress data, but the amount needed
 // to be stored can be 100x less than using regular welcome messages.
 pub const INSTALLATION_THRESHOLD_FOR_WELCOME_POINTER_SENDING: usize = 2;
-
-// Exponential Backoff constants for Intent Sync
-// With 5 retries, 50ms base, 3x multiplier, and 25ms max jitter, the maximum
-// total sleep is ~2100ms (50+150+450+1350 + 4×25ms jitter), well under the 10s limit.
 
 /// the base backoff time that is multiplied by 3
 pub const SYNC_BACKOFF_WAIT_MS: u16 = 50;
