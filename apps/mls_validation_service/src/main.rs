@@ -6,13 +6,13 @@ mod handlers;
 mod health_check;
 mod version;
 
-use std::io::IsTerminal;
 use crate::cached_signature_verifier::CachedSmartContractSignatureVerifier;
 use crate::version::get_version;
 use clap::Parser;
 use config::{Args, LogFormat};
 use handlers::ValidationService;
 use health_check::health_check_server;
+use std::io::IsTerminal;
 use tokio::signal::unix::{SignalKind, signal};
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
