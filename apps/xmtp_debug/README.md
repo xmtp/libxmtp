@@ -17,8 +17,20 @@ Supported Features:
 
 ### Intro
 
-XMTP Debug is a comprehensive testing tool for the XMTP network. It may be used
-to inspect
+XMTP Debug (`xdbg`) is a comprehensive testing and monitoring tool for the XMTP
+network. It can generate load, run latency tests, and operate as a continuous
+monitoring daemon via Docker.
+
+### Commands
+
+| Command | Description |
+| --- | --- |
+| `generate` | Create identities, groups, and messages on the network |
+| `test` | Run e2e latency test scenarios |
+| `inspect` | Inspect an inbox's groups, messages, or identity state |
+| `query` | Query backend APIs (identity updates, key packages, commit logs) |
+| `info` | Show information about local generated state |
+| `export` | Export generated identities/groups to JSON |
 
 ### Examples
 
@@ -97,6 +109,92 @@ cargo xdbg query fetch-key-packages d43e83f66ad7dbbe87add243806999d608bb0b6f7b88
 ```
 cargo xdbg --backend dev query batch-query-commit-log e261da64fd225fc90034631945259cdf 0bc5493237d3399dddd3735a049ea237 --skip-unspecified
 ```
+
+#### Test
+
+##### Measure message delivery latency (sender → receiver)
+
+```
+cargo xdbg -d -b dev test message-visibility --iterations 5
+```
+
+##### Measure group sync latency after 20 messages
+
+```
+cargo xdbg -d -b dev test group-sync --iterations 3 --message-count 20
+```
+
+---
+
+## Docker Image
+
+A unified Docker image is published as `ghcr.io/xmtp/xdbg`. It packages the
+`xdbg` binary with a monitoring entrypoint for continuous environment health
+checks.
+
+### Building locally
+
+```bash
+docker build -t xdbg:local -f apps/xmtp_debug/docker/Dockerfile .
+```
+
+### Running as a one-off CLI
+
+```bash
+docker run --rm xdbg:local xdbg -d -b dev generate --entity identity --amount 5
+```
+
+### Running as a monitoring daemon
+
+The default entrypoint (`docker/entrypoint.sh`) loops indefinitely: it
+generates identities, groups, and messages, then sleeps before repeating. This
+is designed for ECS/Fargate deployment as a continuous health probe.
+
+```bash
+docker run -d \
+  -e WORKSPACE=testnet-dev \
+  -e XDBG_LOOP_PAUSE=300 \
+  -e PUSHGATEWAY_URL=http://pushgateway:9091 \
+  ghcr.io/xmtp/xdbg
+```
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `WORKSPACE` | _(empty → local)_ | Target environment: `testnet`, `testnet-dev`, `testnet-staging` |
+| `XDBG_LOOP_PAUSE` | `300` | Seconds to sleep between monitoring loop iterations |
+| `PUSHGATEWAY_URL` | _(unset)_ | Prometheus PushGateway URL. If unset, metrics are silently disabled |
+| `XDBG_DB_ROOT` | _(unset)_ | Override the default data directory for xdbg state |
+
+---
+
+## Prometheus Metrics
+
+Metrics are **opt-in**: they activate only when `PUSHGATEWAY_URL` is set in the
+environment. Without it, all metric calls are silent no-ops.
+
+### Emitted metrics
+
+| Metric | Type | Labels | Description |
+| --- | --- | --- | --- |
+| `xdbg_operation_latency_seconds` | Gauge | `operation_type` | Latency of the most recent operation |
+| `xdbg_group_add_member_count` | Gauge | `operation_type` | Number of members added to a group |
+| `xdbg_messages_sent_total` | Counter | `operation_type` | Cumulative count of messages sent |
+
+Metrics are pushed to the PushGateway after each timed operation under job names
+`xdbg_debug` (generate commands) and `xdbg_test` (test scenarios).
+
+### CSV metric output
+
+In addition to Prometheus, every timed operation prints a CSV line to stdout:
+
+```
+kind,name,value,timestamp_ms,label1=v1;label2=v2
+```
+
+This can be filtered with standard Unix tools or piped into a log aggregation
+pipeline.
+
+---
 
 ## Future Work
 

@@ -11,11 +11,9 @@ use xmtp_db::{
 };
 use xmtp_proto::types::{GroupMessage, WelcomeMessage};
 
-use crate::{
-    context::XmtpSharedContext,
-    groups::MlsGroup,
-    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-};
+use crate::{context::XmtpSharedContext, groups::MlsGroup};
+use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
+
 use thiserror::Error;
 use xmtp_db::prelude::*;
 

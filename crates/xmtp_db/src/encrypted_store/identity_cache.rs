@@ -10,7 +10,10 @@ use diesel::sql_types::Integer;
 use diesel::{Insertable, Queryable};
 use diesel::{prelude::*, serialize};
 use serde::{Deserialize, Serialize};
+use std::any::type_name;
 use std::collections::HashMap;
+use xmtp_proto::ConversionError;
+use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
 #[derive(Insertable, Queryable, Debug, Clone, Deserialize, Serialize)]
 #[diesel(table_name = identity_cache)]
@@ -30,68 +33,108 @@ pub enum StoredIdentityKind {
     Passkey = 2,
 }
 
+impl TryFrom<IdentifierKind> for StoredIdentityKind {
+    type Error = xmtp_proto::ConversionError;
+    fn try_from(kind: IdentifierKind) -> Result<Self, Self::Error> {
+        match kind {
+            IdentifierKind::Ethereum => Ok(StoredIdentityKind::Ethereum),
+            IdentifierKind::Passkey => Ok(StoredIdentityKind::Passkey),
+            IdentifierKind::Unspecified => {
+                Err(ConversionError::Unspecified("IdentifierKind::Unspecified"))
+            }
+        }
+    }
+}
+
+impl TryFrom<i32> for StoredIdentityKind {
+    type Error = ConversionError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(StoredIdentityKind::Ethereum),
+            2 => Ok(StoredIdentityKind::Passkey),
+            v => Err(ConversionError::InvalidValue {
+                item: type_name::<StoredIdentityKind>(),
+                expected: "a integer value of `1` or `2`",
+                got: v.to_string(),
+            }),
+        }
+    }
+}
+
+impl From<&StoredIdentityKind> for i32 {
+    fn from(value: &StoredIdentityKind) -> Self {
+        use StoredIdentityKind::*;
+        match value {
+            Ethereum => 1,
+            Passkey => 2,
+        }
+    }
+}
+
+impl From<StoredIdentityKind> for IdentifierKind {
+    fn from(value: StoredIdentityKind) -> Self {
+        use StoredIdentityKind::*;
+        match value {
+            Ethereum => IdentifierKind::Ethereum,
+            Passkey => IdentifierKind::Passkey,
+        }
+    }
+}
+
 impl_store!(IdentityCache, identity_cache);
 impl_fetch!(IdentityCache, identity_cache);
 
 pub trait QueryIdentityCache {
     /// Returns a HashMap of WalletAddress -> InboxId
-    fn fetch_cached_inbox_ids<T>(
+    fn fetch_cached_inbox_ids(
         &self,
-        identifiers: &[T],
-    ) -> Result<HashMap<String, String>, StorageError>
-    where
-        T: std::fmt::Display,
-        for<'a> &'a T: Into<StoredIdentityKind>;
+        identifiers: &[(Address, StoredIdentityKind)],
+    ) -> Result<HashMap<String, String>, StorageError>;
 
-    fn cache_inbox_id<T, S>(&self, identifier: &T, inbox_id: S) -> Result<(), StorageError>
-    where
-        T: std::fmt::Display,
-        S: ToString,
-        for<'a> &'a T: Into<StoredIdentityKind>;
+    fn cache_inbox_id<S: ToString>(
+        &self,
+        kind: StoredIdentityKind,
+        identity: String,
+        inbox_id: S,
+    ) -> Result<(), StorageError>;
 }
 
 impl<G> QueryIdentityCache for &G
 where
     G: QueryIdentityCache,
 {
-    fn fetch_cached_inbox_ids<T>(
+    fn fetch_cached_inbox_ids(
         &self,
-        identifiers: &[T],
-    ) -> Result<HashMap<String, String>, StorageError>
-    where
-        T: std::fmt::Display,
-        for<'a> &'a T: Into<StoredIdentityKind>,
-    {
+        identifiers: &[(Address, StoredIdentityKind)],
+    ) -> Result<HashMap<String, String>, StorageError> {
         (**self).fetch_cached_inbox_ids(identifiers)
     }
 
-    fn cache_inbox_id<T, S>(&self, identifier: &T, inbox_id: S) -> Result<(), StorageError>
-    where
-        T: std::fmt::Display,
-        S: ToString,
-        for<'a> &'a T: Into<StoredIdentityKind>,
-    {
-        (**self).cache_inbox_id(identifier, inbox_id)
+    fn cache_inbox_id<S: ToString>(
+        &self,
+        kind: StoredIdentityKind,
+        identity: String,
+        inbox_id: S,
+    ) -> Result<(), StorageError> {
+        (**self).cache_inbox_id(kind, identity, inbox_id)
     }
 }
 
+type Address = String;
+
 impl<C: ConnectionExt> QueryIdentityCache for DbConnection<C> {
     /// Returns a HashMap of WalletAddress -> InboxId
-    fn fetch_cached_inbox_ids<T>(
+    fn fetch_cached_inbox_ids(
         &self,
-        identifiers: &[T],
-    ) -> Result<HashMap<String, String>, StorageError>
-    where
-        T: std::fmt::Display,
-        for<'a> &'a T: Into<StoredIdentityKind>,
-    {
+        identifiers: &[(Address, StoredIdentityKind)],
+    ) -> Result<HashMap<String, String>, StorageError> {
         use crate::encrypted_store::schema::identity_cache::*;
 
         let mut conditions = identity_cache::table.into_boxed();
 
-        for ident in identifiers {
-            let addr = (&ident).to_string();
-            let kind: StoredIdentityKind = ident.into();
+        for (addr, ident) in identifiers {
+            let kind: i32 = ident.into();
             let cond = identity.eq(addr).and(identity_kind.eq(kind));
             conditions = conditions.or_filter(cond);
         }
@@ -104,16 +147,16 @@ impl<C: ConnectionExt> QueryIdentityCache for DbConnection<C> {
         Ok(result)
     }
 
-    fn cache_inbox_id<T, S>(&self, identifier: &T, inbox_id: S) -> Result<(), StorageError>
-    where
-        T: std::fmt::Display,
-        S: ToString,
-        for<'a> &'a T: Into<StoredIdentityKind>,
-    {
+    fn cache_inbox_id<S: ToString>(
+        &self,
+        kind: StoredIdentityKind,
+        identity: String,
+        inbox_id: S,
+    ) -> Result<(), StorageError> {
         IdentityCache {
             inbox_id: inbox_id.to_string(),
-            identity: identifier.to_string(),
-            identity_kind: identifier.into(),
+            identity,
+            identity_kind: kind,
         }
         .store(self)
     }
@@ -152,34 +195,15 @@ pub(crate) mod tests {
     #[derive(Clone)]
     struct MockIdentity {
         identity: String,
-        kind: u8,
         inbox_id: String,
     }
 
     impl MockIdentity {
-        fn create(kind: u8) -> Self {
+        fn create() -> Self {
             Self {
                 identity: xmtp_common::rand_hexstring(),
                 inbox_id: xmtp_common::rand_string::<32>(),
-                kind,
             }
-        }
-    }
-
-    impl<'a> From<&'a MockIdentity> for StoredIdentityKind {
-        fn from(identity: &'a MockIdentity) -> StoredIdentityKind {
-            match identity.kind {
-                0 => StoredIdentityKind::Ethereum,
-                1 => StoredIdentityKind::Ethereum,
-                2 => StoredIdentityKind::Passkey,
-                _ => panic!("unknown kind"),
-            }
-        }
-    }
-
-    impl std::fmt::Display for MockIdentity {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str(&self.identity)
         }
     }
 
@@ -207,27 +231,36 @@ pub(crate) mod tests {
     }
 
     // Test storing and fetching multiple wallet addresses with multiple keys
-    // TODO:insipx: will need to fix & store identity kind
     #[xmtp_common::test]
     fn test_fetch_and_store_identity_cache() {
         with_connection(|conn| {
-            let ident1 = MockIdentity::create(0);
-            let ident2 = MockIdentity::create(0);
+            let ident1 = MockIdentity::create();
+            let ident2 = MockIdentity::create();
 
-            conn.cache_inbox_id(&ident1, &ident1.inbox_id).unwrap();
-            let idents = &[ident1.clone(), ident2];
+            conn.cache_inbox_id(
+                StoredIdentityKind::Ethereum,
+                ident1.identity.clone(),
+                &ident1.inbox_id,
+            )
+            .unwrap();
+
+            let idents = &[
+                (ident1.identity.clone(), StoredIdentityKind::Ethereum),
+                (ident2.identity.clone(), StoredIdentityKind::Ethereum),
+            ];
             let stored_wallets = conn.fetch_cached_inbox_ids(idents).unwrap();
 
             // Verify that 1 entries are fetched
             assert_eq!(stored_wallets.len(), 1);
 
             // Verify it's the correct inbox_id
-            let cached_inbox_id = stored_wallets.get(&format!("{}", idents[0])).unwrap();
+            let cached_inbox_id = stored_wallets.get(&idents[0].0).unwrap();
             assert_eq!(*cached_inbox_id, ident1.inbox_id);
 
             // Fetch wallets with a non-existent list of inbox_ids
+            let ident = MockIdentity::create();
             let non_existent_wallets = conn
-                .fetch_cached_inbox_ids(&[MockIdentity::create(1)])
+                .fetch_cached_inbox_ids(&[(ident.identity, StoredIdentityKind::Ethereum)])
                 .unwrap_or_default();
             assert!(
                 non_existent_wallets.is_empty(),

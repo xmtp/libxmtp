@@ -1,10 +1,15 @@
 [package]
-build = "build.rs"
-edition = "2024"
 name = "mls_validation_service"
-version.workspace = true
-license.workspace = true
 description = "backend validation service for XMTP"
+build = "build.rs"
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
 
 [[bin]] # Bin to run the Validation Service
 name = "mls-validation-service"
@@ -15,35 +20,35 @@ vergen-gix = { workspace = true, features = ["build"] }
 
 [dependencies]
 alloy.workspace = true
+# used b/c of xmtp_common::async_trait
 async-trait.workspace = true
 clap.workspace = true
-futures = { workspace = true }
+futures.workspace = true
+hex.workspace = true
 lru = "0.16.0"
-openmls = { workspace = true }
-openmls_rust_crypto = { workspace = true }
+openmls.workspace = true
+openmls_rust_crypto.workspace = true
 parking_lot.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["signal", "rt-multi-thread"] }
-tonic = { workspace = true }
+tonic = { workspace = true, features = ["router"] }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "ansi"] }
 warp = "0.3.6"
-xmtp-workspace-hack = { version = "0.1", path = "../../crates/xmtp-workspace-hack" }
+xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_id.workspace = true
-xmtp_mls.workspace = true
 xmtp_proto = { workspace = true, features = ["grpc_server_impls"] }
 
 
 [dev-dependencies]
-rand = { workspace = true }
+rand.workspace = true
 rstest.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
-xmtp_mls = { workspace = true, features = ["test-utils"] }
 
 
 [features]

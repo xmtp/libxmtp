@@ -50,6 +50,7 @@ pub use xmtp_cryptography::hash::*;
 pub use xmtp_cryptography::rand::*;
 
 pub use xmtp_macro::log_event;
+pub use xmtp_macro::parser;
 
 #[cfg(feature = "logging")]
 pub mod logging;

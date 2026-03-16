@@ -40,6 +40,7 @@ impl From<ConsentType> for ConsentTypeSave {
 
 impl TryFrom<ConsentTypeSave> for ConsentType {
     type Error = ConversionError;
+    #[allow(deprecated)]
     fn try_from(value: ConsentTypeSave) -> Result<Self, Self::Error> {
         Ok(match value {
             ConsentTypeSave::InboxId => Self::InboxId,

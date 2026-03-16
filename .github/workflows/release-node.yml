@@ -68,7 +68,7 @@ jobs:
         run: nix build .#node-bindings-${{ matrix.target }} -L
 
       - name: Upload binding
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: bindings_node_${{ matrix.target }}
           path: result/bindings_node.${{ matrix.target }}.node
@@ -96,7 +96,7 @@ jobs:
         run: nix build .#node-bindings-${{ matrix.target }} -L
 
       - name: Upload binding
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: bindings_node_${{ matrix.target }}
           path: result/bindings_node.${{ matrix.target }}.node
@@ -120,7 +120,7 @@ jobs:
         run: nix build .#node-bindings-js -L
 
       - name: Upload JS
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: bindings_node_js
           path: |
@@ -202,7 +202,7 @@ jobs:
           yarn build:release --target ${{ matrix.target }}
 
       - name: Upload binding
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: bindings_node_${{ matrix.output_target }}
           path: bindings/node/bindings_node.${{ matrix.output_target }}.node

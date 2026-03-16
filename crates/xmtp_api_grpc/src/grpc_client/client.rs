@@ -5,11 +5,10 @@
 
 use crate::{
     error::{GrpcBuilderError, GrpcError},
-    streams::{EscapableTonicStream, FakeEmptyStream, NonBlockingWebStream},
+    streams::EscapableTonicStream,
 };
 use futures::Stream;
-use http::{StatusCode, request, uri::PathAndQuery};
-use http_body_util::StreamBody;
+use http::{request, uri::PathAndQuery};
 use pin_project::pin_project;
 use prost::bytes::Bytes;
 use std::{
@@ -17,23 +16,23 @@ use std::{
     task::{Context, Poll, ready},
 };
 use tonic::{
-    Response, Status, Streaming,
+    Status,
     client::Grpc,
-    codec::Codec,
     metadata::{self, MetadataMap, MetadataValue},
 };
+use url::Url;
 use xmtp_common::Retry;
 use xmtp_configuration::GRPC_PAYLOAD_LIMIT;
 use xmtp_proto::{
-    api::{ApiClientError, Client, IsConnectedCheck},
+    api::{ApiClientError, BytesStream, Client, IsConnectedCheck},
     api_client::{ApiBuilder, NetConnectConfig},
     codec::TransparentCodec,
     types::AppVersion,
 };
 
-impl From<GrpcError> for ApiClientError<GrpcError> {
-    fn from(source: GrpcError) -> ApiClientError<GrpcError> {
-        ApiClientError::Client { source }
+impl From<GrpcError> for ApiClientError {
+    fn from(source: GrpcError) -> ApiClientError {
+        ApiClientError::client(source)
     }
 }
 
@@ -61,7 +60,7 @@ impl<T> ToHttp for tonic::Response<T> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct GrpcClient {
     inner: tonic::client::Grpc<crate::GrpcService>,
     app_version: MetadataValue<metadata::Ascii>,
@@ -111,6 +110,9 @@ impl GrpcClient {
     }
 }
 
+// just a more convenient way to map the stream type to
+// something more customized to the trait, without playing around with getting the
+// generics right on nested futures combinators.
 #[pin_project]
 /// A stream of bytes from a GRPC Network Source
 pub struct GrpcStream {
@@ -128,26 +130,23 @@ impl From<crate::streams::NonBlocking> for GrpcStream {
 // something more customized to the trait, without playing around with getting the
 // generics right on nested futures combinators.
 impl Stream for GrpcStream {
-    type Item = Result<Bytes, GrpcError>;
+    type Item = Result<Bytes, ApiClientError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.project();
         let item = ready!(this.inner.poll_next(cx));
-        Poll::Ready(item.map(|i| i.map_err(GrpcError::from)))
+        Poll::Ready(item.map(|i| i.map_err(|e| ApiClientError::client(GrpcError::from(e)))))
     }
 }
 
 #[xmtp_common::async_trait]
 impl Client for GrpcClient {
-    type Error = GrpcError;
-    type Stream = GrpcStream;
-
     async fn request(
         &self,
         request: http::request::Builder,
         path: http::uri::PathAndQuery,
         body: Bytes,
-    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
+    ) -> Result<http::Response<Bytes>, ApiClientError> {
         let client = &mut self.inner.clone();
         self.wait_for_ready(client).await.map_err(GrpcError::from)?;
         let request = self
@@ -167,7 +166,7 @@ impl Client for GrpcClient {
         request: request::Builder,
         path: PathAndQuery,
         body: Bytes,
-    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
         let this = self.clone();
         // client requires to be moved so it lives long enough for streaming response future.
         let response = async move {
@@ -181,22 +180,12 @@ impl Client for GrpcClient {
             Box::pin(response) as crate::streams::ResponseFuture
         );
         let response = crate::streams::send(req).await.map_err(GrpcError::from)?;
-        let response = response.map(|body| GrpcStream {
-            inner: EscapableTonicStream::new(body),
+        let response = response.map(|body| {
+            BytesStream::new(GrpcStream {
+                inner: EscapableTonicStream::new(body),
+            })
         });
         Ok(response.to_http().map(Into::into))
-    }
-
-    // just need to ensure the type is the same as `stream`
-    fn fake_stream(&self) -> http::Response<Self::Stream> {
-        let mut codec = TransparentCodec::default();
-        let s = StreamBody::new(FakeEmptyStream::<Status>::new());
-        let response = Streaming::new_response(codec.decoder(), s, StatusCode::OK, None, None);
-        let response = Response::new(response);
-        let response = response.map(|body| GrpcStream {
-            inner: EscapableTonicStream::new(NonBlockingWebStream::started(body)),
-        });
-        response.to_http()
     }
 }
 
@@ -215,13 +204,11 @@ impl GrpcClient {
 
 #[derive(Default, Clone)]
 pub struct ClientBuilder {
-    pub host: Option<String>,
+    pub host: Option<Url>,
     /// version of the app
     pub app_version: Option<MetadataValue<metadata::Ascii>>,
     /// Version of the libxmtp core library
     pub libxmtp_version: Option<MetadataValue<metadata::Ascii>>,
-    /// Whether or not the channel should use TLS
-    pub tls_channel: bool,
     /// Rate per minute
     pub limit: Option<u64>,
     /// retry strategy for this client
@@ -239,12 +226,8 @@ impl NetConnectConfig for ClientBuilder {
         Ok(())
     }
 
-    fn set_host(&mut self, host: String) {
+    fn set_host(&mut self, host: Url) {
         self.host = Some(host);
-    }
-
-    fn set_tls(&mut self, tls: bool) {
-        self.tls_channel = tls;
     }
 
     fn rate_per_minute(&mut self, limit: u32) {
@@ -253,15 +236,14 @@ impl NetConnectConfig for ClientBuilder {
 
     fn port(&self) -> Result<Option<String>, Self::Error> {
         if let Some(h) = &self.host {
-            let u = url::Url::parse(h)?;
-            Ok(u.port().map(|u| u.to_string()))
+            Ok(h.port().map(|u| u.to_string()))
         } else {
             Err(GrpcBuilderError::MissingHostUrl)
         }
     }
 
     fn host(&self) -> Option<&str> {
-        self.host.as_deref()
+        self.host.as_ref().map(|s| s.as_str())
     }
 
     fn set_retry(&mut self, retry: xmtp_common::Retry) {
@@ -275,7 +257,7 @@ impl ApiBuilder for ClientBuilder {
 
     fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
-        let channel = crate::GrpcService::new(host, self.limit, self.tls_channel)?;
+        let channel = crate::GrpcService::new(host, self.limit)?;
         Ok(GrpcClient {
             inner: tonic::client::Grpc::new(channel)
                 .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
@@ -291,22 +273,19 @@ impl ApiBuilder for ClientBuilder {
 }
 
 impl GrpcClient {
-    pub fn create(host: &str, is_secure: bool) -> Result<Self, GrpcBuilderError> {
+    pub fn create(host: Url) -> Result<Self, GrpcBuilderError> {
         let mut builder = Self::builder();
-        builder.set_host(host.to_string());
-        builder.set_tls(is_secure);
+        builder.set_host(host);
         builder.build()
     }
 
     /// Create a grpc client with `app_version` attached
     pub fn create_with_version(
-        host: &str,
-        is_secure: bool,
+        host: Url,
         app_version: AppVersion,
     ) -> Result<Self, GrpcBuilderError> {
         let mut builder = Self::builder();
-        builder.set_host(host.to_string());
-        builder.set_tls(is_secure);
+        builder.set_host(host);
         builder.set_app_version(app_version)?;
         builder.build()
     }

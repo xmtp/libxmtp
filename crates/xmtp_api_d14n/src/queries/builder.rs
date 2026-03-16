@@ -3,15 +3,15 @@
 use derive_builder::UninitializedFieldError;
 use std::sync::Arc;
 use thiserror::Error;
-use xmtp_api_grpc::error::{GrpcBuilderError, GrpcError};
+use xmtp_api_grpc::error::GrpcBuilderError;
 use xmtp_common::{ErrorCode, MaybeSend, MaybeSync};
 use xmtp_id::scw_verifier::VerifierError;
-use xmtp_proto::api::ApiClientError;
 use xmtp_proto::types::AppVersion;
 
+use crate::definitions::XmtpApiClient;
 use crate::protocol::{CursorStore, FullXmtpApiArc, FullXmtpApiBox, NoCursorStore};
 use crate::{
-    AuthCallback, AuthHandle, ClientBundle, ClientBundleBuilder, ClientKind, D14nClient,
+    AuthCallback, AuthHandle, ClientBundle, ClientBundleBuilder, D14nClient, MigrationClient,
     MultiNodeClientBuilderError, ReadWriteClientBuilderError, ReadonlyClientBuilderError, V3Client,
 };
 
@@ -27,24 +27,66 @@ pub struct MessageBackendBuilder {
 
 #[derive(Error, Debug, ErrorCode)]
 pub enum MessageBackendBuilderError {
-    #[error("Either v3_host or gateway_host must be provided")]
-    MissingHost,
+    /// Missing V3 host.
+    ///
+    /// V3 host was not set on the builder. Not retryable.
+    #[error("V3 Host is Required")]
+    MissingV3Host,
+    /// gRPC builder error.
+    ///
+    /// gRPC client builder failed. Not retryable.
     #[error(transparent)]
     GrpcBuilder(#[from] GrpcBuilderError),
+    /// Multi-node error.
+    ///
+    /// Multi-node client builder failed. Not retryable.
     #[error(transparent)]
     MultiNode(#[from] MultiNodeClientBuilderError),
+    /// SCW verifier error.
+    ///
+    /// Smart contract wallet verifier error. Not retryable.
     #[error(transparent)]
     Scw(#[from] VerifierError),
+    /// Cursor store not replaced.
+    ///
+    /// Stateful client cursor store not set. Not retryable.
     #[error("failed to build stateful local client, cursor store not replaced, type {0}")]
     CursorStoreNotReplaced(&'static str),
+    /// Read/write client builder error.
+    ///
+    /// Read/write client builder failed. Not retryable.
     #[error("error while building read/write api client {0},")]
     UninitializedField(#[from] ReadWriteClientBuilderError),
+    /// Readonly builder error.
+    ///
+    /// Readonly client builder failed. Not retryable.
     #[error(transparent)]
     ReadonlyBuilder(#[from] ReadonlyClientBuilderError),
+    /// Builder error.
+    ///
+    /// Uninitialized field in builder. Not retryable.
     #[error(transparent)]
     Builder(#[from] UninitializedFieldError),
-    #[error("client kind {0} is currently unsupported")]
-    UnsupportedClient(ClientKind),
+    /// Missing XMTP Gateway host.
+    ///
+    /// XMTP Gateway host was not set on the builder. Not retryable.
+    #[error("XMTP Gateway host is required")]
+    MissingGatewayHost,
+
+    /// Invalid host URL given
+    ///
+    /// Url is not valid. Not retryable.
+    #[error("URL {url} given is invalid because {source}")]
+    InvalidUrl {
+        url: String,
+        source: url::ParseError,
+    },
+}
+
+impl MessageBackendBuilderError {
+    pub fn invalid_url(e: url::ParseError, url: String) -> Self {
+        MessageBackendBuilderError::InvalidUrl { url, source: e }
+    }
 }
 
 /// Indicates this api implementation can be type-erased
@@ -102,12 +144,6 @@ impl MessageBackendBuilder {
         self
     }
 
-    /// Indicate that the connection should use TLS
-    pub fn is_secure(&mut self, is_secure: bool) -> &mut Self {
-        self.client_bundle.is_secure(is_secure);
-        self
-    }
-
     pub fn cursor_store(&mut self, store: impl CursorStore + 'static) -> &mut Self {
         self.cursor_store = Some(Arc::new(store) as Arc<_>);
         self
@@ -120,19 +156,19 @@ impl MessageBackendBuilder {
 
     pub fn from_bundle(
         &mut self,
-        bundle: ClientBundle<GrpcError>,
-    ) -> Result<FullXmtpApiArc<ApiClientError<GrpcError>>, MessageBackendBuilderError> {
+        bundle: ClientBundle,
+    ) -> Result<XmtpApiClient, MessageBackendBuilderError> {
         let cursor_store = self
             .cursor_store
             .clone()
             .unwrap_or(Arc::new(NoCursorStore) as Arc<dyn CursorStore>);
 
-        match bundle.kind() {
-            ClientKind::D14n => Ok(D14nClient::new(bundle, cursor_store)?.arced()),
-            ClientKind::V3 => Ok(V3Client::new(bundle, cursor_store).arced()),
-            ClientKind::Hybrid => Err(MessageBackendBuilderError::UnsupportedClient(
-                ClientKind::Hybrid,
-            )),
+        match bundle {
+            ClientBundle::D14n(c) => Ok(D14nClient::new(c, cursor_store)?.arced()),
+            ClientBundle::V3(c) => Ok(V3Client::new(c, cursor_store).arced()),
+            ClientBundle::Migration { v3, xmtpd } => {
+                Ok(MigrationClient::new(v3, xmtpd, cursor_store)?.arced())
+            }
         }
     }
 
@@ -146,12 +182,36 @@ impl MessageBackendBuilder {
         self
     }
 
-    /// Build the client
-    pub fn build(
-        &mut self,
-    ) -> Result<FullXmtpApiArc<ApiClientError<GrpcError>>, MessageBackendBuilderError> {
+    /// Build the default Migration client
+    /// Errors if either of V3 Host or Gateway host are missing
+    pub fn build(&mut self) -> Result<XmtpApiClient, MessageBackendBuilderError> {
         let Self { client_bundle, .. } = self;
         let bundle = client_bundle.build()?;
+        self.from_bundle(bundle)
+    }
+
+    /// Build a V3 Only Client
+    /// Errors if the V3 Host is Missing
+    pub fn build_v3(&mut self) -> Result<XmtpApiClient, MessageBackendBuilderError> {
+        let Self { client_bundle, .. } = self;
+        let bundle = client_bundle.build_v3()?;
+        self.from_bundle(bundle)
+    }
+
+    /// Builds a d14n-only client
+    /// Errors if the Gateway Host is missing
+    pub fn build_d14n(&mut self) -> Result<XmtpApiClient, MessageBackendBuilderError> {
+        let Self { client_bundle, .. } = self;
+        let bundle = client_bundle.build_d14n()?;
+        self.from_bundle(bundle)
+    }
+
+    /// If a gateway host is present, builds d14n-only
+    /// otherwise builds a v3 client
+    /// Errors if V3 Host is missing
+    pub fn build_optional_d14n(&mut self) -> Result<XmtpApiClient, MessageBackendBuilderError> {
+        let Self { client_bundle, .. } = self;
+        let bundle = client_bundle.build_optional_d14n()?;
         self.from_bundle(bundle)
     }
 }

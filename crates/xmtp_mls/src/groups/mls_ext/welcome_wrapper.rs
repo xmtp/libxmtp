@@ -1,4 +1,3 @@
-use super::WrapperAlgorithm;
 use openmls::ciphersuite::hpke::Error as OpenmlsHpkeError;
 use openmls::prelude::tls_codec::Error as TlsCodecError;
 use openmls_traits::crypto::OpenMlsCrypto;
@@ -7,6 +6,7 @@ use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_common::RetryableError;
 use xmtp_configuration::WELCOME_HPKE_LABEL;
+use xmtp_id::key_package::WrapperAlgorithm;
 
 static LIBCRUX_CRYPTO_PROVIDER: std::sync::LazyLock<openmls_libcrux_crypto::CryptoProvider> =
     std::sync::LazyLock::new(|| {
