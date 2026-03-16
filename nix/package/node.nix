@@ -109,6 +109,14 @@ let
           node .yarn/releases/yarn-*.cjs install --immutable
           node node_modules/.bin/napi build --platform --release --esm \
             --target ${hostTarget}
+
+          # Force the generated loader to always use musl binaries on Linux.
+          # napi-rs generates an isMusl() check that routes glibc hosts to GNU
+          # targets, but we only ship musl builds (statically linked, work everywhere).
+          grep -q 'isMusl()' index.js || \
+            (echo "ERROR: napi-rs no longer generates isMusl() in index.js — loader patch needs updating" && exit 1)
+          sed -i 's/if (isMusl())/if (true)/g' index.js
+
           mkdir -p $out
           cp index.js $out/
           cp index.d.ts $out/
