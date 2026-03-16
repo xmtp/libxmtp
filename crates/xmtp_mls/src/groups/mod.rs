@@ -32,10 +32,13 @@ use self::{
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
 };
-use crate::groups::mls_ext::CommitLogStorer;
 use crate::groups::{
     intents::{QueueIntent, ReaddInstallationsIntentData},
     validated_commit::LibXMTPVersion,
+};
+use crate::groups::{
+    mls_ext::{CommitLogStorer, MutableMetadataMlsExt},
+    mls_sync::GroupMessageProcessingError,
 };
 use crate::messages::enrichment::EnrichMessageError;
 use crate::subscriptions::SyncWorkerEvent;
@@ -1484,7 +1487,9 @@ where
         self.ensure_not_paused().await?;
 
         if self.metadata().await?.conversation_type == ConversationType::Dm {
-            return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
+            return Err(GroupError::ReceiveError(
+                MetadataPermissionsError::DmGroupMetadataForbidden.into(),
+            ));
         }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_commit_log_signer(commit_log_signer).into();
@@ -1592,7 +1597,9 @@ where
         }
 
         if self.metadata().await?.conversation_type == ConversationType::Dm {
-            return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
+            return Err(GroupError::ReceiveError(
+                MetadataPermissionsError::DmGroupMetadataForbidden.into(),
+            ));
         }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_description(group_description).into();
@@ -1636,7 +1643,9 @@ where
         }
 
         if self.metadata().await?.conversation_type == ConversationType::Dm {
-            return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
+            return Err(GroupError::ReceiveError(
+                MetadataPermissionsError::DmGroupMetadataForbidden.into(),
+            ));
         }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_image_url_square(group_image_url_square)
@@ -1657,10 +1666,10 @@ where
             .get(&MetadataField::GroupImageUrlSquare.to_string())
         {
             Some(group_image_url_square) => Ok(group_image_url_square.clone()),
-            None => Err(MetadataPermissionsError::Mutable(
-                GroupMutableMetadataError::MissingExtension,
-            )
-            .into()),
+            None => Err(GroupError::ReceiveError(
+                MetadataPermissionsError::Mutable(GroupMutableMetadataError::MissingExtension)
+                    .into(),
+            )),
         }
     }
 
@@ -1845,7 +1854,9 @@ where
         inbox_id: String,
     ) -> Result<(), GroupError> {
         if self.metadata().await?.conversation_type == ConversationType::Dm {
-            return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
+            return Err(GroupError::ReceiveError(
+                MetadataPermissionsError::DmGroupMetadataForbidden.into(),
+            ));
         }
         let intent_action_type = match action_type {
             UpdateAdminListType::Add => AdminListActionType::Add,
@@ -2056,6 +2067,7 @@ where
         self.load_mls_group_with_lock_async(async |mls_group| {
             extract_group_metadata(mls_group.extensions())
                 .map_err(MetadataPermissionsError::from)
+                .map_err(GroupMessageProcessingError::MetadataPermissionsError)
                 .map_err(Into::into)
         })
         .await
@@ -2064,9 +2076,7 @@ where
     /// Get the `GroupMutableMetadata` of the group.
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
         self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
-            GroupMutableMetadata::try_from(&mls_group)
-                .map_err(MetadataPermissionsError::from)
-                .map_err(GroupError::from)
+            mls_group.mutable_metadata().map_err(Into::into)
         })
     }
 

@@ -1,5 +1,6 @@
 use crate::StorageError;
 use crate::groups::GroupError;
+use crate::groups::mls_ext::MutableMetadataMlsExt;
 use crate::groups::{mls_sync::GroupMessageProcessingError, validated_commit::ValidatedCommit};
 use crate::identity::Identity;
 use openmls::group::{MlsGroup, MlsGroupCreateConfig, StagedCommit};

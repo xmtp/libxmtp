@@ -23,7 +23,7 @@ use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
 use xmtp_db::{
     DbQuery, StorageError, Store,
-    group::{StoredGroupForReaddRequest, StoredGroupSalt},
+    group::{StoredGroupCommitLog, StoredGroupForReaddRequest},
     local_commit_log::LocalCommitLogOrder,
     prelude::*,
     readd_status::QueryReaddStatus,
@@ -39,7 +39,7 @@ use xmtp_proto::{
 };
 
 use crate::groups::commit_log_key::derive_consensus_public_key;
-use crate::groups::commit_log_key::get_or_create_signing_key;
+use crate::groups::commit_log_key::get_or_create_salt;
 use crate::{
     context::XmtpSharedContext,
     groups::GroupError,
@@ -290,20 +290,16 @@ where
     fn prepare_publish_commit_log_info(
         &self,
         conn: &impl DbQuery,
-        conversation_keys: &[StoredGroupSalt],
+        conversation_salts: &[StoredGroupCommitLog],
     ) -> Result<(Vec<ConversationCursorInfo>, Vec<PublishCommitLogRequest>), CommitLogError> {
         let mut conversation_cursor_info: Vec<ConversationCursorInfo> = Vec::new();
         let mut all_entries = Vec::new();
-        for conversation in conversation_keys {
+        for salt in conversation_salts {
             // Step 1: Check each conversation cursors to see if we have new commits that have not been published to remote commit log yet
-            let local_commit_log_cursor = conn
-                .get_local_commit_log_cursor(&conversation.id)
-                .ok()
-                .flatten()
-                .unwrap_or(0);
+            let local_commit_log_cursor = salt.local_commit_log_cursor.unwrap_or(0);
             let published_commit_log_cursor = conn
                 .get_last_cursor_for_originator(
-                    &conversation.id,
+                    &salt.group_id,
                     xmtp_db::refresh_state::EntityKind::CommitLogUpload,
                     Originators::REMOTE_COMMIT_LOG,
                 )
@@ -320,7 +316,7 @@ where
             // All local commit log will have rowid > 0 since sqlite rowid starts at 1 https://www.sqlite.org/autoinc.html
             let (plaintext_commit_log_entries, rowids): (Vec<PlaintextCommitLogEntry>, Vec<i32>) =
                 conn.get_local_commit_log_after_cursor(
-                    &conversation.id,
+                    &salt.group_id,
                     published_commit_log_cursor as i64,
                     LocalCommitLogOrder::AscendingByRowid,
                 )?
@@ -331,11 +327,10 @@ where
 
             // Step 3: Compile the conversation cursor info and all the commit log entries for this conversation
             if let Some(max_rowid) = rowids.into_iter().last() {
-                let signed_entries =
-                    self.sign_group_logs(conversation, &plaintext_commit_log_entries)?;
+                let signed_entries = self.sign_group_logs(salt, &plaintext_commit_log_entries)?;
                 all_entries.extend(signed_entries);
                 conversation_cursor_info.push(ConversationCursorInfo {
-                    conversation_id: conversation.id.clone(),
+                    conversation_id: salt.group_id.clone(),
                     num_entries_published: plaintext_commit_log_entries.len(),
                     last_entry_published_sequence_id: plaintext_commit_log_entries
                         .last()
@@ -350,13 +345,13 @@ where
 
     fn sign_group_logs(
         &self,
-        conversation: &StoredGroupSalt,
+        conversation: &StoredGroupCommitLog,
         plaintext_commit_log_entries: &[PlaintextCommitLogEntry],
     ) -> Result<Vec<PublishCommitLogRequest>, CommitLogError> {
-        let Some(private_key) = get_or_create_signing_key(&self.context, conversation)? else {
+        let Some(private_key) = get_or_create_salt(&self.context, conversation)? else {
             tracing::warn!(
                 "No signing key available for group {:?}",
-                hex::encode(&conversation.id)
+                hex::encode(&conversation.group_id)
             );
             return Ok(vec![]);
         };
@@ -373,7 +368,7 @@ where
             let public_key = xmtp_cryptography::signature::to_public_key(&private_key)?.to_vec();
 
             signed_entries.push(PublishCommitLogRequest {
-                group_id: conversation.id.clone(),
+                group_id: conversation.group_id.clone(),
                 serialized_commit_log_entry,
                 signature: Some(RecoverableEd25519Signature {
                     bytes: signature,
@@ -391,7 +386,7 @@ where
         let conversation_id_to_salt: HashMap<Vec<u8>, Option<Vec<u8>>> = conn
             .get_conversation_ids_for_remote_log_download()?
             .into_iter()
-            .map(|c| (c.id, c.salt))
+            .map(|c| (c.group_id, c.group_salt))
             .collect();
 
         // Step 1 is to collect a list of remote log cursors for all conversations and convert them into query log requests

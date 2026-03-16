@@ -164,8 +164,6 @@ pub enum GroupError {
     Db(#[from] xmtp_db::ConnectionError),
     #[error(transparent)]
     MlsStore(#[from] MlsStoreError),
-    #[error(transparent)]
-    MetadataPermissionsError(#[from] MetadataPermissionsError),
     #[error("Failed to verify all installations")]
     FailedToVerifyInstallations,
     #[error("no welcomes to send")]

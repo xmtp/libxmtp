@@ -1,7 +1,7 @@
 use crate::StorageError;
 use crate::association_state::QueryAssociationStateCache;
 use crate::group::ConversationType;
-use crate::group::StoredGroupSalt;
+use crate::group::StoredGroupCommitLog;
 use crate::group_message::StoredGroupMessage;
 #[cfg(feature = "commit-log")]
 use crate::local_commit_log::{LocalCommitLog, LocalCommitLogOrder};
@@ -221,9 +221,9 @@ mock! {
 
         fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError>;
 
-        fn get_conversation_ids_for_remote_log_publish(&self) -> Result<Vec<StoredGroupSalt>, crate::ConnectionError>;
+        fn get_conversation_ids_for_remote_log_publish(&self) -> Result<Vec<StoredGroupCommitLog>, crate::ConnectionError>;
 
-        fn get_conversation_ids_for_remote_log_download(&self) -> Result<Vec<StoredGroupSalt>, crate::ConnectionError>;
+        fn get_conversation_ids_for_remote_log_download(&self) -> Result<Vec<StoredGroupCommitLog>, crate::ConnectionError>;
 
         fn get_conversation_ids_for_fork_check(
             &self,
@@ -239,7 +239,7 @@ mock! {
 
         fn get_conversation_type(&self, group_id: &[u8]) -> Result<ConversationType, crate::ConnectionError>;
 
-        fn set_group_commit_log_public_key(
+        fn set_salt(
             &self,
             group_id: &[u8],
             public_key: &[u8],

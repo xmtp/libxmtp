@@ -241,6 +241,7 @@ impl GroupMutableMetadata {
             MetadataField::MessageDisappearInNS,
             MetadataField::MinimumSupportedProtocolVersion,
             MetadataField::AppData,
+            MetadataField::Salt,
         ]
     }
 
@@ -254,9 +255,9 @@ impl GroupMutableMetadata {
         self.super_admin_list.contains(inbox_id)
     }
 
-    /// Retrieves the commit log signer secret from the metadata attributes.
+    /// Retrieves the group salt from the metadata attributes.
     /// Returns None if the field is not present or if hex decoding fails.
-    pub fn commit_log_signer(&self) -> Option<Secret> {
+    pub fn salt(&self) -> Option<Secret> {
         self.attributes
             .get(&MetadataField::Salt.to_string())
             .and_then(|hex_str| hex::decode(hex_str).ok())
@@ -379,18 +380,18 @@ mod tests {
 
         let metadata = GroupMutableMetadata::new(attributes, vec![], vec![]);
 
-        let retrieved_secret = metadata.commit_log_signer().unwrap();
+        let retrieved_secret = metadata.salt().unwrap();
         assert_eq!(retrieved_secret.as_slice(), &test_secret_bytes);
 
         // Test with missing signer
         let empty_metadata = GroupMutableMetadata::new(HashMap::new(), vec![], vec![]);
-        assert!(empty_metadata.commit_log_signer().is_none());
+        assert!(empty_metadata.salt().is_none());
 
         // Test with invalid hex
         let mut bad_attributes = HashMap::new();
         bad_attributes.insert(MetadataField::Salt.to_string(), "invalid_hex".to_string());
 
         let bad_metadata = GroupMutableMetadata::new(bad_attributes, vec![], vec![]);
-        assert!(bad_metadata.commit_log_signer().is_none());
+        assert!(bad_metadata.salt().is_none());
     }
 }

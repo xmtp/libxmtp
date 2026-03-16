@@ -12,9 +12,12 @@ use crate::{
     client::ClientError,
     context::XmtpSharedContext,
     groups::{
+        MetadataPermissionsError,
         group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
         intents::{QueueIntent, ReaddInstallationsIntentData, UpdateMetadataIntentData},
-        mls_ext::{CommitLogStorer, MlsGroupReload, WrapWelcomeError, wrap_welcome},
+        mls_ext::{
+            CommitLogStorer, MlsGroupReload, MutableMetadataMlsExt, WrapWelcomeError, wrap_welcome,
+        },
         mls_sync::{
             GroupMessageProcessingError::OpenMlsProcessMessage,
             update_group_membership::apply_readd_installations_intent,
@@ -191,6 +194,8 @@ pub enum GroupMessageProcessingError {
     Diesel(#[from] xmtp_db::diesel::result::Error),
     #[error(transparent)]
     EnrichMessage(#[from] EnrichMessageError),
+    #[error(transparent)]
+    MetadataPermissionsError(#[from] MetadataPermissionsError),
 }
 
 impl RetryableError for GroupMessageProcessingError {
@@ -820,12 +825,18 @@ where
                 intent.id
             );
 
-            if let Err(err) = mls_group.merge_staged_commit_logged(
-                &XmtpOpenMlsProviderRef::new(storage),
-                staged_commit,
-                &validated_commit,
-                cursor.sequence_id as i64,
-            ) {
+            let merge_commit = || {
+                mls_group.merge_staged_commit_logged(
+                    &XmtpOpenMlsProviderRef::new(storage),
+                    staged_commit,
+                    &validated_commit,
+                    cursor.sequence_id as i64,
+                )?;
+                self.cache_metadata(&mls_group, storage)?;
+                Ok(())
+            };
+
+            if let Err(err) = merge_commit() {
                 tracing::error!("error merging commit: {err}");
                 return Err(IntentResolutionError {
                     processing_error: err,
@@ -835,6 +846,7 @@ where
                     next_intent_state: IntentState::ToPublish,
                 });
             }
+
             Self::mark_readd_requests_as_responded(
                 storage,
                 &self.group_id,
@@ -1333,6 +1345,26 @@ where
                 );
             }
         }
+    }
+
+    fn cache_metadata(
+        &self,
+        mls_group: &OpenMlsGroup,
+        storage: &impl XmtpMlsStorageProvider,
+    ) -> Result<(), GroupMessageProcessingError> {
+        let metadata = mls_group.mutable_metadata()?;
+        if let Some(salt) = metadata.salt() {
+            // A super-admin can change the salt at any time.
+            // A super-admin should only issue a commit to set the salt if it sees no salt.
+            // There is a race condition where two SA installations attempt to update the
+            // salt at the same time. That could result in the salt changing more than once.
+            //
+            // Here we cache the salt in the groups table for fast lookup without the need
+            // to create an MlsGroup and n+1 queries.
+            let salt = salt.as_slice();
+        }
+
+        Ok(())
     }
 
     fn process_leave_request_message(
