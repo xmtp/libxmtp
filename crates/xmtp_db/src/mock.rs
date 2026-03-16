@@ -239,7 +239,7 @@ mock! {
 
         fn get_conversation_type(&self, group_id: &[u8]) -> Result<ConversationType, crate::ConnectionError>;
 
-        fn set_salt(
+        fn set_group_salt(
             &self,
             group_id: &[u8],
             public_key: &[u8],

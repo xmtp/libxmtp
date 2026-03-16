@@ -1362,6 +1362,10 @@ where
             // Here we cache the salt in the groups table for fast lookup without the need
             // to create an MlsGroup and n+1 queries.
             let salt = salt.as_slice();
+
+            storage
+                .db()
+                .set_group_salt(mls_group.group_id().as_slice(), salt)?;
         }
 
         Ok(())
@@ -2569,7 +2573,8 @@ where
                     openmls_group,
                     metadata_intent.field_name,
                     metadata_intent.field_value,
-                )?;
+                )
+                .map_err(GroupMessageProcessingError::MetadataPermissionsError)?;
 
                 let keys = self.context.identity().installation_keys.clone();
                 let ((commit, _, _), staged_commit, group_epoch) =
@@ -2597,7 +2602,8 @@ where
                 let mutable_metadata_extensions = build_extensions_for_admin_lists_update(
                     openmls_group,
                     admin_list_update_intent,
-                )?;
+                )
+                .map_err(GroupMessageProcessingError::MetadataPermissionsError)?;
 
                 let keys = self.context.identity().installation_keys.clone();
                 let ((commit, _, _), staged_commit, group_epoch) =
@@ -2625,7 +2631,8 @@ where
                 let group_permissions_extensions = build_extensions_for_permissions_update(
                     openmls_group,
                     update_permissions_intent,
-                )?;
+                )
+                .map_err(GroupMessageProcessingError::MetadataPermissionsError)?;
 
                 let keys = self.context.identity().installation_keys.clone();
                 let ((commit, _, _), staged_commit, group_epoch) =

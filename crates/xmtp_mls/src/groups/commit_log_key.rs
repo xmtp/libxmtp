@@ -119,7 +119,7 @@ pub(crate) async fn derive_consensus_public_key(
             .await?;
             context
                 .db()
-                .set_salt(&commit_log_response.group_id, &signature.public_key)?;
+                .set_group_salt(&commit_log_response.group_id, &signature.public_key)?;
             return Ok(Some(signature.public_key.clone()));
         }
     }

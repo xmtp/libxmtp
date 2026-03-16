@@ -354,7 +354,7 @@ pub trait QueryGroup {
     ) -> Result<ConversationType, crate::ConnectionError>;
 
     /// Updates the commit log public key for a group
-    fn set_salt(&self, group_id: &[u8], salt: &[u8]) -> Result<(), StorageError>;
+    fn set_group_salt(&self, group_id: &[u8], salt: &[u8]) -> Result<(), StorageError>;
 
     /// Updates the is_commit_log_forked status for a group
     fn set_group_commit_log_forked_status(
@@ -529,8 +529,8 @@ where
         (**self).get_conversation_type(group_id)
     }
 
-    fn set_salt(&self, group_id: &[u8], public_key: &[u8]) -> Result<(), StorageError> {
-        (**self).set_salt(group_id, public_key)
+    fn set_group_salt(&self, group_id: &[u8], public_key: &[u8]) -> Result<(), StorageError> {
+        (**self).set_group_salt(group_id, public_key)
     }
 
     fn set_group_commit_log_forked_status(
@@ -1141,7 +1141,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(conversation_type)
     }
 
-    fn set_salt(&self, group_id: &[u8], public_key: &[u8]) -> Result<(), StorageError> {
+    fn set_group_salt(&self, group_id: &[u8], public_key: &[u8]) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;
         let num_updated = self.raw_query_write(|conn| {
             diesel::update(dsl::groups)

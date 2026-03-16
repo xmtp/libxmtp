@@ -236,6 +236,12 @@ impl MetadataPolicies {
                         MetadataPolicies::allow_if_actor_super_admin(),
                     );
                 }
+                field if field.as_str().starts_with("_") => {
+                    map.insert(
+                        field.to_string(),
+                        MetadataPolicies::allow_if_actor_super_admin(),
+                    );
+                }
                 _ => {
                     map.insert(field.to_string(), policies.clone());
                 }
