@@ -47,9 +47,8 @@ let
   };
 
   # Per-target CC, linker, and rustflags env vars for cargo cross-compilation.
-  # Musl targets need -crt-static to allow cdylib (.node shared library) builds.
-  # This is set here (not .cargo/config.toml) to avoid conflicts with other musl
-  # builds (e.g. musl-docker.nix) that need the opposite (+crt-static).
+  # Musl targets use -crt-static (required for cdylib) but statically link libc
+  # via linker flags so the .node file is self-contained and works on glibc hosts.
   crossEnvFor =
     target:
     let
@@ -74,7 +73,17 @@ let
     // (
       if isMusl then
         {
-          "CARGO_TARGET_${targetUpper}_RUSTFLAGS" = "-C target-feature=-crt-static";
+          # -crt-static: allow cdylib (shared library) output on musl targets.
+          # -nostdlib: prevent the GCC driver from adding its own -lc (dynamic).
+          # Then we explicitly link static musl libc and libgcc so the .node file
+          # is fully self-contained and works on any Linux host (glibc or musl).
+          "CARGO_TARGET_${targetUpper}_RUSTFLAGS" = builtins.concatStringsSep " " [
+            "-C target-feature=-crt-static"
+            "-C link-arg=-nostdlib"
+            "-C link-arg=-Wl,-Bstatic"
+            "-C link-arg=-lc"
+            "-C link-arg=-lgcc"
+          ];
         }
       else
         { }
