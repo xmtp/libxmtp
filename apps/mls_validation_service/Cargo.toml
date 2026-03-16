@@ -33,7 +33,11 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["signal", "rt-multi-thread"] }
 tonic = { workspace = true, features = ["router"] }
 tracing.workspace = true
-tracing-subscriber = { workspace = true, features = ["env-filter", "ansi", "json"] }
+tracing-subscriber = { workspace = true, features = [
+  "env-filter",
+  "ansi",
+  "json",
+] }
 warp = "0.3.6"
 xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
