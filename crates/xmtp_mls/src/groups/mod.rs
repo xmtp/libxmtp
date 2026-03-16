@@ -78,7 +78,7 @@ use xmtp_content_types::{
     reply::ReplyCodec,
 };
 #[cfg(feature = "commit-log")]
-use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
+use xmtp_cryptography::configuration::SALT_SIZE;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::group_message::Deletable;
 use xmtp_db::group_message::LatestMessageTimeBySender;
@@ -458,11 +458,14 @@ where
             creator_inbox_id,
             conversation_type,
             oneshot_message,
-        )?;
+        )
+        .map_err(GroupMessageProcessingError::MetadataPermissionsError)?;
         let mutable_metadata =
             build_mutable_metadata_extension_default(creator_inbox_id, opts.clone())?;
         let group_membership = build_starting_group_membership_extension(creator_inbox_id, 0);
-        let mutable_permissions = build_mutable_permissions_extension(permissions_policy_set)?;
+        let mutable_permissions = build_mutable_permissions_extension(permissions_policy_set)
+            .map_err(GroupMessageProcessingError::MetadataPermissionsError)?;
+
         let group_config = build_group_config(
             protected_metadata,
             mutable_metadata,
@@ -525,11 +528,12 @@ where
             context.inbox_id(),
             &dm_target_inbox_id,
             opts.clone(),
-        )?;
+        )
+        .map_err(GroupMessageProcessingError::MetadataPermissionsError)?;
         let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
         let mutable_permissions = PolicySet::new_dm();
-        let mutable_permission_extension =
-            build_mutable_permissions_extension(mutable_permissions)?;
+        let mutable_permission_extension = build_mutable_permissions_extension(mutable_permissions)
+            .map_err(GroupMessageProcessingError::MetadataPermissionsError)?;
         let group_config = build_group_config(
             protected_metadata,
             mutable_metadata,
@@ -1396,7 +1400,9 @@ where
             });
         }
         if self.metadata().await?.conversation_type == ConversationType::Dm {
-            return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
+            return Err(GroupError::ReceiveError(
+                MetadataPermissionsError::DmGroupMetadataForbidden.into(),
+            ));
         }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
@@ -1422,7 +1428,9 @@ where
             });
         }
         if self.metadata().await?.conversation_type == ConversationType::Dm {
-            return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
+            return Err(GroupError::ReceiveError(
+                MetadataPermissionsError::DmGroupMetadataForbidden.into(),
+            ));
         }
         let intent_data: Vec<u8> = UpdateMetadataIntentData::new_update_app_data(app_data).into();
         let intent = QueueIntent::metadata_update()
@@ -1525,12 +1533,16 @@ where
         self.ensure_not_paused().await?;
 
         if self.metadata().await?.conversation_type == ConversationType::Dm {
-            return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
+            return Err(GroupError::ReceiveError(
+                MetadataPermissionsError::DmGroupMetadataForbidden.into(),
+            ));
         }
         if permission_update_type == PermissionUpdateType::UpdateMetadata
             && metadata_field.is_none()
         {
-            return Err(MetadataPermissionsError::InvalidPermissionUpdate.into());
+            return Err(GroupError::ReceiveError(
+                MetadataPermissionsError::InvalidPermissionUpdate.into(),
+            ));
         }
 
         let intent_data: Vec<u8> = UpdatePermissionIntentData::new(
@@ -1556,10 +1568,9 @@ where
             .get(&MetadataField::GroupName.to_string())
         {
             Some(group_name) => Ok(group_name.clone()),
-            None => Err(MetadataPermissionsError::from(
-                GroupMutableMetadataError::MissingExtension,
-            )
-            .into()),
+            None => Err(GroupError::ReceiveError(
+                MetadataPermissionsError::from(GroupMutableMetadataError::MissingExtension).into(),
+            )),
         }
     }
 
@@ -1571,10 +1582,9 @@ where
             .get(&MetadataField::AppData.to_string())
         {
             Some(app_data) => Ok(app_data.clone()),
-            None => Err(MetadataPermissionsError::from(
-                GroupMutableMetadataError::MissingExtension,
-            )
-            .into()),
+            None => Err(GroupError::ReceiveError(
+                MetadataPermissionsError::from(GroupMutableMetadataError::MissingExtension).into(),
+            )),
         }
     }
 
@@ -1618,8 +1628,9 @@ where
             .get(&MetadataField::Description.to_string())
         {
             Some(group_description) => Ok(group_description.clone()),
-            None => Err(GroupError::MetadataPermissionsError(
-                GroupMutableMetadataError::MissingExtension.into(),
+            None => Err(GroupError::ReceiveError(
+                MetadataPermissionsError::Mutable(GroupMutableMetadataError::MissingExtension)
+                    .into(),
             )),
         }
     }
@@ -1781,8 +1792,9 @@ where
                 message_disappear_in_ns,
             ))
         } else {
-            Err(GroupError::MetadataPermissionsError(
-                GroupMetadataError::MissingExtension.into(),
+            Err(GroupError::ReceiveError(
+                MetadataPermissionsError::GroupMetadata(GroupMetadataError::MissingExtension)
+                    .into(),
             ))
         }
     }
@@ -2082,7 +2094,9 @@ where
 
     pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
         self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
-            Ok(extract_group_permissions(&mls_group).map_err(MetadataPermissionsError::from)?)
+            Ok(extract_group_permissions(&mls_group)
+                .map_err(MetadataPermissionsError::from)
+                .map_err(GroupMessageProcessingError::MetadataPermissionsError)?)
         })
     }
 
@@ -2154,8 +2168,8 @@ where
         let group_membership = custom_group_membership
             .unwrap_or_else(|| build_starting_group_membership_extension(context.inbox_id(), 0));
         let mutable_permissions = custom_mutable_permissions.unwrap_or_else(PolicySet::new_dm);
-        let mutable_permission_extension =
-            build_mutable_permissions_extension(mutable_permissions)?;
+        let mutable_permission_extension = build_mutable_permissions_extension(mutable_permissions)
+            .map_err(GroupMessageProcessingError::MetadataPermissionsError)?;
 
         let group_config = build_group_config(
             protected_metadata,
@@ -2227,7 +2241,8 @@ fn build_dm_protected_metadata_extension(
     let protected_metadata = Metadata::new(
         metadata
             .try_into()
-            .map_err(MetadataPermissionsError::from)?,
+            .map_err(MetadataPermissionsError::from)
+            .map_err(GroupMessageProcessingError::MetadataPermissionsError)?,
     );
 
     Ok(Extension::ImmutableMetadata(protected_metadata))
@@ -2250,18 +2265,19 @@ pub fn build_mutable_metadata_extension_default(
     opts: GroupMetadataOptions,
 ) -> Result<Extension, GroupError> {
     #[allow(unused_mut)]
-    let mut commit_log_signer = None;
+    let mut salt = None;
 
     #[cfg(feature = "commit-log")]
     {
         // Optional TODO(rich): Plumb in provider and use traits in commit_log_key.rs to generate and store secret
-        commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>())
+        salt = Some(xmtp_cryptography::rand::rand_secret::<SALT_SIZE>())
     }
 
     let mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new_default(creator_inbox_id.to_string(), commit_log_signer, opts)
+        GroupMutableMetadata::new_default(creator_inbox_id.to_string(), salt, opts)
             .try_into()
-            .map_err(MetadataPermissionsError::from)?;
+            .map_err(MetadataPermissionsError::from)
+            .map_err(GroupMessageProcessingError::MetadataPermissionsError)?;
     let unknown_gc_extension = UnknownExtension(mutable_metadata);
 
     Ok(Extension::Unknown(
@@ -2279,7 +2295,7 @@ pub fn build_dm_mutable_metadata_extension_default(
     let mut commit_log_signer = None;
     #[cfg(feature = "commit-log")]
     {
-        commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>());
+        commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<SALT_SIZE>());
     }
     let mutable_metadata: Vec<u8> = GroupMutableMetadata::new_dm_default(
         creator_inbox_id.to_string(),

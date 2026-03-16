@@ -231,8 +231,9 @@ impl RetryableError for GroupMessageProcessingError {
             | Self::UnsupportedMessageType(_)
             | Self::GroupPaused
             | Self::FutureEpoch(_, _)
-            | Self::OldEpoch(_, _) => false,
-            Self::Builder(_) => false,
+            | Self::OldEpoch(_, _)
+            | Self::Builder(_)
+            | Self::MetadataPermissionsError(_) => false,
         }
     }
 }

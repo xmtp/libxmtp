@@ -73,7 +73,7 @@ async fn test_commit_log_signer_on_group_creation() {
     );
     assert_eq!(
         a_commit_log_signer.unwrap().as_slice().len(),
-        xmtp_cryptography::configuration::ED25519_KEY_LENGTH
+        xmtp_cryptography::configuration::SALT_SIZE
     );
 
     let a = alix
@@ -93,7 +93,7 @@ async fn test_commit_log_signer_on_group_creation() {
     );
     assert_eq!(
         a_commit_log_signer.unwrap().as_slice().len(),
-        xmtp_cryptography::configuration::ED25519_KEY_LENGTH
+        xmtp_cryptography::configuration::SALT_SIZE
     );
 }
 

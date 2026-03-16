@@ -131,7 +131,7 @@ impl GroupMutableMetadata {
     /// See `GroupMutablePermissions` for more details on super admin permissions.
     pub fn new_default(
         creator_inbox_id: String,
-        commit_log_signer: Option<Secret>,
+        salt: Option<Secret>,
         opts: GroupMetadataOptions,
     ) -> Self {
         let mut attributes = HashMap::new();
@@ -165,10 +165,10 @@ impl GroupMutableMetadata {
             );
         }
 
-        if let Some(signer) = commit_log_signer {
+        if let Some(salt) = salt {
             attributes.insert(
                 MetadataField::Salt.to_string(),
-                hex::encode(signer.as_slice()),
+                hex::encode(salt.as_slice()),
             );
         }
 
