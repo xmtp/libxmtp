@@ -27,10 +27,7 @@ let
     "aarch64-apple-darwin"
   ];
 
-  nodeTargets =
-    linuxMuslTargets
-    ++ lib.optionals stdenv.isLinux linuxGnuTargets
-    ++ lib.optionals stdenv.isDarwin darwinTargets;
+  nodeTargets = linuxMuslTargets ++ lib.optionals stdenv.isDarwin darwinTargets;
 
   # Rust triple -> NAPI-RS platform name (used in .node filenames).
   targetToNapi = {
@@ -43,17 +40,10 @@ let
   };
 
   # Cross-compilation toolchains. Entries are needed for every target that isn't
-  # the native host. gnu targets are only built on Linux (see nodeTargets), so
-  # cross-compilers are only needed for the non-native Linux arch.
+  # the native host. Only musl targets need cross-compilers.
   crossCcFor = {
     "x86_64-unknown-linux-musl" = pkgsCross.musl64.stdenv.cc;
     "aarch64-unknown-linux-musl" = pkgsCross.aarch64-multiplatform-musl.stdenv.cc;
-  }
-  // lib.optionalAttrs (hostTarget != "x86_64-unknown-linux-gnu") {
-    "x86_64-unknown-linux-gnu" = pkgsCross.gnu64.stdenv.cc;
-  }
-  // lib.optionalAttrs (hostTarget != "aarch64-unknown-linux-gnu") {
-    "aarch64-unknown-linux-gnu" = pkgsCross.aarch64-multiplatform.stdenv.cc;
   };
 
   # Per-target CC, linker, and rustflags env vars for cargo cross-compilation.

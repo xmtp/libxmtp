@@ -5,6 +5,7 @@
   xmtp,
   nodejs,
   cacert,
+  darwin,
   ...
 }:
 let
@@ -61,10 +62,23 @@ let
         src = bindingsFileset;
         cargoArtifacts = buildTargetDeps target;
         doNotPostBuildInstallCargoBinaries = true;
+        nativeBuildInputs =
+          (mkTargetArgs target).nativeBuildInputs
+          ++ lib.optionals (lib.hasInfix "apple" target) [ darwin.cctools ];
         installPhaseCommand = ''
           mkdir -p $out
           cp target/${target}/release/libbindings_node.${libExt} \
              $out/bindings_node.${napiName}.node
+        ''
+        + lib.optionalString (lib.hasInfix "apple" target) ''
+          # Rewrite Nix store rpaths to standard macOS system paths
+          for nixlib in $(otool -L $out/bindings_node.${napiName}.node | grep /nix/store | awk '{print $1}'); do
+            basename=$(basename "$nixlib")
+            install_name_tool -change "$nixlib" "/usr/lib/$basename" \
+              $out/bindings_node.${napiName}.node
+          done
+          # Re-sign after modification (install_name_tool invalidates ad-hoc signatures)
+          codesign -s - $out/bindings_node.${napiName}.node || true
         '';
       }
     );
