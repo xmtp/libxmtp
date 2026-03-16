@@ -8,9 +8,12 @@ mod log_macros;
 mod logging;
 mod parse_logs_macro;
 mod test_macro;
+mod timeout_macro;
 
 #[cfg(test)]
 mod builder_test;
+#[cfg(test)]
+mod timeout_macro_test;
 
 /// A proc macro attribute that wraps the input in an `async_trait` implementation,
 /// delegating to the appropriate `async_trait` implementation based on the target architecture.
@@ -195,4 +198,24 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 #[proc_macro_derive(ErrorCode, attributes(error_code))]
 pub fn derive_error_code(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     error_code::derive_error_code(input)
+}
+
+/// Attribute macro that wraps an async test body with a WASM-compatible timeout.
+///
+/// This is a drop-in replacement for rstest's `#[timeout]` that works on
+/// `wasm32-unknown-unknown` by using `xmtp_common::time::timeout` internally.
+///
+/// # Example
+///
+/// ```ignore
+/// #[xmtp_common::test]
+/// #[xmtp_common::timeout(std::time::Duration::from_secs(60))]
+/// async fn test_something() { ... }
+/// ```
+#[proc_macro_attribute]
+pub fn timeout(
+    attr: proc_macro::TokenStream,
+    body: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    timeout_macro::timeout(attr, body)
 }
