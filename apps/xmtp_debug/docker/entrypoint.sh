@@ -63,10 +63,12 @@ while true; do
     log "Running health checks..."
     bash "$(dirname "$0")/web-healthcheck.sh" || log "WARNING: health check failed"
 
-    # Migration latency test: writes to V3 (no -d), reads from V4 node
+    # Migration latency test: writes to V3 (no -d, no --perf), reads from V4 node.
+    # Intentionally omits -d and --perf since those require D14N mode,
+    # but the migration test writes to V3 production.
     if [ -n "${XDBG_V4_NODE_URL}" ]; then
       log "Migration latency test..."
-      XDBG_LOOP_PAUSE=0 xdbg -b "${BACKEND}" --perf test migration-latency \
+      XDBG_LOOP_PAUSE=0 xdbg -b "${BACKEND}" test migration-latency \
         --v4-node-url "${XDBG_V4_NODE_URL}" \
         --migration-timeout "${XDBG_MIGRATION_TIMEOUT}" \
         --iterations 1 \
