@@ -82,4 +82,3 @@ impl<'env> EnvelopeVisitor<'env> for EnvelopeValidator {
         Ok(())
     }
 }
-
