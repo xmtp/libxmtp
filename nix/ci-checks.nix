@@ -20,6 +20,8 @@
           {
             v3 = pkgs.callPackage ./package/nextest.nix { };
             d14n = pkgs.callPackage ./package/nextest.nix { d14n = true; };
+            wasm-v3 = pkgs.callPackage ./package/wasm-nextest.nix { };
+            wasm-d14n = pkgs.callPackage ./package/wasm-nextest.nix { d14n = true; };
           }
         )
       );

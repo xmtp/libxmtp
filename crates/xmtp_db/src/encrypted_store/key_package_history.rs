@@ -193,8 +193,6 @@ mod tests {
     use crate::prelude::*;
     use crate::test_utils::with_connection;
     use xmtp_common::rand_vec;
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     #[xmtp_common::test]
     fn test_store_key_package_history_entry() {

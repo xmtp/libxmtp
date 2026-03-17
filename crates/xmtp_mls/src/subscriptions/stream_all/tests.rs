@@ -1,9 +1,6 @@
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
 use crate::subscriptions::stream_messages::stream_stats::StreamWithStats;
 use crate::tester;
 use crate::{assert_msg, builder::ClientBuilder};

@@ -51,4 +51,6 @@ package.tracing = { opt-level = 3, debug = false, debug-assertions = true, overf
 # Optimized test profile for WASM — debug builds produce huge binaries that are expensive to parse in Chrome
 [profile.wasm-test]
 inherits = "test"
-opt-level = 2
+opt-level = "z"
+lto = true
+wasm-opt = ['-O4', '--intrinsic-lowering', '-Os']

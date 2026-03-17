@@ -35,9 +35,6 @@ use xmtp_db::refresh_state::EntityKind;
 use xmtp_id::InboxOwner;
 use xmtp_proto::types::{Cursor, TopicKind};
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
 use super::group_permissions::PolicySet;
 use crate::context::XmtpSharedContext;
 use crate::groups::intents::QueueIntent;
