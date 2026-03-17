@@ -193,13 +193,15 @@ pub(crate) mod tests {
     use tls_codec::Serialize as TlsSerialize;
     use xmtp_common::Generate;
     use xmtp_db::group_message::GroupMessageKind;
+    use xmtp_proto::types::{
+        UnpackedOriginatorEnvelope, UnpackedPayerEnvelope, UnpackedSubscribeEnvelopesResponse,
+        UnpackedUnsignedOriginatorEnvelope,
+    };
     use xmtp_proto::xmtp::mls::api::v1::{GroupMessage as V3GroupMessage, group_message};
     use xmtp_proto::xmtp::mls::api::v1::{GroupMessageInput, group_message_input};
     use xmtp_proto::xmtp::xmtpv4::envelopes::{
-        AuthenticatedData, ClientEnvelope, OriginatorEnvelope, PayerEnvelope,
-        UnsignedOriginatorEnvelope, client_envelope, originator_envelope,
+        AuthenticatedData, ClientEnvelope, client_envelope, originator_envelope,
     };
-    use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse;
 
     use std::time::Duration;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -465,47 +467,32 @@ pub(crate) mod tests {
             payload: Some(client_envelope::Payload::GroupMessage(group_message_input)),
         };
 
-        let mut client_envelope_bytes = Vec::new();
-        client_envelope.encode(&mut client_envelope_bytes).unwrap();
-
-        let payer_envelope = PayerEnvelope {
-            unsigned_client_envelope: client_envelope_bytes,
-            payer_signature: None,
-            target_originator: 1,
-            message_retention_days: 30,
-        };
-
-        let mut payer_envelope_bytes = Vec::new();
-        payer_envelope.encode(&mut payer_envelope_bytes).unwrap();
-
-        let unsigned_originator_envelope = UnsignedOriginatorEnvelope {
-            originator_node_id: 1,
-            originator_sequence_id: 1,
-            originator_ns: 1000000,
-            payer_envelope_bytes,
-            base_fee_picodollars: 0,
-            congestion_fee_picodollars: 0,
-            expiry_unixtime: 0,
-        };
-
-        let mut unsigned_originator_envelope_bytes = Vec::new();
-        unsigned_originator_envelope
-            .encode(&mut unsigned_originator_envelope_bytes)
-            .unwrap();
-
-        let originator_envelope = OriginatorEnvelope {
-            unsigned_originator_envelope: unsigned_originator_envelope_bytes,
+        let originator_envelope = UnpackedOriginatorEnvelope {
+            unsigned_originator_envelope: Some(UnpackedUnsignedOriginatorEnvelope {
+                originator_node_id: 1,
+                originator_sequence_id: 1,
+                originator_ns: 1000000,
+                payer_envelope: Some(UnpackedPayerEnvelope {
+                    unsigned_client_envelope: Some(client_envelope),
+                    payer_signature: None,
+                    target_originator: 1,
+                    message_retention_days: 30,
+                }),
+                base_fee_picodollars: 0,
+                congestion_fee_picodollars: 0,
+                expiry_unixtime: 0,
+            }),
             proof: Some(originator_envelope::Proof::OriginatorSignature(
                 Default::default(),
             )),
         };
 
-        let d14n_response = SubscribeEnvelopesResponse {
-            envelopes: vec![originator_envelope],
-        };
-
         let mut envelope_bytes = Vec::new();
-        d14n_response.encode(&mut envelope_bytes).unwrap();
+        UnpackedSubscribeEnvelopesResponse {
+            envelopes: vec![originator_envelope],
+        }
+        .encode(&mut envelope_bytes)
+        .unwrap();
 
         let result = group.process_streamed_group_message(envelope_bytes).await;
 

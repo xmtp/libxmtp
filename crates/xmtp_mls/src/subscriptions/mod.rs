@@ -727,48 +727,34 @@ pub(crate) mod tests {
         let cursors = envelope.cursors()?;
 
         // Wrap in D14n envelope structure
+        use xmtp_proto::types::{
+            UnpackedOriginatorEnvelope, UnpackedPayerEnvelope, UnpackedSubscribeEnvelopesResponse,
+            UnpackedUnsignedOriginatorEnvelope,
+        };
+        use xmtp_proto::xmtp::xmtpv4::envelopes::originator_envelope;
         let mut envelope_bytes = Vec::new();
-        xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse {
+        UnpackedSubscribeEnvelopesResponse {
             envelopes: client_envelopes
                 .into_iter()
                 .zip(cursors.iter())
-                .map(|(client_env, cursor)| {
-                    use xmtp_proto::xmtp::xmtpv4::envelopes::*;
-
-                    let mut client_bytes = Vec::new();
-                    client_env.encode(&mut client_bytes).unwrap();
-
-                    let payer_envelope = PayerEnvelope {
-                        unsigned_client_envelope: client_bytes,
-                        payer_signature: None,
-                        target_originator: cursor.originator_id,
-                        message_retention_days: 30,
-                    };
-
-                    let mut payer_bytes = Vec::new();
-                    payer_envelope.encode(&mut payer_bytes).unwrap();
-
-                    let unsigned_originator_envelope = UnsignedOriginatorEnvelope {
+                .map(|(client_env, cursor)| UnpackedOriginatorEnvelope {
+                    unsigned_originator_envelope: Some(UnpackedUnsignedOriginatorEnvelope {
                         originator_node_id: cursor.originator_id,
                         originator_sequence_id: cursor.sequence_id,
                         originator_ns: 1000000,
-                        payer_envelope_bytes: payer_bytes,
+                        payer_envelope: Some(UnpackedPayerEnvelope {
+                            unsigned_client_envelope: Some(client_env),
+                            payer_signature: None,
+                            target_originator: cursor.originator_id,
+                            message_retention_days: 30,
+                        }),
                         base_fee_picodollars: 0,
                         congestion_fee_picodollars: 0,
                         expiry_unixtime: 0,
-                    };
-
-                    let mut unsigned_bytes = Vec::new();
-                    unsigned_originator_envelope
-                        .encode(&mut unsigned_bytes)
-                        .unwrap();
-
-                    OriginatorEnvelope {
-                        unsigned_originator_envelope: unsigned_bytes,
-                        proof: Some(originator_envelope::Proof::OriginatorSignature(
-                            Default::default(),
-                        )),
-                    }
+                    }),
+                    proof: Some(originator_envelope::Proof::OriginatorSignature(
+                        Default::default(),
+                    )),
                 })
                 .collect(),
         }
