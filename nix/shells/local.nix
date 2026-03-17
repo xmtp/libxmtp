@@ -39,7 +39,7 @@ let
   ++ androidEnv.androidTargets
   ++ lib.optionals isDarwin iosEnv.iosTargets;
 
-  rust-toolchain = xmtp.mkToolchain allTargets [
+  rust-toolchain = xmtp.mkNativeToolchain allTargets [
     "rust-src"
     "clippy-preview"
     "rust-docs"
