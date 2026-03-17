@@ -2,7 +2,6 @@
 
 use color_eyre::eyre::{Result, eyre};
 use futures::stream::StreamExt;
-use prost::Message as ProstMessage;
 use std::time::Instant;
 use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
 use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig};
@@ -367,16 +366,10 @@ impl Test {
             {
                 Ok(latency) => {
                     latencies.push(latency);
+                    let secs = latency as f64 / 1000.0;
                     metrics::record_migration_success();
-                    // Histogram observation (for p50/p95/p99 in Grafana)
-                    metrics::record_migration_latency(latency as f64 / 1000.0);
-                    // Also emit via the standard phase metric path (gauge + CSV + push)
-                    record_phase_metric(
-                        "xdbg_migration_latency_seconds",
-                        latency as f64 / 1000.0,
-                        "migration_latency",
-                        "xdbg_test",
-                    );
+                    metrics::record_migration_latency(secs);
+                    metrics::push_metrics("xdbg_test");
                     info!(
                         iteration = i + 1,
                         latency_ms = latency,
@@ -449,6 +442,7 @@ impl Test {
         v4_client: &xmtp_api_grpc::GrpcClient,
         timeout_secs: u64,
     ) -> Result<u128> {
+        use prost::Message as ProstMessage;
         use xmtp_api_d14n::d14n::QueryEnvelopes;
         use xmtp_proto::prelude::Query;
         use xmtp_proto::types::Topic;
@@ -473,7 +467,7 @@ impl Test {
                     originator_node_ids: vec![],
                     last_seen: None,
                 })
-                .limit(0u32)
+                .limit(0u32) // 0 = no limit (server convention)
                 .build()
                 .map_err(|e| eyre!("build QueryEnvelopes: {e}"))?;
             match endpoint.query(v4_client).await {
@@ -491,8 +485,7 @@ impl Test {
             group_id_hex,
             chrono::Utc::now().timestamp_millis()
         );
-        let tag_hash = xxhash_rust::xxh3::xxh3_64(tag.as_bytes());
-        info!(tag_hash, "sending tagged message on V3");
+        info!(tag, "sending tagged message on V3");
 
         let start_time = Instant::now();
         group
@@ -549,7 +542,7 @@ impl Test {
                     originator_node_ids: vec![],
                     last_seen: None,
                 })
-                .limit(0u32)
+                .limit(0u32) // 0 = no limit (server convention)
                 .build()
                 .map_err(|e| eyre!("build QueryEnvelopes: {e}"))?;
 
@@ -563,7 +556,8 @@ impl Test {
 
             // Look for our specific message by matching originator+sequence from V3.
             // The migrator preserves these IDs exactly.
-            for env in &resp.envelopes {
+            // Skip envelopes up to the baseline count to avoid matching pre-existing ones.
+            for env in resp.envelopes.iter().skip(baseline_count) {
                 let unsigned = match UnsignedOriginatorEnvelope::decode(
                     env.unsigned_originator_envelope.as_slice(),
                 ) {
@@ -576,9 +570,8 @@ impl Test {
                     unsigned.originator_node_id == expected_originator
                         && unsigned.originator_sequence_id == expected_sequence
                 } else {
-                    // Fallback: any new envelope from a migrator originator
-                    resp.envelopes.len() > baseline_count
-                        && MIGRATOR_ORIGINATORS.contains(&unsigned.originator_node_id)
+                    // Fallback: any new envelope (beyond baseline) from a migrator originator
+                    MIGRATOR_ORIGINATORS.contains(&unsigned.originator_node_id)
                 };
 
                 if matched {

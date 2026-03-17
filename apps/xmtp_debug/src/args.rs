@@ -296,7 +296,7 @@ pub struct BackendOpts {
     #[arg(short, long)]
     pub d14n: bool,
     /// Use the perf gateway (closest-node selection) instead of the default gateway.
-    /// Implies --d14n.
+    /// Requires --d14n.
     #[arg(short, long, requires = "d14n")]
     pub perf: bool,
     /// enable the v3 -> d14n cutover client

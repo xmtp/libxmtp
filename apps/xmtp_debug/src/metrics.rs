@@ -203,13 +203,13 @@ pub fn record_throughput(operation_type: &str) {
 pub fn record_migration_latency(seconds: f64) {
     if let Some(m) = METRICS.get() {
         m.migration_latency.observe(seconds);
+        csv_metric(
+            "xdbg_migration_latency_seconds",
+            "migration",
+            seconds,
+            &[("phase", "v3_to_v4")],
+        );
     }
-    csv_metric(
-        "migration_latency_seconds",
-        "migration",
-        seconds,
-        &[("phase", "v3_to_v4")],
-    );
 }
 
 /// Increment migration success counter. No-op when metrics are inactive.
