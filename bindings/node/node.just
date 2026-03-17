@@ -1,38 +1,46 @@
 export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
+
 set shell := ["../../dev/nix-shell"]
 
 # Install JS dependencies
 install:
-  yarn
+    yarn
 
 # Install JS dependencies (CI - frozen lockfile)
 install-ci:
-  yarn install --immutable
+    yarn install --immutable
 
 # Build NAPI bindings and assemble dist (needs Rust — always uses default shell)
 [private]
 [script("bash")]
 _prepare-dist *extra_flags="":
-  set -euo pipefail
-  nix develop .#default --command bash -euc '\
-    rm -rf dist && \
-    yarn napi build --platform --esm {{extra_flags}} && \
-    mkdir -p dist && mv index.js dist && mv index.d.ts dist && mv *.node dist'
+    set -euo pipefail
+    nix develop .#default --command bash -euc '\
+      rm -rf dist && \
+      yarn napi build --platform --esm {{ extra_flags }} && \
+      mkdir -p dist && mv index.js dist && mv index.d.ts dist && mv *.node dist'
 
 # Build Node.js NAPI bindings
 check: install (_prepare-dist "--release")
 
 # Check TypeScript formatting
 lint: install
-  yarn prettier -c .
+    yarn prettier -c .
 
 # Format TypeScript files
 format: install
-  yarn prettier -w .
+    yarn prettier -w .
 
 # Run Node.js tests (builds NAPI bindings with test features + vitest)
 test: install (_prepare-dist "--features test-utils")
-  yarn vitest run
+    yarn vitest run
+
+# tests using built with nix. closer to ci but no local incremental compilation.
+test-ci:
+    rm -rf dist
+    nix build -L .#node-bindings-test
+    cp -r result/dist dist
+    yarn vitest run
 
 # Build Node.js NAPI bindings (alias)
 build: check

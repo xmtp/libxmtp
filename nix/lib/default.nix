@@ -25,21 +25,31 @@
   };
   perSystem =
     { pkgs, ... }:
+    let
+      craneConfig = final: prev: {
+        # add napi builder to crane scope
+        napiBuild = final.callPackage ./napiBuild.nix { };
+      };
+      mkToolchain = pkgs.callPackage ./mkToolchain.nix { inherit inputs; };
+    in
     {
       overlayAttrs = {
         xmtp = {
-          mkToolchain = pkgs.callPackage ./mkToolchain.nix { inherit inputs; };
+          inherit mkToolchain;
+          # toolchain with native pkgs
+          mkNativeToolchain = mkToolchain pkgs;
           filesets = pkgs.callPackage ./filesets.nix { };
-          craneLib = inputs.crane.mkLib pkgs;
-          mobile = pkgs.callPackage ./mobile-common.nix { };
+          craneLib = (inputs.crane.mkLib pkgs).overrideScope craneConfig;
+          base = pkgs.callPackage ./base.nix { };
           androidEnv = pkgs.callPackage ./android-env.nix { };
           iosEnv = pkgs.callPackage ./ios-env.nix { };
-          nodeEnv = pkgs.callPackage ./node-env.nix { };
           ffi-uniffi-bindgen = pkgs.callPackage ./packages/uniffi-bindgen.nix { };
           shellCommon = pkgs.callPackage ./shell-common.nix { };
           mkVersion = import ./mkVersion.nix;
+          toNapiTarget = import ./napiTarget.nix;
         };
         wasm-bindgen-cli = pkgs.callPackage ./packages/wasm-bindgen-cli.nix { };
+        napi-rs-cli = pkgs.callPackage ./packages/napi-rs-cli { };
         swiftformat = pkgs.callPackage ./packages/swiftformat.nix { };
         swiftlint = pkgs.callPackage ./packages/swiftlint.nix { };
       };
