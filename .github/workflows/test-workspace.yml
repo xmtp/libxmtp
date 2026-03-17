@@ -16,7 +16,7 @@ jobs:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "false"
-          gc-max-store-size: "5G"
+          with-warpbuild-cache: "false"
       - uses: taiki-e/install-action@just
       - name: Start backend
         run: just backend up
