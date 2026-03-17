@@ -1,4 +1,4 @@
-export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
+export NIX_DEVSHELL := env("NIX_DEVSHELL", "wasm")
 
 set shell := ["../../dev/nix-shell"]
 
@@ -33,24 +33,20 @@ test: test-v3 test-d14n
 
 # Run WASM bindings Rust tests (v3)
 test-v3:
-    XMTP_TEST_LOGGING=false RUST_LOG=off cargo test --locked --release --target wasm32-unknown-unknown \
+    XMTP_TEST_LOGGING=false RUST_LOG=off cargo nextest run --locked --profile ci --cargo-profile wasm-test --target wasm32-unknown-unknown \
       {{ wasm_packages }}
 
 # Run WASM bindings Rust tests (d14n)
 test-d14n:
-    XMTP_TEST_LOGGING=false RUST_LOG=off cargo test --locked --release --target wasm32-unknown-unknown \
+    XMTP_TEST_LOGGING=false RUST_LOG=off cargo nextest run --locked --profile ci-d14n --cargo-profile wasm-test --target wasm32-unknown-unknown \
       --features d14n \
       {{ wasm_packages }}
 
 # Run WASM JS integration tests
-[script("bash")]
 test-integration: _build-test install
-    set -euo pipefail
-    cd {{ source_directory() }}
-    nix develop .#js --command bash -euc 'yarn tsc --noEmit && yarn vitest run'
+    cd {{ source_directory() }} && nix develop .#js --command bash -euc 'yarn tsc --noEmit && yarn vitest run'
 
 # Build WASM bindings
-[script("bash")]
 build:
     nix build .#wasm-bindings
 
