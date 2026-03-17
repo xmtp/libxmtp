@@ -5,6 +5,7 @@ use openmls::test_utils::frankenstein::FrankenMlsMessageBody;
 use prost::Message;
 use xmtp_common::{FakeMlsApplicationMessage, FakeMlsCommitMessage, Generate};
 use xmtp_cryptography::XmtpInstallationCredential;
+use xmtp_proto::types::TopicKind;
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 use xmtp_proto::xmtp::mls::api::v1::{
     GroupMessageInput, UploadKeyPackageRequest, WelcomeMessageInput, group_message_input,
@@ -34,7 +35,9 @@ pub struct TestEnvelopeBuilder {
 
 impl TestEnvelopeBuilder {
     pub fn new() -> Self {
-        Default::default()
+        Self::default()
+            .with_originator_ns(xmtp_common::time::now_ns())
+            .with_target_topic(TopicKind::WelcomeMessagesV1, b"foo")
     }
 
     pub fn with_originator_node_id(mut self, node_id: u32) -> Self {
@@ -49,6 +52,15 @@ impl TestEnvelopeBuilder {
 
     pub fn with_originator_ns(mut self, ns: i64) -> Self {
         self.originator_ns = ns;
+        self
+    }
+
+    pub fn with_target_topic<B: AsRef<[u8]>>(mut self, kind: TopicKind, bytes: B) -> Self {
+        self.target_topic = [&[kind as u8][..], bytes.as_ref()]
+            .into_iter()
+            .flatten()
+            .copied()
+            .collect();
         self
     }
 

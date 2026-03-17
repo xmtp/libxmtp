@@ -64,15 +64,17 @@ mod tests {
     #[xmtp_common::test]
     fn test_extract_identity_update() {
         let inbox_id = "test_inbox_id".to_string();
+        let originator_ns = 50_000_000;
         let envelope = TestEnvelopeBuilder::new()
             .with_identity_update_custom(inbox_id.clone())
+            .with_originator_ns(originator_ns)
             .build();
         let mut extractor = IdentityUpdateExtractor::new();
         envelope.accept(&mut extractor).unwrap();
         let (extracted_inbox_id, log) = extractor.get();
         assert_eq!(extracted_inbox_id, inbox_id);
         assert_eq!(log.sequence_id, 0);
-        assert_eq!(log.server_timestamp_ns, 0);
+        assert_eq!(log.server_timestamp_ns, originator_ns as u64);
         assert!(log.update.is_some());
         assert_eq!(log.update.unwrap().inbox_id, inbox_id);
     }

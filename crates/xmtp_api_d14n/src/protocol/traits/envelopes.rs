@@ -4,8 +4,8 @@ use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_proto::types::{Cursor, OrphanedEnvelope};
 
 use crate::protocol::{
-    BytesExtractor, CursorExtractor, DependsOnExtractor, MlsDataExtractor, OrphanExtractor,
-    TimestampExtractor,
+    BytesExtractor, CursorExtractor, DependsOnExtractor, EnvelopeValidator, MlsDataExtractor,
+    OrphanExtractor, TimestampExtractor,
 };
 
 use super::*;
@@ -56,6 +56,8 @@ pub trait Envelope<'env>: std::fmt::Debug + MaybeSend + MaybeSync {
     fn sha256_hash(&self) -> Result<Vec<u8>, EnvelopeError>;
     /// Get the timestamp of this envelope
     fn timestamp(&self) -> Option<chrono::DateTime<Utc>>;
+    /// Self-validate this envelope
+    fn validate(&self) -> Result<(), EnvelopeError>;
     /// Extract the client envelope (envelope containing message payload & AAD, if any) for this
     /// envelope.
     fn client_envelope(&self) -> Result<ClientEnvelope, EnvelopeError>;
@@ -124,7 +126,15 @@ where
         extractor.maybe_get()
     }
 
+    fn validate(&self) -> Result<(), EnvelopeError> {
+        let mut validator = EnvelopeValidator::default();
+        self.accept(&mut validator)?;
+        Ok(())
+    }
+
     fn client_envelope(&self) -> Result<ClientEnvelope, EnvelopeError> {
+        self.validate()?;
+
         // ensures we only recurse the proto data structure once.
         let mut extractor = (
             TopicExtractor::new(),

@@ -110,6 +110,10 @@ impl Envelope<'_> for TestEnvelope {
         chrono::DateTime::from_timestamp_nanos(nanos).into()
     }
 
+    fn validate(&self) -> Result<(), crate::protocol::EnvelopeError> {
+        unreachable!()
+    }
+
     fn client_envelope(&self) -> Result<ClientEnvelope, crate::protocol::EnvelopeError> {
         unreachable!()
     }

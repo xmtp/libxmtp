@@ -5,6 +5,7 @@ use crate::protocol::GroupMessageExtractor;
 use crate::protocol::SequencedExtractor;
 use crate::protocol::V3GroupMessageExtractor;
 use crate::protocol::V3WelcomeMessageExtractor;
+use crate::protocol::ValidationError;
 use crate::protocol::WelcomeMessageExtractor;
 use derive_builder::UninitializedFieldError;
 use itertools::Itertools;
@@ -69,6 +70,8 @@ pub enum EnvelopeError {
     Store(#[from] CursorStoreError),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
+    #[error(transparent)]
+    Validation(#[from] ValidationError),
     // for extractors defined outside of this crate or
     // generic implementations like Tuples
     #[error("{0}")]
@@ -92,6 +95,7 @@ impl RetryableError for EnvelopeError {
             Self::MissingBuilderField(_) => false,
             Self::Store(s) => retryable!(s),
             Self::Decode(_) => true,
+            Self::Validation(_) => false,
         }
     }
 }
