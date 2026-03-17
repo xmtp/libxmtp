@@ -3,18 +3,22 @@ use crate::groups::MlsGroup;
 use crate::groups::commit_log_key::CommitLogKeyCrypto;
 use crate::groups::oneshot::Oneshot;
 use crate::groups::summary::SyncSummary;
+use crate::identity_updates::load_identity_updates;
 use futures::StreamExt;
+use hkdf::Hkdf;
 use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
+use sha2::Sha256;
 use std::collections::HashSet;
 use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
 use xmtp_api::ApiError;
 use xmtp_common::RetryableError;
 use xmtp_common::hex::NormalizeHex;
-use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_configuration::Originators;
+use xmtp_configuration::{HMAC_SALT, MAX_PAGE_SIZE};
+use xmtp_db::association_state::StoredAssociationState;
 use xmtp_db::consent_record::ConsentState;
 use xmtp_db::group::ConversationType;
 use xmtp_db::group::DmIdExt;
@@ -29,6 +33,8 @@ use xmtp_db::{
     readd_status::QueryReaddStatus,
     remote_commit_log::{CommitResult, NewRemoteCommitLog},
 };
+use xmtp_id::associations::AssociationState;
+use xmtp_proto::ConversionError;
 use xmtp_proto::mls_v1::PublishCommitLogRequest;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
@@ -204,6 +210,90 @@ pub struct TestResult {
     pub save_remote_commit_log_results: Option<HashMap<Vec<u8>, usize>>,
     pub publish_commit_log_results: Option<Vec<ConversationCursorInfo>>,
     pub is_forked: Option<HashMap<Vec<u8>, Option<bool>>>,
+}
+
+pub struct VerifiedCommitLogEntry {
+    entry: CommitLogEntry,
+    log: PlaintextCommitLogEntry,
+    installation_id: Vec<u8>,
+}
+
+impl VerifiedCommitLogEntry {
+    /// Recovers the super-admin installation_id and verifies the signature in the entry.
+    /// Returns None if it could not verify.
+    pub async fn new<Context>(
+        context: Context,
+        group_id: &[u8],
+        entry: CommitLogEntry,
+    ) -> Result<Option<Self>, CommitLogError>
+    where
+        Context: XmtpSharedContext,
+    {
+        let (group, _stored_group) = MlsGroup::new_cached(context.clone(), group_id)?;
+        let group_salt = group.mutable_metadata()?.salt().unwrap();
+        let log = PlaintextCommitLogEntry::decode(&*entry.serialized_commit_log_entry)?;
+
+        // Try once without fetching from the network.
+        for _ in 0..2 {
+            let super_admin_inbox_ids = group
+                .super_admin_list()?
+                .into_iter()
+                .map(|id| (id, 0))
+                .collect::<Vec<_>>();
+            let association_states: Result<Vec<AssociationState>, ConversionError> = context
+                .db()
+                .batch_read_from_cache(super_admin_inbox_ids)?
+                .into_iter()
+                .map(|a| a.try_into())
+                .collect();
+            let association_states = association_states.map_err(GroupError::from)?;
+            let installation_ids: Vec<Vec<u8>> = association_states
+                .iter()
+                .map(|a| a.installation_ids())
+                .flatten()
+                .collect();
+
+            let installation_id_and_hmac = installation_ids
+                .into_iter()
+                .map(|id| {
+                    let mut okm = [0; 32];
+                    let hkdf = Hkdf::<Sha256>::new(Some(HMAC_SALT), group_salt.as_slice());
+                    hkdf.expand(&id, &mut okm);
+                    (id, okm)
+                })
+                .collect::<Vec<_>>();
+
+            for (installation_id, hmac) in installation_id_and_hmac {
+                if log.installation_hmac != hmac {
+                    continue;
+                }
+
+                context
+                    .mls_provider()
+                    .crypto()
+                    .verify_commit_log_signature(&installation_id, &entry, group_salt.as_slice())?;
+
+                return Ok(Some(Self {
+                    entry,
+                    log,
+                    installation_id,
+                }));
+            }
+
+            load_identity_updates(
+                context.api(),
+                &context.db(),
+                &association_states
+                    .iter()
+                    .map(|a| a.inbox_id())
+                    .collect::<Vec<_>>(),
+            )
+            .await
+            .map_err(GroupError::from)?;
+        }
+
+        Ok(None)
+    }
 }
 
 // CommitLogWorker implementation
@@ -457,7 +547,7 @@ where
         &self,
         conn: &impl DbQuery,
         commit_log_response: QueryCommitLogResponse,
-        consensus_public_key: Option<&Vec<u8>>,
+        salt: &[u8],
     ) -> Result<usize, CommitLogError> {
         let group_id = commit_log_response.group_id;
         let mut num_entries_saved = 0;
@@ -465,60 +555,59 @@ where
         // 1. The latest applied epoch authenticator
         // 2. The latest applied epoch number
         // 3. The latest stored sequence id
-        if let Some(consensus_public_key) = consensus_public_key {
-            let mut latest_saved_remote_log = conn.get_latest_remote_log_for_group(&group_id)?;
-            for commit_log_entry in &commit_log_response.commit_log_entries {
-                let log_entry = match PlaintextCommitLogEntry::decode(
-                    commit_log_entry.serialized_commit_log_entry.as_slice(),
-                ) {
-                    Ok(entry) => entry,
-                    Err(error) => {
-                        tracing::warn!(
-                            ?group_id,
-                            ?error,
-                            "failed to decode commit-log entry, skipping"
-                        );
-                        continue;
-                    }
-                };
-                if self.should_skip_remote_commit_log_entry(
-                    &group_id,
-                    latest_saved_remote_log.clone(),
-                    commit_log_entry,
-                    &log_entry,
-                    consensus_public_key,
-                ) {
+        let mut latest_saved_remote_log = conn.get_latest_remote_log_for_group(&group_id)?;
+        for commit_log_entry in &commit_log_response.commit_log_entries {
+            let log_entry = match PlaintextCommitLogEntry::decode(
+                &*commit_log_entry.serialized_commit_log_entry,
+            ) {
+                Ok(entry) => entry,
+                Err(error) => {
+                    tracing::warn!(
+                        ?group_id,
+                        ?error,
+                        "failed to decode commit-log entry, skipping"
+                    );
                     continue;
                 }
-
-                num_entries_saved += 1;
-                NewRemoteCommitLog {
-                    log_sequence_id: commit_log_entry.sequence_id as i64,
-                    group_id: log_entry.group_id.clone(),
-                    commit_sequence_id: log_entry.commit_sequence_id as i64,
-                    commit_result: CommitResult::from(
-                        ProtoCommitResult::try_from(log_entry.commit_result)
-                            .unwrap_or(ProtoCommitResult::Unspecified),
-                    ),
-                    applied_epoch_number: log_entry.applied_epoch_number as i64,
-                    applied_epoch_authenticator: log_entry.applied_epoch_authenticator.clone(),
-                }
-                .store(conn)?;
-
-                latest_saved_remote_log = Some(RemoteCommitLog {
-                    rowid: 0,
-                    log_sequence_id: commit_log_entry.sequence_id as i64,
-                    group_id: log_entry.group_id,
-                    commit_sequence_id: log_entry.commit_sequence_id as i64,
-                    commit_result: CommitResult::from(
-                        ProtoCommitResult::try_from(log_entry.commit_result)
-                            .unwrap_or(ProtoCommitResult::Unspecified),
-                    ),
-                    applied_epoch_number: log_entry.applied_epoch_number as i64,
-                    applied_epoch_authenticator: log_entry.applied_epoch_authenticator,
-                });
+            };
+            if self.should_skip_remote_commit_log_entry(
+                &group_id,
+                latest_saved_remote_log.clone(),
+                commit_log_entry,
+                &log_entry,
+                salt,
+            ) {
+                continue;
             }
+
+            num_entries_saved += 1;
+            NewRemoteCommitLog {
+                log_sequence_id: commit_log_entry.sequence_id as i64,
+                group_id: log_entry.group_id.clone(),
+                commit_sequence_id: log_entry.commit_sequence_id as i64,
+                commit_result: CommitResult::from(
+                    ProtoCommitResult::try_from(log_entry.commit_result)
+                        .unwrap_or(ProtoCommitResult::Unspecified),
+                ),
+                applied_epoch_number: log_entry.applied_epoch_number as i64,
+                applied_epoch_authenticator: log_entry.applied_epoch_authenticator.clone(),
+            }
+            .store(conn)?;
+
+            latest_saved_remote_log = Some(RemoteCommitLog {
+                rowid: 0,
+                log_sequence_id: commit_log_entry.sequence_id as i64,
+                group_id: log_entry.group_id,
+                commit_sequence_id: log_entry.commit_sequence_id as i64,
+                commit_result: CommitResult::from(
+                    ProtoCommitResult::try_from(log_entry.commit_result)
+                        .unwrap_or(ProtoCommitResult::Unspecified),
+                ),
+                applied_epoch_number: log_entry.applied_epoch_number as i64,
+                applied_epoch_authenticator: log_entry.applied_epoch_authenticator,
+            });
         }
+
         if let Some(last_entry) = commit_log_response.commit_log_entries.last() {
             conn.update_cursor(
                 &group_id,
@@ -544,7 +633,7 @@ where
         latest_saved_remote_log: Option<RemoteCommitLog>,
         serialized_entry: &CommitLogEntry,
         entry: &PlaintextCommitLogEntry,
-        consensus_public_key: &[u8],
+        salt: &[u8],
     ) -> bool {
         // These checks apply even if there is no latest saved remote log
         if entry.group_id != group_id || entry.commit_sequence_id == 0 {
@@ -553,7 +642,7 @@ where
         let provider = self.context.mls_provider();
         if provider
             .crypto()
-            .verify_commit_log_signature(serialized_entry, consensus_public_key)
+            .verify_commit_log_signature(serialized_entry, salt)
             .is_err()
         {
             tracing::warn!(

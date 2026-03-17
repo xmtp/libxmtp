@@ -21,6 +21,7 @@ pub(crate) trait CommitLogKeyCrypto {
     fn public_key_matches_private_key(public_key: &[u8], private_key: &Secret) -> bool;
     fn verify_commit_log_signature(
         &self,
+        installation_id: &[u8],
         entry: &CommitLogEntryProto,
         expected_public_key: &[u8],
     ) -> Result<(), Self::Error>;
@@ -44,13 +45,17 @@ impl CommitLogKeyCrypto for RustCrypto {
 
     fn verify_commit_log_signature(
         &self,
+        installation_id: &[u8],
         entry: &CommitLogEntryProto,
-        expected_public_key: &[u8],
+        salt: &[u8],
     ) -> Result<(), Self::Error> {
+        let mut data = entry.serialized_commit_log_entry.clone();
+        data.extend(salt);
+
         self.verify_signature(
             SignatureScheme::ED25519,
-            entry.serialized_commit_log_entry.as_slice(),
-            expected_public_key,
+            &data,
+            installation_id,
             &entry.signature,
         )?;
         Ok(())

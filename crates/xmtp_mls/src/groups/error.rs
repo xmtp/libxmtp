@@ -324,7 +324,6 @@ impl RetryableError for GroupError {
             Self::Sync(s) => s.is_retryable(),
             Self::Db(e) => e.is_retryable(),
             Self::MlsStore(e) => e.is_retryable(),
-            Self::MetadataPermissionsError(e) => e.is_retryable(),
             Self::WrapWelcome(e) => e.is_retryable(),
             Self::UnwrapWelcome(e) => e.is_retryable(),
             Self::Diesel(e) => e.is_retryable(),
