@@ -1,7 +1,7 @@
 use crate::groups::MlsGroup;
 use crate::groups::PolicySet;
 use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
-use crate::groups::commit_log_key::{CommitLogKeyCrypto, CommitLogKeyStore, get_or_create_salt};
+use crate::groups::commit_log_key::{CommitLogKeyCrypto, GroupSaltStore, get_or_create_salt};
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::{context::XmtpSharedContext, tester};
 use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
@@ -1472,7 +1472,7 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
 
     // Store this key in alix's key store (overwriting any existing key)
     key_store
-        .write_commit_log_key(&group.group_id, &new_signing_key)
+        .write_salt(&group.group_id, &new_signing_key)
         .unwrap();
 
     println!("✓ Generated and stored new signing key for alix in key store");

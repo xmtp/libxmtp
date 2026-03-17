@@ -154,7 +154,7 @@ impl StoredGroupBuilder {
 
 /// A subset of the group table for fetching the commit log public key and local commit log cursor
 #[derive(Debug, Clone, Queryable, QueryableByName)]
-pub struct StoredGroupCommitLog {
+pub struct StoredGroupCommitLogMetadata {
     #[diesel(sql_type = diesel::sql_types::Binary)]
     pub group_id: Vec<u8>,
     #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Binary>)]
@@ -328,12 +328,12 @@ pub trait QueryGroup {
     /// Get conversations for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
     fn get_conversation_ids_for_remote_log_publish(
         &self,
-    ) -> Result<Vec<StoredGroupCommitLog>, crate::ConnectionError>;
+    ) -> Result<Vec<StoredGroupCommitLogMetadata>, crate::ConnectionError>;
 
     /// Get conversations for all conversations that require a remote commit log download (DMs and groups that are not sync groups)
     fn get_conversation_ids_for_remote_log_download(
         &self,
-    ) -> Result<Vec<StoredGroupCommitLog>, crate::ConnectionError>;
+    ) -> Result<Vec<StoredGroupCommitLogMetadata>, crate::ConnectionError>;
 
     /// Get conversation IDs for fork checking (excludes already forked conversations and sync groups)
     fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
@@ -496,13 +496,13 @@ where
     /// Get conversation IDs for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
     fn get_conversation_ids_for_remote_log_publish(
         &self,
-    ) -> Result<Vec<StoredGroupCommitLog>, crate::ConnectionError> {
+    ) -> Result<Vec<StoredGroupCommitLogMetadata>, crate::ConnectionError> {
         (**self).get_conversation_ids_for_remote_log_publish()
     }
 
     fn get_conversation_ids_for_remote_log_download(
         &self,
-    ) -> Result<Vec<StoredGroupCommitLog>, crate::ConnectionError> {
+    ) -> Result<Vec<StoredGroupCommitLogMetadata>, crate::ConnectionError> {
         (**self).get_conversation_ids_for_remote_log_download()
     }
 
@@ -1016,7 +1016,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     /// (DMs and groups where user is super admin, excluding sync groups and rejected groups)
     fn get_conversation_ids_for_remote_log_publish(
         &self,
-    ) -> Result<Vec<StoredGroupCommitLog>, crate::ConnectionError> {
+    ) -> Result<Vec<StoredGroupCommitLogMetadata>, crate::ConnectionError> {
         use crate::schema::consent_records::dsl as consent_dsl;
         use crate::schema::local_commit_log::dsl as log_dsl;
 
@@ -1040,13 +1040,13 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             .select((dsl::id, dsl::salt, cursor_subquery))
             .order(dsl::created_at_ns.asc());
 
-        self.raw_query_read(|conn| query.load::<StoredGroupCommitLog>(conn))
+        self.raw_query_read(|conn| query.load::<StoredGroupCommitLogMetadata>(conn))
     }
 
     // All dms and groups that are not sync groups and have consent state Allowed
     fn get_conversation_ids_for_remote_log_download(
         &self,
-    ) -> Result<Vec<StoredGroupCommitLog>, crate::ConnectionError> {
+    ) -> Result<Vec<StoredGroupCommitLogMetadata>, crate::ConnectionError> {
         use crate::schema::consent_records::dsl as consent_dsl;
         use crate::schema::local_commit_log::dsl as log_dsl;
 
@@ -1064,7 +1064,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             .filter(consent_dsl::state.eq(ConsentState::Allowed))
             .select((dsl::id, dsl::salt, cursor_subquery));
 
-        self.raw_query_read(|conn| query.load::<StoredGroupCommitLog>(conn))
+        self.raw_query_read(|conn| query.load::<StoredGroupCommitLogMetadata>(conn))
     }
 
     // Get conversation IDs for fork checking (excludes already forked conversations and sync groups)

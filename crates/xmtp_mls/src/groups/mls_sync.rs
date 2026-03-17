@@ -1475,7 +1475,7 @@ where
         }
     }
 
-    fn cache_metadata(
+    pub(crate) fn cache_metadata(
         &self,
         mls_group: &OpenMlsGroup,
         storage: &impl XmtpMlsStorageProvider,

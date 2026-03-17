@@ -25,7 +25,7 @@ use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_db::remote_commit_log::RemoteCommitLogOrder;
 use xmtp_db::{
     DbQuery, StorageError, Store,
-    group::{StoredGroupCommitLog, StoredGroupForReaddRequest},
+    group::{StoredGroupCommitLogMetadata, StoredGroupForReaddRequest},
     local_commit_log::LocalCommitLogOrder,
     prelude::*,
     readd_status::QueryReaddStatus,
@@ -294,7 +294,7 @@ where
     fn prepare_publish_commit_log_info(
         &self,
         conn: &impl DbQuery,
-        conversation_salts: &[StoredGroupCommitLog],
+        conversation_salts: &[StoredGroupCommitLogMetadata],
     ) -> Result<(Vec<ConversationCursorInfo>, Vec<PublishCommitLogRequest>), CommitLogError> {
         let mut conversation_cursor_info: Vec<ConversationCursorInfo> = Vec::new();
         let mut all_entries = Vec::new();
@@ -349,7 +349,7 @@ where
 
     fn sign_group_logs(
         &self,
-        conversation: &StoredGroupCommitLog,
+        conversation: &StoredGroupCommitLogMetadata,
         plaintext_commit_log_entries: &[PlaintextCommitLogEntry],
     ) -> Result<Vec<PublishCommitLogRequest>, CommitLogError> {
         let Some(private_key) = get_or_create_salt(&self.context, conversation)? else {
@@ -384,6 +384,7 @@ where
     }
 
     // Returns a map of conversation_id to the number of entries saved
+    /// Downloads the remote commit logs for all groups with fork-recovery enabled and saves them to disk.
     async fn save_remote_commit_log(&mut self) -> Result<HashMap<Vec<u8>, usize>, CommitLogError> {
         let conn = &self.context.db();
         // This should be all groups we are in, and all dms are in except sync groups
@@ -433,24 +434,19 @@ where
             }
             let group_id = response.group_id.clone();
 
-            let _consensus_public_key;
-            let mut consensus_public_key = conversation_id_to_salt
+            let Some(salt) = conversation_id_to_salt
                 .get(&group_id)
-                .and_then(Option::as_ref);
-            if consensus_public_key.is_none() {
-                _consensus_public_key =
-                    derive_consensus_public_key(&self.context, &response).await?;
-                consensus_public_key = _consensus_public_key.as_ref();
-            }
+                .and_then(Option::as_ref)
+            else {
+                continue;
+            };
+
             tracing::info!(
                 group_id = hex::encode(&response.group_id),
                 "Saving remote commit log entries and updating cursors for group",
             );
-            let num_entries = self.save_remote_commit_log_entries_and_update_cursors(
-                conn,
-                response,
-                consensus_public_key,
-            )?;
+            let num_entries =
+                self.save_remote_commit_log_entries_and_update_cursors(conn, response, salt)?;
             save_remote_commit_log_results.insert(group_id, num_entries);
         }
 

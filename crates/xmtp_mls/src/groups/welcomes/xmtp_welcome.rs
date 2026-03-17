@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 
 use crate::groups::mls_ext::CommitLogStorer;
-use crate::groups::mls_sync::DeferredEvents;
+use crate::groups::mls_sync::{DeferredEvents, GroupMessageProcessingError};
 use crate::groups::oneshot::Oneshot;
 use crate::groups::{MetadataPermissionsError, mls_sync};
 use crate::{
@@ -321,7 +321,8 @@ where
         }
         let metadata =
             extract_group_metadata(staged_welcome.public_group().group_context().extensions())
-                .map_err(MetadataPermissionsError::from)?;
+                .map_err(MetadataPermissionsError::from)
+                .map_err(GroupMessageProcessingError::from)?;
         if metadata.conversation_type == ConversationType::Oneshot {
             Oneshot::process_welcome(
                 &provider,
@@ -427,7 +428,8 @@ where
                 .paused_for_version(paused_for_version)
                 .build()?,
             ConversationType::Dm => {
-                validate_dm_group(context, &mls_group, &added_by_inbox_id)?;
+                validate_dm_group(context, &mls_group, &added_by_inbox_id)
+                    .map_err(GroupMessageProcessingError::from)?;
                 group
                     .membership_state(membership_state)
                     .last_message_ns(welcome.timestamp())

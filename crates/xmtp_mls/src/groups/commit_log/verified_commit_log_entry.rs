@@ -39,7 +39,8 @@ impl VerifiedCommitLogEntry {
         let log = PlaintextCommitLogEntry::decode(&*entry.serialized_commit_log_entry)?;
 
         // Try once without fetching from the network.
-        for _ in 0..2 {
+        // Try a second time after fetching.
+        for i in 0..2 {
             let super_admin_inbox_ids = group
                 .super_admin_list()?
                 .into_iter()
@@ -83,8 +84,13 @@ impl VerifiedCommitLogEntry {
                     entry,
                     log,
                     installation_id,
-                    _private: (),
                 }));
+            }
+
+            if i == 1 {
+                // We've already loaded identity updates.
+                // Break if we haven't matched by now.
+                break;
             }
 
             load_identity_updates(
