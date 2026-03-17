@@ -1271,7 +1271,7 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let initialSettings = DisappearingMessageSettings(
-			disappearStartingAtNs: 1_000_000_000,
+			disappearStartingAtNs: Int64(Date().timeIntervalSince1970 * 1_000_000_000),
 			retentionDurationInNs: 1_000_000_000 // 1s duration
 		)
 
