@@ -32,8 +32,8 @@ alloy-transport-http = { version = "1", default-features = false, features = ["r
 bytes = { version = "1", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 cipher = { version = "0.4", default-features = false, features = ["zeroize"] }
-clap = { version = "4", features = ["derive"] }
-clap_builder = { version = "4", default-features = false, features = ["color", "help", "std", "suggestions", "usage"] }
+clap = { version = "4", features = ["derive", "env"] }
+clap_builder = { version = "4", default-features = false, features = ["color", "env", "help", "std", "suggestions", "usage"] }
 const-hex = { version = "1", features = ["core-error", "serde"] }
 crypto-common = { version = "0.1", default-features = false, features = ["getrandom", "std"] }
 derive_more = { version = "2", default-features = false, features = ["add", "add_assign", "as_ref", "deref", "deref_mut", "display", "from", "from_str", "index", "index_mut", "into", "into_iterator", "not", "std"] }
@@ -123,8 +123,8 @@ alloy-transport-http = { version = "1", default-features = false, features = ["r
 bytes = { version = "1", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 cipher = { version = "0.4", default-features = false, features = ["zeroize"] }
-clap = { version = "4", features = ["derive"] }
-clap_builder = { version = "4", default-features = false, features = ["color", "help", "std", "suggestions", "usage"] }
+clap = { version = "4", features = ["derive", "env"] }
+clap_builder = { version = "4", default-features = false, features = ["color", "env", "help", "std", "suggestions", "usage"] }
 const-hex = { version = "1", features = ["core-error", "serde"] }
 crypto-common = { version = "0.1", default-features = false, features = ["getrandom", "std"] }
 derive_more = { version = "2", default-features = false, features = ["add", "add_assign", "as_ref", "deref", "deref_mut", "display", "from", "from_str", "index", "index_mut", "into", "into_iterator", "not", "std"] }

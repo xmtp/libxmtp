@@ -1,5 +1,12 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use std::num::NonZeroUsize;
+
+#[derive(Clone, Debug, ValueEnum, Default)]
+pub(crate) enum LogFormat {
+    #[default]
+    Text,
+    Json,
+}
 
 // Gather the command line arguments into a struct
 #[derive(Parser, Debug)]
@@ -23,4 +30,9 @@ pub(crate) struct Args {
     // The size of the cache to use for the smart contract signature verifier.
     #[arg(long, default_value_t = NonZeroUsize::new(10000).expect("Set to positive number"))]
     pub(crate) cache_size: NonZeroUsize,
+
+    // Log format: "text" (default, colored in terminals) or "json" (for Docker/Datadog).
+    // Can also be set via LOG_FORMAT env var.
+    #[arg(long, env = "LOG_FORMAT", default_value = "text")]
+    pub(crate) log_format: LogFormat,
 }
