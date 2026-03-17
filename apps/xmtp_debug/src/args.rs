@@ -500,6 +500,15 @@ pub struct TestOpts {
     /// Number of messages for group-sync scenario
     #[arg(long, short, default_value = "10")]
     pub message_count: usize,
+    /// V4/D14N gateway URL for migration-latency scenario (e.g. https://payer.testnet.xmtp.network:443)
+    #[arg(long)]
+    pub v4_gateway_url: Option<url::Url>,
+    /// V4/D14N node URL for migration-latency scenario (e.g. https://grpc.testnet.xmtp.network:443)
+    #[arg(long)]
+    pub v4_node_url: Option<url::Url>,
+    /// Timeout in seconds for waiting for migrated message on V4 (default 120)
+    #[arg(long, default_value = "120")]
+    pub migration_timeout: u64,
 }
 
 #[derive(ValueEnum, Debug, Clone)]
@@ -508,6 +517,8 @@ pub enum TestScenario {
     MessageVisibility,
     /// Measure group sync latency after N messages
     GroupSync,
+    /// Measure V3→V4 migration latency (write to V3, poll V4)
+    MigrationLatency,
 }
 
 #[cfg(test)]
