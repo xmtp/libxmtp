@@ -52,7 +52,7 @@ impl Test {
                 latency as f64 / 1000.0,
                 "message_visibility",
                 "xdbg_test",
-            );
+            ).await;
             info!(
                 iteration = i + 1,
                 latency_ms = latency,
@@ -196,7 +196,7 @@ impl Test {
                 latency as f64 / 1000.0,
                 "group_sync",
                 "xdbg_test",
-            );
+            ).await;
             info!(
                 iteration = i + 1,
                 sync_latency_ms = latency,
@@ -369,7 +369,7 @@ impl Test {
                     let secs = latency as f64 / 1000.0;
                     metrics::record_migration_success();
                     metrics::record_migration_latency(secs);
-                    metrics::push_metrics("xdbg_test");
+                    metrics::push_metrics("xdbg_test").await;
                     info!(
                         iteration = i + 1,
                         latency_ms = latency,
@@ -383,7 +383,7 @@ impl Test {
                         error = %e,
                         "migration latency iteration failed"
                     );
-                    metrics::push_metrics("xdbg_test");
+                    metrics::push_metrics("xdbg_test").await;
                 }
             }
         }

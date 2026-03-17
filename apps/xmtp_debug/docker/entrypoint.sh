@@ -22,19 +22,12 @@ case "${WORKSPACE}" in
 esac
 log "WORKSPACE='${WORKSPACE:-<unset>}' -> backend='${BACKEND}'"
 
-# Derive V4 node URL from WORKSPACE if not explicitly set.
-# Migration test writes to V3 (production) and reads from V4 (D14N testnet).
-if [ -z "${XDBG_V4_NODE_URL}" ]; then
-    case "${WORKSPACE}" in
-        testnet)         XDBG_V4_NODE_URL="https://grpc.testnet.xmtp.network:443" ;;
-        testnet-dev)     XDBG_V4_NODE_URL="https://grpc.dev.xmtp.network:443" ;;
-        testnet-staging) XDBG_V4_NODE_URL="https://grpc.staging.xmtp.network:443" ;;
-        *)               XDBG_V4_NODE_URL="" ;;
-    esac
-fi
-if [ -n "${XDBG_V4_NODE_URL}" ]; then
-    log "V4 node URL: ${XDBG_V4_NODE_URL}"
-fi
+# Migration test: always writes to V3 production and reads from V4 testnet,
+# because the only migrator path is V3 production → V4 testnet.
+# XDBG_V4_NODE_URL can be overridden via env, but defaults to the testnet
+# D14N replication node regardless of WORKSPACE.
+: "${XDBG_V4_NODE_URL:=https://grpc.testnet.xmtp.network:443}"
+log "V4 node URL (migration): ${XDBG_V4_NODE_URL}"
 
 while true; do
   log "Reset environment.."
@@ -63,17 +56,15 @@ while true; do
     log "Running health checks..."
     bash "$(dirname "$0")/web-healthcheck.sh" || log "WARNING: health check failed"
 
-    # Migration latency test: writes to V3 (no -d, no --perf), reads from V4 node.
-    # Intentionally omits -d and --perf since those require D14N mode,
-    # but the migration test writes to V3 production.
-    if [ -n "${XDBG_V4_NODE_URL}" ]; then
-      log "Migration latency test..."
-      XDBG_LOOP_PAUSE=0 xdbg -b "${BACKEND}" test migration-latency \
-        --v4-node-url "${XDBG_V4_NODE_URL}" \
-        --migration-timeout "${XDBG_MIGRATION_TIMEOUT}" \
-        --iterations 1 \
-        || log "WARNING: migration latency test $x failed"
-    fi
+    # Migration latency test: always V3 production → V4 testnet (the only migration path).
+    # Omits -d and --perf (D14N mode) since this writes to V3.
+    # Uses -b production regardless of WORKSPACE.
+    log "Migration latency test..."
+    XDBG_LOOP_PAUSE=0 xdbg -b production test migration-latency \
+      --v4-node-url "${XDBG_V4_NODE_URL}" \
+      --migration-timeout "${XDBG_MIGRATION_TIMEOUT}" \
+      --iterations 1 \
+      || log "WARNING: migration latency test $x failed"
 
     log "Sleeping ${XDBG_LOOP_PAUSE} seconds..."
     sleep "${XDBG_LOOP_PAUSE}"

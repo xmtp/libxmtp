@@ -226,22 +226,20 @@ pub fn record_migration_failure() {
     }
 }
 
-/// Async-push all current metrics to the PushGateway.
+/// Push all current metrics to the PushGateway, awaiting completion.
 ///
-/// Fire-and-forget: the push runs in a detached `tokio::spawn` task so the
-/// caller is not blocked.  No-op when metrics are inactive (no
-/// `PUSHGATEWAY_URL`).  Push errors are reported via `tracing::warn`.
-pub fn push_metrics(job: &'static str) {
-    let Some(url) = PUSHGATEWAY_URL.get().cloned() else {
+/// The push is awaited inline so that short-lived xdbg subprocess invocations
+/// (entrypoint.sh calls xdbg once per step) finish the HTTP POST before the
+/// process exits.  No-op when metrics are inactive (no `PUSHGATEWAY_URL`).
+/// Push errors are reported via `tracing::warn`.
+pub async fn push_metrics(job: &str) {
+    let Some(url) = PUSHGATEWAY_URL.get() else {
         return;
     };
-    // Guard: only proceed if the metrics singleton is initialised.
-    if METRICS.get().is_none() {
+    let Some(m) = METRICS.get() else {
         return;
-    }
-    tokio::spawn(async move {
-        METRICS.get().unwrap().push(job, &url).await;
-    });
+    };
+    m.push(job, url).await;
 }
 
 /// Emit the canonical per-phase metric bundle in one call:
@@ -255,12 +253,12 @@ pub fn push_metrics(job: &'static str) {
 /// - `secs`: elapsed time in **seconds**
 /// - `phase`: value for the `phase=` CSV label, e.g. `"register"`
 /// - `job`: PushGateway job name (`"xdbg_debug"` or `"xdbg_test"`)
-pub fn record_phase_metric(operation: &str, secs: f64, phase: &str, job: &'static str) {
+pub async fn record_phase_metric(operation: &str, secs: f64, phase: &str, job: &str) {
     record_latency(operation, secs);
     record_throughput(operation);
     csv_metric("latency_seconds", operation, secs, &[("phase", phase)]);
     csv_metric("throughput_events", operation, 1.0, &[("phase", phase)]);
-    push_metrics(job);
+    push_metrics(job).await;
 }
 
 // ---------------------------------------------------------------------------
