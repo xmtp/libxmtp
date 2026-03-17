@@ -45,9 +45,8 @@ pub struct CommitLogEntry {
     pub serialized_commit_log_entry: ::prost::alloc::vec::Vec<u8>,
     #[deprecated]
     #[prost(message, optional, tag = "3")]
-    pub deprecated_signature: ::core::option::Option<
-        super::super::identity::associations::RecoverableEd25519Signature,
-    >,
+    pub deprecated_signature:
+        ::core::option::Option<super::super::identity::associations::RecoverableEd25519Signature>,
     /// Installation cred signature on field 2 + group salt
     #[prost(bytes = "vec", tag = "4")]
     pub signature: ::prost::alloc::vec::Vec<u8>,
@@ -73,6 +72,8 @@ pub struct ForkAdminChange {
     /// Installation cred signature on fields 1 + 2 + group salt
     #[prost(bytes = "vec", tag = "3")]
     pub signature: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "4")]
+    pub group_id: ::prost::alloc::vec::Vec<u8>,
 }
 impl ::prost::Name for ForkAdminChange {
     const NAME: &'static str = "ForkAdminChange";
@@ -203,9 +204,7 @@ impl WelcomePointeeEncryptionAeadType {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::Unspecified => "WELCOME_POINTEE_ENCRYPTION_AEAD_TYPE_UNSPECIFIED",
-            Self::Chacha20Poly1305 => {
-                "WELCOME_POINTEE_ENCRYPTION_AEAD_TYPE_CHACHA20_POLY1305"
-            }
+            Self::Chacha20Poly1305 => "WELCOME_POINTEE_ENCRYPTION_AEAD_TYPE_CHACHA20_POLY1305",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -287,9 +286,7 @@ impl WelcomeWrapperAlgorithm {
         match self {
             Self::Unspecified => "WELCOME_WRAPPER_ALGORITHM_UNSPECIFIED",
             Self::Curve25519 => "WELCOME_WRAPPER_ALGORITHM_CURVE25519",
-            Self::XwingMlkem768Draft6 => {
-                "WELCOME_WRAPPER_ALGORITHM_XWING_MLKEM_768_DRAFT_6"
-            }
+            Self::XwingMlkem768Draft6 => "WELCOME_WRAPPER_ALGORITHM_XWING_MLKEM_768_DRAFT_6",
             Self::SymmetricKey => "WELCOME_WRAPPER_ALGORITHM_SYMMETRIC_KEY",
         }
     }
@@ -298,9 +295,7 @@ impl WelcomeWrapperAlgorithm {
         match value {
             "WELCOME_WRAPPER_ALGORITHM_UNSPECIFIED" => Some(Self::Unspecified),
             "WELCOME_WRAPPER_ALGORITHM_CURVE25519" => Some(Self::Curve25519),
-            "WELCOME_WRAPPER_ALGORITHM_XWING_MLKEM_768_DRAFT_6" => {
-                Some(Self::XwingMlkem768Draft6)
-            }
+            "WELCOME_WRAPPER_ALGORITHM_XWING_MLKEM_768_DRAFT_6" => Some(Self::XwingMlkem768Draft6),
             "WELCOME_WRAPPER_ALGORITHM_SYMMETRIC_KEY" => Some(Self::SymmetricKey),
             _ => None,
         }
@@ -311,10 +306,8 @@ impl WelcomeWrapperAlgorithm {
 pub struct GroupMutableMetadataV1 {
     /// Map to store various metadata attributes (Group name, etc.)
     #[prost(map = "string, string", tag = "1")]
-    pub attributes: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
-    >,
+    pub attributes:
+        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(message, optional, tag = "2")]
     pub admin_list: ::core::option::Option<Inboxes>,
     /// Creator starts as only super_admin
@@ -402,10 +395,8 @@ pub struct EncodedContent {
     pub r#type: ::core::option::Option<ContentTypeId>,
     /// optional encoding parameters required to correctly decode the content
     #[prost(map = "string, string", tag = "2")]
-    pub parameters: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
-    >,
+    pub parameters:
+        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     /// optional fallback description of the content that can be used in case
     /// the client cannot decode or render the content
     #[prost(string, optional, tag = "3")]
@@ -478,14 +469,10 @@ pub mod plaintext_envelope {
             Content(::prost::alloc::vec::Vec<u8>),
             /// Initiator sends a request to receive sync payload
             #[prost(message, tag = "3")]
-            DeviceSyncRequest(
-                super::super::super::super::device_sync::content::DeviceSyncRequest,
-            ),
+            DeviceSyncRequest(super::super::super::super::device_sync::content::DeviceSyncRequest),
             /// Some other authorized installation sends a reply with a link to payload
             #[prost(message, tag = "4")]
-            DeviceSyncReply(
-                super::super::super::super::device_sync::content::DeviceSyncReply,
-            ),
+            DeviceSyncReply(super::super::super::super::device_sync::content::DeviceSyncReply),
             /// A serialized user preference update
             #[prost(message, tag = "5")]
             UserPreferenceUpdate(
@@ -613,9 +600,7 @@ pub struct GroupUpdated {
     pub removed_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
     /// The metadata changes in the commit
     #[prost(message, repeated, tag = "4")]
-    pub metadata_field_changes: ::prost::alloc::vec::Vec<
-        group_updated::MetadataFieldChange,
-    >,
+    pub metadata_field_changes: ::prost::alloc::vec::Vec<group_updated::MetadataFieldChange>,
     /// / The inboxes that were removed from the group in response to pending-remove/self-remove requests
     #[prost(message, repeated, tag = "5")]
     pub left_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
@@ -708,10 +693,8 @@ pub struct PolicySet {
     #[prost(message, optional, tag = "2")]
     pub remove_member_policy: ::core::option::Option<MembershipPolicy>,
     #[prost(map = "string, message", tag = "3")]
-    pub update_metadata_policy: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        MetadataPolicy,
-    >,
+    pub update_metadata_policy:
+        ::std::collections::HashMap<::prost::alloc::string::String, MetadataPolicy>,
     #[prost(message, optional, tag = "4")]
     pub add_admin_policy: ::core::option::Option<PermissionsUpdatePolicy>,
     #[prost(message, optional, tag = "5")]
@@ -770,17 +753,7 @@ pub mod membership_policy {
         }
     }
     /// Base policy
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum BasePolicy {
         Unspecified = 0,
@@ -799,9 +772,7 @@ pub mod membership_policy {
                 Self::Unspecified => "BASE_POLICY_UNSPECIFIED",
                 Self::Allow => "BASE_POLICY_ALLOW",
                 Self::Deny => "BASE_POLICY_DENY",
-                Self::AllowIfAdminOrSuperAdmin => {
-                    "BASE_POLICY_ALLOW_IF_ADMIN_OR_SUPER_ADMIN"
-                }
+                Self::AllowIfAdminOrSuperAdmin => "BASE_POLICY_ALLOW_IF_ADMIN_OR_SUPER_ADMIN",
                 Self::AllowIfSuperAdmin => "BASE_POLICY_ALLOW_IF_SUPER_ADMIN",
             }
         }
@@ -811,9 +782,7 @@ pub mod membership_policy {
                 "BASE_POLICY_UNSPECIFIED" => Some(Self::Unspecified),
                 "BASE_POLICY_ALLOW" => Some(Self::Allow),
                 "BASE_POLICY_DENY" => Some(Self::Deny),
-                "BASE_POLICY_ALLOW_IF_ADMIN_OR_SUPER_ADMIN" => {
-                    Some(Self::AllowIfAdminOrSuperAdmin)
-                }
+                "BASE_POLICY_ALLOW_IF_ADMIN_OR_SUPER_ADMIN" => Some(Self::AllowIfAdminOrSuperAdmin),
                 "BASE_POLICY_ALLOW_IF_SUPER_ADMIN" => Some(Self::AllowIfSuperAdmin),
                 _ => None,
             }
@@ -880,17 +849,7 @@ pub mod metadata_policy {
         }
     }
     /// Base policy
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum MetadataBasePolicy {
         Unspecified = 0,
@@ -920,9 +879,7 @@ pub mod metadata_policy {
                 "METADATA_BASE_POLICY_ALLOW" => Some(Self::Allow),
                 "METADATA_BASE_POLICY_DENY" => Some(Self::Deny),
                 "METADATA_BASE_POLICY_ALLOW_IF_ADMIN" => Some(Self::AllowIfAdmin),
-                "METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN" => {
-                    Some(Self::AllowIfSuperAdmin)
-                }
+                "METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN" => Some(Self::AllowIfSuperAdmin),
                 _ => None,
             }
         }
@@ -988,17 +945,7 @@ pub mod permissions_update_policy {
         }
     }
     /// Base policy
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum PermissionsBasePolicy {
         Unspecified = 0,
@@ -1025,9 +972,7 @@ pub mod permissions_update_policy {
                 "PERMISSIONS_BASE_POLICY_UNSPECIFIED" => Some(Self::Unspecified),
                 "PERMISSIONS_BASE_POLICY_DENY" => Some(Self::Deny),
                 "PERMISSIONS_BASE_POLICY_ALLOW_IF_ADMIN" => Some(Self::AllowIfAdmin),
-                "PERMISSIONS_BASE_POLICY_ALLOW_IF_SUPER_ADMIN" => {
-                    Some(Self::AllowIfSuperAdmin)
-                }
+                "PERMISSIONS_BASE_POLICY_ALLOW_IF_SUPER_ADMIN" => Some(Self::AllowIfSuperAdmin),
                 _ => None,
             }
         }

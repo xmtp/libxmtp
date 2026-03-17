@@ -12,6 +12,8 @@ use xmtp_id::{
     },
     scw_verifier::{SmartContractSignatureVerifier, ValidationResponse},
 };
+use xmtp_proto::mls_v1::MessageType;
+use xmtp_proto::xmtp::mls::message_contents::ForkAdminChange;
 use xmtp_proto::xmtp::{
     identity::{
         api::v1::{
@@ -81,6 +83,7 @@ impl ValidationApi for ValidationService {
                         group_id: res.group_id,
                         error_message: "".to_string(),
                         is_ok: true,
+                        message_type: res.message_type,
 
                         #[allow(deprecated)]
                         is_commit: res.is_commit,
@@ -89,6 +92,7 @@ impl ValidationApi for ValidationService {
                         group_id: "".to_string(),
                         error_message: e,
                         is_ok: false,
+                        message_type: MessageType::Unspecified,
 
                         #[allow(deprecated)]
                         is_commit: false,
@@ -279,14 +283,33 @@ async fn get_association_state(
     })
 }
 
+#[derive(Default)]
 struct ValidateGroupMessageResult {
     group_id: String,
     is_commit: bool,
+    message_type: MessageType,
 }
 
 fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult, String> {
-    let msg_result =
-        MlsMessageIn::tls_deserialize(&mut message.as_slice()).map_err(|e| e.to_string())?;
+    use xmtp_proto::prost::Message;
+
+    let mut result = ValidateGroupMessageResult::default();
+
+    let msg = message.as_slice();
+    let msg_result = MlsMessageIn::tls_deserialize(&mut msg).map_err(|e| e.to_string());
+
+    if let Err(err) = msg_result {
+        // Attempt to check if it's a fork admin change msg.
+        if let Ok(admin_change) = ForkAdminChange::decode(&*message) {
+            return Ok(ValidateGroupMessageResult {
+                group_id: hex::encode(&admin_change.group_id),
+                is_commit: true,
+                message_type: MessageType::ForkAdminChange,
+            });
+        }
+
+        return Err(err);
+    }
 
     let protocol_message: ProtocolMessage = msg_result
         .try_into_protocol_message()

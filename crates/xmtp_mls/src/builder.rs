@@ -123,6 +123,7 @@ pub enum ForkRecoveryPolicy {
 
 #[derive(Clone, Debug)]
 pub struct ForkRecoveryOpts {
+    pub disable_worker: bool,
     pub enable_recovery_requests: ForkRecoveryPolicy,
     pub groups_to_request_recovery: Vec<String>,
     pub disable_recovery_responses: bool,
@@ -135,6 +136,7 @@ impl Default for ForkRecoveryOpts {
             enable_recovery_requests: ForkRecoveryPolicy::None,
             groups_to_request_recovery: Vec::new(),
             disable_recovery_responses: false,
+            disable_worker: false,
             worker_interval_ns: None,
         }
     }
