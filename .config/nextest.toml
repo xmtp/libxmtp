@@ -23,7 +23,6 @@ retries = 3
 [[profile.ci.overrides]]
 filter = 'test(/\btest_can_stream_group_messages_for_updates/)'
 retries = 3
-
 [profile.ci-d14n]
 slow-timeout = "90sec"
 default-filter = "not (test(/\\w*commit_log*/))"

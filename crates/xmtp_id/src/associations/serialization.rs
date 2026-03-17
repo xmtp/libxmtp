@@ -783,9 +783,6 @@ impl From<AccountId> for String {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
     use xmtp_common::{rand_u64, rand_vec};
 
     use super::*;

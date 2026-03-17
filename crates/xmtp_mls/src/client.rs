@@ -1164,9 +1164,6 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
     use super::Client;
     use crate::context::XmtpSharedContext;
     use crate::groups::send_message_opts::SendMessageOpts;

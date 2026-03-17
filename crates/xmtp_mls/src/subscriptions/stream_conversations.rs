@@ -446,9 +446,6 @@ mod test {
     use futures::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
     #[xmtp_common::timeout(std::time::Duration::from_secs(10))]
     #[rstest::rstest]
     #[case::two_conversations(2)]

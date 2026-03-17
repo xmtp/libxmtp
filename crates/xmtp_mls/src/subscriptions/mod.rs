@@ -597,9 +597,6 @@ pub(crate) mod tests {
     use crate::tester;
     use xmtp_api_d14n::protocol::XmtpQuery;
 
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
     /// A macro for asserting that a stream yields a specific decrypted message.
     ///
     /// # Example
