@@ -1,9 +1,11 @@
 [package]
 name = "xmtp_mls_common"
-edition = "2024"
+description = "common MLS utilties"
 license.workspace = true
 version.workspace = true
-description = "common MLS utilties"
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
 
 [lints]
 workspace = true

@@ -43,6 +43,7 @@ pub enum Commands {
     Info(InfoOpts),
     Export(ExportOpts),
     Stream(StreamOpts),
+    Test(TestOpts),
 }
 
 /// Send Data on the network
@@ -186,8 +187,7 @@ pub struct InfoOpts {
     pub random: bool,
     /// Show information about the app
     #[arg(long)]
-    pub app: bool, // /// Show information about a specific identity, like its id and storage
-                   // pub identity: IdentityInfo
+    pub app: bool,
 }
 
 /// Export information to JSON
@@ -295,6 +295,10 @@ pub struct BackendOpts {
     /// Enable the decentralization backend
     #[arg(short, long)]
     pub d14n: bool,
+    /// Use the perf gateway (closest-node selection) instead of the default gateway.
+    /// Implies --d14n.
+    #[arg(short, long, requires = "d14n")]
+    pub perf: bool,
     /// enable the v3 -> d14n cutover client
     #[arg(short = 'm', long, conflicts_with_all = &["d14n"])]
     pub enable_migration: bool,
@@ -315,6 +319,16 @@ impl BackendOpts {
             return Ok(p.clone());
         }
 
+        if self.perf {
+            debug_assert!(self.d14n, "--perf requires --d14n");
+            return match self.backend {
+                Dev => Ok((*crate::constants::XMTP_DEV_PERF_GATEWAY).clone()),
+                Staging => Ok((*crate::constants::XMTP_STAGING_PERF_GATEWAY).clone()),
+                Production => Ok((*crate::constants::XMTP_PRODUCTION_PERF_GATEWAY).clone()),
+                Local => Ok((*crate::constants::XMTP_LOCAL_PERF_GATEWAY).clone()),
+            };
+        }
+
         match (self.backend, self.d14n, self.enable_migration) {
             (Dev, false, false) => eyre::bail!("No gateway for V3"),
             (Staging, false, false) => eyre::bail!("No gateway for V3"),
@@ -332,88 +346,61 @@ impl BackendOpts {
     }
 
     pub fn network_url(&self) -> url::Url {
-        use BackendKind::*;
-
         if let Some(n) = &self.url {
             return n.clone();
         }
-
-        match (self.backend, self.d14n, self.enable_migration) {
-            (Dev, false, false) => (*crate::constants::XMTP_DEV).clone(),
-            (Staging, false, false) => (*crate::constants::XMTP_DEV).clone(),
-            (Production, false, false) => (*crate::constants::XMTP_PRODUCTION).clone(),
-            (Local, false, false) => (*crate::constants::XMTP_LOCAL).clone(),
-            (Dev, true, false) => (*crate::constants::XMTP_DEV_D14N).clone(),
-            (Staging, true, false) => (*crate::constants::XMTP_STAGING_D14N).clone(),
-            (Production, true, false) => (*crate::constants::XMTP_PRODUCTION_D14N).clone(),
-            (Local, true, false) => (*crate::constants::XMTP_LOCAL_D14N).clone(),
-            (Local, _, true) => (*crate::constants::XMTP_LOCAL).clone(),
-            (Dev, _, true) => (*crate::constants::XMTP_DEV).clone(),
-            (Staging, _, true) => (*crate::constants::XMTP_DEV).clone(),
-            (Production, _, true) => (*crate::constants::XMTP_PRODUCTION).clone(),
-        }
+        self.backend.to_network_url(self.d14n)
     }
 
     pub fn connect(&self) -> eyre::Result<crate::DbgClientApi> {
         let network = self.network_url();
-        let is_secure = network.scheme() == "https";
-
         let mut builder = MessageBackendBuilder::default();
-        builder.v3_host(network.as_str()).is_secure(is_secure);
+        builder.v3_host(network.as_str());
         if self.enable_migration {
             let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
-            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
+            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host,  "create grpc");
             return Ok(builder.gateway_host(xmtpd_gateway_host.as_str()).build()?);
         }
         if self.d14n {
             let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
-            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
+            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host,  "create grpc");
             Ok(builder
                 .gateway_host(xmtpd_gateway_host.as_str())
                 .build_d14n()?)
         } else {
-            trace!(url = %network, is_secure, "create grpc");
+            trace!(url = %network,  "create grpc");
             Ok(builder.build_v3()?)
         }
     }
 
     pub fn client_bundle(&self) -> eyre::Result<xmtp_mls::XmtpClientBundle> {
         let network = self.network_url();
-        let is_secure = network.scheme() == "https";
-
         let mut builder = ClientBundle::builder();
-        builder.v3_host(network.as_str()).is_secure(is_secure);
+        builder.v3_host(network.as_str());
         if self.enable_migration {
             let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
-            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
+            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, "create grpc");
             return Ok(builder.gateway_host(xmtpd_gateway_host.as_str()).build()?);
         }
         if self.d14n {
             let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
-            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
+            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, "create grpc");
             Ok(builder
                 .gateway_host(xmtpd_gateway_host.as_str())
                 .build_d14n()?)
         } else {
-            trace!(url = %network, is_secure, "create grpc");
+            trace!(url = %network, "create grpc");
             Ok(builder.build_v3()?)
         }
     }
 
     pub fn xmtpd(&self) -> eyre::Result<impl Client> {
-        let network = self.network_url();
-        let is_secure = network.scheme() == "https";
-
         let mut gateway_client_builder = GrpcClient::builder();
-        gateway_client_builder.set_host(self.xmtpd_gateway_url()?.to_string());
-        gateway_client_builder.set_tls(is_secure);
+        gateway_client_builder.set_host(self.xmtpd_gateway_url()?);
         let gateway_client = gateway_client_builder.build()?;
-        let mut node_builder = GrpcClient::builder();
-        node_builder.set_tls(is_secure);
-
         let multi_node = xmtp_api_d14n::middleware::MultiNodeClient::builder()
             .gateway_client(gateway_client.clone())
-            .node_client_template(node_builder)
+            .node_client_template(GrpcClient::builder())
             .build()?;
 
         let rw = ReadWriteClient::builder()
@@ -480,11 +467,11 @@ pub enum BackendKind {
 }
 
 impl BackendKind {
-    fn to_network_url(self, d14n: bool) -> url::Url {
+    pub fn to_network_url(self, d14n: bool) -> url::Url {
         use BackendKind::*;
         match (self, d14n) {
             (Dev, false) => (*crate::constants::XMTP_DEV).clone(),
-            (Staging, false) => (*crate::constants::XMTP_DEV).clone(),
+            (Staging, false) => (*crate::constants::XMTP_STAGING).clone(),
             (Production, false) => (*crate::constants::XMTP_PRODUCTION).clone(),
             (Local, false) => (*crate::constants::XMTP_LOCAL).clone(),
             (Dev, true) => (*crate::constants::XMTP_DEV_D14N).clone(),
@@ -497,14 +484,30 @@ impl BackendKind {
 
 impl From<BackendKind> for url::Url {
     fn from(value: BackendKind) -> Self {
-        use BackendKind::*;
-        match value {
-            Dev => (*crate::constants::XMTP_DEV).clone(),
-            Staging => (*crate::constants::XMTP_DEV).clone(),
-            Production => (*crate::constants::XMTP_PRODUCTION).clone(),
-            Local => (*crate::constants::XMTP_LOCAL).clone(),
-        }
+        value.to_network_url(false)
     }
+}
+
+/// Test scenarios for e2e latency measurement
+#[derive(Args, Debug)]
+pub struct TestOpts {
+    /// Test scenario to run
+    #[arg(value_enum)]
+    pub scenario: TestScenario,
+    /// Number of iterations
+    #[arg(long, short, default_value = "1")]
+    pub iterations: usize,
+    /// Number of messages for group-sync scenario
+    #[arg(long, short, default_value = "10")]
+    pub message_count: usize,
+}
+
+#[derive(ValueEnum, Debug, Clone)]
+pub enum TestScenario {
+    /// Measure message stream delivery latency (sender → receiver)
+    MessageVisibility,
+    /// Measure group sync latency after N messages
+    GroupSync,
 }
 
 #[cfg(test)]
@@ -574,5 +577,56 @@ mod tests {
             "http://localhost:5052",
         ]);
         assert!(opts.is_err());
+    }
+
+    #[test]
+    fn perf_requires_d14n() {
+        let opts = parse_backend_args(&["--perf"]);
+        assert!(opts.is_err(), "--perf without --d14n should fail");
+    }
+
+    #[test]
+    fn perf_with_d14n_is_valid() {
+        let opts = parse_backend_args(&["--perf", "--d14n"]);
+        assert!(opts.is_ok());
+        let backend = opts.unwrap();
+        assert!(backend.perf);
+        assert!(backend.d14n);
+    }
+
+    #[test]
+    fn perf_with_d14n_and_backend_is_valid() {
+        let opts = parse_backend_args(&["--perf", "--d14n", "--backend", "staging"]);
+        assert!(opts.is_ok());
+        let backend = opts.unwrap();
+        let url = backend.xmtpd_gateway_url().unwrap();
+        assert!(
+            url.as_str().contains("payer-perf"),
+            "perf flag should select perf gateway, got: {url}"
+        );
+    }
+
+    #[test]
+    fn explicit_gateway_url_overrides_perf() {
+        // --xmtpd-gateway-url conflicts with --backend, so we use --url to
+        // avoid that conflict and verify the explicit URL takes precedence
+        // over the perf gateway resolution
+        let opts = parse_backend_args(&[
+            "--perf",
+            "--d14n",
+            "--url",
+            "http://localhost:5050",
+            "--xmtpd-gateway-url",
+            "http://custom:5052",
+        ]);
+        assert!(opts.is_ok());
+        let backend = opts.unwrap();
+        assert!(backend.perf, "perf flag should be set");
+        let url = backend.xmtpd_gateway_url().unwrap();
+        assert_eq!(
+            url.as_str(),
+            "http://custom:5052/",
+            "explicit --xmtpd-gateway-url should override perf gateway"
+        );
     }
 }

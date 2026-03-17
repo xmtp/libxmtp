@@ -591,16 +591,15 @@ where
 
 #[cfg(test)]
 pub mod tests {
-    use futures::stream::StreamExt;
-
     use crate::assert_msg;
     use crate::groups::send_message_opts::SendMessageOpts;
     use crate::tester;
+    use futures::stream::StreamExt;
     use rstest::*;
 
+    #[xmtp_common::timeout(std::time::Duration::from_secs(30))]
     #[rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(30))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_messages() {
         tester!(alice, with_name: "alice");

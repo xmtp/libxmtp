@@ -6,10 +6,14 @@ mod builders;
 mod error_code;
 mod log_macros;
 mod logging;
+mod parse_logs_macro;
 mod test_macro;
+mod timeout_macro;
 
 #[cfg(test)]
 mod builder_test;
+#[cfg(test)]
+mod timeout_macro_test;
 
 /// A proc macro attribute that wraps the input in an `async_trait` implementation,
 /// delegating to the appropriate `async_trait` implementation based on the target architecture.
@@ -110,6 +114,30 @@ pub fn test(
     test_macro::test(attr, body)
 }
 
+/// Attribute macro that wraps a function to capture tracing logs and automatically
+/// run the `log_parser` tool on them when the function completes.
+///
+/// This macro sets up a tracing subscriber that captures all log output to a buffer.
+/// When the function returns (or panics), a drop guard writes the captured logs to
+/// a temporary file and invokes `cargo run --release -p log_parser` to analyze them.
+///
+/// # Example
+///
+/// ```ignore
+/// #[parser]
+/// fn test_with_log_parsing() {
+///     tracing::info!("This log will be captured and parsed");
+///     // ... test code ...
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn parser(
+    attr: proc_macro::TokenStream,
+    body: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    parse_logs_macro::parser(attr, body)
+}
+
 #[proc_macro_attribute]
 pub fn build_logging_metadata(
     attr: proc_macro::TokenStream,
@@ -170,4 +198,24 @@ pub fn log_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 #[proc_macro_derive(ErrorCode, attributes(error_code))]
 pub fn derive_error_code(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     error_code::derive_error_code(input)
+}
+
+/// Attribute macro that wraps an async test body with a WASM-compatible timeout.
+///
+/// This is a drop-in replacement for rstest's `#[timeout]` that works on
+/// `wasm32-unknown-unknown` by using `xmtp_common::time::timeout` internally.
+///
+/// # Example
+///
+/// ```ignore
+/// #[xmtp_common::test]
+/// #[xmtp_common::timeout(std::time::Duration::from_secs(60))]
+/// async fn test_something() { ... }
+/// ```
+#[proc_macro_attribute]
+pub fn timeout(
+    attr: proc_macro::TokenStream,
+    body: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    timeout_macro::timeout(attr, body)
 }

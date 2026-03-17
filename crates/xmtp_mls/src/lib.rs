@@ -15,7 +15,6 @@ pub mod mls_store;
 mod mutex_registry;
 pub mod subscriptions;
 pub mod utils;
-pub mod verified_key_package_v2;
 pub mod worker;
 pub use definitions::*;
 

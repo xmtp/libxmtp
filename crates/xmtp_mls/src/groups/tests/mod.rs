@@ -16,6 +16,7 @@ mod test_message_disappearing_settings;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_network;
 mod test_prepare_message_for_later_publish;
+mod test_proposals;
 mod test_send_message_opts;
 mod test_welcome_pointers;
 mod test_welcomes;
@@ -23,6 +24,8 @@ mod test_welcomes;
 xmtp_common::if_d14n! {
     mod test_message_dependencies;
 }
+
+use std::sync::Arc;
 
 use crate::groups::send_message_opts::SendMessageOpts;
 use chrono::DateTime;
@@ -33,6 +36,7 @@ use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_configuration::Originators;
 use xmtp_db::XmtpOpenMlsProviderRef;
 use xmtp_db::refresh_state::EntityKind;
+use xmtp_id::InboxOwner;
 use xmtp_proto::types::{Cursor, TopicKind};
 
 #[cfg(target_arch = "wasm32")]
@@ -66,7 +70,6 @@ use diesel::connection::SimpleConnection;
 use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
 use futures::future::join_all;
 use rstest::*;
-use std::sync::Arc;
 use xmtp_common::RetryableError;
 use xmtp_common::StreamHandle as _;
 use xmtp_common::time::now_ns;
@@ -112,8 +115,9 @@ async fn force_add_member(
     sender_mls_group: &mut openmls::prelude::MlsGroup,
     sender_provider: &impl xmtp_db::MlsProviderExt,
 ) {
-    use crate::groups::mls_ext::{WelcomePointersExtension, WrapperAlgorithm};
+    use crate::groups::mls_ext::WelcomePointersExtension;
     use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
+    use xmtp_id::key_package::WrapperAlgorithm;
 
     use super::intents::{Installation, SendWelcomesAction};
     use openmls::prelude::tls_codec::Serialize;
@@ -203,8 +207,8 @@ async fn test_receive_self_message() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_receive_message_from_other() {
-    let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(alix);
+    tester!(bo);
     let alix_group = alix.create_group(None, None).expect("create group");
     alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
     let alix_message = b"hello from alix";
@@ -230,8 +234,8 @@ async fn test_receive_message_from_other() {
 // Test members function from non group creator
 #[xmtp_common::test]
 async fn test_members_func_from_non_creator() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(bola);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
@@ -276,9 +280,9 @@ async fn test_members_func_from_non_creator() {
 // The group should resolve to a consistent state
 #[xmtp_common::test]
 async fn test_add_member_conflict() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(bola);
+    tester!(charlie);
 
     let amal_group = amal.create_group(None, None).unwrap();
     // Add bola
@@ -372,8 +376,8 @@ fn test_create_from_welcome_validation() {
     use xmtp_common::assert_logged;
     xmtp_common::traced_test!(async {
         tracing::info!("TEST");
-        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        tester!(alix);
+        tester!(bo);
 
         let alix_group = alix.create_group(None, None).unwrap();
         let provider = alix.context.mls_provider();
@@ -488,8 +492,8 @@ async fn test_dm_stitching() {
 
 #[xmtp_common::test]
 async fn test_add_inbox() {
-    let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(client);
+    tester!(client_2);
     let group = client.create_group(None, None).expect("create group");
 
     group.add_members(&[client_2.inbox_id()]).await.unwrap();
@@ -508,16 +512,13 @@ async fn test_add_inbox() {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "current_thread")]
 async fn test_create_group_with_member_two_installations_one_malformed_keypackage() {
-    use xmtp_id::associations::test_utils::WalletTestExt;
-
     use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
     // 1) Prepare clients
-    let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola_wallet = generate_local_wallet();
+    tester!(alix);
 
     // bola has two installations
-    let bola_1 = ClientBuilder::new_test_client(&bola_wallet).await;
-    let bola_2 = ClientBuilder::new_test_client(&bola_wallet).await;
+    tester!(bola_1);
+    tester!(bola_2, from: bola_1);
 
     // 2) Mark the second installation as malformed
     set_test_mode_upload_malformed_keypackage(
@@ -527,7 +528,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
 
     // 3) Create the group, inviting bola (which internally includes bola_1 and bola_2)
     let group = alix
-        .create_group_with_identifiers(&[bola_wallet.identifier()], None, None)
+        .create_group_with_identifiers(&[bola_1.identifier()], None, None)
         .await
         .unwrap();
 
@@ -612,16 +613,13 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "current_thread")]
 async fn test_create_group_with_member_all_malformed_installations() {
-    use xmtp_id::associations::test_utils::WalletTestExt;
-
     use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
     // 1) Prepare clients
-    let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(alix);
 
     // bola has two installations
-    let bola_wallet = generate_local_wallet();
-    let bola_1 = ClientBuilder::new_test_client(&bola_wallet).await;
-    let bola_2 = ClientBuilder::new_test_client(&bola_wallet).await;
+    tester!(bola_1);
+    tester!(bola_2, from: bola_1);
 
     // 2) Mark both installations as malformed
     set_test_mode_upload_malformed_keypackage(
@@ -634,7 +632,7 @@ async fn test_create_group_with_member_all_malformed_installations() {
 
     // 3) Attempt to create the group, which should fail
     let result = alix
-        .create_group_with_identifiers(&[bola_wallet.identifier()], None, None)
+        .create_group_with_identifiers(&[bola_1.identifier()], None, None)
         .await;
     // 4) Ensure group creation failed
     assert!(
@@ -666,12 +664,9 @@ async fn test_create_group_with_member_all_malformed_installations() {
 async fn test_dm_creation_with_user_two_installations_one_malformed() {
     use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
     // 1) Prepare clients
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola_wallet = generate_local_wallet();
-
-    // Bola has two installations
-    let bola_1 = ClientBuilder::new_test_client(&bola_wallet).await;
-    let bola_2 = ClientBuilder::new_test_client(&bola_wallet).await;
+    tester!(amal);
+    tester!(bola_1);
+    tester!(bola_2, from: bola_1);
 
     // 2) Mark bola_2's installation as malformed
     assert_ne!(
@@ -771,16 +766,11 @@ async fn test_dm_creation_with_user_two_installations_one_malformed() {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "current_thread")]
 async fn test_dm_creation_with_user_all_malformed_installations() {
-    use xmtp_id::associations::test_utils::WalletTestExt;
-
     use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
     // 1) Prepare clients
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola_wallet = generate_local_wallet();
-
-    // Bola has two installations
-    let bola_1 = ClientBuilder::new_test_client(&bola_wallet).await;
-    let bola_2 = ClientBuilder::new_test_client(&bola_wallet).await;
+    tester!(amal);
+    tester!(bola_1);
+    tester!(bola_2, from: bola_1);
 
     // 2) Mark all of Bola's installations as malformed
     set_test_mode_upload_malformed_keypackage(
@@ -794,7 +784,7 @@ async fn test_dm_creation_with_user_all_malformed_installations() {
     // 3) Attempt to create the DM group, which should fail
 
     let result = amal
-        .find_or_create_dm_by_identity(bola_wallet.identifier(), None)
+        .find_or_create_dm_by_identity(bola_1.identifier(), None)
         .await;
 
     // 4) Ensure DM creation fails with the correct error
@@ -823,14 +813,11 @@ async fn test_dm_creation_with_user_all_malformed_installations() {
 #[tokio::test(flavor = "current_thread")]
 async fn test_add_inbox_with_bad_installation_to_group() {
     use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
-    use xmtp_id::associations::test_utils::WalletTestExt;
 
-    let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bo_wallet = generate_local_wallet();
-    let caro_wallet = generate_local_wallet();
-    let bo_1 = ClientBuilder::new_test_client(&bo_wallet).await;
-    let bo_2 = ClientBuilder::new_test_client(&bo_wallet).await;
-    let caro = ClientBuilder::new_test_client(&caro_wallet).await;
+    tester!(alix);
+    tester!(caro);
+    tester!(bo_1);
+    tester!(bo_2, from: bo_1);
 
     set_test_mode_upload_malformed_keypackage(
         true,
@@ -838,13 +825,11 @@ async fn test_add_inbox_with_bad_installation_to_group() {
     );
 
     let group = alix
-        .create_group_with_identifiers(&[caro_wallet.identifier()], None, None)
+        .create_group_with_identifiers(&[caro.identifier()], None, None)
         .await
         .unwrap();
 
-    let _ = group
-        .add_members_by_identity(&[bo_wallet.identifier()])
-        .await;
+    let _ = group.add_members_by_identity(&[bo_1.identifier()]).await;
 
     bo_2.sync_welcomes().await.unwrap();
     caro.sync_welcomes().await.unwrap();
@@ -861,14 +846,11 @@ async fn test_add_inbox_with_bad_installation_to_group() {
 #[tokio::test(flavor = "current_thread")]
 async fn test_add_inbox_with_good_installation_to_group_with_bad_installation() {
     use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
-    use xmtp_id::associations::test_utils::WalletTestExt;
 
-    let bo_wallet = generate_local_wallet();
-    let caro_wallet = generate_local_wallet();
-    let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bo_1 = ClientBuilder::new_test_client(&bo_wallet).await;
-    let bo_2 = ClientBuilder::new_test_client(&bo_wallet).await;
-    let caro = ClientBuilder::new_test_client(&caro_wallet).await;
+    tester!(alix);
+    tester!(bo_1);
+    tester!(bo_2, from: bo_1);
+    tester!(caro);
 
     set_test_mode_upload_malformed_keypackage(
         true,
@@ -876,13 +858,11 @@ async fn test_add_inbox_with_good_installation_to_group_with_bad_installation() 
     );
 
     let group = alix
-        .create_group_with_identifiers(&[bo_wallet.identifier()], None, None)
+        .create_group_with_identifiers(&[bo_1.identifier()], None, None)
         .await
         .unwrap();
 
-    let _ = group
-        .add_members_by_identity(&[caro_wallet.identifier()])
-        .await;
+    let _ = group.add_members_by_identity(&[caro.identifier()]).await;
 
     caro.sync_welcomes().await.unwrap();
     bo_2.sync_welcomes().await.unwrap();
@@ -898,15 +878,11 @@ async fn test_add_inbox_with_good_installation_to_group_with_bad_installation() 
 #[tokio::test(flavor = "current_thread")]
 async fn test_remove_inbox_with_good_installation_from_group_with_bad_installation() {
     use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
-    use xmtp_id::associations::test_utils::WalletTestExt;
 
-    let alix_wallet = generate_local_wallet();
-    let bo_wallet = generate_local_wallet();
-    let caro_wallet = generate_local_wallet();
-    let alix_1 = ClientBuilder::new_test_client(&alix_wallet).await;
-    let alix_2 = ClientBuilder::new_test_client(&alix_wallet).await;
-    let bo = ClientBuilder::new_test_client(&bo_wallet).await;
-    let caro = ClientBuilder::new_test_client(&caro_wallet).await;
+    tester!(alix_1);
+    tester!(alix_2, from: alix_1);
+    tester!(bo);
+    tester!(caro);
 
     set_test_mode_upload_malformed_keypackage(
         true,
@@ -914,18 +890,12 @@ async fn test_remove_inbox_with_good_installation_from_group_with_bad_installati
     );
 
     let group = alix_1
-        .create_group_with_identifiers(
-            &[bo_wallet.identifier(), caro_wallet.identifier()],
-            None,
-            None,
-        )
+        .create_group_with_identifiers(&[bo.identifier(), caro.identifier()], None, None)
         .await
         .unwrap();
 
     assert_eq!(group.members().await.unwrap().len(), 3);
-    let _ = group
-        .remove_members_by_identity(&[caro_wallet.identifier()])
-        .await;
+    let _ = group.remove_members_by_identity(&[caro.identifier()]).await;
 
     caro.sync_welcomes().await.unwrap();
     bo.sync_welcomes().await.unwrap();
@@ -946,15 +916,11 @@ async fn test_remove_inbox_with_good_installation_from_group_with_bad_installati
 #[tokio::test(flavor = "current_thread")]
 async fn test_remove_inbox_with_bad_installation_from_group() {
     use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
-    use xmtp_id::associations::test_utils::WalletTestExt;
 
-    let alix_wallet = generate_local_wallet();
-    let bo_wallet = generate_local_wallet();
-    let caro_wallet = generate_local_wallet();
-    let alix = ClientBuilder::new_test_client(&alix_wallet).await;
-    let bo_1 = ClientBuilder::new_test_client(&bo_wallet).await;
-    let bo_2 = ClientBuilder::new_test_client(&bo_wallet).await;
-    let caro = ClientBuilder::new_test_client(&caro_wallet).await;
+    tester!(alix);
+    tester!(bo_1);
+    tester!(bo_2, from: bo_1);
+    tester!(caro);
 
     set_test_mode_upload_malformed_keypackage(
         true,
@@ -962,11 +928,7 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
     );
 
     let group = alix
-        .create_group_with_identifiers(
-            &[bo_wallet.identifier(), caro_wallet.identifier()],
-            None,
-            None,
-        )
+        .create_group_with_identifiers(&[bo_1.identifier(), caro.identifier()], None, None)
         .await
         .unwrap();
 
@@ -1010,7 +972,7 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
 
     // Remove Bo
     group
-        .remove_members_by_identity(&[bo_wallet.identifier()])
+        .remove_members_by_identity(&[bo_2.identifier()])
         .await
         .unwrap();
 
@@ -1061,7 +1023,7 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
 
 #[xmtp_common::test]
 async fn test_add_invalid_member() {
-    let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(client);
     let group = client.create_group(None, None).expect("create group");
 
     let result = group.add_members(&["1234".to_string()]).await;
@@ -1071,7 +1033,7 @@ async fn test_add_invalid_member() {
 
 #[xmtp_common::test]
 async fn test_add_unregistered_member() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
     let unconnected_ident = Identifier::rand_ethereum();
     let group = amal.create_group(None, None).unwrap();
     let result = group.add_members_by_identity(&[unconnected_ident]).await;
@@ -1081,9 +1043,9 @@ async fn test_add_unregistered_member() {
 
 #[xmtp_common::test]
 async fn test_remove_inbox() {
-    let client_1 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(client_1);
     // Add another client onto the network
-    let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(client_2);
 
     let group = client_1.create_group(None, None).expect("create group");
     group
@@ -1118,8 +1080,8 @@ async fn test_remove_inbox() {
 
 #[xmtp_common::test]
 async fn test_self_remove_dm_must_fail() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(bola);
 
     // Amal creates a dm group with bola
     let amal_dm = amal
@@ -1190,7 +1152,7 @@ async fn test_self_remove_dm_must_fail() {
 }
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_remove_group_fail_with_one_member() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
 
     // Create a group and verify it has the default group name
     let amal_group = amal.create_group(None, None).unwrap();
@@ -1210,8 +1172,8 @@ async fn test_self_remove_group_fail_with_one_member() {
 }
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_remove_super_admin_must_fail() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(bola);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
@@ -1224,8 +1186,8 @@ async fn test_self_remove_super_admin_must_fail() {
 }
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_non_member_cannot_leave_group() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(bola);
 
     // Create a group and verify it has the default group name
     let amal_group = amal.create_group(None, None).unwrap();
@@ -1266,11 +1228,9 @@ async fn test_non_member_cannot_leave_group() {
 
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal() {
-    let amal_wallet = generate_local_wallet();
-    let bola_wallet = generate_local_wallet();
-    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
-    let bola_i1 = ClientBuilder::new_test_client(&bola_wallet).await;
-    let bola_i2 = ClientBuilder::new_test_client(&bola_wallet).await;
+    tester!(amal);
+    tester!(bola_i1);
+    tester!(bola_i2, from: bola_i1);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group.add_members(&[bola_i1.inbox_id()]).await.unwrap();
@@ -1382,8 +1342,8 @@ async fn test_self_removal() {
 
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_simple() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(bola);
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
@@ -1422,8 +1382,8 @@ async fn test_self_removal_simple() {
 
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_membership_state_after_readd() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(bola);
 
     // Amal creates a group and adds Bola
     let amal_group = amal.create_group(None, None).unwrap();
@@ -1514,8 +1474,8 @@ async fn test_membership_state_after_readd() {
 
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_group_update_message() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(bola);
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
@@ -1549,10 +1509,8 @@ async fn test_self_removal_group_update_message() {
 }
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_single_installations() {
-    let amal_wallet = generate_local_wallet();
-    let bola_wallet = generate_local_wallet();
-    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
-    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
+    tester!(amal);
+    tester!(bola);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
@@ -1642,11 +1600,9 @@ async fn test_self_removal_single_installations() {
 
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_with_multiple_initial_installations() {
-    let amal_wallet = generate_local_wallet();
-    let bola_wallet = generate_local_wallet();
-    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
-    let bola_i1 = ClientBuilder::new_test_client(&bola_wallet).await;
-    let bola_i2 = ClientBuilder::new_test_client(&bola_wallet).await;
+    tester!(amal);
+    tester!(bola_i1);
+    tester!(bola_i2, from: bola_i1);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group.add_members(&[bola_i1.inbox_id()]).await.unwrap();
@@ -1708,10 +1664,8 @@ async fn test_self_removal_with_multiple_initial_installations() {
 #[xmtp_common::test(flavor = "current_thread")]
 #[ignore] // fix after consent sync
 async fn test_self_removal_with_late_installation() {
-    let amal_wallet = generate_local_wallet();
-    let bola_wallet = generate_local_wallet();
-    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
-    let bola_i1 = ClientBuilder::new_test_client(&bola_wallet).await;
+    tester!(amal);
+    tester!(bola_i1);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group.add_members(&[bola_i1.inbox_id()]).await.unwrap();
@@ -1743,7 +1697,7 @@ async fn test_self_removal_with_late_installation() {
     );
 
     // Introduce another installation for Bola after the self-removal
-    let bola_i3 = ClientBuilder::new_test_client(&bola_wallet).await;
+    tester!(bola_i3, from: bola_i1);
     xmtp_common::time::sleep(std::time::Duration::from_secs(5)).await;
     bola_i1_group
         .send_message(b"test one", SendMessageOpts::default())
@@ -1781,13 +1735,9 @@ async fn test_self_removal_with_late_installation() {
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_clean_pending_remove_list_on_member_removal() {
     // Test that when a member is removed from the group, they are also removed from the pending_remove list
-    let amal_wallet = generate_local_wallet();
-    let bola_wallet = generate_local_wallet();
-    let caro_wallet = generate_local_wallet();
-
-    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
-    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
-    let caro = ClientBuilder::new_test_client(&caro_wallet).await;
+    tester!(amal);
+    tester!(bola);
+    tester!(caro);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
@@ -1821,7 +1771,7 @@ async fn test_clean_pending_remove_list_on_member_removal() {
     // Amal removes Bola from the group
     amal_group.sync().await.unwrap();
     amal_group
-        .remove_members_by_identity(&[bola_wallet.identifier()])
+        .remove_members_by_identity(&[bola.identifier()])
         .await
         .unwrap();
 
@@ -1887,13 +1837,9 @@ async fn test_clean_pending_remove_list_on_member_removal() {
 async fn test_super_admin_promotion_marks_pending_leave_requests() {
     // Test that when a user is promoted to super_admin and there are pending remove users,
     // the group is marked as having pending leave requests
-    let amal_wallet = generate_local_wallet();
-    let bola_wallet = generate_local_wallet();
-    let caro_wallet = generate_local_wallet();
-
-    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
-    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
-    let caro = ClientBuilder::new_test_client(&caro_wallet).await;
+    tester!(amal);
+    tester!(bola);
+    tester!(caro);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
@@ -1954,13 +1900,9 @@ async fn test_super_admin_promotion_marks_pending_leave_requests() {
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_super_admin_demotion_clears_pending_leave_requests() {
     // Test that when a user is demoted from super_admin, the pending leave request flag is cleared
-    let amal_wallet = generate_local_wallet();
-    let bola_wallet = generate_local_wallet();
-    let caro_wallet = generate_local_wallet();
-
-    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
-    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
-    let caro = ClientBuilder::new_test_client(&caro_wallet).await;
+    tester!(amal);
+    tester!(bola);
+    tester!(caro);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
@@ -2031,11 +1973,8 @@ async fn test_super_admin_demotion_clears_pending_leave_requests() {
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_no_status_change_when_not_in_pending_remove_list() {
     // Test that promotion to super_admin doesn't mark the group when there are no pending remove users
-    let amal_wallet = generate_local_wallet();
-    let bola_wallet = generate_local_wallet();
-
-    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
-    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
+    tester!(amal);
+    tester!(bola);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
@@ -2082,11 +2021,9 @@ async fn test_no_status_change_when_not_in_pending_remove_list() {
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_promotion_excludes_self_from_pending_check() {
     // Test that if the promoted user is in the pending_remove list, the group is NOT marked
-    let amal_wallet = generate_local_wallet();
-    let bola_wallet = generate_local_wallet();
 
-    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
-    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
+    tester!(amal);
+    tester!(bola);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
@@ -2137,13 +2074,9 @@ async fn test_promotion_excludes_self_from_pending_check() {
 async fn test_admin_removal_without_pending_shows_as_removed() {
     // Test that when an admin removes a member who is NOT in pending_remove,
     // they appear in removed_inboxes (not left_inboxes)
-    let amal_wallet = generate_local_wallet();
-    let bola_wallet = generate_local_wallet();
-    let caro_wallet = generate_local_wallet();
-
-    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
-    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
-    let caro = ClientBuilder::new_test_client(&caro_wallet).await;
+    tester!(amal);
+    tester!(bola);
+    tester!(caro);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
@@ -2172,7 +2105,7 @@ async fn test_admin_removal_without_pending_shows_as_removed() {
 
     // Amal removes Bola from the group (admin removal, not self-removal)
     amal_group
-        .remove_members_by_identity(&[bola_wallet.identifier()])
+        .remove_members_by_identity(&[bola.identifier()])
         .await
         .unwrap();
 
@@ -2259,8 +2192,8 @@ async fn test_key_update() {
 
 #[xmtp_common::test]
 async fn test_post_commit() {
-    let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(client);
+    tester!(client_2);
     let group = client.create_group(None, None).expect("create group");
 
     group.add_members(&[client_2.inbox_id()]).await.unwrap();
@@ -2281,15 +2214,13 @@ async fn test_post_commit() {
 
 #[xmtp_common::test]
 async fn test_remove_by_account_address() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola_wallet = &generate_local_wallet();
-    let bola = ClientBuilder::new_test_client(bola_wallet).await;
-    let charlie_wallet = &generate_local_wallet();
-    let _charlie = ClientBuilder::new_test_client(charlie_wallet).await;
+    tester!(amal);
+    tester!(bola);
+    tester!(charlie);
 
     let group = amal.create_group(None, None).unwrap();
     group
-        .add_members_by_identity(&[bola_wallet.identifier(), charlie_wallet.identifier()])
+        .add_members_by_identity(&[bola.identifier(), charlie.identifier()])
         .await
         .unwrap();
     tracing::info!("created the group with 2 additional members");
@@ -2305,7 +2236,7 @@ async fn test_remove_by_account_address() {
     assert_eq!(group_update.left_inboxes.len(), 0);
 
     group
-        .remove_members_by_identity(&[bola_wallet.identifier()])
+        .remove_members_by_identity(&[bola.identifier()])
         .await
         .unwrap();
     assert_eq!(group.members().await.unwrap().len(), 2);
@@ -2327,21 +2258,19 @@ async fn test_remove_by_account_address() {
 
 #[xmtp_common::test]
 async fn test_removed_members_cannot_send_message_to_others() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola_wallet = &generate_local_wallet();
-    let bola = ClientBuilder::new_test_client(bola_wallet).await;
-    let charlie_wallet = &generate_local_wallet();
-    let charlie = ClientBuilder::new_test_client(charlie_wallet).await;
+    tester!(amal);
+    tester!(bola);
+    tester!(charlie);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
-        .add_members_by_identity(&[bola_wallet.identifier(), charlie_wallet.identifier()])
+        .add_members_by_identity(&[bola.identifier(), charlie.identifier()])
         .await
         .unwrap();
     assert_eq!(amal_group.members().await.unwrap().len(), 3);
 
     amal_group
-        .remove_members_by_identity(&[bola_wallet.identifier()])
+        .remove_members_by_identity(&[bola.identifier()])
         .await
         .unwrap();
     assert_eq!(amal_group.members().await.unwrap().len(), 2);
@@ -2396,9 +2325,8 @@ async fn test_removed_members_cannot_send_message_to_others() {
 #[xmtp_common::test]
 async fn test_add_missing_installations() {
     // Setup for test
-    let amal_wallet = generate_local_wallet();
-    let amal = ClientBuilder::new_test_client(&amal_wallet).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(bola);
 
     let group = amal.create_group(None, None).unwrap();
     group.add_members(&[bola.inbox_id()]).await.unwrap();
@@ -2407,7 +2335,7 @@ async fn test_add_missing_installations() {
     // Finished with setup
 
     // add a second installation for amal using the same wallet
-    let _amal_2nd = ClientBuilder::new_test_client(&amal_wallet).await;
+    tester!(_amal_2nd, from: amal);
 
     // test if adding the new installation(s) worked
     let new_installations_were_added = group.add_missing_installations().await;
@@ -2425,11 +2353,10 @@ async fn test_add_missing_installations() {
 
 #[xmtp_common::test(flavor = "multi_thread")]
 async fn test_self_resolve_epoch_mismatch() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let dave_wallet = generate_local_wallet();
-    let dave = ClientBuilder::new_test_client(&dave_wallet).await;
+    tester!(amal);
+    tester!(bola);
+    tester!(charlie);
+    tester!(dave);
     let amal_group = amal.create_group(None, None).unwrap();
     // Add bola to the group
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
@@ -2467,9 +2394,9 @@ async fn test_self_resolve_epoch_mismatch() {
 
 #[xmtp_common::test]
 async fn test_group_permissions() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(bola);
+    tester!(charlie);
 
     let amal_group = amal
         .create_group(
@@ -2489,7 +2416,7 @@ async fn test_group_permissions() {
 async fn test_group_options() {
     let expected_group_message_disappearing_settings = MessageDisappearingSettings::new(100, 200);
 
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
 
     let amal_group = amal
         .create_group(
@@ -2545,7 +2472,7 @@ async fn test_group_options() {
 #[xmtp_common::test]
 #[ignore]
 async fn test_max_limit_add() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
     let amal_group = amal
         .create_group(
             Some(PreconfiguredPolicies::AdminsOnly.to_policy_set()),
@@ -2554,25 +2481,18 @@ async fn test_max_limit_add() {
         .unwrap();
     let mut clients = Vec::new();
     for _ in 0..249 {
-        let wallet = generate_local_wallet();
-        ClientBuilder::new_test_client(&wallet).await;
-        clients.push(wallet.identifier());
+        tester!(alix);
+        clients.push(alix.identifier());
     }
     amal_group.add_members_by_identity(&clients).await.unwrap();
-    let bola_wallet = generate_local_wallet();
-    ClientBuilder::new_test_client(&bola_wallet).await;
-    assert!(
-        amal_group
-            .add_members(&[bola_wallet.get_inbox_id(0)])
-            .await
-            .is_err(),
-    );
+    tester!(bola);
+    assert!(amal_group.add_members(&[bola.inbox_id()]).await.is_err(),);
 }
 
 #[xmtp_common::test]
 async fn test_group_mutable_data() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(bola);
 
     // Create a group and verify it has the default group name
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
@@ -2653,14 +2573,17 @@ async fn test_group_mutable_data() {
 
 #[xmtp_common::test]
 async fn test_update_policies_empty_group() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola_wallet = generate_local_wallet();
-    let _bola = ClientBuilder::new_test_client(&bola_wallet).await;
+    tester!(amal);
+    tester!(bola);
 
     // Create a group with amal and bola
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
     let amal_group = amal
-        .create_group_with_identifiers(&[bola_wallet.identifier()], policy_set, None)
+        .create_group_with_identifiers(
+            &[bola.builder.owner.get_identifier().unwrap()],
+            policy_set,
+            None,
+        )
         .await
         .unwrap();
 
@@ -2710,7 +2633,7 @@ async fn test_update_policies_empty_group() {
 
 #[xmtp_common::test]
 async fn test_update_group_image_url_square() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
 
     // Create a group and verify it has the default group name
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
@@ -2744,7 +2667,7 @@ async fn test_update_group_image_url_square() {
 
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_update_group_message_expiration_settings() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
 
     // Create a group and verify it has the default group name
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
@@ -2800,9 +2723,8 @@ async fn test_update_group_message_expiration_settings() {
 
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_group_mutable_data_group_permissions() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola_wallet = generate_local_wallet();
-    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
+    tester!(amal);
+    tester!(bola);
 
     // Create a group and verify it has the default group name
     let policy_set = Some(PreconfiguredPolicies::Default.to_policy_set());
@@ -2820,7 +2742,7 @@ async fn test_group_mutable_data_group_permissions() {
 
     // Add bola to the group
     amal_group
-        .add_members_by_identity(&[bola_wallet.identifier()])
+        .add_members_by_identity(&[bola.identifier()])
         .await
         .unwrap();
     bola.sync_welcomes().await.unwrap();
@@ -2879,11 +2801,10 @@ async fn test_group_mutable_data_group_permissions() {
 
 #[xmtp_common::test]
 async fn test_group_admin_list_update() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola_wallet = generate_local_wallet();
-    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
-    let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(bola);
+    tester!(caro);
+    tester!(charlie);
 
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
     let amal_group = amal.create_group(policy_set, None).unwrap();
@@ -2891,7 +2812,7 @@ async fn test_group_admin_list_update() {
 
     // Add bola to the group
     amal_group
-        .add_members_by_identity(&[bola_wallet.identifier()])
+        .add_members_by_identity(&[bola.identifier()])
         .await
         .unwrap();
     bola.sync_welcomes().await.unwrap();
@@ -2977,10 +2898,9 @@ async fn test_group_admin_list_update() {
 
 #[xmtp_common::test]
 async fn test_group_super_admin_list_update() {
-    let bola_wallet = generate_local_wallet();
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
-    let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(bola);
+    tester!(caro);
 
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
     let amal_group = amal.create_group(policy_set, None).unwrap();
@@ -3044,7 +2964,7 @@ async fn test_group_super_admin_list_update() {
 
     // Verify that no one can remove a super admin from a group
     amal_group
-        .remove_members_by_identity(&[bola_wallet.identifier()])
+        .remove_members_by_identity(&[bola.identifier()])
         .await
         .expect_err("expected err");
 
@@ -3077,9 +2997,9 @@ async fn test_group_super_admin_list_update() {
 
 #[xmtp_common::test]
 async fn test_group_members_permission_level_update() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(bola);
+    tester!(caro);
 
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
     let amal_group = amal.create_group(policy_set, None).unwrap();
@@ -3173,8 +3093,8 @@ async fn test_group_members_permission_level_update() {
 #[xmtp_common::test]
 async fn test_staged_welcome() {
     // Create Clients
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(bola);
 
     // Amal creates a group
     let amal_group = amal.create_group(None, None).unwrap();
@@ -3207,7 +3127,7 @@ async fn test_staged_welcome() {
 
 #[xmtp_common::test]
 async fn test_can_read_group_creator_inbox_id() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
     let policy_set = Some(PreconfiguredPolicies::Default.to_policy_set());
     let amal_group = amal.create_group(policy_set, None).unwrap();
     amal_group.sync().await.unwrap();
@@ -3228,13 +3148,13 @@ async fn test_can_read_group_creator_inbox_id() {
 #[xmtp_common::test]
 async fn test_can_update_gce_after_failed_commit() {
     // Step 1: Amal creates a group
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
     let policy_set = Some(PreconfiguredPolicies::Default.to_policy_set());
     let amal_group = amal.create_group(policy_set, None).unwrap();
     amal_group.sync().await.unwrap();
 
     // Step 2:  Amal adds Bola to the group
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(bola);
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     // Step 3: Verify that Bola can update the group name, and amal sees the update
@@ -3282,16 +3202,16 @@ async fn test_can_update_gce_after_failed_commit() {
 
 #[xmtp_common::test]
 async fn test_can_update_permissions_after_group_creation() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
     let amal_group: &TestMlsGroup = &amal.create_group(policy_set, None).unwrap();
 
     // Step 2:  Amal adds Bola to the group
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(bola);
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     // Step 3: Bola attempts to add Caro, but fails because group is admin only
-    let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(caro);
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
 
@@ -3337,14 +3257,14 @@ async fn test_can_update_permissions_after_group_creation() {
 
 #[xmtp_common::test]
 async fn test_optimistic_send() {
-    let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-    let bola_wallet = generate_local_wallet();
-    let bola = Arc::new(ClientBuilder::new_test_client(&bola_wallet).await);
+    tester!(amal);
+    tester!(bola);
+
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group.sync().await.unwrap();
     // Add bola to the group
     amal_group
-        .add_members_by_identity(&[bola_wallet.identifier()])
+        .add_members_by_identity(&[bola.identifier()])
         .await
         .unwrap();
     let bola_group = receive_group_invite(&bola).await;
@@ -3431,9 +3351,9 @@ async fn test_optimistic_send() {
 
 #[xmtp_common::test]
 async fn test_dm_creation() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(bola);
+    tester!(caro);
 
     // Amal creates a dm group targeting bola
     let amal_dm = amal
@@ -3493,8 +3413,8 @@ async fn test_dm_creation() {
 
 #[xmtp_common::test]
 async fn process_messages_abort_on_retryable_error() {
-    let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(alix);
+    tester!(bo);
 
     let alix_group = alix.create_group(None, None).unwrap();
 
@@ -3540,8 +3460,8 @@ async fn process_messages_abort_on_retryable_error() {
 
 #[xmtp_common::test]
 async fn skip_already_processed_messages() {
-    tester!(alix, with_name: "alix");
-    tester!(bo, with_name: "bo");
+    tester!(alix);
+    tester!(bo);
 
     let alix_group = alix.create_group(None, None).unwrap();
 
@@ -3734,11 +3654,10 @@ async fn create_membership_update_no_sync(group: &TestMlsGroup) {
 #[xmtp_common::test(flavor = "multi_thread")]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn add_missing_installs_reentrancy() {
-    let wallet = generate_local_wallet();
-    let alix1 = ClientBuilder::new_test_client(&wallet).await;
+    tester!(alix1);
     let alix1_group = alix1.create_group(None, None).unwrap();
 
-    let alix2 = ClientBuilder::new_test_client(&wallet).await;
+    tester!(alix2, from: alix1);
 
     // We are going to run add_missing_installations TWICE
     // which will create two intents to add the installations
@@ -3821,12 +3740,11 @@ async fn add_missing_installs_reentrancy() {
 
 #[xmtp_common::test(flavor = "multi_thread")]
 async fn respect_allow_epoch_increment() {
-    let wallet = generate_local_wallet();
-    let client = ClientBuilder::new_test_client(&wallet).await;
+    tester!(client);
 
     let group = client.create_group(None, None).unwrap();
 
-    let _client_2 = ClientBuilder::new_test_client(&wallet).await;
+    tester!(_client_2);
 
     // Sync the group to get the message adding client_2 published to the network
     group.sync().await.unwrap();
@@ -3851,6 +3769,7 @@ async fn respect_allow_epoch_increment() {
     );
 }
 
+#[cfg_attr(target_arch = "wasm32", ignore)]
 #[rstest]
 #[xmtp_common::test]
 #[awt]
@@ -3979,7 +3898,7 @@ async fn test_max_past_epochs() {
 
 #[xmtp_common::test]
 async fn test_validate_dm_group() {
-    let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(client);
     let added_by_inbox = "added_by_inbox_id";
     let creator_inbox_id = client.context.identity.inbox_id();
     let dm_target_inbox_id = added_by_inbox.to_string();
@@ -4115,7 +4034,7 @@ async fn test_validate_dm_group() {
 
 #[xmtp_common::test]
 async fn test_respects_character_limits_for_group_metadata() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
 
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
     let amal_group = amal.create_group(policy_set, None).unwrap();
@@ -4456,8 +4375,7 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
     );
 
     // Step 1: Create three clients, amal and bo are one version ahead of caro
-    let amal =
-        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), amal_version).await;
+    tester!(amal, version: amal_version);
 
     let mut bo_version = VersionInfo::default();
     bo_version.test_update_version(
@@ -4465,10 +4383,8 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
             .unwrap()
             .as_str(),
     );
-    let bo =
-        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), bo_version).await;
-
-    let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(bo, version: bo_version);
+    tester!(caro);
 
     assert!(caro.version_info().pkg_version() != amal.version_info().pkg_version());
     assert!(bo.version_info().pkg_version() == amal.version_info().pkg_version());
@@ -4541,11 +4457,9 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
             .as_str(),
     );
 
-    let caro = ClientBuilder::from_client(caro)
-        .version(caro_version)
-        .build()
-        .await
-        .unwrap();
+    let snapshot = Arc::new(caro.db_snapshot());
+    drop(caro);
+    tester!(caro, snapshot: snapshot, version: caro_version);
     let binding = caro.find_groups(GroupQueryArgs::default()).unwrap();
     let caro_group = binding.first().unwrap();
     assert!(caro_group.group_id == amal_group.group_id);
@@ -4566,8 +4480,8 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
 
 #[xmtp_common::test]
 async fn test_only_super_admins_can_set_min_supported_protocol_version() {
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(bo);
 
     let amal_group = amal.create_group(None, None).unwrap();
     amal_group
@@ -4638,7 +4552,7 @@ async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
     let amal =
         ClientBuilder::new_test_client_with_version(&generate_local_wallet(), amal_version).await;
 
-    let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(bo);
 
     // Amal creates a group and adds bo
     let amal_group = amal.create_group(None, None).unwrap();
@@ -4783,12 +4697,11 @@ async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
     use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
 
     // 1) Prepare clients
-    let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(amal);
+    tester!(charlie);
 
     // Create a wallet for the user with a bad key package
-    let bola_wallet = generate_local_wallet();
-    let bola = ClientBuilder::new_test_client(&bola_wallet).await;
+    tester!(bola);
     // Mark bola's installation as having a malformed key package
     set_test_mode_upload_malformed_keypackage(
         true,
@@ -4813,7 +4726,7 @@ async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
     assert!(result.is_err());
 
     // 5) Add a second installation for bola and try and re-add them
-    let bola_2 = ClientBuilder::new_test_client(&bola_wallet).await;
+    tester!(bola_2, from: bola);
     let result = amal_group.add_members(&[bola.inbox_id()]).await;
     assert!(result.is_ok());
 
@@ -4863,8 +4776,8 @@ async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
 async fn test_when_processing_message_return_future_wrong_epoch_group_marked_probably_forked() {
     use crate::utils::test_mocks_helpers::set_test_mode_future_wrong_epoch;
 
-    let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    tester!(client_a);
+    tester!(client_b);
 
     let group_a = client_a.create_group(None, None).unwrap();
     group_a.add_members(&[client_b.inbox_id()]).await.unwrap();
@@ -4896,12 +4809,9 @@ async fn test_when_processing_message_return_future_wrong_epoch_group_marked_pro
 
 #[xmtp_common::test(flavor = "multi_thread")]
 async fn can_stream_out_of_order_without_forking() {
-    let wallet_a = generate_local_wallet();
-    let wallet_b = generate_local_wallet();
-    let wallet_c = generate_local_wallet();
-    let client_a1 = ClientBuilder::new_test_client(&wallet_a).await;
-    let client_b = ClientBuilder::new_test_client(&wallet_b).await;
-    let client_c = ClientBuilder::new_test_client(&wallet_c).await;
+    tester!(client_a1);
+    tester!(client_b);
+    tester!(client_c);
 
     // Create a group
     let group_a = client_a1.create_group(None, None).unwrap();

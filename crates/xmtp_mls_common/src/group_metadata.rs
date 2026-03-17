@@ -16,16 +16,34 @@ use xmtp_db::group::ConversationType;
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum GroupMetadataError {
+    /// Serialization error.
+    ///
+    /// Failed to encode metadata protobuf. Not retryable.
     #[error("serialization: {0}")]
     Serialization(#[from] prost::EncodeError),
+    /// Deserialization error.
+    ///
+    /// Failed to decode metadata protobuf. Not retryable.
     #[error("deserialization: {0}")]
     Deserialization(#[from] prost::DecodeError),
+    /// Invalid conversation type.
+    ///
+    /// Protobuf conversation type not recognized. Not retryable.
     #[error("invalid conversation type")]
     InvalidConversationType,
+    /// Missing extension.
+    ///
+    /// Immutable metadata MLS extension not found. Not retryable.
     #[error("missing extension")]
     MissingExtension,
+    /// Invalid DM members.
+    ///
+    /// DM member data is invalid. Not retryable.
     #[error("invalid dm members")]
     InvalidDmMembers,
+    /// Missing DM member.
+    ///
+    /// A DM member field is not set. Not retryable.
     #[error("missing a dm member")]
     MissingDmMember,
     #[error(transparent)]

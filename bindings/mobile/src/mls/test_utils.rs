@@ -151,7 +151,6 @@ pub async fn connect_to_backend_test() -> Arc<super::XmtpApiClient> {
         connect_to_backend(
             GrpcUrls::NODE.to_string(),
             Some(GrpcUrls::GATEWAY.to_string()),
-            false,
             None,
             None,
             None,
@@ -160,17 +159,9 @@ pub async fn connect_to_backend_test() -> Arc<super::XmtpApiClient> {
         .await
         .unwrap()
     } else {
-        connect_to_backend(
-            GrpcUrls::NODE.to_string(),
-            None,
-            false,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .unwrap()
+        connect_to_backend(GrpcUrls::NODE.to_string(), None, None, None, None, None)
+            .await
+            .unwrap()
     }
 }
 

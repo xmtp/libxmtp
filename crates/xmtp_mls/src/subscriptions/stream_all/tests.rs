@@ -16,9 +16,9 @@ use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
 use xmtp_id::associations::test_utils::WalletTestExt;
 
+#[xmtp_common::timeout(Duration::from_secs(15))]
 #[rstest::rstest]
 #[xmtp_common::test]
-#[timeout(Duration::from_secs(15))]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_stream_all_messages_changing_group_list() {
     let alix = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
@@ -71,9 +71,9 @@ async fn test_stream_all_messages_changing_group_list() {
     assert_msg!(stream, "fifth");
 }
 
+#[xmtp_common::timeout(Duration::from_secs(15))]
 #[rstest::rstest]
 #[xmtp_common::test]
-#[timeout(Duration::from_secs(15))]
 async fn test_stream_all_messages_unchanging_group_list() {
     let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -197,10 +197,10 @@ fn find_duplicates_with_count(strings: &[String]) -> HashMap<&String, usize> {
     counts
 }
 
-#[cfg_attr(all(feature = "d14n"), ignore)]
+#[xmtp_common::timeout(Duration::from_secs(60))]
 #[rstest::rstest]
 #[xmtp_common::test]
-#[timeout(Duration::from_secs(60))]
+#[cfg_attr(any(feature = "d14n", target_arch = "wasm32"), ignore)]
 async fn test_stream_all_messages_does_not_lose_messages() {
     let caro = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
     let alix = Arc::new(ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await);
@@ -292,9 +292,9 @@ async fn test_stream_all_messages_does_not_lose_messages() {
     );
 }
 
+#[xmtp_common::timeout(Duration::from_secs(20))]
 #[rstest::rstest]
 #[xmtp_common::test]
-#[timeout(Duration::from_secs(20))]
 async fn test_stream_all_messages_detached_group_changes() {
     let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let hale = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -344,12 +344,12 @@ async fn test_stream_all_messages_detached_group_changes() {
     assert_eq!(messages.len(), 5);
 }
 
+#[xmtp_common::timeout(Duration::from_secs(20))]
 #[rstest::rstest]
 #[case(ConsentState::Allowed, "msg in allowed")]
 #[case(ConsentState::Denied, "msg in denied")]
 #[case(ConsentState::Unknown, "msg in unknown")]
 #[xmtp_common::test]
-#[timeout(Duration::from_secs(20))]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_stream_all_messages_filters_by_consent_state(
     #[case] filter: ConsentState,
@@ -482,9 +482,9 @@ async fn stream_messages_keeps_track_of_cursor() {
     assert_msg!(s, "decryptable message");
 }
 
+#[xmtp_common::timeout(Duration::from_secs(20))]
 #[rstest::rstest]
 #[xmtp_common::test]
-#[timeout(Duration::from_secs(20))]
 async fn test_stream_all_messages_filters_conversations_created_after_init() {
     let sender = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
     let receiver = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
@@ -512,9 +512,9 @@ async fn test_stream_all_messages_filters_conversations_created_after_init() {
     );
 }
 
+#[xmtp_common::timeout(Duration::from_secs(20))]
 #[rstest::rstest]
 #[xmtp_common::test]
-#[timeout(Duration::from_secs(20))]
 async fn test_stream_all_messages_filters_new_group_when_dm_only() {
     let sender = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let receiver_wallet = generate_local_wallet();
@@ -560,9 +560,9 @@ async fn test_stream_all_messages_filters_new_group_when_dm_only() {
     );
 }
 
+#[xmtp_common::timeout(Duration::from_secs(20))]
 #[rstest::rstest]
 #[xmtp_common::test]
-#[timeout(Duration::from_secs(20))]
 async fn test_stream_all_messages_respects_cursor_between_streams() {
     tester!(sender, with_name: "sender");
     tester!(receiver, with_name: "receiver");
@@ -618,9 +618,9 @@ async fn test_stream_all_messages_respects_cursor_between_streams() {
     }
 }
 
+#[xmtp_common::timeout(Duration::from_secs(60))]
 #[rstest::rstest]
 #[xmtp_common::test(flavor = "multi_thread")]
-#[timeout(Duration::from_secs(60))]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_stream_all_concurrent_writes() {
     // Create test clients

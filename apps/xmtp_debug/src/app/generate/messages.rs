@@ -1,8 +1,9 @@
 use crate::DbgClient;
 use crate::app::store::Database;
-use crate::app::types::{Group, InboxId};
+use crate::app::types::InboxId;
 use crate::app::{App, load_all_identities};
 use crate::args::BackendOpts;
+use crate::metrics::record_phase_metric;
 use crate::{
     app::{
         self,
@@ -17,6 +18,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use rand::{RngExt, SeedableRng, prelude::IteratorRandom, rngs::SmallRng, seq::IndexedRandom};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
@@ -84,7 +86,8 @@ impl GenerateMessages {
         })
     }
 
-    pub async fn run(self, n: usize) -> Result<()> {
+    /// Returns Vec of send_message latencies (only the actual send, not sync overhead)
+    pub async fn run(self, n: usize) -> Result<Vec<Duration>> {
         info!(fdlimit = app::get_fdlimit(), "generating messages");
         let args::MessageGenerateOpts {
             r#loop,
@@ -95,16 +98,24 @@ impl GenerateMessages {
             ..
         } = self.opts;
 
-        self.send_many_messages(n).await?;
+        let loop_pause_secs: Option<u64> = std::env::var("XDBG_LOOP_PAUSE")
+            .ok()
+            .and_then(|v| v.parse().ok());
+
+        let mut all_latencies = self.send_many_messages(n).await?;
 
         if r#loop {
             loop {
+                if let Some(secs) = loop_pause_secs {
+                    tracing::debug!(secs, "sleeping XDBG_LOOP_PAUSE after messages");
+                    tokio::time::sleep(tokio::time::Duration::from_secs(secs)).await;
+                }
                 tokio::time::sleep(*interval).await;
                 let semaphore = self.semaphore.clone();
                 let group_store = self.group_store.clone();
                 let network = self.network.clone();
                 let identities = self.identities.clone();
-                tokio::try_join!(
+                let (latencies, _, _) = tokio::try_join!(
                     self.send_many_messages(n),
                     flatten(tokio::spawn(Self::add_member(
                         add_and_change_description,
@@ -122,9 +133,10 @@ impl GenerateMessages {
                         identities.clone()
                     ))),
                 )?;
+                all_latencies.extend(latencies);
             }
         }
-        Ok(())
+        Ok(all_latencies)
     }
 
     async fn add_member(
@@ -215,7 +227,8 @@ impl GenerateMessages {
         }
     }
 
-    async fn send_many_messages(&self, n: usize) -> Result<usize> {
+    /// Returns a Vec of send_message latencies (only the actual send, not sync overhead)
+    async fn send_many_messages(&self, n: usize) -> Result<Vec<Duration>> {
         let Self { network, opts, .. } = self;
 
         let style = ProgressStyle::with_template(
@@ -225,7 +238,8 @@ impl GenerateMessages {
 
         let semaphore = self.semaphore.clone();
         let clients = self.identities.clone();
-        let mut set: tokio::task::JoinSet<Result<(), eyre::Error>> = tokio::task::JoinSet::new();
+        let mut set: tokio::task::JoinSet<Result<Duration, eyre::Error>> =
+            tokio::task::JoinSet::new();
         let stores = (self.identity_store.clone(), self.group_store.clone());
         for _ in 0..n {
             let bar_pointer = bar.clone();
@@ -234,20 +248,13 @@ impl GenerateMessages {
             let (_, group) = stores.clone();
             let semaphore = semaphore.clone();
             let cs = clients.clone();
-            set.spawn({
-                async move {
-                    let _permit = semaphore.acquire().await?;
-                    let rng = &mut SmallRng::from_rng(&mut rand::rng());
-                    let group = group
-                        .random(&n, rng)?
-                        .ok_or(eyre!("no group in local store"))?;
-
-                    Self::send_message(&group, cs, opts)
-                        .await
-                        .inspect_err(|e| error!(%group, "{}", e))?;
-                    bar_pointer.inc(1);
-                    Ok(())
-                }
+            set.spawn(async move {
+                let _permit = semaphore.acquire().await?;
+                let latency = Self::send_message(&group, cs, n, opts)
+                    .await
+                    .inspect_err(|e| error!("{}", e))?;
+                bar_pointer.inc(1);
+                Ok(latency)
             });
         }
 
@@ -266,25 +273,27 @@ impl GenerateMessages {
             info!(errors = ?errors, "errors");
         }
 
-        let msgs_sent = res
-            .into_iter()
-            .filter(|r| r.is_ok())
-            .collect::<Vec<Result<_, _>>>();
-        Ok(msgs_sent.len())
+        let latencies: Vec<Duration> = res.into_iter().filter_map(|r| r.ok()).collect();
+        Ok(latencies)
     }
 
+    /// Returns the duration of just the send_message() call (excluding sync overhead)
     async fn send_message(
-        group: &Group,
+        group_store: &GroupStore<'static>,
         clients: Arc<HashMap<InboxId, Mutex<DbgClient>>>,
+        network: args::BackendOpts,
         opts: args::MessageGenerateOpts,
-    ) -> Result<(), MessageSendError> {
+    ) -> Result<Duration, MessageSendError> {
         let args::MessageGenerateOpts {
             ref max_message_size,
             ..
         } = opts;
 
-        info!(time = ?std::time::Instant::now(), group = hex::encode(group.id), "sending message");
         let rng = &mut SmallRng::from_rng(&mut rand::rng());
+        let group = group_store
+            .random(&network, rng)?
+            .ok_or(eyre!("no group in local store"))?;
+        info!(time = ?Instant::now(), group = hex::encode(group.id), "sending message");
         if let Some(inbox_id) = group.members.choose(rng) {
             let client = clients
                 .get(inbox_id.as_slice())
@@ -297,6 +306,9 @@ impl GenerateMessages {
             let words = rng.random_range(0..*max_message_size);
             let words = lipsum::lipsum_words(words as usize);
             let message = content_type::new_message(words);
+
+            // Time ONLY the send_message() call
+            let start = Instant::now();
             group
                 .send_message(
                     &message,
@@ -306,7 +318,12 @@ impl GenerateMessages {
                         .unwrap(),
                 )
                 .await?;
-            Ok(())
+            let send_latency = start.elapsed();
+            let send_secs = send_latency.as_secs_f64();
+
+            record_phase_metric("send_message", send_secs, "send_message", "xdbg_debug");
+
+            Ok(send_latency)
         } else {
             Err(MessageSendError::NoGroup)
         }

@@ -136,6 +136,10 @@ where
         let snapshot = self.db_snapshot();
         std::fs::write(path, &snapshot).unwrap();
     }
+
+    pub fn identifier(&self) -> Identifier {
+        self.builder.owner.get_identifier().unwrap()
+    }
 }
 
 #[derive(QueryableByName)]
@@ -827,13 +831,13 @@ impl UserValidationMethod for PkUserValidationMethod {
 #[macro_export]
 macro_rules! tester {
     ($name:ident, from: $existing:expr $(, $k:ident $(: $v:expr)?)*) => {
-        tester!(@process $existing.builder.clone() ; $name $(, $k $(: $v)?)*)
+        $crate::tester!(@process $existing.builder.clone() ; $name $(, $k $(: $v)?)*)
     };
 
     ($name:ident $(, $k:ident $(: $v:expr)?)*) => {
         let builder = $crate::utils::TesterBuilder::new();
         let builder = builder.with_name(stringify!($name));
-        tester!(@process builder ; $name $(, $k $(: $v)?)*)
+        $crate::tester!(@process builder ; $name $(, $k $(: $v)?)*)
     };
 
     (@process $builder:expr ; $name:ident) => {
@@ -847,11 +851,11 @@ macro_rules! tester {
     };
 
     (@process $builder:expr ; $name:ident, $key:ident: $value:expr $(, $k:ident $(: $v:expr)?)*) => {
-        tester!(@process $builder.$key($value) ; $name $(, $k $(: $v)?)*)
+        $crate::tester!(@process $builder.$key($value) ; $name $(, $k $(: $v)?)*)
     };
 
     (@process $builder:expr ; $name:ident, $key:ident $(, $k:ident $(: $v:expr)?)*) => {
-        tester!(@process $builder.$key() ; $name $(, $k $(: $v)?)*)
+        $crate::tester!(@process $builder.$key() ; $name $(, $k $(: $v)?)*)
     };
 }
 

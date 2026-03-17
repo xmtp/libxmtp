@@ -42,10 +42,10 @@ pub(super) async fn get_nodes<C: Client>(
 
             tracing::debug!("building client for node {}: {}", node_id, url);
 
-            // Validate TLS policy against the fully-qualified URL.
-            validate_tls_guard(&client_builder, &url).map_err(|e| (node_id, e))?;
-
-            client_builder.set_host(url.to_string());
+            client_builder.set_host(
+                url.parse()
+                    .map_err(|e| (node_id, MultiNodeClientError::from(e)))?,
+            );
 
             let client = client_builder.build().map_err(|e| (node_id, e.into()))?;
 
@@ -156,16 +156,4 @@ pub async fn get_fastest_node(
     tracing::info!("chosen node is {} with latency {}ms", node_id, latency);
 
     Ok(client)
-}
-
-/// Validate that the template's TLS configuration matches the URL scheme.
-pub fn validate_tls_guard(template: &ClientBuilder, url: &str) -> Result<(), MultiNodeClientError> {
-    let url_is_tls = url.parse::<url::Url>()?.scheme() == "https";
-
-    (template.tls_channel == url_is_tls)
-        .then_some(())
-        .ok_or_else(|| MultiNodeClientError::TlsChannelMismatch {
-            url_is_tls,
-            client_builder_tls_channel: template.tls_channel,
-        })
 }

@@ -27,24 +27,66 @@ pub struct MessageBackendBuilder {
 
 #[derive(Error, Debug, ErrorCode)]
 pub enum MessageBackendBuilderError {
+    /// Missing V3 host.
+    ///
+    /// V3 host was not set on the builder. Not retryable.
     #[error("V3 Host is Required")]
     MissingV3Host,
+    /// gRPC builder error.
+    ///
+    /// gRPC client builder failed. Not retryable.
     #[error(transparent)]
     GrpcBuilder(#[from] GrpcBuilderError),
+    /// Multi-node error.
+    ///
+    /// Multi-node client builder failed. Not retryable.
     #[error(transparent)]
     MultiNode(#[from] MultiNodeClientBuilderError),
+    /// SCW verifier error.
+    ///
+    /// Smart contract wallet verifier error. Not retryable.
     #[error(transparent)]
     Scw(#[from] VerifierError),
+    /// Cursor store not replaced.
+    ///
+    /// Stateful client cursor store not set. Not retryable.
     #[error("failed to build stateful local client, cursor store not replaced, type {0}")]
     CursorStoreNotReplaced(&'static str),
+    /// Read/write client builder error.
+    ///
+    /// Read/write client builder failed. Not retryable.
     #[error("error while building read/write api client {0},")]
     UninitializedField(#[from] ReadWriteClientBuilderError),
+    /// Readonly builder error.
+    ///
+    /// Readonly client builder failed. Not retryable.
     #[error(transparent)]
     ReadonlyBuilder(#[from] ReadonlyClientBuilderError),
+    /// Builder error.
+    ///
+    /// Uninitialized field in builder. Not retryable.
     #[error(transparent)]
     Builder(#[from] UninitializedFieldError),
+    /// Missing XMTP Gateway host.
+    ///
+    /// XMTP Gateway host was not set on the builder. Not retryable.
     #[error("XMTP Gateway host is required")]
     MissingGatewayHost,
+
+    /// Invalid host URL given
+    ///
+    /// Url is not valid. Not retryable.
+    #[error("URL {url} given is invalid because {source}")]
+    InvalidUrl {
+        url: String,
+        source: url::ParseError,
+    },
+}
+
+impl MessageBackendBuilderError {
+    pub fn invalid_url(e: url::ParseError, url: String) -> Self {
+        MessageBackendBuilderError::InvalidUrl { url, source: e }
+    }
 }
 
 /// Indicates this api implementation can be type-erased
@@ -102,12 +144,6 @@ impl MessageBackendBuilder {
         self
     }
 
-    /// Indicate that the connection should use TLS
-    pub fn is_secure(&mut self, is_secure: bool) -> &mut Self {
-        self.client_bundle.is_secure(is_secure);
-        self
-    }
-
     pub fn cursor_store(&mut self, store: impl CursorStore + 'static) -> &mut Self {
         self.cursor_store = Some(Arc::new(store) as Arc<_>);
         self
@@ -146,19 +182,24 @@ impl MessageBackendBuilder {
         self
     }
 
-    /// Build the client
+    /// Build the default Migration client
+    /// Errors if either of V3 Host or Gateway host are missing
     pub fn build(&mut self) -> Result<XmtpApiClient, MessageBackendBuilderError> {
         let Self { client_bundle, .. } = self;
         let bundle = client_bundle.build()?;
         self.from_bundle(bundle)
     }
 
+    /// Build a V3 Only Client
+    /// Errors if the V3 Host is Missing
     pub fn build_v3(&mut self) -> Result<XmtpApiClient, MessageBackendBuilderError> {
         let Self { client_bundle, .. } = self;
         let bundle = client_bundle.build_v3()?;
         self.from_bundle(bundle)
     }
 
+    /// Builds a d14n-only client
+    /// Errors if the Gateway Host is missing
     pub fn build_d14n(&mut self) -> Result<XmtpApiClient, MessageBackendBuilderError> {
         let Self { client_bundle, .. } = self;
         let bundle = client_bundle.build_d14n()?;
@@ -167,6 +208,7 @@ impl MessageBackendBuilder {
 
     /// If a gateway host is present, builds d14n-only
     /// otherwise builds a v3 client
+    /// Errors if V3 Host is missing
     pub fn build_optional_d14n(&mut self) -> Result<XmtpApiClient, MessageBackendBuilderError> {
         let Self { client_bundle, .. } = self;
         let bundle = client_bundle.build_optional_d14n()?;

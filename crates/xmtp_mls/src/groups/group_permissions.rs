@@ -31,18 +31,39 @@ use xmtp_mls_common::group_mutable_metadata::{GroupMutableMetadata, MetadataFiel
 /// Errors that can occur when working with GroupMutablePermissions.
 #[derive(Debug, Error, ErrorCode)]
 pub enum GroupMutablePermissionsError {
+    /// Serialization error.
+    ///
+    /// Failed to encode permissions protobuf. Not retryable.
     #[error("serialization: {0}")]
     Serialization(#[from] prost::EncodeError),
+    /// Deserialization error.
+    ///
+    /// Failed to decode permissions protobuf. Not retryable.
     #[error("deserialization: {0}")]
     Deserialization(#[from] prost::DecodeError),
+    /// Policy error.
+    ///
+    /// Permission policy validation failed. Not retryable.
     #[error("policy error {0}")]
     Policy(#[from] PolicyError),
+    /// Invalid conversation type.
+    ///
+    /// Wrong conversation type for this operation. Not retryable.
     #[error("invalid conversation type")]
     InvalidConversationType,
+    /// Missing policies.
+    ///
+    /// Required permission policies not present. Not retryable.
     #[error("missing policies")]
     MissingPolicies,
+    /// Missing extension.
+    ///
+    /// Required MLS extension not found. Not retryable.
     #[error("missing extension")]
     MissingExtension,
+    /// Invalid permission policy option.
+    ///
+    /// Invalid permission policy configuration. Not retryable.
     #[error("invalid permission policy option")]
     InvalidPermissionPolicyOption,
 }
@@ -939,9 +960,14 @@ impl PolicySet {
     /// The [`evaluate_commit`](Self::evaluate_commit) function is the core function for client side verification
     /// that [ValidatedCommit]
     /// adheres to the XMTP permission policies set in the PolicySet.
+    ///
+    /// Permissions are checked against the **proposer** of each action when available,
+    /// not the committer. This allows one member to commit proposals created by another
+    /// member, as long as the proposer had permission to create those proposals.
     pub fn evaluate_commit(&self, commit: &ValidatedCommit) -> bool {
         // Verify add member policy was not violated
-        let mut added_inboxes_valid = self.evaluate_policy(
+        // For each added inbox, check the proposer's permissions (if known), otherwise use actor
+        let mut added_inboxes_valid = self.evaluate_policy_with_proposer(
             commit.added_inboxes.iter(),
             &self.add_member_policy,
             &commit.actor,
@@ -962,7 +988,8 @@ impl PolicySet {
 
         // Verify remove member policy was not violated
         // Super admin can not be removed from a group
-        let removed_inboxes_valid = self.evaluate_policy(
+        // For each removed inbox, check the proposer's permissions (if known), otherwise use actor
+        let removed_inboxes_valid = self.evaluate_policy_with_proposer(
             commit.removed_inboxes.iter(),
             &self.remove_member_policy,
             &commit.actor,
@@ -972,6 +999,10 @@ impl PolicySet {
             .any(|inbox| inbox.is_super_admin);
 
         // Verify that update metadata policy was not violated
+        // Metadata/admin/permission changes come from GCE proposals. The committer (actor)
+        // is responsible for these changes — they create or endorse the GCE in the commit.
+        // Using proposers.first() was wrong because proposal queue order is arbitrary and
+        // the first proposer may have proposed something unrelated (e.g., an Add proposal).
         let metadata_changes_valid = self.evaluate_metadata_policy(
             commit
                 .metadata_validation_info
@@ -982,19 +1013,20 @@ impl PolicySet {
         );
 
         // Verify that add admin policy was not violated
+        let admin_actor = &commit.actor;
         let added_admins_valid = commit.metadata_validation_info.admins_added.is_empty()
-            || self.add_admin_policy.evaluate(&commit.actor);
+            || self.add_admin_policy.evaluate(admin_actor);
 
         // Verify that remove admin policy was not violated
         let removed_admins_valid = commit.metadata_validation_info.admins_removed.is_empty()
-            || self.remove_admin_policy.evaluate(&commit.actor);
+            || self.remove_admin_policy.evaluate(admin_actor);
 
         // Verify that super admin add policy was not violated
         let super_admin_add_valid = commit
             .metadata_validation_info
             .super_admins_added
             .is_empty()
-            || commit.actor.is_super_admin;
+            || admin_actor.is_super_admin;
 
         // Verify that super admin remove policy was not violated
         // You can never remove the last super admin
@@ -1002,11 +1034,11 @@ impl PolicySet {
             .metadata_validation_info
             .super_admins_removed
             .is_empty()
-            || (commit.actor.is_super_admin
-                && commit.metadata_validation_info.num_super_admins > 0);
+            || (admin_actor.is_super_admin && commit.metadata_validation_info.num_super_admins > 0);
 
         // Permissions can only be changed by the super admin
-        let permissions_changes_valid = !commit.permissions_changed || commit.actor.is_super_admin;
+        // Use first proposer for permission changes if available
+        let permissions_changes_valid = !commit.permissions_changed || admin_actor.is_super_admin;
 
         added_inboxes_valid
             && removed_inboxes_valid
@@ -1018,24 +1050,28 @@ impl PolicySet {
             && permissions_changes_valid
     }
 
-    /// Evaluates a policy for a given set of changes.
-    fn evaluate_policy<'a, I, P>(
+    /// Evaluates a policy for a given set of changes, using the proposer for each inbox when available.
+    /// This allows permissions to be checked against the proposer instead of the committer.
+    fn evaluate_policy_with_proposer<'a, I, P>(
         &self,
         mut changes: I,
         policy: &P,
-        actor: &CommitParticipant,
+        default_actor: &CommitParticipant,
     ) -> bool
     where
         I: Iterator<Item = &'a Inbox>,
         P: MembershipPolicy + std::fmt::Debug,
     {
         changes.all(|change| {
+            // Use the proposer if available, otherwise fall back to the default actor (committer)
+            let actor = change.proposer.as_ref().unwrap_or(default_actor);
             let is_ok = policy.evaluate(actor, change);
             if !is_ok {
                 tracing::info!(
-                    "Policy {:?} failed for actor {:?} and change {:?}",
+                    "Policy {:?} failed for actor {:?} (proposer: {:?}) and change {:?}",
                     policy,
                     actor,
+                    change.proposer.is_some(),
                     change
                 );
             }
@@ -1371,6 +1407,7 @@ pub(crate) mod tests {
             is_creator: is_super_admin,
             is_super_admin,
             is_admin,
+            proposer: None,
         }
     }
 
@@ -1444,6 +1481,7 @@ pub(crate) mod tests {
 
         ValidatedCommit {
             actor: actor.clone(),
+            proposers: vec![actor.clone()], // In test, actor is also the proposer
             added_inboxes: member_added
                 .map(build_membership_change)
                 .unwrap_or_default(),

@@ -103,28 +103,18 @@ mod tests {
     use xmtp_proto::prelude::XmtpMlsClient;
     use xmtp_proto::types::GroupId;
 
-    fn is_tls_enabled() -> bool {
-        url::Url::parse(GrpcUrls::GATEWAY)
-            .expect("valid gateway url")
-            .scheme()
-            == "https"
-    }
-
     fn create_in_memory_cursor_store() -> Arc<InMemoryCursorStore> {
         Arc::new(InMemoryCursorStore::default())
     }
 
     fn create_gateway_builder() -> ClientBuilder {
         let mut gateway_builder = GrpcClient::builder();
-        gateway_builder.set_host(GrpcUrls::GATEWAY.to_string());
-        gateway_builder.set_tls(is_tls_enabled());
+        gateway_builder.set_host(GrpcUrls::GATEWAY.parse().unwrap());
         gateway_builder
     }
 
     fn create_node_builder() -> ClientBuilder {
-        let mut node_builder = GrpcClient::builder();
-        node_builder.set_tls(is_tls_enabled());
-        node_builder
+        GrpcClient::builder()
     }
 
     fn create_multinode_client_builder() -> MultiNodeClientBuilder<GrpcClient> {
@@ -150,46 +140,6 @@ mod tests {
             .unwrap();
 
         D14nClient::new(rw, NoCursorStore).unwrap()
-    }
-
-    fn create_node_client_template(tls: bool) -> xmtp_api_grpc::ClientBuilder {
-        let mut client_builder = GrpcClient::builder();
-        client_builder.set_tls(tls);
-        // host will be overridden per node
-        client_builder.set_host("http://placeholder".to_string());
-        client_builder
-    }
-
-    #[xmtp_common::test]
-    fn tls_guard_accepts_matching_https_tls_true() {
-        let t = create_node_client_template(true);
-        validate_tls_guard(&t, "https://example.com:443").expect("should accept");
-    }
-
-    #[xmtp_common::test]
-    fn tls_guard_accepts_matching_http_tls_false() {
-        let t = create_node_client_template(false);
-        validate_tls_guard(&t, "http://example.com:80").expect("should accept");
-    }
-
-    #[xmtp_common::test]
-    fn tls_guard_rejects_https_with_plain_template() {
-        let t = create_node_client_template(false);
-        let err = validate_tls_guard(&t, "https://example.com:443")
-            .err()
-            .unwrap();
-        let msg = format!("{err}");
-        assert!(msg.contains("tls channel"));
-    }
-
-    #[xmtp_common::test]
-    fn tls_guard_rejects_http_with_tls_template() {
-        let t = create_node_client_template(true);
-        let err = validate_tls_guard(&t, "http://example.com:80")
-            .err()
-            .unwrap();
-        let msg = format!("{err}");
-        assert!(msg.contains("tls channel"));
     }
 
     /// This test also serves as an example of how to use the MultiNodeClientBuilder and D14nClientBuilder.

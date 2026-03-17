@@ -2,11 +2,13 @@ use super::*;
 use crate::groups::{
     GroupError, build_group_membership_extension,
     intents::{PostCommitAction, UpdateGroupMembershipIntentData},
+    update_required_capabilities_for_proposals,
     validated_commit::extract_group_membership,
 };
 use openmls::{
     extensions::Extensions,
     group::GroupContext,
+    messages::proposals::Proposal,
     prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, tls_codec::Serialize},
 };
 use openmls_traits::signatures::Signer;
@@ -52,18 +54,56 @@ pub(crate) async fn apply_update_group_membership_intent(
 
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership))?;
 
-    let publish_intent_data = compute_publish_data_for_group_membership_update(
-        context,
-        openmls_group,
-        changes_with_kps.new_installations,
-        changes_with_kps.new_key_packages,
-        leaf_nodes_to_remove,
-        new_extensions,
-        signer,
-    )
-    .await?;
+    // Check if proposals need to be disabled due to new members not supporting them
+    let proposal_ext_type =
+        openmls::prelude::ExtensionType::Unknown(xmtp_configuration::PROPOSAL_SUPPORT_EXTENSION_ID);
+    let mut proposals_currently_enabled = openmls_group
+        .extensions()
+        .iter()
+        .any(|ext| ext.extension_type() == proposal_ext_type);
+    if proposals_currently_enabled && !changes_with_kps.new_key_packages.is_empty() {
+        let new_members_support_proposals = changes_with_kps.new_key_packages.iter().all(|kp| {
+            kp.leaf_node()
+                .capabilities()
+                .extensions()
+                .contains(&proposal_ext_type)
+        });
+        // TODO: D14N Hammer
+        if !new_members_support_proposals {
+            tracing::info!("Disabling proposals: new members don't support proposal extension");
+            new_extensions.remove(proposal_ext_type);
+            update_required_capabilities_for_proposals(&mut new_extensions, false)?;
+            proposals_currently_enabled = false;
+        }
+    }
 
-    Ok(Some(publish_intent_data))
+    if proposals_currently_enabled {
+        // Batched proposal path: proposals + GCE + commit in one publish
+        let publish_intent_data = compute_publish_data_for_proposal_based_update(
+            context,
+            openmls_group,
+            changes_with_kps.new_installations,
+            changes_with_kps.new_key_packages,
+            leaf_nodes_to_remove,
+            new_extensions,
+            signer,
+        )
+        .await?;
+        Ok(Some(publish_intent_data))
+    } else {
+        // Direct commit path (no proposals)
+        let publish_intent_data = compute_publish_data_for_group_membership_update(
+            context,
+            openmls_group,
+            changes_with_kps.new_installations,
+            changes_with_kps.new_key_packages,
+            leaf_nodes_to_remove,
+            new_extensions,
+            signer,
+        )
+        .await?;
+        Ok(Some(publish_intent_data))
+    }
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -99,7 +139,111 @@ async fn compute_publish_data_for_group_membership_update(
     };
 
     Ok(PublishIntentData {
-        payload_to_publish: commit.tls_serialize_detached()?,
+        payloads_to_publish: vec![commit.tls_serialize_detached()?],
+        post_commit_action: post_commit_action.map(|action| action.to_bytes()),
+        staged_commit: Some(staged_commit),
+        should_send_push_notification: false,
+        group_epoch,
+    })
+}
+
+/// Like `compute_publish_data_for_group_membership_update`, but instead of creating a direct
+/// commit via `update_group_membership`, creates MLS proposals (Add/Remove + GCE) and a commit
+/// that references them. All payloads are returned together so they can be published in a single
+/// `send_group_messages` call, eliminating multiple network roundtrips.
+#[tracing::instrument(level = "trace", skip_all)]
+async fn compute_publish_data_for_proposal_based_update(
+    context: &impl XmtpSharedContext,
+    openmls_group: &mut OpenMlsGroup,
+    installations_to_add: Vec<Installation>,
+    key_packages_to_add: Vec<KeyPackage>,
+    leaf_nodes_to_remove: Vec<LeafNodeIndex>,
+    new_extensions: Extensions<GroupContext>,
+    signer: impl Signer,
+) -> Result<PublishIntentData, GroupError> {
+    // Compare current extensions to new_extensions to determine if a GCE is needed.
+    // This catches adds/removes, updated_inboxes (sequence ID bumps), and
+    // failed_installations changes.
+    let current_membership = extract_group_membership(openmls_group.extensions())?;
+    let new_membership_check = extract_group_membership(&new_extensions)?;
+    let extensions_changed = current_membership != new_membership_check;
+    let new_extensions_for_filter = new_extensions.clone();
+
+    let ((proposal_payloads, bundle), staged_commit, group_epoch) =
+        generate_commit_with_rollback(context.mls_storage(), openmls_group, |group, provider| {
+            let mut proposal_payloads: Vec<Vec<u8>> = Vec::new();
+
+            // 1. Create Add proposals
+            for kp in &key_packages_to_add {
+                let (msg, _) = group
+                    .propose_add_member(provider, &signer, kp)
+                    .map_err(GroupError::ProposeAddMember)?;
+                proposal_payloads.push(msg.tls_serialize_detached()?);
+            }
+
+            // 2. Create Remove proposals
+            for &leaf_index in &leaf_nodes_to_remove {
+                let (msg, _) = group
+                    .propose_remove_member(provider, &signer, leaf_index)
+                    .map_err(GroupError::ProposeRemoveMember)?;
+                proposal_payloads.push(msg.tls_serialize_detached()?);
+            }
+
+            // 3. Create GCE proposal when the membership extension has changed
+            if extensions_changed {
+                let (msg, _) = group
+                    .propose_group_context_extensions(provider, new_extensions.clone(), &signer)
+                    .map_err(GroupError::Proposal)?;
+                proposal_payloads.push(msg.tls_serialize_detached()?);
+            }
+
+            // 4. Create commit consuming all proposals (including the ones just created)
+            let new_membership =
+                extract_group_membership(&new_extensions_for_filter).map_err(GroupError::from)?;
+            let bundle = group
+                .commit_builder()
+                .consume_proposal_store(true)
+                .load_psks(provider.storage())
+                .map_err(CommitToPendingProposalsError::from)?
+                .build(provider.rand(), provider.crypto(), &signer, |qp| {
+                    match qp.proposal() {
+                        // Always filter GCEs against expected membership.
+                        // Accept only if it matches our new_membership; reject stale ones.
+                        // Compare the full GroupMembership (members + failed_installations).
+                        Proposal::GroupContextExtensions(gce) => {
+                            extract_group_membership(gce.extensions())
+                                .map(|m| m == new_membership)
+                                .unwrap_or(false)
+                        }
+                        _ => true,
+                    }
+                })
+                .map_err(CommitToPendingProposalsError::from)?
+                .stage_commit(provider)
+                .map_err(CommitToPendingProposalsError::from)?;
+
+            Ok::<_, GroupError>((proposal_payloads, bundle))
+        })?;
+
+    let staged_commit = staged_commit.ok_or_else(|| GroupError::MissingPendingCommit)?;
+    let (commit, maybe_welcome_message, _) = bundle.into_messages();
+
+    // Build all payloads with commit last (for intent hash matching)
+    let mut payloads_to_publish = proposal_payloads;
+    // There is currently no feasible way to include dependencies on the previous payloads for the icebox.
+    // We may want to revisit this in the future by allowing something like `originator_id = same_as_message` and `sequence_id = this_sequence_id - n`.
+    payloads_to_publish.push(commit.tls_serialize_detached()?);
+
+    let post_commit_action = match maybe_welcome_message {
+        Some(welcome_message) => Some(PostCommitAction::from_welcome(
+            welcome_message,
+            installations_to_add,
+        )?),
+        None => None,
+    };
+
+    Ok(PublishIntentData {
+        payloads_to_publish,
         post_commit_action: post_commit_action.map(|action| action.to_bytes()),
         staged_commit: Some(staged_commit),
         should_send_push_notification: false,

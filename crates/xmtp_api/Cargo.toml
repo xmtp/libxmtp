@@ -1,31 +1,32 @@
 [package]
 name = "xmtp_api"
-edition = "2024"
+description = "XMTP Api high level wrapper"
 license.workspace = true
 version.workspace = true
-description = "XMTP Api high level wrapper"
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
 
 [lints]
 workspace = true
 
 [dependencies]
 async-trait.workspace = true
-futures = { workspace = true }
+futures.workspace = true
 hex.workspace = true
 prost = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 tracing.workspace = true
 xmtp-workspace-hack.workspace = true
-xmtp_api_d14n = { workspace = true }
+xmtp_api_d14n.workspace = true
 xmtp_common.workspace = true
 xmtp_id.workspace = true
-xmtp_proto = { workspace = true }
+xmtp_proto.workspace = true
 
 
 # test utils
 [dev-dependencies]
 chrono.workspace = true
-futures-timer.workspace = true
 http = "1.2"
 tls_codec.workspace = true
 xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
