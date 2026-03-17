@@ -305,13 +305,13 @@ impl<'env> ProtocolEnvelope<'env> for get_newest_envelope_response::Response {
         EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
     {
         visitor.visit_newest_envelope_response(self)?;
-        if let Some(packed) = &self.originator_envelope {
-            let unpacked =
-                UnpackedOriginatorEnvelope::try_from(packed).map_err(ConversionError::from)?;
-            unpacked.accept(visitor)?;
-        } else {
-            visitor.visit_none()?;
-        }
+        let unpacked = self
+            .originator_envelope
+            .as_ref()
+            .map(UnpackedOriginatorEnvelope::try_from)
+            .transpose()
+            .map_err(ConversionError::from)?;
+        unpacked.as_ref().accept(visitor)?;
         Ok(())
     }
 
