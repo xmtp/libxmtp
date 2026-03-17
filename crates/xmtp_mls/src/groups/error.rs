@@ -391,6 +391,11 @@ pub enum GroupError {
     /// Device sync operation failed. May be retryable.
     #[error(transparent)]
     DeviceSync(#[from] Box<DeviceSyncError>),
+    /// Edit message error.
+    ///
+    /// Failed to edit message. Not retryable.
+    #[error(transparent)]
+    EditMessage(#[from] EditMessageError),
 }
 
 #[derive(Error, Debug)]
@@ -406,6 +411,30 @@ pub enum DeleteMessageError {
 }
 
 impl RetryableError for DeleteMessageError {
+    fn is_retryable(&self) -> bool {
+        false
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum EditMessageError {
+    #[error("Message not found: {0}")]
+    MessageNotFound(String),
+    #[error("Not authorized to edit this message")]
+    NotAuthorized,
+    #[error("Cannot edit this message type")]
+    NonEditableMessage,
+    #[error("Message already deleted")]
+    MessageAlreadyDeleted,
+    #[error(
+        "Content type mismatch: original message has type {original}, but edit has type {edited}"
+    )]
+    ContentTypeMismatch { original: String, edited: String },
+    #[error("Cannot edit with empty content")]
+    EmptyContent,
+}
+
+impl RetryableError for EditMessageError {
     fn is_retryable(&self) -> bool {
         false
     }
@@ -541,6 +570,7 @@ impl RetryableError for GroupError {
             Self::LeaveCantProcessed(e) => e.is_retryable(),
             Self::DeleteMessage(e) => e.is_retryable(),
             Self::DeviceSync(e) => e.is_retryable(),
+            Self::EditMessage(e) => e.is_retryable(),
             Self::MergePendingCommit(e) => e.is_retryable(),
             Self::NotFound(_)
             | Self::UserLimitExceeded
