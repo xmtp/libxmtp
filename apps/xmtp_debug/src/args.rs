@@ -500,10 +500,9 @@ pub struct TestOpts {
     /// Number of messages for group-sync scenario
     #[arg(long, short, default_value = "10")]
     pub message_count: usize,
-    /// V4/D14N gateway URL for migration-latency scenario (e.g. https://payer.testnet.xmtp.network:443)
-    #[arg(long)]
-    pub v4_gateway_url: Option<url::Url>,
-    /// V4/D14N node URL for migration-latency scenario (e.g. https://grpc.testnet.xmtp.network:443)
+    /// V4/D14N replication node URL for migration-latency scenario.
+    /// Must be a D14N node (e.g. https://grpc.testnet.xmtp.network:443),
+    /// NOT the payer gateway — the gateway doesn't serve QueryEnvelopes reads.
     #[arg(long)]
     pub v4_node_url: Option<url::Url>,
     /// Timeout in seconds for waiting for migrated message on V4 (default 120)

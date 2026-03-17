@@ -70,7 +70,7 @@ impl Metrics {
         // Migration-specific metrics
         let migration_latency = prometheus::Histogram::with_opts(
             prometheus::HistogramOpts::new(
-                "migration_latency_seconds",
+                "xdbg_migration_latency_seconds",
                 "V3→V4 migration latency in seconds (time for message to appear on V4 after V3 write)",
             )
             .buckets(vec![1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0]),
@@ -78,13 +78,13 @@ impl Metrics {
         .expect("valid histogram");
 
         let migration_success = prometheus::IntCounter::new(
-            "migration_success_total",
+            "xdbg_migration_success_total",
             "Total successful V3→V4 migration round-trips",
         )
         .expect("valid counter");
 
         let migration_failure = prometheus::IntCounter::new(
-            "migration_failure_total",
+            "xdbg_migration_failure_total",
             "Total failed V3→V4 migration round-trips (timeout or error)",
         )
         .expect("valid counter");
