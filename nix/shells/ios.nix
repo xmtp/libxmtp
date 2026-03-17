@@ -28,7 +28,7 @@ let
   # Rust toolchain with all iOS/macOS cross-compilation targets.
   # Includes clippy and rustfmt for dev use (the package derivation omits these
   # since it only needs to compile, not lint).
-  rust-ios-toolchain = xmtp.mkToolchain iosEnv.iosTargets [
+  rust-ios-toolchain = xmtp.mkNativeToolchain iosEnv.iosTargets [
     "clippy-preview"
     "rustfmt-preview"
   ];

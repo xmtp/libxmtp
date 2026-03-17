@@ -18,13 +18,14 @@ let
   };
 
   rust-toolchain =
-    xmtp.mkToolchain
+    p:
+    xmtp.mkToolchain p
       [
         "x86_64-unknown-linux-musl"
         "aarch64-unknown-linux-musl"
       ]
       [ ];
-  rust = xmtp.craneLib.overrideToolchain (p: rust-toolchain);
+  rust = xmtp.craneLib.overrideToolchain rust-toolchain;
   root = ./../..;
   # a full rebuild will be triggered only if these dependencies change.
   fileset = unions [

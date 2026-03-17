@@ -19,4 +19,4 @@ jobs:
       - name: Start backend
         run: just backend up
       - name: Run Node tests
-        run: just node test
+        run: just node test-ci

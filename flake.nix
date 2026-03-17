@@ -48,9 +48,14 @@
         ./nix/musl-docker.nix
         ./nix/ci-checks.nix
         ./nix/fmt.nix
+        ./nix/node-packages.nix
       ];
       perSystem =
-        { pkgs, lib, ... }:
+        {
+          pkgs,
+          lib,
+          ...
+        }:
         {
           nixpkgs = self.lib.pkgConfig;
           devShells = {
@@ -71,30 +76,14 @@
             in
             {
               inherit (pkgs.xmtp) ffi-uniffi-bindgen;
+              inherit (pkgs) napi-rs-cli wasm-bindgen-cli;
               wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { }).bin;
               wasm-bindings-test = (pkgs.callPackage ./nix/package/wasm.nix { test = true; }).bin;
-              wasm-bindgen-cli = pkgs.callPackage ./nix/lib/packages/wasm-bindgen-cli.nix { };
               # Android bindings (.so libraries + Kotlin bindings)
               android-libs = android.aggregate;
               # Android bindings - host-matching target only (fast dev/CI builds)
               android-libs-fast = (android.mkAndroid [ androidEnv.hostAndroidTarget ]).aggregate;
             }
-            // (
-              let
-                node = pkgs.callPackage ./nix/package/node.nix { };
-                inherit (pkgs.xmtp) nodeEnv;
-              in
-              # Expose per-target packages with NAPI platform names
-              lib.mapAttrs' (
-                triple: drv: lib.nameValuePair "node-bindings-${nodeEnv.targetToNapi.${triple}}" drv
-              ) node.targets
-              // {
-                # Fast: host-matching target only
-                node-bindings-fast = node.buildTarget nodeEnv.hostTarget;
-                # JS/TS bindings (index.js + index.d.ts)
-                node-bindings-js = node.jsBindings;
-              }
-            )
             // lib.optionalAttrs pkgs.stdenv.isDarwin {
               # stdenvNoCC is passed to callPackage (for the aggregate derivation).
               # This avoids Nix's apple-sdk and cc-wrapper,

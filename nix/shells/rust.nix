@@ -15,7 +15,7 @@ let
   inherit (stdenv) isDarwin;
   inherit (xmtp) shellCommon;
   rust-toolchain =
-    xmtp.mkToolchain
+    xmtp.mkNativeToolchain
       [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ]
       [ "rust-src" "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
 in

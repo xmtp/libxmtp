@@ -2,10 +2,6 @@
 {
   xmtp,
   lib,
-  pkg-config,
-  openssl,
-  perl,
-  sqlite,
   sqlcipher,
   cargo-llvm-cov,
   d14n ? false,
@@ -16,8 +12,8 @@ let
   inherit (xmtp) craneLib;
   inherit (craneLib.fileset) commonCargoSources;
   root = ./../..;
-  rust-toolchain = xmtp.mkToolchain [ ] [ "llvm-tools-preview" ];
-  rust = craneLib.overrideToolchain (p: rust-toolchain);
+  rust-toolchain = p: xmtp.mkToolchain p [ ] [ "llvm-tools-preview" ];
+  rust = craneLib.overrideToolchain rust-toolchain;
 
   src = lib.fileset.toSource {
     inherit root;
@@ -32,15 +28,9 @@ let
     ];
   };
 
-  commonArgs = {
+  commonArgs = xmtp.base.commonArgs // {
     inherit src;
-    strictDeps = true;
-    nativeBuildInputs = [
-      pkg-config
-      openssl
-      perl
-      sqlite
-      sqlcipher
+    nativeBuildInputs = xmtp.base.commonArgs.nativeBuildInputs ++ [
       cargo-llvm-cov
     ];
   };
@@ -56,6 +46,7 @@ rust.cargoNextest (
   commonArgs
   // {
     inherit cargoArtifacts;
+    doCheck = true;
     pnameSuffix = if d14n then "nextest-d14n" else "nextest-v3";
     partitions = 1;
     partitionType = "count";

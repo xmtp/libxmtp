@@ -43,6 +43,7 @@
   google-chrome,
   chromium,
   writeText,
+  xmtp,
 }:
 let
   inherit (stdenv) isLinux;
@@ -70,7 +71,7 @@ let
 in
 {
   # Core Rust build environment: env vars, hardening, native deps, LD_LIBRARY_PATH
-  rustBase = {
+  rustBase = xmtp.base.commonArgs // {
     env = {
       OPENSSL_DIR = "${openssl.dev}";
       OPENSSL_LIB_DIR = "${lib.getLib openssl}/lib";
@@ -82,17 +83,8 @@ in
       "zerocallusedregs"
       "stackprotector"
     ];
-    nativeBuildInputs = [
-      pkg-config
-      zstd
-      openssl
-      zlib
+    nativeBuildInputs = xmtp.base.commonArgs.nativeBuildInputs ++ [
       fontconfig
-    ];
-    buildInputs = [
-      openssl
-      sqlite
-      zstd
     ];
     LD_LIBRARY_PATH = lib.makeLibraryPath [
       openssl
