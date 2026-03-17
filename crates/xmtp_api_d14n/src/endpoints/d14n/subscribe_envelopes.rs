@@ -3,9 +3,9 @@ use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::api::{BodyError, Endpoint};
-use xmtp_proto::types::{GlobalCursor, OriginatorId, Topic};
+use xmtp_proto::types::{GlobalCursor, OriginatorId, Topic, UnpackedSubscribeEnvelopesResponse};
+use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
 use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesRequest;
-use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, SubscribeEnvelopesResponse};
 
 /// Query a single thing
 #[derive(Debug, Builder, Default, Clone)]
@@ -26,7 +26,7 @@ impl SubscribeEnvelopes {
 }
 
 impl Endpoint for SubscribeEnvelopes {
-    type Output = SubscribeEnvelopesResponse;
+    type Output = UnpackedSubscribeEnvelopesResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         xmtp_proto::path_and_query::<SubscribeEnvelopesRequest>()
     }

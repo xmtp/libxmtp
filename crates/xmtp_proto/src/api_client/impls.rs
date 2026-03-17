@@ -1,9 +1,8 @@
 use crate::{
     mls_v1::QueryGroupMessagesResponse,
-    types::{GroupId, GroupMessageMetadata, TopicCursor, WelcomeMessage},
-    xmtp::xmtpv4::{
-        envelopes::OriginatorEnvelope,
-        message_api::{QueryEnvelopesResponse, SubscribeEnvelopesResponse},
+    types::{
+        GroupId, GroupMessageMetadata, TopicCursor, UnpackedOriginatorEnvelope,
+        UnpackedQueryEnvelopesResponse, UnpackedSubscribeEnvelopesResponse, WelcomeMessage,
     },
 };
 
@@ -31,8 +30,8 @@ impl Paged for QueryWelcomeMessagesResponse {
     }
 }
 
-impl Paged for QueryEnvelopesResponse {
-    type Message = OriginatorEnvelope;
+impl Paged for UnpackedQueryEnvelopesResponse {
+    type Message = UnpackedOriginatorEnvelope;
 
     fn info(&self) -> &Option<PagingInfo> {
         &None
@@ -43,8 +42,8 @@ impl Paged for QueryEnvelopesResponse {
     }
 }
 
-impl Paged for SubscribeEnvelopesResponse {
-    type Message = OriginatorEnvelope;
+impl Paged for UnpackedSubscribeEnvelopesResponse {
+    type Message = UnpackedOriginatorEnvelope;
 
     fn info(&self) -> &Option<PagingInfo> {
         &None

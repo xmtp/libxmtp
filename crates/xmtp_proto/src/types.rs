@@ -10,6 +10,7 @@ mod message_metadata;
 mod orphaned_envelope;
 mod topic;
 mod topic_cursor;
+mod unpacked_envelopes;
 mod welcome_message;
 pub use api_identifier::*;
 pub use app_version::*;
@@ -22,6 +23,7 @@ pub use message_metadata::*;
 pub use orphaned_envelope::*;
 pub use topic::*;
 pub use topic_cursor::*;
+pub use unpacked_envelopes::*;
 pub use welcome_message::*;
 
 pub type OriginatorId = u32;

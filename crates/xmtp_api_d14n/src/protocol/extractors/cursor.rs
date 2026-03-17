@@ -3,10 +3,10 @@
 use xmtp_proto::ConversionError;
 use xmtp_proto::mls_v1::welcome_message::WelcomePointer as V3WelcomePointer;
 use xmtp_proto::types::Cursor;
+use xmtp_proto::types::UnpackedUnsignedOriginatorEnvelope;
 use xmtp_proto::xmtp::mls::api::v1::{
     group_message::V1 as V3GroupMessage, welcome_message::V1 as V3WelcomeMessage,
 };
-use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
 
 use crate::protocol::{EnvelopeVisitor, Extractor};
 
@@ -38,7 +38,7 @@ impl EnvelopeVisitor<'_> for CursorExtractor {
 
     fn visit_unsigned_originator(
         &mut self,
-        e: &UnsignedOriginatorEnvelope,
+        e: &UnpackedUnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
         self.cursor = Some(Cursor::new(e.originator_sequence_id, e.originator_node_id));
         Ok(())

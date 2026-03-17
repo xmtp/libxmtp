@@ -1,8 +1,7 @@
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::{
     api::{ApiClientError, Client, Query},
-    types::{GlobalCursor, Topic},
-    xmtp::xmtpv4::envelopes::OriginatorEnvelope,
+    types::{GlobalCursor, Topic, UnpackedOriginatorEnvelope},
 };
 
 use crate::{
@@ -24,7 +23,7 @@ where
         topic: Topic,
         at: Option<GlobalCursor>,
     ) -> Result<XmtpEnvelope, Self::Error> {
-        let mut envelopes: Vec<OriginatorEnvelope> = QueryEnvelope::builder()
+        let mut envelopes: Vec<UnpackedOriginatorEnvelope> = QueryEnvelope::builder()
             .topic(topic)
             .last_seen(at.unwrap_or_default())
             .limit(MAX_PAGE_SIZE)

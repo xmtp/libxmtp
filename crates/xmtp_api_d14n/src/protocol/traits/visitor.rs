@@ -2,6 +2,9 @@ use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::mls_v1::fetch_key_packages_response::KeyPackage;
 use xmtp_proto::mls_v1::subscribe_group_messages_request::Filter as SubscribeGroupMessagesFilter;
 use xmtp_proto::mls_v1::subscribe_welcome_messages_request::Filter as SubscribeWelcomeMessagesFilter;
+use xmtp_proto::types::{
+    UnpackedOriginatorEnvelope, UnpackedPayerEnvelope, UnpackedUnsignedOriginatorEnvelope,
+};
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_request;
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessageInput;
@@ -18,9 +21,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
         WelcomePointer as WelcomeMessageWelcomePointer,
     },
 };
-use xmtp_proto::xmtp::xmtpv4::envelopes::{
-    ClientEnvelope, OriginatorEnvelope, PayerEnvelope, UnsignedOriginatorEnvelope,
-};
+use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
 
 use super::EnvelopeError;
@@ -91,18 +92,18 @@ use super::EnvelopeError;
 pub trait EnvelopeVisitor<'env> {
     type Error: Into<EnvelopeError>;
     /// Visit the OriginatorEnvelope Type
-    fn visit_originator(&mut self, _e: &OriginatorEnvelope) -> Result<(), Self::Error> {
+    fn visit_originator(&mut self, _e: &UnpackedOriginatorEnvelope) -> Result<(), Self::Error> {
         Ok(())
     }
     /// Visit the UnsignedOriginatorEnvelope type
     fn visit_unsigned_originator(
         &mut self,
-        _e: &UnsignedOriginatorEnvelope,
+        _e: &UnpackedUnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
         Ok(())
     }
     /// Visit the Payer Envelope Type
-    fn visit_payer(&mut self, _e: &PayerEnvelope) -> Result<(), Self::Error> {
+    fn visit_payer(&mut self, _e: &UnpackedPayerEnvelope) -> Result<(), Self::Error> {
         Ok(())
     }
     /// Visit the ClientEnvelope type

@@ -2,7 +2,6 @@
 use crate::protocol::EnvelopeCollection;
 
 use crate::protocol::traits::{EnvelopeError, EnvelopeVisitor, Extractor, ProtocolEnvelope};
-use prost::Message;
 use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::mls_v1::fetch_key_packages_response::KeyPackage;
 use xmtp_proto::mls_v1::subscribe_group_messages_request::Filter as SubscribeGroupMessagesFilter;
@@ -10,10 +9,11 @@ use xmtp_proto::mls_v1::subscribe_welcome_messages_request::Filter as SubscribeW
 use xmtp_proto::mls_v1::{
     SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest, welcome_message,
 };
-use xmtp_proto::types::{Cursor, OrphanedEnvelope, Topic};
-use xmtp_proto::xmtp::xmtpv4::message_api::{
-    SubscribeEnvelopesResponse, get_newest_envelope_response,
+use xmtp_proto::types::{
+    Cursor, OrphanedEnvelope, Topic, UnpackedOriginatorEnvelope, UnpackedPayerEnvelope,
+    UnpackedSubscribeEnvelopesResponse, UnpackedUnsignedOriginatorEnvelope,
 };
+use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
 use xmtp_proto::{
     ConversionError,
     xmtp::identity::{api::v1::get_identity_updates_request, associations::IdentityUpdate},
@@ -24,66 +24,58 @@ use xmtp_proto::{
         group_message_input::Version as GroupMessageVersion,
         welcome_message_input::Version as WelcomeMessageVersion,
     },
+    xmtp::xmtpv4::envelopes::ClientEnvelope,
     xmtp::xmtpv4::envelopes::client_envelope::Payload,
-    xmtp::xmtpv4::envelopes::{
-        ClientEnvelope, OriginatorEnvelope, PayerEnvelope, UnsignedOriginatorEnvelope,
-    },
 };
 
-impl<'env> ProtocolEnvelope<'env> for OriginatorEnvelope {
-    type Nested<'a> = UnsignedOriginatorEnvelope;
+impl<'env> ProtocolEnvelope<'env> for UnpackedOriginatorEnvelope {
+    type Nested<'a> = Option<&'a UnpackedUnsignedOriginatorEnvelope>;
 
     fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
     where
         EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
     {
         visitor.visit_originator(self)?;
-        let unsigned = self.get_nested()?;
-        unsigned.accept(visitor)?;
+        self.get_nested()?.accept(visitor)?;
         Ok(())
     }
 
     fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
-        Ok(UnsignedOriginatorEnvelope::decode(
-            self.unsigned_originator_envelope.as_slice(),
-        )?)
+        Ok(self.unsigned_originator_envelope.as_ref())
     }
 }
 
-impl<'env> ProtocolEnvelope<'env> for UnsignedOriginatorEnvelope {
-    type Nested<'a> = PayerEnvelope;
+impl<'env> ProtocolEnvelope<'env> for UnpackedUnsignedOriginatorEnvelope {
+    type Nested<'a> = Option<&'a UnpackedPayerEnvelope>;
+
     fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
     where
         EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
     {
         visitor.visit_unsigned_originator(self)?;
-        let payer = self.get_nested()?;
-        payer.accept(visitor)?;
+        self.get_nested()?.accept(visitor)?;
         Ok(())
     }
 
     fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
-        Ok(PayerEnvelope::decode(self.payer_envelope_bytes.as_slice())?)
+        Ok(self.payer_envelope.as_ref())
     }
 }
 
-impl<'env> ProtocolEnvelope<'env> for PayerEnvelope {
-    type Nested<'a> = ClientEnvelope;
+impl<'env> ProtocolEnvelope<'env> for UnpackedPayerEnvelope {
+    type Nested<'a> = Option<&'a ClientEnvelope>;
 
     fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
     where
         EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
     {
         visitor.visit_payer(self)?;
-        let client = self.get_nested()?;
-        client.accept(visitor)?;
+        self.get_nested()?.accept(visitor)?;
         Ok(())
     }
 
     fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
-        Ok(ClientEnvelope::decode(
-            self.unsigned_client_envelope.as_slice(),
-        )?)
+        Ok(self.unsigned_client_envelope.as_ref())
     }
 }
 
@@ -303,19 +295,25 @@ impl<'env> ProtocolEnvelope<'env> for KeyPackage {
 }
 
 impl<'env> ProtocolEnvelope<'env> for get_newest_envelope_response::Response {
-    type Nested<'a> = Option<&'a OriginatorEnvelope>;
+    type Nested<'a> = ();
 
     fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
     where
         EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
     {
         visitor.visit_newest_envelope_response(self)?;
-        self.get_nested()?.accept(visitor)?;
+        let unpacked = self
+            .originator_envelope
+            .as_ref()
+            .map(UnpackedOriginatorEnvelope::try_from)
+            .transpose()
+            .map_err(ConversionError::from)?;
+        unpacked.as_ref().accept(visitor)?;
         Ok(())
     }
 
     fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
-        Ok(self.originator_envelope.as_ref())
+        Ok(())
     }
 }
 
@@ -473,7 +471,7 @@ impl<'env> ProtocolEnvelope<'env> for () {
     }
 }
 
-impl EnvelopeCollection<'_> for SubscribeEnvelopesResponse {
+impl EnvelopeCollection<'_> for UnpackedSubscribeEnvelopesResponse {
     fn topics(&self) -> Result<Vec<Topic>, EnvelopeError> {
         self.envelopes.topics()
     }
@@ -689,7 +687,7 @@ mod tests {
     impl<'env> EnvelopeVisitor<'env> for TestVisitor {
         type Error = super::EnvelopeError;
 
-        fn visit_originator(&mut self, _e: &OriginatorEnvelope) -> Result<(), Self::Error> {
+        fn visit_originator(&mut self, _e: &UnpackedOriginatorEnvelope) -> Result<(), Self::Error> {
             self.visited_originator = true;
             Ok(())
         }
@@ -802,7 +800,7 @@ mod tests {
             TestEnvelopeBuilder::new().with_identity_update().build(),
         ];
         // Test EnvelopeCollection implementations
-        let response = SubscribeEnvelopesResponse {
+        let response = UnpackedSubscribeEnvelopesResponse {
             envelopes: envelopes.clone(),
         };
         assert_eq!(response.len(), 4);
@@ -810,40 +808,9 @@ mod tests {
         assert_eq!(response.client_envelopes().unwrap().len(), 4);
         assert!(!response.is_empty());
 
-        let empty_response = SubscribeEnvelopesResponse { envelopes: vec![] };
+        let empty_response = UnpackedSubscribeEnvelopesResponse { envelopes: vec![] };
         assert_eq!(empty_response.len(), 0);
         assert!(empty_response.is_empty());
-    }
-
-    #[xmtp_common::test]
-    fn envelope_error_handling() {
-        // Test corrupted originator envelope
-        let mut envelope = TestEnvelopeBuilder::new()
-            .with_application_message(vec![1, 2, 3])
-            .build();
-        envelope.unsigned_originator_envelope = vec![0xFF];
-        assert!(envelope.get_nested().is_err());
-
-        // Test corrupted payer envelope
-        let unsigned = UnsignedOriginatorEnvelope {
-            originator_node_id: 1,
-            originator_sequence_id: 1,
-            originator_ns: 1000,
-            payer_envelope_bytes: vec![0xFF, 0xFF, 0xFF],
-            base_fee_picodollars: 0,
-            congestion_fee_picodollars: 0,
-            expiry_unixtime: 0,
-        };
-        assert!(unsigned.get_nested().is_err());
-
-        // Test corrupted client envelope
-        let payer = PayerEnvelope {
-            unsigned_client_envelope: vec![0xFF, 0xFF, 0xFF],
-            payer_signature: None,
-            target_originator: 0,
-            message_retention_days: 30,
-        };
-        assert!(payer.get_nested().is_err());
     }
 
     #[xmtp_common::test]
@@ -864,7 +831,7 @@ mod tests {
             .with_application_message(vec![1, 2, 3])
             .build();
         let some_envelope = Some(&envelope);
-        let none_envelope: Option<&OriginatorEnvelope> = None;
+        let none_envelope: Option<&UnpackedOriginatorEnvelope> = None;
 
         let mut visitor = TestVisitor::default();
         some_envelope.accept(&mut visitor).unwrap();

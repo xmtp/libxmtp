@@ -12,8 +12,7 @@ use xmtp_common::{ExponentialBackoff, Strategy};
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::{
     api::{Client, Query, VectorClock},
-    types::{Cursor, GlobalCursor, Topic},
-    xmtp::xmtpv4::envelopes::OriginatorEnvelope,
+    types::{Cursor, GlobalCursor, Topic, UnpackedOriginatorEnvelope},
 };
 
 /// try resolve d14n dependencies based on a backoff strategy
@@ -35,7 +34,7 @@ impl<ApiClient> ResolveDependencies for NetworkBackoffResolver<ApiClient>
 where
     ApiClient: Client,
 {
-    type ResolvedEnvelope = OriginatorEnvelope;
+    type ResolvedEnvelope = UnpackedOriginatorEnvelope;
     /// Resolve dependencies, starting with a list of dependencies. Should try to resolve
     /// all dependents after `dependency`, if `Dependency` is missing as well.
     /// * Once resolved, these dependencies may have missing dependencies of their own.
@@ -113,8 +112,7 @@ mod tests {
     use crate::protocol::utils::test;
     use prost::Message;
     use xmtp_proto::api::mock::MockNetworkClient;
-    use xmtp_proto::types::TopicKind;
-    use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
+    use xmtp_proto::types::{TopicKind, UnpackedQueryEnvelopesResponse};
 
     #[xmtp_common::test]
     async fn test_resolve_all_found_immediately() {
@@ -136,7 +134,7 @@ mod tests {
             .with_originator_sequence_id(20)
             .build();
 
-        let response = QueryEnvelopesResponse {
+        let response = UnpackedQueryEnvelopesResponse {
             envelopes: vec![envelope1, envelope2],
         };
 
@@ -172,7 +170,7 @@ mod tests {
             .build();
 
         client.expect_request().returning(move |_, _, _| {
-            let response = QueryEnvelopesResponse {
+            let response = UnpackedQueryEnvelopesResponse {
                 envelopes: vec![envelope1.clone()],
             };
             let bytes = response.encode_to_vec();

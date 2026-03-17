@@ -4,6 +4,8 @@ use xmtp_proto::{
     types::{Cursor, GroupId, GroupMessageMetadata},
 };
 
+use xmtp_proto::types::UnpackedOriginatorEnvelope;
+
 use crate::protocol::{
     EnvelopeError, EnvelopeVisitor, Extractor, GroupMessageExtractor, ProtocolEnvelope,
 };
@@ -35,7 +37,8 @@ impl EnvelopeVisitor<'_> for MessageMetadataExtractor {
         &mut self,
         response: &xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response::Response,
     ) -> Result<(), Self::Error> {
-        let message_metadata = if let Some(envelope) = &response.originator_envelope {
+        let message_metadata = if let Some(packed) = &response.originator_envelope {
+            let envelope = UnpackedOriginatorEnvelope::try_from(packed)?;
             let mut extractor = GroupMessageExtractor::default();
             envelope.accept(&mut extractor)?;
             let group_message = extractor.get()?;
