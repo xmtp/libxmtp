@@ -4,7 +4,7 @@ use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::mls::api::v1::{
     group_message::V1 as V3GroupMessage, welcome_message::V1 as V3WelcomeMessage,
 };
-use xmtp_proto::xmtp::xmtpv4::envelopes::OriginatorEnvelope;
+use xmtp_proto::types::UnpackedOriginatorEnvelope;
 
 use crate::protocol::{EnvelopeVisitor, Extractor};
 
@@ -32,7 +32,7 @@ impl Extractor for BytesExtractor {
 
 impl EnvelopeVisitor<'_> for BytesExtractor {
     type Error = ConversionError;
-    fn visit_originator(&mut self, e: &OriginatorEnvelope) -> Result<(), Self::Error> {
+    fn visit_originator(&mut self, e: &UnpackedOriginatorEnvelope) -> Result<(), Self::Error> {
         e.encode(&mut self.buffer)?;
         Ok(())
     }

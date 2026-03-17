@@ -113,8 +113,7 @@ mod tests {
     use crate::protocol::utils::test;
     use prost::Message;
     use xmtp_proto::api::mock::MockNetworkClient;
-    use xmtp_proto::types::TopicKind;
-    use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
+    use xmtp_proto::types::{TopicKind, UnpackedQueryEnvelopesResponse};
 
     #[xmtp_common::test]
     async fn test_resolve_all_found_immediately() {
@@ -136,7 +135,7 @@ mod tests {
             .with_originator_sequence_id(20)
             .build();
 
-        let response = QueryEnvelopesResponse {
+        let response = UnpackedQueryEnvelopesResponse {
             envelopes: vec![envelope1, envelope2],
         };
 
@@ -172,7 +171,7 @@ mod tests {
             .build();
 
         client.expect_request().returning(move |_, _, _| {
-            let response = QueryEnvelopesResponse {
+            let response = UnpackedQueryEnvelopesResponse {
                 envelopes: vec![envelope1.clone()],
             };
             let bytes = response.encode_to_vec();

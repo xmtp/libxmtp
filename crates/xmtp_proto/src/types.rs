@@ -9,6 +9,7 @@ mod ids;
 mod message_metadata;
 mod orphaned_envelope;
 mod topic;
+mod unpacked_envelopes;
 mod topic_cursor;
 mod welcome_message;
 pub use api_identifier::*;
@@ -21,6 +22,7 @@ pub use ids::*;
 pub use message_metadata::*;
 pub use orphaned_envelope::*;
 pub use topic::*;
+pub use unpacked_envelopes::*;
 pub use topic_cursor::*;
 pub use welcome_message::*;
 

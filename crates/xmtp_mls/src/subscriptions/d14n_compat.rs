@@ -7,7 +7,7 @@ use std::fmt;
 use xmtp_common::RetryableError;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage as V3GroupMessage;
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage as V3WelcomeMessage;
-use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse;
+use xmtp_proto::types::UnpackedSubscribeEnvelopesResponse;
 
 use crate::subscriptions::SubscribeError;
 
@@ -46,7 +46,7 @@ impl D14nCompatDecodeError {
 
 #[derive(Debug)]
 pub(crate) enum V3OrD14n<T> {
-    D14n(SubscribeEnvelopesResponse),
+    D14n(UnpackedSubscribeEnvelopesResponse),
     V3(T),
 }
 
@@ -57,7 +57,7 @@ fn decode<T: prost::Message + Default + fmt::Debug>(
     if let Ok(v3) = v3 {
         Ok(V3OrD14n::V3(v3))
     } else {
-        let d14n = SubscribeEnvelopesResponse::decode(bytes);
+        let d14n = UnpackedSubscribeEnvelopesResponse::decode(bytes);
         if let Ok(d14n) = d14n {
             Ok(V3OrD14n::D14n(d14n))
         } else {

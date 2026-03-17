@@ -6,7 +6,7 @@ use xmtp_proto::mls_v1::welcome_message::WelcomePointer;
 use xmtp_proto::xmtp::mls::api::v1::{
     group_message::V1 as V3GroupMessage, welcome_message::V1 as V3WelcomeMessage,
 };
-use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
+use xmtp_proto::types::UnpackedUnsignedOriginatorEnvelope;
 
 use crate::protocol::{EnvelopeVisitor, Extractor};
 
@@ -35,7 +35,7 @@ impl EnvelopeVisitor<'_> for TimestampExtractor {
 
     fn visit_unsigned_originator(
         &mut self,
-        e: &UnsignedOriginatorEnvelope,
+        e: &UnpackedUnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
         self.time = Some(e.originator_ns);
         Ok(())

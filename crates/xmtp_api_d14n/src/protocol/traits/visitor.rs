@@ -18,9 +18,10 @@ use xmtp_proto::xmtp::mls::api::v1::{
         WelcomePointer as WelcomeMessageWelcomePointer,
     },
 };
-use xmtp_proto::xmtp::xmtpv4::envelopes::{
-    ClientEnvelope, OriginatorEnvelope, PayerEnvelope, UnsignedOriginatorEnvelope,
+use xmtp_proto::types::{
+    UnpackedOriginatorEnvelope, UnpackedPayerEnvelope, UnpackedUnsignedOriginatorEnvelope,
 };
+use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
 
 use super::EnvelopeError;
@@ -91,18 +92,18 @@ use super::EnvelopeError;
 pub trait EnvelopeVisitor<'env> {
     type Error: Into<EnvelopeError>;
     /// Visit the OriginatorEnvelope Type
-    fn visit_originator(&mut self, _e: &OriginatorEnvelope) -> Result<(), Self::Error> {
+    fn visit_originator(&mut self, _e: &UnpackedOriginatorEnvelope) -> Result<(), Self::Error> {
         Ok(())
     }
     /// Visit the UnsignedOriginatorEnvelope type
     fn visit_unsigned_originator(
         &mut self,
-        _e: &UnsignedOriginatorEnvelope,
+        _e: &UnpackedUnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
         Ok(())
     }
     /// Visit the Payer Envelope Type
-    fn visit_payer(&mut self, _e: &PayerEnvelope) -> Result<(), Self::Error> {
+    fn visit_payer(&mut self, _e: &UnpackedPayerEnvelope) -> Result<(), Self::Error> {
         Ok(())
     }
     /// Visit the ClientEnvelope type

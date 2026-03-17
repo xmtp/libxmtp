@@ -2,7 +2,6 @@
 use openmls::prelude::tls_codec::Serialize;
 use openmls::prelude::{Credential, CredentialType, CredentialWithKey, KeyPackage, MlsMessageOut};
 use openmls::test_utils::frankenstein::FrankenMlsMessageBody;
-use prost::Message;
 use xmtp_common::{FakeMlsApplicationMessage, FakeMlsCommitMessage, Generate};
 use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
@@ -10,9 +9,11 @@ use xmtp_proto::xmtp::mls::api::v1::{
     GroupMessageInput, UploadKeyPackageRequest, WelcomeMessageInput, group_message_input,
     welcome_message_input,
 };
+use xmtp_proto::types::{
+    UnpackedOriginatorEnvelope, UnpackedPayerEnvelope, UnpackedUnsignedOriginatorEnvelope,
+};
 use xmtp_proto::xmtp::xmtpv4::envelopes::{
-    AuthenticatedData, ClientEnvelope, OriginatorEnvelope, PayerEnvelope,
-    UnsignedOriginatorEnvelope, client_envelope::Payload,
+    AuthenticatedData, ClientEnvelope, client_envelope::Payload,
 };
 
 use crate::protocol::extractors::test_utils::MemProvider;
@@ -184,31 +185,28 @@ impl TestEnvelopeBuilder {
         self
     }
 
-    pub fn build(self) -> OriginatorEnvelope {
-        OriginatorEnvelope {
-            unsigned_originator_envelope: UnsignedOriginatorEnvelope {
+    pub fn build(self) -> UnpackedOriginatorEnvelope {
+        UnpackedOriginatorEnvelope {
+            unsigned_originator_envelope: Some(UnpackedUnsignedOriginatorEnvelope {
                 originator_node_id: self.originator_node_id,
                 originator_sequence_id: self.originator_sequence_id,
                 originator_ns: self.originator_ns,
-                payer_envelope_bytes: PayerEnvelope {
-                    unsigned_client_envelope: ClientEnvelope {
+                payer_envelope: Some(UnpackedPayerEnvelope {
+                    unsigned_client_envelope: Some(ClientEnvelope {
                         aad: Some(AuthenticatedData {
                             target_topic: self.target_topic,
                             depends_on: None,
                         }),
                         payload: self.payload,
-                    }
-                    .encode_to_vec(),
+                    }),
                     payer_signature: None,
                     target_originator: self.target_originator,
                     message_retention_days: self.message_retention_days,
-                }
-                .encode_to_vec(),
+                }),
                 base_fee_picodollars: self.base_fee_picodollars,
                 congestion_fee_picodollars: self.congestion_fee_picodollars,
                 expiry_unixtime: self.expiry_unixtime,
-            }
-            .encode_to_vec(),
+            }),
             proof: None,
         }
     }

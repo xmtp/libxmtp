@@ -3,7 +3,7 @@ use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use crate::protocol::traits::EnvelopeVisitor;
 use crate::protocol::{Extractor, PayloadExtractionError};
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
-use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
+use xmtp_proto::types::UnpackedUnsignedOriginatorEnvelope;
 
 /// Extract Identity Updates from Envelopes
 #[derive(Default)]
@@ -41,7 +41,7 @@ impl EnvelopeVisitor<'_> for IdentityUpdateExtractor {
 
     fn visit_unsigned_originator(
         &mut self,
-        envelope: &UnsignedOriginatorEnvelope,
+        envelope: &UnpackedUnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
         self.originator_node_id = envelope.originator_node_id;
         self.originator_sequence_id = envelope.originator_sequence_id;

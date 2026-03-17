@@ -13,7 +13,7 @@ use openmls::{
     prelude::{ContentType, ProtocolMessage, tls_codec::Deserialize},
 };
 use xmtp_proto::xmtp::mls::api::v1::group_message_input;
-use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
+use xmtp_proto::types::UnpackedUnsignedOriginatorEnvelope;
 
 /// Type to extract a Group Message from Originator Envelopes
 #[derive(Default, Clone, Debug)]
@@ -53,7 +53,7 @@ impl EnvelopeVisitor<'_> for GroupMessageExtractor {
 
     fn visit_unsigned_originator(
         &mut self,
-        envelope: &UnsignedOriginatorEnvelope,
+        envelope: &UnpackedUnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
         self.cursor = Cursor::new(envelope.originator_sequence_id, envelope.originator_node_id);
         self.created_ns = DateTime::from_timestamp_nanos(envelope.originator_ns);

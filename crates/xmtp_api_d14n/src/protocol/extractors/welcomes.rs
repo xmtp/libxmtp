@@ -10,7 +10,7 @@ use xmtp_proto::mls_v1::welcome_message::WelcomePointer as V3ProtoWelcomePointer
 use xmtp_proto::mls_v1::welcome_message_input::{
     V1 as ProtoWelcomeMessageV1, WelcomePointer as WelcomeMessageWelcomePointer,
 };
-use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
+use xmtp_proto::types::UnpackedUnsignedOriginatorEnvelope;
 
 /// Type to extract a Welcome Message from Originator Envelopes
 #[derive(Default)]
@@ -47,7 +47,7 @@ impl EnvelopeVisitor<'_> for WelcomeMessageExtractor {
 
     fn visit_unsigned_originator(
         &mut self,
-        envelope: &UnsignedOriginatorEnvelope,
+        envelope: &UnpackedUnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
         self.cursor = Cursor::new(envelope.originator_sequence_id, envelope.originator_node_id);
         self.created_ns = DateTime::from_timestamp_nanos(envelope.originator_ns);
