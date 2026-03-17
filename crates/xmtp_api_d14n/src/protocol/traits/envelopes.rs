@@ -127,8 +127,7 @@ where
     }
 
     fn validate(&self) -> Result<(), EnvelopeError> {
-        let mut validator = EnvelopeValidator::default();
-        self.accept(&mut validator)?;
+        self.accept(&mut EnvelopeValidator)?;
         Ok(())
     }
 
