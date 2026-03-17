@@ -42,8 +42,7 @@ use xmtp_proto::{
     xmtp::{message_api::v1::SortDirection, mls::message_contents::PlaintextCommitLogEntry},
 };
 
-use crate::groups::commit_log_key::derive_consensus_public_key;
-use crate::groups::commit_log_key::get_or_create_salt;
+use crate::groups::commit_log_key::get_salt;
 use crate::{
     context::XmtpSharedContext,
     groups::GroupError,
@@ -352,7 +351,7 @@ where
         conversation: &StoredGroupCommitLogMetadata,
         plaintext_commit_log_entries: &[PlaintextCommitLogEntry],
     ) -> Result<Vec<PublishCommitLogRequest>, CommitLogError> {
-        let Some(private_key) = get_or_create_salt(&self.context, conversation)? else {
+        let Some(salt) = get_salt(&self.context, conversation)? else {
             tracing::warn!(
                 "No signing key available for group {:?}",
                 hex::encode(&conversation.group_id)
@@ -367,9 +366,9 @@ where
             let signature = provider.crypto().sign(
                 SignatureScheme::ED25519,
                 &serialized_commit_log_entry,
-                private_key.as_slice(),
+                salt.as_slice(),
             )?;
-            let public_key = xmtp_cryptography::signature::to_public_key(&private_key)?.to_vec();
+            let public_key = xmtp_cryptography::signature::to_public_key(&salt)?.to_vec();
 
             signed_entries.push(PublishCommitLogRequest {
                 group_id: conversation.group_id.clone(),

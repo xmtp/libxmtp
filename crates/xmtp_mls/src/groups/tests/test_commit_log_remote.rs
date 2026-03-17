@@ -1,7 +1,7 @@
 use crate::groups::MlsGroup;
 use crate::groups::PolicySet;
 use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
-use crate::groups::commit_log_key::{CommitLogKeyCrypto, GroupSaltStore, get_or_create_salt};
+use crate::groups::commit_log_key::{CommitLogKeyCrypto, get_salt};
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::{context::XmtpSharedContext, tester};
 use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
@@ -1001,9 +1001,8 @@ async fn test_all_users_use_same_signing_key_for_publishing() {
 
     // Get the signing keys that would be used for publishing
     let alix_signing_key =
-        get_or_create_salt(&alix.context, alix_dm_key)?.expect("Alix should have signing key");
-    let bo_signing_key =
-        get_or_create_salt(&bo.context, bo_dm_key)?.expect("Bo should have signing key");
+        get_salt(&alix.context, alix_dm_key)?.expect("Alix should have signing key");
+    let bo_signing_key = get_salt(&bo.context, bo_dm_key)?.expect("Bo should have signing key");
 
     // Derive public keys from the private keys
     let alix_public_key = xmtp_cryptography::signature::to_public_key(&alix_signing_key)?;
@@ -1307,10 +1306,7 @@ async fn test_update_commit_log_signer_sync_across_parties() {
         .generate_commit_log_key()
         .unwrap();
     println!("Alix updating commit log signer...");
-    alix_group
-        .update_commit_log_signer(new_signer.clone())
-        .await
-        .unwrap();
+    alix_group.update_salt(new_signer.clone()).await.unwrap();
 
     // Alix should see the new signer immediately
     let alix_updated_signer = alix_group.mutable_metadata().unwrap().salt().unwrap();

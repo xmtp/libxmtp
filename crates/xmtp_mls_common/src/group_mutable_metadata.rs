@@ -246,13 +246,13 @@ impl GroupMutableMetadata {
     }
 
     /// Checks if the given inbox ID is an admin.
-    pub fn is_admin(&self, inbox_id: &String) -> bool {
-        self.admin_list.contains(inbox_id)
+    pub fn is_admin(&self, inbox_id: &str) -> bool {
+        self.admin_list.iter().any(|a| a == inbox_id)
     }
 
     /// Checks if the given inbox ID is a super admin.
-    pub fn is_super_admin(&self, inbox_id: &String) -> bool {
-        self.super_admin_list.contains(inbox_id)
+    pub fn is_super_admin(&self, inbox_id: &str) -> bool {
+        self.super_admin_list.iter().any(|sa| sa == inbox_id)
     }
 
     /// Retrieves the group salt from the metadata attributes.

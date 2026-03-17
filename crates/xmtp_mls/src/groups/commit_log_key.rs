@@ -57,56 +57,43 @@ impl CommitLogKeyCrypto for RustCrypto {
     }
 }
 
-pub(crate) async fn maybe_share_private_key(
+pub(crate) async fn maybe_update_salt(
     context: &impl XmtpSharedContext,
     group_id: &[u8],
-    consensus_public_key: &[u8],
 ) -> Result<(), CommitLogError> {
-    let provider = context.mls_provider();
-    if let Some(stored_private_key) = provider.key_store().read_salt(group_id)?
-        && RustCrypto::public_key_matches_private_key(consensus_public_key, &stored_private_key)
-    {
-        let (group, _) = MlsGroup::new_cached(context, group_id)?;
-        if group.dm_id.is_some() {
-            // We cannot update mutable metadata for DMs
-            return Ok(());
-        }
-        let metadata = group.mutable_metadata()?;
-        if metadata.salt().is_none_or(|private_key| {
-            !RustCrypto::public_key_matches_private_key(consensus_public_key, &private_key)
-        }) {
-            group.update_commit_log_signer(stored_private_key).await?;
-        }
+    let (group, _) = MlsGroup::new_cached(context, group_id)?;
+    let mutable_metadata = group.mutable_metadata()?;
+
+    if group.dm_id.is_some() {
+        // We cannot update mutable metadata for DMs
+        return Ok(());
     }
+
+    if mutable_metadata.salt().is_some() {
+        // Salt is already set. No-op.
+        return Ok(());
+    }
+
+    if !mutable_metadata.is_super_admin(context.inbox_id()) {
+        // I cannot set the salt if I am not a super-admin
+        return Ok(());
+    }
+
+    let salt = xmtp_common::rand_secret::<SALT_SIZE>();
+    group.update_salt(salt).await?;
+
     Ok(())
 }
 
-pub(crate) fn get_or_create_salt(
+pub(crate) fn get_salt(
     context: &impl XmtpSharedContext,
     log_state: &StoredGroupCommitLogMetadata,
 ) -> Result<Option<Secret>, CommitLogError> {
-    let provider = context.mls_provider();
-    let key_store = provider.key_store();
-    // The salt is found in the mutable metadata. If it's not found and this installation is a super-admin,
-    // then the installation will attempt to create group salt in a commit.
-
     // If it's in the cache db column, then very well - let's return that.
     let consensus_public_key = log_state.group_salt.as_ref();
     let (group, _) = MlsGroup::new_cached(context, &log_state.group_id)?;
 
     if let Some(salt) = group.mutable_metadata()?.salt() {
-        context
-            .db()
-            .set_group_salt(&group.group_id, salt.as_slice())?;
-
-        return Ok(Some(salt));
-    }
-
-    if consensus_public_key.is_none() {
-        // We have not yet seen an agreed upon public key for this conversation, so we generate a new key.
-        // We store the key locally, but do not share it via mutable metadata until we verify that we
-        // published it as the first commit log entry.
-        let salt = xmtp_common::rand_secret::<SALT_SIZE>();
         context
             .db()
             .set_group_salt(&group.group_id, salt.as_slice())?;
@@ -426,7 +413,7 @@ mod tests {
             local_commit_log_cursor: None,
         };
 
-        let key = get_or_create_salt(&alix.context, &conversation).unwrap();
+        let key = get_salt(&alix.context, &conversation).unwrap();
         assert!(key.is_some());
         // Should return the key from mutable metadata
         assert_eq!(key.unwrap().as_slice(), mutable_metadata_key.as_slice());
@@ -457,7 +444,7 @@ mod tests {
             local_commit_log_cursor: None,
         };
 
-        let key = get_or_create_salt(&alix.context, &conversation).unwrap();
+        let key = get_salt(&alix.context, &conversation).unwrap();
         // Should return None because stored key doesn't match consensus
         assert!(key.is_none());
     }
@@ -485,7 +472,7 @@ mod tests {
             local_commit_log_cursor: None,
         };
 
-        let key = get_or_create_salt(&alix.context, &conversation).unwrap();
+        let key = get_salt(&alix.context, &conversation).unwrap();
         assert!(key.is_some());
         // Should return the stored key that matches consensus
         assert_eq!(key.unwrap().as_slice(), stored_key.as_slice());
@@ -509,7 +496,7 @@ mod tests {
             local_commit_log_cursor: None,
         };
 
-        let key = get_or_create_salt(&alix.context, &conversation).unwrap();
+        let key = get_salt(&alix.context, &conversation).unwrap();
         assert!(key.is_some());
         // Should return the key from mutable metadata that matches consensus
         assert_eq!(key.unwrap().as_slice(), metadata_key.as_slice());
@@ -545,7 +532,7 @@ mod tests {
             local_commit_log_cursor: None,
         };
 
-        let key = get_or_create_salt(&alix.context, &conversation).unwrap();
+        let key = get_salt(&alix.context, &conversation).unwrap();
         // Should return None because:
         // 1. No key exists in the key store
         // 2. Mutable metadata key doesn't match consensus
