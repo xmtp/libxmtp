@@ -2,7 +2,7 @@
 use crate::protocol::EnvelopeCollection;
 
 use crate::protocol::traits::{EnvelopeError, EnvelopeVisitor, Extractor, ProtocolEnvelope};
-use prost::Message;
+use prost::Message as _;
 use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::mls_v1::fetch_key_packages_response::KeyPackage;
 use xmtp_proto::mls_v1::subscribe_group_messages_request::Filter as SubscribeGroupMessagesFilter;
@@ -27,8 +27,8 @@ use xmtp_proto::{
         group_message_input::Version as GroupMessageVersion,
         welcome_message_input::Version as WelcomeMessageVersion,
     },
-    xmtp::xmtpv4::envelopes::client_envelope::Payload,
     xmtp::xmtpv4::envelopes::ClientEnvelope,
+    xmtp::xmtpv4::envelopes::client_envelope::Payload,
 };
 
 impl<'env> ProtocolEnvelope<'env> for UnpackedOriginatorEnvelope {
@@ -474,25 +474,36 @@ impl<'env> ProtocolEnvelope<'env> for () {
     }
 }
 
+trait AsUnpackedSubscribeResponse {
+    fn as_unpacked(&self) -> Result<UnpackedSubscribeEnvelopesResponse, EnvelopeError>;
+}
+
+impl AsUnpackedSubscribeResponse for SubscribeEnvelopesResponse {
+    fn as_unpacked(&self) -> Result<UnpackedSubscribeEnvelopesResponse, EnvelopeError> {
+        let bytes = self.encode_to_vec();
+        UnpackedSubscribeEnvelopesResponse::decode(bytes.as_slice()).map_err(EnvelopeError::from)
+    }
+}
+
 impl EnvelopeCollection<'_> for SubscribeEnvelopesResponse {
     fn topics(&self) -> Result<Vec<Topic>, EnvelopeError> {
-        self.envelopes.topics()
+        self.as_unpacked()?.topics()
     }
 
     fn cursors(&self) -> Result<Vec<Cursor>, EnvelopeError> {
-        self.envelopes.cursors()
+        self.as_unpacked()?.cursors()
     }
 
     fn payloads(&self) -> Result<Vec<Payload>, EnvelopeError> {
-        self.envelopes.payloads()
+        self.as_unpacked()?.payloads()
     }
 
     fn sha256_hashes(&self) -> Result<Vec<Vec<u8>>, EnvelopeError> {
-        self.envelopes.sha256_hashes()
+        self.as_unpacked()?.sha256_hashes()
     }
 
     fn client_envelopes(&self) -> Result<Vec<ClientEnvelope>, EnvelopeError> {
-        self.envelopes.client_envelopes()
+        self.as_unpacked()?.client_envelopes()
     }
 
     fn len(&self) -> usize {
@@ -510,23 +521,23 @@ impl EnvelopeCollection<'_> for SubscribeEnvelopesResponse {
         for<'a> EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
         Self: Sized,
     {
-        self.envelopes.consume::<E>()
+        self.as_unpacked()?.consume::<E>()
     }
 
     fn group_messages(
         &self,
     ) -> Result<Vec<Option<xmtp_proto::types::GroupMessage>>, EnvelopeError> {
-        self.envelopes.group_messages()
+        self.as_unpacked()?.group_messages()
     }
 
     fn welcome_messages(
         &self,
     ) -> Result<Vec<Option<xmtp_proto::types::WelcomeMessage>>, EnvelopeError> {
-        self.envelopes.welcome_messages()
+        self.as_unpacked()?.welcome_messages()
     }
 
     fn orphans(&self) -> Result<Vec<OrphanedEnvelope>, EnvelopeError> {
-        self.envelopes.orphans()
+        self.as_unpacked()?.orphans()
     }
 }
 
@@ -746,10 +757,7 @@ mod tests {
     impl<'env> EnvelopeVisitor<'env> for TestVisitor {
         type Error = super::EnvelopeError;
 
-        fn visit_originator(
-            &mut self,
-            _e: &UnpackedOriginatorEnvelope,
-        ) -> Result<(), Self::Error> {
+        fn visit_originator(&mut self, _e: &UnpackedOriginatorEnvelope) -> Result<(), Self::Error> {
             self.visited_originator = true;
             Ok(())
         }

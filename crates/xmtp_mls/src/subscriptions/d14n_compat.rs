@@ -5,9 +5,9 @@
 use prost::Message;
 use std::fmt;
 use xmtp_common::RetryableError;
+use xmtp_proto::types::UnpackedSubscribeEnvelopesResponse;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage as V3GroupMessage;
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage as V3WelcomeMessage;
-use xmtp_proto::types::UnpackedSubscribeEnvelopesResponse;
 
 use crate::subscriptions::SubscribeError;
 

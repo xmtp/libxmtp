@@ -4,13 +4,13 @@ use openmls::prelude::{Credential, CredentialType, CredentialWithKey, KeyPackage
 use openmls::test_utils::frankenstein::FrankenMlsMessageBody;
 use xmtp_common::{FakeMlsApplicationMessage, FakeMlsCommitMessage, Generate};
 use xmtp_cryptography::XmtpInstallationCredential;
+use xmtp_proto::types::{
+    UnpackedOriginatorEnvelope, UnpackedPayerEnvelope, UnpackedUnsignedOriginatorEnvelope,
+};
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 use xmtp_proto::xmtp::mls::api::v1::{
     GroupMessageInput, UploadKeyPackageRequest, WelcomeMessageInput, group_message_input,
     welcome_message_input,
-};
-use xmtp_proto::types::{
-    UnpackedOriginatorEnvelope, UnpackedPayerEnvelope, UnpackedUnsignedOriginatorEnvelope,
 };
 use xmtp_proto::xmtp::xmtpv4::envelopes::{
     AuthenticatedData, ClientEnvelope, client_envelope::Payload,

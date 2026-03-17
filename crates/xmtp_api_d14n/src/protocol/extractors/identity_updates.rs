@@ -2,8 +2,8 @@ use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 
 use crate::protocol::traits::EnvelopeVisitor;
 use crate::protocol::{Extractor, PayloadExtractionError};
-use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 use xmtp_proto::types::UnpackedUnsignedOriginatorEnvelope;
+use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 
 /// Extract Identity Updates from Envelopes
 #[derive(Default)]

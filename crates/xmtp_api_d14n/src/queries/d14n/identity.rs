@@ -17,10 +17,10 @@ use xmtp_proto::identity_v1::VerifySmartContractWalletSignatureRequestSignature;
 use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::identity_v1::verify_smart_contract_wallet_signatures_response::ValidationResponse;
 use xmtp_proto::types::Topic;
+use xmtp_proto::types::UnpackedQueryEnvelopesResponse;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
-use xmtp_proto::types::UnpackedQueryEnvelopesResponse;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4,
 };

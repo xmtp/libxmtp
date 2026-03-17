@@ -29,21 +29,21 @@ macro_rules! delegate_envelope_visitor {
 
             fn visit_originator(
                 &mut self,
-                e: &xmtp_proto::xmtp::xmtpv4::envelopes::OriginatorEnvelope,
+                e: &xmtp_proto::types::UnpackedOriginatorEnvelope,
             ) -> Result<(), Self::Error> {
                 self.inner.visit_originator(e)
             }
 
             fn visit_unsigned_originator(
                 &mut self,
-                e: &xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope,
+                e: &xmtp_proto::types::UnpackedUnsignedOriginatorEnvelope,
             ) -> Result<(), Self::Error> {
                 self.inner.visit_unsigned_originator(e)
             }
 
             fn visit_payer(
                 &mut self,
-                e: &xmtp_proto::xmtp::xmtpv4::envelopes::PayerEnvelope,
+                e: &xmtp_proto::types::UnpackedPayerEnvelope,
             ) -> Result<(), Self::Error> {
                 self.inner.visit_payer(e)
             }

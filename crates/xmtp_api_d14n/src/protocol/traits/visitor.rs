@@ -2,6 +2,9 @@ use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::mls_v1::fetch_key_packages_response::KeyPackage;
 use xmtp_proto::mls_v1::subscribe_group_messages_request::Filter as SubscribeGroupMessagesFilter;
 use xmtp_proto::mls_v1::subscribe_welcome_messages_request::Filter as SubscribeWelcomeMessagesFilter;
+use xmtp_proto::types::{
+    UnpackedOriginatorEnvelope, UnpackedPayerEnvelope, UnpackedUnsignedOriginatorEnvelope,
+};
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_request;
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessageInput;
@@ -17,9 +20,6 @@ use xmtp_proto::xmtp::mls::api::v1::{
         V1 as WelcomeMessageV1, Version as WelcomeMessageVersion,
         WelcomePointer as WelcomeMessageWelcomePointer,
     },
-};
-use xmtp_proto::types::{
-    UnpackedOriginatorEnvelope, UnpackedPayerEnvelope, UnpackedUnsignedOriginatorEnvelope,
 };
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;

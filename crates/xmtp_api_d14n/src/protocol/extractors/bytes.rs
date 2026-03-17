@@ -1,10 +1,10 @@
 //! turns an envelope back into its protobuf `Body` bytes
 use prost::Message;
 use xmtp_proto::ConversionError;
+use xmtp_proto::types::UnpackedOriginatorEnvelope;
 use xmtp_proto::xmtp::mls::api::v1::{
     group_message::V1 as V3GroupMessage, welcome_message::V1 as V3WelcomeMessage,
 };
-use xmtp_proto::types::UnpackedOriginatorEnvelope;
 
 use crate::protocol::{EnvelopeVisitor, Extractor};
 

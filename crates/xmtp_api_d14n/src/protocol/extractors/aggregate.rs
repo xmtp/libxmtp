@@ -100,7 +100,7 @@ mod tests {
     use crate::protocol::extractors::key_packages::KeyPackagesExtractor;
     use crate::protocol::extractors::test_utils::*;
     use crate::protocol::extractors::topics::TopicExtractor;
-    use xmtp_proto::xmtp::xmtpv4::envelopes::OriginatorEnvelope;
+    use xmtp_proto::types::UnpackedOriginatorEnvelope;
 
     fn create_test_key_package() -> Vec<u8> {
         // Create a simple mock key package for testing
@@ -151,7 +151,7 @@ mod tests {
 
     #[xmtp_common::test]
     fn test_collection_extractor_empty() {
-        let envelopes: Vec<OriginatorEnvelope> = vec![];
+        let envelopes: Vec<UnpackedOriginatorEnvelope> = vec![];
         let extractor = CollectionExtractor::new(envelopes, KeyPackagesExtractor::new());
         let result = extractor.get().unwrap();
 
@@ -230,7 +230,7 @@ mod tests {
 
     #[xmtp_common::test]
     fn test_sequenced_extractor_empty() {
-        let envelopes: Vec<OriginatorEnvelope> = vec![];
+        let envelopes: Vec<UnpackedOriginatorEnvelope> = vec![];
 
         let extractor = SequencedExtractor::builder()
             .envelopes(envelopes)

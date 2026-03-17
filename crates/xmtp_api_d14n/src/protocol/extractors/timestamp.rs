@@ -3,10 +3,10 @@
 use chrono::Utc;
 use xmtp_proto::ConversionError;
 use xmtp_proto::mls_v1::welcome_message::WelcomePointer;
+use xmtp_proto::types::UnpackedUnsignedOriginatorEnvelope;
 use xmtp_proto::xmtp::mls::api::v1::{
     group_message::V1 as V3GroupMessage, welcome_message::V1 as V3WelcomeMessage,
 };
-use xmtp_proto::types::UnpackedUnsignedOriginatorEnvelope;
 
 use crate::protocol::{EnvelopeVisitor, Extractor};
 

@@ -12,8 +12,8 @@ use openmls::{
     framing::MlsMessageIn,
     prelude::{ContentType, ProtocolMessage, tls_codec::Deserialize},
 };
-use xmtp_proto::xmtp::mls::api::v1::group_message_input;
 use xmtp_proto::types::UnpackedUnsignedOriginatorEnvelope;
+use xmtp_proto::xmtp::mls::api::v1::group_message_input;
 
 /// Type to extract a Group Message from Originator Envelopes
 #[derive(Default, Clone, Debug)]

@@ -12,8 +12,7 @@ use xmtp_common::{ExponentialBackoff, Strategy};
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::{
     api::{Client, Query, VectorClock},
-    types::{Cursor, GlobalCursor, Topic},
-    xmtp::xmtpv4::envelopes::OriginatorEnvelope,
+    types::{Cursor, GlobalCursor, Topic, UnpackedOriginatorEnvelope},
 };
 
 /// try resolve d14n dependencies based on a backoff strategy
@@ -35,7 +34,7 @@ impl<ApiClient> ResolveDependencies for NetworkBackoffResolver<ApiClient>
 where
     ApiClient: Client,
 {
-    type ResolvedEnvelope = OriginatorEnvelope;
+    type ResolvedEnvelope = UnpackedOriginatorEnvelope;
     /// Resolve dependencies, starting with a list of dependencies. Should try to resolve
     /// all dependents after `dependency`, if `Dependency` is missing as well.
     /// * Once resolved, these dependencies may have missing dependencies of their own.

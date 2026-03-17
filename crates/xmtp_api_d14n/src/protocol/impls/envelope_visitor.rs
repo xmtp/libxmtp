@@ -11,6 +11,9 @@ use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::mls_v1::fetch_key_packages_response::KeyPackage;
 use xmtp_proto::mls_v1::subscribe_group_messages_request::Filter as SubscribeGroupMessagesFilter;
 use xmtp_proto::mls_v1::subscribe_welcome_messages_request::Filter as SubscribeWelcomeMessagesFilter;
+use xmtp_proto::types::{
+    UnpackedOriginatorEnvelope, UnpackedPayerEnvelope, UnpackedUnsignedOriginatorEnvelope,
+};
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessageInput;
 use xmtp_proto::xmtp::mls::api::v1::UploadKeyPackageRequest;
@@ -22,9 +25,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
     group_message_input::{V1 as GroupMessageV1, Version as GroupMessageVersion},
     welcome_message_input::{V1 as WelcomeMessageV1, Version as WelcomeMessageVersion},
 };
-use xmtp_proto::xmtp::xmtpv4::envelopes::{
-    ClientEnvelope, OriginatorEnvelope, PayerEnvelope, UnsignedOriginatorEnvelope,
-};
+use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
 
 type ForError<'a, V> = <V as EnvelopeVisitor<'a>>::Error;
@@ -35,20 +36,23 @@ impl<'a> EnvelopeVisitor<'a> for Tuple {
 
     for_tuples!( where #( EnvelopeError: From<ForError<'a, Tuple>> )* );
 
-    fn visit_originator(&mut self, envelope: &OriginatorEnvelope) -> Result<(), Self::Error> {
+    fn visit_originator(
+        &mut self,
+        envelope: &UnpackedOriginatorEnvelope,
+    ) -> Result<(), Self::Error> {
         for_tuples!( #( Tuple.visit_originator(envelope)?; )* );
         Ok(())
     }
 
     fn visit_unsigned_originator(
         &mut self,
-        e: &UnsignedOriginatorEnvelope,
+        e: &UnpackedUnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
         for_tuples!( #( Tuple.visit_unsigned_originator(e)?; )* );
         Ok(())
     }
 
-    fn visit_payer(&mut self, e: &PayerEnvelope) -> Result<(), Self::Error> {
+    fn visit_payer(&mut self, e: &UnpackedPayerEnvelope) -> Result<(), Self::Error> {
         for_tuples!( #( Tuple.visit_payer(e)?; )* );
         Ok(())
     }
@@ -176,7 +180,10 @@ where
 {
     type Error = T::Error;
 
-    fn visit_originator(&mut self, envelope: &OriginatorEnvelope) -> Result<(), Self::Error> {
+    fn visit_originator(
+        &mut self,
+        envelope: &UnpackedOriginatorEnvelope,
+    ) -> Result<(), Self::Error> {
         self.iter_mut()
             .try_for_each(|t| t.visit_originator(envelope))?;
         Ok(())
@@ -184,14 +191,14 @@ where
 
     fn visit_unsigned_originator(
         &mut self,
-        envelope: &UnsignedOriginatorEnvelope,
+        envelope: &UnpackedUnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
         self.iter_mut()
             .try_for_each(|t| t.visit_unsigned_originator(envelope))?;
         Ok(())
     }
 
-    fn visit_payer(&mut self, envelope: &PayerEnvelope) -> Result<(), Self::Error> {
+    fn visit_payer(&mut self, envelope: &UnpackedPayerEnvelope) -> Result<(), Self::Error> {
         self.iter_mut().try_for_each(|t| t.visit_payer(envelope))?;
         Ok(())
     }

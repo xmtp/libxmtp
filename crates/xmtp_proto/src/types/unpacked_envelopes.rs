@@ -20,7 +20,7 @@ use prost::Message;
 
 /// [`PayerEnvelope`](crate::xmtp::xmtpv4::envelopes::PayerEnvelope) with `ClientEnvelope`
 /// decoded inline (tag 1 was `bytes`, now `message`).
-#[derive(Clone, PartialEq, Default, prost::Message)]
+#[derive(Clone, PartialEq, prost::Message)]
 pub struct UnpackedPayerEnvelope {
     /// Decoded `ClientEnvelope` (was `unsigned_client_envelope: bytes` at tag 1).
     #[prost(message, optional, tag = "1")]
@@ -35,7 +35,7 @@ pub struct UnpackedPayerEnvelope {
 
 /// [`UnsignedOriginatorEnvelope`](crate::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope)
 /// with `PayerEnvelope` decoded inline (tag 4 was `bytes`, now `message`).
-#[derive(Clone, PartialEq, Default, prost::Message)]
+#[derive(Clone, PartialEq, prost::Message)]
 pub struct UnpackedUnsignedOriginatorEnvelope {
     #[prost(uint32, tag = "1")]
     pub originator_node_id: u32,
@@ -58,7 +58,7 @@ pub struct UnpackedUnsignedOriginatorEnvelope {
 /// `UnsignedOriginatorEnvelope` decoded inline (tag 1 was `bytes`, now `message`).
 ///
 /// Reuses the existing [`originator_envelope::Proof`] oneof (tags 2 and 3 unchanged).
-#[derive(Clone, PartialEq, Default, prost::Message)]
+#[derive(Clone, PartialEq, prost::Message)]
 pub struct UnpackedOriginatorEnvelope {
     /// Decoded `UnsignedOriginatorEnvelope` (was `unsigned_originator_envelope: bytes` at tag 1).
     #[prost(message, optional, tag = "1")]
@@ -68,14 +68,14 @@ pub struct UnpackedOriginatorEnvelope {
 }
 
 /// Same wire format as `QueryEnvelopesResponse` but yields `UnpackedOriginatorEnvelope`s.
-#[derive(Clone, PartialEq, Default, prost::Message)]
+#[derive(Clone, PartialEq, prost::Message)]
 pub struct UnpackedQueryEnvelopesResponse {
     #[prost(message, repeated, tag = "1")]
     pub envelopes: Vec<UnpackedOriginatorEnvelope>,
 }
 
 /// Same wire format as `SubscribeEnvelopesResponse` but yields `UnpackedOriginatorEnvelope`s.
-#[derive(Clone, PartialEq, Default, prost::Message)]
+#[derive(Clone, PartialEq, prost::Message)]
 pub struct UnpackedSubscribeEnvelopesResponse {
     #[prost(message, repeated, tag = "1")]
     pub envelopes: Vec<UnpackedOriginatorEnvelope>,
@@ -96,11 +96,10 @@ impl TryFrom<&OriginatorEnvelope> for UnpackedOriginatorEnvelope {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::xmtp::xmtpv4::envelopes::{
-        AuthenticatedData, PayerEnvelope, UnsignedOriginatorEnvelope,
-        client_envelope::Payload,
-    };
     use crate::xmtp::identity::associations::IdentityUpdate;
+    use crate::xmtp::xmtpv4::envelopes::{
+        AuthenticatedData, PayerEnvelope, UnsignedOriginatorEnvelope, client_envelope::Payload,
+    };
 
     fn build_packed_originator() -> OriginatorEnvelope {
         let client = ClientEnvelope {
@@ -165,7 +164,10 @@ mod tests {
         let repacked_bytes = unpacked.encode_to_vec();
         let repacked = OriginatorEnvelope::decode(repacked_bytes.as_slice()).unwrap();
 
-        assert_eq!(packed.unsigned_originator_envelope, repacked.unsigned_originator_envelope);
+        assert_eq!(
+            packed.unsigned_originator_envelope,
+            repacked.unsigned_originator_envelope
+        );
     }
 
     #[xmtp_common::test]

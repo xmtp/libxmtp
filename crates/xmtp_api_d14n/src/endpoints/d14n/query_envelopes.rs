@@ -4,8 +4,8 @@ use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::types::{GlobalCursor, Topic, UnpackedQueryEnvelopesResponse};
-use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesRequest;
 use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
+use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesRequest;
 
 /// Query a single thing
 #[derive(Debug, Builder, Default, Clone)]
