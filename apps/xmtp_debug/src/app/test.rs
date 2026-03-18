@@ -2,9 +2,15 @@
 
 use color_eyre::eyre::{Result, eyre};
 use futures::stream::StreamExt;
+use prost::Message as ProstMessage;
 use std::time::Instant;
+use xmtp_api_d14n::d14n::QueryEnvelopes;
+use xmtp_configuration::Originators;
 use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
-use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig};
+use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig, Query};
+use xmtp_proto::types::Topic;
+use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
+use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
 
 use crate::{
     app::{self, generate_wallet},
@@ -389,11 +395,9 @@ impl Test {
         }
 
         // Print summary statistics
-        if !latencies.is_empty() {
+        if let (Some(&min), Some(&max)) = (latencies.iter().min(), latencies.iter().max()) {
             let sum: u128 = latencies.iter().sum();
             let avg = sum / latencies.len() as u128;
-            let min = *latencies.iter().min().unwrap();
-            let max = *latencies.iter().max().unwrap();
             let success_rate = latencies.len() as f64 / iterations as f64 * 100.0;
 
             info!(
@@ -427,30 +431,14 @@ impl Test {
         app::register_client(&client, wallet.clone().into_alloy()).await?;
         info!(inbox_id = client.inbox_id(), "V3 sender registered");
 
-        // Ensure DB is cleaned up even on error paths
-        let result = self
-            .do_migration_round_trip(&client, v4_client, timeout_secs)
-            .await;
-        let _ = client.release_db_connection();
-        result
-    }
-
-    /// Inner migration round-trip; separated so the caller can guarantee DB cleanup.
-    async fn do_migration_round_trip(
-        &self,
-        client: &crate::DbgClient,
-        v4_client: &xmtp_api_grpc::GrpcClient,
-        timeout_secs: u64,
-    ) -> Result<u128> {
-        use prost::Message as ProstMessage;
-        use xmtp_api_d14n::d14n::QueryEnvelopes;
-        use xmtp_proto::prelude::Query;
-        use xmtp_proto::types::Topic;
-        use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
-        use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
-
-        // Known migrator originator node IDs (permanent, per Martin)
-        const MIGRATOR_ORIGINATORS: &[u32] = &[0, 1, 10, 11, 13];
+        // Known migrator originator node IDs
+        let migrator_originators: &[u32] = &[
+            Originators::MLS_COMMITS,
+            Originators::INBOX_LOG,
+            Originators::APPLICATION_MESSAGES,
+            Originators::WELCOME_MESSAGES,
+            Originators::INSTALLATIONS,
+        ];
 
         // Step 2: Create a group (just ourselves — sufficient for migration)
         let group = client.create_group(Default::default(), Default::default())?;
@@ -472,7 +460,10 @@ impl Test {
                 .map_err(|e| eyre!("build QueryEnvelopes: {e}"))?;
             match endpoint.query(v4_client).await {
                 Ok(r) => r.envelopes.len(),
-                Err(_) => 0, // topic may not exist yet on V4
+                Err(e) => {
+                    debug!(error = %e, "V4 topic not yet available, assuming baseline 0");
+                    0
+                }
             }
         };
         info!(baseline_count, topic = group_id_hex, "V4 baseline");
@@ -494,7 +485,7 @@ impl Test {
                 SendMessageOptsBuilder::default()
                     .should_push(false)
                     .build()
-                    .unwrap(),
+                    .map_err(|e| eyre!("build SendMessageOpts: {e}"))?,
             )
             .await?;
 
@@ -571,7 +562,7 @@ impl Test {
                         && unsigned.originator_sequence_id == expected_sequence
                 } else {
                     // Fallback: any new envelope (beyond baseline) from a migrator originator
-                    MIGRATOR_ORIGINATORS.contains(&unsigned.originator_node_id)
+                    migrator_originators.contains(&unsigned.originator_node_id)
                 };
 
                 if matched {
@@ -580,7 +571,7 @@ impl Test {
                         latency_ms,
                         originator_id = unsigned.originator_node_id,
                         sequence_id = unsigned.originator_sequence_id,
-                        is_migrator = MIGRATOR_ORIGINATORS.contains(&unsigned.originator_node_id),
+                        is_migrator = migrator_originators.contains(&unsigned.originator_node_id),
                         topic = group_id_hex,
                         "message found on V4!"
                     );
