@@ -236,4 +236,34 @@ impl Conversations {
 
     Ok(StreamCloser::new(stream_closer))
   }
+
+  #[napi]
+  pub async fn stream_message_edits(
+    &self,
+    callback: ThreadsafeFunction<DecodedMessage, ()>,
+  ) -> Result<StreamCloser> {
+    tracing::trace!(inbox_id = self.inner_client.inbox_id());
+    let stream_closer = RustXmtpClient::stream_message_edits_with_callback(
+      self.inner_client.clone(),
+      move |message| match message {
+        Ok(decoded_message) => match DecodedMessage::try_from(decoded_message) {
+          Ok(msg) => {
+            let _ = callback.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
+          }
+          Err(e) => {
+            let _ = callback.call(Err(e), ThreadsafeFunctionCallMode::Blocking);
+          }
+        },
+        Err(e) => {
+          let _ = callback.call(
+            Err(Error::from(ErrorWrapper::from(e))),
+            ThreadsafeFunctionCallMode::Blocking,
+          );
+        }
+      },
+      || {},
+    );
+
+    Ok(StreamCloser::new(stream_closer))
+  }
 }
