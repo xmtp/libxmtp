@@ -1,10 +1,7 @@
 use crate::{
     mls_v1::QueryGroupMessagesResponse,
     types::{GroupId, GroupMessageMetadata, TopicCursor, WelcomeMessage},
-    xmtp::xmtpv4::{
-        envelopes::OriginatorEnvelope,
-        message_api::{QueryEnvelopesResponse, SubscribeEnvelopesResponse},
-    },
+    xmtp::xmtpv4::{envelopes::OriginatorEnvelope, message_api::QueryEnvelopesResponse},
 };
 
 use super::*;
@@ -32,18 +29,6 @@ impl Paged for QueryWelcomeMessagesResponse {
 }
 
 impl Paged for QueryEnvelopesResponse {
-    type Message = OriginatorEnvelope;
-
-    fn info(&self) -> &Option<PagingInfo> {
-        &None
-    }
-
-    fn messages(self) -> Vec<Self::Message> {
-        self.envelopes
-    }
-}
-
-impl Paged for SubscribeEnvelopesResponse {
     type Message = OriginatorEnvelope;
 
     fn info(&self) -> &Option<PagingInfo> {
