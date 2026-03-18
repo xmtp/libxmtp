@@ -359,9 +359,6 @@ where
 
 #[cfg(test)]
 pub mod tests {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
     use crate::test_utils::*;
     use crate::*;
 
@@ -660,9 +657,9 @@ pub mod tests {
         builder.set_app_version("999.999.999".into()).unwrap();
 
         let mut gateway = builder.clone();
-        gateway.set_host(GrpcUrls::GATEWAY.into());
+        gateway.set_host(GrpcUrls::GATEWAY.parse().unwrap());
         let mut xmtpd = builder.clone();
-        xmtpd.set_host(GrpcUrls::XMTPD.into());
+        xmtpd.set_host(GrpcUrls::XMTPD.parse().unwrap());
         let xmtpd = xmtpd.build().unwrap();
         let gateway = gateway.build().unwrap();
         let rw = ReadWriteClient::builder()
@@ -764,6 +761,7 @@ pub mod tests {
         let client = crate::test_utils::DefaultTestClientCreator::create();
 
         let c = client.build().unwrap();
+        tracing::info!("{:?}", c);
         let wrapper = ApiClientWrapper::new(c, Retry::default());
 
         let group_id = rand_vec::<32>();

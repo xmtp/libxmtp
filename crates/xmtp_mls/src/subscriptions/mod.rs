@@ -21,7 +21,6 @@ pub mod process_welcome;
 mod stream_all;
 mod stream_conversations;
 pub mod stream_messages;
-mod stream_utils;
 
 #[cfg(any(test, feature = "test-utils"))]
 use crate::subscriptions::stream_messages::stream_stats::{StreamStatsWrapper, StreamWithStats};
@@ -172,31 +171,70 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
 
 #[derive(thiserror::Error, Debug, ErrorCode)]
 pub enum SubscribeError {
+    /// Group error.
+    ///
+    /// Group operation failed during subscription. May be retryable.
     #[error(transparent)]
     Group(#[from] Box<GroupError>),
+    /// Not found.
+    ///
+    /// Subscribed resource not found. Retryable.
     #[error(transparent)]
     NotFound(#[from] NotFound),
+    /// Group message not found.
+    ///
+    /// Expected message missing from database. Retryable.
     // TODO: Add this to `NotFound`
     #[error("group message expected in database but is missing")]
     GroupMessageNotFound,
+    /// Receive group error.
+    ///
+    /// Processing streamed group message failed. May be retryable.
     #[error("processing group message in stream: {0}")]
     ReceiveGroup(#[from] Box<GroupMessageProcessingError>),
+    /// Storage error.
+    ///
+    /// Database operation failed. May be retryable.
     #[error(transparent)]
     Storage(#[from] StorageError),
+    /// Decode error.
+    ///
+    /// Protobuf decoding failed. Not retryable.
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
+    /// Message stream error.
+    ///
+    /// Message stream failed. Retryable.
     #[error(transparent)]
     MessageStream(#[from] stream_messages::MessageStreamError),
+    /// Conversation stream error.
+    ///
+    /// Conversation stream failed. Retryable.
     #[error(transparent)]
     ConversationStream(#[from] stream_conversations::ConversationStreamError),
+    /// API client error.
+    ///
+    /// Network request failed. Retryable.
     #[error(transparent)]
     ApiClient(#[from] xmtp_api::ApiError),
+    /// Boxed error.
+    ///
+    /// Wrapped dynamic error. May be retryable.
     #[error("{0}")]
     BoxError(Box<dyn RetryableError>),
+    /// Database connection error.
+    ///
+    /// Database connection failed. Retryable.
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
+    /// Conversion error.
+    ///
+    /// Proto conversion failed. Not retryable.
     #[error(transparent)]
     Conversion(#[from] xmtp_proto::ConversionError),
+    /// Envelope error.
+    ///
+    /// Decentralized API envelope error. May be retryable.
     #[error(transparent)]
     Envelope(#[from] xmtp_api_d14n::protocol::EnvelopeError),
 }
@@ -558,9 +596,6 @@ pub(crate) mod tests {
     use crate::context::XmtpSharedContext;
     use crate::tester;
     use xmtp_api_d14n::protocol::XmtpQuery;
-
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     /// A macro for asserting that a stream yields a specific decrypted message.
     ///

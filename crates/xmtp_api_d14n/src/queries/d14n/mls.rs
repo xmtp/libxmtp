@@ -16,7 +16,6 @@ use crate::protocol::traits::Envelope;
 use crate::protocol::traits::EnvelopeCollection;
 use crate::protocol::traits::Extractor;
 use crate::queries::D14nCombinatorExt;
-use xmtp_common::RetryableError;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::api;
 use xmtp_proto::api::Client;
@@ -36,14 +35,12 @@ use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeResponse;
 
 #[xmtp_common::async_trait]
-impl<C, Store, E> XmtpMlsClient for D14nClient<C, Store>
+impl<C, Store> XmtpMlsClient for D14nClient<C, Store>
 where
-    E: RetryableError + 'static,
-    C: Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<C as xmtp_proto::api::Client>::Error>> + 'static,
+    C: Client,
     Store: CursorStore,
 {
-    type Error = ApiClientError<E>;
+    type Error = ApiClientError;
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(
@@ -105,7 +102,7 @@ where
             let mut aad = envelope.aad.clone().unwrap_or_default();
             aad.depends_on = dependency.map(Into::into);
             envelope.aad = Some(aad);
-            Ok(())
+            Ok::<_, EnvelopeError>(())
         })?;
 
         PublishClientEnvelopes::builder()
@@ -141,14 +138,14 @@ where
         group_id: GroupId,
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
         let topic = TopicKind::GroupMessagesV1.create(&group_id);
-        let lcc = self.cursor_store.lowest_common_cursor(&[&topic])?;
-        tracing::debug!(%topic, %lcc, "querying messages");
+        let cursor = self.cursor_store.latest(&topic, None)?;
+        tracing::debug!(%topic, %cursor, "querying messages");
         let mut topic_cursor = TopicCursor::default();
-        topic_cursor.insert(topic.clone(), lcc.clone());
+        topic_cursor.insert(topic.clone(), cursor.clone());
         let resolver = resolve::network_backoff(&self.client);
         let response = QueryEnvelope::builder()
             .topic(topic)
-            .last_seen(lcc)
+            .last_seen(cursor)
             .limit(MAX_PAGE_SIZE)
             .build()?
             .ordered(resolver, topic_cursor, &self.cursor_store)
@@ -195,11 +192,11 @@ where
         installation_key: InstallationId,
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         let topic = TopicKind::WelcomeMessagesV1.create(installation_key);
-        let lcc = self.cursor_store.lowest_common_cursor(&[&topic])?;
-        tracing::info!("querying welcomes @{:?}", lcc);
+        let cursor = self.cursor_store.latest(&topic, None)?;
+        tracing::info!("querying welcomes @{:?}", cursor);
         let response = QueryEnvelope::builder()
             .topic(topic)
-            .last_seen(lcc)
+            .last_seen(cursor)
             .limit(MAX_PAGE_SIZE)
             .build()?
             .query(&self.client)

@@ -3,12 +3,11 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use color_eyre::eyre;
 use std::path::PathBuf;
-use xmtp_configuration::{MULTI_NODE_TIMEOUT_MS, PAYER_WRITE_FILTER};
+use xmtp_configuration::PAYER_WRITE_FILTER;
 use xxhash_rust::xxh3;
 mod types;
-use std::time::Duration;
 pub use types::*;
-use xmtp_api_d14n::{ClientBundle, MessageBackendBuilder, MiddlewareBuilder, ReadWriteClient};
+use xmtp_api_d14n::{ClientBundle, MessageBackendBuilder, ReadWriteClient};
 use xmtp_api_grpc::GrpcClient;
 use xmtp_proto::{
     api::Client,
@@ -44,6 +43,7 @@ pub enum Commands {
     Info(InfoOpts),
     Export(ExportOpts),
     Stream(StreamOpts),
+    Test(TestOpts),
 }
 
 /// Send Data on the network
@@ -187,8 +187,7 @@ pub struct InfoOpts {
     pub random: bool,
     /// Show information about the app
     #[arg(long)]
-    pub app: bool, // /// Show information about a specific identity, like its id and storage
-                   // pub identity: IdentityInfo
+    pub app: bool,
 }
 
 /// Export information to JSON
@@ -239,7 +238,7 @@ pub enum StreamKind {
     Messages,
 }
 
-#[derive(ValueEnum, Debug, Clone)]
+#[derive(ValueEnum, Debug, Copy, Clone)]
 pub enum EntityKind {
     Group,
     Message,
@@ -281,12 +280,12 @@ pub struct LogOptions {
 #[derive(Args, Clone, Debug, Default)]
 pub struct BackendOpts {
     #[arg(
-        value_enum,
-        short,
-        long,
-        conflicts_with_all = &["url", "xmtpd_gateway_url"],
-        default_value_t = BackendKind::Local
-    )]
+         value_enum,
+         short,
+         long,
+         conflicts_with_all = &["url", "xmtpd_gateway_url"],
+         default_value_t = BackendKind::Local
+     )]
     pub backend: BackendKind,
     /// URL Pointing to a backend. Conflicts with `backend`
     #[arg(short, long)]
@@ -296,6 +295,13 @@ pub struct BackendOpts {
     /// Enable the decentralization backend
     #[arg(short, long)]
     pub d14n: bool,
+    /// Use the perf gateway (closest-node selection) instead of the default gateway.
+    /// Implies --d14n.
+    #[arg(short, long, requires = "d14n")]
+    pub perf: bool,
+    /// enable the v3 -> d14n cutover client
+    #[arg(short = 'm', long, conflicts_with_all = &["d14n"])]
+    pub enable_migration: bool,
     /// Timeout for reading writes to the decentralized backend
     #[arg(long, short, default_value_t = default_ryow_timeout())]
     pub ryow_timeout: humantime::Duration,
@@ -313,86 +319,90 @@ impl BackendOpts {
             return Ok(p.clone());
         }
 
-        match (self.backend, self.d14n) {
-            (Dev, false) => eyre::bail!("No gateway for V3"),
-            (Staging, false) => eyre::bail!("No gateway for V3"),
-            (Production, false) => eyre::bail!("No gateway for V3"),
-            (Local, false) => eyre::bail!("No gateway for V3"),
-            (Dev, true) => Ok((*crate::constants::XMTP_DEV_GATEWAY).clone()),
-            (Staging, true) => Ok((*crate::constants::XMTP_STAGING_GATEWAY).clone()),
-            (Production, true) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
-            (Local, true) => Ok((*crate::constants::XMTP_LOCAL_GATEWAY).clone()),
+        if self.perf {
+            debug_assert!(self.d14n, "--perf requires --d14n");
+            return match self.backend {
+                Dev => Ok((*crate::constants::XMTP_DEV_PERF_GATEWAY).clone()),
+                Staging => Ok((*crate::constants::XMTP_STAGING_PERF_GATEWAY).clone()),
+                Production => Ok((*crate::constants::XMTP_PRODUCTION_PERF_GATEWAY).clone()),
+                Local => Ok((*crate::constants::XMTP_LOCAL_PERF_GATEWAY).clone()),
+            };
+        }
+
+        match (self.backend, self.d14n, self.enable_migration) {
+            (Dev, false, false) => eyre::bail!("No gateway for V3"),
+            (Staging, false, false) => eyre::bail!("No gateway for V3"),
+            (Production, false, false) => eyre::bail!("No gateway for V3"),
+            (Local, false, false) => eyre::bail!("No gateway for V3"),
+            (Dev, true, false) => Ok((*crate::constants::XMTP_DEV_GATEWAY).clone()),
+            (Staging, true, false) => Ok((*crate::constants::XMTP_STAGING_GATEWAY).clone()),
+            (Production, true, false) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
+            (Local, true, false) => Ok((*crate::constants::XMTP_LOCAL_GATEWAY).clone()),
+            (Local, _, true) => Ok((*crate::constants::XMTP_LOCAL_GATEWAY).clone()),
+            (Dev, _, true) => Ok((*crate::constants::XMTP_DEV_GATEWAY).clone()),
+            (Staging, _, true) => Ok((*crate::constants::XMTP_STAGING_GATEWAY).clone()),
+            (Production, _, true) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
         }
     }
 
     pub fn network_url(&self) -> url::Url {
-        use BackendKind::*;
-
         if let Some(n) = &self.url {
             return n.clone();
         }
-
-        match (self.backend, self.d14n) {
-            (Dev, false) => (*crate::constants::XMTP_DEV).clone(),
-            (Staging, false) => (*crate::constants::XMTP_DEV).clone(),
-            (Production, false) => (*crate::constants::XMTP_PRODUCTION).clone(),
-            (Local, false) => (*crate::constants::XMTP_LOCAL).clone(),
-            (Dev, true) => (*crate::constants::XMTP_DEV_D14N).clone(),
-            (Staging, true) => (*crate::constants::XMTP_STAGING_D14N).clone(),
-            (Production, true) => (*crate::constants::XMTP_PRODUCTION_D14N).clone(),
-            (Local, true) => (*crate::constants::XMTP_LOCAL_D14N).clone(),
-        }
+        self.backend.to_network_url(self.d14n)
     }
 
     pub fn connect(&self) -> eyre::Result<crate::DbgClientApi> {
         let network = self.network_url();
-        let is_secure = network.scheme() == "https";
-
         let mut builder = MessageBackendBuilder::default();
-        builder.v3_host(network.as_str()).is_secure(is_secure);
+        builder.v3_host(network.as_str());
+        if self.enable_migration {
+            let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
+            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host,  "create grpc");
+            return Ok(builder.gateway_host(xmtpd_gateway_host.as_str()).build()?);
+        }
         if self.d14n {
             let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
-            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
-            Ok(builder.gateway_host(xmtpd_gateway_host.as_str()).build()?)
+            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host,  "create grpc");
+            Ok(builder
+                .gateway_host(xmtpd_gateway_host.as_str())
+                .build_d14n()?)
         } else {
-            trace!(url = %network, is_secure, "create grpc");
-            Ok(builder.build()?)
+            trace!(url = %network,  "create grpc");
+            Ok(builder.build_v3()?)
         }
     }
 
     pub fn client_bundle(&self) -> eyre::Result<xmtp_mls::XmtpClientBundle> {
         let network = self.network_url();
-        let is_secure = network.scheme() == "https";
-
         let mut builder = ClientBundle::builder();
-        builder.v3_host(network.as_str()).is_secure(is_secure);
+        builder.v3_host(network.as_str());
+        if self.enable_migration {
+            let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
+            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, "create grpc");
+            return Ok(builder.gateway_host(xmtpd_gateway_host.as_str()).build()?);
+        }
         if self.d14n {
             let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
-            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, is_secure, "create grpc");
-            Ok(builder.gateway_host(xmtpd_gateway_host.as_str()).build()?)
+            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, "create grpc");
+            Ok(builder
+                .gateway_host(xmtpd_gateway_host.as_str())
+                .build_d14n()?)
         } else {
-            trace!(url = %network, is_secure, "create grpc");
-            Ok(builder.build()?)
+            trace!(url = %network, "create grpc");
+            Ok(builder.build_v3()?)
         }
     }
 
     pub fn xmtpd(&self) -> eyre::Result<impl Client> {
-        let network = self.network_url();
-        let is_secure = network.scheme() == "https";
-
         let mut gateway_client_builder = GrpcClient::builder();
-        gateway_client_builder.set_host(self.xmtpd_gateway_url()?.to_string());
-        gateway_client_builder.set_tls(is_secure);
-        let mut node_builder = GrpcClient::builder();
-        node_builder.set_tls(is_secure);
-
-        let mut multi_node = xmtp_api_d14n::middleware::MultiNodeClientBuilder::default();
-        multi_node.set_timeout(Duration::from_millis(MULTI_NODE_TIMEOUT_MS))?;
-        multi_node.set_gateway_builder(gateway_client_builder.clone())?;
-        multi_node.set_node_client_builder(node_builder)?;
-        let multi_node = multi_node.build()?;
-
+        gateway_client_builder.set_host(self.xmtpd_gateway_url()?);
         let gateway_client = gateway_client_builder.build()?;
+        let multi_node = xmtp_api_d14n::middleware::MultiNodeClient::builder()
+            .gateway_client(gateway_client.clone())
+            .node_client_template(GrpcClient::builder())
+            .build()?;
+
         let rw = ReadWriteClient::builder()
             .read(multi_node)
             .write(gateway_client)
@@ -402,6 +412,10 @@ impl BackendOpts {
     }
 }
 
+// this decides the folder/prefix for network
+// each network gets an isolated folder/database for redb and also sqlite clients
+// if the numbers are the same, clients will conflict on network
+// custom network URLS are hashed with xxh3_64
 impl<'a> From<&'a BackendOpts> for u64 {
     fn from(value: &'a BackendOpts) -> Self {
         use BackendKind::*;
@@ -409,15 +423,20 @@ impl<'a> From<&'a BackendOpts> for u64 {
         if let Some(ref url) = value.url {
             xxh3::xxh3_64(url.as_str().as_bytes())
         } else {
-            match (value.backend, value.d14n) {
-                (Production, false) => 2,
-                (Staging, false) => 1,
-                (Dev, false) => 1,
-                (Local, false) => 0,
-                (Production, true) => 5,
-                (Staging, true) => 6,
-                (Dev, true) => 4,
-                (Local, true) => 3,
+            match (value.backend, value.d14n, value.enable_migration) {
+                (Production, false, false) => 2,
+                (Staging, false, false) => 1,
+                (Dev, false, false) => 1,
+                (Local, false, false) => 0,
+                (Production, true, false) => 5,
+                (Staging, true, false) => 6,
+                (Dev, true, false) => 4,
+                (Local, true, false) => 3,
+                // Migration cases, where the client is both d14n and v3
+                (Local, _, true) => 7,
+                (Dev, _, true) => 8,
+                (Staging, _, true) => 9,
+                (Production, _, true) => 10,
             }
         }
     }
@@ -448,11 +467,11 @@ pub enum BackendKind {
 }
 
 impl BackendKind {
-    fn to_network_url(self, d14n: bool) -> url::Url {
+    pub fn to_network_url(self, d14n: bool) -> url::Url {
         use BackendKind::*;
         match (self, d14n) {
             (Dev, false) => (*crate::constants::XMTP_DEV).clone(),
-            (Staging, false) => (*crate::constants::XMTP_DEV).clone(),
+            (Staging, false) => (*crate::constants::XMTP_STAGING).clone(),
             (Production, false) => (*crate::constants::XMTP_PRODUCTION).clone(),
             (Local, false) => (*crate::constants::XMTP_LOCAL).clone(),
             (Dev, true) => (*crate::constants::XMTP_DEV_D14N).clone(),
@@ -465,14 +484,30 @@ impl BackendKind {
 
 impl From<BackendKind> for url::Url {
     fn from(value: BackendKind) -> Self {
-        use BackendKind::*;
-        match value {
-            Dev => (*crate::constants::XMTP_DEV).clone(),
-            Staging => (*crate::constants::XMTP_DEV).clone(),
-            Production => (*crate::constants::XMTP_PRODUCTION).clone(),
-            Local => (*crate::constants::XMTP_LOCAL).clone(),
-        }
+        value.to_network_url(false)
     }
+}
+
+/// Test scenarios for e2e latency measurement
+#[derive(Args, Debug)]
+pub struct TestOpts {
+    /// Test scenario to run
+    #[arg(value_enum)]
+    pub scenario: TestScenario,
+    /// Number of iterations
+    #[arg(long, short, default_value = "1")]
+    pub iterations: usize,
+    /// Number of messages for group-sync scenario
+    #[arg(long, short, default_value = "10")]
+    pub message_count: usize,
+}
+
+#[derive(ValueEnum, Debug, Clone)]
+pub enum TestScenario {
+    /// Measure message stream delivery latency (sender → receiver)
+    MessageVisibility,
+    /// Measure group sync latency after N messages
+    GroupSync,
 }
 
 #[cfg(test)]
@@ -542,5 +577,56 @@ mod tests {
             "http://localhost:5052",
         ]);
         assert!(opts.is_err());
+    }
+
+    #[test]
+    fn perf_requires_d14n() {
+        let opts = parse_backend_args(&["--perf"]);
+        assert!(opts.is_err(), "--perf without --d14n should fail");
+    }
+
+    #[test]
+    fn perf_with_d14n_is_valid() {
+        let opts = parse_backend_args(&["--perf", "--d14n"]);
+        assert!(opts.is_ok());
+        let backend = opts.unwrap();
+        assert!(backend.perf);
+        assert!(backend.d14n);
+    }
+
+    #[test]
+    fn perf_with_d14n_and_backend_is_valid() {
+        let opts = parse_backend_args(&["--perf", "--d14n", "--backend", "staging"]);
+        assert!(opts.is_ok());
+        let backend = opts.unwrap();
+        let url = backend.xmtpd_gateway_url().unwrap();
+        assert!(
+            url.as_str().contains("payer-perf"),
+            "perf flag should select perf gateway, got: {url}"
+        );
+    }
+
+    #[test]
+    fn explicit_gateway_url_overrides_perf() {
+        // --xmtpd-gateway-url conflicts with --backend, so we use --url to
+        // avoid that conflict and verify the explicit URL takes precedence
+        // over the perf gateway resolution
+        let opts = parse_backend_args(&[
+            "--perf",
+            "--d14n",
+            "--url",
+            "http://localhost:5050",
+            "--xmtpd-gateway-url",
+            "http://custom:5052",
+        ]);
+        assert!(opts.is_ok());
+        let backend = opts.unwrap();
+        assert!(backend.perf, "perf flag should be set");
+        let url = backend.xmtpd_gateway_url().unwrap();
+        assert_eq!(
+            url.as_str(),
+            "http://custom:5052/",
+            "explicit --xmtpd-gateway-url should override perf gateway"
+        );
     }
 }

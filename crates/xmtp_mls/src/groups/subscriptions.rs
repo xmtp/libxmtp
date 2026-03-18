@@ -181,9 +181,7 @@ where
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::groups::send_message_opts::SendMessageOpts;
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
+    use futures::StreamExt;
     use std::sync::Arc;
 
     use crate::builder::ClientBuilder;
@@ -203,11 +201,9 @@ pub(crate) mod tests {
     use std::time::Duration;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use futures::StreamExt;
-
+    #[xmtp_common::timeout(Duration::from_secs(10))]
     #[rstest::rstest]
     #[xmtp_common::test(flavor = "current_thread")]
-    #[timeout(Duration::from_secs(10))]
     async fn test_subscribe_messages() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -239,9 +235,9 @@ pub(crate) mod tests {
     }
 
     // TODO: THIS TESTS ALSO LOSES MESSAGES
+    #[xmtp_common::timeout(Duration::from_secs(10))]
     #[rstest::rstest]
     #[xmtp_common::test(flavor = "multi_thread")]
-    #[timeout(Duration::from_secs(10))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_subscribe_multiple() {
         let amal = Arc::new(ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await);
@@ -274,9 +270,9 @@ pub(crate) mod tests {
         }
     }
 
+    #[xmtp_common::timeout(Duration::from_secs(5))]
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(Duration::from_secs(5))]
     async fn test_subscribe_membership_changes() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -299,9 +295,9 @@ pub(crate) mod tests {
         assert_eq!(second_val.decrypted_message_bytes, "hello".as_bytes());
     }
 
+    #[xmtp_common::timeout(Duration::from_secs(5))]
     #[rstest::rstest]
     #[xmtp_common::test(flavor = "multi_thread", worker_threads = 1)]
-    #[timeout(Duration::from_secs(5))]
     async fn test_process_streamed_group_message_v3(
         #[from(crate::test::mock::context)] mut context: crate::test::mock::NewMockContext,
     ) {
@@ -385,9 +381,9 @@ pub(crate) mod tests {
         assert_eq!(messages.len(), 1, "Should have exactly one message");
     }
 
+    #[xmtp_common::timeout(Duration::from_secs(5))]
     #[rstest::rstest]
     #[xmtp_common::test(flavor = "multi_thread", worker_threads = 1)]
-    #[timeout(Duration::from_secs(5))]
     async fn test_process_streamed_group_message_d14n(
         #[from(crate::test::mock::context)] mut context: crate::test::mock::NewMockContext,
     ) {

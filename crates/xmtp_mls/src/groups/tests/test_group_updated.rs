@@ -6,9 +6,6 @@ use xmtp_content_types::{ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_proto::xmtp::mls::message_contents::{EncodedContent, GroupUpdated};
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
 /// Decode a GroupUpdated message from encoded bytes
 fn decode_group_updated(encoded_bytes: &[u8]) -> GroupUpdated {
     let encoded_content = EncodedContent::decode(encoded_bytes).expect("Failed to decode content");

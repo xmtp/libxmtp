@@ -1,32 +1,39 @@
-// For format details, see https://aka.ms/devcontainer.json. For config options, see the
-// README at: https://github.com/devcontainers/templates/tree/main/src/docker-existing-dockerfile
+// For format details, see https://aka.ms/devcontainer.json.
 {
-  "name": "Existing Dockerfile",
-  "build": {
-    // Sets the run context to one level up instead of the .devcontainer folder.
-    "context": "..",
-    // Update the 'dockerFile' property if you aren't using the standard 'Dockerfile' filename.
-    "dockerfile": "../Dockerfile"
+  "name": "libxmtp (Nix)",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/nix:1": {
+      "multiUser": false,
+      "packages": "nix-direnv",
+      "extraNixConfig": "experimental-features = nix-command flakes,accept-flake-config = true,build-users-group =,extra-substituters = https://xmtp.cachix.org https://cache.garnix.io,extra-trusted-public-keys = xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0= cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=",
+    },
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "configureZshAsDefaultShell": true,
+      "installOhMyZsh": true,
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "24.11.0",
+    },
   },
-
-  // Features to add to the dev container. More info: https://containers.dev/features.
-  // "features": {},
-
-  // Use 'forwardPorts' to make a list of ports inside the container available locally.
-  "forwardPorts": [],
+  "mounts": [
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+  ],
+  "remoteUser": "vscode",
+  "containerUser": "vscode",
+  "remoteEnv": {
+    "PATH": "/home/vscode/.nix-profile/bin:/nix/var/nix/profiles/default/bin:${containerEnv:PATH}",
+  },
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "postStartCommand": "",
   "customizations": {
     "vscode": {
-      "extensions": ["tamasfe.even-better-toml", "rust-lang.rust-analyzer"]
-    }
+      "extensions": [
+        "tamasfe.even-better-toml",
+        "rust-lang.rust-analyzer",
+        "jnoortheen.nix-ide",
+        "mkhl.direnv",
+      ],
+    },
   },
-  "runArgs": ["--network=host"]
-
-  // Uncomment the next line to run commands after the container is created.
-  // "postCreateCommand": "cat /etc/os-release",
-
-  // Configure tool-specific properties.
-  // "customizations": {},
-
-  // Uncomment to connect as an existing user other than the container default. More info: https://aka.ms/dev-containers-non-root.
-  // "remoteUser": "devcontainer"
 }

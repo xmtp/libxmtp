@@ -13,7 +13,7 @@ let
 
   rust-toolchain = xmtp.mkToolchain nodeEnv.nodeTargets [ ];
   rust = craneLib.overrideToolchain (p: rust-toolchain);
-  version = mobile.mkVersion rust;
+  version = xmtp.mkVersion rust;
 
   bindingsFileset = lib.fileset.toSource {
     root = ./../..;

@@ -130,9 +130,6 @@ mod tests {
         group_updated::{Inbox, MetadataFieldChange},
     };
 
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_cleanup_works_as_expected() {
         tester!(alix);

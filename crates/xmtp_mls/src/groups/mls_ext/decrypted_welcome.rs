@@ -9,7 +9,6 @@ use tls_codec::{Deserialize, Serialize};
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::XmtpOpenMlsProviderRef;
 
-use super::WrapperAlgorithm;
 use crate::{
     client::ClientError,
     groups::{
@@ -23,6 +22,7 @@ use xmtp_db::{
     NotFound,
     sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
 };
+use xmtp_id::key_package::WrapperAlgorithm;
 use xmtp_proto::{
     mls_v1::WelcomeMetadata,
     types::{
@@ -194,7 +194,10 @@ impl DecryptedWelcome {
             tracing::error!("No PSK support for welcome");
             return Err(GroupError::NoPSKSupport);
         }
-        let staged_welcome = builder.skip_lifetime_validation().build()?;
+        let staged_welcome = builder
+            .replace_old_group()
+            .skip_lifetime_validation()
+            .build()?;
 
         let added_by_node = staged_welcome.welcome_sender()?;
 

@@ -186,9 +186,6 @@ impl<C: ConnectionExt> QueryTasks for DbConnection<C> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
     use super::*;
     use crate::test_utils::with_connection;
 

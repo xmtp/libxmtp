@@ -120,7 +120,9 @@ where
                 fmt::layer()
                     .compact()
                     .with_ansi(true)
-                    .without_time()
+                    .with_file(true)
+                    .with_line_number(true)
+                    .with_target(false)
                     .with_test_writer()
                     .fmt_fields({
                         format::debug_fn(move |writer, field, value| {
@@ -130,8 +132,13 @@ where
                                 let mut message = format!("{value:?}");
                                 let ids = REPLACE_IDS.lock();
                                 for (id, name) in ids.iter() {
-                                    message = message.replace(id, name);
-                                    message = message.replace(&crate::fmt::truncate_hex(id), name);
+                                    if message.contains(id) {
+                                        message = message.replace(id, name);
+                                    }
+                                    let truncate_hex = crate::fmt::truncate_hex(id);
+                                    if message.contains(&truncate_hex) {
+                                        message = message.replace(&truncate_hex, name);
+                                    }
                                 }
                                 write!(writer, "{message}")?;
                             }
@@ -170,7 +177,6 @@ pub fn logger() {
                     .init();
 
                 console_error_panic_hook::set_once();
-                wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
             });
         },
         native => {

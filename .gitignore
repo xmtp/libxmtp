@@ -46,6 +46,8 @@ coverage
 # Bower dependency directory (https://bower.io/)
 bower_components
 result/**
+result-*/**
+result-*
 
 # node-waf configuration
 .lock-wscript
@@ -189,3 +191,9 @@ om.json
 /.build
 /.swiftpm
 **/.direnv/**
+
+# Superpowers
+docs/plans
+
+# VM Images
+*.qcow2

@@ -234,14 +234,19 @@ where
     /// This is an asynchronous operation that transitions the stream to the `Adding` state.
     /// The actual subscription update happens when the stream is polled.
     pub(super) fn add(mut self: Pin<&mut Self>, group: MlsGroup<C>) {
-        // we unconditionally notify, otherwise
-        // test failures if we hit a group that is already in the stream.
-        if self.groups.contains(&group.group_id) {
-            tracing::debug!("group {} already in stream", hex::encode(&group.group_id));
+        if self.add_queue.iter().any(|g| g.group_id == group.group_id) {
+            tracing::debug!("group {} already queued", hex::encode(&group.group_id));
             return;
         }
-        tracing::debug!("queuing group add");
-        // any other state and the group must be added to queue
+        tracing::debug!(
+            "queuing group {} for {}",
+            hex::encode(&group.group_id),
+            if self.groups.contains(&group.group_id) {
+                "re-subscription"
+            } else {
+                "add"
+            }
+        );
         let this = self.as_mut().project();
         this.add_queue.push_back(group);
     }
@@ -459,7 +464,9 @@ where
             hex::encode(&group.group_id)
         );
         let this = self.as_mut().project();
-        this.groups.add(&group.group_id, GlobalCursor::default());
+        if !this.groups.contains(&group.group_id) {
+            this.groups.add(&group.group_id, GlobalCursor::default());
+        }
         let groups_with_positions = self.groups.groups_with_positions().clone();
         let future = Self::subscribe(self.context.clone(), groups_with_positions, group.group_id);
         let mut this = self.as_mut().project();
@@ -584,16 +591,15 @@ where
 
 #[cfg(test)]
 pub mod tests {
-    use futures::stream::StreamExt;
-
     use crate::assert_msg;
     use crate::groups::send_message_opts::SendMessageOpts;
     use crate::tester;
+    use futures::stream::StreamExt;
     use rstest::*;
 
+    #[xmtp_common::timeout(std::time::Duration::from_secs(30))]
     #[rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(30))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_messages() {
         tester!(alice, with_name: "alice");

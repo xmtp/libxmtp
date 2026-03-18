@@ -11,18 +11,8 @@ use super::{
     },
     verified_signature::VerifiedSignature,
 };
-use crate::associations::AssociationError;
 use futures::future::try_join_all;
-use xmtp_db::identity_update::StoredIdentityUpdate;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
-
-impl TryFrom<StoredIdentityUpdate> for UnverifiedIdentityUpdate {
-    type Error = AssociationError;
-
-    fn try_from(update: StoredIdentityUpdate) -> Result<Self, Self::Error> {
-        Ok(UnverifiedIdentityUpdate::try_from(update.payload)?)
-    }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedIdentityUpdate {
@@ -452,9 +442,6 @@ impl UnverifiedLegacyDelegatedSignature {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
     use crate::associations::{member::Identifier, unsigned_actions::UnsignedCreateInbox};
 
     use super::{
