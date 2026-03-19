@@ -1,4 +1,9 @@
-{ inputs, self, ... }:
+{
+  inputs,
+  self,
+  lib,
+  ...
+}:
 {
   flake.lib = {
     pkgConfig = {
@@ -22,9 +27,24 @@
         allowUnfree = true;
       };
     };
+    mkCrossPkgs =
+      system: targets:
+      lib.genAttrs targets (
+        target:
+        (import inputs.nixpkgs (
+          self.lib.pkgConfig
+          // {
+            localSystem = system;
+            crossSystem = target;
+          }
+        ))
+      );
   };
   perSystem =
-    { pkgs, ... }:
+    {
+      pkgs,
+      ...
+    }:
     let
       craneConfig = final: prev: {
         # add napi builder to crane scope

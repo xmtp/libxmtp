@@ -83,6 +83,7 @@ sha2.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tls_codec.workspace = true
+tokio.workspace = true
 tokio-stream = { workspace = true, default-features = false, features = [
   "sync",
 ] }
@@ -132,18 +133,11 @@ tracing-subscriber = { workspace = true, features = [
 ], optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { workspace = true, features = [
-  "macros",
-  "tracing",
-  "rt",
-  "rt-multi-thread",
-] }
 chrono = { workspace = true, features = ["clock"] }
 dyn-clone.workspace = true
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 chrono = { workspace = true, features = ["wasmbind"] }
-tokio = { workspace = true, features = ["macros", "rt", "time"] }
 wasm-bindgen-futures.workspace = true
 web-sys.workspace = true
 
@@ -189,6 +183,7 @@ xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 ctor.workspace = true
 mockito = "1.6.1"
 tempfile = "3.15.0"
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }

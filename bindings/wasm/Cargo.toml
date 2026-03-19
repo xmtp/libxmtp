@@ -15,7 +15,6 @@ crate-type = ["cdylib", "rlib"]
 
 
 [dependencies]
-xmtp-workspace-hack.workspace = true
 xmtp_common = { workspace = true, features = ["logging"] }
 
 
