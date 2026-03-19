@@ -105,6 +105,12 @@ pub struct DecodedMessageMetadata {
 }
 
 #[derive(Debug, Clone)]
+pub struct EditedContent {
+    pub content: Vec<u8>,
+    pub edited_at_ns: i64,
+}
+
+#[derive(Debug, Clone)]
 pub struct DecodedMessage {
     pub metadata: DecodedMessageMetadata,
     // The content of the message
@@ -115,6 +121,8 @@ pub struct DecodedMessage {
     pub reactions: Vec<DecodedMessage>,
     // The number of replies to the message available
     pub num_replies: usize,
+    // The latest edit applied to this message (if any)
+    pub edited: Option<EditedContent>,
 }
 
 impl TryFrom<EncodedContent> for MessageBody {
@@ -251,6 +259,7 @@ impl TryFrom<StoredGroupMessage> for DecodedMessage {
             fallback_text: fallback,
             reactions,
             num_replies,
+            edited: None,
         })
     }
 }
