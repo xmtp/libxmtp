@@ -11,9 +11,32 @@ import XCTest
 
 @available(iOS 15, *)
 class HistorySyncTests: XCTestCase {
+	private let syncTimeoutNs: UInt64 = 5_000_000_000
+	private let syncPollIntervalNs: UInt64 = 500_000_000
+
 	override func setUp() {
 		super.setUp()
 		setupLocalEnv()
+	}
+
+	private func waitForSyncCondition(
+		description: String,
+		timeoutNs: UInt64? = nil,
+		pollIntervalNs: UInt64? = nil,
+		condition: () async throws -> Bool
+	) async throws {
+		let timeout = timeoutNs ?? syncTimeoutNs
+		let pollInterval = pollIntervalNs ?? syncPollIntervalNs
+		let start = DispatchTime.now().uptimeNanoseconds
+
+		while DispatchTime.now().uptimeNanoseconds - start < timeout {
+			if try await condition() {
+				return
+			}
+			try await Task.sleep(nanoseconds: pollInterval)
+		}
+
+		XCTFail("Timed out waiting for \(description)")
 	}
 
 	func testSyncConsent() async throws {
@@ -117,26 +140,37 @@ class HistorySyncTests: XCTestCase {
 		XCTAssertEqual(state.installations.count, 2)
 
 		try await alixClient2.sendSyncRequest()
-
-		// Without the alixClient2.sendSyncRequest() a delay is needed before alixClient syncAllDeviceSyncGroups()
-		// in order for alixClient to see the new installation and add it to the group
-		// sleep(1)
-		_ = try await alixClient.syncAllDeviceSyncGroups()
 		sleep(1)
-		_ = try await alixClient2.syncAllDeviceSyncGroups()
-		sleep(1)
+		var lastClient1MessageCount = 0
+		var lastClient2MessageCount = 0
+		var seenMessageOnClient2 = false
 
-		let client1MessageCount = try await group.messages().count
-		if let group2 = try alixClient2.conversations.findGroup(
-			groupId: group.id
-		) {
-			let messages = try await group2.messages()
-			let containsMessage = messages.contains(where: { $0.id == msg_id })
-			let client2MessageCount = messages.count
-			XCTAssert(containsMessage)
-			XCTAssertEqual(client1MessageCount, client2MessageCount)
-		} else {
-			XCTFail("Group not found")
+		try await waitForSyncCondition(
+			description: "synced message parity between installations",
+			condition: {
+			_ = try await alixClient.syncAllDeviceSyncGroups()
+			_ = try await alixClient2.syncAllDeviceSyncGroups()
+			_ = try await alixClient.conversations.syncAllConversations()
+			_ = try await alixClient2.conversations.syncAllConversations()
+
+			lastClient1MessageCount = try await group.messages().count
+
+			if let group2 = try alixClient2.conversations.findGroup(groupId: group.id) {
+				try await group2.sync()
+				let messages = try await group2.messages()
+				lastClient2MessageCount = messages.count
+				seenMessageOnClient2 = messages.contains(where: { $0.id == msg_id })
+			}
+
+			return seenMessageOnClient2
+				&& lastClient1MessageCount == lastClient2MessageCount
+			}
+		)
+
+		if !seenMessageOnClient2 || lastClient1MessageCount != lastClient2MessageCount {
+			XCTFail(
+				"Message parity not reached; client1Count=\(lastClient1MessageCount) client2Count=\(lastClient2MessageCount) seenMessageOnClient2=\(seenMessageOnClient2)"
+			)
 		}
 	}
 
