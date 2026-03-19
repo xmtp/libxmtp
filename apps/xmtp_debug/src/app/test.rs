@@ -431,6 +431,20 @@ impl Test {
         app::register_client(&client, wallet.clone().into_alloy()).await?;
         info!(inbox_id = client.inbox_id(), "V3 sender registered");
 
+        let result = self
+            .do_migration_round_trip(&client, v4_client, timeout_secs)
+            .await;
+        client.release_db_connection()?;
+        result
+    }
+
+    /// Runs a single V3→V4 migration round-trip. Caller is responsible for DB cleanup.
+    async fn do_migration_round_trip(
+        &self,
+        client: &crate::DbgClient,
+        v4_client: &xmtp_api_grpc::GrpcClient,
+        timeout_secs: u64,
+    ) -> Result<u128> {
         // Known migrator originator node IDs
         let migrator_originators: &[u32] = &[
             Originators::MLS_COMMITS,
