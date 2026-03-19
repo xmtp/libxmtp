@@ -4,10 +4,15 @@ enum DecodedMessageError: Error {
 	case decodeError(String)
 }
 
+/// The delivery status of a message on the XMTP network.
 public enum MessageDeliveryStatus: String, Sendable {
+	/// Matches all delivery statuses (used as a filter value).
 	case all
+	/// The message has been published to the network.
 	case published
+	/// The message is stored locally but not yet published.
 	case unpublished
+	/// The message failed to publish to the network.
 	case failed
 
 	func toFfi() -> FfiDeliveryStatus? {
@@ -35,8 +40,11 @@ public enum MessageDeliveryStatus: String, Sendable {
 	}
 }
 
+/// The sort order for message queries.
 public enum SortDirection {
+	/// Oldest messages first.
 	case ascending
+	/// Newest messages first (default).
 	case descending
 
 	func toFfi() -> FfiDirection {
@@ -58,8 +66,11 @@ public enum SortDirection {
 	}
 }
 
+/// The field used to sort messages in query results.
 public enum MessageSortBy {
+	/// Sort by the timestamp the message was sent on the network.
 	case sentAt
+	/// Sort by the timestamp the message was inserted into the local database.
 	case insertedAt
 
 	func toFfi() -> FfiSortBy {
@@ -81,27 +92,40 @@ public enum MessageSortBy {
 	}
 }
 
+/// A decoded message from an XMTP conversation.
+///
+/// `DecodedMessage` wraps a message received from the network with its decoded content.
+/// Use ``content()`` to extract the typed payload, or ``body`` for a plain-text representation.
+///
+/// For messages with enriched metadata (reactions, replies baked in), see ``DecodedMessageV2``.
 public struct DecodedMessage: Identifiable {
 	let ffiMessage: FfiMessage
 	private let decodedContent: Any?
+
+	/// Child messages associated with this message (e.g., reactions when using `messagesWithReactions`).
 	public let childMessages: [DecodedMessage]?
 
+	/// The hex-encoded unique identifier of this message.
 	public var id: String {
 		ffiMessage.id.toHex
 	}
 
+	/// The hex-encoded identifier of the conversation this message belongs to.
 	public var conversationId: String {
 		ffiMessage.conversationId.toHex
 	}
 
+	/// The inbox ID of the account that sent this message.
 	public var senderInboxId: InboxId {
 		ffiMessage.senderInboxId
 	}
 
+	/// The kind of conversation message (e.g., application, membership change).
 	public var kind: FfiConversationMessageKind {
 		ffiMessage.kind
 	}
 
+	/// The date when this message was sent on the network.
 	public var sentAt: Date {
 		Date(
 			timeIntervalSince1970: TimeInterval(ffiMessage.sentAtNs)
@@ -109,10 +133,12 @@ public struct DecodedMessage: Identifiable {
 		)
 	}
 
+	/// The timestamp in nanoseconds when this message was sent on the network.
 	public var sentAtNs: Int64 {
 		ffiMessage.sentAtNs
 	}
 
+	/// The date when this message was inserted into the local database.
 	public var insertedAt: Date {
 		Date(
 			timeIntervalSince1970: TimeInterval(ffiMessage.insertedAtNs)
@@ -120,18 +146,22 @@ public struct DecodedMessage: Identifiable {
 		)
 	}
 
+	/// The timestamp in nanoseconds when this message was inserted into the local database.
 	public var insertedAtNs: Int64 {
 		ffiMessage.insertedAtNs
 	}
 
+	/// The timestamp in nanoseconds when this message expires, or `nil` if it does not expire.
 	public var expiresAtNs: Int64? {
 		ffiMessage.expireAtNs
 	}
 
+	/// The date when this message expires, or `nil` if it does not expire.
 	public var expiresAt: Date? {
 		expiresAtNs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1_000_000_000) }
 	}
 
+	/// The current delivery status of this message.
 	public var deliveryStatus: MessageDeliveryStatus {
 		switch ffiMessage.deliveryStatus {
 		case .unpublished:
@@ -143,10 +173,22 @@ public struct DecodedMessage: Identifiable {
 		}
 	}
 
+	/// The MLS topic string for the conversation this message belongs to.
 	public var topic: String {
 		Topic.groupMessage(conversationId).description
 	}
 
+	/// Extracts the decoded content of this message as the specified type.
+	///
+	/// The content type depends on the codec used to send the message.
+	/// For plain text messages, use `String`. For reactions, use `Reaction`, etc.
+	///
+	/// ```swift
+	/// let text: String = try message.content()
+	/// ```
+	///
+	/// - Returns: The decoded content cast to the requested type.
+	/// - Throws: ``DecodedMessageError/decodeError(_:)`` if the content cannot be cast to type `T`.
 	public func content<T>() throws -> T {
 		guard let result = decodedContent as? T else {
 			throw DecodedMessageError.decodeError(
@@ -156,12 +198,17 @@ public struct DecodedMessage: Identifiable {
 		return result
 	}
 
+	/// The fallback text representation of this message's content.
 	public var fallback: String {
 		get throws {
 			try encodedContent.fallback
 		}
 	}
 
+	/// A plain-text representation of this message.
+	///
+	/// Returns the decoded `String` content if available, otherwise falls back
+	/// to the fallback text provided by the codec.
 	public var body: String {
 		get throws {
 			do {
@@ -172,12 +219,14 @@ public struct DecodedMessage: Identifiable {
 		}
 	}
 
+	/// The raw encoded content of this message before codec decoding.
 	public var encodedContent: EncodedContent {
 		get throws {
 			try EncodedContent(serializedBytes: ffiMessage.content)
 		}
 	}
 
+	/// Creates a `DecodedMessage` from an FFI message, or returns `nil` if decoding fails.
 	public static func create(ffiMessage: FfiMessage)
 		-> DecodedMessage?
 	{
@@ -204,6 +253,7 @@ public struct DecodedMessage: Identifiable {
 		}
 	}
 
+	/// Creates a `DecodedMessage` from an FFI message with reactions, or returns `nil` if decoding fails.
 	public static func create(ffiMessage: FfiMessageWithReactions)
 		-> DecodedMessage?
 	{

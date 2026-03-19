@@ -1,9 +1,19 @@
 import Foundation
 
+/// Errors that can occur when creating or interacting with conversations.
 public enum ConversationError: Error, CustomStringConvertible, LocalizedError {
+	/// The caller attempted to create a conversation with themselves.
 	case memberCannotBeSelf
+	/// One or more members are not registered on the XMTP network.
+	///
+	/// The associated value contains the unregistered member identifiers.
 	case memberNotRegistered([String])
-	case groupsRequireMessagePassed, notSupportedByGroups, streamingFailure
+	/// A group operation was called without providing the required message payload.
+	case groupsRequireMessagePassed
+	/// The called method is not supported for group conversations.
+	case notSupportedByGroups
+	/// A real-time stream encountered an unrecoverable error and was closed.
+	case streamingFailure
 
 	public var description: String {
 		switch self {
@@ -25,8 +35,15 @@ public enum ConversationError: Error, CustomStringConvertible, LocalizedError {
 	}
 }
 
+/// A summary of the results from syncing all conversations.
+///
+/// After calling ``Conversations/syncAllConversations(consentStates:)``, this struct
+/// reports how many conversations were eligible for syncing (based on the consent
+/// filter) and how many were actually synced.
 public struct GroupSyncSummary {
+	/// The number of conversations that matched the consent filter and were eligible to be synced.
 	public var numEligible: UInt64
+	/// The number of conversations that were successfully synced.
 	public var numSynced: UInt64
 
 	public init(numEligible: UInt64, numSynced: UInt64) {
@@ -40,12 +57,22 @@ public struct GroupSyncSummary {
 	}
 }
 
+/// Filters the type of conversations returned by list and stream methods.
 public enum ConversationFilterType {
-	case all, groups, dms
+	/// Include both group conversations and DMs.
+	case all
+	/// Include only group conversations.
+	case groups
+	/// Include only direct message (DM) conversations.
+	case dms
 }
 
+/// Controls the sort order of conversations returned by list methods.
 public enum ConversationsOrderBy {
-	case createdAt, lastActivity
+	/// Order by conversation creation timestamp.
+	case createdAt
+	/// Order by the most recent activity (message sent or received) in the conversation.
+	case lastActivity
 
 	fileprivate var ffiOrderBy: FfiGroupQueryOrderBy {
 		switch self {
@@ -144,6 +171,13 @@ public class Conversations {
 		)
 	}
 
+	/// Finds a group conversation by its unique identifier.
+	///
+	/// Looks up a group in the local database. Call ``sync()`` first to ensure the
+	/// local state is up to date with the network.
+	///
+	/// - Parameter groupId: The hex-encoded group identifier.
+	/// - Returns: The ``Group`` if found, or `nil` if no group matches the given ID.
 	public func findGroup(groupId: String) throws -> Group? {
 		do {
 			return try Group(
@@ -157,6 +191,13 @@ public class Conversations {
 		}
 	}
 
+	/// Finds any conversation (group or DM) by its unique identifier.
+	///
+	/// Looks up a conversation in the local database. Call ``sync()`` first to ensure
+	/// the local state is up to date with the network.
+	///
+	/// - Parameter conversationId: The hex-encoded conversation identifier.
+	/// - Returns: The ``Conversation`` if found, or `nil` if no conversation matches.
 	public func findConversation(conversationId: String) async throws
 		-> Conversation?
 	{
@@ -170,6 +211,14 @@ public class Conversations {
 		}
 	}
 
+	/// Finds a conversation by its topic string.
+	///
+	/// Extracts the conversation ID from an XMTP topic string of the form
+	/// `/xmtp/mls/1/g-<conversationId>/proto` and looks up the conversation locally.
+	///
+	/// - Parameter topic: The full XMTP topic string.
+	/// - Returns: The ``Conversation`` if found, or `nil` if the topic does not match
+	///   the expected format or no conversation exists for the extracted ID.
 	public func findConversationByTopic(topic: String) async throws
 		-> Conversation?
 	{
@@ -195,6 +244,13 @@ public class Conversations {
 		return nil
 	}
 
+	/// Finds an existing DM conversation with the given inbox ID.
+	///
+	/// Searches the local database for a direct message conversation with the
+	/// specified peer. Call ``sync()`` first to ensure the local state is current.
+	///
+	/// - Parameter inboxId: The inbox ID of the other participant.
+	/// - Returns: The ``Dm`` if found, or `nil` if no DM exists with that peer.
 	public func findDmByInboxId(inboxId: InboxId) throws -> Dm? {
 		do {
 			let conversation = try ffiClient.dmConversation(
@@ -208,6 +264,15 @@ public class Conversations {
 		}
 	}
 
+	/// Finds an existing DM conversation with the given public identity.
+	///
+	/// Resolves the identity to an inbox ID, then searches the local database for
+	/// a DM with that peer.
+	///
+	/// - Parameter publicIdentity: The ``PublicIdentity`` of the other participant.
+	/// - Returns: The ``Dm`` if found, or `nil` if no DM exists with that peer.
+	/// - Throws: ``ClientError/creationError(_:)`` if the identity cannot be resolved
+	///   to an inbox ID.
 	public func findDmByIdentity(publicIdentity: PublicIdentity) async throws
 		-> Dm?
 	{
@@ -221,6 +286,12 @@ public class Conversations {
 		return try findDmByInboxId(inboxId: inboxId)
 	}
 
+	/// Finds a message by its unique identifier.
+	///
+	/// Looks up a single message in the local database.
+	///
+	/// - Parameter messageId: The hex-encoded message identifier.
+	/// - Returns: The ``DecodedMessage`` if found, or `nil` if no message matches.
 	public func findMessage(messageId: String) throws -> DecodedMessage? {
 		do {
 			return try DecodedMessage.create(
@@ -233,6 +304,13 @@ public class Conversations {
 		}
 	}
 
+	/// Finds an enriched message by its unique identifier.
+	///
+	/// An enriched message includes additional metadata beyond the standard
+	/// ``DecodedMessage``, such as delivery and read status.
+	///
+	/// - Parameter messageId: The hex-encoded message identifier.
+	/// - Returns: The ``DecodedMessageV2`` if found, or `nil` if no message matches.
 	public func findEnrichedMessage(messageId: String) throws -> DecodedMessageV2? {
 		do {
 			return try DecodedMessageV2.create(
@@ -248,10 +326,38 @@ public class Conversations {
 		_ = try ffiClient.deleteMessage(messageId: messageId.hexToData)
 	}
 
+	/// Syncs the conversation list (welcomes) from the network.
+	///
+	/// Fetches new group invitations and DM welcomes from the XMTP network and
+	/// stores them locally. This does **not** sync messages within each
+	/// conversation; use ``syncAllConversations(consentStates:)`` for that.
+	///
+	/// Call this before listing or finding conversations to ensure the local
+	/// database reflects the latest network state.
+	///
+	/// - Throws: If the network request fails.
 	public func sync() async throws {
 		try await ffiConversations.sync()
 	}
 
+	/// Syncs new welcomes, messages, and preferences from the network.
+	///
+	/// This method performs a comprehensive sync that includes:
+	/// - New welcomes (group invitations)
+	/// - Messages for conversations matching the given consent states that have unread content
+	/// - Preference updates (consent lists, etc.)
+	///
+	/// Unlike ``sync()``, which only updates the conversation list, this method
+	/// also fetches message content for each eligible conversation.
+	///
+	/// We recommend syncing allowed conversations only to avoid storing unwanted
+	/// spam messages in the local database.
+	///
+	/// - Parameter consentStates: Filter to only sync conversations matching the given
+	///   consent states (e.g., `[.allowed]`). Pass `nil` to use the default behavior.
+	/// - Returns: A ``GroupSyncSummary`` indicating how many conversations were eligible
+	///   (based on the consent filter) and how many were successfully synced.
+	/// - Throws: If the network request fails.
 	public func syncAllConversations(consentStates: [ConsentState]? = nil)
 		async throws -> GroupSyncSummary
 	{
@@ -261,6 +367,21 @@ public class Conversations {
 		return GroupSyncSummary(ffiGroupSyncSummary: ffiResult)
 	}
 
+	/// Lists group conversations from the local database.
+	///
+	/// Returns groups matching the specified filters, sorted by the given order.
+	/// Call ``sync()`` first to ensure the local database is up to date.
+	///
+	/// - Parameters:
+	///   - createdAfterNs: Only include groups created after this timestamp (in nanoseconds).
+	///   - createdBeforeNs: Only include groups created before this timestamp (in nanoseconds).
+	///   - lastActivityAfterNs: Only include groups with activity after this timestamp (in nanoseconds).
+	///   - lastActivityBeforeNs: Only include groups with activity before this timestamp (in nanoseconds).
+	///   - limit: Maximum number of groups to return.
+	///   - consentStates: Filter by consent states (e.g., `.allowed`, `.denied`).
+	///   - orderBy: Sort order for the results. Defaults to ``ConversationsOrderBy/lastActivity``.
+	/// - Returns: An array of ``Group`` objects matching the filters.
+	/// - Throws: If the local database query fails.
 	public func listGroups(
 		createdAfterNs: Int64? = nil,
 		createdBeforeNs: Int64? = nil,
@@ -293,6 +414,21 @@ public class Conversations {
 		}
 	}
 
+	/// Lists direct message (DM) conversations from the local database.
+	///
+	/// Returns DMs matching the specified filters, sorted by the given order.
+	/// Call ``sync()`` first to ensure the local database is up to date.
+	///
+	/// - Parameters:
+	///   - createdAfterNs: Only include DMs created after this timestamp (in nanoseconds).
+	///   - createdBeforeNs: Only include DMs created before this timestamp (in nanoseconds).
+	///   - lastActivityBeforeNs: Only include DMs with activity before this timestamp (in nanoseconds).
+	///   - lastActivityAfterNs: Only include DMs with activity after this timestamp (in nanoseconds).
+	///   - limit: Maximum number of DMs to return.
+	///   - consentStates: Filter by consent states (e.g., `.allowed`, `.denied`).
+	///   - orderBy: Sort order for the results. Defaults to ``ConversationsOrderBy/lastActivity``.
+	/// - Returns: An array of ``Dm`` objects matching the filters.
+	/// - Throws: If the local database query fails.
 	public func listDms(
 		createdAfterNs: Int64? = nil,
 		createdBeforeNs: Int64? = nil,
@@ -326,6 +462,21 @@ public class Conversations {
 		}
 	}
 
+	/// Lists all conversations (groups and DMs) from the local database.
+	///
+	/// Returns conversations matching the specified filters, sorted by the given order.
+	/// Call ``sync()`` first to ensure the local database is up to date.
+	///
+	/// - Parameters:
+	///   - createdAfterNs: Only include conversations created after this timestamp (in nanoseconds).
+	///   - createdBeforeNs: Only include conversations created before this timestamp (in nanoseconds).
+	///   - lastActivityBeforeNs: Only include conversations with activity before this timestamp (in nanoseconds).
+	///   - lastActivityAfterNs: Only include conversations with activity after this timestamp (in nanoseconds).
+	///   - limit: Maximum number of conversations to return.
+	///   - consentStates: Filter by consent states (e.g., `.allowed`, `.denied`).
+	///   - orderBy: Sort order for the results. Defaults to ``ConversationsOrderBy/lastActivity``.
+	/// - Returns: An array of ``Conversation`` values matching the filters.
+	/// - Throws: If the local database query fails.
 	public func list(
 		createdAfterNs: Int64? = nil,
 		createdBeforeNs: Int64? = nil,
@@ -363,6 +514,16 @@ public class Conversations {
 		return conversations
 	}
 
+	/// Streams new conversations in real time.
+	///
+	/// Returns an `AsyncThrowingStream` that yields each new ``Conversation``
+	/// (group or DM) as it is created on the network. The stream remains open
+	/// until cancelled or an error occurs.
+	///
+	/// - Parameters:
+	///   - type: The kind of conversations to stream. Defaults to ``ConversationFilterType/all``.
+	///   - onClose: An optional closure invoked when the stream is closed by the server.
+	/// - Returns: An `AsyncThrowingStream` of ``Conversation`` values.
 	public func stream(
 		type: ConversationFilterType = .all, onClose: (() -> Void)? = nil
 	) -> AsyncThrowingStream<
@@ -436,6 +597,16 @@ public class Conversations {
 		}
 	}
 
+	/// Finds or creates a DM conversation with the given public identity.
+	///
+	/// If a DM already exists with the peer, it is returned. Otherwise a new DM
+	/// is created. This method never creates duplicate conversations.
+	///
+	/// - Parameters:
+	///   - peerIdentity: The ``PublicIdentity`` of the peer to message.
+	///   - disappearingMessageSettings: Optional settings for disappearing messages in this conversation.
+	/// - Returns: The existing or newly created ``Conversation`` (always a `.dm`).
+	/// - Throws: ``ConversationError/memberCannotBeSelf`` if the identity belongs to the current user.
 	public func newConversationWithIdentity(
 		with peerIdentity: PublicIdentity,
 		disappearingMessageSettings: DisappearingMessageSettings? = nil
@@ -447,6 +618,16 @@ public class Conversations {
 		return Conversation.dm(dm)
 	}
 
+	/// Finds or creates a DM with the given public identity, returning the ``Dm`` directly.
+	///
+	/// If a DM already exists with the peer, it is returned. Otherwise a new DM
+	/// is created. This method never creates duplicate conversations.
+	///
+	/// - Parameters:
+	///   - peerIdentity: The ``PublicIdentity`` of the peer to message.
+	///   - disappearingMessageSettings: Optional settings for disappearing messages in this conversation.
+	/// - Returns: The existing or newly created ``Dm``.
+	/// - Throws: ``ConversationError/memberCannotBeSelf`` if the identity belongs to the current user.
 	public func findOrCreateDmWithIdentity(
 		with peerIdentity: PublicIdentity,
 		disappearingMessageSettings: DisappearingMessageSettings? = nil
@@ -471,6 +652,16 @@ public class Conversations {
 		return dm.dmFromFFI(client: client)
 	}
 
+	/// Finds or creates a DM conversation with the given inbox ID.
+	///
+	/// If a DM already exists with the peer, it is returned. Otherwise a new DM
+	/// is created. This method never creates duplicate conversations.
+	///
+	/// - Parameters:
+	///   - peerInboxId: The inbox ID of the peer to message.
+	///   - disappearingMessageSettings: Optional settings for disappearing messages in this conversation.
+	/// - Returns: The existing or newly created ``Conversation`` (always a `.dm`).
+	/// - Throws: ``ConversationError/memberCannotBeSelf`` if the inbox ID matches the current user.
 	public func newConversation(
 		with peerInboxId: InboxId,
 		disappearingMessageSettings: DisappearingMessageSettings? = nil
@@ -482,6 +673,16 @@ public class Conversations {
 		return Conversation.dm(dm)
 	}
 
+	/// Finds or creates a DM with the given inbox ID, returning the ``Dm`` directly.
+	///
+	/// If a DM already exists with the peer, it is returned. Otherwise a new DM
+	/// is created. This method never creates duplicate conversations.
+	///
+	/// - Parameters:
+	///   - peerInboxId: The inbox ID of the peer to message.
+	///   - disappearingMessageSettings: Optional settings for disappearing messages in this conversation.
+	/// - Returns: The existing or newly created ``Dm``.
+	/// - Throws: ``ConversationError/memberCannotBeSelf`` if the inbox ID matches the current user.
 	public func findOrCreateDm(
 		with peerInboxId: InboxId,
 		disappearingMessageSettings: DisappearingMessageSettings? = nil
@@ -505,6 +706,21 @@ public class Conversations {
 		return dm.dmFromFFI(client: client)
 	}
 
+	/// Creates a new group conversation with the given public identities.
+	///
+	/// A new group is created every time this method is called, even if a group with the
+	/// same members already exists. Use one of the preconfigured permission levels.
+	///
+	/// - Parameters:
+	///   - identities: The ``PublicIdentity`` values of the members to add.
+	///   - permissions: The permission preset for the group. Defaults to ``GroupPermissionPreconfiguration/allMembers``.
+	///   - name: An optional display name for the group.
+	///   - imageUrl: An optional URL for the group's avatar image.
+	///   - description: An optional description of the group.
+	///   - disappearingMessageSettings: Optional settings for disappearing messages.
+	///   - appData: Optional application-specific metadata.
+	/// - Returns: The newly created ``Group``.
+	/// - Throws: If any identity is not registered on the XMTP network.
 	public func newGroupWithIdentities(
 		with identities: [PublicIdentity],
 		permissions: GroupPermissionPreconfiguration = .allMembers,
@@ -529,6 +745,21 @@ public class Conversations {
 		)
 	}
 
+	/// Creates a new group conversation with custom permissions and the given public identities.
+	///
+	/// A new group is created every time this method is called. Use this variant when the
+	/// preconfigured permission levels do not meet your needs.
+	///
+	/// - Parameters:
+	///   - identities: The ``PublicIdentity`` values of the members to add.
+	///   - permissionPolicySet: A ``PermissionPolicySet`` defining fine-grained permissions.
+	///   - name: An optional display name for the group.
+	///   - imageUrl: An optional URL for the group's avatar image.
+	///   - description: An optional description of the group.
+	///   - disappearingMessageSettings: Optional settings for disappearing messages.
+	///   - appData: Optional application-specific metadata.
+	/// - Returns: The newly created ``Group``.
+	/// - Throws: If any identity is not registered on the XMTP network.
 	public func newGroupCustomPermissionsWithIdentities(
 		with identities: [PublicIdentity],
 		permissionPolicySet: PermissionPolicySet,
@@ -578,6 +809,21 @@ public class Conversations {
 		).groupFromFFI(client: client)
 	}
 
+	/// Creates a new group conversation with the given inbox IDs.
+	///
+	/// A new group is created every time this method is called, even if a group with the
+	/// same members already exists. Use one of the preconfigured permission levels.
+	///
+	/// - Parameters:
+	///   - inboxIds: The inbox IDs of the members to add.
+	///   - permissions: The permission preset for the group. Defaults to ``GroupPermissionPreconfiguration/allMembers``.
+	///   - name: An optional display name for the group.
+	///   - imageUrl: An optional URL for the group's avatar image.
+	///   - description: An optional description of the group.
+	///   - disappearingMessageSettings: Optional settings for disappearing messages.
+	///   - appData: Optional application-specific metadata.
+	/// - Returns: The newly created ``Group``.
+	/// - Throws: If any inbox ID is invalid or not registered on the XMTP network.
 	public func newGroup(
 		with inboxIds: [InboxId],
 		permissions: GroupPermissionPreconfiguration = .allMembers,
@@ -602,6 +848,21 @@ public class Conversations {
 		)
 	}
 
+	/// Creates a new group conversation with custom permissions and the given inbox IDs.
+	///
+	/// A new group is created every time this method is called. Use this variant when the
+	/// preconfigured permission levels do not meet your needs.
+	///
+	/// - Parameters:
+	///   - inboxIds: The inbox IDs of the members to add.
+	///   - permissionPolicySet: A ``PermissionPolicySet`` defining fine-grained permissions.
+	///   - name: An optional display name for the group.
+	///   - imageUrl: An optional URL for the group's avatar image.
+	///   - description: An optional description of the group.
+	///   - disappearingMessageSettings: Optional settings for disappearing messages.
+	///   - appData: Optional application-specific metadata.
+	/// - Returns: The newly created ``Group``.
+	/// - Throws: If any inbox ID is invalid or not registered on the XMTP network.
 	public func newGroupCustomPermissions(
 		with inboxIds: [InboxId],
 		permissionPolicySet: PermissionPolicySet,
@@ -652,6 +913,24 @@ public class Conversations {
 		).groupFromFFI(client: client)
 	}
 
+	/// Creates a new group optimistically without a network round-trip.
+	///
+	/// The group is created locally and the creator is the only member. Members must
+	/// be added separately after creation (e.g., via `Group.addMembers`). This is
+	/// useful for reducing latency in UIs that display the group immediately.
+	///
+	/// Because this is a local-only operation, the method is synchronous and does
+	/// not require `await`.
+	///
+	/// - Parameters:
+	///   - permissions: The permission preset for the group. Defaults to ``GroupPermissionPreconfiguration/allMembers``.
+	///   - groupName: An optional display name for the group.
+	///   - groupImageUrlSquare: An optional URL for the group's avatar image.
+	///   - groupDescription: An optional description of the group.
+	///   - disappearingMessageSettings: Optional settings for disappearing messages.
+	///   - appData: Optional application-specific metadata.
+	/// - Returns: The newly created ``Group`` with only the current user as a member.
+	/// - Throws: If the local group creation fails.
 	public func newGroupOptimistic(
 		permissions: GroupPermissionPreconfiguration = .allMembers,
 		groupName: String = "",
@@ -679,6 +958,18 @@ public class Conversations {
 		return Group(ffiGroup: ffiGroup, client: client)
 	}
 
+	/// Streams messages from all conversations in real time.
+	///
+	/// Returns an `AsyncThrowingStream` that yields each new ``DecodedMessage``
+	/// as it arrives across all conversations. The stream remains open until
+	/// cancelled or an error occurs.
+	///
+	/// - Parameters:
+	///   - type: The kind of conversations to include. Defaults to ``ConversationFilterType/all``.
+	///   - consentStates: An optional filter to only stream messages from conversations
+	///     matching the given consent states. Pass `nil` to include all.
+	///   - onClose: An optional closure invoked when the stream is closed by the server.
+	/// - Returns: An `AsyncThrowingStream` of ``DecodedMessage`` values.
 	public func streamAllMessages(
 		type: ConversationFilterType = .all,
 		consentStates: [ConsentState]? = nil,
@@ -777,6 +1068,16 @@ public class Conversations {
 		}
 	}
 
+	/// Processes a welcome message received via push notification and returns the conversation.
+	///
+	/// When a user is added to a new group or DM, they receive a welcome message.
+	/// This method decrypts and processes that message, creating the conversation
+	/// locally if it does not already exist.
+	///
+	/// - Parameter envelopeBytes: The raw bytes of the welcome message envelope.
+	/// - Returns: The ``Conversation`` the welcome message belongs to, or `nil` if
+	///   the message could not be processed.
+	/// - Throws: If decryption or processing fails.
 	public func fromWelcome(envelopeBytes: Data) async throws
 		-> Conversation?
 	{
@@ -789,6 +1090,15 @@ public class Conversations {
 		return try await firstConversation.toConversation(client: client)
 	}
 
+	/// Returns the HMAC keys for all conversations, used for push notification decryption.
+	///
+	/// Push notification services use these keys to decrypt message previews without
+	/// having access to the full conversation keys. Each conversation has a set of
+	/// rotating HMAC keys indexed by 30-day epochs.
+	///
+	/// - Returns: A `Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse` mapping
+	///   topic strings to their HMAC key data.
+	/// - Throws: If the keys cannot be retrieved from the local database.
 	public func getHmacKeys() throws
 		-> Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse
 	{
@@ -815,6 +1125,13 @@ public class Conversations {
 		return hmacKeysResponse
 	}
 
+	/// Returns the push notification topic strings for all conversations.
+	///
+	/// Use these topics to register with a push notification service so the device
+	/// receives notifications for incoming messages in every conversation.
+	///
+	/// - Returns: An array of topic strings, one per conversation.
+	/// - Throws: If the local database query fails.
 	public func allPushTopics() async throws -> [String] {
 		let options = FfiListConversationsOptions(
 			createdAfterNs: nil,
