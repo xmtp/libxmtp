@@ -148,22 +148,22 @@ class HistorySyncTests: XCTestCase {
 		try await waitForSyncCondition(
 			description: "synced message parity between installations",
 			condition: {
-			_ = try await alixClient.syncAllDeviceSyncGroups()
-			_ = try await alixClient2.syncAllDeviceSyncGroups()
-			_ = try await alixClient.conversations.syncAllConversations()
-			_ = try await alixClient2.conversations.syncAllConversations()
+				_ = try await alixClient.syncAllDeviceSyncGroups()
+				_ = try await alixClient2.syncAllDeviceSyncGroups()
+				_ = try await alixClient.conversations.syncAllConversations()
+				_ = try await alixClient2.conversations.syncAllConversations()
 
-			lastClient1MessageCount = try await group.messages().count
+				lastClient1MessageCount = try await group.messages().count
 
-			if let group2 = try alixClient2.conversations.findGroup(groupId: group.id) {
-				try await group2.sync()
-				let messages = try await group2.messages()
-				lastClient2MessageCount = messages.count
-				seenMessageOnClient2 = messages.contains(where: { $0.id == msg_id })
-			}
+				if let group2 = try alixClient2.conversations.findGroup(groupId: group.id) {
+					try await group2.sync()
+					let messages = try await group2.messages()
+					lastClient2MessageCount = messages.count
+					seenMessageOnClient2 = messages.contains(where: { $0.id == msg_id })
+				}
 
-			return seenMessageOnClient2
-				&& lastClient1MessageCount == lastClient2MessageCount
+				return seenMessageOnClient2
+					&& lastClient1MessageCount == lastClient2MessageCount
 			}
 		)
 
