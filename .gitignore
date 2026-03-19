@@ -191,7 +191,7 @@ om.json
 /.build
 /.swiftpm
 **/.direnv/**
-
+*.qcow2
 # Superpowers
 docs/plans
 
