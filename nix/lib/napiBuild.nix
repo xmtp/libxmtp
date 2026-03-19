@@ -6,6 +6,7 @@
   cargo-zigbuild,
   stdenv,
   mkCargoDerivation,
+  lib,
 }:
 
 {
@@ -13,6 +14,7 @@
   napiExtraArgs ? "", # Arguments that are generally useful default
   napiGenerateJs ? false, # do not generate JS Glue
   CARGO_PROFILE ? "release",
+  zigBuild ? false,
   ...
 }@origArgs:
 let
@@ -22,10 +24,10 @@ let
     "napiExtraArgs"
     "CARGO_PROFILE"
     "napiGenerateJs"
+    "zigBuild"
   ];
   napiJsArgs = if napiGenerateJs then "--esm" else "--no-js";
-  isGnu = stdenv.hostPlatform.isLinux && !stdenv.hostPlatform.isMusl;
-  zigBuild = if isGnu then "-x" else "";
+  useZigBuild = if zigBuild then "-x" else "";
   hostTarget = stdenv.hostPlatform.rust.rustcTarget;
 in
 mkCargoDerivation (
@@ -54,7 +56,7 @@ mkCargoDerivation (
 
         napi build --target-dir target --output-dir $out/dist \
           --platform --profile ${CARGO_PROFILE} \
-          ${napiExtraArgs} ${napiJsArgs} ${zigBuild} \
+          ${napiExtraArgs} ${napiJsArgs} ${useZigBuild} \
           -- --locked
       '';
 
@@ -72,9 +74,11 @@ mkCargoDerivation (
     installPhaseCommand = args.installPhaseCommand or "true";
     doInstallCargoArtifacts = false;
 
-    nativeBuildInputs = (args.nativeBuildInputs or [ ]) ++ [
-      napi-rs-cli
-      cargo-zigbuild
-    ];
+    nativeBuildInputs =
+      (args.nativeBuildInputs or [ ])
+      ++ [
+        napi-rs-cli
+      ]
+      ++ lib.optionals zigBuild [ cargo-zigbuild ];
   }
 )

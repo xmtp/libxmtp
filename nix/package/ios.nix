@@ -127,18 +127,7 @@ let
       __noChroot = true;
       src = bindingsFileset;
       inherit version;
-      cargoArtifacts = rust.buildDepsOnly (
-        commonArgs
-        // {
-          pname = "xmtpv3-swift-bindings-deps";
-          __noChroot = true;
-          cargoExtraArgs = "-p xmtpv3";
-          buildPhaseCargoCommand = ''
-            ${nativeEnvSetup}
-            cargo build --release -p xmtpv3
-          '';
-        }
-      );
+      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false null;
       cargoExtraArgs = "-p xmtpv3";
       buildPhaseCargoCommand = ''
         ${nativeEnvSetup}

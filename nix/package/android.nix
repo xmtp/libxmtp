@@ -114,13 +114,8 @@ let
     );
 
   # Build dependencies for the native host (needed for uniffi-bindgen)
-  hostCargoArtifacts = rust.buildDepsOnly (
-    commonArgs
-    // {
-      pname = "xmtpv3-android-host-deps";
-      cargoExtraArgs = "-p xmtpv3";
-    }
-  );
+  hostCargoArtifacts = xmtp.base.mkCargoArtifacts rust false null;
+  extension = if stdenv.isDarwin then "dylib" else "so";
 
   # Kotlin bindings (built on host, generates bindings from host library)
   kotlinBindings = rust.buildPackage (
@@ -134,18 +129,13 @@ let
 
       nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ gnused ];
 
-      buildPhaseCargoCommand = ''
-        cargo build --release -p xmtpv3
-      '';
-
       doNotPostBuildInstallCargoBinaries = true;
 
       installPhaseCommand = ''
         mkdir -p $out/kotlin
-
         # Generate Kotlin bindings using uniffi-bindgen
         ${ffi-uniffi-bindgen} generate \
-          --library target/release/libxmtpv3.${if stdenv.isDarwin then "dylib" else "so"} \
+          --library /build/source/target/${stdenv.hostPlatform.rust.rustcTarget}/release/libxmtpv3.${extension} \
           --out-dir $TMPDIR/kotlin-out \
           --language kotlin
 

@@ -16,6 +16,8 @@ let
   # so it must be used to create the right toolchain for the platform.
   rust-toolchain = p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ ];
 
+  isGnu = stdenv.hostPlatform.isLinux && !stdenv.hostPlatform.isMusl;
+
   # overrideToolchain accepts a function that accepts `p` a pkg set
   rust = craneLib.overrideToolchain rust-toolchain;
   root = ./../..;
@@ -29,39 +31,32 @@ let
   };
   maybeTestFeature = if test then "--features test-utils" else "";
   version = xmtp.mkVersion rust;
-  targetGlibcVersion = "2.27";
+  targetGlibcVersion = if isGnu then "2.27" else null;
 
-  isGnu = stdenv.hostPlatform.isLinux && !stdenv.hostPlatform.isMusl;
-
-  # crossEnv (CC_ vars) will be auto-populated in stdenv b/c using crossSystem in nixpkgs
-  commonArgs =
-    xmtp.base.commonArgs
-    // {
-      inherit src version;
-      # strictDeps breaks darwin build with ring
-      CARGO_PROFILE = "release";
-      # this needs to be set for cargoArtifacts to inherit properly
-      # since napi implicitly sets --target.
-      CARGO_BUILD_TARGET = stdenv.hostPlatform.rust.rustcTarget;
-    }
-    // lib.optionalAttrs stdenv.hostPlatform.isMusl {
+  specialArgs =
+    lib.optionalAttrs stdenv.hostPlatform.isMusl {
       # Use -crt-static to allow cdylib output on musl targets.
       RUSTFLAGS = "-C target-feature=-crt-static";
     }
     // lib.optionalAttrs isGnu {
-      nativeBuildInputs = xmtp.base.commonArgs.nativeBuildInputs ++ [ cargo-zigbuild ];
-      # overwrite build target for linux
+      # overwrite build target for glibc
       CARGO_BUILD_TARGET = "${stdenv.hostPlatform.rust.rustcTarget}.${targetGlibcVersion}";
     };
 
-  cargoArtifacts = rust.buildDepsOnly (
-    commonArgs
+  commonArgs =
+    xmtp.base.commonArgs
     // {
-      buildPhaseCargoCommand = "cargo build -p bindings_node ${maybeTestFeature} --profile $CARGO_PROFILE --locked";
+      inherit version;
     }
+    // specialArgs;
+
+  cargoArtifacts = xmtp.base.mkCargoArtifacts rust test (
+    specialArgs
     // lib.optionalAttrs isGnu {
+      # override everything for glibc compatibility
       preBuild = "export HOME=$TMPDIR";
-      buildPhaseCargoCommand = "cargo zigbuild -p bindings_node ${maybeTestFeature} --profile $CARGO_PROFILE --locked";
+      nativeBuildInputs = xmtp.base.commonArgs.nativeBuildInputs ++ [ cargo-zigbuild ];
+      buildPhaseCargoCommand = "cargo zigbuild ${maybeTestFeature} --profile $CARGO_PROFILE --locked";
     }
   );
 
@@ -69,12 +64,13 @@ in
 rust.napiBuild (
   commonArgs
   // {
-    inherit cargoArtifacts;
+    inherit src cargoArtifacts;
     SSL_CERT_FILE = "${cacert}/etc/ssl/certs/ca-bundle.crt";
     NODE_EXTRA_CA_CERTS = "${cacert}/etc/ssl/certs/ca-bundle.crt";
     napiExtraArgs = "-p bindings_node ${maybeTestFeature} --package-json-path ${src}/bindings/node/package.json";
     pname = "bindings-node-js";
     napiGenerateJs = withJs;
+    zigBuild = isGnu;
   }
   // lib.optionalAttrs stdenv.hostPlatform.isMusl {
     # remove nix specific rpaths for compatibility with musl dynamic linker

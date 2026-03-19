@@ -2,8 +2,6 @@
 {
   xmtp,
   lib,
-  sqlite,
-  sqlcipher,
   chromedriver,
   google-chrome,
   chromium,
@@ -36,7 +34,6 @@ let
   };
 
   commonArgs = base.commonArgs // {
-    inherit src;
     nativeBuildInputs = base.commonArgs.nativeBuildInputs ++ [
       cargo-nextest
       wasm-bindgen-cli
@@ -67,7 +64,7 @@ in
 rust.cargoNextest (
   commonArgs
   // {
-    inherit cargoArtifacts;
+    inherit src cargoArtifacts;
     inherit (xmtp.shellCommon.wasmEnv)
       CHROMEDRIVER
       RSTEST_TIMEOUT

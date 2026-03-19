@@ -2,7 +2,6 @@
 {
   xmtp,
   lib,
-  sqlcipher,
   cargo-llvm-cov,
   d14n ? false,
   ...
@@ -29,11 +28,11 @@ let
   };
 
   commonArgs = xmtp.base.commonArgs // {
-    inherit src;
     nativeBuildInputs = xmtp.base.commonArgs.nativeBuildInputs ++ [
       cargo-llvm-cov
     ];
   };
+
   cargoArtifacts = rust.buildDepsOnly (
     commonArgs
     // {
@@ -45,7 +44,7 @@ in
 rust.cargoNextest (
   commonArgs
   // {
-    inherit cargoArtifacts;
+    inherit src cargoArtifacts;
     doCheck = true;
     pnameSuffix = if d14n then "nextest-d14n" else "nextest-v3";
     partitions = 1;

@@ -26,12 +26,6 @@ let
   rust = craneLib.overrideToolchain (p: rust-toolchain);
 
   features = if test then "--features test-utils" else "";
-
-  libraryFileset = lib.fileset.toSource {
-    root = ./../..;
-    fileset = xmtp.filesets.libraries;
-  };
-
   bindingsFileset = lib.fileset.toSource {
     root = ./../..;
     fileset = xmtp.filesets.forCrate ./../../bindings/wasm;
@@ -39,7 +33,6 @@ let
 
   commonArgs = base.commonArgs // {
     meta.description = "WebAssembly Bindings";
-    src = libraryFileset;
     # EM_CACHE = "$TMPDIR/.emscripten_cache";
     # we need to set tmpdir for emscripten cache
     preConfigure = ''
@@ -58,8 +51,6 @@ let
       wasm-bindgen-cli
     ];
     buildInputs = [ sqlite ];
-    doCheck = false;
-    cargoExtraArgs = "--package bindings_wasm ${features}";
     hardeningDisable = [
       "zerocallusedregs"
       "stackprotector"
@@ -77,10 +68,15 @@ let
   };
 
   # enables caching all build time crates
-  cargoArtifacts = rust.buildDepsOnly (commonEnv // commonArgs);
+  cargoArtifacts = rust.buildDepsOnly (
+    (base.commonArgs // commonEnv)
+    // {
+      buildPhaseCargoCommand = "cargo build --package bindings_wasm ${features} --profile $CARGO_PROFILE --locked";
+    }
+  );
 
   bin = rust.buildPackage (
-    (commonEnv // commonArgs)
+    (commonArgs // commonEnv)
     // {
       inherit cargoArtifacts;
       src = bindingsFileset;

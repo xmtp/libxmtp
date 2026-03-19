@@ -1,4 +1,4 @@
-{ inputs, self, ... }:
+{ self, ... }:
 {
   perSystem =
     {
@@ -14,6 +14,8 @@
       # - musl targets use self-contained musl toolchains that work everywhere.
       # - Darwin targets require Apple SDKs, so macOS only.
       # - Windows is excluded (built separately in CI).
+      # linux gnu targets may be enabled once https://docs.determinate.systems/determinate-nix/#linux-builder
+      # rolls out to the public
       linuxGnuTargets = [
         "x86_64-unknown-linux-gnu"
         "aarch64-unknown-linux-gnu"
@@ -34,18 +36,8 @@
         ++ lib.optionals pkgs.stdenv.isLinux linuxGnuTargets
         ++ lib.optionals pkgs.stdenv.isDarwin darwinTargets;
 
-      # overlay glibc for node
-      crossPkgs = lib.genAttrs nodeTargets (
-        target:
-        (import inputs.nixpkgs (
-          self.lib.pkgConfig
-          // {
-            localSystem = system;
-            crossSystem = target;
-          }
-        ))
-      );
-      mkNodeBindings = p: p.callPackage ./package/node-bindings.nix;
+      crossPkgs = self.lib.mkCrossPkgs system nodeTargets;
+      mkNodeBindings = p: p.callPackage ./package/node.nix;
     in
     {
       packages = {
