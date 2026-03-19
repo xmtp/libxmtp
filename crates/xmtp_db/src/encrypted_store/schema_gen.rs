@@ -86,9 +86,11 @@ diesel::table! {
         fork_details -> Text,
         originator_id -> Nullable<BigInt>,
         should_publish_commit_log -> Bool,
-        commit_log_public_key -> Nullable<Binary>,
+        salt -> Nullable<Binary>,
         is_commit_log_forked -> Nullable<Bool>,
         has_pending_leave_request -> Nullable<Bool>,
+        fork_admin -> Nullable<Binary>,
+        fork_admin_change_sequence_id -> Nullable<BigInt>,
     }
 }
 
@@ -153,7 +155,6 @@ diesel::table! {
         rowid -> Integer,
         group_id -> Binary,
         commit_sequence_id -> BigInt,
-        last_epoch_authenticator -> Binary,
         commit_result -> Integer,
         applied_epoch_number -> BigInt,
         applied_epoch_authenticator -> Binary,
@@ -233,6 +234,7 @@ diesel::table! {
         commit_result -> Integer,
         applied_epoch_number -> BigInt,
         applied_epoch_authenticator -> Binary,
+        installation_id -> Binary,
     }
 }
 

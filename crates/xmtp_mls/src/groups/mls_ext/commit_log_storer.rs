@@ -1,5 +1,6 @@
 use crate::StorageError;
 use crate::groups::GroupError;
+use crate::groups::mls_ext::MutableMetadataMlsExt;
 use crate::groups::{mls_sync::GroupMessageProcessingError, validated_commit::ValidatedCommit};
 use crate::identity::Identity;
 use openmls::group::{MlsGroup, MlsGroupCreateConfig, StagedCommit};
@@ -8,6 +9,7 @@ use openmls::prelude::GroupEpoch;
 use openmls::prelude::GroupId;
 use openmls::prelude::StagedWelcome;
 use xmtp_db::MlsProviderExt;
+#[cfg(feature = "commit-log")]
 use xmtp_db::{
     Store, XmtpMlsStorageProvider,
     local_commit_log::{CommitType, NewLocalCommitLog},
@@ -75,21 +77,19 @@ impl CommitLogStorer for MlsGroup {
             },
         )?;
 
-        if xmtp_configuration::ENABLE_COMMIT_LOG {
-            NewLocalCommitLog {
-                group_id: mls_group.group_id().to_vec(),
-                commit_sequence_id: 0,
-                last_epoch_authenticator: vec![],
-                commit_result: CommitResult::Success,
-                applied_epoch_number: mls_group.epoch().as_u64() as i64,
-                applied_epoch_authenticator: mls_group.epoch_authenticator().as_slice().to_vec(),
-                sender_inbox_id: Some(identity.inbox_id().to_string()),
-                sender_installation_id: Some(identity.installation_id().to_vec()),
-                commit_type: Some(format!("{}", CommitType::GroupCreation)),
-                error_message: None,
-            }
-            .store(&provider.key_store().db())?;
+        #[cfg(feature = "commit-log")]
+        NewLocalCommitLog {
+            group_id: mls_group.group_id().to_vec(),
+            commit_sequence_id: 0,
+            commit_result: CommitResult::Success,
+            applied_epoch_number: mls_group.epoch().as_u64() as i64,
+            applied_epoch_authenticator: mls_group.epoch_authenticator().as_slice().to_vec(),
+            sender_inbox_id: Some(identity.inbox_id().to_string()),
+            sender_installation_id: Some(identity.installation_id().to_vec()),
+            commit_type: Some(format!("{}", CommitType::GroupCreation)),
+            error_message: None,
         }
+        .store(&provider.key_store().db())?;
 
         Ok(mls_group)
     }
@@ -111,23 +111,21 @@ impl CommitLogStorer for MlsGroup {
             },
         )?;
 
-        if xmtp_configuration::ENABLE_COMMIT_LOG {
-            // It is safe to log this stubbed encryption state, because we will not upload anything
-            // to the remote commit log with a sequence ID of 0.
-            NewLocalCommitLog {
-                group_id: mls_group.group_id().to_vec(),
-                commit_sequence_id: 0,
-                last_epoch_authenticator: vec![],
-                commit_result: CommitResult::Success,
-                applied_epoch_number: mls_group.epoch().as_u64() as i64,
-                applied_epoch_authenticator: mls_group.epoch_authenticator().as_slice().to_vec(),
-                sender_inbox_id: None,
-                sender_installation_id: None,
-                commit_type: Some(format!("{}", CommitType::BackupRestore)),
-                error_message: None,
-            }
-            .store(&provider.key_store().db())?;
+        // It is safe to log this stubbed encryption state, because we will not upload anything
+        // to the remote commit log with a sequence ID of 0.
+        #[cfg(feature = "commit-log")]
+        NewLocalCommitLog {
+            group_id: mls_group.group_id().to_vec(),
+            commit_sequence_id: 0,
+            commit_result: CommitResult::Success,
+            applied_epoch_number: mls_group.epoch().as_u64() as i64,
+            applied_epoch_authenticator: mls_group.epoch_authenticator().as_slice().to_vec(),
+            sender_inbox_id: None,
+            sender_installation_id: None,
+            commit_type: Some(format!("{}", CommitType::BackupRestore)),
+            error_message: None,
         }
+        .store(&provider.key_store().db())?;
 
         Ok(mls_group)
     }
@@ -135,28 +133,26 @@ impl CommitLogStorer for MlsGroup {
     fn from_welcome_logged(
         provider: &impl MlsProviderExt,
         welcome: StagedWelcome,
-        sender_inbox_id: &str,
-        sender_installation_id: &[u8],
+        _sender_inbox_id: &str,
+        _sender_installation_id: &[u8],
     ) -> Result<Self, GroupError> {
         // Failed welcomes do not need to be added to the commit log
         let mls_group = welcome.into_group(provider)?;
 
-        if xmtp_configuration::ENABLE_COMMIT_LOG {
-            NewLocalCommitLog {
-                group_id: mls_group.group_id().to_vec(),
-                // TODO(rich): Replace with the cursor sequence ID of the welcome once implemented
-                commit_sequence_id: 0,
-                last_epoch_authenticator: vec![],
-                commit_result: CommitResult::Success,
-                applied_epoch_number: mls_group.epoch().as_u64() as i64,
-                applied_epoch_authenticator: mls_group.epoch_authenticator().as_slice().to_vec(),
-                sender_inbox_id: Some(sender_inbox_id.to_string()),
-                sender_installation_id: Some(sender_installation_id.to_vec()),
-                commit_type: Some(format!("{}", CommitType::Welcome)),
-                error_message: None,
-            }
-            .store(&provider.key_store().db())?;
+        #[cfg(feature = "commit-log")]
+        NewLocalCommitLog {
+            group_id: mls_group.group_id().to_vec(),
+            // TODO(rich): Replace with the cursor sequence ID of the welcome once implemented
+            commit_sequence_id: 0,
+            commit_result: CommitResult::Success,
+            applied_epoch_number: mls_group.epoch().as_u64() as i64,
+            applied_epoch_authenticator: mls_group.epoch_authenticator().as_slice().to_vec(),
+            sender_inbox_id: Some(_sender_inbox_id.to_string()),
+            sender_installation_id: Some(_sender_installation_id.to_vec()),
+            commit_type: Some(format!("{}", CommitType::Welcome)),
+            error_message: None,
         }
+        .store(&provider.key_store().db())?;
 
         Ok(mls_group)
     }
@@ -165,23 +161,22 @@ impl CommitLogStorer for MlsGroup {
         &mut self,
         provider: &impl MlsProviderExt,
         staged_commit: StagedCommit,
-        validated_commit: &ValidatedCommit,
-        sequence_id: i64,
+        _validated_commit: &ValidatedCommit,
+        _sequence_id: i64,
     ) -> Result<(), GroupMessageProcessingError> {
-        let last_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
         self.merge_staged_commit(provider, staged_commit)?;
 
-        if xmtp_configuration::ENABLE_COMMIT_LOG {
+        #[cfg(feature = "commit-log")]
+        {
             NewLocalCommitLog {
                 group_id: self.group_id().to_vec(),
-                commit_sequence_id: sequence_id,
-                last_epoch_authenticator,
+                commit_sequence_id: _sequence_id,
                 commit_result: CommitResult::Success,
                 applied_epoch_number: self.epoch().as_u64() as i64,
                 applied_epoch_authenticator: self.epoch_authenticator().as_slice().to_vec(),
-                sender_inbox_id: Some(validated_commit.actor_inbox_id()),
-                sender_installation_id: Some(validated_commit.actor_installation_id()),
-                commit_type: Some(format!("{}", validated_commit.debug_commit_type())),
+                sender_inbox_id: Some(_validated_commit.actor_inbox_id()),
+                sender_installation_id: Some(_validated_commit.actor_installation_id()),
+                commit_type: Some(format!("{}", _validated_commit.debug_commit_type())),
                 error_message: None,
             }
             .store(&provider.key_store().db())?;
@@ -190,6 +185,18 @@ impl CommitLogStorer for MlsGroup {
         Ok(())
     }
 
+    #[cfg(not(feature = "commit-log"))]
+    fn mark_failed_commit_logged(
+        &self,
+        _provider: &impl MlsProviderExt,
+        _commit_sequence_id: u64,
+        _commit_epoch: GroupEpoch,
+        _error: &GroupMessageProcessingError,
+    ) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    #[cfg(feature = "commit-log")]
     fn mark_failed_commit_logged(
         &self,
         provider: &impl MlsProviderExt,
@@ -197,9 +204,6 @@ impl CommitLogStorer for MlsGroup {
         commit_epoch: GroupEpoch,
         error: &GroupMessageProcessingError,
     ) -> Result<(), StorageError> {
-        if !xmtp_configuration::ENABLE_COMMIT_LOG {
-            return Ok(());
-        }
         let group_id = self.group_id().to_vec();
         let last_epoch_number = self.epoch();
         let last_epoch_authenticator = self.epoch_authenticator();
@@ -220,7 +224,6 @@ impl CommitLogStorer for MlsGroup {
         NewLocalCommitLog {
             group_id: group_id.to_vec(),
             commit_sequence_id: commit_sequence_id as i64,
-            last_epoch_authenticator: last_epoch_authenticator.as_slice().to_vec(),
             commit_result: error.commit_result(),
             applied_epoch_number: last_epoch_number.as_u64() as i64,
             applied_epoch_authenticator: last_epoch_authenticator.as_slice().to_vec(),

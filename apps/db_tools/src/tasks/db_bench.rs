@@ -13,7 +13,6 @@ use xmtp_db::{
     identity::QueryIdentity,
     identity_update::QueryIdentityUpdates,
     key_package_history::QueryKeyPackageHistory,
-    local_commit_log::{LocalCommitLogOrder, QueryLocalCommitLog},
     message_deletion::QueryMessageDeletion,
     pending_remove::QueryPendingRemove,
     prelude::{QueryDms, QueryGroupVersion},
@@ -21,8 +20,12 @@ use xmtp_db::{
     proto::types::{Cursor, GlobalCursor},
     readd_status::QueryReaddStatus,
     refresh_state::{EntityKind, QueryRefreshState},
-    remote_commit_log::{QueryRemoteCommitLog, RemoteCommitLogOrder},
     tasks::QueryTasks,
+};
+#[cfg(feature = "commit-log")]
+use xmtp_db::{
+    local_commit_log::{LocalCommitLogOrder, QueryLocalCommitLog},
+    remote_commit_log::{QueryRemoteCommitLog, RemoteCommitLogOrder},
 };
 
 macro_rules! bench {
@@ -119,6 +122,7 @@ where
                 results.push(self.bench_refresh_state_queries());
                 results.push(self.bench_key_package_history_queries());
                 results.push(self.bench_conversation_list_queries());
+                #[cfg(feature = "commit-log")]
                 results.push(self.bench_commit_log_queries());
                 results.push(self.bench_dm_queries());
                 results.push(self.bench_message_deletion_queries());
@@ -537,6 +541,7 @@ where
         Ok(())
     }
 
+    #[cfg(feature = "commit-log")]
     fn bench_commit_log_queries(&mut self) -> Result<()> {
         let Some(group) = self.group_or_dm().cloned() else {
             bail!("No group to run commit log queries on.");

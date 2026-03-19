@@ -1,6 +1,10 @@
+#[cfg(feature = "commit-log")]
 mod test_commit_log_fork_detection;
+#[cfg(feature = "commit-log")]
 mod test_commit_log_local;
+#[cfg(feature = "commit-log")]
 mod test_commit_log_readd_requests;
+#[cfg(feature = "commit-log")]
 mod test_commit_log_remote;
 mod test_consent;
 mod test_delete_message;
@@ -3910,7 +3914,9 @@ async fn test_validate_dm_group() {
     assert!(
         valid_dm_group
             .load_mls_group_with_lock(client.context.mls_storage(), |mls_group| {
-                validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
+                validate_dm_group(&client.context, &mls_group, added_by_inbox)
+                    .map_err(GroupMessageProcessingError::MetadataPermissionsError)
+                    .map_err(Into::into)
             })
             .is_ok()
     );
@@ -3931,12 +3937,16 @@ async fn test_validate_dm_group() {
     .unwrap();
     let err =
         invalid_type_group.load_mls_group_with_lock(client.context.mls_storage(), |mls_group| {
-            validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
+            validate_dm_group(&client.context, &mls_group, added_by_inbox)
+                .map_err(GroupMessageProcessingError::MetadataPermissionsError)
+                .map_err(Into::into)
         });
     assert!(matches!(
         err,
-        Err(GroupError::MetadataPermissionsError(
-            MetadataPermissionsError::DmValidation(DmValidationError::InvalidConversationType)
+        Err(GroupError::ReceiveError(
+            GroupMessageProcessingError::MetadataPermissionsError(
+                MetadataPermissionsError::DmValidation(DmValidationError::InvalidConversationType)
+            )
         ))
     ));
     // Test case 3: Missing DmMembers
@@ -3959,13 +3969,19 @@ async fn test_validate_dm_group() {
     let err = mismatched_dm_members_group.load_mls_group_with_lock(
         client.context.mls_storage(),
         |mls_group| {
-            validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
+            validate_dm_group(&client.context, &mls_group, added_by_inbox)
+                .map_err(GroupMessageProcessingError::MetadataPermissionsError)
+                .map_err(Into::into)
         },
     );
     assert!(matches!(
         err,
-        Err(GroupError::MetadataPermissionsError(
-            MetadataPermissionsError::DmValidation(DmValidationError::ExpectedInboxesDoNotMatch)
+        Err(GroupError::ReceiveError(
+            GroupMessageProcessingError::MetadataPermissionsError(
+                MetadataPermissionsError::DmValidation(
+                    DmValidationError::ExpectedInboxesDoNotMatch
+                )
+            )
         ))
     ));
 
@@ -3987,12 +4003,16 @@ async fn test_validate_dm_group() {
         non_empty_admin_list_group.load_mls_group_with_lock(
             client.context.mls_storage(),
             |mls_group| {
-                validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
+                validate_dm_group(&client.context, &mls_group, added_by_inbox)
+                    .map_err(GroupMessageProcessingError::MetadataPermissionsError)
+                    .map_err(Into::into)
             }
         ),
-        Err(GroupError::MetadataPermissionsError(
-            MetadataPermissionsError::DmValidation(
-                DmValidationError::MustHaveEmptyAdminAndSuperAdmin
+        Err(GroupError::ReceiveError(
+            GroupMessageProcessingError::MetadataPermissionsError(
+                MetadataPermissionsError::DmValidation(
+                    DmValidationError::MustHaveEmptyAdminAndSuperAdmin
+                )
             )
         ))
     ));
@@ -4016,11 +4036,15 @@ async fn test_validate_dm_group() {
         invalid_permissions_group.load_mls_group_with_lock(
             client.context.mls_storage(),
             |mls_group| {
-                validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
+                validate_dm_group(&client.context, &mls_group, added_by_inbox)
+                    .map_err(GroupMessageProcessingError::MetadataPermissionsError)
+                    .map_err(Into::into)
             }
         ),
-        Err(GroupError::MetadataPermissionsError(
-            MetadataPermissionsError::DmValidation(DmValidationError::InvalidPermissions)
+        Err(GroupError::ReceiveError(
+            GroupMessageProcessingError::MetadataPermissionsError(
+                MetadataPermissionsError::DmValidation(DmValidationError::InvalidPermissions)
+            )
         ))
     ));
 }
@@ -4169,8 +4193,10 @@ async fn test_app_data_in_dm() {
     let result = dm.update_app_data("test data".to_string()).await;
     assert!(matches!(
         result,
-        Err(GroupError::MetadataPermissionsError(
-            MetadataPermissionsError::DmGroupMetadataForbidden
+        Err(GroupError::ReceiveError(
+            GroupMessageProcessingError::MetadataPermissionsError(
+                MetadataPermissionsError::DmGroupMetadataForbidden
+            )
         ))
     ));
 }

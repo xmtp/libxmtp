@@ -47,7 +47,7 @@ pub enum MetadataField {
     MessageDisappearFromNS,
     MessageDisappearInNS,
     MinimumSupportedProtocolVersion,
-    CommitLogSigner,
+    Salt,
     AppData,
 }
 
@@ -62,7 +62,7 @@ impl MetadataField {
             MetadataField::MessageDisappearInNS => "message_disappear_in_ns",
             MetadataField::MinimumSupportedProtocolVersion => "minimum_supported_protocol_version",
             // Uses SUPER_ADMIN_METADATA_PREFIX ("_") to make this field super-admin only
-            MetadataField::CommitLogSigner => "_commit_log_signer",
+            MetadataField::Salt => "_salt",
             MetadataField::AppData => "app_data",
         }
     }
@@ -131,7 +131,7 @@ impl GroupMutableMetadata {
     /// See `GroupMutablePermissions` for more details on super admin permissions.
     pub fn new_default(
         creator_inbox_id: String,
-        commit_log_signer: Option<Secret>,
+        salt: Option<Secret>,
         opts: GroupMetadataOptions,
     ) -> Self {
         let mut attributes = HashMap::new();
@@ -165,10 +165,10 @@ impl GroupMutableMetadata {
             );
         }
 
-        if let Some(signer) = commit_log_signer {
+        if let Some(salt) = salt {
             attributes.insert(
-                MetadataField::CommitLogSigner.to_string(),
-                hex::encode(signer.as_slice()),
+                MetadataField::Salt.to_string(),
+                hex::encode(salt.as_slice()),
             );
         }
 
@@ -215,7 +215,7 @@ impl GroupMutableMetadata {
 
         if let Some(signer) = commit_log_signer {
             attributes.insert(
-                MetadataField::CommitLogSigner.to_string(),
+                MetadataField::Salt.to_string(),
                 hex::encode(signer.as_slice()),
             );
         }
@@ -241,24 +241,25 @@ impl GroupMutableMetadata {
             MetadataField::MessageDisappearInNS,
             MetadataField::MinimumSupportedProtocolVersion,
             MetadataField::AppData,
+            MetadataField::Salt,
         ]
     }
 
     /// Checks if the given inbox ID is an admin.
-    pub fn is_admin(&self, inbox_id: &String) -> bool {
-        self.admin_list.contains(inbox_id)
+    pub fn is_admin(&self, inbox_id: &str) -> bool {
+        self.admin_list.iter().any(|a| a == inbox_id)
     }
 
     /// Checks if the given inbox ID is a super admin.
-    pub fn is_super_admin(&self, inbox_id: &String) -> bool {
-        self.super_admin_list.contains(inbox_id)
+    pub fn is_super_admin(&self, inbox_id: &str) -> bool {
+        self.super_admin_list.iter().any(|sa| sa == inbox_id)
     }
 
-    /// Retrieves the commit log signer secret from the metadata attributes.
+    /// Retrieves the group salt from the metadata attributes.
     /// Returns None if the field is not present or if hex decoding fails.
-    pub fn commit_log_signer(&self) -> Option<Secret> {
+    pub fn salt(&self) -> Option<Secret> {
         self.attributes
-            .get(&MetadataField::CommitLogSigner.to_string())
+            .get(&MetadataField::Salt.to_string())
             .and_then(|hex_str| hex::decode(hex_str).ok())
             .map(Secret::new)
     }
@@ -375,28 +376,22 @@ mod tests {
         let test_secret_hex = hex::encode(&test_secret_bytes);
 
         let mut attributes = HashMap::new();
-        attributes.insert(
-            MetadataField::CommitLogSigner.to_string(),
-            test_secret_hex.clone(),
-        );
+        attributes.insert(MetadataField::Salt.to_string(), test_secret_hex.clone());
 
         let metadata = GroupMutableMetadata::new(attributes, vec![], vec![]);
 
-        let retrieved_secret = metadata.commit_log_signer().unwrap();
+        let retrieved_secret = metadata.salt().unwrap();
         assert_eq!(retrieved_secret.as_slice(), &test_secret_bytes);
 
         // Test with missing signer
         let empty_metadata = GroupMutableMetadata::new(HashMap::new(), vec![], vec![]);
-        assert!(empty_metadata.commit_log_signer().is_none());
+        assert!(empty_metadata.salt().is_none());
 
         // Test with invalid hex
         let mut bad_attributes = HashMap::new();
-        bad_attributes.insert(
-            MetadataField::CommitLogSigner.to_string(),
-            "invalid_hex".to_string(),
-        );
+        bad_attributes.insert(MetadataField::Salt.to_string(), "invalid_hex".to_string());
 
         let bad_metadata = GroupMutableMetadata::new(bad_attributes, vec![], vec![]);
-        assert!(bad_metadata.commit_log_signer().is_none());
+        assert!(bad_metadata.salt().is_none());
     }
 }

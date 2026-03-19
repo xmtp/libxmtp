@@ -2,7 +2,6 @@ use super::{DbConnection, remote_commit_log::CommitResult, schema::local_commit_
 use crate::{ConnectionExt, impl_store, schema::local_commit_log};
 use diesel::{Insertable, Queryable, prelude::*};
 use xmtp_common::snippet::Snippet;
-use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
 pub enum CommitType {
     GroupCreation,
@@ -36,7 +35,6 @@ impl std::fmt::Display for CommitType {
 pub struct NewLocalCommitLog {
     pub group_id: Vec<u8>,
     pub commit_sequence_id: i64,
-    pub last_epoch_authenticator: Vec<u8>,
     pub commit_result: CommitResult,
     pub applied_epoch_number: i64,
     pub applied_epoch_authenticator: Vec<u8>,
@@ -53,7 +51,6 @@ pub struct LocalCommitLog {
     pub rowid: i32,
     pub group_id: Vec<u8>,
     pub commit_sequence_id: i64,
-    pub last_epoch_authenticator: Vec<u8>,
     pub commit_result: CommitResult,
     pub applied_epoch_number: i64,
     pub applied_epoch_authenticator: Vec<u8>,
@@ -61,19 +58,6 @@ pub struct LocalCommitLog {
     pub sender_inbox_id: Option<String>,
     pub sender_installation_id: Option<Vec<u8>>,
     pub commit_type: Option<String>,
-}
-
-impl From<&LocalCommitLog> for PlaintextCommitLogEntry {
-    fn from(local_commit_log: &LocalCommitLog) -> Self {
-        PlaintextCommitLogEntry {
-            group_id: local_commit_log.group_id.clone(),
-            commit_sequence_id: local_commit_log.commit_sequence_id as u64,
-            last_epoch_authenticator: local_commit_log.last_epoch_authenticator.clone(),
-            commit_result: local_commit_log.commit_result.into(),
-            applied_epoch_number: local_commit_log.applied_epoch_number as u64,
-            applied_epoch_authenticator: local_commit_log.applied_epoch_authenticator.clone(),
-        }
-    }
 }
 
 impl From<CommitResult> for i32 {
@@ -104,11 +88,10 @@ impl std::fmt::Debug for LocalCommitLog {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "LocalCommitLog {{ rowid: {:?}, group_id {:?}, commit_sequence_id: {:?}, last_epoch_authenticator: {:?}, commit_result: {:?}, error_message: {:?}, applied_epoch_number: {:?}, applied_epoch_authenticator: {:?}, sender_inbox_id: {:?}, sender_installation_id: {:?}, commit_type: {:?} }}",
+            "LocalCommitLog {{ rowid: {:?}, group_id {:?}, commit_sequence_id: {:?}, commit_result: {:?}, error_message: {:?}, applied_epoch_number: {:?}, applied_epoch_authenticator: {:?}, sender_inbox_id: {:?}, sender_installation_id: {:?}, commit_type: {:?} }}",
             self.rowid,
             &self.group_id.snippet(),
             self.commit_sequence_id,
-            &self.last_epoch_authenticator.snippet(),
             self.commit_result,
             self.error_message,
             self.applied_epoch_number,
