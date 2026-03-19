@@ -22,7 +22,7 @@ parking_lot.workspace = true
 prost.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["macros"] }
+tokio.workspace = true
 tracing = { workspace = true, features = ["release_max_level_debug"] }
 tracing-appender = "0.2"
 tracing-subscriber = { workspace = true, features = [

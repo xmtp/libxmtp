@@ -34,16 +34,7 @@
         ++ lib.optionals pkgs.stdenv.isLinux linuxGnuTargets
         ++ lib.optionals pkgs.stdenv.isDarwin darwinTargets;
 
-      crossPkgs = lib.genAttrs nodeTargets (
-        target:
-        (import inputs.nixpkgs (
-          self.lib.pkgConfig
-          // {
-            localSystem = system;
-            crossSystem = target;
-          }
-        ))
-      );
+      crossPkgs = self.lib.mkCrossPkgs system nodeTargets;
       mkNodeBindings = p: p.callPackage ./package/node-bindings.nix;
     in
     {

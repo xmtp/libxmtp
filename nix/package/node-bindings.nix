@@ -31,11 +31,8 @@ let
   commonArgs =
     xmtp.base.commonArgs
     // {
-      inherit src version;
-      # strictDeps breaks darwin build with ring
+      inherit version;
       CARGO_PROFILE = "release";
-      # this needs to be set for cargoArtifacts to inherit properly
-      # since napi implicitly sets --target.
       CARGO_BUILD_TARGET = stdenv.hostPlatform.rust.rustcTarget;
     }
     // lib.optionalAttrs stdenv.hostPlatform.isMusl {
@@ -43,22 +40,18 @@ let
       RUSTFLAGS = "-C target-feature=-crt-static";
     };
 
-  cargoArtifacts = rust.buildDepsOnly (
-    commonArgs
-    // {
-      buildPhaseCargoCommand = "cargo build -p bindings_node ${maybeTestFeature} --profile $CARGO_PROFILE --locked";
-    }
-  );
+  cargoArtifacts = xmtp.base.mkCargoArtifacts rust test;
 in
 rust.napiBuild (
   commonArgs
   // {
-    inherit cargoArtifacts;
+    inherit src cargoArtifacts;
     SSL_CERT_FILE = "${cacert}/etc/ssl/certs/ca-bundle.crt";
     NODE_EXTRA_CA_CERTS = "${cacert}/etc/ssl/certs/ca-bundle.crt";
     napiExtraArgs = "-p bindings_node ${maybeTestFeature} --package-json-path ${src}/bindings/node/package.json";
     pname = "bindings-node-js";
     napiGenerateJs = withJs;
+    INVALIDATE_CACHE = 1;
   }
   // lib.optionalAttrs stdenv.hostPlatform.isMusl {
     # remove nix specific rpaths for compatibility with musl dynamic linker

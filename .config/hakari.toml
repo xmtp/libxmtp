@@ -29,20 +29,20 @@ platforms = [
 
 # Including mio/tokio breaks webassembly builds since net features are mutually exclusive with wasm
 [traversal-excludes]
-third-party = [
-  { name = "hyper" },
-  { name = "mio" },
-  { name = "tokio" },
-  { name = "uniffi" },
-  { name = "wasm-bindgen" },
+workspace-members = [
+  "xmtp_cli",
+  "log_parser",
+  "xmtp-db-tools",
+  "xdbg",
+  "error_glossary",
 ]
-workspace-members = ["xmtp_cli", "log_parser", "xmtp-db-tools", "xdbg"]
+
 [final-excludes]
-third-party = [
-  { name = "hyper" },
-  { name = "mio" },
-  { name = "tokio" },
-  { name = "uniffi" },
-  { name = "wasm-bindgen" },
+workspace-members = [
+  "xmtp_cli",
+  "log_parser",
+  "xmtp-db-tools",
+  "xdbg",
+  "error_glossary",
+  "bindings_wasm",
 ]
-workspace-members = ["xmtp_cli", "log_parser", "xmtp-db-tools", "xdbg"]

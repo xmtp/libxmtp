@@ -50,9 +50,28 @@ let
     doCheck = false;
     # Disable zerocallusedregs hardening which can cause issues with cross-compilation.
     hardeningDisable = [ "zerocallusedregs" ];
+    CARGO_BUILD_TARGET = stdenv.hostPlatform.rust.rustcTarget;
+    CARGO_PROFILE = "release";
   };
+
+  mkCargoArtifacts =
+    rust: test:
+    let
+      maybeTestFeature = if test then "--features test-utils" else "";
+    in
+    rust.buildDepsOnly (
+      commonArgs
+      // {
+        buildPhaseCargoCommand = "cargo build ${maybeTestFeature} --profile $CARGO_PROFILE --locked";
+      }
+    );
 
 in
 {
-  inherit depsFileset bindingsFileset commonArgs;
+  inherit
+    depsFileset
+    bindingsFileset
+    commonArgs
+    mkCargoArtifacts
+    ;
 }

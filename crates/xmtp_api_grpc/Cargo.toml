@@ -63,10 +63,10 @@ toxiproxy_rust.workspace = true
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
-tokio = { workspace = true, features = ["io-util"] }
+tokio = { workspace = true }
 pbjson-types.workspace = true
 tokio-stream.workspace = true
-hyper-util = { version = "0.1" }
+hyper-util.workspace = true
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
