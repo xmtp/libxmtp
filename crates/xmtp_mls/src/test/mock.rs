@@ -91,6 +91,8 @@ impl Clone for NewMockContext {
             fork_recovery_opts: self.fork_recovery_opts.clone(),
             task_channels: self.task_channels.clone(),
             worker_metrics: self.worker_metrics.clone(),
+            consistency_provider: self.consistency_provider.clone(),
+            consistency_opts: self.consistency_opts.clone(),
         }
     }
 }

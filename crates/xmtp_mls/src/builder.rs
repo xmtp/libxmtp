@@ -106,6 +106,8 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) sync_api_client: Option<ApiClient>,
     pub(crate) cursor_store: Option<Arc<dyn CursorStore>>,
     pub(crate) disable_workers: bool,
+    pub(crate) consistency_provider: Option<Arc<dyn xmtp_api::NetworkConsistencyProvider>>,
+    pub(crate) consistency_opts: xmtp_api::NetworkConsistencyOpts,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -165,6 +167,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: None,
             cursor_store: None,
             disable_workers: false,
+            consistency_provider: None,
+            consistency_opts: xmtp_api::NetworkConsistencyOpts::default(),
         }
     }
 }
@@ -196,6 +200,8 @@ where
             sync_api_client: Some(cloned_sync_api),
             cursor_store: None,
             disable_workers: false,
+            consistency_provider: client.context.consistency_provider.clone(),
+            consistency_opts: client.context.consistency_opts.clone(),
         }
     }
 }
@@ -239,6 +245,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mut sync_api_client,
             // cursor_store,
             disable_workers,
+            consistency_provider,
+            consistency_opts,
             ..
         } = self;
 
@@ -319,6 +327,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client,
             worker_metrics: workers.metrics().clone(),
             task_channels: workers.task_channels().clone(),
+            consistency_provider,
+            consistency_opts,
         });
 
         // register workers
@@ -405,6 +415,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            consistency_provider: self.consistency_provider,
+            consistency_opts: self.consistency_opts,
         }
     }
 
@@ -440,6 +452,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            consistency_provider: self.consistency_provider,
+            consistency_opts: self.consistency_opts,
         })
     }
 
@@ -459,6 +473,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            consistency_provider: self.consistency_provider,
+            consistency_opts: self.consistency_opts,
         }
     }
 
@@ -507,6 +523,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: Some(sync_api_client),
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            consistency_provider: self.consistency_provider,
+            consistency_opts: self.consistency_opts,
         }
     }
 
@@ -601,6 +619,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             )),
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            consistency_provider: self.consistency_provider,
+            consistency_opts: self.consistency_opts,
         })
     }
 
@@ -633,6 +653,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             )),
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            consistency_provider: self.consistency_provider,
+            consistency_opts: self.consistency_opts,
         })
     }
 
@@ -656,7 +678,22 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            consistency_provider: self.consistency_provider,
+            consistency_opts: self.consistency_opts,
         }
+    }
+
+    pub fn with_consistency_provider(
+        mut self,
+        provider: impl xmtp_api::NetworkConsistencyProvider + 'static,
+    ) -> Self {
+        self.consistency_provider = Some(Arc::new(provider));
+        self
+    }
+
+    pub fn with_consistency_opts(mut self, opts: xmtp_api::NetworkConsistencyOpts) -> Self {
+        self.consistency_opts = opts;
+        self
     }
 
     /// Build the client with a default remote verifier
@@ -688,6 +725,57 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             sync_api_client: self.sync_api_client,
             cursor_store: self.cursor_store,
             disable_workers: self.disable_workers,
+            consistency_provider: self.consistency_provider,
+            consistency_opts: self.consistency_opts,
         })
+    }
+}
+
+#[cfg(test)]
+mod consistency_builder_tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use xmtp_api::{NetworkConsistencyError, NetworkConsistencyOpts, NetworkConsistencyProvider};
+
+    struct AlwaysOkProvider(Arc<AtomicBool>);
+
+    #[xmtp_common::async_trait]
+    impl NetworkConsistencyProvider for AlwaysOkProvider {
+        async fn wait_until_visible(
+            &self,
+            _topics: xmtp_proto::types::TopicCursor,
+            _opts: &NetworkConsistencyOpts,
+        ) -> Result<(), NetworkConsistencyError> {
+            self.0.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[xmtp_common::test]
+    async fn with_consistency_provider_sets_field() {
+        let called = Arc::new(AtomicBool::new(false));
+        let provider = AlwaysOkProvider(Arc::clone(&called));
+
+        let builder = ClientBuilder::<(), (), ()>::new(IdentityStrategy::CachedOnly)
+            .with_consistency_provider(provider);
+        assert!(builder.consistency_provider.is_some());
+    }
+
+    #[xmtp_common::test]
+    async fn with_consistency_opts_sets_field() {
+        let opts = NetworkConsistencyOpts {
+            max_attempts: 42,
+            ..NetworkConsistencyOpts::default()
+        };
+        let builder = ClientBuilder::<(), (), ()>::new(IdentityStrategy::CachedOnly)
+            .with_consistency_opts(opts);
+        assert_eq!(builder.consistency_opts.max_attempts, 42);
+    }
+
+    #[xmtp_common::test]
+    async fn default_consistency_provider_is_none() {
+        let builder = ClientBuilder::<(), (), ()>::new(IdentityStrategy::CachedOnly);
+        assert!(builder.consistency_provider.is_none());
     }
 }

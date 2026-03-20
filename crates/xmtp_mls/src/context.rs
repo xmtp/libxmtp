@@ -51,6 +51,8 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     // pub(crate) workers: Arc<WorkerRunner>,
     pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
     pub(crate) task_channels: TaskWorkerChannels,
+    pub consistency_provider: Option<Arc<dyn xmtp_api::NetworkConsistencyProvider>>,
+    pub consistency_opts: xmtp_api::NetworkConsistencyOpts,
 }
 
 impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S>
@@ -117,6 +119,8 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             fork_recovery_opts: self.fork_recovery_opts,
             worker_metrics: self.worker_metrics,
             task_channels: self.task_channels,
+            consistency_provider: self.consistency_provider,
+            consistency_opts: self.consistency_opts,
         }
     }
 }
