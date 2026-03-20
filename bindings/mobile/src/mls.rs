@@ -121,6 +121,8 @@ pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
 pub struct XmtpApiClient {
     wrapper: ApiClientWrapper<xmtp_mls::XmtpApiClient>,
     client_bundle: ClientBundle,
+    gateway_host: Option<String>,
+    app_version: Option<String>,
 }
 
 impl XmtpApiClient {
@@ -155,7 +157,7 @@ pub async fn connect_to_backend(
     let mut client_bundle = ClientBundle::builder();
     let client_bundle = client_bundle
         .v3_host(&v3_host)
-        .maybe_gateway_host(gateway_host)
+        .maybe_gateway_host(gateway_host.clone())
         .app_version(app_version.clone().unwrap_or_default())
         .maybe_auth_callback(
             auth_callback
@@ -173,6 +175,8 @@ pub async fn connect_to_backend(
     Ok(Arc::new(XmtpApiClient {
         wrapper: api,
         client_bundle,
+        gateway_host,
+        app_version,
     }))
 }
 
@@ -352,6 +356,7 @@ pub async fn create_client(
     device_sync_mode: Option<FfiDeviceSyncMode>,
     allow_offline: Option<bool>,
     fork_recovery_opts: Option<FfiForkRecoveryOpts>,
+    wait_for_identity_propagation: bool,
 ) -> Result<Arc<FfiXmtpClient>, FfiError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -406,6 +411,9 @@ pub async fn create_client(
         legacy_signed_private_key_proto,
     );
 
+    // Extract gateway_host and app_version before consuming the Arc.
+    let api_gateway_host = api.gateway_host.clone();
+    let api_app_version = api.app_version.clone();
     let api_client: xmtp_mls::XmtpClientBundle = Arc::unwrap_or_clone(api).client_bundle;
     let sync_api_client: xmtp_mls::XmtpClientBundle = Arc::unwrap_or_clone(sync_api).client_bundle;
     let cursor_store = Arc::new(SqliteCursorStore::new(store.db()));
@@ -428,6 +436,19 @@ pub async fn create_client(
 
     if let Some(fork_recovery_opts) = fork_recovery_opts {
         builder = builder.fork_recovery_opts(fork_recovery_opts.into());
+    }
+
+    if wait_for_identity_propagation {
+        let mut checker_builder = MessageBackendBuilder::default();
+        if let Some(ref host) = api_gateway_host {
+            checker_builder.gateway_host(host);
+        }
+        if let Some(ref version) = api_app_version {
+            checker_builder.app_version(version);
+        }
+        if let Some(checker) = checker_builder.build_d14n_consistency_checker() {
+            builder = builder.with_consistency_provider(checker);
+        }
     }
 
     let xmtp_client = builder.default_mls_store()?.build().await?;

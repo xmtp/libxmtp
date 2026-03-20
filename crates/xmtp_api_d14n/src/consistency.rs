@@ -112,43 +112,44 @@ fn all_topics_satisfied(
     topics.iter().all(|(topic, global_cursor)| {
         let topic_bytes = topic.cloned_vec();
 
-        // Decode all envelopes for this specific topic once, up-front.
-        let topic_envelopes: Vec<(u32, u64)> = envelopes
-            .iter()
-            .filter_map(|env| {
-                let unsigned =
-                    UnsignedOriginatorEnvelope::decode(env.unsigned_originator_envelope.as_slice())
-                        .ok()?;
-
-                // Decode the payer envelope to reach the client envelope.
-                let payer_env = xmtp_proto::xmtp::xmtpv4::envelopes::PayerEnvelope::decode(
-                    unsigned.payer_envelope_bytes.as_slice(),
-                )
-                .ok()?;
-
-                // Decode the client envelope to retrieve the target topic.
-                let client_env = xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope::decode(
-                    payer_env.unsigned_client_envelope.as_slice(),
-                )
-                .ok()?;
-
-                if client_env.aad.as_ref().map(|a| &a.target_topic) != Some(&topic_bytes) {
-                    return None;
-                }
-
-                Some((unsigned.originator_node_id, unsigned.originator_sequence_id))
-            })
-            .collect();
-
         // For each (originator_id, required_seq) in the GlobalCursor, there
         // must be at least one envelope from that originator with
         // sequence_id >= required_seq.
         //
+        // GlobalCursor typically has very few entries (usually 1), so we
+        // iterate envelopes per cursor entry with early exit via `.any()`.
+        //
         // If GlobalCursor is empty, cursors() yields nothing and all() returns
         // true vacuously — meaning an empty cursor is satisfied by anything.
         global_cursor.cursors().all(|required_cursor| {
-            topic_envelopes.iter().any(|&(orig_id, seq_id)| {
-                orig_id == required_cursor.originator_id && seq_id >= required_cursor.sequence_id
+            envelopes.iter().any(|env| {
+                let unsigned =
+                    UnsignedOriginatorEnvelope::decode(env.unsigned_originator_envelope.as_slice())
+                        .ok();
+                let Some(unsigned) = unsigned else {
+                    return false;
+                };
+
+                if unsigned.originator_node_id != required_cursor.originator_id
+                    || unsigned.originator_sequence_id < required_cursor.sequence_id
+                {
+                    return false;
+                }
+
+                // Decode payer → client envelope to check the target topic.
+                xmtp_proto::xmtp::xmtpv4::envelopes::PayerEnvelope::decode(
+                    unsigned.payer_envelope_bytes.as_slice(),
+                )
+                .ok()
+                .and_then(|payer_env| {
+                    xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope::decode(
+                        payer_env.unsigned_client_envelope.as_slice(),
+                    )
+                    .ok()
+                })
+                .is_some_and(|client_env| {
+                    client_env.aad.as_ref().map(|a| &a.target_topic) == Some(&topic_bytes)
+                })
             })
         })
     })
@@ -183,6 +184,7 @@ async fn poll_until_visible(
                 originator_node_ids: vec![],
                 last_seen: None,
             })
+            .limit(5u32)
             .build()
         {
             Ok(e) => e,

@@ -38,7 +38,7 @@ where
     async fn publish_identity_update(
         &self,
         request: identity_v1::PublishIdentityUpdateRequest,
-    ) -> Result<(identity_v1::PublishIdentityUpdateResponse, Option<Cursor>), Self::Error> {
+    ) -> Result<Option<Cursor>, Self::Error> {
         let update = request.identity_update.ok_or(ConversionError::Missing {
             item: "identity_update",
             r#type: std::any::type_name::<identity_v1::PublishIdentityUpdateRequest>(),
@@ -63,7 +63,7 @@ where
                 .map(|u| Cursor::new(u.originator_sequence_id, u.originator_node_id))
         });
 
-        Ok((identity_v1::PublishIdentityUpdateResponse {}, cursor))
+        Ok(cursor)
     }
 
     #[tracing::instrument(level = "trace", skip_all)]

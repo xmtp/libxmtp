@@ -987,7 +987,13 @@ where
         if let (Some(provider), Some(cursor)) = (self.context.consistency_provider(), cursor) {
             use crate::identity_updates::build_consistency_topics;
             let inbox_id = self.inbox_id().to_string();
-            let topics = build_consistency_topics(&inbox_id, cursor);
+            let inbox_id_bytes = hex::decode(&inbox_id).unwrap_or_else(|_| {
+                tracing::warn!(
+                    "inbox_id '{inbox_id}' is not hex-encoded; consistency check topic may not match"
+                );
+                inbox_id.as_bytes().to_vec()
+            });
+            let topics = build_consistency_topics(&inbox_id_bytes, cursor);
             provider
                 .wait_until_visible(topics, self.context.consistency_opts())
                 .await

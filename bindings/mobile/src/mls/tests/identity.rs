@@ -39,6 +39,7 @@ async fn test_can_add_wallet_to_inbox() {
         None,
         None,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -137,6 +138,7 @@ async fn test_can_revoke_wallet() {
         None,
         None,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -233,6 +235,7 @@ async fn test_invalid_external_signature() {
         None,
         None,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -426,6 +429,7 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
         None,
         None,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -470,6 +474,7 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
         None,
         None,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -558,6 +563,7 @@ async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
         None,
         None,
         None,
+        false,
     )
     .await;
 
@@ -597,6 +603,7 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
         None,
         None,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -624,6 +631,7 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
         None,
         None,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -648,6 +656,7 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
         None,
         None,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -683,6 +692,7 @@ async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() 
         None,
         None,
         None,
+        false,
     )
     .await;
 
@@ -794,6 +804,7 @@ async fn test_sorts_members_by_created_at_using_ffi_identifiers() {
         None,
         None,
         None,
+        false,
     )
     .await
     .unwrap();

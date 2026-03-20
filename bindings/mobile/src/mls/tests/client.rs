@@ -24,6 +24,7 @@ async fn test_create_client_with_storage() {
         None,
         None,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -43,6 +44,7 @@ async fn test_create_client_with_storage() {
         None,
         None,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -78,6 +80,7 @@ async fn test_create_client_with_key() {
         None,
         None,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -98,6 +101,7 @@ async fn test_create_client_with_key() {
         None,
         None,
         None,
+        false,
     )
     .await
     .is_err();
@@ -128,6 +132,7 @@ async fn test_can_message() {
         None,
         None,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -168,6 +173,7 @@ async fn test_can_message() {
         None,
         None,
         None,
+        false,
     )
     .await
     .unwrap();

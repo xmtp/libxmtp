@@ -143,8 +143,8 @@ pub async fn create_client_with_backend(
     allow_offline,
     Some(backend.app_version()),
     nonce.unwrap_or(1),
-    None,
-    None,
+    &mbb,
+    false,
   )
   .await
 }

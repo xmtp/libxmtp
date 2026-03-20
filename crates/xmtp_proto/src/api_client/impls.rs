@@ -338,7 +338,7 @@ where
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,
-    ) -> Result<(PublishIdentityUpdateResponse, Option<crate::types::Cursor>), Self::Error> {
+    ) -> Result<Option<crate::types::Cursor>, Self::Error> {
         (**self).publish_identity_update(request).await
     }
 
@@ -376,7 +376,7 @@ where
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,
-    ) -> Result<(PublishIdentityUpdateResponse, Option<crate::types::Cursor>), Self::Error> {
+    ) -> Result<Option<crate::types::Cursor>, Self::Error> {
         (**self).publish_identity_update(request).await
     }
 

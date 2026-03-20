@@ -189,6 +189,7 @@ where
         Some(builder.sync_mode.into()),
         None,
         None,
+        false,
     )
     .await
     .unwrap();

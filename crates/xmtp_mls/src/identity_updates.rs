@@ -170,22 +170,15 @@ pub async fn apply_signature_request_with_verifier<ApiClient: XmtpApi>(
 /// Build a [`xmtp_proto::types::TopicCursor`] that requires the given identity-update
 /// `cursor` to be visible on the identity-update topic for `inbox_id`.
 ///
-/// `inbox_id` is the hex-encoded inbox ID string; this function decodes it to bytes
-/// before constructing the topic, as required by [`xmtp_proto::types::Topic::new_identity_update`].
+/// `inbox_id` is the raw inbox ID bytes (the caller is responsible for hex-decoding
+/// if the inbox ID is stored as a hex string).
 pub(crate) fn build_consistency_topics(
-    inbox_id: &str,
+    inbox_id: &[u8],
     cursor: xmtp_proto::types::Cursor,
 ) -> xmtp_proto::types::TopicCursor {
     use xmtp_proto::types::{GlobalCursor, Topic, TopicCursor};
     let mut topics = TopicCursor::default();
-    // Identity update topic requires hex-decoded bytes, not the raw UTF-8 string.
-    let inbox_id_bytes = hex::decode(inbox_id).unwrap_or_else(|_| {
-        tracing::warn!(
-            "inbox_id '{inbox_id}' is not hex-encoded; consistency check topic may not match"
-        );
-        inbox_id.as_bytes().to_vec()
-    });
-    let id_topic = Topic::new_identity_update(inbox_id_bytes);
+    let id_topic = Topic::new_identity_update(inbox_id);
     // Build a GlobalCursor from the publish-response cursor so we can assert
     // that at least this originator's sequence position is visible.
     let mut id_cursor = GlobalCursor::default();
@@ -504,7 +497,9 @@ where
         // If a consistency provider is set and the publish returned a cursor,
         // wait until the identity update is visible on all nodes.
         if let (Some(provider), Some(cursor)) = (self.context.consistency_provider(), cursor) {
-            let topics = build_consistency_topics(&inbox_id, cursor);
+            let inbox_id_bytes =
+                hex::decode(&inbox_id).map_err(|e| ClientError::PublishError(e.to_string()))?;
+            let topics = build_consistency_topics(&inbox_id_bytes, cursor);
             provider
                 .wait_until_visible(topics, self.context.consistency_opts())
                 .await
@@ -1491,7 +1486,7 @@ mod consistency_call_site_tests {
         let cursor = xmtp_proto::types::Cursor::new(42, 1u32);
 
         // Directly test the consistency invocation logic
-        let topics = build_consistency_topics("deadbeef", cursor);
+        let topics = build_consistency_topics(&hex::decode("deadbeef").unwrap(), cursor);
         provider.wait_until_visible(topics, &opts).await?;
         assert!(
             called.load(Ordering::SeqCst),
@@ -1503,8 +1498,8 @@ mod consistency_call_site_tests {
     async fn build_consistency_topics_contains_identity_topic() {
         // A valid hex inbox_id should produce a topic entry
         let cursor = xmtp_proto::types::Cursor::new(10, 2u32);
-        let inbox_id = "deadbeef";
-        let topics = build_consistency_topics(inbox_id, cursor);
+        let inbox_id_bytes = hex::decode("deadbeef").unwrap();
+        let topics = build_consistency_topics(&inbox_id_bytes, cursor);
         assert_eq!(
             topics.len(),
             1,
@@ -1514,9 +1509,9 @@ mod consistency_call_site_tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn build_consistency_topics_with_non_hex_inbox_id() {
-        // Non-hex inbox_id falls back to UTF-8 bytes — still produces one topic entry
+        // Raw bytes inbox_id — still produces one topic entry
         let cursor = xmtp_proto::types::Cursor::new(1, 1u32);
-        let topics = build_consistency_topics("not-hex-at-all!", cursor);
+        let topics = build_consistency_topics(b"not-hex-at-all!", cursor);
         assert_eq!(
             topics.len(),
             1,

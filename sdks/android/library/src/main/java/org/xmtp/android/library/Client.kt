@@ -338,6 +338,7 @@ class Client(
                         deviceSyncMode = null,
                         allowOffline = false,
                         forkRecoveryOpts = null,
+                        waitForIdentityPropagation = false,
                     )
 
                 useClient(ffiClient)
@@ -530,6 +531,7 @@ class Client(
                             },
                         allowOffline = buildOffline,
                         forkRecoveryOpts = options.forkRecoveryOptions?.toFfi(),
+                        waitForIdentityPropagation = false,
                     )
                 Pair(ffiClient, dbPath)
             }

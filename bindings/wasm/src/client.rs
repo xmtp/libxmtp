@@ -225,8 +225,8 @@ pub(crate) async fn create_client_inner(
   allow_offline: Option<bool>,
   app_version: Option<String>,
   nonce: u64,
-  wait_for_identity_propagation: Option<bool>,
-  gateway_host: Option<String>,
+  backend: &MessageBackendBuilder,
+  wait_for_identity_propagation: bool,
 ) -> Result<Client, JsError> {
   let identity_strategy = IdentityStrategy::new(
     inbox_id,
@@ -247,14 +247,8 @@ pub(crate) async fn create_client_inner(
     builder = builder.device_sync_worker_mode(device_sync_worker_mode.into());
   }
 
-  if wait_for_identity_propagation.unwrap_or(false) {
-    let mut backend_builder = MessageBackendBuilder::default();
-    if let Some(ref host) = gateway_host {
-      backend_builder.gateway_host(host);
-    }
-    if let Some(checker) = backend_builder.build_d14n_consistency_checker() {
-      builder = builder.with_consistency_provider(checker);
-    }
+  if wait_for_identity_propagation && let Some(checker) = backend.build_d14n_consistency_checker() {
+    builder = builder.with_consistency_provider(checker);
   }
 
   let xmtp_client = builder
@@ -327,8 +321,8 @@ pub async fn create_client(
     allow_offline,
     app_version,
     nonce.unwrap_or(1),
-    wait_for_identity_propagation,
-    gateway_host,
+    &backend,
+    wait_for_identity_propagation.unwrap_or(false),
   )
   .await
 }
