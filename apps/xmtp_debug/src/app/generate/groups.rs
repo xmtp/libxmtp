@@ -86,7 +86,8 @@ impl GenerateGroups {
                             create_secs,
                             "group_create",
                             "xdbg_debug",
-                        ).await;
+                        )
+                        .await;
 
                         if let Some(ref invitee) = first_invitee {
                             check_member_visibility(&group_id, invitee, &network_clone).await;
@@ -99,7 +100,8 @@ impl GenerateGroups {
                             total_secs,
                             "group_total",
                             "xdbg_debug",
-                        ).await;
+                        )
+                        .await;
 
                         bar_pointer.inc(1);
 

@@ -86,7 +86,8 @@ impl GenerateIdentity {
                             init_secs,
                             "client_init",
                             "xdbg_debug",
-                        ).await;
+                        )
+                        .await;
 
                         bar_pointer
                             .set_message(format!("generated client {}", c.identity().inbox_id()));
@@ -197,7 +198,8 @@ impl GenerateIdentity {
                             register_secs,
                             "register",
                             "xdbg_debug",
-                        ).await;
+                        )
+                        .await;
 
                         Ok(identity)
                     }
@@ -334,7 +336,8 @@ async fn measure_sync_and_lookup(
         sync_secs,
         "identity_read_sync",
         "xdbg_debug",
-    ).await;
+    )
+    .await;
 
     // -- identity lookup latency --
     let t_lookup = Instant::now();
@@ -349,7 +352,8 @@ async fn measure_sync_and_lookup(
         lookup_secs,
         "identity_read",
         "xdbg_debug",
-    ).await;
+    )
+    .await;
 
     Ok(())
 }
@@ -375,7 +379,8 @@ async fn verify_identities_readable(
             verify_secs,
             "verify_identity_read",
             "xdbg_debug",
-        ).await;
+        )
+        .await;
     }
     Ok(())
 }

@@ -58,7 +58,8 @@ impl Test {
                 latency as f64 / 1000.0,
                 "message_visibility",
                 "xdbg_test",
-            ).await;
+            )
+            .await;
             info!(
                 iteration = i + 1,
                 latency_ms = latency,
@@ -202,7 +203,8 @@ impl Test {
                 latency as f64 / 1000.0,
                 "group_sync",
                 "xdbg_test",
-            ).await;
+            )
+            .await;
             info!(
                 iteration = i + 1,
                 sync_latency_ms = latency,
@@ -506,12 +508,9 @@ impl Test {
         // After send_message + sync, the SDK has the V3 cursor for our message.
         // Extract it so we can match the exact (originator_id, sequence_id) on V4.
         let v3_messages = group.find_messages(&Default::default())?;
-        let our_msg = v3_messages
-            .iter()
-            .rev()
-            .find(|m| {
-                String::from_utf8_lossy(&m.decrypted_message_bytes).contains("__MIGRATION_MONITOR__")
-            });
+        let our_msg = v3_messages.iter().rev().find(|m| {
+            String::from_utf8_lossy(&m.decrypted_message_bytes).contains("__MIGRATION_MONITOR__")
+        });
         let (expected_originator, expected_sequence) = if let Some(msg) = our_msg {
             (msg.originator_id as u32, msg.sequence_id as u64)
         } else {
@@ -520,8 +519,7 @@ impl Test {
 
         info!(
             expected_originator,
-            expected_sequence,
-            "message sent on V3, starting V4 poll"
+            expected_sequence, "message sent on V3, starting V4 poll"
         );
 
         // Step 5: Poll V4 for the migrated envelope
