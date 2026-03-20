@@ -158,6 +158,7 @@ pub async fn apply_signature_request_with_verifier<ApiClient: XmtpApi>(
     identity_update.to_verified(scw_verifier).await?;
 
     // We don't need to validate the update, since the server will do this for us
+    // TODO(task-6): pass cursor to consistency provider in wait_until_visible
     let _cursor = api_client.publish_identity_update(identity_update).await?;
 
     Ok(())

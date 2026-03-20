@@ -55,6 +55,10 @@ where
 
         let cursor = response.originator_envelopes.first().and_then(|e| {
             UnsignedOriginatorEnvelope::decode(e.unsigned_originator_envelope.as_slice())
+                .map_err(|e| {
+                    tracing::warn!("Failed to decode UnsignedOriginatorEnvelope for cursor extraction: {e}");
+                    e
+                })
                 .ok()
                 .map(|u| Cursor::new(u.originator_sequence_id, u.originator_node_id))
         });
@@ -181,6 +185,9 @@ mod cursor_extraction_tests {
     use xmtp_proto::xmtp::xmtpv4::envelopes::{OriginatorEnvelope, UnsignedOriginatorEnvelope};
     use xmtp_proto::xmtp::xmtpv4::payer_api::PublishClientEnvelopesResponse;
 
+    // This test verifies the cursor extraction logic in isolation.
+    // The actual publish_identity_update function cannot be tested here
+    // without network access; integration tests cover the full path.
     #[test]
     fn d14n_extracts_cursor_from_payer_response() {
         let unsigned = UnsignedOriginatorEnvelope {

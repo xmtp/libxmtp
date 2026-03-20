@@ -971,6 +971,7 @@ where
             .await?;
 
         // Step 4: Publish identity update (makes installation visible)
+        // TODO(task-6): pass cursor to consistency provider in wait_until_visible
         let _cursor = self
             .context
             .api()

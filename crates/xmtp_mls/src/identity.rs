@@ -568,6 +568,7 @@ impl Identity {
             identity.register(api_client, mls_storage).await?;
 
             let identity_update = signature_request.build_identity_update()?;
+            // TODO(task-6): pass cursor to consistency provider in wait_until_visible
             let _cursor = api_client.publish_identity_update(identity_update).await?;
 
             Ok(identity)
