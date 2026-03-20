@@ -263,9 +263,9 @@ where
             };
             let mut backend_builder = xmtp_api_d14n::MessageBackendBuilder::default();
             backend_builder.gateway_host(gateway_host);
-            if let Some(checker) = backend_builder.build_d14n_consistency_checker() {
-                client = client.with_consistency_provider(checker);
-            }
+            let checker = backend_builder.build_d14n_consistency_checker()
+                .expect("wait_for_identity_propagation: failed to build D14nConsistencyChecker — is the gateway URL configured correctly?");
+            client = client.with_consistency_provider(checker);
         }
 
         let client = client.default_mls_store().unwrap().build().await.unwrap();

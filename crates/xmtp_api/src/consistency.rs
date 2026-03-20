@@ -1,6 +1,7 @@
 // Re-export consistency types from xmtp_api_d14n where they are defined.
-// They live in xmtp_api_d14n to avoid a circular dependency
-// (xmtp_api depends on xmtp_api_d14n).
+// They live in xmtp_api_d14n because xmtp_api already depends on xmtp_api_d14n,
+// so placing them in xmtp_api and having xmtp_api_d14n depend on xmtp_api would
+// create a circular dependency.
 pub use xmtp_api_d14n::consistency::{
     NetworkConsistencyError, NetworkConsistencyOpts, NetworkConsistencyProvider,
     NetworkConsistencyQuorum,
