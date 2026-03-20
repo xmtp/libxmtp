@@ -174,7 +174,7 @@ pub trait XmtpIdentityClient: MaybeSend + MaybeSync {
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,
-    ) -> Result<PublishIdentityUpdateResponse, Self::Error>;
+    ) -> Result<(PublishIdentityUpdateResponse, Option<crate::types::Cursor>), Self::Error>;
 
     async fn get_identity_updates_v2(
         &self,

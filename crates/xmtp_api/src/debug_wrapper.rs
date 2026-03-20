@@ -269,7 +269,7 @@ where
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,
-    ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
+    ) -> Result<(PublishIdentityUpdateResponse, Option<xmtp_proto::types::Cursor>), Self::Error> {
         wrap_err(
             || self.inner.publish_identity_update(request),
             || self.inner.aggregate_stats(),

@@ -568,7 +568,7 @@ impl Identity {
             identity.register(api_client, mls_storage).await?;
 
             let identity_update = signature_request.build_identity_update()?;
-            api_client.publish_identity_update(identity_update).await?;
+            let _cursor = api_client.publish_identity_update(identity_update).await?;
 
             Ok(identity)
         } else {

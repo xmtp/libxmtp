@@ -5,21 +5,25 @@ use crate::protocol::SequencedExtractor;
 use crate::protocol::traits::{Envelope, EnvelopeCollection, Extractor};
 use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds};
 use itertools::Itertools;
+use prost::Message;
 use std::collections::HashMap;
 use xmtp_configuration::Originators;
 use xmtp_id::associations::AccountId;
 use xmtp_id::scw_verifier::{SmartContractSignatureVerifier, VerifierError};
 use xmtp_proto::ConversionError;
-use xmtp_proto::api::{self, ApiClientError, Client, Query};
+use xmtp_proto::api::{ApiClientError, Client, Query};
 use xmtp_proto::api_client::XmtpIdentityClient;
 use xmtp_proto::identity_v1;
 use xmtp_proto::identity_v1::VerifySmartContractWalletSignatureRequestSignature;
 use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::identity_v1::verify_smart_contract_wallet_signatures_response::ValidationResponse;
+use xmtp_proto::types::Cursor;
 use xmtp_proto::types::Topic;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
-use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
+use xmtp_proto::xmtp::xmtpv4::envelopes::{
+    Cursor as ProtoCursor, UnsignedOriginatorEnvelope,
+};
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4, QueryEnvelopesResponse,
 };
@@ -36,22 +40,26 @@ where
     async fn publish_identity_update(
         &self,
         request: identity_v1::PublishIdentityUpdateRequest,
-    ) -> Result<identity_v1::PublishIdentityUpdateResponse, Self::Error> {
+    ) -> Result<(identity_v1::PublishIdentityUpdateResponse, Option<Cursor>), Self::Error> {
         let update = request.identity_update.ok_or(ConversionError::Missing {
             item: "identity_update",
             r#type: std::any::type_name::<identity_v1::PublishIdentityUpdateRequest>(),
         })?;
 
         let envelopes = update.client_envelope()?;
-        api::ignore(
-            PublishClientEnvelopes::builder()
-                .envelope(envelopes)
-                .build()?,
-        )
-        .query(&self.client)
-        .await?;
+        let response = PublishClientEnvelopes::builder()
+            .envelope(envelopes)
+            .build()?
+            .query(&self.client)
+            .await?;
 
-        Ok(identity_v1::PublishIdentityUpdateResponse {})
+        let cursor = response.originator_envelopes.first().and_then(|e| {
+            UnsignedOriginatorEnvelope::decode(e.unsigned_originator_envelope.as_slice())
+                .ok()
+                .map(|u| Cursor::new(u.originator_sequence_id, u.originator_node_id))
+        });
+
+        Ok((identity_v1::PublishIdentityUpdateResponse {}, cursor))
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -69,7 +77,7 @@ where
             .min()
             .unwrap_or(0);
         let topics = request.requests.topics()?;
-        let last_seen = Some(Cursor {
+        let last_seen = Some(ProtoCursor {
             node_id_to_sequence_id: [(Originators::INBOX_LOG, min_sid)].into(),
         });
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
@@ -164,5 +172,43 @@ where
             })
         }
         Ok(identity_v1::VerifySmartContractWalletSignaturesResponse { responses })
+    }
+}
+
+#[cfg(test)]
+mod cursor_extraction_tests {
+    use prost::Message;
+    use xmtp_proto::xmtp::xmtpv4::envelopes::{OriginatorEnvelope, UnsignedOriginatorEnvelope};
+    use xmtp_proto::xmtp::xmtpv4::payer_api::PublishClientEnvelopesResponse;
+
+    #[test]
+    fn d14n_extracts_cursor_from_payer_response() {
+        let unsigned = UnsignedOriginatorEnvelope {
+            originator_node_id: 7,
+            originator_sequence_id: 42,
+            ..Default::default()
+        };
+        let env = OriginatorEnvelope {
+            unsigned_originator_envelope: unsigned.encode_to_vec(),
+            ..Default::default()
+        };
+        let response = PublishClientEnvelopesResponse {
+            originator_envelopes: vec![env],
+        };
+
+        let cursor = response.originator_envelopes.first().and_then(|e| {
+            UnsignedOriginatorEnvelope::decode(e.unsigned_originator_envelope.as_slice())
+                .ok()
+                .map(|u| {
+                    xmtp_proto::types::Cursor::new(
+                        u.originator_sequence_id,
+                        u.originator_node_id,
+                    )
+                })
+        });
+
+        let cursor = cursor.expect("should extract cursor");
+        assert_eq!(cursor.originator_id, 7);
+        assert_eq!(cursor.sequence_id, 42);
     }
 }

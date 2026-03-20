@@ -245,7 +245,7 @@ where
     async fn publish_identity_update(
         &self,
         request: identity_v1::PublishIdentityUpdateRequest,
-    ) -> Result<identity_v1::PublishIdentityUpdateResponse, Self::Error> {
+    ) -> Result<(identity_v1::PublishIdentityUpdateResponse, Option<xmtp_proto::types::Cursor>), Self::Error> {
         self.write_with_refresh(|| {
             let value = request.clone();
             async move {

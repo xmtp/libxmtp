@@ -109,7 +109,7 @@ mock! {
     #[xmtp_common::async_trait]
     impl XmtpIdentityClient for ApiClient {
         type Error = MockError;
-        async fn publish_identity_update(&self, request: PublishIdentityUpdateRequest) -> Result<PublishIdentityUpdateResponse, MockError>;
+        async fn publish_identity_update(&self, request: PublishIdentityUpdateRequest) -> Result<(PublishIdentityUpdateResponse, Option<xmtp_proto::types::Cursor>), MockError>;
         async fn get_identity_updates_v2(&self, request: GetIdentityUpdatesV2Request) -> Result<GetIdentityUpdatesV2Response, MockError>;
         async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, MockError>;
         async fn verify_smart_contract_wallet_signatures(&self, request: VerifySmartContractWalletSignaturesRequest) -> Result<VerifySmartContractWalletSignaturesResponse, MockError>;
