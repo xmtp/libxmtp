@@ -5,4 +5,4 @@ mod errors;
 pub use errors::MultiNodeClientBuilderError;
 pub use errors::MultiNodeClientError;
 
-mod gateway_api;
+pub(crate) mod gateway_api;
