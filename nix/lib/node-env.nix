@@ -47,8 +47,6 @@ let
   };
 
   # Per-target CC, linker, and rustflags env vars for cargo cross-compilation.
-  # Musl targets use -crt-static (required for cdylib) but statically link libc
-  # via linker flags so the .node file is self-contained and works on glibc hosts.
   crossEnvFor =
     target:
     let
@@ -73,17 +71,11 @@ let
     // (
       if isMusl then
         {
-          # -crt-static: allow cdylib (shared library) output on musl targets.
-          # -nostdlib: prevent the GCC driver from adding its own -lc (dynamic).
-          # Then we explicitly link static musl libc and libgcc so the .node file
-          # is fully self-contained and works on any Linux host (glibc or musl).
-          "CARGO_TARGET_${targetUpper}_RUSTFLAGS" = builtins.concatStringsSep " " [
-            "-C target-feature=-crt-static"
-            "-C link-arg=-nostdlib"
-            "-C link-arg=-Wl,-Bstatic"
-            "-C link-arg=-lc"
-            "-C link-arg=-lgcc"
-          ];
+          # -crt-static is needed to allow cdylib (shared library) output on musl.
+          # Without it, Rust refuses to produce a .so for musl targets.
+          # The resulting binary dynamically links musl's libc — this is fine for
+          # musl hosts (Alpine). Glibc hosts use the GNU binary instead.
+          "CARGO_TARGET_${targetUpper}_RUSTFLAGS" = "-C target-feature=-crt-static";
         }
       else
         { }
