@@ -12,7 +12,7 @@ impl NetworkConsistencyQuorum {
         match self {
             Self::AllNodes => total,
             Self::Majority => total / 2 + 1,
-            Self::Count(n) => (*n as usize).max(1).min(total),
+            Self::Count(n) => (*n as usize).min(total),
         }
     }
 }
@@ -89,7 +89,8 @@ mod tests {
     fn quorum_required_count_capped_at_total() {
         assert_eq!(NetworkConsistencyQuorum::Count(5).required(3), 3);
         assert_eq!(NetworkConsistencyQuorum::Count(2).required(3), 2);
-        assert_eq!(NetworkConsistencyQuorum::Count(0).required(3), 1);
+        // Count(0) means zero nodes required — quorum always satisfied
+        assert_eq!(NetworkConsistencyQuorum::Count(0).required(3), 0);
     }
 
     #[xmtp_common::test]
