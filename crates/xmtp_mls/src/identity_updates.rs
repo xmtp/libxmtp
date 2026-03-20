@@ -144,6 +144,10 @@ pub fn revoke_installations_with_verifier(
  *
  * This will error if the signature request is missing signatures, if the signatures are invalid,
  * if the update fails other verifications, or if the update fails to be published to the network.
+ *
+ * Returns the originator cursor from the publish response if the D14N path
+ * was used. Callers should pass this cursor to `wait_until_visible` if a
+ * consistency provider is configured.
  **/
 pub async fn apply_signature_request_with_verifier<ApiClient: XmtpApi>(
     api_client: &ApiClientWrapper<ApiClient>,
@@ -175,8 +179,15 @@ pub(crate) fn build_consistency_topics(
     use xmtp_proto::types::{GlobalCursor, Topic, TopicCursor};
     let mut topics = TopicCursor::default();
     // Identity update topic requires hex-decoded bytes, not the raw UTF-8 string.
-    let inbox_id_bytes = hex::decode(inbox_id).unwrap_or_else(|_| inbox_id.as_bytes().to_vec());
+    let inbox_id_bytes = hex::decode(inbox_id).unwrap_or_else(|_| {
+        tracing::warn!(
+            "inbox_id '{inbox_id}' is not hex-encoded; consistency check topic may not match"
+        );
+        inbox_id.as_bytes().to_vec()
+    });
     let id_topic = Topic::new_identity_update(inbox_id_bytes);
+    // Build a GlobalCursor from the publish-response cursor so we can assert
+    // that at least this originator's sequence position is visible.
     let mut id_cursor = GlobalCursor::default();
     id_cursor.apply(&cursor);
     topics.add(id_topic, id_cursor);
