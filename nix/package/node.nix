@@ -34,10 +34,7 @@ let
     target:
     let
       # For GNU targets, cargo-zigbuild needs the glibc version suffix
-      zigTarget =
-        if isGnu target
-        then "${target}.${nodeEnv.gnuGlibcVersion}"
-        else target;
+      zigTarget = if isGnu target then "${target}.${nodeEnv.gnuGlibcVersion}" else target;
     in
     commonArgs
     // (nodeEnv.crossEnvFor target)
@@ -101,7 +98,9 @@ let
               $out/bindings_node.${napiName}.node
           done
           # Re-sign after modification (install_name_tool invalidates ad-hoc signatures)
-          codesign -s - $out/bindings_node.${napiName}.node || true
+          if ! codesign -s - $out/bindings_node.${napiName}.node 2>/dev/null; then
+            echo "Warning: ad-hoc codesign failed — binary may not load on macOS with strict Gatekeeper policies" >&2
+          fi
         '';
       }
     );
