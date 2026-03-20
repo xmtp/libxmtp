@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use xmtp_common::RetryableError;
 
 #[derive(Clone, Debug)]
@@ -14,7 +12,7 @@ impl NetworkConsistencyQuorum {
         match self {
             Self::AllNodes => total,
             Self::Majority => total / 2 + 1,
-            Self::Count(n) => (*n as usize).min(total),
+            Self::Count(n) => (*n as usize).max(1).min(total),
         }
     }
 }
@@ -22,9 +20,14 @@ impl NetworkConsistencyQuorum {
 #[derive(Clone, Debug)]
 pub struct NetworkConsistencyOpts {
     pub quorum: NetworkConsistencyQuorum,
+    /// Maximum number of poll attempts per node before giving up.
     pub max_attempts: u32,
+    /// Starting backoff delay in milliseconds between retries.
     pub initial_delay_ms: u64,
+    /// Maximum backoff delay in milliseconds (cap for exponential backoff).
     pub max_delay_ms: u64,
+    /// Overall wall-clock timeout in milliseconds; whichever fires first
+    /// (timeout_ms or max_attempts exhaustion) terminates the poll.
     pub timeout_ms: u64,
 }
 
@@ -60,7 +63,7 @@ impl RetryableError for NetworkConsistencyError {
 pub trait NetworkConsistencyProvider: Send + Sync {
     async fn wait_until_visible(
         &self,
-        topics: HashMap<xmtp_proto::types::Topic, xmtp_proto::types::Cursor>,
+        topics: xmtp_proto::types::TopicCursor,
         opts: &NetworkConsistencyOpts,
     ) -> Result<(), NetworkConsistencyError>;
 }
@@ -69,26 +72,27 @@ pub trait NetworkConsistencyProvider: Send + Sync {
 mod tests {
     use super::*;
 
-    #[test]
+    #[xmtp_common::test]
     fn quorum_required_all_nodes() {
         assert_eq!(NetworkConsistencyQuorum::AllNodes.required(3), 3);
         assert_eq!(NetworkConsistencyQuorum::AllNodes.required(0), 0);
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn quorum_required_majority() {
         assert_eq!(NetworkConsistencyQuorum::Majority.required(3), 2);
         assert_eq!(NetworkConsistencyQuorum::Majority.required(4), 3);
         assert_eq!(NetworkConsistencyQuorum::Majority.required(1), 1);
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn quorum_required_count_capped_at_total() {
         assert_eq!(NetworkConsistencyQuorum::Count(5).required(3), 3);
         assert_eq!(NetworkConsistencyQuorum::Count(2).required(3), 2);
+        assert_eq!(NetworkConsistencyQuorum::Count(0).required(3), 1);
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn default_opts() {
         let opts = NetworkConsistencyOpts::default();
         assert_eq!(opts.max_attempts, 10);
