@@ -12,7 +12,7 @@ import XCTest
 @available(iOS 15, *)
 class HistorySyncTests: XCTestCase {
 	private let syncTimeoutNs: UInt64 = 5_000_000_000
-	private let syncPollIntervalNs: UInt64 = 500_000_000
+	private let syncPollIntervalNs: UInt64 = 1_000_000_000
 
 	override func setUp() {
 		super.setUp()
@@ -139,8 +139,7 @@ class HistorySyncTests: XCTestCase {
 		let state = try await alixClient2.inboxState(refreshFromNetwork: true)
 		XCTAssertEqual(state.installations.count, 2)
 
-		try await alixClient2.sendSyncRequest()
-		sleep(1)
+		
 		var lastClient1MessageCount = 0
 		var lastClient2MessageCount = 0
 		var seenMessageOnClient2 = false
@@ -148,6 +147,8 @@ class HistorySyncTests: XCTestCase {
 		try await waitForSyncCondition(
 			description: "synced message parity between installations",
 			condition: {
+				try await alixClient2.sendSyncRequest()
+		        sleep(1)
 				_ = try await alixClient.syncAllDeviceSyncGroups()
 				_ = try await alixClient2.syncAllDeviceSyncGroups()
 				_ = try await alixClient.conversations.syncAllConversations()
