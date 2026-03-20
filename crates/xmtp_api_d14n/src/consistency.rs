@@ -12,7 +12,7 @@ use std::time::Duration;
 use xmtp_api_grpc::{ClientBuilder, GrpcClient};
 use xmtp_common::RetryableError;
 use xmtp_proto::api::{Client, Query};
-use xmtp_proto::types::{GlobalCursor, Topic, TopicCursor};
+use xmtp_proto::types::{Topic, TopicCursor};
 use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
 
@@ -94,88 +94,78 @@ pub trait NetworkConsistencyProvider: Send + Sync {
 // Helper: cursor satisfaction logic
 // ──────────────────────────────────────────────────────────────────────────────
 
-/// Returns true if an envelope from `originator_node_id` with `sequence_id`
-/// satisfies the given `GlobalCursor` constraint.
+/// Check whether all topics in `topics` are satisfied by the set of
+/// `OriginatorEnvelope`s returned from a single node.
 ///
-/// - If the cursor is empty (no originator entries), any envelope satisfies it.
-/// - Otherwise, the envelope must come from an originator tracked by the cursor
-///   and have `sequence_id >= required`.
-pub(crate) fn cursor_satisfied(
-    cursor: &GlobalCursor,
-    originator_node_id: u32,
-    sequence_id: u64,
+/// A topic is satisfied when, for each `(originator_id, required_seq)` entry
+/// in the topic's `GlobalCursor`, there exists at least one envelope for that
+/// topic whose decoded `originator_node_id == originator_id` and
+/// `originator_sequence_id >= required_seq`.
+///
+/// If the `GlobalCursor` for a topic is empty (no entries), the topic is
+/// vacuously satisfied — any envelope on that topic (or no envelope at all)
+/// is sufficient.
+fn all_topics_satisfied(
+    topics: &TopicCursor,
+    envelopes: &[xmtp_proto::xmtp::xmtpv4::envelopes::OriginatorEnvelope],
 ) -> bool {
-    if cursor.is_empty() {
-        return true;
-    }
-    // `GlobalCursor::get` returns 0 for unknown originators.
-    let required_seq = cursor.get(&originator_node_id);
-    if required_seq == 0 {
-        // Originator not tracked in this cursor - does not satisfy.
-        return false;
-    }
-    sequence_id >= required_seq
+    topics.iter().all(|(topic, global_cursor)| {
+        let topic_bytes = topic.cloned_vec();
+
+        // Decode all envelopes for this specific topic once, up-front.
+        let topic_envelopes: Vec<(u32, u64)> = envelopes
+            .iter()
+            .filter_map(|env| {
+                let unsigned =
+                    UnsignedOriginatorEnvelope::decode(env.unsigned_originator_envelope.as_slice())
+                        .ok()?;
+
+                // Decode the payer envelope to reach the client envelope.
+                let payer_env = xmtp_proto::xmtp::xmtpv4::envelopes::PayerEnvelope::decode(
+                    unsigned.payer_envelope_bytes.as_slice(),
+                )
+                .ok()?;
+
+                // Decode the client envelope to retrieve the target topic.
+                let client_env =
+                    xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope::decode(
+                        payer_env.unsigned_client_envelope.as_slice(),
+                    )
+                    .ok()?;
+
+                if client_env.aad.as_ref().map(|a| &a.target_topic) != Some(&topic_bytes) {
+                    return None;
+                }
+
+                Some((unsigned.originator_node_id, unsigned.originator_sequence_id))
+            })
+            .collect();
+
+        // For each (originator_id, required_seq) in the GlobalCursor, there
+        // must be at least one envelope from that originator with
+        // sequence_id >= required_seq.
+        //
+        // If GlobalCursor is empty, cursors() yields nothing and all() returns
+        // true vacuously — meaning an empty cursor is satisfied by anything.
+        global_cursor.cursors().all(|required_cursor| {
+            topic_envelopes.iter().any(|&(orig_id, seq_id)| {
+                orig_id == required_cursor.originator_id
+                    && seq_id >= required_cursor.sequence_id
+            })
+        })
+    })
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
-/// Check whether all topics in `topics` are satisfied by the set of
-/// `OriginatorEnvelope`s returned from a single node.
-fn all_topics_satisfied(
-    topics: &TopicCursor,
-    envelopes: &[xmtp_proto::xmtp::xmtpv4::envelopes::OriginatorEnvelope],
-) -> bool {
-    for (topic, global_cursor) in topics {
-        let topic_bytes = topic.cloned_vec();
-
-        let satisfied = envelopes.iter().any(|env| {
-            // Decode the unsigned originator envelope.
-            let Ok(unsigned) =
-                UnsignedOriginatorEnvelope::decode(env.unsigned_originator_envelope.as_slice())
-            else {
-                return false;
-            };
-
-            // Decode the payer envelope to reach the client envelope.
-            let payer_env = match xmtp_proto::xmtp::xmtpv4::envelopes::PayerEnvelope::decode(
-                unsigned.payer_envelope_bytes.as_slice(),
-            ) {
-                Ok(p) => p,
-                Err(_) => return false,
-            };
-
-            // Decode the client envelope to retrieve the target topic.
-            let client_env =
-                match xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope::decode(
-                    payer_env.unsigned_client_envelope.as_slice(),
-                ) {
-                    Ok(c) => c,
-                    Err(_) => return false,
-                };
-
-            if client_env.aad.as_ref().map(|a| &a.target_topic) != Some(&topic_bytes) {
-                return false;
-            }
-
-            cursor_satisfied(
-                global_cursor,
-                unsigned.originator_node_id,
-                unsigned.originator_sequence_id,
-            )
-        });
-
-        if !satisfied {
-            return false;
-        }
-    }
-    true
-}
-
 /// Poll a single node until all topics are visible or max_attempts is reached.
+///
+/// `node_id` is used only for diagnostic tracing.
 async fn poll_until_visible(
     node_client: GrpcClient,
+    node_id: u32,
     topics: TopicCursor,
     opts: &NetworkConsistencyOpts,
 ) -> bool {
@@ -199,7 +189,7 @@ async fn poll_until_visible(
         {
             Ok(e) => e,
             Err(e) => {
-                tracing::warn!("Failed to build QueryEnvelopes: {}", e);
+                tracing::warn!(node_id, "Failed to build QueryEnvelopes: {}", e);
                 continue;
             }
         };
@@ -207,19 +197,21 @@ async fn poll_until_visible(
         let response = match endpoint.query(&node_client).await {
             Ok(r) => r,
             Err(e) => {
-                tracing::warn!("QueryEnvelopes failed on attempt {}: {}", attempt, e);
+                tracing::warn!(node_id, attempt, "QueryEnvelopes failed: {}", e);
                 continue;
             }
         };
 
         if all_topics_satisfied(&topics, &response.envelopes) {
+            tracing::debug!(node_id, attempt, "All topics satisfied");
             return true;
         }
 
         tracing::debug!(
-            "Attempt {}: topics not yet satisfied ({} envelopes returned)",
+            node_id,
             attempt,
-            response.envelopes.len()
+            envelopes = response.envelopes.len(),
+            "Topics not yet satisfied",
         );
     }
 
@@ -267,12 +259,19 @@ where
         let topics_arc = std::sync::Arc::new(topics);
         let opts_arc = std::sync::Arc::new(opts.clone());
 
-        let tasks: Vec<_> = nodes
-            .into_values()
-            .map(|node_client| {
+        // Use FuturesUnordered so we can yield results as each node finishes.
+        // When quorum is reached we break out of the loop and drop the stream,
+        // which cancels any in-flight futures. This is acceptable: we already
+        // have the confirmation we need, and the cancelled polls have no
+        // side effects.
+        let mut stream: futures::stream::FuturesUnordered<_> = nodes
+            .into_iter()
+            .map(|(node_id, node_client)| {
                 let topics = topics_arc.clone();
                 let opts = opts_arc.clone();
-                async move { poll_until_visible(node_client, (*topics).clone(), &opts).await }
+                async move {
+                    poll_until_visible(node_client, node_id, (*topics).clone(), &opts).await
+                }
             })
             .collect();
 
@@ -280,7 +279,6 @@ where
 
         let confirmed = tokio::time::timeout(timeout_duration, async move {
             let mut confirmed = 0usize;
-            let mut stream = futures::stream::iter(tasks).buffer_unordered(total.max(1));
 
             while let Some(success) = stream.next().await {
                 if success {
@@ -314,41 +312,54 @@ mod tests {
     use super::*;
     use xmtp_proto::types::{Cursor, GlobalCursor};
 
-    // Test cursor_satisfied helper function
     #[xmtp_common::test]
     fn empty_cursor_satisfied_by_any_envelope() {
         let cursor = GlobalCursor::default();
-        // An empty GlobalCursor should be satisfied by any originator/sequence
-        let satisfied = cursor_satisfied(&cursor, 1, 999);
-        assert!(satisfied, "empty cursor should accept any originator/sequence");
-    }
-
-    #[xmtp_common::test]
-    fn non_empty_cursor_requires_min_sequence() {
-        let mut cursor = GlobalCursor::default();
-        cursor.apply(&Cursor::new(10, 1u32)); // node 1 must have seq >= 10
+        // An empty GlobalCursor has no originator requirements.
+        // cursors().all(...) vacuously returns true.
         assert!(
-            !cursor_satisfied(&cursor, 1, 9),
-            "seq 9 should NOT satisfy min=10"
+            cursor.cursors().next().is_none(),
+            "default GlobalCursor has no entries"
         );
+        // Confirm that all_topics_satisfied with an empty GlobalCursor returns
+        // true even when there are no envelopes (vacuously satisfied).
+        let mut topics = TopicCursor::default();
+        topics.insert(Topic::new_group_message(b"group1"), GlobalCursor::default());
+        // No envelopes — empty cursor should still be satisfied vacuously.
         assert!(
-            cursor_satisfied(&cursor, 1, 10),
-            "seq 10 should satisfy min=10"
-        );
-        assert!(
-            cursor_satisfied(&cursor, 1, 11),
-            "seq 11 should satisfy min=10"
+            all_topics_satisfied(&topics, &[]),
+            "empty GlobalCursor should be vacuously satisfied even with no envelopes"
         );
     }
 
     #[xmtp_common::test]
-    fn cursor_wrong_originator_not_satisfied() {
+    fn global_cursor_tracks_multiple_originators() {
+        // Build a GlobalCursor tracking two originators.
         let mut cursor = GlobalCursor::default();
-        cursor.apply(&Cursor::new(5, 1u32)); // node 1 must have seq >= 5
-        // Envelope from originator 2, not 1 - should not satisfy
+        cursor.apply(&Cursor::new(10, 1u32)); // originator 1 is at seq 10
+        cursor.apply(&Cursor::new(5, 2u32)); // originator 2 is at seq 5
+
+        // All entries must be present.
+        assert_eq!(cursor.cursors().count(), 2);
+
+        // has_seen(other) means "does self have seq >= other.sequence_id for that originator?"
+        // cursor has orig 1 at seq 10; it has seen seq 9 (10 >= 9), seq 10 (10 >= 10)
+        // but NOT seq 11 (10 < 11).
+        assert!(cursor.has_seen(&Cursor::new(9, 1u32)), "cursor at seq 10 has seen seq 9");
+        assert!(cursor.has_seen(&Cursor::new(10, 1u32)), "cursor at seq 10 has seen seq 10");
+        assert!(!cursor.has_seen(&Cursor::new(11, 1u32)), "cursor at seq 10 has NOT seen seq 11");
+        assert!(cursor.has_seen(&Cursor::new(5, 2u32)), "cursor at seq 5 has seen seq 5");
+        assert!(!cursor.has_seen(&Cursor::new(6, 2u32)), "cursor at seq 5 has NOT seen seq 6");
+    }
+
+    #[xmtp_common::test]
+    fn has_seen_unknown_originator_returns_false() {
+        let mut cursor = GlobalCursor::default();
+        cursor.apply(&Cursor::new(5, 1u32)); // originator 1 is at seq 5
+        // Originator 2 is not tracked; get() returns 0, so has_seen with any seq > 0 is false.
         assert!(
-            !cursor_satisfied(&cursor, 2, 100),
-            "wrong originator should not satisfy"
+            !cursor.has_seen(&Cursor::new(1, 2u32)),
+            "unknown originator 2 - cursor returns 0, so seq 1 is not seen"
         );
     }
 }
