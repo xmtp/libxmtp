@@ -6,6 +6,7 @@
   nodejs,
   cacert,
   darwin,
+  cargo-zigbuild,
   ...
 }:
 let
@@ -26,15 +27,37 @@ let
     nativeBuildInputs = mobile.commonArgs.nativeBuildInputs ++ [ nodejs ];
   };
 
+  isGnu = target: lib.hasInfix "gnu" target;
+
   # Per-target args shared between deps and build phases.
   mkTargetArgs =
     target:
+    let
+      # For GNU targets, cargo-zigbuild needs the glibc version suffix
+      zigTarget =
+        if isGnu target
+        then "${target}.${nodeEnv.gnuGlibcVersion}"
+        else target;
+    in
     commonArgs
     // (nodeEnv.crossEnvFor target)
     // {
       CARGO_BUILD_TARGET = target;
-      cargoExtraArgs = "--target ${target} -p bindings_node";
-      nativeBuildInputs = commonArgs.nativeBuildInputs ++ (nodeEnv.crossPkgsFor target);
+      cargoExtraArgs = "--target ${zigTarget} -p bindings_node";
+      nativeBuildInputs =
+        commonArgs.nativeBuildInputs
+        ++ (nodeEnv.crossPkgsFor target)
+        ++ lib.optionals (isGnu target) [ cargo-zigbuild ];
+    }
+    // lib.optionalAttrs (isGnu target) {
+      # Use cargo-zigbuild instead of cargo for GNU targets.
+      # cargo-zigbuild uses zig as the linker to target a specific glibc version.
+      cargoBuildCommand = "cargo zigbuild --profile release";
+      cargoCheckCommand = "cargo zigbuild --profile release";
+      # cargo-zigbuild caches zig downloads under $HOME/Library/Caches (macOS) or
+      # $XDG_CACHE_HOME (Linux). In the Nix sandbox HOME=/homeless-shelter is read-only,
+      # so we redirect the cache to $TMPDIR which is always writable.
+      preBuild = "export HOME=$TMPDIR";
     };
 
   # Phase 1: build dependencies (cached separately per target)

@@ -7,8 +7,8 @@
 }:
 let
   # Targets are split by host-platform availability.
-  # - gnu targets require glibc cross-compilation, which is broken on macOS
-  #   (darwin-cross-build.patch fails to apply). Build these only on Linux.
+  # - gnu targets use cargo-zigbuild with zig's bundled glibc stubs, so they
+  #   build on any host (macOS or Linux) without a glibc cross-toolchain.
   # - musl targets use self-contained musl toolchains that work everywhere.
   # - Darwin targets require Apple SDKs, so macOS only.
   # - Windows is excluded (built separately in CI).
@@ -27,7 +27,10 @@ let
     "aarch64-apple-darwin"
   ];
 
-  nodeTargets = linuxMuslTargets ++ lib.optionals stdenv.isDarwin darwinTargets;
+  # Minimum glibc version for GNU targets. 2.27 = Ubuntu 18.04+.
+  gnuGlibcVersion = "2.27";
+
+  nodeTargets = linuxGnuTargets ++ linuxMuslTargets ++ lib.optionals stdenv.isDarwin darwinTargets;
 
   # Rust triple -> NAPI-RS platform name (used in .node filenames).
   targetToNapi = {
@@ -99,6 +102,7 @@ in
     nodeTargets
     targetToNapi
     hostTarget
+    gnuGlibcVersion
     crossEnvFor
     crossPkgsFor
     ;
