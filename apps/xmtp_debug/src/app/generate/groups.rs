@@ -86,7 +86,8 @@ impl GenerateGroups {
                             create_secs,
                             "group_create",
                             "xdbg_debug",
-                        );
+                        )
+                        .await;
 
                         if let Some(ref invitee) = first_invitee {
                             check_member_visibility(&group_id, invitee, &network_clone).await;
@@ -99,7 +100,8 @@ impl GenerateGroups {
                             total_secs,
                             "group_total",
                             "xdbg_debug",
-                        );
+                        )
+                        .await;
 
                         bar_pointer.inc(1);
 
@@ -207,7 +209,7 @@ async fn create_group_on_network(
         member_ids.len() as f64,
         &[("phase", "add_members")],
     );
-    push_metrics("xdbg_debug");
+    push_metrics("xdbg_debug").await;
 
     let group_id = group.group_id.clone();
     drop(client_guard);
@@ -261,5 +263,5 @@ async fn check_member_visibility(
         visibility_secs,
         &[("phase", "member_visibility"), ("success", vis_ok)],
     );
-    push_metrics("xdbg_debug");
+    push_metrics("xdbg_debug").await;
 }

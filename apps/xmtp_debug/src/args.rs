@@ -296,7 +296,7 @@ pub struct BackendOpts {
     #[arg(short, long)]
     pub d14n: bool,
     /// Use the perf gateway (closest-node selection) instead of the default gateway.
-    /// Implies --d14n.
+    /// Requires --d14n.
     #[arg(short, long, requires = "d14n")]
     pub perf: bool,
     /// enable the v3 -> d14n cutover client
@@ -500,6 +500,14 @@ pub struct TestOpts {
     /// Number of messages for group-sync scenario
     #[arg(long, short, default_value = "10")]
     pub message_count: usize,
+    /// V4/D14N replication node URL for migration-latency scenario.
+    /// Must be a D14N node (e.g. https://grpc.testnet.xmtp.network:443),
+    /// NOT the payer gateway — the gateway doesn't serve QueryEnvelopes reads.
+    #[arg(long)]
+    pub v4_node_url: Option<url::Url>,
+    /// Timeout in seconds for waiting for migrated message on V4 (default 120)
+    #[arg(long, default_value = "120")]
+    pub migration_timeout: u64,
 }
 
 #[derive(ValueEnum, Debug, Clone)]
@@ -508,6 +516,8 @@ pub enum TestScenario {
     MessageVisibility,
     /// Measure group sync latency after N messages
     GroupSync,
+    /// Measure V3→V4 migration latency (write to V3, poll V4)
+    MigrationLatency,
 }
 
 #[cfg(test)]

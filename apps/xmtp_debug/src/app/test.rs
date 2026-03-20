@@ -2,13 +2,20 @@
 
 use color_eyre::eyre::{Result, eyre};
 use futures::stream::StreamExt;
+use prost::Message as ProstMessage;
 use std::time::Instant;
+use xmtp_api_d14n::d14n::QueryEnvelopes;
+use xmtp_configuration::Originators;
 use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
+use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig, Query};
+use xmtp_proto::types::Topic;
+use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
+use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
 
 use crate::{
     app::{self, generate_wallet},
     args::{self, TestOpts, TestScenario},
-    metrics::record_phase_metric,
+    metrics::{self, record_phase_metric},
 };
 
 pub struct Test {
@@ -25,6 +32,7 @@ impl Test {
         match self.opts.scenario {
             TestScenario::MessageVisibility => self.message_visibility_test().await,
             TestScenario::GroupSync => self.group_sync_test().await,
+            TestScenario::MigrationLatency => self.migration_latency_test().await,
         }
     }
 
@@ -50,7 +58,8 @@ impl Test {
                 latency as f64 / 1000.0,
                 "message_visibility",
                 "xdbg_test",
-            );
+            )
+            .await;
             info!(
                 iteration = i + 1,
                 latency_ms = latency,
@@ -194,7 +203,8 @@ impl Test {
                 latency as f64 / 1000.0,
                 "group_sync",
                 "xdbg_test",
-            );
+            )
+            .await;
             info!(
                 iteration = i + 1,
                 sync_latency_ms = latency,
@@ -319,5 +329,273 @@ impl Test {
         client2.release_db_connection()?;
 
         Ok(sync_duration)
+    }
+
+    // -----------------------------------------------------------------------
+    // Migration Latency: V3 → V4
+    // -----------------------------------------------------------------------
+
+    /// Measures V3→V4 migration latency: write a message to V3, poll V4 until
+    /// the migrator replicates it, and record the elapsed time.
+    async fn migration_latency_test(&self) -> Result<()> {
+        let v4_node_url = self
+            .opts
+            .v4_node_url
+            .as_ref()
+            .ok_or_else(|| eyre!("--v4-node-url is required for migration-latency scenario"))?;
+
+        let iterations = self.opts.iterations;
+        let timeout_secs = self.opts.migration_timeout;
+        let mut latencies = Vec::with_capacity(iterations);
+
+        info!(
+            iterations,
+            timeout_secs,
+            v3_backend = ?self.network.backend,
+            v4_node = %v4_node_url,
+            "starting migration latency test"
+        );
+
+        // Build V4 query client once (reused across iterations).
+        // Must point at a D14N replication node (grpc.testnet.xmtp.network),
+        // NOT the payer gateway — the gateway doesn't serve QueryEnvelopes.
+        let v4_client = {
+            let mut builder = xmtp_api_grpc::GrpcClient::builder();
+            builder.set_host(v4_node_url.clone());
+            builder.build()?
+        };
+        info!(v4_node = %v4_node_url, "V4 query client ready");
+
+        for i in 0..iterations {
+            info!(iteration = i + 1, "running migration latency iteration");
+            match self
+                .run_single_migration_latency_test(&v4_client, timeout_secs)
+                .await
+            {
+                Ok(latency) => {
+                    latencies.push(latency);
+                    let secs = latency as f64 / 1000.0;
+                    metrics::record_migration_success();
+                    metrics::record_migration_latency(secs);
+                    metrics::push_metrics("xdbg_test").await;
+                    info!(
+                        iteration = i + 1,
+                        latency_ms = latency,
+                        "migration latency iteration complete"
+                    );
+                }
+                Err(e) => {
+                    metrics::record_migration_failure();
+                    warn!(
+                        iteration = i + 1,
+                        error = %e,
+                        "migration latency iteration failed"
+                    );
+                    metrics::push_metrics("xdbg_test").await;
+                }
+            }
+        }
+
+        // Print summary statistics
+        if let (Some(&min), Some(&max)) = (latencies.iter().min(), latencies.iter().max()) {
+            let sum: u128 = latencies.iter().sum();
+            let avg = sum / latencies.len() as u128;
+            let success_rate = latencies.len() as f64 / iterations as f64 * 100.0;
+
+            info!(
+                iterations,
+                succeeded = latencies.len(),
+                success_rate = format!("{:.1}%", success_rate),
+                avg_ms = avg,
+                min_ms = min,
+                max_ms = max,
+                "migration latency test summary"
+            );
+        } else {
+            warn!(
+                iterations,
+                "all migration latency iterations failed — is the migrator running?"
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn run_single_migration_latency_test(
+        &self,
+        v4_client: &xmtp_api_grpc::GrpcClient,
+        timeout_secs: u64,
+    ) -> Result<u128> {
+        // Step 1: Create a V3 SDK client
+        info!("creating V3 sender identity");
+        let wallet = generate_wallet();
+        let client = app::temp_client(&self.network, Some(&wallet)).await?;
+        app::register_client(&client, wallet.clone().into_alloy()).await?;
+        info!(inbox_id = client.inbox_id(), "V3 sender registered");
+
+        let result = self
+            .do_migration_round_trip(&client, v4_client, timeout_secs)
+            .await;
+        client.release_db_connection()?;
+        result
+    }
+
+    /// Runs a single V3→V4 migration round-trip. Caller is responsible for DB cleanup.
+    async fn do_migration_round_trip(
+        &self,
+        client: &crate::DbgClient,
+        v4_client: &xmtp_api_grpc::GrpcClient,
+        timeout_secs: u64,
+    ) -> Result<u128> {
+        // Known migrator originator node IDs
+        let migrator_originators: &[u32] = &[
+            Originators::MLS_COMMITS,
+            Originators::INBOX_LOG,
+            Originators::APPLICATION_MESSAGES,
+            Originators::WELCOME_MESSAGES,
+            Originators::INSTALLATIONS,
+        ];
+
+        // Step 2: Create a group (just ourselves — sufficient for migration)
+        let group = client.create_group(Default::default(), Default::default())?;
+        let group_id = group.group_id.clone();
+        let group_id_hex = hex::encode(&group_id);
+        info!(group_id = group_id_hex, "group created on V3");
+
+        // Step 3: Snapshot V4 baseline for this topic
+        let topic = Topic::new_group_message(&group_id);
+        let baseline_count = {
+            let mut endpoint = QueryEnvelopes::builder()
+                .envelopes(EnvelopesQuery {
+                    topics: vec![topic.cloned_vec()],
+                    originator_node_ids: vec![],
+                    last_seen: None,
+                })
+                .limit(0u32) // 0 = no limit (server convention)
+                .build()
+                .map_err(|e| eyre!("build QueryEnvelopes: {e}"))?;
+            match endpoint.query(v4_client).await {
+                Ok(r) => r.envelopes.len(),
+                Err(e) => {
+                    debug!(error = %e, "V4 topic not yet available, assuming baseline 0");
+                    0
+                }
+            }
+        };
+        info!(baseline_count, topic = group_id_hex, "V4 baseline");
+
+        // Step 4: Send a tagged message on V3.
+        // The tag encodes group_id + timestamp so we can verify the exact
+        // envelope on V4, not just "any new envelope on this topic".
+        let tag = format!(
+            "__MIGRATION_MONITOR__{}_{}",
+            group_id_hex,
+            chrono::Utc::now().timestamp_millis()
+        );
+        info!(tag, "sending tagged message on V3");
+
+        let start_time = Instant::now();
+        group
+            .send_message(
+                tag.as_bytes(),
+                SendMessageOptsBuilder::default()
+                    .should_push(false)
+                    .build()
+                    .map_err(|e| eyre!("build SendMessageOpts: {e}"))?,
+            )
+            .await?;
+
+        // After send_message + sync, the SDK has the V3 cursor for our message.
+        // Extract it so we can match the exact (originator_id, sequence_id) on V4.
+        let v3_messages = group.find_messages(&Default::default())?;
+        let our_msg = v3_messages.iter().rev().find(|m| {
+            String::from_utf8_lossy(&m.decrypted_message_bytes).contains("__MIGRATION_MONITOR__")
+        });
+        let (expected_originator, expected_sequence) = if let Some(msg) = our_msg {
+            (msg.originator_id as u32, msg.sequence_id as u64)
+        } else {
+            (0, 0) // fallback: rely on count-based detection
+        };
+
+        info!(
+            expected_originator,
+            expected_sequence, "message sent on V3, starting V4 poll"
+        );
+
+        // Step 5: Poll V4 for the migrated envelope
+        let poll_interval = std::time::Duration::from_millis(500);
+        let timeout = std::time::Duration::from_secs(timeout_secs);
+        let deadline = start_time + timeout;
+
+        loop {
+            if Instant::now() > deadline {
+                return Err(eyre!(
+                    "timeout after {}s waiting for message on V4 (topic={})",
+                    timeout_secs,
+                    group_id_hex
+                ));
+            }
+
+            tokio::time::sleep(poll_interval).await;
+            let elapsed = start_time.elapsed();
+
+            let mut endpoint = QueryEnvelopes::builder()
+                .envelopes(EnvelopesQuery {
+                    topics: vec![topic.cloned_vec()],
+                    originator_node_ids: vec![],
+                    last_seen: None,
+                })
+                .limit(0u32) // 0 = no limit (server convention)
+                .build()
+                .map_err(|e| eyre!("build QueryEnvelopes: {e}"))?;
+
+            let resp = match endpoint.query(v4_client).await {
+                Ok(r) => r,
+                Err(e) => {
+                    debug!(elapsed_ms = elapsed.as_millis(), error = %e, "V4 query failed, retrying");
+                    continue;
+                }
+            };
+
+            // Look for our specific message by matching originator+sequence from V3.
+            // The migrator preserves these IDs exactly.
+            // Skip envelopes up to the baseline count to avoid matching pre-existing ones.
+            for env in resp.envelopes.iter().skip(baseline_count) {
+                let unsigned = match UnsignedOriginatorEnvelope::decode(
+                    env.unsigned_originator_envelope.as_slice(),
+                ) {
+                    Ok(u) => u,
+                    Err(_) => continue,
+                };
+
+                let matched = if expected_sequence > 0 {
+                    // Exact match: same originator + sequence as V3
+                    unsigned.originator_node_id == expected_originator
+                        && unsigned.originator_sequence_id == expected_sequence
+                } else {
+                    // Fallback: any new envelope (beyond baseline) from a migrator originator
+                    migrator_originators.contains(&unsigned.originator_node_id)
+                };
+
+                if matched {
+                    let latency_ms = elapsed.as_millis();
+                    info!(
+                        latency_ms,
+                        originator_id = unsigned.originator_node_id,
+                        sequence_id = unsigned.originator_sequence_id,
+                        is_migrator = migrator_originators.contains(&unsigned.originator_node_id),
+                        topic = group_id_hex,
+                        "message found on V4!"
+                    );
+                    return Ok(latency_ms);
+                }
+            }
+
+            debug!(
+                elapsed_ms = elapsed.as_millis(),
+                total = resp.envelopes.len(),
+                "target envelope not on V4 yet"
+            );
+        }
     }
 }
