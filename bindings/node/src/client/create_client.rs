@@ -138,6 +138,8 @@ async fn create_client_inner(
   allow_offline: Option<bool>,
   app_version: Option<String>,
   nonce: u64,
+  wait_for_identity_propagation: Option<bool>,
+  gateway_host: Option<String>,
 ) -> Result<Client> {
   let root_identifier = account_identifier.clone();
   let internal_account_identifier = account_identifier.try_into()?;
@@ -157,6 +159,16 @@ async fn create_client_inner(
   if let Some(device_sync_worker_mode) = device_sync_worker_mode {
     builder = builder.device_sync_worker_mode(device_sync_worker_mode.into());
   };
+
+  if wait_for_identity_propagation.unwrap_or(false) {
+    let mut backend_builder = MessageBackendBuilder::default();
+    if let Some(ref host) = gateway_host {
+      backend_builder.gateway_host(host);
+    }
+    if let Some(checker) = backend_builder.build_d14n_consistency_checker() {
+      builder = builder.with_consistency_provider(checker);
+    }
+  }
 
   let xmtp_client = builder
     .default_mls_store()
@@ -195,6 +207,7 @@ pub async fn create_client(
   auth_callback: Option<&AuthCallback>,
   auth_handle: Option<&AuthHandle>,
   client_mode: Option<ClientMode>,
+  wait_for_identity_propagation: Option<bool>,
 ) -> Result<Client> {
   let client_mode = client_mode.unwrap_or_default();
   init_logging(log_options.unwrap_or_default())?;
@@ -202,7 +215,7 @@ pub async fn create_client(
   let mut backend = MessageBackendBuilder::default();
   backend
     .v3_host(&v3_host)
-    .maybe_gateway_host(gateway_host)
+    .maybe_gateway_host(gateway_host.clone())
     .readonly(matches!(client_mode, ClientMode::Notification))
     .maybe_auth_callback(auth_callback.map(|c| Arc::new(c.clone()) as _))
     .maybe_auth_handle(auth_handle.map(|h| h.clone().into()))
@@ -232,6 +245,8 @@ pub async fn create_client(
     allow_offline,
     app_version,
     nonce,
+    wait_for_identity_propagation,
+    gateway_host,
   )
   .await
 }
@@ -278,6 +293,8 @@ pub async fn create_client_with_backend(
     allow_offline,
     Some(backend.app_version()),
     nonce,
+    None,
+    None,
   )
   .await
 }
