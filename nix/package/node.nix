@@ -34,10 +34,7 @@ let
     target:
     let
       # For GNU targets, cargo-zigbuild needs the glibc version suffix
-      zigTarget =
-        if isGnu target
-        then "${target}.${nodeEnv.gnuGlibcVersion}"
-        else target;
+      zigTarget = if isGnu target then "${target}.${nodeEnv.gnuGlibcVersion}" else target;
     in
     commonArgs
     // (nodeEnv.crossEnvFor target)
