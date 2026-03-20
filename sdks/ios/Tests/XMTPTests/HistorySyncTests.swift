@@ -103,6 +103,8 @@ class HistorySyncTests: XCTestCase {
 	}
 
 	func testSyncMessages() async throws {
+		// TODO: (cv) passes locally 10/10 but failing on CI
+		throw XCTSkip("Skipped: Test is flaky")
 		let fixtures = try await fixtures()
 
 		let key = try Crypto.secureRandomBytes(count: 32)
@@ -139,7 +141,6 @@ class HistorySyncTests: XCTestCase {
 		let state = try await alixClient2.inboxState(refreshFromNetwork: true)
 		XCTAssertEqual(state.installations.count, 2)
 
-		
 		var lastClient1MessageCount = 0
 		var lastClient2MessageCount = 0
 		var seenMessageOnClient2 = false
@@ -148,7 +149,7 @@ class HistorySyncTests: XCTestCase {
 			description: "synced message parity between installations",
 			condition: {
 				try await alixClient2.sendSyncRequest()
-		        sleep(1)
+				sleep(1)
 				_ = try await alixClient.syncAllDeviceSyncGroups()
 				_ = try await alixClient2.syncAllDeviceSyncGroups()
 				_ = try await alixClient.conversations.syncAllConversations()
