@@ -16,7 +16,13 @@ where
     async fn publish_identity_update(
         &self,
         request: identity_v1::PublishIdentityUpdateRequest,
-    ) -> Result<(identity_v1::PublishIdentityUpdateResponse, Option<xmtp_proto::types::Cursor>), Self::Error> {
+    ) -> Result<
+        (
+            identity_v1::PublishIdentityUpdateResponse,
+            Option<xmtp_proto::types::Cursor>,
+        ),
+        Self::Error,
+    > {
         PublishIdentityUpdate::builder()
             .identity_update(request.identity_update)
             .build()?

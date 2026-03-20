@@ -21,9 +21,7 @@ use xmtp_proto::types::Cursor;
 use xmtp_proto::types::Topic;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
-use xmtp_proto::xmtp::xmtpv4::envelopes::{
-    Cursor as ProtoCursor, UnsignedOriginatorEnvelope,
-};
+use xmtp_proto::xmtp::xmtpv4::envelopes::{Cursor as ProtoCursor, UnsignedOriginatorEnvelope};
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4, QueryEnvelopesResponse,
 };
@@ -56,7 +54,9 @@ where
         let cursor = response.originator_envelopes.first().and_then(|e| {
             UnsignedOriginatorEnvelope::decode(e.unsigned_originator_envelope.as_slice())
                 .map_err(|e| {
-                    tracing::warn!("Failed to decode UnsignedOriginatorEnvelope for cursor extraction: {e}");
+                    tracing::warn!(
+                        "Failed to decode UnsignedOriginatorEnvelope for cursor extraction: {e}"
+                    );
                     e
                 })
                 .ok()
@@ -207,10 +207,7 @@ mod cursor_extraction_tests {
             UnsignedOriginatorEnvelope::decode(e.unsigned_originator_envelope.as_slice())
                 .ok()
                 .map(|u| {
-                    xmtp_proto::types::Cursor::new(
-                        u.originator_sequence_id,
-                        u.originator_node_id,
-                    )
+                    xmtp_proto::types::Cursor::new(u.originator_sequence_id, u.originator_node_id)
                 })
         });
 

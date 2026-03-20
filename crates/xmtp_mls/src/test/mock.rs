@@ -172,7 +172,9 @@ impl XmtpSharedContext for NewMockContext {
         &self.sync_api_client
     }
 
-    fn consistency_provider(&self) -> Option<&std::sync::Arc<dyn xmtp_api::NetworkConsistencyProvider>> {
+    fn consistency_provider(
+        &self,
+    ) -> Option<&std::sync::Arc<dyn xmtp_api::NetworkConsistencyProvider>> {
         self.consistency_provider.as_ref()
     }
 

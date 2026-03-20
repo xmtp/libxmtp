@@ -225,9 +225,12 @@ impl MessageBackendBuilder {
         let gw_host = self.client_bundle.get_gateway_host()?;
 
         let mut gateway_builder = xmtp_api_grpc::GrpcClient::builder();
-        let url: url::Url = gw_host.parse().map_err(|e| {
-            tracing::warn!("D14nConsistencyChecker: invalid gateway URL '{gw_host}': {e}");
-        }).ok()?;
+        let url: url::Url = gw_host
+            .parse()
+            .map_err(|e| {
+                tracing::warn!("D14nConsistencyChecker: invalid gateway URL '{gw_host}': {e}");
+            })
+            .ok()?;
         gateway_builder.set_host(url);
         if let Some(version) = self.client_bundle.get_app_version() {
             gateway_builder
@@ -239,9 +242,12 @@ impl MessageBackendBuilder {
                 })
                 .ok()?;
         }
-        let gateway_client = gateway_builder.build().map_err(|e| {
-            tracing::warn!("D14nConsistencyChecker: failed to build gateway client: {e}");
-        }).ok()?;
+        let gateway_client = gateway_builder
+            .build()
+            .map_err(|e| {
+                tracing::warn!("D14nConsistencyChecker: failed to build gateway client: {e}");
+            })
+            .ok()?;
 
         let mut node_template = xmtp_api_grpc::GrpcClient::builder();
         if let Some(version) = self.client_bundle.get_app_version() {
@@ -268,6 +274,9 @@ mod consistency_builder_tests {
         // A default builder (no gateway) must return None.
         let builder = MessageBackendBuilder::default();
         let checker = builder.build_d14n_consistency_checker();
-        assert!(checker.is_none(), "expected None when no gateway is configured");
+        assert!(
+            checker.is_none(),
+            "expected None when no gateway is configured"
+        );
     }
 }

@@ -127,11 +127,10 @@ fn all_topics_satisfied(
                 .ok()?;
 
                 // Decode the client envelope to retrieve the target topic.
-                let client_env =
-                    xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope::decode(
-                        payer_env.unsigned_client_envelope.as_slice(),
-                    )
-                    .ok()?;
+                let client_env = xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope::decode(
+                    payer_env.unsigned_client_envelope.as_slice(),
+                )
+                .ok()?;
 
                 if client_env.aad.as_ref().map(|a| &a.target_topic) != Some(&topic_bytes) {
                     return None;
@@ -149,8 +148,7 @@ fn all_topics_satisfied(
         // true vacuously — meaning an empty cursor is satisfied by anything.
         global_cursor.cursors().all(|required_cursor| {
             topic_envelopes.iter().any(|&(orig_id, seq_id)| {
-                orig_id == required_cursor.originator_id
-                    && seq_id >= required_cursor.sequence_id
+                orig_id == required_cursor.originator_id && seq_id >= required_cursor.sequence_id
             })
         })
     })
@@ -264,16 +262,17 @@ where
         // which cancels any in-flight futures. This is acceptable: we already
         // have the confirmation we need, and the cancelled polls have no
         // side effects.
-        let mut stream: futures::stream::FuturesUnordered<_> = nodes
-            .into_iter()
-            .map(|(node_id, node_client)| {
-                let topics = topics_arc.clone();
-                let opts = opts_arc.clone();
-                async move {
-                    poll_until_visible(node_client, node_id, (*topics).clone(), &opts).await
-                }
-            })
-            .collect();
+        let mut stream: futures::stream::FuturesUnordered<_> =
+            nodes
+                .into_iter()
+                .map(|(node_id, node_client)| {
+                    let topics = topics_arc.clone();
+                    let opts = opts_arc.clone();
+                    async move {
+                        poll_until_visible(node_client, node_id, (*topics).clone(), &opts).await
+                    }
+                })
+                .collect();
 
         let timeout_duration = Duration::from_millis(opts.timeout_ms);
 
@@ -298,7 +297,10 @@ where
         if confirmed >= required {
             Ok(())
         } else {
-            Err(NetworkConsistencyError::QuorumNotReached { confirmed, required })
+            Err(NetworkConsistencyError::QuorumNotReached {
+                confirmed,
+                required,
+            })
         }
     }
 }
@@ -345,11 +347,26 @@ mod tests {
         // has_seen(other) means "does self have seq >= other.sequence_id for that originator?"
         // cursor has orig 1 at seq 10; it has seen seq 9 (10 >= 9), seq 10 (10 >= 10)
         // but NOT seq 11 (10 < 11).
-        assert!(cursor.has_seen(&Cursor::new(9, 1u32)), "cursor at seq 10 has seen seq 9");
-        assert!(cursor.has_seen(&Cursor::new(10, 1u32)), "cursor at seq 10 has seen seq 10");
-        assert!(!cursor.has_seen(&Cursor::new(11, 1u32)), "cursor at seq 10 has NOT seen seq 11");
-        assert!(cursor.has_seen(&Cursor::new(5, 2u32)), "cursor at seq 5 has seen seq 5");
-        assert!(!cursor.has_seen(&Cursor::new(6, 2u32)), "cursor at seq 5 has NOT seen seq 6");
+        assert!(
+            cursor.has_seen(&Cursor::new(9, 1u32)),
+            "cursor at seq 10 has seen seq 9"
+        );
+        assert!(
+            cursor.has_seen(&Cursor::new(10, 1u32)),
+            "cursor at seq 10 has seen seq 10"
+        );
+        assert!(
+            !cursor.has_seen(&Cursor::new(11, 1u32)),
+            "cursor at seq 10 has NOT seen seq 11"
+        );
+        assert!(
+            cursor.has_seen(&Cursor::new(5, 2u32)),
+            "cursor at seq 5 has seen seq 5"
+        );
+        assert!(
+            !cursor.has_seen(&Cursor::new(6, 2u32)),
+            "cursor at seq 5 has NOT seen seq 6"
+        );
     }
 
     #[xmtp_common::test]
