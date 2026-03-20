@@ -51,8 +51,8 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     // pub(crate) workers: Arc<WorkerRunner>,
     pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
     pub(crate) task_channels: TaskWorkerChannels,
-    pub consistency_provider: Option<Arc<dyn xmtp_api::NetworkConsistencyProvider>>,
-    pub consistency_opts: xmtp_api::NetworkConsistencyOpts,
+    pub(crate) consistency_provider: Option<Arc<dyn xmtp_api::NetworkConsistencyProvider>>,
+    pub(crate) consistency_opts: xmtp_api::NetworkConsistencyOpts,
 }
 
 impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S>
@@ -216,6 +216,8 @@ where
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
     fn mutexes(&self) -> &MutexRegistry;
+    fn consistency_provider(&self) -> Option<&Arc<dyn xmtp_api::NetworkConsistencyProvider>>;
+    fn consistency_opts(&self) -> &xmtp_api::NetworkConsistencyOpts;
 }
 
 impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
@@ -297,6 +299,14 @@ where
     fn mutexes(&self) -> &MutexRegistry {
         &self.mutexes
     }
+
+    fn consistency_provider(&self) -> Option<&Arc<dyn xmtp_api::NetworkConsistencyProvider>> {
+        self.consistency_provider.as_ref()
+    }
+
+    fn consistency_opts(&self) -> &xmtp_api::NetworkConsistencyOpts {
+        &self.consistency_opts
+    }
 }
 
 impl<T> XmtpSharedContext for &T
@@ -374,5 +384,13 @@ where
 
     fn mutexes(&self) -> &MutexRegistry {
         <T as XmtpSharedContext>::mutexes(self)
+    }
+
+    fn consistency_provider(&self) -> Option<&Arc<dyn xmtp_api::NetworkConsistencyProvider>> {
+        <T as XmtpSharedContext>::consistency_provider(self)
+    }
+
+    fn consistency_opts(&self) -> &xmtp_api::NetworkConsistencyOpts {
+        <T as XmtpSharedContext>::consistency_opts(self)
     }
 }
