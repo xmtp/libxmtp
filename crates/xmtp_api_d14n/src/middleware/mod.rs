@@ -1,7 +1,7 @@
 mod auth;
 pub use auth::{AuthCallback, AuthHandle, AuthMiddleware, Credential};
 
-mod multi_node_client;
+pub(crate) mod multi_node_client;
 pub use multi_node_client::{MultiNodeClient, MultiNodeClientBuilderError, MultiNodeClientError};
 
 mod readonly_client;

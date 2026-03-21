@@ -170,6 +170,11 @@ pub enum ClientError {
     /// Data type failed to convert. Not retryable.
     #[error(transparent)]
     Conversion(#[from] xmtp_proto::ConversionError),
+    /// Consistency check failed.
+    ///
+    /// Network consistency provider failed to confirm visibility. Not retryable.
+    #[error("Consistency check failed: {0}")]
+    ConsistencyCheck(xmtp_api::NetworkConsistencyError),
 }
 
 impl ClientError {
@@ -971,10 +976,29 @@ where
             .await?;
 
         // Step 4: Publish identity update (makes installation visible)
-        self.context
+        let cursor = self
+            .context
             .api()
             .publish_identity_update(identity_update)
             .await?;
+
+        // If a consistency provider is set and publish returned a cursor,
+        // wait until the identity update is visible on all nodes.
+        if let (Some(provider), Some(cursor)) = (self.context.consistency_provider(), cursor) {
+            use crate::identity_updates::build_consistency_topics;
+            let inbox_id = self.inbox_id().to_string();
+            let inbox_id_bytes = hex::decode(&inbox_id).unwrap_or_else(|_| {
+                tracing::warn!(
+                    "inbox_id '{inbox_id}' is not hex-encoded; consistency check topic may not match"
+                );
+                inbox_id.as_bytes().to_vec()
+            });
+            let topics = build_consistency_topics(&inbox_id_bytes, cursor);
+            provider
+                .wait_until_visible(topics, self.context.consistency_opts())
+                .await
+                .map_err(ClientError::ConsistencyCheck)?;
+        }
 
         // Step 5: Fetch and store in local DB (needed for group operations)
         let inbox_id = self.inbox_id().to_string();

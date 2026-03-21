@@ -1,5 +1,10 @@
 #![warn(clippy::unwrap_used)]
 
+pub mod consistency;
+pub use consistency::{
+    NetworkConsistencyError, NetworkConsistencyOpts, NetworkConsistencyProvider,
+    NetworkConsistencyQuorum,
+};
 pub mod identity;
 pub mod mls;
 pub mod scw_verifier;

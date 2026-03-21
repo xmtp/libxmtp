@@ -349,6 +349,7 @@ pub(crate) async fn new_test_client_with_wallet_and_history_sync_url(
         sync_worker_mode,
         None,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -385,6 +386,7 @@ pub(crate) async fn new_test_client_no_panic(
         None,
         None,
         None,
+        false,
     )
     .await?;
 

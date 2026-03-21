@@ -11,7 +11,7 @@ use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig};
 use xmtp_proto::{ApiEndpoint, api::ApiClientError};
 
 /// Get the nodes from the gateway server and build the clients for each node.
-pub(super) async fn get_nodes<C: Client>(
+pub(crate) async fn get_nodes<C: Client>(
     gateway_client: &C,
     template: &ClientBuilder,
 ) -> Result<HashMap<u32, GrpcClient>, ApiClientError> {

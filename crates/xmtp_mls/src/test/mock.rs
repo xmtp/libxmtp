@@ -91,6 +91,8 @@ impl Clone for NewMockContext {
             fork_recovery_opts: self.fork_recovery_opts.clone(),
             task_channels: self.task_channels.clone(),
             worker_metrics: self.worker_metrics.clone(),
+            consistency_provider: self.consistency_provider.clone(),
+            consistency_opts: self.consistency_opts.clone(),
         }
     }
 }
@@ -168,5 +170,15 @@ impl XmtpSharedContext for NewMockContext {
 
     fn sync_api(&self) -> &ApiClientWrapper<Self::ApiClient> {
         &self.sync_api_client
+    }
+
+    fn consistency_provider(
+        &self,
+    ) -> Option<&std::sync::Arc<dyn xmtp_api::NetworkConsistencyProvider>> {
+        self.consistency_provider.as_ref()
+    }
+
+    fn consistency_opts(&self) -> &xmtp_api::NetworkConsistencyOpts {
+        &self.consistency_opts
     }
 }

@@ -225,6 +225,8 @@ pub(crate) async fn create_client_inner(
   allow_offline: Option<bool>,
   app_version: Option<String>,
   nonce: u64,
+  backend: &MessageBackendBuilder,
+  wait_for_identity_propagation: bool,
 ) -> Result<Client, JsError> {
   let identity_strategy = IdentityStrategy::new(
     inbox_id,
@@ -243,6 +245,10 @@ pub(crate) async fn create_client_inner(
 
   if let Some(device_sync_worker_mode) = device_sync_worker_mode {
     builder = builder.device_sync_worker_mode(device_sync_worker_mode.into());
+  }
+
+  if wait_for_identity_propagation && let Some(checker) = backend.build_d14n_consistency_checker() {
+    builder = builder.with_consistency_provider(checker);
   }
 
   let xmtp_client = builder
@@ -276,6 +282,7 @@ pub async fn create_client(
   #[wasm_bindgen(js_name = authCallback)] auth_callback: Option<gateway_auth::AuthCallback>,
   #[wasm_bindgen(js_name = authHandle)] auth_handle: Option<gateway_auth::AuthHandle>,
   #[wasm_bindgen(js_name = clientMode)] client_mode: Option<ClientMode>,
+  #[wasm_bindgen(js_name = waitForIdentityPropagation)] wait_for_identity_propagation: Option<bool>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
   tracing::info!(host, gateway_host, "Creating client in rust");
@@ -285,7 +292,7 @@ pub async fn create_client(
   let mut backend = MessageBackendBuilder::default();
   backend
     .v3_host(&host)
-    .maybe_gateway_host(gateway_host)
+    .maybe_gateway_host(gateway_host.clone())
     .app_version(app_version.clone().unwrap_or_default())
     .readonly(matches!(client_mode, ClientMode::Notification))
     .maybe_auth_callback(auth_callback.map(|c| Arc::new(c) as _))
@@ -314,6 +321,8 @@ pub async fn create_client(
     allow_offline,
     app_version,
     nonce.unwrap_or(1),
+    &backend,
+    wait_for_identity_propagation.unwrap_or(false),
   )
   .await
 }

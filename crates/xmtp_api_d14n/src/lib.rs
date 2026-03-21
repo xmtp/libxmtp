@@ -13,6 +13,9 @@ pub mod protocol;
 
 pub mod definitions;
 
+pub mod consistency;
+pub use consistency::D14nConsistencyChecker;
+
 xmtp_common::if_test! {
     mod test;
     pub use test::*;

@@ -568,7 +568,12 @@ impl Identity {
             identity.register(api_client, mls_storage).await?;
 
             let identity_update = signature_request.build_identity_update()?;
-            api_client.publish_identity_update(identity_update).await?;
+            // Note: no consistency check here. This legacy-key path is invoked from
+            // `Identity::new()`, which runs before the full client context (and therefore
+            // before any `NetworkConsistencyProvider`) is available.  The consistency
+            // check for the non-legacy wallet path is handled by `Client::register_identity`
+            // in `client.rs`, which does have access to the context.
+            let _cursor = api_client.publish_identity_update(identity_update).await?;
 
             Ok(identity)
         } else {

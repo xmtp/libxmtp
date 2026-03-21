@@ -6,8 +6,10 @@ use thiserror::Error;
 use xmtp_api_grpc::error::GrpcBuilderError;
 use xmtp_common::{ErrorCode, MaybeSend, MaybeSync};
 use xmtp_id::scw_verifier::VerifierError;
+use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig};
 use xmtp_proto::types::AppVersion;
 
+use crate::consistency::D14nConsistencyChecker;
 use crate::definitions::XmtpApiClient;
 use crate::protocol::{CursorStore, FullXmtpApiArc, FullXmtpApiBox, NoCursorStore};
 use crate::{
@@ -213,5 +215,68 @@ impl MessageBackendBuilder {
         let Self { client_bundle, .. } = self;
         let bundle = client_bundle.build_optional_d14n()?;
         self.from_bundle(bundle)
+    }
+
+    /// Returns a `D14nConsistencyChecker` configured from this builder's gateway
+    /// and node template, or `None` if no gateway URL is configured (V3-only build).
+    pub fn build_d14n_consistency_checker(
+        &self,
+    ) -> Option<D14nConsistencyChecker<xmtp_api_grpc::GrpcClient>> {
+        let gw_host = self.client_bundle.get_gateway_host()?;
+
+        let mut gateway_builder = xmtp_api_grpc::GrpcClient::builder();
+        let url: url::Url = gw_host
+            .parse()
+            .map_err(|e| {
+                tracing::warn!("D14nConsistencyChecker: invalid gateway URL '{gw_host}': {e}");
+            })
+            .ok()?;
+        gateway_builder.set_host(url);
+        if let Some(version) = self.client_bundle.get_app_version() {
+            gateway_builder
+                .set_app_version(version.clone())
+                .map_err(|e| {
+                    tracing::warn!(
+                        "D14nConsistencyChecker: failed to set app version on gateway: {e}"
+                    );
+                })
+                .ok()?;
+        }
+        let gateway_client = gateway_builder
+            .build()
+            .map_err(|e| {
+                tracing::warn!("D14nConsistencyChecker: failed to build gateway client: {e}");
+            })
+            .ok()?;
+
+        let mut node_template = xmtp_api_grpc::GrpcClient::builder();
+        if let Some(version) = self.client_bundle.get_app_version() {
+            node_template
+                .set_app_version(version.clone())
+                .map_err(|e| {
+                    tracing::warn!(
+                        "D14nConsistencyChecker: failed to set app version on node template: {e}"
+                    );
+                })
+                .ok()?;
+        }
+
+        Some(D14nConsistencyChecker::new(gateway_client, node_template))
+    }
+}
+
+#[cfg(test)]
+mod consistency_builder_tests {
+    use super::*;
+
+    #[xmtp_common::test]
+    async fn build_d14n_consistency_checker_none_without_gateway() {
+        // A default builder (no gateway) must return None.
+        let builder = MessageBackendBuilder::default();
+        let checker = builder.build_d14n_consistency_checker();
+        assert!(
+            checker.is_none(),
+            "expected None when no gateway is configured"
+        );
     }
 }

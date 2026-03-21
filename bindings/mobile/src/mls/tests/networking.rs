@@ -75,6 +75,7 @@ async fn create_client_does_not_hit_network() {
         None,
         None,
         None,
+        false,
     )
     .await
     .unwrap();
@@ -114,6 +115,7 @@ async fn create_client_does_not_hit_network() {
         None,
         Some(true),
         None,
+        false,
     )
     .await
     .unwrap();

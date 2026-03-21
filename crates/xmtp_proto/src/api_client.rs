@@ -13,8 +13,8 @@ use crate::types::{
 use crate::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
-    GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
-    VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
+    GetInboxIdsResponse, PublishIdentityUpdateRequest, VerifySmartContractWalletSignaturesRequest,
+    VerifySmartContractWalletSignaturesResponse,
 };
 use crate::xmtp::mls::api::v1::{
     FetchKeyPackagesRequest, FetchKeyPackagesResponse, GroupMessage as ProtoGroupMessage,
@@ -174,7 +174,7 @@ pub trait XmtpIdentityClient: MaybeSend + MaybeSync {
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,
-    ) -> Result<PublishIdentityUpdateResponse, Self::Error>;
+    ) -> Result<Option<crate::types::Cursor>, Self::Error>;
 
     async fn get_identity_updates_v2(
         &self,

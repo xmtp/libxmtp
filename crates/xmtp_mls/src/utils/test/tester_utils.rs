@@ -256,6 +256,18 @@ where
             client = client.enable_sqlite_triggers();
         }
 
+        if self.wait_for_identity_propagation {
+            let gateway_host = match &self.api_endpoint {
+                ApiEndpoint::Local => xmtp_configuration::GrpcUrlsLocal::GATEWAY,
+                ApiEndpoint::Dev => xmtp_configuration::GrpcUrlsDev::GATEWAY,
+            };
+            let mut backend_builder = xmtp_api_d14n::MessageBackendBuilder::default();
+            backend_builder.gateway_host(gateway_host);
+            let checker = backend_builder.build_d14n_consistency_checker()
+                .expect("wait_for_identity_propagation: failed to build D14nConsistencyChecker — is the gateway URL configured correctly?");
+            client = client.with_consistency_provider(checker);
+        }
+
         let client = client.default_mls_store().unwrap().build().await.unwrap();
 
         if let IdentityStrategy::CreateIfNotFound { .. } = &strategy {
@@ -455,6 +467,7 @@ where
     /// whether this builder represents a second installation
     pub installation: bool,
     pub disable_workers: bool,
+    pub wait_for_identity_propagation: bool,
 }
 
 #[derive(Clone)]
@@ -490,6 +503,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             snapshot: None,
             snapshot_path: None,
             disable_workers: false,
+            wait_for_identity_propagation: false,
         }
     }
 }
@@ -521,6 +535,7 @@ where
             snapshot: self.snapshot,
             snapshot_path: self.snapshot_path,
             disable_workers: self.disable_workers,
+            wait_for_identity_propagation: self.wait_for_identity_propagation,
         }
     }
 
@@ -678,6 +693,11 @@ where
 
     pub fn do_not_wait_for_init(mut self) -> Self {
         self.wait_for_init = false;
+        self
+    }
+
+    pub fn wait_for_identity_propagation(mut self) -> Self {
+        self.wait_for_identity_propagation = true;
         self
     }
 }
@@ -857,6 +877,23 @@ macro_rules! tester {
     (@process $builder:expr ; $name:ident, $key:ident $(, $k:ident $(: $v:expr)?)*) => {
         $crate::tester!(@process $builder.$key() ; $name $(, $k $(: $v)?)*)
     };
+}
+
+#[cfg(test)]
+mod tester_consistency_tests {
+    use super::*;
+
+    #[xmtp_common::test]
+    fn tester_builder_propagation_flag_defaults_false() {
+        let builder = TesterBuilder::new();
+        assert!(!builder.wait_for_identity_propagation);
+    }
+
+    #[xmtp_common::test]
+    fn tester_builder_propagation_flag_set_by_method() {
+        let builder = TesterBuilder::new().wait_for_identity_propagation();
+        assert!(builder.wait_for_identity_propagation);
+    }
 }
 
 #[cfg(test)]

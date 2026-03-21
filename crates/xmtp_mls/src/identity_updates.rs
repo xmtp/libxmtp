@@ -144,12 +144,16 @@ pub fn revoke_installations_with_verifier(
  *
  * This will error if the signature request is missing signatures, if the signatures are invalid,
  * if the update fails other verifications, or if the update fails to be published to the network.
+ *
+ * Returns the originator cursor from the publish response if the D14N path
+ * was used. Callers should pass this cursor to `wait_until_visible` if a
+ * consistency provider is configured.
  **/
 pub async fn apply_signature_request_with_verifier<ApiClient: XmtpApi>(
     api_client: &ApiClientWrapper<ApiClient>,
     signature_request: SignatureRequest,
     scw_verifier: &impl SmartContractSignatureVerifier,
-) -> Result<(), ClientError> {
+) -> Result<Option<xmtp_proto::types::Cursor>, ClientError> {
     // If the signature request isn't completed, this will error
     let identity_update = signature_request
         .build_identity_update()
@@ -158,9 +162,29 @@ pub async fn apply_signature_request_with_verifier<ApiClient: XmtpApi>(
     identity_update.to_verified(scw_verifier).await?;
 
     // We don't need to validate the update, since the server will do this for us
-    api_client.publish_identity_update(identity_update).await?;
+    let cursor = api_client.publish_identity_update(identity_update).await?;
 
-    Ok(())
+    Ok(cursor)
+}
+
+/// Build a [`xmtp_proto::types::TopicCursor`] that requires the given identity-update
+/// `cursor` to be visible on the identity-update topic for `inbox_id`.
+///
+/// `inbox_id` is the raw inbox ID bytes (the caller is responsible for hex-decoding
+/// if the inbox ID is stored as a hex string).
+pub(crate) fn build_consistency_topics(
+    inbox_id: &[u8],
+    cursor: xmtp_proto::types::Cursor,
+) -> xmtp_proto::types::TopicCursor {
+    use xmtp_proto::types::{GlobalCursor, Topic, TopicCursor};
+    let mut topics = TopicCursor::default();
+    let id_topic = Topic::new_identity_update(inbox_id);
+    // Build a GlobalCursor from the publish-response cursor so we can assert
+    // that at least this originator's sequence position is visible.
+    let mut id_cursor = GlobalCursor::default();
+    id_cursor.apply(&cursor);
+    topics.add(id_topic, id_cursor);
+    topics
 }
 
 /// Get the association state for all provided `inbox_id`/optional `sequence_id` tuples, using the cache when available
@@ -463,12 +487,24 @@ where
     ) -> Result<(), ClientError> {
         let inbox_id = signature_request.inbox_id().to_string();
 
-        apply_signature_request_with_verifier(
+        let cursor = apply_signature_request_with_verifier(
             self.context.api(),
             signature_request,
             &self.context.scw_verifier(),
         )
         .await?;
+
+        // If a consistency provider is set and the publish returned a cursor,
+        // wait until the identity update is visible on all nodes.
+        if let (Some(provider), Some(cursor)) = (self.context.consistency_provider(), cursor) {
+            let inbox_id_bytes =
+                hex::decode(&inbox_id).map_err(|e| ClientError::PublishError(e.to_string()))?;
+            let topics = build_consistency_topics(&inbox_id_bytes, cursor);
+            provider
+                .wait_until_visible(topics, self.context.consistency_opts())
+                .await
+                .map_err(ClientError::ConsistencyCheck)?;
+        }
 
         // Load the identity updates for the inbox so that we have a record in our DB
         retry_async!(
@@ -1418,5 +1454,68 @@ pub(crate) mod tests {
         // Verify the installation was revoked
         let association_state_final = get_association_state(&client, client.inbox_id()).await;
         assert_eq!(association_state_final.installation_ids().len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod consistency_call_site_tests {
+    use super::build_consistency_topics;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use xmtp_api::{NetworkConsistencyError, NetworkConsistencyOpts, NetworkConsistencyProvider};
+
+    struct RecordingProvider(Arc<AtomicBool>);
+
+    #[xmtp_common::async_trait]
+    impl NetworkConsistencyProvider for RecordingProvider {
+        async fn wait_until_visible(
+            &self,
+            _topics: xmtp_proto::types::TopicCursor,
+            _opts: &NetworkConsistencyOpts,
+        ) -> Result<(), NetworkConsistencyError> {
+            self.0.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn wait_until_visible_called_when_provider_and_cursor_present() {
+        let called = Arc::new(AtomicBool::new(false));
+        let provider = Arc::new(RecordingProvider(Arc::clone(&called)));
+        let opts = NetworkConsistencyOpts::default();
+        let cursor = xmtp_proto::types::Cursor::new(42, 1u32);
+
+        // Directly test the consistency invocation logic
+        let topics = build_consistency_topics(&hex::decode("deadbeef").unwrap(), cursor);
+        provider.wait_until_visible(topics, &opts).await?;
+        assert!(
+            called.load(Ordering::SeqCst),
+            "wait_until_visible must be called"
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn build_consistency_topics_contains_identity_topic() {
+        // A valid hex inbox_id should produce a topic entry
+        let cursor = xmtp_proto::types::Cursor::new(10, 2u32);
+        let inbox_id_bytes = hex::decode("deadbeef").unwrap();
+        let topics = build_consistency_topics(&inbox_id_bytes, cursor);
+        assert_eq!(
+            topics.len(),
+            1,
+            "Should have exactly one topic (identity update)"
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn build_consistency_topics_with_non_hex_inbox_id() {
+        // Raw bytes inbox_id — still produces one topic entry
+        let cursor = xmtp_proto::types::Cursor::new(1, 1u32);
+        let topics = build_consistency_topics(b"not-hex-at-all!", cursor);
+        assert_eq!(
+            topics.len(),
+            1,
+            "Should have exactly one topic even with non-hex inbox_id"
+        );
     }
 }

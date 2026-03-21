@@ -45,9 +45,12 @@ where
     ApiClient: XmtpIdentityClient,
 {
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn publish_identity_update<U: Into<IdentityUpdate>>(&self, update: U) -> Result<()> {
+    pub async fn publish_identity_update<U: Into<IdentityUpdate>>(
+        &self,
+        update: U,
+    ) -> Result<Option<xmtp_proto::types::Cursor>> {
         let update: IdentityUpdate = update.into();
-        retry_async!(
+        let cursor = retry_async!(
             self.retry_strategy,
             (async {
                 self.api_client
@@ -59,7 +62,7 @@ where
         )
         .map_err(crate::dyn_err)?;
 
-        Ok(())
+        Ok(cursor)
     }
 
     #[tracing::instrument(level = "trace", skip_all, fields(len = filters.len()))]
@@ -183,7 +186,7 @@ pub(crate) mod tests {
     use xmtp_id::associations::unverified::UnverifiedIdentityUpdate;
     use xmtp_proto::xmtp::identity::{
         api::v1::{
-            GetIdentityUpdatesResponse, GetInboxIdsResponse, PublishIdentityUpdateResponse,
+            GetIdentityUpdatesResponse, GetInboxIdsResponse,
             get_identity_updates_response::{
                 IdentityUpdateLog, Response as GetIdentityUpdatesResponseItem,
             },
@@ -209,7 +212,7 @@ pub(crate) mod tests {
         mock_api
             .expect_publish_identity_update()
             .withf(move |req| req.identity_update.as_ref().unwrap().inbox_id.eq(&inbox_id))
-            .returning(move |_| Ok(PublishIdentityUpdateResponse {}));
+            .returning(move |_| Ok(None));
 
         let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
         let result = wrapper.publish_identity_update(identity_update).await;
