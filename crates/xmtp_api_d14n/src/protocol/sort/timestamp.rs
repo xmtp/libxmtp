@@ -78,6 +78,10 @@ mod tests {
             self.time
         }
 
+        fn validate(&self) -> Result<(), crate::protocol::EnvelopeError> {
+            unreachable!()
+        }
+
         fn client_envelope(&self) -> Result<ClientEnvelope, crate::protocol::EnvelopeError> {
             unreachable!()
         }
