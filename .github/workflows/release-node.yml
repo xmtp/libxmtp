@@ -212,11 +212,11 @@ jobs:
     needs: [setup, build-macos]
     runs-on: macos-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: bindings_node_darwin-x64
           path: artifacts/
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: bindings_node_darwin-arm64
           path: artifacts/
