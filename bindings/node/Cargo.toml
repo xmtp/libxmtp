@@ -18,6 +18,7 @@ async-trait.workspace = true
 chrono = { workspace = true, features = ["serde"] }
 futures.workspace = true
 hex.workspace = true
+mimalloc = { version = "0.1.48", default-features = false }
 # Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
 napi = { version = "3.4.0", default-features = false, features = [
   "napi6",

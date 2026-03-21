@@ -208,8 +208,33 @@ jobs:
           path: bindings/node/bindings_node.${{ matrix.output_target }}.node
           retention-days: 1
 
+  build-macos-universal:
+    needs: [setup, build-macos]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: bindings_node_darwin-x64
+          path: artifacts/
+      - uses: actions/download-artifact@v4
+        with:
+          name: bindings_node_darwin-arm64
+          path: artifacts/
+      - name: Create universal binary
+        run: |
+          lipo -create \
+            artifacts/bindings_node.darwin-x64.node \
+            artifacts/bindings_node.darwin-arm64.node \
+            -output bindings_node.darwin-universal.node
+          lipo -info bindings_node.darwin-universal.node
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bindings_node_darwin-universal
+          path: bindings_node.darwin-universal.node
+          retention-days: 1
+
   publish:
-    needs: [setup, build-linux, build-macos, build-js, build-windows]
+    needs: [setup, build-linux, build-macos, build-macos-universal, build-js, build-windows]
     uses: ./.github/workflows/npm-publish.yml
     with:
       package-dir: bindings/node
