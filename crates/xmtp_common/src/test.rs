@@ -177,7 +177,6 @@ pub fn logger() {
                     .init();
 
                 console_error_panic_hook::set_once();
-                wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
             });
         },
         native => {

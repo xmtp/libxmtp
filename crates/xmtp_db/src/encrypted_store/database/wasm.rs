@@ -51,7 +51,7 @@ pub struct WasmDb {
 pub use sqlite_wasm_vfs::sahpool::{OpfsSAHError, OpfsSAHPoolUtil};
 
 /// Wrapper to allow OpfsSAHPoolUtil in a static OnceCell on wasm (single-threaded).
-pub struct SyncOpfsUtil(Result<OpfsSAHPoolUtil, String>);
+pub struct SyncOpfsUtil(pub Result<OpfsSAHPoolUtil, String>);
 // SAFETY: wasm32 is single-threaded; these are never accessed across threads.
 unsafe impl Send for SyncOpfsUtil {}
 unsafe impl Sync for SyncOpfsUtil {}
@@ -98,7 +98,7 @@ async fn maybe_resize() -> Result<(), PlatformStorageError> {
     Ok(())
 }
 
-async fn init_opfs() -> SyncOpfsUtil {
+pub async fn init_opfs() -> SyncOpfsUtil {
     let cfg = OpfsSAHPoolCfg {
         vfs_name: xmtp_configuration::WASM_VFS_NAME.into(),
         directory: xmtp_configuration::WASM_VFS_DIRECTORY.into(),
@@ -251,103 +251,5 @@ impl XmtpDb for WasmDb {
 
     fn opts(&self) -> &StorageOption {
         &self.opts
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-    use crate::DbConnection;
-    use crate::EncryptedMessageStore;
-    use crate::identity::StoredIdentity;
-
-    pub async fn with_opfs<'a, F, R>(path: impl Into<Option<&'a str>>, f: F) -> R
-    where
-        F: FnOnce(crate::DefaultDbConnection) -> R,
-    {
-        let util = init_opfs().await;
-        let o: Option<&'a str> = path.into();
-        let p = o.map(String::from).unwrap_or(xmtp_common::tmp_path());
-        let db = crate::database::WasmDb::new(&StorageOption::Persistent(p))
-            .await
-            .unwrap();
-        let store = EncryptedMessageStore::new(db).unwrap();
-        let conn = store.conn();
-        let r = f(DbConnection::new(conn));
-        if let SyncOpfsUtil(Ok(u)) = util {
-            u.clear_all().await.unwrap();
-        }
-        r
-    }
-
-    #[allow(unused)]
-    pub async fn with_opfs_async<'a, R>(
-        path: impl Into<Option<&'a str>>,
-        f: impl AsyncFnOnce(crate::DefaultDbConnection) -> R,
-    ) -> R {
-        let util = init_opfs().await;
-        let o: Option<&'a str> = path.into();
-        let p = o.map(String::from).unwrap_or(xmtp_common::tmp_path());
-        let db = crate::database::WasmDb::new(&StorageOption::Persistent(p))
-            .await
-            .unwrap();
-        let store = EncryptedMessageStore::new(db).unwrap();
-        let conn = store.conn();
-        let r = f(DbConnection::new(conn)).await;
-        if let SyncOpfsUtil(Ok(u)) = util {
-            u.clear_all().await.unwrap();
-        }
-        r
-    }
-
-    #[xmtp_common::test]
-    async fn test_opfs() {
-        use crate::traits::Store;
-
-        let path = "test_db";
-        with_opfs(path, |c1| {
-            let intent = StoredIdentity::builder()
-                .inbox_id("test")
-                .installation_keys(vec![0, 1, 1, 1])
-                .credential_bytes(vec![0, 0, 0, 0])
-                .next_key_package_rotation_ns(1)
-                .build()
-                .unwrap();
-            intent.store(&c1).unwrap();
-        })
-        .await;
-    }
-
-    #[xmtp_common::test]
-    async fn opfs_dynamically_resizes() {
-        use xmtp_common::tmp_path as path;
-        init_sqlite().await;
-        if let Some(Ok(util)) = get_sqlite() {
-            util.clear_all().await.unwrap();
-            let current_capacity = util.get_capacity();
-            if current_capacity > 6 {
-                util.reduce_capacity(current_capacity - 6).await.unwrap();
-            }
-        }
-        with_opfs_async(&*path(), async move |_| {
-            with_opfs_async(&*path(), async move |_| {
-                with_opfs_async(&*path(), async move |_| {
-                    with_opfs(&*path(), |_| {
-                        // should have been resized here
-                        if let Some(Ok(util)) = get_sqlite() {
-                            let cap = util.get_capacity();
-                            assert_eq!(cap, 12);
-                        } else {
-                            panic!("opfs failed to init")
-                        }
-                    })
-                    .await
-                })
-                .await
-            })
-            .await
-        })
-        .await
     }
 }

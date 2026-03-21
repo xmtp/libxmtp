@@ -9,9 +9,10 @@ mod version;
 use crate::cached_signature_verifier::CachedSmartContractSignatureVerifier;
 use crate::version::get_version;
 use clap::Parser;
-use config::Args;
+use config::{Args, LogFormat};
 use handlers::ValidationService;
 use health_check::health_check_server;
+use std::io::IsTerminal;
 use tokio::signal::unix::{SignalKind, signal};
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
@@ -24,19 +25,30 @@ extern crate tracing;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(
-            EnvFilter::builder()
-                .with_default_directive(LevelFilter::INFO.into())
-                .from_env_lossy(),
-        )
-        .init();
-
     let args = Args::parse();
 
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy();
+
+    match args.log_format {
+        LogFormat::Json => {
+            tracing_subscriber::registry()
+                .with(fmt::layer().json())
+                .with(env_filter)
+                .init();
+        }
+        LogFormat::Text => {
+            tracing_subscriber::registry()
+                .with(fmt::layer().with_ansi(std::io::stdout().is_terminal()))
+                .with(env_filter)
+                .init();
+        }
+    }
+
+    info!("Version: {0}", get_version());
+
     if args.version {
-        info!("Version: {0}", get_version());
         return Ok(());
     }
 

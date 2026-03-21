@@ -66,12 +66,12 @@ where
         let topic = &TopicKind::GroupMessagesV1.create(&group_id);
         let cursor = self
             .cursor_store
-            .latest_per_originator(
+            .latest(
                 topic,
-                &[
+                Some(&[
                     &Originators::APPLICATION_MESSAGES,
                     &Originators::MLS_COMMITS,
-                ],
+                ]),
             )?
             .max();
         let endpoint = QueryGroupMessages::builder()

@@ -1010,10 +1010,8 @@ impl TryFrom<Vec<u8>> for PostCommitAction {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::groups::send_message_opts::SendMessageOpts;
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use crate::context::XmtpSharedContext;
+    use crate::groups::send_message_opts::SendMessageOpts;
     use openmls::prelude::{ProcessedMessageContent, ProtocolMessage};
     use xmtp_api_d14n::protocol::XmtpQuery;
     use xmtp_cryptography::utils::generate_local_wallet;

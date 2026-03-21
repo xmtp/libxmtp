@@ -295,6 +295,10 @@ pub struct BackendOpts {
     /// Enable the decentralization backend
     #[arg(short, long)]
     pub d14n: bool,
+    /// Use the perf gateway (closest-node selection) instead of the default gateway.
+    /// Implies --d14n.
+    #[arg(short, long, requires = "d14n")]
+    pub perf: bool,
     /// enable the v3 -> d14n cutover client
     #[arg(short = 'm', long, conflicts_with_all = &["d14n"])]
     pub enable_migration: bool,
@@ -313,6 +317,16 @@ impl BackendOpts {
 
         if let Some(p) = &self.xmtpd_gateway_url {
             return Ok(p.clone());
+        }
+
+        if self.perf {
+            debug_assert!(self.d14n, "--perf requires --d14n");
+            return match self.backend {
+                Dev => Ok((*crate::constants::XMTP_DEV_PERF_GATEWAY).clone()),
+                Staging => Ok((*crate::constants::XMTP_STAGING_PERF_GATEWAY).clone()),
+                Production => Ok((*crate::constants::XMTP_PRODUCTION_PERF_GATEWAY).clone()),
+                Local => Ok((*crate::constants::XMTP_LOCAL_PERF_GATEWAY).clone()),
+            };
         }
 
         match (self.backend, self.d14n, self.enable_migration) {
@@ -563,5 +577,56 @@ mod tests {
             "http://localhost:5052",
         ]);
         assert!(opts.is_err());
+    }
+
+    #[test]
+    fn perf_requires_d14n() {
+        let opts = parse_backend_args(&["--perf"]);
+        assert!(opts.is_err(), "--perf without --d14n should fail");
+    }
+
+    #[test]
+    fn perf_with_d14n_is_valid() {
+        let opts = parse_backend_args(&["--perf", "--d14n"]);
+        assert!(opts.is_ok());
+        let backend = opts.unwrap();
+        assert!(backend.perf);
+        assert!(backend.d14n);
+    }
+
+    #[test]
+    fn perf_with_d14n_and_backend_is_valid() {
+        let opts = parse_backend_args(&["--perf", "--d14n", "--backend", "staging"]);
+        assert!(opts.is_ok());
+        let backend = opts.unwrap();
+        let url = backend.xmtpd_gateway_url().unwrap();
+        assert!(
+            url.as_str().contains("payer-perf"),
+            "perf flag should select perf gateway, got: {url}"
+        );
+    }
+
+    #[test]
+    fn explicit_gateway_url_overrides_perf() {
+        // --xmtpd-gateway-url conflicts with --backend, so we use --url to
+        // avoid that conflict and verify the explicit URL takes precedence
+        // over the perf gateway resolution
+        let opts = parse_backend_args(&[
+            "--perf",
+            "--d14n",
+            "--url",
+            "http://localhost:5050",
+            "--xmtpd-gateway-url",
+            "http://custom:5052",
+        ]);
+        assert!(opts.is_ok());
+        let backend = opts.unwrap();
+        assert!(backend.perf, "perf flag should be set");
+        let url = backend.xmtpd_gateway_url().unwrap();
+        assert_eq!(
+            url.as_str(),
+            "http://custom:5052/",
+            "explicit --xmtpd-gateway-url should override perf gateway"
+        );
     }
 }

@@ -1881,6 +1881,7 @@ dependencies = [
  "wasm-bindgen-test",
  "wasm-streams",
  "web-sys",
+ "xmtp-workspace-hack",
  "xmtp_api",
  "xmtp_api_d14n",
  "xmtp_common",

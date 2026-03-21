@@ -3911,8 +3911,6 @@ pub(crate) fn decode_staged_commit(
 
 #[cfg(test)]
 pub(crate) mod tests {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
     use crate::{builder::ClientBuilder, utils::TestMlsGroup};

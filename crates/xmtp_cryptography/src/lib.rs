@@ -19,10 +19,3 @@ pub type Secret = tls_codec::SecretVLBytes; // Byte array with ZeroizeOnDrop
 fn install_rustls_crypto_provider() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
-
-#[cfg(test)]
-mod test {
-    // common depends on cryptography
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-}

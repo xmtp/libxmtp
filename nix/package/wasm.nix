@@ -112,11 +112,6 @@ let
     }
   );
 
-  # this allows re-using build artifacts
-  # nextest-libs = nextest "-E 'kind(lib)'";
-  # nextest-d14n = nextest "--features d14n -E 'kind(lib)'";
-  # nextest-integration = nextest "-E 'package(bindings_wasm)'";
-
   devShell = mkShell (
     commonEnv
     // {
@@ -133,7 +128,6 @@ let
       ++ lib.optionals stdenv.isDarwin [ google-chrome ]
       ++ lib.optionals stdenv.isLinux [ chromium ];
       inherit (xmtp.shellCommon.wasmEnv)
-        WASM_BINDGEN_TEST_ONLY_WEB
         RSTEST_TIMEOUT
         WASM_BINDGEN_TEST_TIMEOUT
         WASM_BINDGEN_TEST_WEBDRIVER_JSON
