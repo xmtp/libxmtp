@@ -44,6 +44,7 @@ pub enum Commands {
     Export(ExportOpts),
     Stream(StreamOpts),
     Test(TestOpts),
+    Healthcheck(HealthcheckOpts),
 }
 
 /// Send Data on the network
@@ -508,6 +509,14 @@ pub enum TestScenario {
     MessageVisibility,
     /// Measure group sync latency after N messages
     GroupSync,
+}
+
+/// Run a health check on all local clients for the current network
+#[derive(Args, Debug)]
+pub struct HealthcheckOpts {
+    /// Stop at the first unhealthy client instead of checking all of them
+    #[arg(long, short)]
+    pub fail_fast: bool,
 }
 
 #[cfg(test)]

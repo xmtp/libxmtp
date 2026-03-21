@@ -6,6 +6,8 @@ mod clients;
 mod export;
 /// Generate functionality
 mod generate;
+/// Health check for all local clients
+mod healthcheck;
 /// Information about this app
 mod info;
 /// Inspect data on the XMTP Network
@@ -145,6 +147,7 @@ impl App {
                 Modify(m) => modify::Modify::new(m, backend)?.run().await,
                 Stream(s) => stream::Stream::new(s, backend)?.run().await,
                 Test(t) => test::Test::new(t, backend).run().await,
+                Healthcheck(h) => healthcheck::Healthcheck::new(h, backend)?.run().await,
             }?;
         }
 
