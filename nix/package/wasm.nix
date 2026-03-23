@@ -3,8 +3,6 @@
   lib,
   wasm-pack,
   binaryen,
-  zstd,
-  zlib,
   mkShell,
   sqlite,
   llvmPackages,
@@ -14,16 +12,15 @@
   google-chrome,
   chromium,
   corepack,
-  pkg-config,
   cargo-nextest,
   stdenv,
   test ? false,
 }:
 let
-  inherit (xmtp) craneLib;
+  inherit (xmtp) craneLib base;
   # Pinned Rust Version (must use mkToolchain to match the rest of the project)
   rust-toolchain =
-    xmtp.mkToolchain
+    xmtp.mkNativeToolchain
       [ "wasm32-unknown-unknown" ]
       [ "clippy-preview" "rustfmt-preview" ];
   rust = craneLib.overrideToolchain (p: rust-toolchain);
@@ -40,10 +37,9 @@ let
     fileset = xmtp.filesets.forCrate ./../../bindings/wasm;
   };
 
-  commonArgs = {
+  commonArgs = base.commonArgs // {
     meta.description = "WebAssembly Bindings";
     src = libraryFileset;
-    strictDeps = true;
     # EM_CACHE = "$TMPDIR/.emscripten_cache";
     # we need to set tmpdir for emscripten cache
     preConfigure = ''
@@ -54,10 +50,7 @@ let
       # export EM_CACHE=$TMPDIR
       # export EMCC_DEBUG=2
     '';
-    nativeBuildInputs = [
-      zstd
-      zlib
-      pkg-config
+    nativeBuildInputs = base.commonArgs.nativeBuildInputs ++ [
       wasm-pack
       emscripten
       llvmPackages.lld
@@ -75,14 +68,12 @@ let
 
   commonEnv = {
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
-    NIX_DEBUG = 1;
     inherit (xmtp.shellCommon.wasmEnv)
       CC_wasm32_unknown_unknown
       AR_wasm32_unknown_unknown
       CFLAGS_wasm32_unknown_unknown
       ;
     # why CC manually (zstd): https://github.com/gyscos/zstd-rs/issues/339
-    # SQLITE_WASM_RS_UPDATE_PREBUILD = 1;
   };
 
   # enables caching all build time crates

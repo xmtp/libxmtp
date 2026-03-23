@@ -25,21 +25,21 @@
   ...
 }:
 let
-  inherit (xmtp) craneLib androidEnv mobile;
+  inherit (xmtp) craneLib androidEnv base;
   # Use build composition (minimal - no emulator needed for CI builds)
   androidComposition = androidEnv.composeBuildPackages;
   androidPaths = androidEnv.mkAndroidPaths androidComposition;
   ffi-uniffi-bindgen = "${xmtp.ffi-uniffi-bindgen}/bin/ffi-uniffi-bindgen";
 
   # Rust toolchain with Android cross-compilation targets
-  rust-toolchain = xmtp.mkToolchain androidEnv.androidTargets [ ];
-  rust = craneLib.overrideToolchain (p: rust-toolchain);
+  rust-toolchain = p: xmtp.mkToolchain p androidEnv.androidTargets [ ];
+  rust = craneLib.overrideToolchain rust-toolchain;
 
   # Extract version once for use throughout the file
   version = xmtp.mkVersion rust;
 
   # Inherit shared config
-  inherit (mobile) bindingsFileset;
+  inherit (base) bindingsFileset;
 
   # Map Rust target triples to Android ABI names
   targetToAbi = {
@@ -50,8 +50,8 @@ let
   };
 
   # Android-specific commonArgs extends the shared config with NDK environment
-  commonArgs = mobile.commonArgs // {
-    nativeBuildInputs = mobile.commonArgs.nativeBuildInputs ++ [ cargo-ndk ];
+  commonArgs = base.commonArgs // {
+    nativeBuildInputs = base.commonArgs.nativeBuildInputs ++ [ cargo-ndk ];
 
     # Android NDK environment
     ANDROID_HOME = androidPaths.home;

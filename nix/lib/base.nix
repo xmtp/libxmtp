@@ -8,6 +8,8 @@
   sqlite,
   pkg-config,
   perl,
+  libiconv,
+  stdenv,
   zlib,
 }:
 let
@@ -30,13 +32,16 @@ let
   # Platform-specific args (like ANDROID_HOME or __noChroot) are added by each derivation.
   commonArgs = {
     src = depsFileset;
-    strictDeps = true;
-    # perl is needed for openssl-sys's vendored build (its Configure script is Perl).
+    # strictDeps=true breaks darwin build with ring
+    strictDeps = if stdenv.buildPlatform.isDarwin then false else true;
+    # these inputs do not get cross compiled
     nativeBuildInputs = [
       pkg-config
       perl
       zlib
-    ];
+    ]
+    ++ lib.optionals stdenv.buildPlatform.isDarwin [ libiconv ];
+    # these inputs do get cross compiled
     buildInputs = [
       zstd
       openssl
