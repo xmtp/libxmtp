@@ -20,12 +20,11 @@ vergen-gix = { workspace = true, features = ["build"] }
 
 [dependencies]
 alloy.workspace = true
-# used b/c of xmtp_common::async_trait
 async-trait.workspace = true
 clap = { workspace = true, features = ["env"] }
 futures.workspace = true
 hex.workspace = true
-lru = "0.16.0"
+lru.workspace = true
 openmls.workspace = true
 openmls_rust_crypto.workspace = true
 parking_lot.workspace = true
@@ -38,14 +37,13 @@ tracing-subscriber = { workspace = true, features = [
   "ansi",
   "json",
 ] }
-warp = "0.3.6"
+warp.workspace = true
 xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_id.workspace = true
 xmtp_proto = { workspace = true, features = ["grpc_server_impls"] }
-
 
 [dev-dependencies]
 rand.workspace = true

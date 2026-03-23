@@ -43,6 +43,12 @@ to verify correctness you can optionally run
 nix develop --command cargo hakari verify
 ```
 
+Building linux binaries on MacOS with nix-darwin
+- enable the nix-darwin linux builder in your nix-darwin configuration
+```bash
+nix.linux-builder.enable = true;
+```
+
 Start Docker Desktop.
 
 - To install other dependencies and start background services:

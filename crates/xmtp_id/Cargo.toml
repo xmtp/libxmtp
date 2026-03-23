@@ -61,7 +61,7 @@ alloy = { workspace = true, features = [
 ] }
 ed25519-dalek = { workspace = true, features = ["digest", "rand_core"] }
 rstest.workspace = true
-tokio = { workspace = true, features = ["macros"] }
+tokio = { workspace = true }
 wasm-bindgen-test.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
