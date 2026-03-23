@@ -7,8 +7,8 @@
 }:
 let
   # Targets are split by host-platform availability.
-  # - gnu targets require glibc cross-compilation, which is broken on macOS
-  #   (darwin-cross-build.patch fails to apply). Build these only on Linux.
+  # - gnu targets use cargo-zigbuild with zig's bundled glibc stubs, so they
+  #   build on any host (macOS or Linux) without a glibc cross-toolchain.
   # - musl targets use self-contained musl toolchains that work everywhere.
   # - Darwin targets require Apple SDKs, so macOS only.
   # - Windows is excluded (built separately in CI).
@@ -27,10 +27,10 @@ let
     "aarch64-apple-darwin"
   ];
 
-  nodeTargets =
-    linuxMuslTargets
-    ++ lib.optionals stdenv.isLinux linuxGnuTargets
-    ++ lib.optionals stdenv.isDarwin darwinTargets;
+  # Minimum glibc version for GNU targets. 2.27 = Ubuntu 18.04+.
+  gnuGlibcVersion = "2.27";
+
+  nodeTargets = linuxGnuTargets ++ linuxMuslTargets ++ lib.optionals stdenv.isDarwin darwinTargets;
 
   # Rust triple -> NAPI-RS platform name (used in .node filenames).
   targetToNapi = {
@@ -43,23 +43,13 @@ let
   };
 
   # Cross-compilation toolchains. Entries are needed for every target that isn't
-  # the native host. gnu targets are only built on Linux (see nodeTargets), so
-  # cross-compilers are only needed for the non-native Linux arch.
+  # the native host. Only musl targets need cross-compilers.
   crossCcFor = {
     "x86_64-unknown-linux-musl" = pkgsCross.musl64.stdenv.cc;
     "aarch64-unknown-linux-musl" = pkgsCross.aarch64-multiplatform-musl.stdenv.cc;
-  }
-  // lib.optionalAttrs (hostTarget != "x86_64-unknown-linux-gnu") {
-    "x86_64-unknown-linux-gnu" = pkgsCross.gnu64.stdenv.cc;
-  }
-  // lib.optionalAttrs (hostTarget != "aarch64-unknown-linux-gnu") {
-    "aarch64-unknown-linux-gnu" = pkgsCross.aarch64-multiplatform.stdenv.cc;
   };
 
   # Per-target CC, linker, and rustflags env vars for cargo cross-compilation.
-  # Musl targets need -crt-static to allow cdylib (.node shared library) builds.
-  # This is set here (not .cargo/config.toml) to avoid conflicts with other musl
-  # builds (e.g. musl-docker.nix) that need the opposite (+crt-static).
   crossEnvFor =
     target:
     let
@@ -84,6 +74,10 @@ let
     // (
       if isMusl then
         {
+          # -crt-static is needed to allow cdylib (shared library) output on musl.
+          # Without it, Rust refuses to produce a .so for musl targets.
+          # The resulting binary dynamically links musl's libc — this is fine for
+          # musl hosts (Alpine). Glibc hosts use the GNU binary instead.
           "CARGO_TARGET_${targetUpper}_RUSTFLAGS" = "-C target-feature=-crt-static";
         }
       else
@@ -108,6 +102,7 @@ in
     nodeTargets
     targetToNapi
     hostTarget
+    gnuGlibcVersion
     crossEnvFor
     crossPkgsFor
     ;
