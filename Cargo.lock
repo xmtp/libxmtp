@@ -1001,7 +1001,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1012,7 +1012,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1820,7 +1820,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_node"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "async-trait",
  "bindings_node",
@@ -1854,7 +1854,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_wasm"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "alloy",
  "async-trait",
@@ -1898,7 +1898,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_wasm_macros"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2589,7 +2589,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -3487,7 +3487,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3820,7 +3820,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3831,7 +3831,7 @@ checksum = "dea2df4cf52843e0452895c455a1a2cfbb842a1e7329671acf418fdc53ed4c59"
 
 [[package]]
 name = "error_glossary"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "clap",
  "syn 2.0.117",
@@ -6620,7 +6620,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "serde_core",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7228,7 +7228,7 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "log_parser"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "anyhow",
  "arboard",
@@ -7528,7 +7528,7 @@ dependencies = [
 
 [[package]]
 name = "mls_validation_service"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "alloy",
  "async-trait",
@@ -7831,7 +7831,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8556,7 +8556,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.45.0",
 ]
 
 [[package]]
@@ -9330,7 +9330,7 @@ version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
 dependencies = [
- "heck 0.5.0",
+ "heck 0.4.1",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -10349,7 +10349,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -10407,7 +10407,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -10418,9 +10418,9 @@ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.9"
+version = "0.103.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7df23109aa6c1567d1c575b9952556388da57401e4ace1d15f79eedad0d8f53"
+checksum = "df33b2b81ac578cabaf06b89b0631153a3f416b0a886e8a7a1707fb51abbd1ef"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -11204,7 +11204,7 @@ version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1c97747dbf44bb1ca44a561ece23508e99cb592e862f22222dcf42f51d1e451"
 dependencies = [
- "heck 0.5.0",
+ "heck 0.4.1",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -11227,7 +11227,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -11552,7 +11552,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -12525,13 +12525,13 @@ dependencies = [
 
 [[package]]
 name = "uds_windows"
-version = "1.2.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51b70b87d15e91f553711b40df3048faf27a7a04e01e0ddc0cf9309f0af7c2ca"
+checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -13455,7 +13455,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -14324,7 +14324,7 @@ checksum = "bec9e4a500ca8864c5b47b8b482a73d62e4237670e5b5f1d6b9e3cae50f28f2b"
 
 [[package]]
 name = "xdbg"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "alloy",
  "chrono",
@@ -14422,7 +14422,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xmtp-db-tools"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "anyhow",
  "clap",
@@ -14548,7 +14548,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "async-trait",
  "chrono",
@@ -14574,7 +14574,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_d14n"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -14615,7 +14615,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_grpc"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "async-trait",
  "futures",
@@ -14648,7 +14648,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_archive"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "aes-gcm",
  "async-compression",
@@ -14677,7 +14677,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cli"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "alloy",
  "chrono",
@@ -14710,7 +14710,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_common"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "async-trait",
  "console_error_panic_hook",
@@ -14749,7 +14749,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_configuration"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "openmls",
  "xmtp-workspace-hack",
@@ -14759,7 +14759,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_content_types"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
@@ -14780,7 +14780,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cryptography"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "alloy",
  "bincode 1.3.3",
@@ -14809,7 +14809,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_db"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "arc-swap",
  "ascii_table",
@@ -14856,7 +14856,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_db_test"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "derive_builder",
  "diesel",
@@ -14870,7 +14870,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_id"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "alloy",
  "async-trait",
@@ -14906,7 +14906,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_macro"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "num_cpus",
  "proc-macro2",
@@ -14919,7 +14919,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "aes-gcm",
  "alloy",
@@ -15000,7 +15000,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls_common"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "const-hex",
  "openmls",
@@ -15019,7 +15019,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_proto"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "async-trait",
  "bytes",
@@ -15061,7 +15061,7 @@ dependencies = [
 
 [[package]]
 name = "xmtpv3"
-version = "1.10.0"
+version = "1.11.0-dev"
 dependencies = [
  "alloy",
  "async-trait",
