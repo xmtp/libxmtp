@@ -107,6 +107,8 @@ let
           mkdir -p $out/${target}
           cp target/${target}/release/libxmtpv3.a $out/${target}/
           cp target/${target}/release/libxmtpv3.dylib $out/${target}/
+        '';
+        postFixup = ''
           install_name_tool -id @rpath/libxmtpv3.dylib $out/${target}/libxmtpv3.dylib
         '';
       }
