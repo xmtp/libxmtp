@@ -165,7 +165,7 @@ pub async fn connect_to_backend(
         .maybe_auth_handle(auth_handle.map(|handle| handle.as_ref().clone().into()));
     // switch v3/d14n based on presence of gateway host to preserve
     // previous behavior and avoid breaking changes
-    let client_bundle = client_bundle.build_optional_d14n()?;
+    let client_bundle = client_bundle.build()?;
     let backend = MessageBackendBuilder::default().from_bundle(client_bundle.clone())?;
     let api: ApiClientWrapper<xmtp_mls::XmtpApiClient> =
         ApiClientWrapper::new(backend, strategies::exponential_cooldown());
