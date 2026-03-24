@@ -321,7 +321,7 @@ impl GenerateMessages {
             let send_latency = start.elapsed();
             let send_secs = send_latency.as_secs_f64();
 
-            record_phase_metric("send_message", send_secs, "send_message", "xdbg_debug");
+            record_phase_metric("send_message", send_secs, "send_message", "xdbg_debug").await;
 
             Ok(send_latency)
         } else {

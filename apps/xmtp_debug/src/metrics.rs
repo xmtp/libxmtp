@@ -32,6 +32,10 @@ pub struct Metrics {
     latency: GaugeVec,
     member_count: GaugeVec,
     throughput: CounterVec,
+    // Migration-specific metrics
+    migration_latency: prometheus::Histogram,
+    migration_success: prometheus::IntCounter,
+    migration_failure: prometheus::IntCounter,
     client: Client,
 }
 
@@ -63,6 +67,28 @@ impl Metrics {
         )
         .expect("valid counter");
 
+        // Migration-specific metrics
+        let migration_latency = prometheus::Histogram::with_opts(
+            prometheus::HistogramOpts::new(
+                "xdbg_migration_latency_seconds",
+                "V3→V4 migration latency in seconds (time for message to appear on V4 after V3 write)",
+            )
+            .buckets(vec![1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0]),
+        )
+        .expect("valid histogram");
+
+        let migration_success = prometheus::IntCounter::new(
+            "xdbg_migration_success_total",
+            "Total successful V3→V4 migration round-trips",
+        )
+        .expect("valid counter");
+
+        let migration_failure = prometheus::IntCounter::new(
+            "xdbg_migration_failure_total",
+            "Total failed V3→V4 migration round-trips (timeout or error)",
+        )
+        .expect("valid counter");
+
         registry
             .register(Box::new(latency.clone()))
             .expect("register latency");
@@ -72,12 +98,24 @@ impl Metrics {
         registry
             .register(Box::new(throughput.clone()))
             .expect("register throughput");
+        registry
+            .register(Box::new(migration_latency.clone()))
+            .expect("register migration_latency");
+        registry
+            .register(Box::new(migration_success.clone()))
+            .expect("register migration_success");
+        registry
+            .register(Box::new(migration_failure.clone()))
+            .expect("register migration_failure");
 
         Metrics {
             registry,
             latency,
             member_count,
             throughput,
+            migration_latency,
+            migration_success,
+            migration_failure,
             client: Client::new(),
         }
     }
@@ -161,22 +199,47 @@ pub fn record_throughput(operation_type: &str) {
     }
 }
 
-/// Async-push all current metrics to the PushGateway.
+/// Record a migration latency observation (seconds). No-op when metrics are inactive.
+pub fn record_migration_latency(seconds: f64) {
+    if let Some(m) = METRICS.get() {
+        m.migration_latency.observe(seconds);
+        csv_metric(
+            "xdbg_migration_latency_seconds",
+            "migration",
+            seconds,
+            &[("phase", "v3_to_v4")],
+        );
+    }
+}
+
+/// Increment migration success counter. No-op when metrics are inactive.
+pub fn record_migration_success() {
+    if let Some(m) = METRICS.get() {
+        m.migration_success.inc();
+    }
+}
+
+/// Increment migration failure counter. No-op when metrics are inactive.
+pub fn record_migration_failure() {
+    if let Some(m) = METRICS.get() {
+        m.migration_failure.inc();
+    }
+}
+
+/// Push all current metrics to the PushGateway, awaiting completion.
 ///
-/// Fire-and-forget: the push runs in a detached `tokio::spawn` task so the
-/// caller is not blocked.  No-op when metrics are inactive (no
-/// `PUSHGATEWAY_URL`).  Push errors are reported via `tracing::warn`.
-pub fn push_metrics(job: &'static str) {
-    let Some(url) = PUSHGATEWAY_URL.get().cloned() else {
+/// The push is awaited inline so that short-lived xdbg subprocess invocations
+/// (entrypoint.sh calls xdbg once per step) finish the HTTP POST before the
+/// process exits.  No-op when metrics are inactive (no `PUSHGATEWAY_URL`).
+/// Push errors are reported via `tracing::warn`.
+pub async fn push_metrics(job: &str) {
+    let Some(url) = PUSHGATEWAY_URL.get() else {
         return;
     };
-    // Guard: only proceed if the metrics singleton is initialised.
-    if METRICS.get().is_none() {
+    let Some(m) = METRICS.get() else {
         return;
-    }
-    tokio::spawn(async move {
-        METRICS.get().unwrap().push(job, &url).await;
-    });
+    };
+    m.push(job, url).await;
 }
 
 /// Emit the canonical per-phase metric bundle in one call:
@@ -190,12 +253,12 @@ pub fn push_metrics(job: &'static str) {
 /// - `secs`: elapsed time in **seconds**
 /// - `phase`: value for the `phase=` CSV label, e.g. `"register"`
 /// - `job`: PushGateway job name (`"xdbg_debug"` or `"xdbg_test"`)
-pub fn record_phase_metric(operation: &str, secs: f64, phase: &str, job: &'static str) {
+pub async fn record_phase_metric(operation: &str, secs: f64, phase: &str, job: &str) {
     record_latency(operation, secs);
     record_throughput(operation);
     csv_metric("latency_seconds", operation, secs, &[("phase", phase)]);
     csv_metric("throughput_events", operation, 1.0, &[("phase", phase)]);
-    push_metrics(job);
+    push_metrics(job).await;
 }
 
 // ---------------------------------------------------------------------------
