@@ -52,7 +52,7 @@ hashbrown = { version = "0.16", features = ["serde"] }
 hpke-rs = { version = "0.6", features = ["hazmat", "libcrux", "serialization"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
-itertools = { version = "0.14" }
+itertools = { version = "0.13" }
 k256 = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "std"] }
 libcrux-ed25519 = { version = "0.0.6", default-features = false, features = ["rand"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
@@ -143,7 +143,7 @@ hashbrown = { version = "0.16", features = ["serde"] }
 hpke-rs = { version = "0.6", features = ["hazmat", "libcrux", "serialization"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
-itertools = { version = "0.14" }
+itertools = { version = "0.13" }
 k256 = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "std"] }
 libcrux-ed25519 = { version = "0.0.6", default-features = false, features = ["rand"] }
 log = { version = "0.4", default-features = false, features = ["std"] }

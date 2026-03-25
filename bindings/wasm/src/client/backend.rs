@@ -55,9 +55,13 @@ impl BackendBuilder {
       .maybe_auth_handle(self.auth_handle.take().map(|h| h.handle));
 
     let v3_host = builder.get_v3_host().map(ToString::to_string);
-    let bundle = builder
-      .build_optional_d14n()
-      .map_err(|e| JsError::new(&e.to_string()))?;
+    let bundle = if self.env.is_migration() {
+      builder.build().map_err(|e| JsError::new(&e.to_string()))?
+    } else {
+      builder
+        .build_optional_d14n()
+        .map_err(|e| JsError::new(&e.to_string()))?
+    };
     Ok(Backend {
       bundle,
       env: self.env,

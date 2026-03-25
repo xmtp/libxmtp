@@ -62,6 +62,18 @@ pub enum XmtpEnv {
   TestnetDev,
   Testnet,
   Mainnet,
+  MigrationLocal,
+  MigrationStaging,
+  MigrationProduction,
+}
+
+impl XmtpEnv {
+  pub fn is_migration(&self) -> bool {
+    matches!(
+      self,
+      Self::MigrationLocal | Self::MigrationStaging | Self::MigrationProduction
+    )
+  }
 }
 
 impl From<XmtpEnv> for CoreXmtpEnv {
@@ -74,6 +86,9 @@ impl From<XmtpEnv> for CoreXmtpEnv {
       XmtpEnv::TestnetDev => Self::TestnetDev,
       XmtpEnv::Testnet => Self::Testnet,
       XmtpEnv::Mainnet => Self::Mainnet,
+      XmtpEnv::MigrationLocal => Self::Local,
+      XmtpEnv::MigrationStaging => Self::TestnetStaging,
+      XmtpEnv::MigrationProduction => Self::Production,
     }
   }
 }
