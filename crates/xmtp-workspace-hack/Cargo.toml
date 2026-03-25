@@ -53,7 +53,7 @@ hpke-rs = { version = "0.6", features = ["hazmat", "libcrux", "serialization"] }
 hyper = { version = "1", features = ["http1", "http2", "server"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
-itertools = { version = "0.14" }
+itertools = { version = "0.13" }
 k256 = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "std"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
@@ -139,7 +139,7 @@ hpke-rs = { version = "0.6", features = ["hazmat", "libcrux", "serialization"] }
 hyper = { version = "1", features = ["http1", "http2", "server"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
-itertools = { version = "0.14" }
+itertools = { version = "0.13" }
 k256 = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "std"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }

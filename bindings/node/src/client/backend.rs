@@ -80,7 +80,11 @@ impl BackendBuilder {
       .maybe_auth_handle(auth_handle.map(|h: AuthHandle| h.into()));
 
     let v3_host = builder.get_v3_host().map(ToString::to_string);
-    let bundle = builder.build_optional_d14n().map_err(ErrorWrapper::from)?;
+    let bundle = if self.env.is_migration() {
+      builder.build().map_err(ErrorWrapper::from)?
+    } else {
+      builder.build_optional_d14n().map_err(ErrorWrapper::from)?
+    };
     Ok(Backend {
       bundle,
       env: self.env,
