@@ -1101,7 +1101,6 @@ impl Test {
 
         // Step 3: Send N tagged messages
         info!(msg_count, "sending tagged messages on V3");
-        let mut expected_payloads = Vec::with_capacity(msg_count);
         for i in 0..msg_count {
             let payload = format!(
                 "{}{}_{}_{}",
@@ -1119,19 +1118,13 @@ impl Test {
                         .map_err(|e| eyre!("build SendMessageOpts: {e}"))?,
                 )
                 .await?;
-            expected_payloads.push(payload);
         }
         info!("all V3 messages sent");
 
-        // Step 4: Capture V3 member list for membership check
+        // Step 4: Capture V3 member count
         group.sync().await?;
-        let v3_members: Vec<String> = group
-            .members()
-            .await?
-            .iter()
-            .map(|m| m.inbox_id.clone())
-            .collect();
-        info!(member_count = v3_members.len(), "V3 membership captured");
+        let member_count = group.members().await?.len();
+        info!(member_count, "V3 membership captured");
 
         // Step 5: Poll V4 for migrated group messages
         let group_topic = Topic::new_group_message(&group_id);
@@ -1169,36 +1162,39 @@ impl Test {
         let v4_sdk_client = app::temp_client(&d14n_backend, Some(&wallet1)).await?;
         let v4_inbox_id = v4_sdk_client.inbox_id().to_string();
 
-        // CHECK 1a: inbox_id derivation is deterministic across backends
+        // CHECK 1: inbox_id derivation is deterministic across backends
         if v4_inbox_id == inbox_id1 {
+            metrics::record_continuity_pass("identity_inbox_id");
             info!(
                 inbox_id = v4_inbox_id,
-                "identity continuity: inbox_id matches"
+                "identity inbox_id: PASS — matches V3"
             );
         } else {
-            metrics::record_continuity_fail("identity_continuity");
+            metrics::record_continuity_fail("identity_inbox_id");
             warn!(
                 v3_inbox = inbox_id1,
                 v4_inbox = v4_inbox_id,
-                "identity continuity: FAIL — inbox_id mismatch"
+                "identity inbox_id: FAIL — mismatch"
             );
         }
 
-        // CHECK 1b: V4 registration succeeds (new installation for migrated inbox)
+        // CHECK 2: V4 registration succeeds (new installation for migrated inbox)
         match app::register_client(&v4_sdk_client, wallet1.clone().into_alloy()).await {
             Ok(()) => {
-                metrics::record_continuity_pass("identity_continuity");
-                info!("identity continuity: PASS — V4 registration succeeded");
+                metrics::record_continuity_pass("identity_registration");
+                info!("identity registration: PASS — V4 accepted new installation");
             }
             Err(e) => {
-                metrics::record_continuity_fail("identity_continuity");
-                warn!(error = %e, "identity continuity: FAIL — V4 registration failed");
+                metrics::record_continuity_fail("identity_registration");
+                warn!(error = %e, "identity registration: FAIL — V4 rejected");
             }
         }
 
-        // CHECK 2: Identity discoverability — both identities exist on V4
+        // CHECK 3: Identity discoverability — both identities exist on V4
         let identity_topic1 = Topic::new_identity_update(&hex::decode(&inbox_id1)?);
         let identity_topic2 = Topic::new_identity_update(&hex::decode(&inbox_id2)?);
+        // Identity updates should migrate alongside or before group messages, so
+        // use 1/4 of the migration timeout with a 4s floor for the presence poll.
         let presence_timeout = std::time::Duration::from_secs((timeout_secs / 4).max(4));
 
         let (sender_found, receiver_found) = tokio::join!(
@@ -1217,7 +1213,7 @@ impl Test {
             );
         }
 
-        // CHECK 3: Message completeness — all N messages present on V4
+        // CHECK 4: Message completeness — all N messages present on V4
         let new_envelopes = &group_envelopes[group_baseline.min(group_envelopes.len())..];
         let v4_count = new_envelopes.len();
         if v4_count >= msg_count {
@@ -1236,28 +1232,31 @@ impl Test {
             );
         }
 
-        // CHECK 4: Message ordering — sequence IDs monotonic per originator
+        // CHECK 5: Message ordering — sequence IDs monotonic per originator
         let mut ordering_ok = true;
         let mut last_seq_by_originator: std::collections::HashMap<u32, u64> =
             std::collections::HashMap::new();
         for env in new_envelopes {
-            if let Ok(unsigned) =
-                UnsignedOriginatorEnvelope::decode(env.unsigned_originator_envelope.as_slice())
-            {
-                let orig = unsigned.originator_node_id;
-                let seq = unsigned.originator_sequence_id;
-                if let Some(&last) = last_seq_by_originator.get(&orig)
-                    && seq < last
-                {
-                    ordering_ok = false;
-                    warn!(
-                        originator_id = orig,
-                        current_seq = seq,
-                        previous_seq = last,
-                        "V4 ordering violation"
-                    );
+            match UnsignedOriginatorEnvelope::decode(env.unsigned_originator_envelope.as_slice()) {
+                Err(e) => {
+                    debug!(error = %e, "envelope decode failed during ordering check");
                 }
-                last_seq_by_originator.insert(orig, seq);
+                Ok(unsigned) => {
+                    let orig = unsigned.originator_node_id;
+                    let seq = unsigned.originator_sequence_id;
+                    if let Some(&last) = last_seq_by_originator.get(&orig)
+                        && seq < last
+                    {
+                        ordering_ok = false;
+                        warn!(
+                            originator_id = orig,
+                            current_seq = seq,
+                            previous_seq = last,
+                            "V4 ordering violation"
+                        );
+                    }
+                    last_seq_by_originator.insert(orig, seq);
+                }
             }
         }
         if ordering_ok {
