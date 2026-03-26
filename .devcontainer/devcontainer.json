@@ -5,6 +5,7 @@
   "features": {
     "ghcr.io/devcontainers/features/nix:1": {
       "multiUser": false,
+      "version": "2.34.1",
       "packages": "nix-direnv",
       "extraNixConfig": "experimental-features = nix-command flakes,accept-flake-config = true,build-users-group =,extra-substituters = https://xmtp.cachix.org https://cache.garnix.io,extra-trusted-public-keys = xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0= cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=",
     },
