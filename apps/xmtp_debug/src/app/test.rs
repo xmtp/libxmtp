@@ -20,6 +20,9 @@ use crate::{
     metrics::{self, record_phase_metric},
 };
 
+/// Tag embedded in parity test messages for identification in V3 local store.
+const PARITY_TAG: &str = "__PARITY_CHECK__";
+
 /// Build a V4 query client from a URL.
 /// Must point at a D14N replication node (e.g. grpc.testnet.xmtp.network),
 /// NOT the payer gateway — the gateway doesn't serve QueryEnvelopes.
@@ -573,7 +576,8 @@ impl Test {
         let send_start = Instant::now();
         for i in 0..msg_count {
             let payload = format!(
-                "__PARITY_CHECK__{}_{}_{}",
+                "{}{}_{}_{}",
+                PARITY_TAG,
                 group_id_hex,
                 i,
                 chrono::Utc::now().timestamp_millis()
@@ -598,9 +602,7 @@ impl Test {
         let v3_cursors: Vec<(u32, u64)> = v3_messages
             .iter()
             .filter(|m| m.kind == GroupMessageKind::Application)
-            .filter(|m| {
-                String::from_utf8_lossy(&m.decrypted_message_bytes).contains("__PARITY_CHECK__")
-            })
+            .filter(|m| String::from_utf8_lossy(&m.decrypted_message_bytes).contains(PARITY_TAG))
             .map(|m| (m.originator_id as u32, m.sequence_id as u64))
             .collect();
         info!(
@@ -821,7 +823,7 @@ impl Test {
         let poll_interval = std::time::Duration::from_secs(2);
         // Use a quarter of the migration timeout for secondary topics —
         // they should migrate alongside or before group messages.
-        let timeout = std::time::Duration::from_secs(timeout_secs / 4);
+        let timeout = std::time::Duration::from_secs((timeout_secs / 4).max(4));
         let deadline = Instant::now() + timeout;
 
         loop {
