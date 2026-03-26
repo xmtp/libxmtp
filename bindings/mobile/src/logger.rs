@@ -18,6 +18,8 @@ use tracing_subscriber::{
     registry::LookupSpan, registry::Registry, reload, util::SubscriberInitExt,
 };
 
+const ANDROID_TRACING_FILTER: &str = "xmtp_mls::groups::send_message=TRACE,xmtp_mls::groups::send_message_optimistic=TRACE,xmtp_mls::mls_sync=DEBUG,xmtp_api_d14n=DEBUG";
+
 #[cfg(target_os = "android")]
 pub use android::*;
 #[cfg(target_os = "android")]
@@ -28,7 +30,7 @@ mod android {
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
         use tracing_subscriber::EnvFilter;
-        let api_calls_filter = EnvFilter::builder().parse_lossy("xmtp_api=debug");
+        let api_calls_filter = EnvFilter::builder().parse(ANDROID_TRACING_FILTER);
         let libxmtp_filter = xmtp_common::filter_directive("debug");
 
         vec![
@@ -397,5 +399,12 @@ mod test_logger {
             assert!(contents.contains(&rand_nums));
             std::fs::remove_file(entry.as_ref().unwrap().path()).unwrap();
         }
+    }
+
+    #[test]
+    fn android_tracing_filter_works() {
+        let _ = EnvFilter::builder().parse(
+            "xmtp_mls::groups::send_message=TRACE,xmtp_mls::groups::send_message_optimistic=TRACE,xmtp_mls::mls_sync=DEBUG,xmtp_api_d14n=DEBUG"
+        ).unwrap();
     }
 }
