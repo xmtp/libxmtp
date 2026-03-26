@@ -508,6 +508,9 @@ pub struct TestOpts {
     /// Timeout in seconds for waiting for migrated message on V4 (default 120)
     #[arg(long, default_value = "120")]
     pub migration_timeout: u64,
+    /// Number of messages to send for content-parity scenario (default 5)
+    #[arg(long, default_value = "5")]
+    pub parity_messages: usize,
 }
 
 #[derive(ValueEnum, Debug, Clone)]
@@ -518,6 +521,8 @@ pub enum TestScenario {
     GroupSync,
     /// Measure V3→V4 migration latency (write to V3, poll V4)
     MigrationLatency,
+    /// Validate V3→V4 content parity (write structured payloads, diff on V4)
+    ContentParity,
 }
 
 #[cfg(test)]

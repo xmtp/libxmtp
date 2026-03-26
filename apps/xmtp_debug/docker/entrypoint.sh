@@ -66,6 +66,15 @@ while true; do
       --iterations 1 \
       || log "WARNING: migration latency test $x failed"
 
+    # Content parity test: write structured payloads to V3, diff on V4.
+    log "Content parity test..."
+    XDBG_LOOP_PAUSE=0 xdbg -b production test content-parity \
+      --v4-node-url "${XDBG_V4_NODE_URL}" \
+      --migration-timeout "${XDBG_MIGRATION_TIMEOUT}" \
+      --parity-messages "${XDBG_PARITY_MESSAGES:-5}" \
+      --iterations 1 \
+      || log "WARNING: content parity test $x failed"
+
     log "Sleeping ${XDBG_LOOP_PAUSE} seconds..."
     sleep "${XDBG_LOOP_PAUSE}"
   done
