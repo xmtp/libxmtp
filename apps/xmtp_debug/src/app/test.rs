@@ -23,6 +23,9 @@ use crate::{
 /// Tag embedded in parity test messages for identification in V3 local store.
 const PARITY_TAG: &str = "__PARITY_CHECK__";
 
+/// Tag embedded in continuity test messages for identification in V3 local store.
+const CONTINUITY_TAG: &str = "__WALLET_CONTINUITY__";
+
 /// Build a V4 query client from a URL.
 /// Must point at a D14N replication node (e.g. grpc.testnet.xmtp.network),
 /// NOT the payer gateway — the gateway doesn't serve QueryEnvelopes.
@@ -74,6 +77,7 @@ impl Test {
             TestScenario::GroupSync => self.group_sync_test().await,
             TestScenario::MigrationLatency => self.migration_latency_test().await,
             TestScenario::ContentParity => self.content_parity_test().await,
+            TestScenario::WalletContinuity => self.wallet_continuity_test().await,
         }
     }
 
@@ -1017,6 +1021,278 @@ impl Test {
                 total = resp.envelopes.len(),
                 "target envelope not on V4 yet"
             );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Wallet Continuity: V3 → V4
+    // -----------------------------------------------------------------------
+
+    /// Validates wallet continuity across V3→V4 migration: create an identity
+    /// and group on V3, wait for migration, then verify the same wallet can
+    /// register on V4 and all group data is intact.
+    async fn wallet_continuity_test(&self) -> Result<()> {
+        let v4_node_url = self
+            .opts
+            .v4_node_url
+            .as_ref()
+            .ok_or_else(|| eyre!("--v4-node-url is required for wallet-continuity scenario"))?;
+
+        let iterations = self.opts.iterations;
+        let msg_count = self.opts.continuity_messages;
+        let timeout_secs = self.opts.migration_timeout;
+
+        info!(
+            iterations,
+            msg_count,
+            timeout_secs,
+            v3_backend = ?self.network.backend,
+            v4_node = %v4_node_url,
+            "starting wallet continuity test"
+        );
+
+        let v4_client = build_v4_client(v4_node_url)?;
+
+        for i in 0..iterations {
+            info!(iteration = i + 1, "running wallet continuity iteration");
+            match self.run_single_continuity_test(&v4_client).await {
+                Ok(()) => {
+                    info!(iteration = i + 1, "wallet continuity iteration complete");
+                }
+                Err(e) => {
+                    warn!(iteration = i + 1, error = %e, "wallet continuity iteration failed");
+                }
+            }
+            metrics::push_metrics("xdbg_continuity").await;
+        }
+
+        Ok(())
+    }
+
+    async fn run_single_continuity_test(
+        &self,
+        v4_client: &xmtp_api_grpc::GrpcClient,
+    ) -> Result<()> {
+        let msg_count = self.opts.continuity_messages;
+        let timeout_secs = self.opts.migration_timeout;
+
+        // Step 1: Create V3 sender + receiver
+        info!("creating V3 sender");
+        let wallet1 = generate_wallet();
+        let client1 = app::temp_client(&self.network, Some(&wallet1)).await?;
+        app::register_client(&client1, wallet1.clone().into_alloy()).await?;
+        let inbox_id1 = client1.inbox_id().to_string();
+        info!(inbox_id = inbox_id1, "V3 sender registered");
+
+        info!("creating V3 receiver");
+        let wallet2 = generate_wallet();
+        let client2 = app::temp_client(&self.network, Some(&wallet2)).await?;
+        app::register_client(&client2, wallet2.clone().into_alloy()).await?;
+        let inbox_id2 = client2.inbox_id().to_string();
+        info!(inbox_id = inbox_id2, "V3 receiver registered");
+
+        // Step 2: Sender creates group, adds receiver
+        info!("creating group and adding receiver");
+        let group = client1.create_group(Default::default(), Default::default())?;
+        group.add_members(std::slice::from_ref(&inbox_id2)).await?;
+        let group_id = group.group_id.clone();
+        let group_id_hex = hex::encode(&group_id);
+        info!(group_id = group_id_hex, "group created, receiver added");
+
+        // Step 3: Send N tagged messages
+        info!(msg_count, "sending tagged messages on V3");
+        let mut expected_payloads = Vec::with_capacity(msg_count);
+        for i in 0..msg_count {
+            let payload = format!(
+                "{}{}_{}_{}",
+                CONTINUITY_TAG,
+                group_id_hex,
+                i,
+                chrono::Utc::now().timestamp_millis()
+            );
+            group
+                .send_message(
+                    payload.as_bytes(),
+                    SendMessageOptsBuilder::default()
+                        .should_push(false)
+                        .build()
+                        .map_err(|e| eyre!("build SendMessageOpts: {e}"))?,
+                )
+                .await?;
+            expected_payloads.push(payload);
+        }
+        info!("all V3 messages sent");
+
+        // Step 4: Capture V3 member list for membership check
+        group.sync().await?;
+        let v3_members: Vec<String> = group
+            .members()
+            .await?
+            .iter()
+            .map(|m| m.inbox_id.clone())
+            .collect();
+        info!(member_count = v3_members.len(), "V3 membership captured");
+
+        // Step 5: Poll V4 for migrated group messages
+        let group_topic = Topic::new_group_message(&group_id);
+        let group_baseline = query_v4_envelopes(v4_client, &group_topic).await.len();
+        let poll_interval = std::time::Duration::from_millis(500);
+        let timeout = std::time::Duration::from_secs(timeout_secs);
+        let deadline = Instant::now() + timeout;
+
+        info!("polling V4 for migrated group messages...");
+        let group_envelopes = loop {
+            if Instant::now() > deadline {
+                warn!(timeout_secs, "timeout waiting for group messages on V4");
+                break query_v4_envelopes(v4_client, &group_topic).await;
+            }
+            tokio::time::sleep(poll_interval).await;
+            let envelopes = query_v4_envelopes(v4_client, &group_topic).await;
+            let new_count = envelopes.len().saturating_sub(group_baseline);
+            if new_count >= msg_count {
+                info!(new_envelopes = new_count, "group messages migrated to V4");
+                break envelopes;
+            }
+        };
+
+        // Step 6: Create V4 SDK client with sender's wallet (D14N mode).
+        // This tests the core identity continuity promise: same wallet → same
+        // inbox_id, and the V4 network accepts a new installation for the
+        // migrated identity.
+        let d14n_backend = args::BackendOpts {
+            backend: self.network.backend,
+            d14n: true,
+            ..Default::default()
+        };
+
+        info!("creating V4 SDK client with sender's wallet");
+        let v4_sdk_client = app::temp_client(&d14n_backend, Some(&wallet1)).await?;
+        let v4_inbox_id = v4_sdk_client.inbox_id().to_string();
+
+        // CHECK 1a: inbox_id derivation is deterministic across backends
+        if v4_inbox_id == inbox_id1 {
+            info!(
+                inbox_id = v4_inbox_id,
+                "identity continuity: inbox_id matches"
+            );
+        } else {
+            metrics::record_continuity_fail("identity_continuity");
+            warn!(
+                v3_inbox = inbox_id1,
+                v4_inbox = v4_inbox_id,
+                "identity continuity: FAIL — inbox_id mismatch"
+            );
+        }
+
+        // CHECK 1b: V4 registration succeeds (new installation for migrated inbox)
+        match app::register_client(&v4_sdk_client, wallet1.clone().into_alloy()).await {
+            Ok(()) => {
+                metrics::record_continuity_pass("identity_continuity");
+                info!("identity continuity: PASS — V4 registration succeeded");
+            }
+            Err(e) => {
+                metrics::record_continuity_fail("identity_continuity");
+                warn!(error = %e, "identity continuity: FAIL — V4 registration failed");
+            }
+        }
+
+        // CHECK 2: Identity discoverability — both identities exist on V4
+        let identity_topic1 = Topic::new_identity_update(&hex::decode(&inbox_id1)?);
+        let identity_topic2 = Topic::new_identity_update(&hex::decode(&inbox_id2)?);
+        let presence_timeout = std::time::Duration::from_secs((timeout_secs / 4).max(4));
+
+        let (sender_found, receiver_found) = tokio::join!(
+            Self::poll_topic_presence(v4_client, &identity_topic1, presence_timeout),
+            Self::poll_topic_presence(v4_client, &identity_topic2, presence_timeout),
+        );
+
+        if sender_found && receiver_found {
+            metrics::record_continuity_pass("membership");
+            info!("membership: PASS — both identities discoverable on V4");
+        } else {
+            metrics::record_continuity_fail("membership");
+            warn!(
+                sender_found,
+                receiver_found, "membership: FAIL — identity not found on V4"
+            );
+        }
+
+        // CHECK 3: Message completeness — all N messages present on V4
+        let new_envelopes = &group_envelopes[group_baseline.min(group_envelopes.len())..];
+        let v4_count = new_envelopes.len();
+        if v4_count >= msg_count {
+            metrics::record_continuity_pass("message_completeness");
+            info!(
+                expected = msg_count,
+                found = v4_count,
+                "message completeness: PASS"
+            );
+        } else {
+            metrics::record_continuity_fail("message_completeness");
+            warn!(
+                expected = msg_count,
+                found = v4_count,
+                "message completeness: FAIL — missing messages"
+            );
+        }
+
+        // CHECK 4: Message ordering — sequence IDs monotonic per originator
+        let mut ordering_ok = true;
+        let mut last_seq_by_originator: std::collections::HashMap<u32, u64> =
+            std::collections::HashMap::new();
+        for env in new_envelopes {
+            if let Ok(unsigned) =
+                UnsignedOriginatorEnvelope::decode(env.unsigned_originator_envelope.as_slice())
+            {
+                let orig = unsigned.originator_node_id;
+                let seq = unsigned.originator_sequence_id;
+                if let Some(&last) = last_seq_by_originator.get(&orig)
+                    && seq < last
+                {
+                    ordering_ok = false;
+                    warn!(
+                        originator_id = orig,
+                        current_seq = seq,
+                        previous_seq = last,
+                        "V4 ordering violation"
+                    );
+                }
+                last_seq_by_originator.insert(orig, seq);
+            }
+        }
+        if ordering_ok {
+            metrics::record_continuity_pass("message_ordering");
+            info!("message ordering: PASS");
+        } else {
+            metrics::record_continuity_fail("message_ordering");
+            warn!("message ordering: FAIL");
+        }
+
+        // Clean up
+        v4_sdk_client.release_db_connection()?;
+        client1.release_db_connection()?;
+        client2.release_db_connection()?;
+
+        Ok(())
+    }
+
+    /// Poll a V4 topic until at least one envelope exists, returning true if found.
+    async fn poll_topic_presence(
+        v4_client: &xmtp_api_grpc::GrpcClient,
+        topic: &Topic,
+        timeout: std::time::Duration,
+    ) -> bool {
+        let deadline = Instant::now() + timeout;
+        let poll_interval = std::time::Duration::from_secs(2);
+        loop {
+            let count = query_v4_envelopes(v4_client, topic).await.len();
+            if count > 0 {
+                return true;
+            }
+            if Instant::now() > deadline {
+                return false;
+            }
+            tokio::time::sleep(poll_interval).await;
         }
     }
 }

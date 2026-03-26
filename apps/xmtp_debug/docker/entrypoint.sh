@@ -7,6 +7,7 @@ set -uo pipefail
 : "${XDBG_LOOP_PAUSE:=300}"    # default interval between loop iterations
 : "${XDBG_V4_NODE_URL:=}"      # V4/D14N node URL for migration latency test
 : "${XDBG_MIGRATION_TIMEOUT:=120}" # timeout for migration latency polling
+: "${XDBG_CONTINUITY_MESSAGES:=5}" # messages per wallet continuity iteration
 
 function log {
     echo "[$(date '+%F %T')] $*"
@@ -74,6 +75,15 @@ while true; do
       --parity-messages "${XDBG_PARITY_MESSAGES:-5}" \
       --iterations 1 \
       || log "WARNING: content parity test $x failed"
+
+    # Wallet continuity test: verify same wallet → same inbox_id on V4.
+    log "Wallet continuity test..."
+    XDBG_LOOP_PAUSE=0 xdbg -b production test wallet-continuity \
+      --v4-node-url "${XDBG_V4_NODE_URL}" \
+      --migration-timeout "${XDBG_MIGRATION_TIMEOUT}" \
+      --continuity-messages "${XDBG_CONTINUITY_MESSAGES}" \
+      --iterations 1 \
+      || log "WARNING: wallet continuity test $x failed"
 
     log "Sleeping ${XDBG_LOOP_PAUSE} seconds..."
     sleep "${XDBG_LOOP_PAUSE}"

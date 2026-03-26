@@ -41,6 +41,9 @@ pub struct Metrics {
     parity_fail: prometheus::IntCounterVec,
     parity_missing: prometheus::IntCounterVec,
     parity_extra: prometheus::IntCounterVec,
+    // Wallet continuity metrics (labelled by check_type)
+    continuity_pass: prometheus::IntCounterVec,
+    continuity_fail: prometheus::IntCounterVec,
     client: Client,
 }
 
@@ -131,6 +134,24 @@ impl Metrics {
         )
         .expect("valid counter");
 
+        let continuity_pass = prometheus::IntCounterVec::new(
+            Opts::new(
+                "xdbg_continuity_pass_total",
+                "Wallet continuity checks that passed, by check type",
+            ),
+            &["check_type"],
+        )
+        .expect("valid counter");
+
+        let continuity_fail = prometheus::IntCounterVec::new(
+            Opts::new(
+                "xdbg_continuity_fail_total",
+                "Wallet continuity checks that failed, by check type",
+            ),
+            &["check_type"],
+        )
+        .expect("valid counter");
+
         registry
             .register(Box::new(latency.clone()))
             .expect("register latency");
@@ -161,6 +182,12 @@ impl Metrics {
         registry
             .register(Box::new(parity_extra.clone()))
             .expect("register parity_extra");
+        registry
+            .register(Box::new(continuity_pass.clone()))
+            .expect("register continuity_pass");
+        registry
+            .register(Box::new(continuity_fail.clone()))
+            .expect("register continuity_fail");
 
         Metrics {
             registry,
@@ -174,6 +201,8 @@ impl Metrics {
             parity_fail,
             parity_missing,
             parity_extra,
+            continuity_pass,
+            continuity_fail,
             client: Client::new(),
         }
     }
@@ -311,6 +340,20 @@ pub fn record_parity_missing(data_type: &str, count: u64) {
 pub fn record_parity_extra(data_type: &str, count: u64) {
     if let Some(m) = METRICS.get() {
         m.parity_extra.with_label_values(&[data_type]).inc_by(count);
+    }
+}
+
+/// Increment wallet-continuity pass counter for `check_type`. No-op when metrics are inactive.
+pub fn record_continuity_pass(check_type: &str) {
+    if let Some(m) = METRICS.get() {
+        m.continuity_pass.with_label_values(&[check_type]).inc();
+    }
+}
+
+/// Increment wallet-continuity fail counter for `check_type`. No-op when metrics are inactive.
+pub fn record_continuity_fail(check_type: &str) {
+    if let Some(m) = METRICS.get() {
+        m.continuity_fail.with_label_values(&[check_type]).inc();
     }
 }
 

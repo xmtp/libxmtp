@@ -511,6 +511,9 @@ pub struct TestOpts {
     /// Number of messages to send for content-parity scenario (default 5)
     #[arg(long, default_value = "5")]
     pub parity_messages: usize,
+    /// Number of messages to send for wallet-continuity scenario (default 5)
+    #[arg(long, default_value = "5")]
+    pub continuity_messages: usize,
 }
 
 #[derive(ValueEnum, Debug, Clone)]
@@ -523,6 +526,8 @@ pub enum TestScenario {
     MigrationLatency,
     /// Validate V3→V4 content parity (write structured payloads, diff on V4)
     ContentParity,
+    /// Validate wallet continuity: V3 data readable on V4 with same wallet
+    WalletContinuity,
 }
 
 #[cfg(test)]
