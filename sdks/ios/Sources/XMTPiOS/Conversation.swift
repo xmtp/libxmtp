@@ -1,7 +1,14 @@
 import Foundation
 
+/// A polymorphic wrapper over ``Group`` and ``Dm`` that provides a unified API surface
+/// for working with conversations regardless of their underlying type.
+///
+/// Use `Conversation` when you want to handle groups and direct messages interchangeably.
+/// Each method delegates to the corresponding method on the underlying ``Group`` or ``Dm``.
 public enum Conversation: Identifiable, Equatable, Hashable {
+	/// A group conversation with multiple participants.
 	case group(Group)
+	/// A direct message conversation between two participants.
 	case dm(Dm)
 
 	public static func == (lhs: Conversation, rhs: Conversation) -> Bool {
@@ -12,10 +19,15 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		hasher.combine(topic)
 	}
 
+	/// The type of conversation.
 	public enum XMTPConversationType {
-		case group, dm
+		/// A group conversation with multiple participants.
+		case group
+		/// A direct message conversation between two participants.
+		case dm
 	}
 
+	/// The unique identifier for this conversation.
 	public var id: String {
 		switch self {
 		case let .group(group):
@@ -25,6 +37,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// The current disappearing message settings for this conversation, or `nil` if not configured.
 	public var disappearingMessageSettings: DisappearingMessageSettings? {
 		switch self {
 		case let .group(group):
@@ -34,6 +47,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Returns whether disappearing messages are enabled for this conversation.
 	public func isDisappearingMessagesEnabled() throws -> Bool {
 		switch self {
 		case let .group(group):
@@ -43,6 +57,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Returns the most recent message in this conversation, or `nil` if the conversation is empty.
 	public func lastMessage() async throws -> DecodedMessage? {
 		switch self {
 		case let .group(group):
@@ -52,6 +67,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Returns the fork status of the conversation's commit log, indicating whether the MLS group state has diverged.
 	public func commitLogForkStatus() -> CommitLogForkStatus {
 		switch self {
 		case let .group(group):
@@ -61,6 +77,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Returns whether the current client created this conversation.
 	public func isCreator() async throws -> Bool {
 		switch self {
 		case let .group(group):
@@ -70,6 +87,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Returns the list of members in this conversation.
 	public func members() async throws -> [Member] {
 		switch self {
 		case let .group(group):
@@ -79,6 +97,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Returns the current consent state (allowed, denied, or unknown) for this conversation.
 	public func consentState() throws -> ConsentState {
 		switch self {
 		case let .group(group):
@@ -88,6 +107,9 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Updates the consent state for this conversation.
+	///
+	/// - Parameter state: The new consent state to apply.
 	public func updateConsentState(state: ConsentState) async throws {
 		switch self {
 		case let .group(group):
@@ -97,6 +119,9 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Updates the disappearing message settings for this conversation.
+	///
+	/// - Parameter disappearingMessageSettings: The new settings to apply, or `nil` to disable.
 	public func updateDisappearingMessageSettings(
 		_ disappearingMessageSettings: DisappearingMessageSettings?
 	) async throws {
@@ -112,6 +137,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Clears the disappearing message settings, disabling disappearing messages for this conversation.
 	public func clearDisappearingMessageSettings() async throws {
 		switch self {
 		case let .group(group):
@@ -121,6 +147,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Syncs this conversation with the network, fetching new messages and state updates.
 	public func sync() async throws {
 		switch self {
 		case let .group(group):
@@ -130,6 +157,10 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Decrypts and processes a raw message received via push notification or other out-of-band delivery.
+	///
+	/// - Parameter messageBytes: The raw encrypted message bytes.
+	/// - Returns: The decoded message, or `nil` if the message could not be processed.
 	public func processMessage(messageBytes: Data) async throws -> DecodedMessage? {
 		switch self {
 		case let .group(group):
@@ -139,6 +170,13 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Prepares a message from pre-encoded content for later publishing.
+	///
+	/// - Parameters:
+	///   - encodedContent: The pre-encoded content to send.
+	///   - visibilityOptions: Optional visibility settings for the message.
+	///   - noSend: If `true`, the message is prepared but not queued for sending.
+	/// - Returns: The hex-encoded message ID of the prepared message.
 	public func prepareMessage(
 		encodedContent: EncodedContent,
 		visibilityOptions: MessageVisibilityOptions? = nil,
@@ -162,6 +200,13 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Prepares a message from any content type for later publishing.
+	///
+	/// - Parameters:
+	///   - content: The content to send, which will be encoded using the appropriate content codec.
+	///   - options: Optional send options controlling encoding behavior.
+	///   - noSend: If `true`, the message is prepared but not queued for sending.
+	/// - Returns: The hex-encoded message ID of the prepared message.
 	public func prepareMessage(content: some Any, options: SendOptions? = nil, noSend: Bool = false)
 		async throws -> String
 	{
@@ -177,6 +222,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Publishes all pending prepared messages to the network.
 	public func publishMessages() async throws {
 		switch self {
 		case let .group(group):
@@ -186,6 +232,9 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Publishes a single prepared message to the network.
+	///
+	/// - Parameter messageId: The hex-encoded message ID of the prepared message to publish.
 	public func publishMessage(messageId: String) async throws {
 		switch self {
 		case let .group(group):
@@ -195,6 +244,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// The type of this conversation (group or dm).
 	public var type: XMTPConversationType {
 		switch self {
 		case .group:
@@ -204,6 +254,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// The date when this conversation was created.
 	public var createdAt: Date {
 		switch self {
 		case let .group(group):
@@ -213,6 +264,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// The creation timestamp of this conversation in nanoseconds since the Unix epoch.
 	public var createdAtNs: Int64 {
 		switch self {
 		case let .group(group):
@@ -222,6 +274,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// The timestamp of the last activity in this conversation in nanoseconds since the Unix epoch.
 	public var lastActivityAtNs: Int64 {
 		switch self {
 		case let .group(group):
@@ -231,6 +284,12 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Sends a message with any content type to this conversation.
+	///
+	/// - Parameters:
+	///   - content: The content to send, which will be encoded using the appropriate content codec.
+	///   - options: Optional send options controlling encoding behavior.
+	/// - Returns: The hex-encoded message ID of the sent message.
 	@discardableResult public func send(
 		content: some Any, options: SendOptions? = nil, fallback _: String? = nil
 	) async throws -> String {
@@ -242,6 +301,12 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Sends a pre-encoded message to this conversation.
+	///
+	/// - Parameters:
+	///   - encodedContent: The pre-encoded content to send.
+	///   - visibilityOptions: Optional visibility settings for the message.
+	/// - Returns: The hex-encoded message ID of the sent message.
 	@discardableResult public func send(
 		encodedContent: EncodedContent, visibilityOptions: MessageVisibilityOptions? = nil
 	) async throws -> String {
@@ -257,6 +322,12 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Sends a plain text message to this conversation.
+	///
+	/// - Parameters:
+	///   - text: The text string to send.
+	///   - options: Optional send options controlling encoding behavior.
+	/// - Returns: The hex-encoded message ID of the sent message.
 	public func send(text: String, options: SendOptions? = nil) async throws
 		-> String
 	{
@@ -268,6 +339,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// The MLS group topic identifier for this conversation, used for network-level message routing.
 	public var topic: String {
 		switch self {
 		case let .group(group):
@@ -277,6 +349,10 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Returns an asynchronous stream of new messages arriving in this conversation.
+	///
+	/// - Parameter onClose: An optional closure called when the stream closes.
+	/// - Returns: An `AsyncThrowingStream` that yields each new ``DecodedMessage`` as it arrives.
 	public func streamMessages(onClose: (() -> Void)? = nil) -> AsyncThrowingStream<
 		DecodedMessage, Error
 	> {
@@ -335,7 +411,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	/// Returns null if conversation is not paused, otherwise the min version required to unpause this conversation
+	/// Returns `nil` if this conversation is not paused, otherwise the minimum version required to unpause it.
 	public func pausedForVersion() async throws -> String? {
 		switch self {
 		case let .group(group):
@@ -345,6 +421,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// The ``Client`` instance that owns this conversation.
 	public var client: Client {
 		switch self {
 		case let .group(group):
@@ -354,6 +431,10 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Returns messages with reactions attached as child messages.
+	///
+	/// This is a legacy method; prefer ``enrichedMessages(limit:beforeNs:afterNs:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
+	/// for new code.
 	public func messagesWithReactions(
 		limit: Int? = nil,
 		beforeNs: Int64? = nil,
@@ -441,6 +522,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Returns the number of messages in this conversation matching the given filters.
 	public func countMessages(
 		beforeNs: Int64? = nil,
 		afterNs: Int64? = nil,
@@ -470,6 +552,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Returns the HMAC keys for this conversation, used for push notification decryption.
 	public func getHmacKeys() throws -> Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse {
 		switch self {
 		case let .group(group):
@@ -479,6 +562,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Returns the topic strings to subscribe to for push notifications on this conversation.
 	public func getPushTopics() async throws -> [String] {
 		switch self {
 		case let .group(group):
@@ -488,6 +572,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Returns debug information about this conversation's internal state.
 	public func getDebugInformation() async throws -> ConversationDebugInfo {
 		switch self {
 		case let .group(group):
@@ -497,6 +582,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Returns whether this conversation is active (not removed or inactive in the MLS group).
 	public func isActive() throws -> Bool {
 		switch self {
 		case let .group(group):

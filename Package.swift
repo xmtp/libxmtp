@@ -20,7 +20,7 @@ let useLocalDynamicBinary = FileManager.default.fileExists(
 // SPM downloads ALL declared binary targets (even trait-gated ones), so we must omit the
 // dynamic target when only the static xcframework was built locally — otherwise both
 // xcframeworks define the same `xmtpv3FFI` clang module, causing a redefinition error.
-let includeDynamicTarget = useLocalDynamicBinary || !useLocalBinary
+let includeDynamicTarget = useLocalDynamicBinary
 
 var packageTargets: [Target] = [
     useLocalBinary

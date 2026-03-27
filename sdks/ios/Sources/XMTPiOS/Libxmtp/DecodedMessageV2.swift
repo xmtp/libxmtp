@@ -1,47 +1,77 @@
 import Foundation
 
+/// A type representing a structured intent from a message.
 public typealias Intent = FfiIntent
+/// A type representing structured actions from a message.
 public typealias Actions = FfiActions
 
+/// An enriched decoded message with reactions and replies baked in.
+///
+/// Unlike ``DecodedMessage``, `DecodedMessageV2` includes enriched metadata such as
+/// reactions and the original message for replies directly on the message object.
+/// This eliminates the need for separate queries and is recommended for UI rendering.
+///
+/// Retrieve enriched messages via ``Group/enrichedMessages(beforeNs:afterNs:limit:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``
+/// or ``Dm/enrichedMessages(beforeNs:afterNs:limit:direction:deliveryStatus:excludeContentTypes:excludeSenderInboxIds:sortBy:insertedAfterNs:insertedBeforeNs:)``.
+///
+/// ```swift
+/// let messages = try await group.enrichedMessages(limit: 20)
+/// for message in messages {
+///     let text: String = try message.content()
+///     if let reactions = message.reactions {
+///         // Handle reactions
+///     }
+/// }
+/// ```
 public struct DecodedMessageV2: Identifiable {
 	private let ffiMessage: FfiDecodedMessage
 
+	/// The hex-encoded unique identifier of this message.
 	public var id: String {
 		ffiMessage.id().toHex
 	}
 
+	/// The hex-encoded identifier of the conversation this message belongs to.
 	public var conversationId: String {
 		ffiMessage.conversationId().toHex
 	}
 
+	/// The inbox ID of the account that sent this message.
 	public var senderInboxId: InboxId {
 		ffiMessage.senderInboxId()
 	}
 
+	/// The date when this message was sent on the network.
 	public var sentAt: Date {
 		Date(timeIntervalSince1970: TimeInterval(ffiMessage.sentAtNs()) / 1_000_000_000)
 	}
 
+	/// The timestamp in nanoseconds when this message was sent on the network.
 	public var sentAtNs: Int64 {
 		ffiMessage.sentAtNs()
 	}
 
+	/// The date when this message was inserted into the local database.
 	public var insertedAt: Date {
 		Date(timeIntervalSince1970: TimeInterval(ffiMessage.insertedAtNs()) / 1_000_000_000)
 	}
 
+	/// The timestamp in nanoseconds when this message was inserted into the local database.
 	public var insertedAtNs: Int64 {
 		ffiMessage.insertedAtNs()
 	}
 
+	/// The timestamp in nanoseconds when this message expires, or `nil` if it does not expire.
 	public var expiresAtNs: Int64? {
 		ffiMessage.expiresAtNs()
 	}
 
+	/// The date when this message expires, or `nil` if it does not expire.
 	public var expiresAt: Date? {
 		expiresAtNs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1_000_000_000) }
 	}
 
+	/// The current delivery status of this message.
 	public var deliveryStatus: MessageDeliveryStatus {
 		switch ffiMessage.deliveryStatus() {
 		case .unpublished:
@@ -53,16 +83,32 @@ public struct DecodedMessageV2: Identifiable {
 		}
 	}
 
+	/// The MLS topic string for the conversation this message belongs to.
 	public var topic: String {
 		Topic.groupMessage(conversationId).description
 	}
 
+	/// The reactions associated with this message, or `nil` if there are none.
+	///
+	/// Each reaction is itself a `DecodedMessageV2` whose content can be decoded
+	/// as a `Reaction` type.
 	public var reactions: [DecodedMessageV2]? {
 		let reactionMessages = ffiMessage.reactions()
 		guard !reactionMessages.isEmpty else { return nil }
 		return reactionMessages.compactMap { DecodedMessageV2(ffiMessage: $0) }
 	}
 
+	/// Extracts the decoded content of this message as the specified type.
+	///
+	/// The content is decoded on each call from the enriched FFI representation.
+	/// For plain text messages, use `String`. For reactions, use `Reaction`, etc.
+	///
+	/// ```swift
+	/// let text: String = try message.content()
+	/// ```
+	///
+	/// - Returns: The decoded content cast to the requested type.
+	/// - Throws: ``DecodedMessageError/decodeError(_:)`` if the content cannot be cast to type `T`.
 	public func content<T>() throws -> T {
 		let decodedContent = try mapContent(ffiMessage.content())
 		guard let result = decodedContent as? T else {
@@ -73,6 +119,10 @@ public struct DecodedMessageV2: Identifiable {
 		return result
 	}
 
+	/// The fallback text representation of this message's content.
+	///
+	/// Returns the codec-provided fallback text if available, otherwise
+	/// attempts to extract a human-readable string from the content.
 	public var fallback: String {
 		get throws {
 			if let fallbackText = ffiMessage.fallbackText(), !fallbackText.isEmpty {
@@ -91,6 +141,10 @@ public struct DecodedMessageV2: Identifiable {
 		}
 	}
 
+	/// A plain-text representation of this message.
+	///
+	/// Returns the decoded `String` content if available, otherwise falls back
+	/// to the fallback text provided by the codec.
 	public var body: String {
 		get throws {
 			do {
@@ -101,6 +155,7 @@ public struct DecodedMessageV2: Identifiable {
 		}
 	}
 
+	/// The content type identifier for this message (e.g., text, reaction, attachment).
 	public var contentTypeId: ContentTypeID {
 		let ffiContentType = ffiMessage.contentTypeId()
 		return ContentTypeID(
@@ -111,10 +166,12 @@ public struct DecodedMessageV2: Identifiable {
 		)
 	}
 
+	/// Creates a `DecodedMessageV2` from an FFI decoded message, or returns `nil` if the message is invalid.
 	public init?(ffiMessage: FfiDecodedMessage) {
 		self.ffiMessage = ffiMessage
 	}
 
+	/// Creates a `DecodedMessageV2` from an FFI decoded message, or returns `nil` if the message is invalid.
 	public static func create(ffiMessage: FfiDecodedMessage) -> DecodedMessageV2? {
 		DecodedMessageV2(ffiMessage: ffiMessage)
 	}
