@@ -411,7 +411,7 @@ impl Test {
                     let secs = latency as f64 / 1000.0;
                     metrics::record_migration_success();
                     metrics::record_migration_latency(secs);
-                    metrics::push_metrics("xdbg_test").await;
+                    metrics::push_metrics("xdbg_migration").await;
                     info!(
                         iteration = i + 1,
                         latency_ms = latency,
@@ -425,7 +425,7 @@ impl Test {
                         error = %e,
                         "migration latency iteration failed"
                     );
-                    metrics::push_metrics("xdbg_test").await;
+                    metrics::push_metrics("xdbg_migration").await;
                 }
             }
         }
@@ -512,7 +512,7 @@ impl Test {
                     warn!(iteration = i + 1, error = %e, "content parity iteration failed");
                 }
             }
-            metrics::push_metrics("xdbg_test").await;
+            metrics::push_metrics("xdbg_parity").await;
         }
 
         Ok(())
@@ -804,7 +804,7 @@ impl Test {
             "test_content_parity_group_messages",
             if passed { 1.0 } else { 0.0 },
             "content_parity",
-            "xdbg_test",
+            "xdbg_parity",
         )
         .await;
     }
