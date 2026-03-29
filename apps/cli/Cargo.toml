@@ -18,6 +18,9 @@ workspace = true
 name = "xmtp_cli"
 path = "cli-client.rs"
 
+[lib]
+path = "src/lib"
+
 [dependencies]
 alloy = { workspace = true, features = ["signer-mnemonic"] }
 chrono.workspace = true
