@@ -148,7 +148,7 @@ uuid = "1.12"
 valuable = { version = "0.1", features = ["derive"] }
 vergen-gix = "9.1"
 wasm-streams = "0.5"
-# zstd = { default-features = false, version = "0.13" } # needed to enable wasm feature for async-compression
+zstd = { default-features = false, version = "0.13" } # needed to enable wasm feature for async-compression
 
 # Any changes here need to be made with corresponding changes in .github/workflows
 http-body-util = { version = "0.1" }
