@@ -170,6 +170,11 @@ pub enum ClientError {
     /// Data type failed to convert. Not retryable.
     #[error(transparent)]
     Conversion(#[from] xmtp_proto::ConversionError),
+    /// Registration not visible.
+    ///
+    /// Registration was not visible on the required number of nodes within the timeout. Not retryable.
+    #[error("Registration not visible on required nodes: {failed_nodes:?}")]
+    RegistrationNotVisible { failed_nodes: Vec<u32> },
 }
 
 impl ClientError {
