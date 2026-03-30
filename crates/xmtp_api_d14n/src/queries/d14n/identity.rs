@@ -55,6 +55,12 @@ where
             .first()
             .and_then(|env| env.cursor().ok());
 
+        if cursor.is_none() {
+            tracing::warn!(
+                "publish_identity_update: no cursor in response (empty originator_envelopes or missing cursor field)"
+            );
+        }
+
         Ok(cursor)
     }
 

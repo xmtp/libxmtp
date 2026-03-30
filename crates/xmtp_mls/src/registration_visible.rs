@@ -87,7 +87,7 @@ pub(crate) async fn check_node_visibility<C: Client>(
     use xmtp_proto::types::Topic;
 
     let inbox_id_bytes = hex::decode(inbox_id)
-        .map_err(|e| ClientError::Generic(format!("invalid hex inbox_id: {e}")))?;
+        .expect("inbox_id from self.inbox_id() must be valid hex; this is a library bug");
     let identity_topic = Topic::new_identity_update(&inbox_id_bytes);
     let key_package_topic = Topic::new_key_package(installation_id);
 
@@ -221,7 +221,10 @@ where
 
         let total_nodes = node_clients.len();
         let mut required = options.quorum.required_count(total_nodes);
-        if required > total_nodes {
+        if required == 0 {
+            tracing::warn!("quorum resolved to 0; requiring at least 1 node");
+            required = 1;
+        } else if required > total_nodes {
             tracing::warn!(
                 required,
                 total_nodes,
@@ -269,9 +272,8 @@ where
                 }
                 Err(_) => {
                     failed_nodes.push(node_id);
-                    // Early exit if quorum is no longer reachable
-                    let remaining = total_nodes - confirmed - failed_nodes.len();
-                    if confirmed + remaining < required {
+                    // Early exit if too many nodes have failed for quorum to be reachable
+                    if total_nodes - failed_nodes.len() < required {
                         return Err(ClientError::RegistrationNotVisible { failed_nodes });
                     }
                 }
