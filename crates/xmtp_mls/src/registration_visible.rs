@@ -71,7 +71,6 @@ impl Default for VisibilityConfirmationOptions {
 /// Poll a single node until both the identity-update envelope and the
 /// key-package envelope for this registration are visible, or until the
 /// timeout elapses.
-#[allow(dead_code)]
 pub(crate) async fn check_node_visibility<C: Client>(
     node_client: &C,
     node_id: u32,
@@ -87,7 +86,8 @@ pub(crate) async fn check_node_visibility<C: Client>(
 
     use xmtp_proto::types::Topic;
 
-    let inbox_id_bytes = hex::decode(inbox_id).unwrap_or_else(|_| inbox_id.as_bytes().to_vec());
+    let inbox_id_bytes = hex::decode(inbox_id)
+        .map_err(|e| ClientError::Generic(format!("invalid hex inbox_id: {e}")))?;
     let identity_topic = Topic::new_identity_update(&inbox_id_bytes);
     let key_package_topic = Topic::new_key_package(installation_id);
 
@@ -269,6 +269,11 @@ where
                 }
                 Err(_) => {
                     failed_nodes.push(node_id);
+                    // Early exit if quorum is no longer reachable
+                    let remaining = total_nodes - confirmed - failed_nodes.len();
+                    if confirmed + remaining < required {
+                        return Err(ClientError::RegistrationNotVisible { failed_nodes });
+                    }
                 }
             }
         }
@@ -322,7 +327,8 @@ mod quorum_tests {
         };
 
         let result =
-            check_node_visibility(&client, 1u32, "test_inbox", &[0u8; 32], cursor, &opts).await;
+            check_node_visibility(&client, 1u32, "ab01ab01ab01ab01", &[0u8; 32], cursor, &opts)
+                .await;
 
         assert!(result.is_err());
         match result.unwrap_err() {
