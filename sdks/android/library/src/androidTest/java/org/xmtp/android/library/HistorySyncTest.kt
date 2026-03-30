@@ -47,10 +47,15 @@ class HistorySyncTest : BaseInstrumentedTest() {
             val state = alixClient2.inboxState(true)
             assertEquals(state.installations.size, 2)
 
-            // Sync all of the first client's conversations to add Alix2
-            alixGroup.sync()
-
-            alixClient2.conversations.sync()
+            // Fully sync both installations to establish device sync groups
+            alixClient.conversations.syncAllConversations()
+            delay(2000)
+            alixClient2.conversations.syncAllConversations()
+            delay(2000)
+            alixClient.preferences.sync()
+            delay(2000)
+            alixClient2.preferences.sync()
+            delay(2000)
 
             val alixGroup2 =
                 alixClient2.conversations.findGroup(alixGroup.id)
@@ -170,8 +175,19 @@ class HistorySyncTest : BaseInstrumentedTest() {
 
             val group = client1.conversations.newGroup(listOf(boClient.inboxId))
 
-            client2.conversations.sync()
-            client3.conversations.sync()
+            // Fully sync all installations to establish device sync groups
+            client1.conversations.syncAllConversations()
+            delay(2000)
+            client2.conversations.syncAllConversations()
+            delay(2000)
+            client3.conversations.syncAllConversations()
+            delay(2000)
+            client1.preferences.sync()
+            delay(2000)
+            client2.preferences.sync()
+            delay(2000)
+            client3.preferences.sync()
+            delay(2000)
 
             val client2Group =
                 client2.conversations.findGroup(group.id)
