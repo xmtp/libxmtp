@@ -1018,6 +1018,35 @@ impl FfiXmtpClient {
             scw_verifier: self.inner_client.scw_verifier().clone(),
         }))
     }
+
+    /// Wait until this client's registration is visible on the network.
+    ///
+    /// `options` controls the quorum, timeout, and polling interval.
+    /// Pass `None` to use the defaults (50% quorum, 30s timeout, 500ms interval).
+    pub async fn wait_for_registration_visible(
+        &self,
+        options: Option<FfiVisibilityConfirmationOptions>,
+    ) -> Result<(), FfiError> {
+        use xmtp_mls::registration_visible::{Quorum, VisibilityConfirmationOptions};
+
+        let opts = options.unwrap_or_default();
+        let quorum = match (opts.quorum_absolute, opts.quorum_percentage) {
+            (Some(n), _) => Quorum::Absolute(n as usize),
+            (_, Some(p)) => Quorum::Percentage(p),
+            _ => Quorum::Percentage(0.5),
+        };
+        let mls_opts = VisibilityConfirmationOptions {
+            quorum,
+            timeout_ms: opts.timeout_ms.unwrap_or(30_000),
+            sleep_interval_ms: opts.sleep_interval_ms.unwrap_or(500),
+        };
+
+        self.inner_client
+            .wait_for_registration_visible(mls_opts)
+            .await?;
+
+        Ok(())
+    }
 }
 
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
@@ -1042,6 +1071,25 @@ impl From<HmacKey> for FfiHmacKey {
             key: value.key.to_vec(),
         }
     }
+}
+
+/// Options for `wait_for_registration_visible`.
+///
+/// All fields are optional. Omitted fields use their default values:
+/// - `quorum_percentage` / `quorum_absolute`: 50% of nodes (percentage wins if both are provided)
+/// - `timeout_ms`: 30 000 ms
+/// - `sleep_interval_ms`: 500 ms
+#[derive(uniffi::Record, Default)]
+pub struct FfiVisibilityConfirmationOptions {
+    /// Fraction of nodes that must confirm (e.g. 0.5 = 50 %).
+    /// Takes precedence over `quorum_absolute` when both are provided.
+    pub quorum_percentage: Option<f32>,
+    /// Exact number of nodes that must confirm.
+    pub quorum_absolute: Option<u64>,
+    /// How long to wait in total before returning an error (milliseconds).
+    pub timeout_ms: Option<u64>,
+    /// How long to sleep between polling attempts (milliseconds).
+    pub sleep_interval_ms: Option<u64>,
 }
 
 /// Signature kind used in identity operations
