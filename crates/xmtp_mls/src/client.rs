@@ -971,7 +971,7 @@ where
             .await?;
 
         // Step 4: Publish identity update (makes installation visible)
-        let _registration_cursor = self
+        let registration_cursor = self
             .context
             .api()
             .publish_identity_update(identity_update)
@@ -1001,7 +1001,12 @@ where
             .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
 
         // Mark identity as ready
-        StoredIdentity::try_from(self.identity())?.store(&self.context.db())?;
+        let mut stored_identity = StoredIdentity::try_from(self.identity())?;
+        if let Some(cursor) = registration_cursor {
+            stored_identity.registration_cursor_originator_id = Some(cursor.originator_id as i64);
+            stored_identity.registration_cursor_sequence_id = Some(cursor.sequence_id as i64);
+        }
+        stored_identity.store(&self.context.db())?;
         self.identity().set_ready();
         Ok(())
     }
