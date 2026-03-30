@@ -8,7 +8,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Before
-import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.library.messages.PrivateKeyBuilder
@@ -31,7 +30,6 @@ class HistorySyncTest : BaseInstrumentedTest() {
         alixWallet = fixtures.alixAccount
     }
 
-    @Ignore("Flaky: consent sync timing is non-deterministic")
     @Test
     fun testSyncConsent() =
         runBlocking {
@@ -61,9 +59,17 @@ class HistorySyncTest : BaseInstrumentedTest() {
 
             alixGroup.updateConsentState(ConsentState.DENIED)
             alixClient.preferences.sync()
-            delay(1000)
-            alixClient2.preferences.sync()
-            delay(4000)
+
+            // Poll until consent propagates to client2 instead of using fixed delays
+            val timeout = 15_000L
+            val interval = 500L
+            var elapsed = 0L
+            while (elapsed < timeout) {
+                delay(interval)
+                elapsed += interval
+                alixClient2.preferences.sync()
+                if (alixGroup2.consentState() == ConsentState.DENIED) break
+            }
 
             assertEquals(alixGroup2.consentState(), ConsentState.DENIED)
         }
@@ -154,7 +160,6 @@ class HistorySyncTest : BaseInstrumentedTest() {
         job.cancel()
     }
 
-    @Ignore("Flaky: consent sync timing is non-deterministic")
     @Test
     fun testV3CanMessageV3() =
         runBlocking {
@@ -171,6 +176,17 @@ class HistorySyncTest : BaseInstrumentedTest() {
             val client2Group =
                 client2.conversations.findGroup(group.id)
                     ?: throw AssertionError("Failed to find group with ID: ${group.id}")
+
+            // Poll until client2 sees the ALLOWED consent state from client1's sync
+            val syncTimeout = 10_000L
+            val syncInterval = 500L
+            var syncElapsed = 0L
+            while (syncElapsed < syncTimeout) {
+                client2.preferences.sync()
+                if (client2Group.consentState() == ConsentState.ALLOWED) break
+                delay(syncInterval)
+                syncElapsed += syncInterval
+            }
             assertEquals(ConsentState.ALLOWED, client2Group.consentState())
 
             group.updateConsentState(ConsentState.DENIED)
