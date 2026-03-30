@@ -19,6 +19,8 @@ pub struct StoredIdentity {
     #[builder(setter(skip))]
     rowid: Option<i32>,
     pub next_key_package_rotation_ns: Option<i64>,
+    pub registration_cursor_originator_id: Option<i64>,
+    pub registration_cursor_sequence_id: Option<i64>,
 }
 
 impl_fetch!(StoredIdentity, identity);
@@ -36,6 +38,8 @@ impl StoredIdentity {
             credential_bytes,
             rowid: None,
             next_key_package_rotation_ns: None,
+            registration_cursor_originator_id: None,
+            registration_cursor_sequence_id: None,
         }
     }
 }
@@ -138,5 +142,20 @@ pub(crate) mod tests {
         let duplicate_insertion =
             StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>()).store(conn);
         assert!(duplicate_insertion.is_err());
+    }
+
+    #[test]
+    fn stored_identity_has_registration_cursor_fields() {
+        let identity = StoredIdentity {
+            inbox_id: "test_inbox".to_string(),
+            installation_keys: vec![],
+            credential_bytes: vec![],
+            rowid: None,
+            next_key_package_rotation_ns: None,
+            registration_cursor_originator_id: Some(1_i64),
+            registration_cursor_sequence_id: Some(42_i64),
+        };
+        assert_eq!(identity.registration_cursor_originator_id, Some(1_i64));
+        assert_eq!(identity.registration_cursor_sequence_id, Some(42_i64));
     }
 }
