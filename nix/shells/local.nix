@@ -98,6 +98,7 @@ mkShell (
         kotlin
         ktlint
         jdk17
+        swiftformat
         kotlin-language-server
 
         # Swift

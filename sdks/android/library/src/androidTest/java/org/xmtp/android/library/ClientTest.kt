@@ -523,7 +523,7 @@ class ClientTest : BaseInstrumentedTest() {
     @Test
     fun testsCanSeeKeyPackageStatus() {
         val fixtures = runBlocking { createFixtures() }
-        runBlocking { Client.connectToApiBackend(ClientOptions.Api(XMTPEnvironment.LOCAL, true)) }
+        runBlocking { Client.connectToApiBackendExclusive(ClientOptions.Api(XMTPEnvironment.LOCAL, true)) }
         val inboxState =
             runBlocking {
                 Client
@@ -576,7 +576,7 @@ class ClientTest : BaseInstrumentedTest() {
     //    @Test
     //    fun testsCanSeeInvalidKeyPackageStatusOnDev() {
     //        runBlocking {
-    //            Client.connectToApiBackend(
+    //            Client.connectToApiBackendExclusive(
     //                ClientOptions.Api(
     //                    XMTPEnvironment.DEV,
     //                    true

@@ -942,7 +942,7 @@ class ClientTests: XCTestCase {
 		let fixtures = try await fixtures()
 		let api = ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure)
 
-		try await Client.connectToApiBackend(api: api)
+		try await Client.connectToApiBackendExclusive(api: api)
 
 		guard
 			let inboxState = try await Client.inboxStatesForInboxIds(

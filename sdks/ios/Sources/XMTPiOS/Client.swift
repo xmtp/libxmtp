@@ -173,9 +173,15 @@ public struct ClientOptions {
 
 struct ApiCacheKey {
 	let api: ClientOptions.Api
+	let exclusive: Bool
+
+	init(api: ClientOptions.Api, exclusive: Bool = false) {
+		self.api = api
+		self.exclusive = exclusive
+	}
 
 	var stringValue: String {
-		"\(api.env.url)|\(api.appVersion ?? "nil")|\(api.gatewayHost ?? "nil")"
+		"\(api.env.url)|\(api.appVersion ?? "nil")|\(api.gatewayHost ?? "nil")|\(exclusive)"
 	}
 }
 
@@ -526,6 +532,59 @@ public final class Client {
 		return newClient
 	}
 
+	@available(*, deprecated, message: "This function will be removed on d14n cutover. Use connectToApiBackend instead.")
+	public static func connectToApiBackendExclusive(api: ClientOptions.Api)
+		async throws
+		-> XmtpApiClient
+	{
+		let cacheKey = ApiCacheKey(api: api, exclusive: true).stringValue
+
+		// Check for an existing connected client
+		if let cached = await apiCache.getClient(forKey: cacheKey),
+		   try await isConnected(api: cached)
+		{
+			return cached
+		}
+
+		// Either not cached or not connected; create new client
+		let newClient = try await connectToBackendExclusive(
+			v3Host: api.env.url,
+			gatewayHost: api.gatewayHost,
+			clientMode: FfiClientMode.default,
+			appVersion: api.appVersion,
+			authCallback: nil,
+			authHandle: nil
+		)
+		await apiCache.setClient(newClient, forKey: cacheKey)
+		return newClient
+	}
+
+	@available(*, deprecated, message: "This function will be removed on d14n cutover. Use connectToSyncApiBackend instead.")
+	public static func connectToSyncApiBackendExclusive(api: ClientOptions.Api)
+		async throws
+		-> XmtpApiClient
+	{
+		let cacheKey = ApiCacheKey(api: api, exclusive: true).stringValue
+
+		// Check for an existing connected client
+		if let cached = await apiCache.getSyncClient(forKey: cacheKey),
+		   try await isConnected(api: cached)
+		{
+			return cached
+		}
+
+		// Either not cached or not connected; create new client
+		let newClient = try await connectToBackendExclusive(
+			v3Host: api.env.url,
+			gatewayHost: api.gatewayHost,
+			clientMode: FfiClientMode.default,
+			appVersion: api.appVersion,
+			authCallback: nil,
+			authHandle: nil
+		)
+		await apiCache.setSyncClient(newClient, forKey: cacheKey)
+		return newClient
+	}
 	public static func getOrCreateInboxId(
 		api: ClientOptions.Api, publicIdentity: PublicIdentity
 	) async throws -> InboxId {

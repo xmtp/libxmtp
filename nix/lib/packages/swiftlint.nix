@@ -6,7 +6,7 @@
   unzip,
 }:
 
-stdenv.mkDerivation rec {
+stdenv.mkDerivation {
   pname = "swiftlint";
   version = "0.62.1";
 
