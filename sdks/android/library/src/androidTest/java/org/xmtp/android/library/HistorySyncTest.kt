@@ -63,15 +63,17 @@ class HistorySyncTest : BaseInstrumentedTest() {
             assertEquals(alixGroup2.consentState(), ConsentState.UNKNOWN)
 
             alixGroup.updateConsentState(ConsentState.DENIED)
-            alixClient.preferences.sync()
 
-            // Poll until consent propagates to client2 instead of using fixed delays
+            // Poll until consent propagates to client2.
+            // Sync both clients each iteration: client1 to publish the
+            // worker-queued intent, client2 to pull the update.
             val timeout = 15_000L
-            val interval = 500L
+            val interval = 1_000L
             var elapsed = 0L
             while (elapsed < timeout) {
                 delay(interval)
                 elapsed += interval
+                alixClient.preferences.sync()
                 alixClient2.preferences.sync()
                 if (alixGroup2.consentState() == ConsentState.DENIED) break
             }
@@ -206,15 +208,17 @@ class HistorySyncTest : BaseInstrumentedTest() {
             assertEquals(ConsentState.ALLOWED, client2Group.consentState())
 
             group.updateConsentState(ConsentState.DENIED)
-            client1.preferences.sync()
 
-            // Poll until client2 sees the consent change or timeout
-            val timeout = 10_000L
-            val interval = 500L
+            // Poll until client2 sees the consent change.
+            // Sync both clients each iteration: client1 to publish the
+            // worker-queued intent, client2 to pull the update.
+            val timeout = 15_000L
+            val interval = 1_000L
             var elapsed = 0L
             while (elapsed < timeout) {
                 delay(interval)
                 elapsed += interval
+                client1.preferences.sync()
                 client2.preferences.sync()
                 if (client2Group.consentState() == ConsentState.DENIED) break
             }
