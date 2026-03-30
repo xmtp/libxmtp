@@ -971,7 +971,8 @@ where
             .await?;
 
         // Step 4: Publish identity update (makes installation visible)
-        self.context
+        let _registration_cursor = self
+            .context
             .api()
             .publish_identity_update(identity_update)
             .await?;
