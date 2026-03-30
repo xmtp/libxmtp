@@ -46,6 +46,6 @@ where
     async fn get_node_clients(
         &self,
     ) -> Result<HashMap<u32, Box<dyn Client + Send + Sync>>, Self::Error> {
-        crate::queries::build_node_clients(&self.client).await
+        crate::queries::build_node_clients(&self.client, self.node_client_template.as_ref()).await
     }
 }

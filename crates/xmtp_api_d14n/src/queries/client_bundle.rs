@@ -15,16 +15,22 @@ use xmtp_proto::{
 #[derive(Clone)]
 #[non_exhaustive]
 pub enum ClientBundle {
-    D14n(ArcClient),
+    D14n {
+        client: ArcClient,
+        node_client_template: Box<Option<xmtp_api_grpc::ClientBuilder>>,
+    },
     V3(ArcClient),
-    Migration { v3: ArcClient, xmtpd: ArcClient },
+    Migration {
+        v3: ArcClient,
+        xmtpd: ArcClient,
+    },
 }
 
 impl std::fmt::Display for ClientBundle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use ClientBundle::*;
         match self {
-            D14n(_) => write!(f, "D14n"),
+            D14n { .. } => write!(f, "D14n"),
             V3(_) => write!(f, "V3"),
             Migration { .. } => write!(f, "Migration"),
         }
@@ -45,8 +51,14 @@ impl ClientBundle {
 
 impl ClientBundle {
     /// create a d14n client bundle
-    pub fn d14n(client: ArcClient) -> Self {
-        ClientBundle::D14n(client)
+    pub fn d14n(
+        client: ArcClient,
+        node_client_template: Option<xmtp_api_grpc::ClientBuilder>,
+    ) -> Self {
+        ClientBundle::D14n {
+            client,
+            node_client_template: Box::new(node_client_template),
+        }
     }
 
     /// Create a v3 client bundle
@@ -61,14 +73,15 @@ impl ClientBundle {
 
     pub fn get_v3(&self) -> Option<ArcClient> {
         match self {
-            Self::D14n(_) => None,
+            Self::D14n { .. } => None,
             Self::V3(v3) | Self::Migration { v3, .. } => Some(v3.clone()),
         }
     }
 
     pub fn get_d14n(&self) -> Option<ArcClient> {
         match self {
-            Self::D14n(xmtpd) | Self::Migration { xmtpd, .. } => Some(xmtpd.clone()),
+            Self::D14n { client, .. } => Some(client.clone()),
+            Self::Migration { xmtpd, .. } => Some(xmtpd.clone()),
             Self::V3(_) => None,
         }
     }
@@ -152,7 +165,9 @@ impl ClientBundleBuilder {
         self
     }
 
-    fn inner_build_d14n(&mut self) -> Result<ArcClient, MessageBackendBuilderError> {
+    fn inner_build_d14n(
+        &mut self,
+    ) -> Result<(ArcClient, Option<xmtp_api_grpc::ClientBuilder>), MessageBackendBuilderError> {
         let Self {
             app_version,
             auth_callback,
@@ -189,10 +204,14 @@ impl ClientBundleBuilder {
         if let Some(ref version) = app_version {
             template.set_app_version(version.clone())?;
         }
+        let template_clone = template.clone();
         let multi_node = multi_node.node_client_template(template).build()?;
 
         if readonly {
-            return Ok(ReadonlyClient::builder().inner(multi_node).build()?.arced());
+            return Ok((
+                ReadonlyClient::builder().inner(multi_node).build()?.arced(),
+                Some(template_clone.clone()),
+            ));
         }
 
         let client = ReadWriteClient::builder()
@@ -201,14 +220,15 @@ impl ClientBundleBuilder {
             .filter(PAYER_WRITE_FILTER)
             .build()?;
 
-        Ok(client.arced())
+        Ok((client.arced(), Some(template_clone)))
     }
 
     /// build a client that is d14n only
     /// Errors:
     /// * if the gateway_host is missing.
     pub fn build_d14n(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
-        Ok(ClientBundle::d14n(self.inner_build_d14n()?))
+        let (client, template) = self.inner_build_d14n()?;
+        Ok(ClientBundle::d14n(client, template))
     }
 
     fn inner_build_v3(&mut self) -> Result<ArcClient, MessageBackendBuilderError> {
@@ -245,7 +265,7 @@ impl ClientBundleBuilder {
     /// The default client will migrate to v3 on cutover
     /// Errors if either V3 or Gateway host are missing
     pub fn build(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
-        let d14n = self.inner_build_d14n()?;
+        let (d14n, _template) = self.inner_build_d14n()?;
         let v3 = self.inner_build_v3()?;
         Ok(ClientBundle::migration(v3, d14n))
     }
@@ -259,7 +279,8 @@ impl ClientBundleBuilder {
             ..
         } = self.clone();
         if gw.is_some() {
-            Ok(ClientBundle::d14n(self.inner_build_d14n()?))
+            let (client, template) = self.inner_build_d14n()?;
+            Ok(ClientBundle::d14n(client, template))
         } else {
             Ok(ClientBundle::v3(self.inner_build_v3()?))
         }

@@ -11,6 +11,8 @@ pub struct D14nClient<C, Store> {
     pub(super) client: C,
     pub(super) cursor_store: Store,
     pub(super) scw_verifier: Arc<MultiSmartContractSignatureVerifier>,
+    /// Template for building per-node gRPC clients (preserves app_version, libxmtp_version).
+    pub(super) node_client_template: Option<xmtp_api_grpc::ClientBuilder>,
 }
 
 impl<C: std::fmt::Debug, Store> std::fmt::Debug for D14nClient<C, Store> {
@@ -28,7 +30,13 @@ impl<C, Store> D14nClient<C, Store> {
             client,
             cursor_store,
             scw_verifier: Arc::new(MultiSmartContractSignatureVerifier::new_from_env()?),
+            node_client_template: None,
         })
+    }
+
+    pub fn with_node_client_template(mut self, template: xmtp_api_grpc::ClientBuilder) -> Self {
+        self.node_client_template = Some(template);
+        self
     }
 }
 xmtp_common::if_test! {
@@ -41,6 +49,7 @@ xmtp_common::if_test! {
                 client: MockNetworkClient::new(),
                 cursor_store: NoCursorStore,
                 scw_verifier: Arc::new(MultiSmartContractSignatureVerifier::new_from_env().expect("scw failed")),
+                node_client_template: None,
             }
         }
     }
@@ -50,6 +59,7 @@ xmtp_common::if_test! {
             client: MockNetworkClient::new(),
             cursor_store: store,
             scw_verifier: Arc::new(MultiSmartContractSignatureVerifier::new_from_env().expect("scw failed")),
+            node_client_template: None,
         }
     }
 }

@@ -28,8 +28,12 @@ use xmtp_proto::{
 
 /// Build per-node gRPC clients by calling GetNodes and constructing a client for each node URL.
 /// Shared between D14nClient and MigrationClient.
+///
+/// Accepts an optional `ClientBuilder` template so per-node clients inherit `app_version`
+/// and `libxmtp_version` metadata from the parent client. When `None`, a fresh builder is used.
 pub(crate) async fn build_node_clients(
     gateway: &impl Client,
+    template: Option<&xmtp_api_grpc::ClientBuilder>,
 ) -> Result<HashMap<u32, Box<dyn Client + Send + Sync>>, ApiClientError> {
     use crate::d14n::GetNodes;
     use xmtp_api_grpc::GrpcClient;
@@ -40,7 +44,7 @@ pub(crate) async fn build_node_clients(
 
     let mut clients: HashMap<u32, Box<dyn Client + Send + Sync>> = HashMap::new();
     for (node_id, url) in response.nodes {
-        let mut builder = GrpcClient::builder();
+        let mut builder = template.cloned().unwrap_or_else(GrpcClient::builder);
         match url.parse() {
             Ok(host) => {
                 builder.set_host(host);

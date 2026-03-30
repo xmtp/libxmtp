@@ -164,7 +164,17 @@ impl MessageBackendBuilder {
             .unwrap_or(Arc::new(NoCursorStore) as Arc<dyn CursorStore>);
 
         match bundle {
-            ClientBundle::D14n(c) => Ok(D14nClient::new(c, cursor_store)?.arced()),
+            ClientBundle::D14n {
+                client,
+                node_client_template,
+            } => {
+                let d14n = D14nClient::new(client, cursor_store)?;
+                let d14n = match *node_client_template {
+                    Some(t) => d14n.with_node_client_template(t),
+                    None => d14n,
+                };
+                Ok(d14n.arced())
+            }
             ClientBundle::V3(c) => Ok(V3Client::new(c, cursor_store).arced()),
             ClientBundle::Migration { v3, xmtpd } => {
                 Ok(MigrationClient::new(v3, xmtpd, cursor_store)?.arced())
