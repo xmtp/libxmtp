@@ -68,8 +68,8 @@ let
   };
 
   # enables caching all build time crates
-  cargoArtifacts = rust.buildDepsOnly (
-    (base.commonArgs // commonEnv)
+  cargoArtifacts = xmtp.base.mkCargoArtifacts rust test (
+    commonEnv
     // {
       buildPhaseCargoCommand = "cargo build --package bindings_wasm ${features} --profile $CARGO_PROFILE --locked";
     }
@@ -87,6 +87,7 @@ let
         pname
         ;
       version = xmtp.mkVersion rust;
+      doInstallCargoArtifacts = false;
       buildPhaseCargoCommand = ''
         mkdir -p $out/dist
         cargoBuildLog=$(mktemp cargoBuildLogXXXX.json)

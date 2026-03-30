@@ -69,6 +69,7 @@ rust.napiBuild (
     NODE_EXTRA_CA_CERTS = "${cacert}/etc/ssl/certs/ca-bundle.crt";
     napiExtraArgs = "-p bindings_node ${maybeTestFeature} --package-json-path ${src}/bindings/node/package.json";
     pname = "bindings-node-js";
+    doInstallCargoArtifacts = false;
     napiGenerateJs = withJs;
     zigBuild = isGnu;
   }

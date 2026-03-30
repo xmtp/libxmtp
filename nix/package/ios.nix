@@ -92,6 +92,7 @@ let
         CARGO_BUILD_TARGET = target;
         __noChroot = true;
         pname = "xmtpv3-${target}";
+        doInstallCargoArtifacts = false;
         src = bindingsFileset;
         cargoExtraArgs = "--target ${target} -p xmtpv3";
         # preBuild works here (unlike buildDepsOnly) because buildPackage doesn't
@@ -133,7 +134,7 @@ let
       # Prevent crane from trying to find and install cargo binaries from $out/bin.
       # This derivation produces generated source files, not executables.
       doNotPostBuildInstallCargoBinaries = true;
-      installPhaseCommand = ''
+      postBuild = ''
         ${nativeEnvSetup}
         # Generate Swift bindings using uniffi-bindgen.
         # This runs the ffi-uniffi-bindgen binary (built above) against the compiled
@@ -145,7 +146,8 @@ let
           --library target/aarch64-apple-darwin/release/libxmtpv3.a \
           --out-dir $TMPDIR/swift-out \
           --language swift
-
+      '';
+      installPhaseCommand = ''
         # Organize into expected directory structure for xcframework assembly
         mkdir -p $out/swift/include/libxmtp
         cp $TMPDIR/swift-out/xmtpv3.swift $out/swift/
@@ -165,6 +167,7 @@ let
         pname = "xmtpv3-ios-libs";
         inherit version;
         dontUnpack = true;
+        doInstallCargoArtifacts = false;
         installPhase = ''
           mkdir -p $out/swift
           ${lib.concatMapStringsSep "\n" (target: ''

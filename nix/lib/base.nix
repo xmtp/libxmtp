@@ -11,6 +11,7 @@
   darwin,
   stdenv,
   zlib,
+  pkgsBuildHost,
 }:
 let
   # Narrow fileset for buildDepsOnly — only Cargo.toml, Cargo.lock, build.rs,
@@ -27,6 +28,12 @@ let
     root = ./../..;
     fileset = xmtp.filesets.forCrate ./../../bindings/mobile;
   };
+
+  # The suffix strictly for the build platform/native machine building the code
+  # _not_ the compilation target (which is different when cross-compiling)
+  buildPlatformSuffix =
+    builtins.replaceStrings [ "-" ] [ "_" ]
+      pkgsBuildHost.stdenv.hostPlatform.rust.rustcTarget;
 
   # Common build arguments shared between iOS and Android derivations.
   # Platform-specific args (like ANDROID_HOME or __noChroot) are added by each derivation.
@@ -54,6 +61,15 @@ let
     hardeningDisable = [ "zerocallusedregs" ];
     CARGO_BUILD_TARGET = stdenv.hostPlatform.rust.rustcTarget;
     CARGO_PROFILE = "release";
+
+    # aws-lc-sys is tricky to x-compile, since it needs host CC to compile libraries to do host-side checks.
+    # aws-lc-sys's build script resolves CC via TARGET_CC (set by Nix to the cross-compiler) and
+    # overwrites CC_<host_target>. Setting AWS_LC_SYS_TARGET_CC_<host> intercepts this resolution
+    # so host-side compiler checks use the native cc instead of the Android cross-compiler.
+    # https://crane.dev/faq/cross-compiling-aws-lc-sys.html
+    "AWS_LC_SYS_TARGET_CC_${buildPlatformSuffix}" = "cc";
+    "AWS_LC_SYS_TARGET_CXX_${buildPlatformSuffix}" = "c++";
+
   };
 
   # Make cargo artifacts for a derivation building rust code
@@ -69,6 +85,7 @@ let
     rust.buildDepsOnly (
       commonArgs
       // {
+        src = rust.cleanCargoSource ../..;
         buildPhaseCargoCommand = "cargo build ${maybeTestFeature} --profile $CARGO_PROFILE --locked";
       }
       // overrides'

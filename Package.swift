@@ -16,10 +16,10 @@ let useLocalDynamicBinary = FileManager.default.fileExists(
     atPath: "\(thisPackagePath)/bindings/mobile/build/swift/LibXMTPSwiftFFIDynamic.xcframework"
 )
 
-// Include the dynamic binary target when it exists locally OR for remote consumers.
-// SPM downloads ALL declared binary targets (even trait-gated ones), so we must omit the
-// dynamic target when only the static xcframework was built locally — otherwise both
-// xcframeworks define the same `xmtpv3FFI` clang module, causing a redefinition error.
+/// Include the dynamic binary target when it exists locally OR for remote consumers.
+/// SPM downloads ALL declared binary targets (even trait-gated ones), so we must omit the
+/// dynamic target when only the static xcframework was built locally — otherwise both
+/// xcframeworks define the same `xmtpv3FFI` clang module, causing a redefinition error.
 let includeDynamicTarget = useLocalDynamicBinary || !useLocalBinary
 
 var packageTargets: [Target] = [
@@ -31,7 +31,7 @@ var packageTargets: [Target] = [
         : .binaryTarget(
             name: "LibXMTPSwiftFFI",
             url:
-                "https://github.com/xmtp/libxmtp/releases/download/libxmtp-ios-b8bed44/LibXMTPSwiftFFI.zip",
+            "https://github.com/xmtp/libxmtp/releases/download/libxmtp-ios-b8bed44/LibXMTPSwiftFFI.zip",
             checksum: "6cd91e456c494f38e71f0ec7786d9ff11f0dcb81b476a2f01e5b43ad3a68fe74"
         ),
     .target(
@@ -68,7 +68,7 @@ if includeDynamicTarget {
             : .binaryTarget(
                 name: "LibXMTPSwiftFFIDynamic",
                 url:
-                    "https://github.com/xmtp/libxmtp/releases/download/libxmtp-ios-b8bed44/LibXMTPSwiftFFIDynamic.zip",
+                "https://github.com/xmtp/libxmtp/releases/download/libxmtp-ios-b8bed44/LibXMTPSwiftFFIDynamic.zip",
                 checksum: "93c57d1cde0532c42e5a781772701424e50ae1f177f9216a325f625c3ab8c00f"
             ),
         at: 1
@@ -96,7 +96,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/bufbuild/connect-swift", exact: "1.2.0"),
         .package(url: "https://github.com/apple/swift-docc-plugin.git", from: "1.4.3"),
-        .package(url: "https://github.com/krzyzanowskim/CryptoSwift.git", "1.8.4"..<"2.0.0"),
+        .package(url: "https://github.com/krzyzanowskim/CryptoSwift.git", "1.8.4" ..< "2.0.0"),
         .package(url: "https://github.com/SimplyDanny/SwiftLintPlugins", from: "0.62.1"),
     ],
     targets: packageTargets,

@@ -53,25 +53,6 @@
       };
       mkCrossPkgs =
         system: targets:
-        let
-          # Create pkgs for the build system to use applyPatches
-          buildPkgs = import inputs.nixpkgs {
-            inherit system;
-            inherit (self.lib.pkgConfig) config;
-          };
-          # Apply Android NDK aarch64-darwin patch
-          nixpkgs-patched = buildPkgs.applyPatches {
-            name = "android-darwin-patch";
-            src = inputs.nixpkgs;
-            # can remove this patch once pull/505820 is merged into nixpkgs
-            patches = [
-              (buildPkgs.fetchpatch2 {
-                url = "https://github.com/NixOS/nixpkgs/pull/505820.patch";
-                sha256 = "sha256-1iEujs0metq+Q5dZc2yEzEdTdkQjntGaaBKW7WXwrAs=";
-              })
-            ];
-          };
-        in
         lib.listToAttrs (
           map (
             target:
@@ -80,7 +61,7 @@
             in
             {
               name = t.config;
-              value = import nixpkgs-patched (
+              value = import inputs.nixpkgs (
                 self.lib.pkgConfig
                 // {
                   localSystem = system;
@@ -123,7 +104,6 @@
         wasm-bindgen-cli = pkgs.callPackage ./packages/wasm-bindgen-cli.nix { };
         napi-rs-cli = pkgs.callPackage ./packages/napi-rs-cli { };
         ffi-uniffi-bindgen = pkgs.callPackage ./packages/uniffi-bindgen.nix { };
-        swiftformat = pkgs.callPackage ./packages/swiftformat.nix { };
         swiftlint = pkgs.callPackage ./packages/swiftlint.nix { };
       };
     };
