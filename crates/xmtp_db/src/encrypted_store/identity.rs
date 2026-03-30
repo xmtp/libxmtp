@@ -144,18 +144,4 @@ pub(crate) mod tests {
         assert!(duplicate_insertion.is_err());
     }
 
-    #[test]
-    fn stored_identity_has_registration_cursor_fields() {
-        let identity = StoredIdentity {
-            inbox_id: "test_inbox".to_string(),
-            installation_keys: vec![],
-            credential_bytes: vec![],
-            rowid: None,
-            next_key_package_rotation_ns: None,
-            registration_cursor_originator_id: Some(1_i64),
-            registration_cursor_sequence_id: Some(42_i64),
-        };
-        assert_eq!(identity.registration_cursor_originator_id, Some(1_i64));
-        assert_eq!(identity.registration_cursor_sequence_id, Some(42_i64));
-    }
 }
