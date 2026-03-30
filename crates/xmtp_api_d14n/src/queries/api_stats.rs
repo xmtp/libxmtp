@@ -130,7 +130,7 @@ where
     async fn publish_identity_update(
         &self,
         request: identity_v1::PublishIdentityUpdateRequest,
-    ) -> Result<identity_v1::PublishIdentityUpdateResponse, Self::Error> {
+    ) -> Result<Option<xmtp_proto::types::Cursor>, Self::Error> {
         self.identity_stats.publish_identity_update.count_request();
         self.inner.publish_identity_update(request).await
     }
