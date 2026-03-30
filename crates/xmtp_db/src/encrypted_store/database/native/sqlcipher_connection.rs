@@ -301,6 +301,9 @@ impl super::ValidatedConnection for EncryptedConnection {
         if is_sqlcipher_log_enabled {
             conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")
                 .ok();
+        } else {
+            conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = ERROR;")
+                .ok();
         }
         tracing::debug!("SQLCipher Database validated.");
         Ok(())
