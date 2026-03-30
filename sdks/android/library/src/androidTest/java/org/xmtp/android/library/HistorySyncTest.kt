@@ -69,8 +69,9 @@ class HistorySyncTest : BaseInstrumentedTest() {
                 alixGroup2 = alixClient2.conversations.findGroup(alixGroup.id)
                 alixGroup2 != null
             }
-            val group2 = alixGroup2
-                ?: throw AssertionError("Failed to find group with ID: ${alixGroup.id}")
+            val group2 =
+                alixGroup2
+                    ?: throw AssertionError("Failed to find group with ID: ${alixGroup.id}")
             assertEquals(group2.consentState(), ConsentState.UNKNOWN)
 
             alixGroup.updateConsentState(ConsentState.DENIED)
@@ -194,8 +195,9 @@ class HistorySyncTest : BaseInstrumentedTest() {
                 client2Group = client2.conversations.findGroup(group.id)
                 client2Group != null
             }
-            val c2Group = client2Group
-                ?: throw AssertionError("Failed to find group with ID: ${group.id}")
+            val c2Group =
+                client2Group
+                    ?: throw AssertionError("Failed to find group with ID: ${group.id}")
 
             // Wait for client2 to see the ALLOWED consent state from client1
             waitUntil {
