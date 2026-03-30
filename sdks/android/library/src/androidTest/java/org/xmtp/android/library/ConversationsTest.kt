@@ -15,7 +15,6 @@ import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import uniffi.xmtpv3.FfiConversationMessageKind
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
@@ -23,6 +22,7 @@ import org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.messages.PrivateKeyBuilder
+import uniffi.xmtpv3.FfiConversationMessageKind
 import java.security.SecureRandom
 import kotlin.time.Duration.Companion.seconds
 
@@ -236,9 +236,10 @@ class ConversationsTest : BaseInstrumentedTest() {
             conversation.send("hi")
         }
         Thread.sleep(1000)
-        val applicationMessages = allMessages.filter {
-            it.kind == FfiConversationMessageKind.APPLICATION
-        }
+        val applicationMessages =
+            allMessages.filter {
+                it.kind == FfiConversationMessageKind.APPLICATION
+            }
         assertEquals(2, applicationMessages.size)
         job.cancel()
     }
