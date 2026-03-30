@@ -166,11 +166,11 @@ impl MessageBackendBuilder {
         match bundle {
             ClientBundle::D14n {
                 client,
-                node_client_template,
+                app_version,
             } => {
                 let d14n = D14nClient::new(client, cursor_store)?;
-                let d14n = match *node_client_template {
-                    Some(t) => d14n.with_node_client_template(t),
+                let d14n = match app_version {
+                    Some(v) => d14n.with_app_version(v),
                     None => d14n,
                 };
                 Ok(d14n.arced())

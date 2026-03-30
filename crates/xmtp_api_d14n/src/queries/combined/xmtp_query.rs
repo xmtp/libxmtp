@@ -51,7 +51,10 @@ where
     async fn get_node_clients(
         &self,
     ) -> Result<HashMap<u32, Box<dyn Client + Send + Sync>>, Self::Error> {
-        // MigrationClient doesn't carry a template; uses default builder
-        crate::queries::build_node_clients(&self.xmtpd_grpc, None).await
+        let clients = crate::queries::build_node_clients(&self.xmtpd_grpc, None).await?;
+        Ok(clients
+            .into_iter()
+            .map(|(id, c)| (id, Box::new(c) as Box<dyn Client + Send + Sync>))
+            .collect())
     }
 }

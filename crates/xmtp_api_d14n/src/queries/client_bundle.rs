@@ -17,7 +17,7 @@ use xmtp_proto::{
 pub enum ClientBundle {
     D14n {
         client: ArcClient,
-        node_client_template: Box<Option<xmtp_api_grpc::ClientBuilder>>,
+        app_version: Option<xmtp_proto::types::AppVersion>,
     },
     V3(ArcClient),
     Migration {
@@ -51,13 +51,10 @@ impl ClientBundle {
 
 impl ClientBundle {
     /// create a d14n client bundle
-    pub fn d14n(
-        client: ArcClient,
-        node_client_template: Option<xmtp_api_grpc::ClientBuilder>,
-    ) -> Self {
+    pub fn d14n(client: ArcClient, app_version: Option<xmtp_proto::types::AppVersion>) -> Self {
         ClientBundle::D14n {
             client,
-            node_client_template: Box::new(node_client_template),
+            app_version,
         }
     }
 
@@ -167,7 +164,8 @@ impl ClientBundleBuilder {
 
     fn inner_build_d14n(
         &mut self,
-    ) -> Result<(ArcClient, Option<xmtp_api_grpc::ClientBuilder>), MessageBackendBuilderError> {
+    ) -> Result<(ArcClient, Option<xmtp_proto::types::AppVersion>), MessageBackendBuilderError>
+    {
         let Self {
             app_version,
             auth_callback,
@@ -204,13 +202,12 @@ impl ClientBundleBuilder {
         if let Some(ref version) = app_version {
             template.set_app_version(version.clone())?;
         }
-        let template_clone = template.clone();
         let multi_node = multi_node.node_client_template(template).build()?;
 
         if readonly {
             return Ok((
                 ReadonlyClient::builder().inner(multi_node).build()?.arced(),
-                Some(template_clone.clone()),
+                app_version,
             ));
         }
 
@@ -220,7 +217,7 @@ impl ClientBundleBuilder {
             .filter(PAYER_WRITE_FILTER)
             .build()?;
 
-        Ok((client.arced(), Some(template_clone)))
+        Ok((client.arced(), app_version))
     }
 
     /// build a client that is d14n only

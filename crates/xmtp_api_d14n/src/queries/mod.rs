@@ -23,42 +23,46 @@ use xmtp_common::{RetryableError, retryable};
 use xmtp_proto::{
     ConversionError,
     api::{self, ApiClientError, BodyError, Client, Query},
-    prelude::{ApiBuilder, NetConnectConfig},
 };
 
 /// Build per-node gRPC clients by calling GetNodes and constructing a client for each node URL.
 /// Shared between D14nClient and MigrationClient.
 ///
-/// Accepts an optional `ClientBuilder` template so per-node clients inherit `app_version`
-/// and `libxmtp_version` metadata from the parent client. When `None`, a fresh builder is used.
+/// When `app_version` is provided, per-node clients carry the same version metadata as the parent.
 pub(crate) async fn build_node_clients(
     gateway: &impl Client,
-    template: Option<&xmtp_api_grpc::ClientBuilder>,
-) -> Result<HashMap<u32, Box<dyn Client + Send + Sync>>, ApiClientError> {
+    app_version: Option<&xmtp_proto::types::AppVersion>,
+) -> Result<HashMap<u32, xmtp_api_grpc::GrpcClient>, ApiClientError> {
     use crate::d14n::GetNodes;
     use xmtp_api_grpc::GrpcClient;
+    use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig};
 
     let response = api::retry(GetNodes::builder().build()?)
         .query(gateway)
         .await?;
 
-    let mut clients: HashMap<u32, Box<dyn Client + Send + Sync>> = HashMap::new();
+    let mut clients: HashMap<u32, GrpcClient> = HashMap::new();
     for (node_id, url) in response.nodes {
-        let mut builder = template.cloned().unwrap_or_else(GrpcClient::builder);
-        match url.parse() {
-            Ok(host) => {
-                builder.set_host(host);
-                match builder.build() {
-                    Ok(client) => {
-                        clients.insert(node_id, Box::new(client));
-                    }
-                    Err(e) => {
-                        tracing::warn!(node_id, %url, error = %e, "failed to build grpc client for node");
-                    }
+        let build_result = match url.parse() {
+            Ok(host) => match app_version {
+                Some(v) => GrpcClient::create_with_version(host, v.clone()),
+                None => {
+                    let mut b = GrpcClient::builder();
+                    b.set_host(host);
+                    b.build()
                 }
-            }
+            },
             Err(e) => {
                 tracing::warn!(node_id, %url, error = %e, "failed to parse url for node");
+                continue;
+            }
+        };
+        match build_result {
+            Ok(client) => {
+                clients.insert(node_id, client);
+            }
+            Err(e) => {
+                tracing::warn!(node_id, %url, error = %e, "failed to build grpc client for node");
             }
         }
     }
