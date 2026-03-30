@@ -1,7 +1,6 @@
 use xmtp_api_d14n::d14n::QueryEnvelopes;
 use xmtp_api_d14n::protocol::traits::Envelope;
-use xmtp_api_grpc::GrpcClient;
-use xmtp_proto::api::Query;
+use xmtp_proto::api::{Client, Query};
 use xmtp_proto::types::{Cursor, TopicKind};
 use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
 
@@ -46,8 +45,8 @@ impl Default for VisibilityConfirmationOptions {
 /// key-package envelope for this registration are visible, or until the
 /// timeout elapses.
 #[allow(dead_code)]
-pub(crate) async fn check_node_visibility(
-    node_client: &GrpcClient,
+pub(crate) async fn check_node_visibility<C: Client>(
+    node_client: &C,
     inbox_id: &str,
     installation_id: &[u8],
     cursor: Cursor,
