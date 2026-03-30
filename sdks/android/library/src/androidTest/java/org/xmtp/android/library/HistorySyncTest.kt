@@ -30,6 +30,18 @@ class HistorySyncTest : BaseInstrumentedTest() {
         alixWallet = fixtures.alixAccount
     }
 
+    private suspend fun waitUntil(
+        timeoutMs: Long = 30_000,
+        intervalMs: Long = 500,
+        condition: suspend () -> Boolean,
+    ) {
+        val start = System.currentTimeMillis()
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            if (condition()) return
+            delay(intervalMs)
+        }
+    }
+
     @Test
     fun testSyncConsent() =
         runBlocking {
@@ -47,38 +59,31 @@ class HistorySyncTest : BaseInstrumentedTest() {
             val state = alixClient2.inboxState(true)
             assertEquals(state.installations.size, 2)
 
-            // Fully sync both installations to establish device sync groups
-            alixClient.conversations.syncAllConversations()
-            delay(2000)
-            alixClient2.conversations.syncAllConversations()
-            delay(2000)
-            alixClient.preferences.sync()
-            delay(2000)
-            alixClient2.preferences.sync()
-            delay(2000)
-
-            val alixGroup2 =
-                alixClient2.conversations.findGroup(alixGroup.id)
-                    ?: throw AssertionError("Failed to find group with ID: ${alixGroup.id}")
-            assertEquals(alixGroup2.consentState(), ConsentState.UNKNOWN)
+            // Sync both installations until client2 can find the group
+            var alixGroup2: Group? = null
+            waitUntil {
+                alixClient.conversations.syncAllConversations()
+                alixClient2.conversations.syncAllConversations()
+                alixClient.preferences.sync()
+                alixClient2.preferences.sync()
+                alixGroup2 = alixClient2.conversations.findGroup(alixGroup.id)
+                alixGroup2 != null
+            }
+            val group2 = alixGroup2
+                ?: throw AssertionError("Failed to find group with ID: ${alixGroup.id}")
+            assertEquals(group2.consentState(), ConsentState.UNKNOWN)
 
             alixGroup.updateConsentState(ConsentState.DENIED)
 
-            // Poll until consent propagates to client2.
-            // Sync both clients each iteration: client1 to publish the
-            // worker-queued intent, client2 to pull the update.
-            val timeout = 15_000L
-            val interval = 1_000L
-            var elapsed = 0L
-            while (elapsed < timeout) {
-                delay(interval)
-                elapsed += interval
+            // Sync both clients until consent propagates to client2.
+            // Client1 publishes the worker-queued intent, client2 pulls the update.
+            waitUntil {
                 alixClient.preferences.sync()
                 alixClient2.preferences.sync()
-                if (alixGroup2.consentState() == ConsentState.DENIED) break
+                group2.consentState() == ConsentState.DENIED
             }
 
-            assertEquals(alixGroup2.consentState(), ConsentState.DENIED)
+            assertEquals(group2.consentState(), ConsentState.DENIED)
         }
 
     @Test
@@ -177,53 +182,39 @@ class HistorySyncTest : BaseInstrumentedTest() {
 
             val group = client1.conversations.newGroup(listOf(boClient.inboxId))
 
-            // Fully sync all installations to establish device sync groups
-            client1.conversations.syncAllConversations()
-            delay(2000)
-            client2.conversations.syncAllConversations()
-            delay(2000)
-            client3.conversations.syncAllConversations()
-            delay(2000)
-            client1.preferences.sync()
-            delay(2000)
-            client2.preferences.sync()
-            delay(2000)
-            client3.preferences.sync()
-            delay(2000)
-
-            val client2Group =
-                client2.conversations.findGroup(group.id)
-                    ?: throw AssertionError("Failed to find group with ID: ${group.id}")
-
-            // Poll until client2 sees the ALLOWED consent state from client1's sync
-            val syncTimeout = 10_000L
-            val syncInterval = 500L
-            var syncElapsed = 0L
-            while (syncElapsed < syncTimeout) {
+            // Sync all installations until client2 can find the group
+            var client2Group: Group? = null
+            waitUntil {
+                client1.conversations.syncAllConversations()
+                client2.conversations.syncAllConversations()
+                client3.conversations.syncAllConversations()
+                client1.preferences.sync()
                 client2.preferences.sync()
-                if (client2Group.consentState() == ConsentState.ALLOWED) break
-                delay(syncInterval)
-                syncElapsed += syncInterval
+                client3.preferences.sync()
+                client2Group = client2.conversations.findGroup(group.id)
+                client2Group != null
             }
-            assertEquals(ConsentState.ALLOWED, client2Group.consentState())
+            val c2Group = client2Group
+                ?: throw AssertionError("Failed to find group with ID: ${group.id}")
+
+            // Wait for client2 to see the ALLOWED consent state from client1
+            waitUntil {
+                client1.preferences.sync()
+                client2.preferences.sync()
+                c2Group.consentState() == ConsentState.ALLOWED
+            }
+            assertEquals(ConsentState.ALLOWED, c2Group.consentState())
 
             group.updateConsentState(ConsentState.DENIED)
 
-            // Poll until client2 sees the consent change.
-            // Sync both clients each iteration: client1 to publish the
-            // worker-queued intent, client2 to pull the update.
-            val timeout = 15_000L
-            val interval = 1_000L
-            var elapsed = 0L
-            while (elapsed < timeout) {
-                delay(interval)
-                elapsed += interval
+            // Wait for consent change to propagate to client2
+            waitUntil {
                 client1.preferences.sync()
                 client2.preferences.sync()
-                if (client2Group.consentState() == ConsentState.DENIED) break
+                c2Group.consentState() == ConsentState.DENIED
             }
 
-            assertEquals(ConsentState.DENIED, client2Group.consentState())
+            assertEquals(ConsentState.DENIED, c2Group.consentState())
         }
 
     @Test
