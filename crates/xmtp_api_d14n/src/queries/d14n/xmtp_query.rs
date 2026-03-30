@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use xmtp_api_grpc::GrpcClient;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::{
-    api::{ApiClientError, Client, Query},
+    api::{self, ApiClientError, Client, Query},
     prelude::{ApiBuilder, NetConnectConfig},
     types::{GlobalCursor, Topic},
     xmtp::xmtpv4::envelopes::OriginatorEnvelope,
@@ -48,7 +48,9 @@ where
     async fn get_node_clients(
         &self,
     ) -> Result<HashMap<u32, Box<dyn Client + Send + Sync>>, Self::Error> {
-        let response = GetNodes::builder().build()?.query(&self.client).await?;
+        let response = api::retry(GetNodes::builder().build()?)
+            .query(&self.client)
+            .await?;
 
         let mut clients: HashMap<u32, Box<dyn Client + Send + Sync>> = HashMap::new();
         for (node_id, url) in response.nodes {

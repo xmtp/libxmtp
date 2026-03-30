@@ -52,6 +52,7 @@ impl Default for VisibilityConfirmationOptions {
 #[allow(dead_code)]
 pub(crate) async fn check_node_visibility<C: Client>(
     node_client: &C,
+    node_id: u32,
     inbox_id: &str,
     installation_id: &[u8],
     cursor: Cursor,
@@ -86,7 +87,7 @@ pub(crate) async fn check_node_visibility<C: Client>(
         match endpoint.query(node_client).await {
             Err(e) => {
                 tracing::warn!(
-                    originator_id = cursor.originator_id,
+                    node_id,
                     error = %e,
                     "check_node_visibility: API error querying node, will retry"
                 );
@@ -131,7 +132,7 @@ pub(crate) async fn check_node_visibility<C: Client>(
 
         if start.elapsed() >= timeout {
             return Err(ClientError::RegistrationNotVisible {
-                failed_nodes: vec![cursor.originator_id],
+                failed_nodes: vec![node_id],
             });
         }
 
@@ -220,9 +221,15 @@ where
                 let installation_id = installation_id.clone();
                 let opts = options.clone();
                 async move {
-                    let result =
-                        check_node_visibility(&client, &inbox_id, &installation_id, cursor, &opts)
-                            .await;
+                    let result = check_node_visibility(
+                        &client,
+                        node_id,
+                        &inbox_id,
+                        &installation_id,
+                        cursor,
+                        &opts,
+                    )
+                    .await;
                     (node_id, result)
                 }
             })
@@ -294,7 +301,8 @@ mod quorum_tests {
             ..Default::default()
         };
 
-        let result = check_node_visibility(&client, "test_inbox", &[0u8; 32], cursor, &opts).await;
+        let result =
+            check_node_visibility(&client, 1u32, "test_inbox", &[0u8; 32], cursor, &opts).await;
 
         assert!(result.is_err());
         match result.unwrap_err() {
