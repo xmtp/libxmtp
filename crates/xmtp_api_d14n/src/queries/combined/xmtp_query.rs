@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::{
     api::{ApiClientError, Client, Query},
@@ -7,7 +9,7 @@ use xmtp_proto::{
 
 use crate::{
     MigrationClient,
-    d14n::QueryEnvelope,
+    d14n::{GetNodes, QueryEnvelope},
     protocol::{CursorStore, Sort, XmtpEnvelope, XmtpQuery, sort},
 };
 
@@ -44,5 +46,46 @@ where
         // sort the envelopes by their originator timestamp
         sort::timestamp(&mut envelopes).sort()?;
         Ok(XmtpEnvelope::new(envelopes))
+    }
+
+    async fn get_node_clients(
+        &self,
+    ) -> Result<HashMap<u32, Box<dyn Client + Send + Sync>>, Self::Error> {
+        use xmtp_api_grpc::GrpcClient;
+        use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig};
+
+        let response = GetNodes::builder().build()?.query(&self.xmtpd_grpc).await?;
+
+        let mut clients: HashMap<u32, Box<dyn Client + Send + Sync>> = HashMap::new();
+        for (node_id, url) in response.nodes {
+            let mut builder = GrpcClient::builder();
+            match url.parse() {
+                Ok(host) => {
+                    builder.set_host(host);
+                    match builder.build() {
+                        Ok(client) => {
+                            clients.insert(node_id, Box::new(client));
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                node_id,
+                                %url,
+                                error = %e,
+                                "get_node_clients: failed to build grpc client for node"
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        node_id,
+                        %url,
+                        error = %e,
+                        "get_node_clients: failed to parse url for node"
+                    );
+                }
+            }
+        }
+        Ok(clients)
     }
 }

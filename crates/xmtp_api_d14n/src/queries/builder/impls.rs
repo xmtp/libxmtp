@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use xmtp_proto::api::Client as ProtoClient;
 use xmtp_proto::types::{GlobalCursor, Topic};
 
 use crate::protocol::{XmtpEnvelope, XmtpQuery};
@@ -23,6 +25,12 @@ where
     ) -> Result<XmtpEnvelope, Self::Error> {
         <T as XmtpQuery>::query_at(&**self, topic, at).await
     }
+
+    async fn get_node_clients(
+        &self,
+    ) -> Result<HashMap<u32, Box<dyn ProtoClient + Send + Sync>>, Self::Error> {
+        <T as XmtpQuery>::get_node_clients(&**self).await
+    }
 }
 
 #[xmtp_common::async_trait]
@@ -43,5 +51,11 @@ where
         at: Option<GlobalCursor>,
     ) -> Result<XmtpEnvelope, Self::Error> {
         <T as XmtpQuery>::query_at(&**self, topic, at).await
+    }
+
+    async fn get_node_clients(
+        &self,
+    ) -> Result<HashMap<u32, Box<dyn ProtoClient + Send + Sync>>, Self::Error> {
+        <T as XmtpQuery>::get_node_clients(&**self).await
     }
 }

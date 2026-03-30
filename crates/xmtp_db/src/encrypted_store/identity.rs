@@ -143,5 +143,4 @@ pub(crate) mod tests {
             StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>()).store(conn);
         assert!(duplicate_insertion.is_err());
     }
-
 }

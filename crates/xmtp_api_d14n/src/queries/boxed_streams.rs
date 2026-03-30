@@ -223,4 +223,13 @@ impl<C: XmtpQuery> XmtpQuery for BoxedStreamsClient<C> {
     ) -> Result<crate::protocol::XmtpEnvelope, Self::Error> {
         <C as XmtpQuery>::query_at(&self.inner, topic, at).await
     }
+
+    async fn get_node_clients(
+        &self,
+    ) -> Result<
+        std::collections::HashMap<u32, Box<dyn xmtp_proto::api::Client + Send + Sync>>,
+        Self::Error,
+    > {
+        <C as XmtpQuery>::get_node_clients(&self.inner).await
+    }
 }

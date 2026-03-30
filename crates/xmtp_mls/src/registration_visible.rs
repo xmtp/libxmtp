@@ -1,10 +1,15 @@
+use futures::stream::{FuturesUnordered, StreamExt};
+use xmtp_api::XmtpApi;
 use xmtp_api_d14n::d14n::QueryEnvelopes;
 use xmtp_api_d14n::protocol::traits::Envelope;
+use xmtp_api_d14n::protocol::traits::XmtpQuery;
+use xmtp_db::{identity::StoredIdentity, prelude::*};
 use xmtp_proto::api::{Client, Query};
 use xmtp_proto::types::{Cursor, TopicKind};
 use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
 
-use crate::client::ClientError;
+use crate::client::{Client as XmtpClient, ClientError};
+use crate::context::XmtpSharedContext;
 
 /// Specifies how many nodes must confirm visibility before returning Ok(()).
 #[derive(Debug, Clone)]
@@ -131,6 +136,117 @@ pub(crate) async fn check_node_visibility<C: Client>(
         }
 
         sleep(sleep_interval).await;
+    }
+}
+
+impl<Context> XmtpClient<Context>
+where
+    Context: XmtpSharedContext,
+    Context::ApiClient: XmtpApi + XmtpQuery,
+{
+    /// Wait until the registration for this client is visible on the network.
+    ///
+    /// For V3 clients (no cursor stored), falls back to checking `is_ready()`.
+    /// For D14n clients, queries each node directly and waits until a quorum
+    /// confirms the identity-update and key-package envelopes are visible.
+    pub async fn wait_for_registration_visible(
+        &self,
+        options: VisibilityConfirmationOptions,
+    ) -> Result<(), ClientError> {
+        // Load cursor from stored identity
+        let stored_identity: Option<StoredIdentity> =
+            self.context.db().fetch(&()).map_err(ClientError::Storage)?;
+
+        let cursor = stored_identity.and_then(|si| {
+            match (
+                si.registration_cursor_originator_id,
+                si.registration_cursor_sequence_id,
+            ) {
+                (Some(orig_id), Some(seq_id)) => Some(Cursor::new(seq_id as u64, orig_id as u32)),
+                _ => None,
+            }
+        });
+
+        // V3 path: no cursor stored — fall back to is_ready check
+        let Some(cursor) = cursor else {
+            if self.identity().is_ready() {
+                return Ok(());
+            } else {
+                return Err(ClientError::RegistrationNotVisible {
+                    failed_nodes: vec![],
+                });
+            }
+        };
+
+        // D14n path: get per-node clients via the API
+        let node_clients = self
+            .context
+            .api()
+            .get_node_clients()
+            .await
+            .map_err(|e| ClientError::Generic(format!("failed to get node clients: {e}")))?;
+
+        if node_clients.is_empty() {
+            // No per-node access available — fall back to is_ready
+            tracing::warn!("get_node_clients returned empty map; falling back to is_ready check");
+            if self.identity().is_ready() {
+                return Ok(());
+            } else {
+                return Err(ClientError::RegistrationNotVisible {
+                    failed_nodes: vec![],
+                });
+            }
+        }
+
+        let total_nodes = node_clients.len();
+        let mut required = options.quorum.required_count(total_nodes);
+        if required > total_nodes {
+            tracing::warn!(
+                required,
+                total_nodes,
+                "quorum exceeds node count; clamping to node count"
+            );
+            required = total_nodes;
+        }
+
+        let inbox_id = self.inbox_id().to_string();
+        let installation_id: Vec<u8> = self.installation_public_key().to_vec();
+
+        // Spawn concurrent futures per node
+        let futures: FuturesUnordered<_> = node_clients
+            .into_iter()
+            .map(|(node_id, client)| {
+                let inbox_id = inbox_id.clone();
+                let installation_id = installation_id.clone();
+                let opts = options.clone();
+                async move {
+                    let result =
+                        check_node_visibility(&client, &inbox_id, &installation_id, cursor, &opts)
+                            .await;
+                    (node_id, result)
+                }
+            })
+            .collect();
+
+        let mut confirmed = 0usize;
+        let mut failed_nodes: Vec<u32> = Vec::new();
+
+        futures::pin_mut!(futures);
+        while let Some((node_id, result)) = futures.next().await {
+            match result {
+                Ok(()) => {
+                    confirmed += 1;
+                    if confirmed >= required {
+                        return Ok(());
+                    }
+                }
+                Err(_) => {
+                    failed_nodes.push(node_id);
+                }
+            }
+        }
+
+        Err(ClientError::RegistrationNotVisible { failed_nodes })
     }
 }
 

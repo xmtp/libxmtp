@@ -1,5 +1,8 @@
 //! XmtpQuery allows accessing the network while bypassing any local cursor cache.
+use std::collections::HashMap;
+
 use xmtp_common::{MaybeSend, MaybeSync};
+use xmtp_proto::api::Client as ProtoClient;
 use xmtp_proto::types::Cursor;
 
 use super::*;
@@ -21,6 +24,15 @@ pub trait XmtpQuery: MaybeSend + MaybeSync {
     /// MigrationClients check the migration cutover state.
     fn is_d14n(&self) -> Result<bool, Self::Error> {
         Ok(false)
+    }
+
+    /// Return per-node client instances for direct node queries.
+    /// D14n implementations call GetNodes and build a client per node.
+    /// V3/other implementations return an empty map.
+    async fn get_node_clients(
+        &self,
+    ) -> Result<HashMap<u32, Box<dyn ProtoClient + Send + Sync>>, Self::Error> {
+        Ok(HashMap::new())
     }
 }
 
