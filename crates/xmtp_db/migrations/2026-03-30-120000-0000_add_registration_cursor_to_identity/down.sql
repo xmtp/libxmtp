@@ -1,2 +1,2 @@
--- SQLite does not support DROP COLUMN in older versions; this migration is intentionally irreversible.
-SELECT 1;
+ALTER TABLE identity DROP COLUMN registration_cursor_originator_id;
+ALTER TABLE identity DROP COLUMN registration_cursor_sequence_id;
