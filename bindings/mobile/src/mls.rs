@@ -1027,19 +1027,15 @@ impl FfiXmtpClient {
         &self,
         options: Option<FfiVisibilityConfirmationOptions>,
     ) -> Result<(), FfiError> {
-        use xmtp_mls::registration_visible::{Quorum, VisibilityConfirmationOptions};
+        use xmtp_mls::registration_visible::VisibilityConfirmationOptions;
 
         let opts = options.unwrap_or_default();
-        let quorum = match (opts.quorum_absolute, opts.quorum_percentage) {
-            (Some(n), _) => Quorum::Absolute(n as usize),
-            (_, Some(p)) => Quorum::Percentage(p),
-            _ => Quorum::Percentage(0.5),
-        };
-        let mls_opts = VisibilityConfirmationOptions {
-            quorum,
-            timeout_ms: opts.timeout_ms.unwrap_or(30_000),
-            sleep_interval_ms: opts.sleep_interval_ms.unwrap_or(500),
-        };
+        let mls_opts = VisibilityConfirmationOptions::from_parts(
+            opts.quorum_percentage,
+            opts.quorum_absolute.map(|n| n as usize),
+            opts.timeout_ms,
+            opts.sleep_interval_ms,
+        );
 
         self.inner_client
             .wait_for_registration_visible(mls_opts)
@@ -1076,15 +1072,14 @@ impl From<HmacKey> for FfiHmacKey {
 /// Options for `wait_for_registration_visible`.
 ///
 /// All fields are optional. Omitted fields use their default values:
-/// - `quorum_percentage` / `quorum_absolute`: 50% of nodes (percentage wins if both are provided)
+/// - `quorum_percentage` / `quorum_absolute`: 50% of nodes (`quorum_absolute` takes precedence if both are provided)
 /// - `timeout_ms`: 30 000 ms
 /// - `sleep_interval_ms`: 500 ms
 #[derive(uniffi::Record, Default)]
 pub struct FfiVisibilityConfirmationOptions {
     /// Fraction of nodes that must confirm (e.g. 0.5 = 50 %).
-    /// Takes precedence over `quorum_absolute` when both are provided.
     pub quorum_percentage: Option<f32>,
-    /// Exact number of nodes that must confirm.
+    /// Exact number of nodes that must confirm. Takes precedence over `quorum_percentage`.
     pub quorum_absolute: Option<u64>,
     /// How long to wait in total before returning an error (milliseconds).
     pub timeout_ms: Option<u64>,

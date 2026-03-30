@@ -1,5 +1,5 @@
-use crate::client::Client;
 use crate::ErrorWrapper;
+use crate::client::Client;
 use napi_derive::napi;
 
 #[napi(object)]
@@ -22,19 +22,15 @@ impl Client {
     &self,
     options: Option<VisibilityConfirmationOptions>,
   ) -> napi::Result<()> {
-    use xmtp_mls::registration_visible::{Quorum, VisibilityConfirmationOptions as MlsOptions};
+    use xmtp_mls::registration_visible::VisibilityConfirmationOptions as MlsOptions;
 
     let opts = options.unwrap_or_default();
-    let quorum = match (opts.quorum_absolute, opts.quorum_percentage) {
-      (Some(n), _) => Quorum::Absolute(n as usize),
-      (_, Some(p)) => Quorum::Percentage(p as f32),
-      _ => Quorum::Percentage(0.5),
-    };
-    let mls_opts = MlsOptions {
-      quorum,
-      timeout_ms: opts.timeout_ms.unwrap_or(30_000) as u64,
-      sleep_interval_ms: opts.sleep_interval_ms.unwrap_or(500) as u64,
-    };
+    let mls_opts = MlsOptions::from_parts(
+      opts.quorum_percentage.map(|p| p as f32),
+      opts.quorum_absolute.map(|n| n as usize),
+      opts.timeout_ms.map(|t| t as u64),
+      opts.sleep_interval_ms.map(|s| s as u64),
+    );
 
     self
       .inner_client

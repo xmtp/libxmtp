@@ -36,6 +36,28 @@ pub struct VisibilityConfirmationOptions {
     pub sleep_interval_ms: u64,
 }
 
+impl VisibilityConfirmationOptions {
+    /// Build from optional parts (used by binding layers to avoid duplicating default logic).
+    pub fn from_parts(
+        quorum_percentage: Option<f32>,
+        quorum_absolute: Option<usize>,
+        timeout_ms: Option<u64>,
+        sleep_interval_ms: Option<u64>,
+    ) -> Self {
+        let defaults = Self::default();
+        let quorum = match (quorum_absolute, quorum_percentage) {
+            (Some(n), _) => Quorum::Absolute(n),
+            (_, Some(p)) => Quorum::Percentage(p),
+            _ => defaults.quorum,
+        };
+        Self {
+            quorum,
+            timeout_ms: timeout_ms.unwrap_or(defaults.timeout_ms),
+            sleep_interval_ms: sleep_interval_ms.unwrap_or(defaults.sleep_interval_ms),
+        }
+    }
+}
+
 impl Default for VisibilityConfirmationOptions {
     fn default() -> Self {
         Self {
@@ -63,10 +85,11 @@ pub(crate) async fn check_node_visibility<C: Client>(
     let timeout = Duration::from_millis(options.timeout_ms);
     let sleep_interval = Duration::from_millis(options.sleep_interval_ms);
 
-    // Decode the inbox_id hex string to bytes for the topic
+    use xmtp_proto::types::Topic;
+
     let inbox_id_bytes = hex::decode(inbox_id).unwrap_or_else(|_| inbox_id.as_bytes().to_vec());
-    let identity_topic = TopicKind::IdentityUpdatesV1.create(&inbox_id_bytes);
-    let key_package_topic = TopicKind::KeyPackagesV1.create(installation_id);
+    let identity_topic = Topic::new_identity_update(&inbox_id_bytes);
+    let key_package_topic = Topic::new_key_package(installation_id);
 
     let topics = vec![identity_topic.cloned_vec(), key_package_topic.cloned_vec()];
 
@@ -168,15 +191,19 @@ where
             }
         });
 
+        let check_is_ready = || -> Result<(), ClientError> {
+            if self.identity().is_ready() {
+                Ok(())
+            } else {
+                Err(ClientError::RegistrationNotVisible {
+                    failed_nodes: vec![],
+                })
+            }
+        };
+
         // V3 path: no cursor stored — fall back to is_ready check
         let Some(cursor) = cursor else {
-            if self.identity().is_ready() {
-                return Ok(());
-            } else {
-                return Err(ClientError::RegistrationNotVisible {
-                    failed_nodes: vec![],
-                });
-            }
+            return check_is_ready();
         };
 
         // D14n path: get per-node clients via the API
@@ -188,15 +215,8 @@ where
             .map_err(|e| ClientError::Generic(format!("failed to get node clients: {e}")))?;
 
         if node_clients.is_empty() {
-            // No per-node access available — fall back to is_ready
             tracing::warn!("get_node_clients returned empty map; falling back to is_ready check");
-            if self.identity().is_ready() {
-                return Ok(());
-            } else {
-                return Err(ClientError::RegistrationNotVisible {
-                    failed_nodes: vec![],
-                });
-            }
+            return check_is_ready();
         }
 
         let total_nodes = node_clients.len();

@@ -497,19 +497,15 @@ impl Client {
     &self,
     options: Option<WasmVisibilityConfirmationOptions>,
   ) -> Result<(), JsError> {
-    use xmtp_mls::registration_visible::{Quorum, VisibilityConfirmationOptions};
+    use xmtp_mls::registration_visible::VisibilityConfirmationOptions;
 
     let opts = options.unwrap_or_default();
-    let quorum = match (opts.quorum_absolute, opts.quorum_percentage) {
-      (Some(n), _) => Quorum::Absolute(n as usize),
-      (_, Some(p)) => Quorum::Percentage(p),
-      _ => Quorum::Percentage(0.5),
-    };
-    let mls_opts = VisibilityConfirmationOptions {
-      quorum,
-      timeout_ms: opts.timeout_ms.unwrap_or(30_000) as u64,
-      sleep_interval_ms: opts.sleep_interval_ms.unwrap_or(500) as u64,
-    };
+    let mls_opts = VisibilityConfirmationOptions::from_parts(
+      opts.quorum_percentage,
+      opts.quorum_absolute.map(|n| n as usize),
+      opts.timeout_ms.map(|t| t as u64),
+      opts.sleep_interval_ms.map(|s| s as u64),
+    );
 
     self
       .inner_client

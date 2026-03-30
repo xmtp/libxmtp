@@ -2,14 +2,14 @@ use std::collections::HashMap;
 
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::{
-    api::{self, ApiClientError, Client, Query},
+    api::{ApiClientError, Client, Query},
     types::{GlobalCursor, Topic},
     xmtp::xmtpv4::envelopes::OriginatorEnvelope,
 };
 
 use crate::{
     MigrationClient,
-    d14n::{GetNodes, QueryEnvelope},
+    d14n::QueryEnvelope,
     protocol::{CursorStore, Sort, XmtpEnvelope, XmtpQuery, sort},
 };
 
@@ -51,43 +51,6 @@ where
     async fn get_node_clients(
         &self,
     ) -> Result<HashMap<u32, Box<dyn Client + Send + Sync>>, Self::Error> {
-        use xmtp_api_grpc::GrpcClient;
-        use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig};
-
-        let response = api::retry(GetNodes::builder().build()?)
-            .query(&self.xmtpd_grpc)
-            .await?;
-
-        let mut clients: HashMap<u32, Box<dyn Client + Send + Sync>> = HashMap::new();
-        for (node_id, url) in response.nodes {
-            let mut builder = GrpcClient::builder();
-            match url.parse() {
-                Ok(host) => {
-                    builder.set_host(host);
-                    match builder.build() {
-                        Ok(client) => {
-                            clients.insert(node_id, Box::new(client));
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                node_id,
-                                %url,
-                                error = %e,
-                                "get_node_clients: failed to build grpc client for node"
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        node_id,
-                        %url,
-                        error = %e,
-                        "get_node_clients: failed to parse url for node"
-                    );
-                }
-            }
-        }
-        Ok(clients)
+        crate::queries::build_node_clients(&self.xmtpd_grpc).await
     }
 }
