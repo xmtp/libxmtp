@@ -45,7 +45,7 @@ pub async fn create_test_client(path: Option<String>) -> Client {
     .add_ecdsa_signature(Uint8Array::from(&signature.as_bytes()[..]))
     .await
     .unwrap();
-  client.register_identity(request).await.unwrap();
+  client.register_identity(request, None).await.unwrap();
   client
 }
 
@@ -88,6 +88,6 @@ pub async fn create_auth_test_client(
   request
     .add_ecdsa_signature(Uint8Array::from(signature.as_bytes().as_slice()))
     .await?;
-  client.register_identity(request).await?;
+  client.register_identity(request, None).await?;
   Ok(client)
 }
