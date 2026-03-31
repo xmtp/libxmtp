@@ -224,8 +224,8 @@ impl ClientBundleBuilder {
     /// Errors:
     /// * if the gateway_host is missing.
     pub fn build_d14n(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
-        let (client, template) = self.inner_build_d14n()?;
-        Ok(ClientBundle::d14n(client, template))
+        let (client, app_version) = self.inner_build_d14n()?;
+        Ok(ClientBundle::d14n(client, app_version))
     }
 
     fn inner_build_v3(&mut self) -> Result<ArcClient, MessageBackendBuilderError> {
@@ -262,7 +262,7 @@ impl ClientBundleBuilder {
     /// The default client will migrate to v3 on cutover
     /// Errors if either V3 or Gateway host are missing
     pub fn build(&mut self) -> Result<ClientBundle, MessageBackendBuilderError> {
-        let (d14n, _template) = self.inner_build_d14n()?;
+        let (d14n, _app_version) = self.inner_build_d14n()?;
         let v3 = self.inner_build_v3()?;
         Ok(ClientBundle::migration(v3, d14n))
     }
@@ -276,8 +276,8 @@ impl ClientBundleBuilder {
             ..
         } = self.clone();
         if gw.is_some() {
-            let (client, template) = self.inner_build_d14n()?;
-            Ok(ClientBundle::d14n(client, template))
+            let (client, app_version) = self.inner_build_d14n()?;
+            Ok(ClientBundle::d14n(client, app_version))
         } else {
             Ok(ClientBundle::v3(self.inner_build_v3()?))
         }
