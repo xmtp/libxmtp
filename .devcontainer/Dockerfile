@@ -15,6 +15,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && usermod -aG docker vscode
 
+RUN mkdir -p /nix && chown vscode:vscode /nix
+
 USER vscode
 ENV USER=vscode
 
