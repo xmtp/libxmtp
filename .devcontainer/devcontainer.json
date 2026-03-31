@@ -27,7 +27,7 @@
         "PATH": "/home/vscode/.nix-profile/bin:/nix/var/nix/profiles/default/bin:${containerEnv:PATH}"
     },
     "postCreateCommand": "/bin/bash /workspaces/libxmtp/.devcontainer/setup.sh",
-    "postStartCommand": "true",
+    "postStartCommand": "direnv allow",
     "customizations": {
         "vscode": {
             "extensions": [

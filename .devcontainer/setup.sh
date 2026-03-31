@@ -44,6 +44,3 @@ fi
 if ! grep -q 'direnv hook zsh' ~/.zshrc 2>/dev/null; then
   echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc
 fi
-
-# Trust the workspace
-direnv allow /workspaces/libxmtp
