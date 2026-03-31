@@ -74,26 +74,22 @@ public struct VisibilityConfirmationOptions {
 	public var quorumPercentage: Float?
 	public var quorumAbsolute: UInt64?
 	public var timeoutMs: UInt64?
-	public var sleepIntervalMs: UInt64?
 
 	public init(
 		quorumPercentage: Float? = nil,
 		quorumAbsolute: UInt64? = nil,
-		timeoutMs: UInt64? = nil,
-		sleepIntervalMs: UInt64? = nil
+		timeoutMs: UInt64? = nil
 	) {
 		self.quorumPercentage = quorumPercentage
 		self.quorumAbsolute = quorumAbsolute
 		self.timeoutMs = timeoutMs
-		self.sleepIntervalMs = sleepIntervalMs
 	}
 
 	func toFfi() -> FfiVisibilityConfirmationOptions {
 		FfiVisibilityConfirmationOptions(
 			quorumPercentage: quorumPercentage,
 			quorumAbsolute: quorumAbsolute,
-			timeoutMs: timeoutMs,
-			sleepIntervalMs: sleepIntervalMs
+			timeoutMs: timeoutMs
 		)
 	}
 }

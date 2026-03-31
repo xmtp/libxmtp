@@ -7,14 +7,12 @@ final class VisibilityConfirmationOptionsTests: XCTestCase {
 		let options = VisibilityConfirmationOptions(
 			quorumPercentage: 0.75,
 			quorumAbsolute: 3,
-			timeoutMs: 10000,
-			sleepIntervalMs: 250
+			timeoutMs: 10000
 		)
 		let ffi = options.toFfi()
 		XCTAssertEqual(ffi.quorumPercentage, 0.75)
 		XCTAssertEqual(ffi.quorumAbsolute, 3)
 		XCTAssertEqual(ffi.timeoutMs, 10000)
-		XCTAssertEqual(ffi.sleepIntervalMs, 250)
 	}
 
 	func testToFfiDefaultsToAllNil() {
@@ -23,6 +21,5 @@ final class VisibilityConfirmationOptionsTests: XCTestCase {
 		XCTAssertNil(ffi.quorumPercentage)
 		XCTAssertNil(ffi.quorumAbsolute)
 		XCTAssertNil(ffi.timeoutMs)
-		XCTAssertNil(ffi.sleepIntervalMs)
 	}
 }
