@@ -87,7 +87,7 @@ pub(crate) async fn check_node_visibility<C: Client>(
     use xmtp_proto::types::Topic;
 
     let inbox_id_bytes = hex::decode(inbox_id)
-        .expect("inbox_id from self.inbox_id() must be valid hex; this is a library bug");
+        .map_err(|e| ClientError::Generic(format!("invalid hex inbox_id: {e}")))?;
     let identity_topic = Topic::new_identity_update(&inbox_id_bytes);
     let key_package_topic = Topic::new_key_package(installation_id);
 
@@ -201,8 +201,24 @@ where
             }
         };
 
-        // V3 path: no cursor stored — fall back to is_ready check
+        // Check whether we're on a d14n network
+        let is_d14n = self
+            .context
+            .api()
+            .is_d14n()
+            .map_err(|e| ClientError::Api(xmtp_api::dyn_err(e)))?;
+
+        if !is_d14n {
+            return check_is_ready();
+        }
+
+        // D14n path: cursor is needed for the full visibility check.
+        // A d14n client without a cursor was likely registered before migration.
         let Some(cursor) = cursor else {
+            tracing::warn!(
+                "d14n client has no registration cursor (likely registered before migration); \
+                 falling back to is_ready check"
+            );
             return check_is_ready();
         };
 
@@ -212,7 +228,7 @@ where
             .api()
             .get_node_clients()
             .await
-            .map_err(|e| ClientError::Generic(format!("failed to get node clients: {e}")))?;
+            .map_err(|e| ClientError::Api(xmtp_api::dyn_err(e)))?;
 
         if node_clients.is_empty() {
             tracing::warn!("get_node_clients returned empty map; falling back to is_ready check");

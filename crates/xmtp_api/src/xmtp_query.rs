@@ -24,7 +24,7 @@ where
 
     async fn get_node_clients(
         &self,
-    ) -> Result<HashMap<u32, Box<dyn xmtp_proto::api::Client + Send + Sync>>, Self::Error> {
+    ) -> Result<HashMap<u32, xmtp_api_grpc::GrpcClient>, Self::Error> {
         <C as XmtpQuery>::get_node_clients(&self.api_client).await
     }
 }

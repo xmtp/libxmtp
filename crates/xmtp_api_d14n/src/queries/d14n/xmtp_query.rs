@@ -45,12 +45,7 @@ where
 
     async fn get_node_clients(
         &self,
-    ) -> Result<HashMap<u32, Box<dyn Client + Send + Sync>>, Self::Error> {
-        let clients =
-            crate::queries::build_node_clients(&self.client, self.app_version.as_ref()).await?;
-        Ok(clients
-            .into_iter()
-            .map(|(id, c)| (id, Box::new(c) as Box<dyn Client + Send + Sync>))
-            .collect())
+    ) -> Result<HashMap<u32, xmtp_api_grpc::GrpcClient>, Self::Error> {
+        crate::queries::build_node_clients(&self.client, self.app_version.as_ref()).await
     }
 }

@@ -226,10 +226,7 @@ impl<C: XmtpQuery> XmtpQuery for BoxedStreamsClient<C> {
 
     async fn get_node_clients(
         &self,
-    ) -> Result<
-        std::collections::HashMap<u32, Box<dyn xmtp_proto::api::Client + Send + Sync>>,
-        Self::Error,
-    > {
+    ) -> Result<std::collections::HashMap<u32, xmtp_api_grpc::GrpcClient>, Self::Error> {
         <C as XmtpQuery>::get_node_clients(&self.inner).await
     }
 }

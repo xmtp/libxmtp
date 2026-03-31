@@ -30,7 +30,7 @@ pub trait XmtpQuery: MaybeSend + MaybeSync {
     /// V3/other implementations return an empty map.
     async fn get_node_clients(
         &self,
-    ) -> Result<HashMap<u32, Box<dyn xmtp_proto::api::Client + Send + Sync>>, Self::Error> {
+    ) -> Result<HashMap<u32, xmtp_api_grpc::GrpcClient>, Self::Error> {
         Ok(HashMap::new())
     }
 }

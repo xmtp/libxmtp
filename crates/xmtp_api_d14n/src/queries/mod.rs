@@ -41,31 +41,31 @@ pub(crate) async fn build_node_clients(
         .query(gateway)
         .await?;
 
-    let mut clients: HashMap<u32, GrpcClient> = HashMap::new();
-    for (node_id, url) in response.nodes {
-        let build_result = match url.parse() {
-            Ok(host) => match app_version {
+    let clients = response
+        .nodes
+        .into_iter()
+        .filter_map(|(node_id, url)| {
+            let host = url
+                .parse()
+                .map_err(|e| {
+                    tracing::warn!(node_id, %url, error = %e, "failed to parse url for node");
+                })
+                .ok()?;
+            let client = match app_version {
                 Some(v) => GrpcClient::create_with_version(host, v.clone()),
                 None => {
                     let mut b = GrpcClient::builder();
                     b.set_host(host);
                     b.build()
                 }
-            },
-            Err(e) => {
-                tracing::warn!(node_id, %url, error = %e, "failed to parse url for node");
-                continue;
             }
-        };
-        match build_result {
-            Ok(client) => {
-                clients.insert(node_id, client);
-            }
-            Err(e) => {
+            .map_err(|e| {
                 tracing::warn!(node_id, %url, error = %e, "failed to build grpc client for node");
-            }
-        }
-    }
+            })
+            .ok()?;
+            Some((node_id, client))
+        })
+        .collect();
     Ok(clients)
 }
 
