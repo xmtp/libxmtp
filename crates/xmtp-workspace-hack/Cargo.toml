@@ -54,7 +54,6 @@ idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
 itertools = { version = "0.14" }
 k256 = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "std"] }
-libcrux-ed25519 = { version = "0.0.6", default-features = false, features = ["rand"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 nu-ansi-term = { version = "0.50" }
@@ -88,7 +87,6 @@ sha1 = { version = "0.10", features = ["compress"] }
 sha3 = { version = "0.10", default-features = false, features = ["asm", "std"] }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union", "write"] }
-subtle = { version = "2", default-features = false, features = ["const-generics", "i128"] }
 syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
 time = { version = "0.3", features = ["formatting", "local-offset", "parsing"] }
@@ -100,7 +98,6 @@ tonic = { version = "0.14", default-features = false, features = ["codegen", "ro
 tracing = { version = "0.1", features = ["log", "release_max_level_debug"] }
 tracing-core = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter", "json"] }
-typenum = { version = "1", default-features = false, features = ["const-generics"] }
 url = { version = "2", features = ["serde"] }
 winnow = { version = "0.7", features = ["simd"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
@@ -145,7 +142,6 @@ idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
 itertools = { version = "0.14" }
 k256 = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "std"] }
-libcrux-ed25519 = { version = "0.0.6", default-features = false, features = ["rand"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 nu-ansi-term = { version = "0.50" }
@@ -179,7 +175,6 @@ sha1 = { version = "0.10", features = ["compress"] }
 sha3 = { version = "0.10", default-features = false, features = ["asm", "std"] }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union", "write"] }
-subtle = { version = "2", default-features = false, features = ["const-generics", "i128"] }
 syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
 time = { version = "0.3", features = ["formatting", "local-offset", "parsing"] }
@@ -191,7 +186,6 @@ tonic = { version = "0.14", default-features = false, features = ["codegen", "ro
 tracing = { version = "0.1", features = ["log", "release_max_level_debug"] }
 tracing-core = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter", "json"] }
-typenum = { version = "1", default-features = false, features = ["const-generics"] }
 url = { version = "2", features = ["serde"] }
 winnow = { version = "0.7", features = ["simd"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
