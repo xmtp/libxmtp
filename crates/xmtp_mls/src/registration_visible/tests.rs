@@ -19,7 +19,7 @@ fn quorum_absolute() {
 #[test]
 fn visibility_confirmation_options_defaults() {
     let opts = VisibilityConfirmationOptions::default();
-    assert!(matches!(opts.quorum, Quorum::Percentage(p) if (p - 0.5).abs() < f32::EPSILON));
+    assert!(matches!(opts.quorum, Quorum::Absolute(1)));
     assert_eq!(opts.timeout_ms, 30_000);
 }
 
@@ -43,4 +43,13 @@ async fn check_node_visibility_returns_not_yet_visible_when_no_envelopes() {
         }
         other => panic!("Expected EnvelopesNotYetVisible, got: {:?}", other),
     }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_wait_for_registration_visible_after_registration() {
+    use crate::tester;
+    tester!(alice);
+    alice
+        .wait_for_registration_visible(VisibilityConfirmationOptions::default())
+        .await?;
 }
