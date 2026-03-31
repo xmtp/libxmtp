@@ -22,12 +22,12 @@ import uniffi.xmtpv3.FfiClientMode
 import uniffi.xmtpv3.FfiDeviceSyncMode
 import uniffi.xmtpv3.FfiForkRecoveryOpts
 import uniffi.xmtpv3.FfiForkRecoveryPolicy
-import uniffi.xmtpv3.FfiVisibilityConfirmationOptions
 import uniffi.xmtpv3.FfiKeyPackageStatus
 import uniffi.xmtpv3.FfiLogLevel
 import uniffi.xmtpv3.FfiLogRotation
 import uniffi.xmtpv3.FfiMessageMetadata
 import uniffi.xmtpv3.FfiProcessType
+import uniffi.xmtpv3.FfiVisibilityConfirmationOptions
 import uniffi.xmtpv3.FfiXmtpClient
 import uniffi.xmtpv3.XmtpApiClient
 import uniffi.xmtpv3.applySignatureRequest
@@ -455,7 +455,7 @@ class Client(
 
                     ffiClient.registerIdentity(
                         signatureRequest,
-                        clientOptions.waitForRegistrationVisible?.toFfi()
+                        clientOptions.waitForRegistrationVisible?.toFfi(),
                     )
                 }
 
@@ -856,7 +856,7 @@ class Client(
     ) {
         ffiClient.registerIdentity(
             signatureRequest.ffiSignatureRequest,
-            visibilityConfirmationOptions?.toFfi()
+            visibilityConfirmationOptions?.toFfi(),
         )
     }
 }
