@@ -1,19 +1,17 @@
 use crate::protocol::CursorStore;
 use crate::{V3Client, v3::*};
-use xmtp_common::RetryableError;
 use xmtp_proto::api::{ApiClientError, Client, Query};
 use xmtp_proto::api_client::XmtpIdentityClient;
 use xmtp_proto::identity_v1;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
 #[xmtp_common::async_trait]
-impl<C, Store, E> XmtpIdentityClient for V3Client<C, Store>
+impl<C, Store> XmtpIdentityClient for V3Client<C, Store>
 where
-    C: Client<Error = E>,
-    E: RetryableError + 'static,
+    C: Client,
     Store: CursorStore,
 {
-    type Error = ApiClientError<E>;
+    type Error = ApiClientError;
 
     async fn publish_identity_update(
         &self,

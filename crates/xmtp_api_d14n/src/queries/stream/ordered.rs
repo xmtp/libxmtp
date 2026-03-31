@@ -7,7 +7,6 @@ use crate::protocol::{
 use futures::{Stream, TryStream};
 use pin_project::pin_project;
 use std::{
-    error::Error,
     marker::PhantomData,
     task::{Poll, ready},
 };
@@ -31,7 +30,7 @@ pub enum OrderedStreamError {
     Resolver(#[from] ResolutionError),
 }
 
-impl<E: Error> From<OrderedStreamError> for ApiClientError<E> {
+impl From<OrderedStreamError> for ApiClientError {
     fn from(value: OrderedStreamError) -> Self {
         ApiClientError::Other(Box::new(value) as _)
     }

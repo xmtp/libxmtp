@@ -1,4 +1,3 @@
-use xmtp_common::RetryableError;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::{
     api::{ApiClientError, Client, Query},
@@ -13,14 +12,12 @@ use crate::{
 };
 
 #[xmtp_common::async_trait]
-impl<C, Store, E> XmtpQuery for D14nClient<C, Store>
+impl<C, Store> XmtpQuery for D14nClient<C, Store>
 where
-    C: Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<C as Client>::Error>>,
-    E: RetryableError + 'static,
+    C: Client,
     Store: CursorStore,
 {
-    type Error = ApiClientError<E>;
+    type Error = ApiClientError;
 
     async fn query_at(
         &self,

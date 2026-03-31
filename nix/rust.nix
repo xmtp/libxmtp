@@ -39,10 +39,6 @@ _: {
           };
         };
         crates = {
-          "mls_validation_service" = {
-            path = src + /apps/mls_validation_service;
-            autoWire = [ "crate" ];
-          };
           "xmtp_debug" = {
             autoWire = [ "crate" ];
             path = src + /apps/xmtp_debug;

@@ -7,7 +7,7 @@ use crate::local_commit_log::{LocalCommitLog, LocalCommitLogOrder};
 use crate::remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder};
 use std::collections::HashMap;
 use std::sync::Arc;
-use xmtp_proto::types::{Cursor, GlobalCursor, OrphanedEnvelope, Topic};
+use xmtp_proto::types::{Cursor, GlobalCursor, OrphanedEnvelope};
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
 use crate::SqliteConnection;
@@ -507,25 +507,18 @@ mock! {
     }
 
     impl QueryIdentityCache for DbQuery {
-        #[mockall::concretize]
-        fn fetch_cached_inbox_ids<T>(
+        fn fetch_cached_inbox_ids(
             &self,
-            identifiers: &[T],
-        ) -> Result<std::collections::HashMap<String, String>, StorageError>
-        where
-            T: std::fmt::Display,
-            for<'a> &'a T: Into<crate::identity_cache::StoredIdentityKind>;
+            identifiers: &[(String, crate::identity_cache::StoredIdentityKind)],
+        ) -> Result<HashMap<String, String>, StorageError>;
 
         #[mockall::concretize]
-        fn cache_inbox_id<T, S>(
+        fn cache_inbox_id<S: ToString>(
             &self,
-            identifier: &T,
+            kind: crate::identity_cache::StoredIdentityKind,
+            identity: String,
             inbox_id: S,
-        ) -> Result<(), StorageError>
-        where
-            T: std::fmt::Display,
-            S: ToString,
-            for<'a> &'a T: Into<crate::identity_cache::StoredIdentityKind>;
+        ) -> Result<(), StorageError>;
     }
 
     impl QueryKeyPackageHistory for DbQuery {
@@ -626,9 +619,6 @@ mock! {
         ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError>;
 
         #[mockall::concretize]
-        fn lowest_common_cursor(&self, topics: &[&Topic]) -> Result<GlobalCursor, StorageError>;
-
-        #[mockall::concretize]
         fn latest_cursor_for_id<Id: AsRef<[u8]>>(
             &self,
             entity: Id,
@@ -636,16 +626,6 @@ mock! {
             originators: Option<&[&xmtp_proto::types::OriginatorId]>
         ) -> Result<xmtp_proto::types::GlobalCursor, StorageError>;
 
-        #[mockall::concretize]
-        fn latest_cursor_combined<Id: AsRef<[u8]>>(
-            &self,
-            entity_id: Id,
-            entities: &[crate::refresh_state::EntityKind],
-            originators: Option<&[&xmtp_proto::types::OriginatorId]>,
-        ) -> Result<GlobalCursor, StorageError>;
-
-        #[mockall::concretize]
-        fn lowest_common_cursor_combined(&self, topics: &[&Topic]) -> Result<GlobalCursor, StorageError>;
     }
 
     impl QueryIdentityUpdates for DbQuery {

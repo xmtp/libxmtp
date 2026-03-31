@@ -1,4 +1,5 @@
 //! This crate only compiles for webassembly
+#![recursion_limit = "256"]
 
 xmtp_common::if_wasm! {
     pub mod client;

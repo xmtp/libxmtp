@@ -184,7 +184,6 @@ async fn create_client_inner(
 pub async fn create_client(
   v3_host: String,
   gateway_host: Option<String>,
-  is_secure: bool,
   db: DbOptions,
   inbox_id: String,
   account_identifier: Identifier,
@@ -207,16 +206,21 @@ pub async fn create_client(
     .readonly(matches!(client_mode, ClientMode::Notification))
     .maybe_auth_callback(auth_callback.map(|c| Arc::new(c.clone()) as _))
     .maybe_auth_handle(auth_handle.map(|h| h.clone().into()))
-    .app_version(app_version.clone().unwrap_or_default())
-    .is_secure(is_secure);
+    .app_version(app_version.clone().unwrap_or_default());
 
   let store = build_store(db)?;
   let nonce = parse_nonce(nonce)?;
 
   let cursor_store = SqliteCursorStore::new(store.db());
   backend.cursor_store(cursor_store);
-  let api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
-  let sync_api_client = backend.clone().build().map_err(ErrorWrapper::from)?;
+  let api_client = backend
+    .clone()
+    .build_optional_d14n()
+    .map_err(ErrorWrapper::from)?;
+  let sync_api_client = backend
+    .clone()
+    .build_optional_d14n()
+    .map_err(ErrorWrapper::from)?;
 
   create_client_inner(
     api_client,

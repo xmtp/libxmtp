@@ -29,9 +29,12 @@ jobs:
           submodules: recursive
 
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - uses: ./.github/actions/setup-rust
+
+      - name: Install fontconfig
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig-dev
 
       - name: Invoke cargo doc
         run: ./dev/docs
@@ -50,4 +53,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

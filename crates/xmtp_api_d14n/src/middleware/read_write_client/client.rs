@@ -6,8 +6,8 @@
 
 use derive_builder::Builder;
 use prost::bytes::Bytes;
-use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api::{ApiClientError, Client};
+use xmtp_proto::api::{BytesStream, IsConnectedCheck};
 
 /// A client which holds two clients
 /// and decides on a read/write strategy based on a given service str
@@ -15,7 +15,7 @@ use xmtp_proto::api::{ApiClientError, Client};
 /// the client will write with the write client.
 /// For all other queries it does a read.
 #[derive(Debug, Builder, Default, Clone)]
-#[builder(public)]
+#[builder(public, pattern = "owned")]
 pub struct ReadWriteClient<Read, Write> {
     #[builder(public)]
     pub(super) read: Read,
@@ -25,7 +25,7 @@ pub struct ReadWriteClient<Read, Write> {
     pub(super) filter: String,
 }
 
-impl<Read: Clone, Write: Clone> ReadWriteClient<Read, Write> {
+impl<Read, Write> ReadWriteClient<Read, Write> {
     pub fn builder() -> ReadWriteClientBuilder<Read, Write> {
         ReadWriteClientBuilder::default()
     }
@@ -34,19 +34,15 @@ impl<Read: Clone, Write: Clone> ReadWriteClient<Read, Write> {
 #[xmtp_common::async_trait]
 impl<Read, Write> Client for ReadWriteClient<Read, Write>
 where
-    Read: Client<Error = Write::Error, Stream = Write::Stream>,
+    Read: Client,
     Write: Client,
 {
-    type Error = <Read as Client>::Error;
-
-    type Stream = <Read as Client>::Stream;
-
     async fn request(
         &self,
         request: http::request::Builder,
         path: http::uri::PathAndQuery,
         body: Bytes,
-    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
+    ) -> Result<http::Response<Bytes>, ApiClientError> {
         if path.path().contains(&self.filter) {
             self.write.request(request, path, body).await
         } else {
@@ -59,16 +55,12 @@ where
         request: http::request::Builder,
         path: http::uri::PathAndQuery,
         body: Bytes,
-    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
         if path.path().contains(&self.filter) {
             self.write.stream(request, path, body).await
         } else {
             self.read.stream(request, path, body).await
         }
-    }
-
-    fn fake_stream(&self) -> http::Response<Self::Stream> {
-        self.read.fake_stream()
     }
 }
 

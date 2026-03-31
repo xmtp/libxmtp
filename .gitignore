@@ -46,6 +46,8 @@ coverage
 # Bower dependency directory (https://bower.io/)
 bower_components
 result/**
+result-*/**
+result-*
 
 # node-waf configuration
 .lock-wscript
@@ -192,3 +194,6 @@ om.json
 
 # Superpowers
 docs/plans
+
+# VM Images
+*.qcow2

@@ -1,7 +1,6 @@
 use crate::protocol::CursorStore;
 use crate::{V3Client, v3::*};
 use xmtp_api_grpc::streams::{TryFromItem, try_from_stream};
-use xmtp_common::RetryableError;
 use xmtp_proto::api::{ApiClientError, Client, QueryStream, XmtpStream};
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1::subscribe_group_messages_request::Filter as GroupSubscribeFilter;
@@ -11,19 +10,16 @@ use xmtp_proto::types::{
 };
 
 #[xmtp_common::async_trait]
-impl<C, Store, E> XmtpMlsStreams for V3Client<C, Store>
+impl<C, Store> XmtpMlsStreams for V3Client<C, Store>
 where
-    C: Client<Error = E>,
-    E: RetryableError + 'static,
+    C: Client,
     Store: CursorStore,
 {
-    type GroupMessageStream =
-        TryFromItem<XmtpStream<<C as Client>::Stream, V3ProtoGroupMessage>, GroupMessage>;
+    type GroupMessageStream = TryFromItem<XmtpStream<V3ProtoGroupMessage>, GroupMessage>;
 
-    type WelcomeMessageStream =
-        TryFromItem<XmtpStream<<C as Client>::Stream, V3ProtoWelcomeMessage>, WelcomeMessage>;
+    type WelcomeMessageStream = TryFromItem<XmtpStream<V3ProtoWelcomeMessage>, WelcomeMessage>;
 
-    type Error = ApiClientError<E>;
+    type Error = ApiClientError;
 
     async fn subscribe_group_messages(
         &self,

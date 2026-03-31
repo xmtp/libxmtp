@@ -6,6 +6,8 @@ mod wasm 'bindings/wasm/wasm.just'
 export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
 set shell := ["./dev/nix-shell"]
 
+nix_system := arch() + "-" + if os() == "macos" { "darwin" } else { "linux" }
+
 # CI overrides to "cargo llvm-cov nextest --no-fail-fast --no-report" for coverage
 cargo_test := env("CARGO_TEST_CMD", "cargo nextest run")
 
@@ -68,6 +70,12 @@ format:
   just wasm format
 
 # --- TEST ---
+
+# run the nix derivation for v3/d14n tests. no local incremental compilation but does use global cachix.
+nix-test:
+  nix run nixpkgs#nix-output-monitor build .#nextest.{{ nix_system }}.v3
+  nix run nixpkgs#nix-output-monitor build .#nextest.{{ nix_system }}.d14n
+
 
 # `just test`, `just test v3`, `just test d14n`, `just test crate xmtp_mls`
 [script("bash")]

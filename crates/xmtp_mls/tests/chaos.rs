@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::{ConnectionError, XmtpTestDb};
 use xmtp_db_test::ChaosDb;

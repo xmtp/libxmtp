@@ -1,7 +1,6 @@
 use crate::context::XmtpSharedContext;
 use crate::groups::mls_ext::{
-    WelcomePointersExtension, WrapperAlgorithm, unwrap_welcome_symmetric, wrap_welcome,
-    wrap_welcome_symmetric,
+    WelcomePointersExtension, unwrap_welcome_symmetric, wrap_welcome, wrap_welcome_symmetric,
 };
 use crate::groups::welcome_pointer::resolve_welcome_pointer;
 use crate::identity::ENABLE_WELCOME_POINTERS;
@@ -12,6 +11,7 @@ use prost::Message;
 use std::time::Duration;
 use xmtp_db::group::QueryGroup;
 use xmtp_db::tasks::QueryTasks;
+use xmtp_id::key_package::WrapperAlgorithm;
 use xmtp_proto::mls_v1::WelcomeMetadata;
 use xmtp_proto::types::{DecryptedWelcomePointer, WelcomeMessage, WelcomeMessageType};
 use xmtp_proto::xmtp::mls::message_contents::welcome_pointer::WelcomeV1Pointer;
@@ -20,9 +20,9 @@ use xmtp_proto::xmtp::mls::message_contents::{
     WelcomePointerWrapperAlgorithm,
 };
 
+#[xmtp_common::timeout(Duration::from_secs(40))]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
-#[timeout(Duration::from_secs(40))]
 #[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 async fn test_welcome_pointer_round_trip_with_welcome_pointers() {
     test_welcome_pointer_round_trip(
@@ -43,9 +43,9 @@ async fn test_welcome_pointer_round_trip_with_welcome_pointers() {
     .await;
 }
 
+#[xmtp_common::timeout(Duration::from_secs(80))]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
-#[timeout(Duration::from_secs(80))]
 #[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 async fn test_welcome_pointer_round_trip_without_welcome_pointers() {
     test_welcome_pointer_round_trip(
@@ -66,9 +66,9 @@ async fn test_welcome_pointer_round_trip_without_welcome_pointers() {
     .await;
 }
 
+#[xmtp_common::timeout(Duration::from_secs(40))]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
-#[timeout(Duration::from_secs(40))]
 #[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 async fn test_welcome_pointer_round_trip_with_random_mix_of_welcome_pointers() {
     let random_vec = xmtp_common::rand_vec::<1024>();
@@ -374,9 +374,9 @@ fn test_welcome_pointer_proto_round_trip() {
     }
 }
 
+#[xmtp_common::timeout(Duration::from_secs(20))]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
-#[timeout(Duration::from_secs(20))]
 async fn test_welcome_pointer_resolution_for_no_destination() {
     // This test would require mocking the API client to test the resolution logic
     // For now, we'll test the basic structure and error handling
@@ -434,9 +434,9 @@ async fn test_welcome_pointer_resolution_to_another_welcome_pointer() {
         .unwrap_err();
 }
 
+#[xmtp_common::timeout(Duration::from_secs(40))]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
-#[timeout(Duration::from_secs(40))]
 async fn test_welcome_pointer_task_retry_resolution() {
     tester!(alix);
     tester!(bo);

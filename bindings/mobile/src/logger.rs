@@ -383,7 +383,7 @@ mod test_logger {
         .unwrap();
         let rand_nums = hex::encode(xmtp_common::rand_vec::<100>());
         tracing::info!("test log");
-        tracing::trace!(rand_nums);
+        tracing::debug!(rand_nums);
         tracing::info!("test log");
         exit_debug_writer().unwrap();
 

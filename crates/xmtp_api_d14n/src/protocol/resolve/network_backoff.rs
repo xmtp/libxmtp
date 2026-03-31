@@ -8,7 +8,7 @@ use crate::{
 };
 use itertools::Itertools;
 use tracing::warn;
-use xmtp_common::{ExponentialBackoff, RetryableError, Strategy};
+use xmtp_common::{ExponentialBackoff, Strategy};
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::{
     api::{Client, Query, VectorClock},
@@ -34,7 +34,6 @@ pub fn network_backoff<ApiClient>(client: &ApiClient) -> NetworkBackoffResolver<
 impl<ApiClient> ResolveDependencies for NetworkBackoffResolver<ApiClient>
 where
     ApiClient: Client,
-    <ApiClient as Client>::Error: RetryableError,
 {
     type ResolvedEnvelope = OriginatorEnvelope;
     /// Resolve dependencies, starting with a list of dependencies. Should try to resolve

@@ -7,12 +7,12 @@ import org.junit.Test
 class ClientCacheKeyTest {
     // Helper extension to access the private toCacheKey() method for testing
     private fun ClientOptions.Api.toCacheKey(): String =
-        "${env.getUrl()}|$isSecure|${appVersion ?: "nil"}|${gatewayHost ?: "nil"}"
+        "${env.getUrl()}|${appVersion ?: "nil"}|${gatewayHost ?: "nil"}"
 
     @Test
     fun testApiClientCacheKeysDifferentConfigurations() {
         // Test that the API client cache correctly differentiates between different configurations
-        // Cache key format: "\(env.url)|\(isSecure)|\(appVersion ?? "nil")|\(gatewayHost ?? "nil")"
+        // Cache key format: "\(env.url)|\(appVersion ?? "nil")|\(gatewayHost ?? "nil")"
 
         // Test 1: Different environment URLs
         val key1 =
@@ -31,18 +31,7 @@ class ClientCacheKeyTest {
         assertNotEquals("Cache keys should differ for different environments (dev vs production)", key2, key3)
         assertNotEquals("Cache keys should differ for different environments (local vs production)", key1, key3)
 
-        // Test 2: Different isSecure values (same env)
-        val key4 =
-            ClientOptions
-                .Api(env = XMTPEnvironment.LOCAL, isSecure = true, appVersion = null, gatewayHost = null)
-                .toCacheKey()
-        val key5 =
-            ClientOptions
-                .Api(env = XMTPEnvironment.LOCAL, isSecure = false, appVersion = null, gatewayHost = null)
-                .toCacheKey()
-        assertNotEquals("Cache keys should differ when isSecure differs", key4, key5)
-
-        // Test 3: Different appVersion values (same env, same isSecure)
+        // Test 2: Different appVersion values
         val key6 =
             ClientOptions
                 .Api(env = XMTPEnvironment.LOCAL, isSecure = true, appVersion = "1.0.0", gatewayHost = null)
@@ -147,26 +136,7 @@ class ClientCacheKeyTest {
                 .toCacheKey()
         assertEquals("Cache keys should be identical when all optional params are nil", key18, key19)
 
-        // Test 10: Edge case - same gatewayHost but different other params should still differ
-        val key20 =
-            ClientOptions
-                .Api(
-                    env = XMTPEnvironment.DEV,
-                    isSecure = true,
-                    appVersion = null,
-                    gatewayHost = "https://gateway.example.com",
-                ).toCacheKey()
-        val key21 =
-            ClientOptions
-                .Api(
-                    env = XMTPEnvironment.DEV,
-                    isSecure = false,
-                    appVersion = null,
-                    gatewayHost = "https://gateway.example.com",
-                ).toCacheKey()
-        assertNotEquals("Cache keys should differ even when gatewayHost is same but isSecure differs", key20, key21)
-
-        // Test 11: Edge case - same everything except gatewayHost
+        // Test 10: Edge case - same everything except gatewayHost
         val key22 =
             ClientOptions
                 .Api(

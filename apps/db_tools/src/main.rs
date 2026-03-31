@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 use crate::tasks::DbBencher;
 use anyhow::{Result, bail};
 use clap::{Parser, ValueEnum};

@@ -9,9 +9,9 @@ use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_db::EncryptedMessageStore;
 use xmtp_db::NativeDb;
 use xmtp_id::associations::{AssociationState, MemberIdentifier, ident};
+use xmtp_id::key_package::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_mls::client::inbox_addresses_with_verifier;
-use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 
 #[napi(object)]
 pub struct Installation {

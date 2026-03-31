@@ -46,7 +46,7 @@ let
   rust = craneLib.overrideToolchain (p: rust-toolchain);
 
   # Extract version once for use throughout the file
-  version = mobile.mkVersion rust;
+  version = xmtp.mkVersion rust;
 
   # Inherit shared config
   inherit (mobile) commonArgs bindingsFileset;
@@ -83,7 +83,7 @@ let
           # via xcode-select and sets DEVELOPER_DIR, SDKROOT, CC/CXX, and bindgen args.
           buildPhaseCargoCommand = ''
             ${envSetup}
-            cargo build --release --target ${target} -p xmtpv3
+            cargo build --locked --release --target ${target} -p xmtpv3
           '';
         }
       );

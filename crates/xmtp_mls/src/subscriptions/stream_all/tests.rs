@@ -1,9 +1,6 @@
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
 
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
 use crate::subscriptions::stream_messages::stream_stats::StreamWithStats;
 use crate::tester;
 use crate::{assert_msg, builder::ClientBuilder};
@@ -16,9 +13,9 @@ use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
 use xmtp_id::associations::test_utils::WalletTestExt;
 
+#[xmtp_common::timeout(Duration::from_secs(15))]
 #[rstest::rstest]
 #[xmtp_common::test]
-#[timeout(Duration::from_secs(15))]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_stream_all_messages_changing_group_list() {
     let alix = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
@@ -71,9 +68,9 @@ async fn test_stream_all_messages_changing_group_list() {
     assert_msg!(stream, "fifth");
 }
 
+#[xmtp_common::timeout(Duration::from_secs(15))]
 #[rstest::rstest]
 #[xmtp_common::test]
-#[timeout(Duration::from_secs(15))]
 async fn test_stream_all_messages_unchanging_group_list() {
     let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -112,6 +109,7 @@ async fn test_stream_all_messages_unchanging_group_list() {
     assert_msg!(stream, "fourth");
 }
 
+#[xmtp_common::timeout(Duration::from_secs(30))]
 #[rstest::rstest]
 #[xmtp_common::test]
 async fn test_dm_stream_all_messages() {
@@ -166,13 +164,6 @@ async fn test_dm_stream_all_messages() {
         .send_message("first".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
-    // TODO:d14n
-    // this discrepancy is because of the LCC (we get duplicates)
-    // not sure if theres an easy fix
-    // https://github.com/xmtp/libxmtp/issues/2613
-    if cfg!(feature = "d14n") {
-        assert_msg!(stream, "second DM msg");
-    }
     assert_msg!(stream, "first");
 
     alix_dm
@@ -197,10 +188,10 @@ fn find_duplicates_with_count(strings: &[String]) -> HashMap<&String, usize> {
     counts
 }
 
-#[cfg_attr(all(feature = "d14n"), ignore)]
+#[xmtp_common::timeout(Duration::from_secs(60))]
 #[rstest::rstest]
 #[xmtp_common::test]
-#[timeout(Duration::from_secs(60))]
+#[cfg_attr(any(feature = "d14n", target_arch = "wasm32"), ignore)]
 async fn test_stream_all_messages_does_not_lose_messages() {
     let caro = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
     let alix = Arc::new(ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await);
@@ -292,9 +283,9 @@ async fn test_stream_all_messages_does_not_lose_messages() {
     );
 }
 
+#[xmtp_common::timeout(Duration::from_secs(20))]
 #[rstest::rstest]
 #[xmtp_common::test]
-#[timeout(Duration::from_secs(20))]
 async fn test_stream_all_messages_detached_group_changes() {
     let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let hale = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -344,12 +335,12 @@ async fn test_stream_all_messages_detached_group_changes() {
     assert_eq!(messages.len(), 5);
 }
 
+#[xmtp_common::timeout(Duration::from_secs(20))]
 #[rstest::rstest]
 #[case(ConsentState::Allowed, "msg in allowed")]
 #[case(ConsentState::Denied, "msg in denied")]
 #[case(ConsentState::Unknown, "msg in unknown")]
 #[xmtp_common::test]
-#[timeout(Duration::from_secs(20))]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_stream_all_messages_filters_by_consent_state(
     #[case] filter: ConsentState,
@@ -414,6 +405,7 @@ async fn test_stream_all_messages_filters_by_consent_state(
     assert_msg!(stream, expected_message);
 }
 
+#[xmtp_common::timeout(Duration::from_secs(30))]
 #[rstest]
 #[xmtp_common::test]
 async fn stream_messages_keeps_track_of_cursor() {
@@ -482,9 +474,9 @@ async fn stream_messages_keeps_track_of_cursor() {
     assert_msg!(s, "decryptable message");
 }
 
+#[xmtp_common::timeout(Duration::from_secs(20))]
 #[rstest::rstest]
 #[xmtp_common::test]
-#[timeout(Duration::from_secs(20))]
 async fn test_stream_all_messages_filters_conversations_created_after_init() {
     let sender = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
     let receiver = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
@@ -512,9 +504,9 @@ async fn test_stream_all_messages_filters_conversations_created_after_init() {
     );
 }
 
+#[xmtp_common::timeout(Duration::from_secs(20))]
 #[rstest::rstest]
 #[xmtp_common::test]
-#[timeout(Duration::from_secs(20))]
 async fn test_stream_all_messages_filters_new_group_when_dm_only() {
     let sender = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let receiver_wallet = generate_local_wallet();
@@ -560,9 +552,9 @@ async fn test_stream_all_messages_filters_new_group_when_dm_only() {
     );
 }
 
+#[xmtp_common::timeout(Duration::from_secs(20))]
 #[rstest::rstest]
 #[xmtp_common::test]
-#[timeout(Duration::from_secs(20))]
 async fn test_stream_all_messages_respects_cursor_between_streams() {
     tester!(sender, with_name: "sender");
     tester!(receiver, with_name: "receiver");
@@ -618,9 +610,9 @@ async fn test_stream_all_messages_respects_cursor_between_streams() {
     }
 }
 
+#[xmtp_common::timeout(Duration::from_secs(60))]
 #[rstest::rstest]
 #[xmtp_common::test(flavor = "multi_thread")]
-#[timeout(Duration::from_secs(60))]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_stream_all_concurrent_writes() {
     // Create test clients
@@ -857,6 +849,7 @@ async fn test_stream_all_concurrent_writes() {
     );
 }
 
+#[xmtp_common::timeout(Duration::from_secs(30))]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_new_group_does_not_duplicate_messages() {

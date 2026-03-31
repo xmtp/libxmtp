@@ -36,7 +36,7 @@ let
   rust = craneLib.overrideToolchain (p: rust-toolchain);
 
   # Extract version once for use throughout the file
-  version = mobile.mkVersion rust;
+  version = xmtp.mkVersion rust;
 
   # Inherit shared config
   inherit (mobile) bindingsFileset;
@@ -78,7 +78,7 @@ let
         buildPhaseCargoCommand = ''
           cargo ndk --platform 23 -t ${target} \
             --manifest-path ./bindings/mobile/Cargo.toml \
-            -- build --release
+            -- build --release --locked
         '';
       }
     );

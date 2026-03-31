@@ -2,7 +2,18 @@
 set -eou pipefail
 script_dir="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
-"${script_dir}"/compose pull
+# Retry compose pull up to 3 times to handle transient registry timeouts
+for attempt in 1 2 3; do
+    if "${script_dir}"/compose pull; then
+        break
+    fi
+    if [ "$attempt" -eq 3 ]; then
+        echo "compose pull failed after 3 attempts" >&2
+        exit 1
+    fi
+    echo "compose pull failed (attempt $attempt/3), retrying in 10s..." >&2
+    sleep 10
+done
 
 # skip building mls_validation_service if its built in nix
 if [ -f result ] && tar -xOf result manifest.json 2>/dev/null | grep -q "mls-validation-service"; then

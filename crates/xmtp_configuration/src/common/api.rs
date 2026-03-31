@@ -60,6 +60,7 @@ pub struct GrpcUrlsLocal;
 impl GrpcUrlsLocal {
     pub const XMTPD: &'static str = "http://localhost:5050";
     pub const GATEWAY: &'static str = "http://localhost:5052";
+    pub const PERF_GATEWAY: &'static str = "http://localhost:5052";
 }
 
 if_wasm! {
@@ -79,6 +80,7 @@ pub struct GrpcUrlsDev;
 impl GrpcUrlsDev {
     pub const XMTPD: &'static str = "https://grpc.testnet-dev.xmtp.network:443";
     pub const GATEWAY: &'static str = "https://payer.testnet-dev.xmtp.network:443";
+    pub const PERF_GATEWAY: &'static str = "https://payer-perf.testnet-dev.xmtp.network:443";
 }
 
 if_wasm! {
@@ -98,6 +100,7 @@ pub struct GrpcUrlsStaging;
 impl GrpcUrlsStaging {
     pub const XMTPD: &'static str = "https://grpc.testnet-staging.xmtp.network:443";
     pub const GATEWAY: &'static str = "https://payer.testnet-staging.xmtp.network:443";
+    pub const PERF_GATEWAY: &'static str = "https://payer-perf.testnet-staging.xmtp.network:443";
 }
 
 if_wasm! {
@@ -117,6 +120,7 @@ pub struct GrpcUrlsProduction;
 impl GrpcUrlsProduction {
     pub const XMTPD: &'static str = "https://grpc.testnet.xmtp.network:443";
     pub const GATEWAY: &'static str = "https://payer.testnet.xmtp.network:443";
+    pub const PERF_GATEWAY: &'static str = "https://payer-perf.testnet.xmtp.network:443";
 }
 
 if_wasm! {

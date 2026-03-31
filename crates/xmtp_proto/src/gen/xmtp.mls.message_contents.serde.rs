@@ -60,7 +60,7 @@ impl<'de> serde::Deserialize<'de> for CommitLogEntry {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -169,7 +169,7 @@ impl<'de> serde::Deserialize<'de> for CommitResult {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = CommitResult;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -243,7 +243,7 @@ impl<'de> serde::Deserialize<'de> for Compression {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = Compression;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -356,7 +356,7 @@ impl<'de> serde::Deserialize<'de> for ContentTypeId {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -474,7 +474,7 @@ impl<'de> serde::Deserialize<'de> for ConversationType {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = ConversationType;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -572,7 +572,7 @@ impl<'de> serde::Deserialize<'de> for DmMembers {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -712,7 +712,7 @@ impl<'de> serde::Deserialize<'de> for EncodedContent {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -858,7 +858,7 @@ impl<'de> serde::Deserialize<'de> for GroupMembership {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -996,7 +996,7 @@ impl<'de> serde::Deserialize<'de> for GroupMembershipChanges {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1157,7 +1157,7 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1306,7 +1306,7 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1421,7 +1421,7 @@ impl<'de> serde::Deserialize<'de> for GroupMutablePermissionsV1 {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1589,7 +1589,7 @@ impl<'de> serde::Deserialize<'de> for GroupUpdated {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1757,7 +1757,7 @@ impl<'de> serde::Deserialize<'de> for group_updated::Inbox {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1871,7 +1871,7 @@ impl<'de> serde::Deserialize<'de> for group_updated::MetadataFieldChange {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1985,7 +1985,7 @@ impl<'de> serde::Deserialize<'de> for Inbox {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2081,7 +2081,7 @@ impl<'de> serde::Deserialize<'de> for Inboxes {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2195,7 +2195,7 @@ impl<'de> serde::Deserialize<'de> for MembershipChange {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2329,7 +2329,7 @@ impl<'de> serde::Deserialize<'de> for MembershipPolicy {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2440,7 +2440,7 @@ impl<'de> serde::Deserialize<'de> for membership_policy::AndCondition {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2535,7 +2535,7 @@ impl<'de> serde::Deserialize<'de> for membership_policy::AnyCondition {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2622,7 +2622,7 @@ impl<'de> serde::Deserialize<'de> for membership_policy::BasePolicy {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = membership_policy::BasePolicy;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2728,7 +2728,7 @@ impl<'de> serde::Deserialize<'de> for MetadataPolicy {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2839,7 +2839,7 @@ impl<'de> serde::Deserialize<'de> for metadata_policy::AndCondition {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2934,7 +2934,7 @@ impl<'de> serde::Deserialize<'de> for metadata_policy::AnyCondition {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3021,7 +3021,7 @@ impl<'de> serde::Deserialize<'de> for metadata_policy::MetadataBasePolicy {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = metadata_policy::MetadataBasePolicy;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3114,7 +3114,7 @@ impl<'de> serde::Deserialize<'de> for OneshotMessage {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3228,7 +3228,7 @@ impl<'de> serde::Deserialize<'de> for PermissionsUpdatePolicy {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3339,7 +3339,7 @@ impl<'de> serde::Deserialize<'de> for permissions_update_policy::AndCondition {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3434,7 +3434,7 @@ impl<'de> serde::Deserialize<'de> for permissions_update_policy::AnyCondition {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3519,7 +3519,7 @@ impl<'de> serde::Deserialize<'de> for permissions_update_policy::PermissionsBase
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = permissions_update_policy::PermissionsBasePolicy;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3664,7 +3664,7 @@ impl<'de> serde::Deserialize<'de> for PlaintextCommitLogEntry {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3823,7 +3823,7 @@ impl<'de> serde::Deserialize<'de> for PlaintextEnvelope {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3938,7 +3938,7 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V1 {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -4077,7 +4077,7 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V2 {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -4251,7 +4251,7 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -4353,6 +4353,103 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
         deserializer.deserialize_struct("xmtp.mls.message_contents.PolicySet", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for ProposalSupport {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.version != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.ProposalSupport", len)?;
+        if self.version != 0 {
+            struct_ser.serialize_field("version", &self.version)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ProposalSupport {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "version",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Version,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "version" => Ok(GeneratedField::Version),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ProposalSupport;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.ProposalSupport")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ProposalSupport, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut version__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Version => {
+                            if version__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("version"));
+                            }
+                            version__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(ProposalSupport {
+                    version: version__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.ProposalSupport", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for ReaddRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -4407,7 +4504,7 @@ impl<'de> serde::Deserialize<'de> for ReaddRequest {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -4501,7 +4598,7 @@ impl<'de> serde::Deserialize<'de> for WelcomePointeeEncryptionAeadType {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = WelcomePointeeEncryptionAeadType;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -4591,7 +4688,7 @@ impl<'de> serde::Deserialize<'de> for WelcomePointeeEncryptionAeadTypesExtension
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -4691,7 +4788,7 @@ impl<'de> serde::Deserialize<'de> for WelcomePointer {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -4833,7 +4930,7 @@ impl<'de> serde::Deserialize<'de> for welcome_pointer::WelcomeV1Pointer {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -4958,7 +5055,7 @@ impl<'de> serde::Deserialize<'de> for WelcomePointerWrapperAlgorithm {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = WelcomePointerWrapperAlgorithm;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -5033,7 +5130,7 @@ impl<'de> serde::Deserialize<'de> for WelcomeWrapperAlgorithm {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = WelcomeWrapperAlgorithm;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -5133,7 +5230,7 @@ impl<'de> serde::Deserialize<'de> for WelcomeWrapperEncryption {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

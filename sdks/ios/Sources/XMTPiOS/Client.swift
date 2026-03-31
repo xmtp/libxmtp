@@ -77,8 +77,7 @@ public struct ClientOptions {
 		/// Specify which XMTP network to connect to. Defaults to ``.dev``
 		public var env: XMTPEnvironment = .dev
 
-		/// Specify whether the API client should use TLS security. In general this should only be false when using the
-		/// `.local` environment.
+		@available(*, deprecated, message: "isSecure is no longer used and will be removed in a future release")
 		public var isSecure = true
 
 		public var appVersion: String?
@@ -136,7 +135,7 @@ struct ApiCacheKey {
 	let api: ClientOptions.Api
 
 	var stringValue: String {
-		"\(api.env.url)|\(api.isSecure)|\(api.appVersion ?? "nil")|\(api.gatewayHost ?? "nil")"
+		"\(api.env.url)|\(api.appVersion ?? "nil")|\(api.gatewayHost ?? "nil")"
 	}
 }
 
@@ -444,7 +443,6 @@ public final class Client {
 		let newClient = try await connectToBackend(
 			v3Host: api.env.url,
 			gatewayHost: api.gatewayHost,
-			isSecure: api.isSecure,
 			clientMode: FfiClientMode.default,
 			appVersion: api.appVersion,
 			authCallback: nil,
@@ -471,7 +469,6 @@ public final class Client {
 		let newClient = try await connectToBackend(
 			v3Host: api.env.url,
 			gatewayHost: api.gatewayHost,
-			isSecure: api.isSecure,
 			clientMode: FfiClientMode.default,
 			appVersion: api.appVersion,
 			authCallback: nil,

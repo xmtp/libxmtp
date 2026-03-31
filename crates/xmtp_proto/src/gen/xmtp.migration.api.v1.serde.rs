@@ -41,7 +41,7 @@ impl<'de> serde::Deserialize<'de> for FetchD14nCutoverResponse {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

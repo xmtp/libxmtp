@@ -375,7 +375,6 @@ fn filter_groups_with_new_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::groups::mls_ext::WrapperAlgorithm;
     use crate::groups::mls_ext::wrap_welcome;
     use crate::groups::test::NoopValidator;
     use crate::test::mock::*;
@@ -390,6 +389,7 @@ mod tests {
     use xmtp_db::refresh_state::EntityKind;
     use xmtp_db::sql_key_store::SqlKeyStore;
     use xmtp_db::{MemoryStorage, mock::MockDbQuery, sql_key_store::mock::MockSqlKeyStore};
+    use xmtp_id::key_package::WrapperAlgorithm;
     use xmtp_proto::mls_v1::WelcomeMetadata;
     use xmtp_proto::types::{Cursor, WelcomeMessage, WelcomeMessageType, WelcomeMessageV1};
 

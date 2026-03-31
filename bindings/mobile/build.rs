@@ -11,6 +11,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let build = BuildBuilder::all_build()?;
     let git = GixBuilder::default()
         .sha(true)
+        .branch(true)
+        .commit_date(true)
         .commit_timestamp(true)
         .build()?;
 

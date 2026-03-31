@@ -408,11 +408,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{Store, group::tests::generate_group, test_utils::with_connection};
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
     use super::*;
+    use crate::{Store, group::tests::generate_group, test_utils::with_connection};
 
     fn generate_consent_record(
         entity_type: ConsentType,

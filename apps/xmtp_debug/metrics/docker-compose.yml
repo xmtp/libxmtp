@@ -1,0 +1,23 @@
+version: '3'
+
+# NOTE: This stack is for local development only.
+# Image versions are pinned to avoid surprise upgrades. Update deliberately.
+
+services:
+  pushgateway:
+    image: prom/pushgateway@sha256:c835998819105d84d484918908df132807c78c05f3e0e649df0c0479c6780d98
+    ports:
+      - "9091:9091"
+
+  prometheus:
+    image: prom/prometheus@sha256:4a61322ac1103a0e3aea2a61ef1718422a48fa046441f299d71e660a3bc71ae9
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    # Pin this when the xmtp/grafana-xmtpd image has a stable tag or digest
+    image: ghcr.io/xmtp/grafana-xmtpd:latest
+    ports:
+      - "3000:3000"

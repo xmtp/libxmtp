@@ -34,8 +34,14 @@ pub fn dyn_err(e: impl RetryableError + 'static) -> ApiError {
 
 #[derive(Debug, thiserror::Error, ErrorCode)]
 pub enum ApiError {
+    /// API client error.
+    ///
+    /// API operation error (network, deserialization, or other). May be retryable.
     #[error("api client error {0}")]
     Api(Box<dyn RetryableError>),
+    /// Mismatched key packages.
+    ///
+    /// Number of key packages doesn't match installation keys. Not retryable.
     #[error(
         "mismatched number of results, key packages {} != installation_keys {}",
         .key_packages,
@@ -45,6 +51,9 @@ pub enum ApiError {
         key_packages: usize,
         installation_keys: usize,
     },
+    /// Proto conversion error.
+    ///
+    /// Protobuf conversion failed. Not retryable.
     #[error(transparent)]
     ProtoConversion(#[from] xmtp_proto::ConversionError),
 }

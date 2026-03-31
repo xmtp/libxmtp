@@ -42,7 +42,7 @@ impl<'de> serde::Deserialize<'de> for ContentTypeSave {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = ContentTypeSave;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -126,7 +126,7 @@ impl<'de> serde::Deserialize<'de> for DeliveryStatusSave {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = DeliveryStatusSave;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -201,7 +201,7 @@ impl<'de> serde::Deserialize<'de> for GroupMessageKindSave {
 
         struct GeneratedVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
             type Value = GroupMessageKindSave;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -443,7 +443,7 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
             {
                 struct GeneratedVisitor;
 
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
                     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -235,7 +235,7 @@ fn print_kps(
     keys: HashSet<Vec<u8>>,
 ) -> Result<()> {
     for package in kps {
-        let verified = xmtp_mls::verified_key_package_v2::VerifiedKeyPackageV2::from_bytes(
+        let verified = xmtp_id::key_package::VerifiedKeyPackageV2::from_bytes(
             &RustCrypto::default(),
             package.key_package_tls_serialized.as_slice(),
         )?;

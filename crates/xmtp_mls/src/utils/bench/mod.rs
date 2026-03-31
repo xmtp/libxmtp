@@ -11,7 +11,8 @@ pub use clients::*;
 use thiserror::Error;
 /// Re-export of functions in private modules for benchmarks
 pub mod re_export {
-    pub use crate::groups::mls_ext::{WrapperAlgorithm, wrap_welcome};
+    pub use crate::groups::mls_ext::wrap_welcome;
+    pub use xmtp_id::key_package::WrapperAlgorithm;
 }
 
 pub mod groups;

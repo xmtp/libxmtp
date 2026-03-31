@@ -1,6 +1,9 @@
 #![recursion_limit = "256"]
 #![warn(clippy::unwrap_used)]
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 pub mod builder;
 pub mod client;
 mod consent_state;

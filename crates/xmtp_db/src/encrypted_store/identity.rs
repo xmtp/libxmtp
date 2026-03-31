@@ -122,9 +122,6 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
     use super::StoredIdentity;
     use crate::{Store, XmtpTestDb};
     use xmtp_common::rand_vec;

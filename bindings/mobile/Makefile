@@ -114,6 +114,7 @@ frameworkdyn: lipodyn
 	mkdir -p build/swift
 	chmod -R u+w build/swift/LibXMTPSwiftFFIDynamic.xcframework 2>/dev/null || true
 	rm -rf build/swift/LibXMTPSwiftFFIDynamic.xcframework
+	install_name_tool -id @rpath/libxmtpv3.dylib $(NIX_OUT)/aarch64-apple-ios/$(DYLIB)
 	xcodebuild -create-xcframework \
 		-library $(NIX_OUT)/aarch64-apple-ios/$(DYLIB) \
 		-headers $(SWIFT_OUT)/include/libxmtp/ \

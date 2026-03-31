@@ -728,4 +728,41 @@ impl StorageProvider<CURRENT_VERSION> for MockSqlKeyStore {
         self.in_memory
             .remove_proposal::<GroupId, ProposalRef>(group_id, proposal_ref)
     }
+
+    fn write_application_export_tree<
+        GroupId: traits::GroupId<CURRENT_VERSION>,
+        ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,
+    >(
+        &self,
+        group_id: &GroupId,
+        application_export_tree: &ApplicationExportTree,
+    ) -> Result<(), Self::Error> {
+        self.in_memory
+            .write_application_export_tree::<GroupId, ApplicationExportTree>(
+                group_id,
+                application_export_tree,
+            )
+    }
+
+    fn application_export_tree<
+        GroupId: traits::GroupId<CURRENT_VERSION>,
+        ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,
+    >(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<Option<ApplicationExportTree>, Self::Error> {
+        self.in_memory
+            .application_export_tree::<GroupId, ApplicationExportTree>(group_id)
+    }
+
+    fn delete_application_export_tree<
+        GroupId: traits::GroupId<CURRENT_VERSION>,
+        ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,
+    >(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<(), Self::Error> {
+        self.in_memory
+            .delete_application_export_tree::<GroupId, ApplicationExportTree>(group_id)
+    }
 }

@@ -1,8 +1,7 @@
 use std::marker::PhantomData;
 
 use xmtp_common::{
-    ExponentialBackoff, MaybeSend, MaybeSync, Retry, RetryableError, Strategy as RetryStrategy,
-    retry_async,
+    ExponentialBackoff, MaybeSend, MaybeSync, Retry, Strategy as RetryStrategy, retry_async,
 };
 
 use crate::api::{ApiClientError, Client, Endpoint, Pageable, Query, QueryRaw};
@@ -38,11 +37,10 @@ impl<E, C, S> Query<C> for RetryQuery<E, S>
 where
     E: Query<C>,
     C: Client,
-    C::Error: RetryableError,
     S: RetryStrategy,
 {
     type Output = E::Output;
-    async fn query(&mut self, client: &C) -> Result<Self::Output, ApiClientError<C::Error>> {
+    async fn query(&mut self, client: &C) -> Result<Self::Output, ApiClientError> {
         retry_async!(
             self.retry,
             (async { Query::<C>::query(&mut self.endpoint, client).await })
@@ -55,10 +53,9 @@ impl<E, C, S> QueryRaw<C> for RetryQuery<E, S>
 where
     E: Endpoint,
     C: Client,
-    C::Error: RetryableError,
     S: RetryStrategy,
 {
-    async fn query_raw(&mut self, client: &C) -> Result<bytes::Bytes, ApiClientError<C::Error>> {
+    async fn query_raw(&mut self, client: &C) -> Result<bytes::Bytes, ApiClientError> {
         retry_async!(
             self.retry,
             (async { QueryRaw::<C>::query_raw(&mut self.endpoint, client).await })
@@ -114,9 +111,7 @@ mod tests {
         let mut client = MockNetworkClient::new();
         client.expect_request().times(3).returning(|_, _, _| {
             tracing::info!("error");
-            Err(ApiClientError::Client {
-                source: MockError::ARetryableError,
-            })
+            Err(ApiClientError::client(MockError::ARetryableError))
         });
         client
             .expect_request()
@@ -130,25 +125,13 @@ mod tests {
     #[xmtp_common::test]
     async fn does_not_retry_non_retryable() {
         let mut client = MockNetworkClient::new();
-        client.expect_request().times(1).returning(|_, _, _| {
-            Err(ApiClientError::Client {
-                source: MockError::ANonRetryableError,
-            })
-        });
+        client
+            .expect_request()
+            .times(1)
+            .returning(|_, _, _| Err(ApiClientError::client(MockError::ANonRetryableError)));
 
         let result: Result<(), _> = retry(TestEndpoint).query(&client).await;
         assert!(result.is_err());
-        assert!(
-            matches!(
-                result,
-                Err(ApiClientError::ClientWithEndpoint {
-                    source: MockError::ANonRetryableError,
-                    ..
-                })
-            ),
-            "{:?}",
-            result.unwrap_err()
-        );
     }
 
     #[xmtp_common::test]
@@ -168,11 +151,10 @@ mod tests {
     #[xmtp_common::test]
     async fn retries_with_strategy() {
         let mut client = MockNetworkClient::new();
-        client.expect_request().times(2).returning(|_, _, _| {
-            Err(ApiClientError::Client {
-                source: MockError::ARetryableError,
-            })
-        });
+        client
+            .expect_request()
+            .times(2)
+            .returning(|_, _, _| Err(ApiClientError::client(MockError::ARetryableError)));
         client
             .expect_request()
             .times(1)

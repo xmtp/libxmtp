@@ -14,15 +14,13 @@ pub struct GrpcWebService {
 }
 
 impl GrpcWebService {
-    pub fn new(
-        host: String,
-        _limit: Option<u64>,
-        _is_secure: bool,
-    ) -> Result<Self, GrpcBuilderError> {
+    pub fn new(host: url::Url, _limit: Option<u64>) -> Result<Self, GrpcBuilderError> {
+        // envoy does _not_ like trailing /
+        let url = host.as_str().trim_end_matches("/");
         let options =
             FetchOptions::default().referrer_policy(ReferrerPolicy::StrictOriginWhenCrossOrigin);
         Ok(Self {
-            inner: Client::new_with_options(host, options),
+            inner: Client::new_with_options(url.into(), options),
         })
     }
 }

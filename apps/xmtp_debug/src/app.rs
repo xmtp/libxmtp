@@ -20,6 +20,8 @@ mod send;
 mod store;
 /// Message/Conversation Streaming
 mod stream;
+/// E2E latency test scenarios
+mod test;
 /// Types shared between App Functions
 mod types;
 
@@ -87,8 +89,12 @@ impl App {
         Ok(Arc::new(redb::Database::create(Self::redb()?)?))
     }
 
-    /// All data stored here
+    /// All data stored here.
+    /// Respects `XDBG_DB_ROOT` env var for overriding the default data directory.
     fn data_directory() -> Result<PathBuf> {
+        if let Ok(root) = std::env::var("XDBG_DB_ROOT") {
+            return Ok(PathBuf::from(root));
+        }
         let data = if let Some(dir) = ProjectDirs::from("org", "xmtp", "xdbg") {
             Ok::<_, eyre::Report>(dir.data_dir().to_path_buf())
         } else {
@@ -138,6 +144,7 @@ impl App {
                 Export(e) => export::Export::new(e, backend)?.run(),
                 Modify(m) => modify::Modify::new(m, backend)?.run().await,
                 Stream(s) => stream::Stream::new(s, backend)?.run().await,
+                Test(t) => test::Test::new(t, backend).run().await,
             }?;
         }
 

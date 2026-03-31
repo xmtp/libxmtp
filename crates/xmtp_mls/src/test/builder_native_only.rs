@@ -15,7 +15,7 @@ use xmtp_id::associations::{
 use xmtp_id::utils::test::{SignatureWithNonce, SmartWalletContext, docker_smart_wallet};
 
 #[rstest::rstest]
-#[timeout(Duration::from_secs(60))]
+#[xmtp_common::timeout(Duration::from_secs(60))]
 #[tokio::test]
 async fn test_remote_is_valid_signature(#[future] docker_smart_wallet: SmartWalletContext) {
     let SmartWalletContext {
@@ -76,7 +76,7 @@ async fn test_remote_is_valid_signature(#[future] docker_smart_wallet: SmartWall
 }
 
 #[rstest::rstest]
-#[timeout(Duration::from_secs(60))]
+#[xmtp_common::timeout(Duration::from_secs(60))]
 #[tokio::test]
 async fn test_detect_scw_vs_eoa_creation(#[future] docker_smart_wallet: SmartWalletContext) {
     let SmartWalletContext {

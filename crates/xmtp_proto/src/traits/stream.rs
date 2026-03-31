@@ -1,27 +1,32 @@
 //! Default XMTP Stream
 
-use prost::bytes::Bytes;
 use std::{
     marker::PhantomData,
     pin::Pin,
     task::{Context, Poll, ready},
 };
 
-use crate::{ApiEndpoint, api::ApiClientError};
+use crate::{
+    ApiEndpoint,
+    api::{ApiClientError, BytesStream},
+};
 use futures::{Stream, TryStream};
 use pin_project::pin_project;
 
+mod fake_empty;
+pub use fake_empty::*;
+
 #[pin_project]
 /// A stream which maps the tonic error to ApiClientError, and attaches endpoint metadata
-pub struct XmtpStream<S, T> {
+pub struct XmtpStream<T> {
     #[pin]
-    inner: S,
+    inner: BytesStream,
     endpoint: ApiEndpoint,
     _marker: PhantomData<T>,
 }
 
-impl<S, T> XmtpStream<S, T> {
-    pub fn new(inner: S, endpoint: ApiEndpoint) -> Self {
+impl<T> XmtpStream<T> {
+    pub fn new(inner: BytesStream, endpoint: ApiEndpoint) -> Self {
         Self {
             inner,
             endpoint,
@@ -30,20 +35,18 @@ impl<S, T> XmtpStream<S, T> {
     }
 }
 
-impl<S, T> Stream for XmtpStream<S, T>
+impl<T> Stream for XmtpStream<T>
 where
-    S: TryStream<Ok = Bytes>,
     T: prost::Message + Default,
-    S::Error: std::error::Error + 'static,
 {
-    type Item = Result<T, ApiClientError<S::Error>>;
+    type Item = Result<T, ApiClientError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.as_mut().project();
         if let Some(item) = ready!(this.inner.try_poll_next(cx)) {
             let res = item
-                .map_err(|e| ApiClientError::new(self.endpoint.clone(), e))
-                .and_then(|i| T::decode(i).map_err(ApiClientError::<S::Error>::DecodeError));
+                .map_err(|e| e.endpoint(self.endpoint.clone()))
+                .and_then(|i| T::decode(i).map_err(ApiClientError::DecodeError));
             Poll::Ready(Some(res))
         } else {
             Poll::Ready(None)
@@ -53,20 +56,18 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::api::NetworkError;
+
     use super::*;
+    use bytes::Bytes;
     use futures::{StreamExt, pin_mut, stream};
     use prost::Message;
+    use xmtp_common::RetryableError;
 
     #[derive(prost::Message)]
     struct TestMessage {
         #[prost(string, tag = "1")]
         content: String,
-    }
-
-    #[derive(thiserror::Error, Debug)]
-    enum TestError {
-        #[error("mock stream error")]
-        StreamError,
     }
 
     #[xmtp_common::test]
@@ -76,10 +77,11 @@ mod tests {
         };
         let encoded_bytes = test_message.encode_to_vec();
 
-        let inner_stream =
-            stream::once(async move { Ok::<Bytes, TestError>(Bytes::from(encoded_bytes)) });
+        let inner_stream = BytesStream::new(stream::once(async move {
+            Ok::<Bytes, ApiClientError>(Bytes::from(encoded_bytes))
+        }));
         let xmtp_stream =
-            XmtpStream::<_, TestMessage>::new(inner_stream, ApiEndpoint::SubscribeGroupMessages);
+            XmtpStream::<TestMessage>::new(inner_stream, ApiEndpoint::SubscribeGroupMessages);
         pin_mut!(xmtp_stream);
 
         let result = xmtp_stream.next().await.unwrap();
@@ -91,11 +93,27 @@ mod tests {
         assert!(n.is_none());
     }
 
+    #[derive(thiserror::Error, Debug)]
+    enum TestError {
+        #[error("test error")]
+        DummyError,
+    }
+
+    impl RetryableError for TestError {
+        fn is_retryable(&self) -> bool {
+            false
+        }
+    }
+
     #[xmtp_common::test]
     async fn test_poll_next_error_mapping() {
-        let inner_stream = stream::once(async { Err::<Bytes, TestError>(TestError::StreamError) });
+        let inner_stream = BytesStream::new(stream::once(async {
+            Err::<Bytes, ApiClientError>(ApiClientError::Client {
+                source: NetworkError::new(TestError::DummyError),
+            })
+        }));
         let xmtp_stream =
-            XmtpStream::<_, TestMessage>::new(inner_stream, ApiEndpoint::SubscribeGroupMessages);
+            XmtpStream::<TestMessage>::new(inner_stream, ApiEndpoint::SubscribeGroupMessages);
         pin_mut!(xmtp_stream);
 
         let result = xmtp_stream.next().await.unwrap();

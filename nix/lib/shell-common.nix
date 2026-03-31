@@ -42,9 +42,31 @@
   chromedriver,
   google-chrome,
   chromium,
+  writeText,
 }:
 let
   inherit (stdenv) isLinux;
+
+  # Pin Chrome binary to the Nix-provided version so ChromeDriver never
+  # discovers a system-installed Chrome with a different major version.
+  chromeBin =
+    if stdenv.isDarwin then
+      "${lib.getBin google-chrome}/bin/google-chrome-stable"
+    else
+      "${lib.getBin chromium}/bin/chromium";
+
+  # Read the base webdriver.json and inject the Nix Chrome binary path.
+  baseWebdriver = builtins.fromJSON (builtins.readFile ./../../webdriver.json);
+  webdriverJson = writeText "webdriver.json" (
+    builtins.toJSON (
+      baseWebdriver
+      // {
+        "goog:chromeOptions" = baseWebdriver."goog:chromeOptions" // {
+          binary = chromeBin;
+        };
+      }
+    )
+  );
 in
 {
   # Core Rust build environment: env vars, hardening, native deps, LD_LIBRARY_PATH
@@ -83,12 +105,10 @@ in
     CC_wasm32_unknown_unknown = "${llvmPackages.clang-unwrapped}/bin/clang";
     AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
     CFLAGS_wasm32_unknown_unknown = "-I ${llvmPackages.clang-unwrapped.lib}/lib/clang/21/include";
-    WASM_BINDGEN_TEST_ONLY_WEB = 1;
     WASM_BINDGEN_TEST_TIMEOUT = 1024;
     RSTEST_TIMEOUT = 90;
-    WASM_BINDGEN_TEST_WEBDRIVER_JSON = ./../../webdriver.json;
+    WASM_BINDGEN_TEST_WEBDRIVER_JSON = webdriverJson;
     CHROMEDRIVER = "${lib.getBin chromedriver}/bin/chromedriver";
-
   };
 
   # WASM tooling

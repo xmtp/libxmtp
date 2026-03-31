@@ -24,6 +24,7 @@
   kotlin-language-server,
   xmtp,
   rust-analyzer,
+  nodejs_24,
   just,
 }:
 let
@@ -47,112 +48,118 @@ let
   ];
 
 in
-mkShell {
-  meta.description = "Full libXMTP local development environment";
+mkShell (
+  {
+    meta.description = "Full libXMTP local development environment";
 
-  XMTP_DEV_SHELL = "local";
+    XMTP_DEV_SHELL = "local";
 
-  # --- Rust base ---
-  inherit (shellCommon.rustBase) hardeningDisable nativeBuildInputs LD_LIBRARY_PATH;
-  inherit (shellCommon.rustBase.env)
-    OPENSSL_DIR
-    OPENSSL_LIB_DIR
-    OPENSSL_NO_VENDOR
-    STACK_OVERFLOW_CHECK
-    XMTP_NIX_ENV
-    ;
-  inherit (shellCommon.wasmEnv)
-    CC_wasm32_unknown_unknown
-    AR_wasm32_unknown_unknown
-    CFLAGS_wasm32_unknown_unknown
-    WASM_BINDGEN_TEST_ONLY_WEB
-    WASM_BINDGEN_TEST_TIMEOUT
-    RSTEST_TIMEOUT
-    WASM_BINDGEN_TEST_WEBDRIVER_JSON
-    CHROMEDRIVER
-    ;
+    # --- Rust base ---
+    inherit (shellCommon.rustBase) hardeningDisable nativeBuildInputs LD_LIBRARY_PATH;
+    inherit (shellCommon.rustBase.env)
+      OPENSSL_DIR
+      OPENSSL_LIB_DIR
+      OPENSSL_NO_VENDOR
+      STACK_OVERFLOW_CHECK
+      XMTP_NIX_ENV
+      ;
+    inherit (shellCommon.wasmEnv)
+      CC_wasm32_unknown_unknown
+      AR_wasm32_unknown_unknown
+      CFLAGS_wasm32_unknown_unknown
+      WASM_BINDGEN_TEST_TIMEOUT
+      RSTEST_TIMEOUT
+      WASM_BINDGEN_TEST_WEBDRIVER_JSON
+      CHROMEDRIVER
+      ;
 
-  # --- Android env vars ---
-  ANDROID_HOME = androidEnv.devPaths.home;
-  ANDROID_SDK_ROOT = androidEnv.devPaths.home;
-  ANDROID_NDK_HOME = androidEnv.devPaths.ndkHome;
-  ANDROID_NDK_ROOT = androidEnv.devPaths.ndkHome;
-  NDK_HOME = androidEnv.devPaths.ndkHome;
-  EMULATOR = "${androidEnv.emulator}";
+    # --- Android env vars ---
+    ANDROID_HOME = androidEnv.devPaths.home;
+    ANDROID_SDK_ROOT = androidEnv.devPaths.home;
+    ANDROID_NDK_HOME = androidEnv.devPaths.ndkHome;
+    ANDROID_NDK_ROOT = androidEnv.devPaths.ndkHome;
+    NDK_HOME = androidEnv.devPaths.ndkHome;
+    buildInputs =
+      shellCommon.rustBase.buildInputs
+      ++ [
+        just
+        # Combined toolchain (wasm + android + iOS targets)
+        rust-toolchain
+        rust-analyzer
+        foundry-bin
+        sqlcipher
+        corepack
+        nodejs_24
 
-  buildInputs =
-    shellCommon.rustBase.buildInputs
-    ++ [
-      just
-      # Combined toolchain (wasm + android + iOS targets)
-      rust-toolchain
-      rust-analyzer
-      foundry-bin
-      sqlcipher
-      corepack
+        # Android
+        androidEnv.devComposition.androidsdk
+        cargo-ndk
+        gnused
 
-      # Android
-      androidEnv.devComposition.androidsdk
-      cargo-ndk
-      androidEnv.emulator
-      gnused
+        # Kotlin / JDK
+        jdk21
+        kotlin
+        ktlint
+        jdk17
+        kotlin-language-server
 
-      # Kotlin / JDK
-      jdk21
-      kotlin
-      ktlint
-      jdk17
-      kotlin-language-server
+        # Misc dev
+        mktemp
+        diesel-cli
+      ]
+      # Wasm, cargo, CI, proto, lint tools
+      ++ shellCommon.wasmTools
+      ++ shellCommon.cargoTools
+      ++ shellCommon.cargoCiTools
+      ++ shellCommon.protoTools
+      ++ shellCommon.lintTools
+      # Debug & profiling
+      ++ shellCommon.debugTools
+      ++ shellCommon.miscDevTools
+      # Emulator (not available on aarch64-linux)
+      ++ lib.optionals androidEnv.hasEmulator [
+        androidEnv.emulator
+      ]
+      # Darwin-specific
+      ++ lib.optionals isDarwin [
+        darwin.cctools
+        swiftformat
+        swiftlint
+      ];
 
-      # Misc dev
-      mktemp
-      diesel-cli
-    ]
-    # Wasm, cargo, CI, proto, lint tools
-    ++ shellCommon.wasmTools
-    ++ shellCommon.cargoTools
-    ++ shellCommon.cargoCiTools
-    ++ shellCommon.protoTools
-    ++ shellCommon.lintTools
-    # Debug & profiling
-    ++ shellCommon.debugTools
-    ++ shellCommon.miscDevTools
-    # Darwin-specific
-    ++ lib.optionals isDarwin [
-      darwin.cctools
-      swiftformat
-      swiftlint
-    ];
+    shellHook = lib.optionalString isDarwin ''
+      # --- iOS cross-compilation env setup ---
+      # Unset SDKROOT so xcrun can discover the right SDK per target at build time.
+      unset SDKROOT
 
-  shellHook = lib.optionalString isDarwin ''
-    # --- iOS cross-compilation env setup ---
-    # Unset SDKROOT so xcrun can discover the right SDK per target at build time.
-    unset SDKROOT
+      # Dynamically resolve Xcode path and set all cross-compilation env vars.
+      ${iosEnv.envSetupAll}
 
-    # Dynamically resolve Xcode path and set all cross-compilation env vars.
-    ${iosEnv.envSetupAll}
-
-    # Version validation — check that Xcode is recent enough for Swift 6.1 (Package Traits).
-    XCODE_VERSION=$(xcodebuild -version 2>/dev/null | head -1 | awk '{print $2}')
-    if [[ -n "$XCODE_VERSION" ]]; then
-      MAJOR=$(echo "$XCODE_VERSION" | cut -d. -f1)
-      if [[ "$MAJOR" -lt 16 ]]; then
-        echo "WARNING: Xcode $XCODE_VERSION detected. Xcode 16+ required for Swift 6.1 (Package Traits)." >&2
+      # Version validation — check that Xcode is recent enough for Swift 6.1 (Package Traits).
+      XCODE_VERSION=$(xcodebuild -version 2>/dev/null | head -1 | awk '{print $2}')
+      if [[ -n "$XCODE_VERSION" ]]; then
+        MAJOR=$(echo "$XCODE_VERSION" | cut -d. -f1)
+        if [[ "$MAJOR" -lt 16 ]]; then
+          echo "WARNING: Xcode $XCODE_VERSION detected. Xcode 16+ required for Swift 6.1 (Package Traits)." >&2
+        fi
       fi
-    fi
 
-    # Wrap `swift` to sanitize Nix compiler flags that conflict with SPM.
-    # The local shell's large package set injects many -isystem/-L paths into
-    # NIX_CFLAGS_COMPILE and NIX_LDFLAGS via Nix's cc-wrapper. Swift Package
-    # Manager should use the Xcode toolchain exclusively, not Nix's paths.
-    swift() {
-      env \
-        -u NIX_CFLAGS_COMPILE \
-        -u NIX_CFLAGS_COMPILE_FOR_BUILD \
-        -u NIX_LDFLAGS \
-        -u NIX_LDFLAGS_FOR_BUILD \
-        -u LD_LIBRARY_PATH \
-        command swift "$@"
-    }
-  '';
-}
+      # Wrap `swift` to sanitize Nix compiler flags that conflict with SPM.
+      # The local shell's large package set injects many -isystem/-L paths into
+      # NIX_CFLAGS_COMPILE and NIX_LDFLAGS via Nix's cc-wrapper. Swift Package
+      # Manager should use the Xcode toolchain exclusively, not Nix's paths.
+      swift() {
+        env \
+          -u NIX_CFLAGS_COMPILE \
+          -u NIX_CFLAGS_COMPILE_FOR_BUILD \
+          -u NIX_LDFLAGS \
+          -u NIX_LDFLAGS_FOR_BUILD \
+          -u LD_LIBRARY_PATH \
+          command swift "$@"
+      }
+    '';
+  }
+  // lib.optionalAttrs androidEnv.hasEmulator {
+    EMULATOR = "${androidEnv.emulator}";
+  }
+)

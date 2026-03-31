@@ -77,7 +77,7 @@ impl Endpoint for QueryEnvelopes {
 #[cfg(test)]
 mod test {
     use super::*;
-    use xmtp_api_grpc::{error::GrpcError, test::XmtpdClient};
+    use xmtp_api_grpc::test::XmtpdClient;
     use xmtp_proto::{api, prelude::*, types::TopicKind};
 
     #[xmtp_common::test]
@@ -125,10 +125,9 @@ mod test {
         // the request will fail b/c we're using dummy data but
         // we just care if the endpoint is working
         match err {
-            ApiClientError::<GrpcError>::ClientWithEndpoint {
-                source: GrpcError::Status(ref s),
-                ..
-            } => assert!(s.message().contains("invalid topic"), "{}", err),
+            ApiClientError::ClientWithEndpoint { source: ref s, .. } => {
+                assert!(s.to_string().contains("invalid topic"), "{}", err)
+            }
             _ => panic!("request failed"),
         }
     }

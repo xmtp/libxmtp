@@ -28,6 +28,7 @@ pub enum ConsentTypeSave {
     Unspecified = 0,
     ConversationId = 1,
     InboxId = 2,
+    #[deprecated]
     Address = 3,
 }
 impl ConsentTypeSave {
@@ -40,6 +41,7 @@ impl ConsentTypeSave {
             Self::Unspecified => "CONSENT_TYPE_SAVE_UNSPECIFIED",
             Self::ConversationId => "CONSENT_TYPE_SAVE_CONVERSATION_ID",
             Self::InboxId => "CONSENT_TYPE_SAVE_INBOX_ID",
+            #[allow(deprecated)]
             Self::Address => "CONSENT_TYPE_SAVE_ADDRESS",
         }
     }
@@ -49,7 +51,7 @@ impl ConsentTypeSave {
             "CONSENT_TYPE_SAVE_UNSPECIFIED" => Some(Self::Unspecified),
             "CONSENT_TYPE_SAVE_CONVERSATION_ID" => Some(Self::ConversationId),
             "CONSENT_TYPE_SAVE_INBOX_ID" => Some(Self::InboxId),
-            "CONSENT_TYPE_SAVE_ADDRESS" => Some(Self::Address),
+            "CONSENT_TYPE_SAVE_ADDRESS" => Some(#[allow(deprecated)] Self::Address),
             _ => None,
         }
     }

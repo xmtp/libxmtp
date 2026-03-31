@@ -115,7 +115,6 @@ class MainActivity : AppCompatActivity() {
                 api =
                 ClientOptions.Api(
                     env = XMTPEnvironment.LOCAL,
-                    isSecure = false,
                 ),
                 appContext = this@MainActivity
             )

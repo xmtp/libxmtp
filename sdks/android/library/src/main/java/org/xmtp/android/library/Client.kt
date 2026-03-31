@@ -60,6 +60,7 @@ data class ClientOptions(
 ) {
     data class Api(
         val env: XMTPEnvironment = XMTPEnvironment.DEV,
+        @Deprecated("isSecure is no longer used and will be removed in a future release")
         val isSecure: Boolean = true,
         val appVersion: String? = null,
         val gatewayHost: String? = null,
@@ -129,7 +130,7 @@ class Client(
             }
 
         private fun ClientOptions.Api.toCacheKey(): String =
-            "${env.getUrl()}|$isSecure|${appVersion ?: "nil"}|${gatewayHost ?: "nil"}"
+            "${env.getUrl()}|${appVersion ?: "nil"}|${gatewayHost ?: "nil"}"
 
         private val apiClientCache = mutableMapOf<String, XmtpApiClient>()
         private val cacheLock = Mutex()
@@ -210,7 +211,6 @@ class Client(
                     connectToBackend(
                         api.env.getUrl(),
                         api.gatewayHost,
-                        api.isSecure,
                         FfiClientMode.DEFAULT,
                         api.appVersion,
                         null,
@@ -235,7 +235,6 @@ class Client(
                     connectToBackend(
                         api.env.getUrl(),
                         api.gatewayHost,
-                        api.isSecure,
                         FfiClientMode.DEFAULT,
                         api.appVersion,
                         null,

@@ -446,14 +446,11 @@ mod test {
     use futures::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
+    #[xmtp_common::timeout(std::time::Duration::from_secs(10))]
     #[rstest::rstest]
     #[case::two_conversations(2)]
     #[case::five_conversations(5)]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(10))]
     #[awt]
     async fn stream_welcomes(
         #[future] alix: ClientTester,
@@ -575,9 +572,9 @@ mod test {
         assert_eq!(groups.len(), 3);
     }
 
+    #[xmtp_common::timeout(std::time::Duration::from_secs(10))]
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(10))]
     async fn test_self_group_creation() {
         tester!(alix);
         tester!(bo);
@@ -601,9 +598,9 @@ mod test {
         assert_eq!(2, find_groups_results.len());
     }
 
+    #[xmtp_common::timeout(std::time::Duration::from_secs(5))]
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(5))]
     async fn test_add_remove_re_add() {
         tester!(alix);
         tester!(bo);
@@ -631,9 +628,9 @@ mod test {
         }
     }
 
+    #[xmtp_common::timeout(std::time::Duration::from_secs(15))]
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(15))]
     async fn test_duplicate_dm_not_streamed() {
         use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -667,11 +664,11 @@ mod test {
         assert!(result.is_err(), "Duplicate DM was unexpectedly streamed");
     }
 
+    #[xmtp_common::timeout(std::time::Duration::from_secs(120))]
     #[rstest::rstest]
     #[case::five_dms(5)]
     #[case::onehundred_dms(100)]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(120))]
     #[awt]
     #[cfg_attr(all(feature = "d14n"), ignore)]
     async fn test_many_concurrent_dm_invites(#[future] alix: ClientTester, #[case] dms: usize) {

@@ -63,6 +63,9 @@ impl std::fmt::Display for ApiEndpoint {
 /// (xmtp_id/xmtp_mls) if they had defined the error themselves.
 #[derive(thiserror::Error, Debug, ErrorCode)]
 pub enum ConversionError {
+    /// Missing field.
+    ///
+    /// Required field missing during proto conversion. Not retryable.
     #[error("missing field {} of type {} during conversion from protobuf", .item, .r#type)]
     Missing {
         /// the item being converted
@@ -70,10 +73,19 @@ pub enum ConversionError {
         /// type of the item being converted
         r#type: &'static str,
     },
+    /// Unspecified field.
+    ///
+    /// Protobuf field is unspecified. Not retryable.
     #[error("field {} unspecified", _0)]
     Unspecified(&'static str),
+    /// Deprecated field.
+    ///
+    /// A deprecated protobuf field was used. Not retryable.
     #[error("field {} deprecated", _0)]
     Deprecated(&'static str),
+    /// Invalid length.
+    ///
+    /// Data has wrong length for conversion. Not retryable.
     #[error("type {} has invalid length. expected {} got {}", .item, .expected, .got)]
     InvalidLength {
         /// the item being converted
@@ -83,6 +95,9 @@ pub enum ConversionError {
         /// the length of the received item
         got: usize,
     },
+    /// Invalid value.
+    ///
+    /// Data has unexpected value. Not retryable.
     #[error("type {} invalid. expected {}, got {}", .item, .expected, .got)]
     InvalidValue {
         /// the item being converted
@@ -92,16 +107,31 @@ pub enum ConversionError {
         /// description of the value received i.e 'a positive integer'
         got: String,
     },
+    /// Decode error.
+    ///
+    /// Protobuf decoding failed. Not retryable.
     #[error("decoding proto {0}")]
     Decode(#[from] prost::DecodeError),
+    /// Encode error.
+    ///
+    /// Protobuf encoding failed. Not retryable.
     #[error("encoding proto {0}")]
     Encode(#[from] prost::EncodeError),
+    /// Unknown enum value.
+    ///
+    /// Protobuf enum has unrecognized value. Not retryable.
     #[error("Unknown enum value {0}")]
     UnknownEnumValue(#[from] prost::UnknownEnumValue),
+    /// Ed25519 signature error.
+    ///
+    /// Ed25519 signature bytes invalid. Not retryable.
     // we keep Ed signature bytes on ProtoBuf definitions
     #[error(transparent)]
     EdSignature(#[from] ed25519_dalek::ed25519::Error),
 
+    /// Invalid public key.
+    ///
+    /// Public key validation failed. Not retryable.
     #[error("{} is invalid: {:?}", .description, .value)]
     InvalidPublicKey {
         // What kind of key is invalid
@@ -109,16 +139,31 @@ pub enum ConversionError {
         // What is the value
         value: Option<String>,
     },
+    /// Invalid version.
+    ///
+    /// Protocol version not supported. Not retryable.
     #[error("version not supported")]
     InvalidVersion,
+    /// OpenMLS error.
+    ///
+    /// OpenMLS library error. Not retryable.
     // TODO: Probably should not be apart of conversion,
     // conversions using openml sshould be put further up the stack
     #[error(transparent)]
     OpenMls(#[from] openmls::prelude::Error),
+    /// Protocol message error.
+    ///
+    /// MLS protocol message error. Not retryable.
     #[error(transparent)]
     Protocol(#[from] openmls::framing::errors::ProtocolMessageError),
+    /// Builder error.
+    ///
+    /// Builder field not initialized. Not retryable.
     #[error(transparent)]
     Builder(#[from] derive_builder::UninitializedFieldError),
+    /// Slice error.
+    ///
+    /// Byte slice conversion failed. Not retryable.
     #[error(transparent)]
     Slice(#[from] TryFromSliceError),
 }
@@ -137,18 +182,39 @@ impl RetryableError for ConversionError {
 /// Error resulting from proto conversions/mutations
 #[derive(Debug, Error, ErrorCode)]
 pub enum ProtoError {
+    /// Hex error.
+    ///
+    /// Hex encoding/decoding failed. Not retryable.
     #[error(transparent)]
     Hex(#[from] hex::FromHexError),
+    /// Decode error.
+    ///
+    /// Protobuf decoding failed. Not retryable.
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
+    /// Encode error.
+    ///
+    /// Protobuf encoding failed. Not retryable.
     #[error(transparent)]
     Encode(#[from] prost::EncodeError),
+    /// OpenMLS error.
+    ///
+    /// OpenMLS library error. Not retryable.
     #[error("Open MLS {0}")]
     OpenMls(#[from] openmls::prelude::Error),
+    /// MLS protocol message error.
+    ///
+    /// MLS framing error. Not retryable.
     #[error(transparent)]
     MlsProtocolMessage(#[from] openmls::framing::errors::ProtocolMessageError),
+    /// Key package error.
+    ///
+    /// Key package verification failed. Not retryable.
     #[error(transparent)]
     KeyPackage(#[from] openmls::prelude::KeyPackageVerifyError),
+    /// Not found.
+    ///
+    /// Proto resource not found. Not retryable.
     #[error("{0} not found")]
     NotFound(String),
 }

@@ -32,8 +32,8 @@ impl NetConnectConfig for MockApiBuilder {
     fn set_app_version(&mut self, _version: AppVersion) -> Result<(), Self::Error> {
         Ok(())
     }
-    fn set_host(&mut self, _host: String) {}
-    fn set_tls(&mut self, _tls: bool) {}
+    fn set_host(&mut self, _host: url::Url) {}
+
     fn rate_per_minute(&mut self, _limit: u32) {}
 
     fn port(&self) -> Result<Option<String>, Self::Error> {
@@ -64,31 +64,24 @@ impl xmtp_common::RetryableError for MockError {
     }
 }
 
-type Repeat = Box<dyn Send + FnMut() -> Result<prost::bytes::Bytes, MockError>>;
-type MockStreamT = futures::stream::RepeatWith<Repeat>;
-
 mockall::mock! {
     pub NetworkClient {}
 
     #[xmtp_common::async_trait]
     impl Client for NetworkClient {
-        type Error = MockError;
-        type Stream = MockStreamT;
         async fn request(
             &self,
             request: http::request::Builder,
             path: http::uri::PathAndQuery,
             body: Bytes,
-        ) -> Result<http::Response<Bytes>, ApiClientError<MockError>>;
+        ) -> Result<http::Response<Bytes>, ApiClientError>;
 
         async fn stream(
             &self,
             request: http::request::Builder,
             path: http::uri::PathAndQuery,
             body: Bytes,
-        ) -> Result<http::Response<MockStreamT>, ApiClientError<MockError>>;
-
-        fn fake_stream(&self) -> http::Response<MockStreamT>;
+        ) -> Result<http::Response<BytesStream>, ApiClientError>;
     }
 }
 

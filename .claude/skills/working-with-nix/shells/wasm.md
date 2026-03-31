@@ -17,7 +17,6 @@ For WebAssembly builds and testing. Uses `fenix.stable` Rust (not the project-pi
 | `SQLITE_OUT` | SQLite out path | SQLite binaries |
 | `CHROMEDRIVER` | ChromeDriver path | Chrome WebDriver |
 | `WASM_BINDGEN_TEST_TIMEOUT` | `1024` | Test timeout seconds |
-| `WASM_BINDGEN_TEST_ONLY_WEB` | `1` | Web-only tests |
 | `RSTEST_TIMEOUT` | `90` | rstest timeout |
 | `CARGO_PROFILE_TEST_DEBUG` | `0` | Disable debug in tests |
 | `WASM_BINDGEN_TEST_WEBDRIVER_JSON` | Config path | WebDriver config |

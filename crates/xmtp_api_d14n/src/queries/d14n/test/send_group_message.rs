@@ -106,18 +106,10 @@ pub struct TestCursorStore {
 }
 
 impl CursorStore for TestCursorStore {
-    fn lowest_common_cursor(&self, _: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
-        unreachable!()
-    }
-
-    fn latest(&self, _: &Topic) -> Result<GlobalCursor, CursorStoreError> {
-        unreachable!()
-    }
-
-    fn latest_per_originator(
+    fn latest(
         &self,
         _: &Topic,
-        _: &[&OriginatorId],
+        _: Option<&[&OriginatorId]>,
     ) -> Result<GlobalCursor, CursorStoreError> {
         unreachable!()
     }
@@ -126,10 +118,6 @@ impl CursorStore for TestCursorStore {
         &self,
         _: &mut dyn Iterator<Item = &Topic>,
     ) -> Result<HashMap<Topic, GlobalCursor>, CursorStoreError> {
-        unreachable!()
-    }
-
-    fn lcc_maybe_missing(&self, _: &[&Topic]) -> Result<GlobalCursor, CursorStoreError> {
         unreachable!()
     }
 

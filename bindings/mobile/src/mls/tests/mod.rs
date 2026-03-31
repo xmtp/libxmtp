@@ -31,7 +31,6 @@ use crate::{
         FfiMetadataFieldChange, FfiTransactionMetadata,
     },
     mls::{
-        MessageBackendBuilder,
         inbox_owner::FfiWalletInboxOwner,
         test_utils::{LocalBuilder, LocalTester, connect_to_backend_test},
     },
@@ -55,7 +54,6 @@ use tokio::{
     sync::{Notify, futures::OwnedNotified},
     time::error::Elapsed,
 };
-use xmtp_api::ApiClientWrapper;
 use xmtp_common::tmp_path;
 use xmtp_common::{time::now_ns, wait_for_ge};
 use xmtp_common::{wait_for_eq, wait_for_ok};

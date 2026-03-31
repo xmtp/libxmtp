@@ -36,7 +36,6 @@ impl Endpoint for PublishCommitLog {
 #[cfg(test)]
 mod test {
     use crate::v3::PublishCommitLog;
-    use xmtp_api_grpc::error::GrpcError;
     use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_common::rand_vec;
     use xmtp_proto::xmtp::mls::api::v1::*;
@@ -74,11 +73,12 @@ mod test {
         // the request will fail b/c we're using dummy data but
         // we just care if the endpoint is working
         match err {
-            ApiClientError::<GrpcError>::ClientWithEndpoint {
-                source: GrpcError::Status(ref s),
-                ..
-            } => {
-                assert!(s.message().contains("invalid commit log entry"), "{}", err);
+            ApiClientError::ClientWithEndpoint { source: ref s, .. } => {
+                assert!(
+                    s.to_string().contains("invalid commit log entry"),
+                    "{}",
+                    err
+                );
             }
             _ => panic!("request failed"),
         }

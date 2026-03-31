@@ -18,7 +18,7 @@ format:
 
 # Run Swift tests
 test:
-    ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --parallel --num-workers=2
+    ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --parallel --num-workers=2 -q
 
 # Build iOS native bindings (xcframework)
 build:

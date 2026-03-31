@@ -2,6 +2,7 @@
 
 pub mod associations;
 pub mod constants;
+pub mod key_package;
 pub mod scw_verifier;
 pub mod utils;
 

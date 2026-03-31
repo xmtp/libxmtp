@@ -4,6 +4,7 @@ use std::time::Duration;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 use tonic::{body::Body, client::GrpcService};
 use tower::Service;
+use url::Url;
 
 use std::task::{Context, Poll};
 
@@ -12,16 +13,19 @@ pub struct NativeGrpcService {
     inner: Channel,
 }
 
+fn is_url_secure(url: &Url) -> bool {
+    matches!(url.scheme(), "https" | "grpcs")
+}
+
 impl NativeGrpcService {
-    pub fn new(
-        host: String,
-        limit: Option<u64>,
-        is_secure: bool,
-    ) -> Result<Self, GrpcBuilderError> {
-        let channel = match is_secure {
-            true => create_tls_channel(host, limit.unwrap_or(5000))?,
-            false => apply_channel_options(Channel::from_shared(host)?, limit.unwrap_or(5000))
-                .connect_lazy(),
+    pub fn new(host: url::Url, limit: Option<u64>) -> Result<Self, GrpcBuilderError> {
+        let channel = match is_url_secure(&host) {
+            true => create_tls_channel(host.into(), limit.unwrap_or(5000))?,
+            false => apply_channel_options(
+                Channel::from_shared(String::from(host))?,
+                limit.unwrap_or(5000),
+            )
+            .connect_lazy(),
         };
 
         Ok(Self { inner: channel })

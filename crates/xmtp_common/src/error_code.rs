@@ -90,22 +90,27 @@ mod tests {
     use thiserror::Error;
     use xmtp_macro::ErrorCode;
 
+    /// An inner error for testing.
     #[derive(Debug, Error, ErrorCode)]
     #[error("inner error")]
     struct InnerError;
 
     #[derive(Debug, Error, ErrorCode)]
     enum StorageError {
+        /// Database connection failed.
         #[error("connection failed")]
         Connection,
+        /// Record not found.
         #[error("not found")]
         NotFound,
     }
 
     #[derive(Debug, Error, ErrorCode)]
     enum GroupError {
+        /// Group not found in local database.
         #[error("group not found")]
         NotFound,
+        /// Group membership state is invalid.
         #[error("invalid membership")]
         InvalidMembership,
         #[error("storage: {0}")]
@@ -164,9 +169,11 @@ mod tests {
     // Test custom code override for backwards compatibility
     #[derive(Debug, Error, ErrorCode)]
     enum RenamedError {
+        /// Variant was renamed but keeps old code for compatibility.
         #[error("new name for the variant")]
         #[error_code("RenamedError::OldVariantName")]
         NewVariantName,
+        /// Another variant for testing.
         #[error("another variant")]
         AnotherVariant,
     }

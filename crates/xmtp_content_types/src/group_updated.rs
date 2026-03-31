@@ -53,9 +53,6 @@ impl ContentCodec<GroupUpdated> for GroupUpdatedCodec {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
     use super::*;
     use xmtp_common::rand_string;
     use xmtp_proto::xmtp::mls::message_contents::{GroupUpdated, group_updated::Inbox};

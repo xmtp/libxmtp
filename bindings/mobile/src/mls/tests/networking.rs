@@ -215,7 +215,6 @@ async fn test_is_connected_after_connect() {
     let api = connect_to_backend(
         "http://127.0.0.1:59999".to_string(),
         None,
-        false,
         None,
         None,
         None,
@@ -223,11 +222,8 @@ async fn test_is_connected_after_connect() {
     )
     .await
     .unwrap();
-    let backend = MessageBackendBuilder::default()
-        .from_bundle(api.0.clone())
-        .unwrap();
-    let api = ApiClientWrapper::new(backend, Default::default());
     let result = api
+        .wrapper
         .query_group_messages(xmtp_common::rand_vec::<16>().into())
         .await;
     assert!(result.is_err(), "Expected connection to fail");

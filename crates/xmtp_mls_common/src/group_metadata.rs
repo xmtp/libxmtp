@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use openmls::extensions::Extensions;
+use openmls::{extensions::Extensions, group::GroupContext};
 use prost::Message;
 use serde::Serialize;
 use thiserror::Error;
@@ -16,16 +16,34 @@ use xmtp_db::group::ConversationType;
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum GroupMetadataError {
+    /// Serialization error.
+    ///
+    /// Failed to encode metadata protobuf. Not retryable.
     #[error("serialization: {0}")]
     Serialization(#[from] prost::EncodeError),
+    /// Deserialization error.
+    ///
+    /// Failed to decode metadata protobuf. Not retryable.
     #[error("deserialization: {0}")]
     Deserialization(#[from] prost::DecodeError),
+    /// Invalid conversation type.
+    ///
+    /// Protobuf conversation type not recognized. Not retryable.
     #[error("invalid conversation type")]
     InvalidConversationType,
+    /// Missing extension.
+    ///
+    /// Immutable metadata MLS extension not found. Not retryable.
     #[error("missing extension")]
     MissingExtension,
+    /// Invalid DM members.
+    ///
+    /// DM member data is invalid. Not retryable.
     #[error("invalid dm members")]
     InvalidDmMembers,
+    /// Missing DM member.
+    ///
+    /// A DM member field is not set. Not retryable.
     #[error("missing a dm member")]
     MissingDmMember,
     #[error(transparent)]
@@ -101,10 +119,10 @@ impl TryFrom<GroupMetadataProto> for GroupMetadata {
     }
 }
 
-impl TryFrom<&Extensions> for GroupMetadata {
+impl TryFrom<&Extensions<GroupContext>> for GroupMetadata {
     type Error = GroupMetadataError;
 
-    fn try_from(extensions: &Extensions) -> Result<Self, Self::Error> {
+    fn try_from(extensions: &Extensions<GroupContext>) -> Result<Self, Self::Error> {
         let data = extensions
             .immutable_metadata()
             .ok_or(GroupMetadataError::MissingExtension)?;
@@ -197,7 +215,7 @@ impl TryFrom<DmMembersProto> for DmMembers<InboxId> {
 }
 
 pub fn extract_group_metadata(
-    extensions: &Extensions,
+    extensions: &Extensions<GroupContext>,
 ) -> Result<GroupMetadata, GroupMetadataError> {
     let extension = extensions
         .immutable_metadata()

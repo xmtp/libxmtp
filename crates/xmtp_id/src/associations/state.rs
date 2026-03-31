@@ -3,22 +3,15 @@
 //! or[`MemberKind::Installation`]. A diff between two states can be calculated to determine
 //! a change of membership between two periods of time. [XIP-46](https://github.com/xmtp/XIPs/pull/53)
 
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::{Debug, Write},
-};
-
-use prost::Message;
-use xmtp_db::association_state::StoredAssociationState;
-use xmtp_proto::{
-    ConversionError, xmtp::identity::associations::AssociationState as AssociationStateProto,
-};
-
 use super::{
     AssociationError, MemberIdentifier, MemberKind, ident,
     member::{Identifier, Member},
 };
 use crate::InboxIdRef;
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::{Debug, Write},
+};
 
 #[derive(Debug, Clone)]
 pub struct AssociationStateDiff {
@@ -101,14 +94,6 @@ impl TryFrom<MemberIdentifier> for Identifier {
             }
         };
         Ok(ident)
-    }
-}
-
-impl TryFrom<StoredAssociationState> for AssociationState {
-    type Error = ConversionError;
-
-    fn try_from(stored_state: StoredAssociationState) -> Result<Self, Self::Error> {
-        AssociationStateProto::decode(stored_state.state.as_slice())?.try_into()
     }
 }
 
@@ -269,9 +254,6 @@ impl AssociationState {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
     use super::*;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

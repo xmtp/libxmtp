@@ -3,7 +3,6 @@ use crate::{
     protocol::{CursorStore, XmtpEnvelope, XmtpQuery},
     v3::{FetchKeyPackages, GetIdentityUpdatesV2, QueryGroupMessages, QueryWelcomeMessages},
 };
-use xmtp_common::RetryableError;
 use xmtp_configuration::MAX_PAGE_SIZE;
 use xmtp_proto::identity_v1::{
     get_identity_updates_request, get_identity_updates_response::IdentityUpdateLog,
@@ -15,14 +14,12 @@ use xmtp_proto::{
 };
 
 #[xmtp_common::async_trait]
-impl<C, Store, E> XmtpQuery for V3Client<C, Store>
+impl<C, Store> XmtpQuery for V3Client<C, Store>
 where
-    C: Client<Error = E>,
-    E: RetryableError + 'static,
-    ApiClientError<E>: From<ApiClientError<<C as Client>::Error>>,
+    C: Client,
     Store: CursorStore,
 {
-    type Error = ApiClientError<E>;
+    type Error = ApiClientError;
     async fn query_at(
         &self,
         topic: Topic,

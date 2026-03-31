@@ -33,9 +33,6 @@ pub mod api {
 
 #[cfg(test)]
 pub mod test {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
     xmtp_common::if_native! {
         #[cfg(test)]
         #[ctor::ctor]
@@ -54,7 +51,7 @@ pub mod prelude {
         ApiBuilder, ArcedXmtpApi, BoxedXmtpApi, NetConnectConfig, XmtpIdentityClient,
         XmtpMlsClient, XmtpMlsStreams,
     };
-    pub use super::traits::{ApiClientError, Client, Endpoint, Query, QueryStream};
+    pub use super::traits::{ApiClientError, BytesStream, Client, Endpoint, Query, QueryStream};
 }
 
 pub mod identity_v1 {

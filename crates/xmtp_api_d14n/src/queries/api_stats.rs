@@ -16,7 +16,7 @@ use xmtp_proto::types::{GroupId, GroupMessage};
 use crate::protocol::XmtpQuery;
 
 /// Wraps an ApiClient that tracks stats of each api call
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TrackedStatsClient<C> {
     inner: C,
     stats: ApiStats,

@@ -16,9 +16,6 @@ impl<Context: XmtpSharedContext> Client<Context> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
     use crate::{utils::tester::*, worker::device_sync::handle::SyncMetric};
     use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
 

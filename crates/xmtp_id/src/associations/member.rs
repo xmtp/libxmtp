@@ -7,7 +7,6 @@ use std::{
     hash::Hash,
 };
 use xmtp_cryptography::{XmtpInstallationCredential, signature::IdentifierValidationError};
-use xmtp_db::identity_cache::StoredIdentityKind;
 use xmtp_proto::types::ApiIdentifier;
 use xmtp_proto::{
     ConversionError,
@@ -35,15 +34,17 @@ pub enum Identifier {
     Passkey(ident::Passkey),
 }
 
-impl From<&Identifier> for StoredIdentityKind {
-    fn from(ident: &Identifier) -> Self {
-        match ident {
-            Identifier::Ethereum(_) => Self::Ethereum,
-            Identifier::Passkey(_) => Self::Passkey,
-        }
+impl From<Identifier> for i32 {
+    fn from(value: Identifier) -> Self {
+        IdentifierKind::from(value).into()
     }
 }
 
+impl From<&Identifier> for i32 {
+    fn from(value: &Identifier) -> Self {
+        IdentifierKind::from(value).into()
+    }
+}
 impl MemberIdentifier {
     pub fn sanitize(self) -> Result<Self, IdentifierValidationError> {
         let ident = match self {
@@ -412,9 +413,6 @@ fn sha256_string(input: String) -> String {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
     use super::*;
 
     #[allow(clippy::derivable_impls)]
