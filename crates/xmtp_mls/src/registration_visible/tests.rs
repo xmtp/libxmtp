@@ -64,12 +64,15 @@ async fn test_wait_for_registration_visible_fails_when_network_severed() {
     toxiproxy_test(async || {
         tester!(alice, proxy);
 
-        // Sever the connection after registration
+        // Sever the connection after registration.
+        // Sleep briefly to let the proxy close existing HTTP/2 connections —
+        // disable() prevents new connections but cached ones may linger.
         alice
             .for_each_proxy(async |p| {
                 p.disable().await.unwrap();
             })
             .await;
+        xmtp_common::time::sleep(xmtp_common::time::Duration::from_millis(500)).await;
 
         let result = alice
             .wait_for_registration_visible(VisibilityConfirmationOptions {
