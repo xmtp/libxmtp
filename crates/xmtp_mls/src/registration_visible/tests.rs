@@ -55,3 +55,32 @@ async fn test_wait_for_registration_visible_after_registration() {
         .wait_for_registration_visible(VisibilityConfirmationOptions::default())
         .await?;
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_wait_for_registration_visible_fails_when_network_severed() {
+    use crate::tester;
+    use xmtp_common::toxiproxy_test;
+
+    toxiproxy_test(async || {
+        tester!(alice, proxy);
+
+        // Sever the connection after registration
+        alice
+            .for_each_proxy(async |p| {
+                p.disable().await.unwrap();
+            })
+            .await;
+
+        let result = alice
+            .wait_for_registration_visible(VisibilityConfirmationOptions {
+                quorum: Quorum::Absolute(1),
+                timeout_ms: 3_000,
+            })
+            .await;
+
+        assert!(result.is_err());
+
+        Result::<(), crate::client::ClientError>::Ok(())
+    })
+    .await?;
+}
