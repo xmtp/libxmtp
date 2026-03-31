@@ -141,20 +141,21 @@ where
     Context: XmtpSharedContext,
     Context::ApiClient: XmtpApi + XmtpQuery,
 {
-    /// Wait until the registration for this client is visible on the network.
-    ///
-    /// For V3 clients (no cursor stored), falls back to checking `is_ready()`.
-    /// For D14n clients, queries each node directly and waits until a quorum
-    /// confirms the identity-update and key-package envelopes are visible.
-    pub async fn wait_for_registration_visible(
-        &self,
-        options: VisibilityConfirmationOptions,
-    ) -> Result<(), ClientError> {
-        // Load cursor from stored identity
+    fn check_is_ready(&self) -> Result<(), ClientError> {
+        if self.identity().is_ready() {
+            Ok(())
+        } else {
+            Err(ClientError::RegistrationNotVisible {
+                failed_nodes: vec![],
+            })
+        }
+    }
+
+    fn load_registration_cursor(&self) -> Result<Option<Cursor>, ClientError> {
         let stored_identity: Option<StoredIdentity> =
             self.context.db().fetch(&()).map_err(ClientError::Storage)?;
 
-        let cursor = stored_identity.and_then(|si| {
+        Ok(stored_identity.and_then(|si| {
             match (
                 si.registration_cursor_originator_id,
                 si.registration_cursor_sequence_id,
@@ -162,40 +163,14 @@ where
                 (Some(orig_id), Some(seq_id)) => Some(Cursor::new(seq_id as u64, orig_id as u32)),
                 _ => None,
             }
-        });
+        }))
+    }
 
-        let check_is_ready = || -> Result<(), ClientError> {
-            if self.identity().is_ready() {
-                Ok(())
-            } else {
-                Err(ClientError::RegistrationNotVisible {
-                    failed_nodes: vec![],
-                })
-            }
-        };
-
-        // Check whether we're on a d14n network
-        let is_d14n = self
-            .context
-            .api()
-            .is_d14n()
-            .map_err(|e| ClientError::Api(xmtp_api::dyn_err(e)))?;
-
-        if !is_d14n {
-            return check_is_ready();
-        }
-
-        // D14n path: cursor is needed for the full visibility check.
-        // A d14n client without a cursor was likely registered before migration.
-        let Some(cursor) = cursor else {
-            tracing::warn!(
-                "d14n client has no registration cursor (likely registered before migration); \
-                 falling back to is_ready check"
-            );
-            return check_is_ready();
-        };
-
-        // D14n path: get per-node clients via the API
+    async fn poll_node_quorum(
+        &self,
+        cursor: Cursor,
+        options: &VisibilityConfirmationOptions,
+    ) -> Result<(), ClientError> {
         let node_clients = self
             .context
             .api()
@@ -205,7 +180,7 @@ where
 
         if node_clients.is_empty() {
             tracing::warn!("get_node_clients returned empty map; falling back to is_ready check");
-            return check_is_ready();
+            return self.check_is_ready();
         }
 
         let total_nodes = node_clients.len();
@@ -226,7 +201,6 @@ where
         let installation_id: Vec<u8> = self.installation_public_key().to_vec();
         let timeout_ms = options.timeout_ms;
 
-        // Spawn concurrent futures per node
         let futures: FuturesUnordered<_> = node_clients
             .into_iter()
             .map(|(node_id, client)| {
@@ -275,7 +249,6 @@ where
                 }
                 Err(_) => {
                     failed_nodes.push(node_id);
-                    // Early exit if too many nodes have failed for quorum to be reachable
                     if total_nodes - failed_nodes.len() < required {
                         return Err(ClientError::RegistrationNotVisible { failed_nodes });
                     }
@@ -284,6 +257,38 @@ where
         }
 
         Err(ClientError::RegistrationNotVisible { failed_nodes })
+    }
+
+    /// Wait until the registration for this client is visible on the network.
+    ///
+    /// Always checks `is_ready()` first. For D14n clients, additionally queries
+    /// each node directly and waits until a quorum confirms the identity-update
+    /// and key-package envelopes are visible.
+    pub async fn wait_for_registration_visible(
+        &self,
+        options: VisibilityConfirmationOptions,
+    ) -> Result<(), ClientError> {
+        self.check_is_ready()?;
+
+        let is_d14n = self
+            .context
+            .api()
+            .is_d14n()
+            .map_err(|e| ClientError::Api(xmtp_api::dyn_err(e)))?;
+
+        if !is_d14n {
+            return Ok(());
+        }
+
+        let Some(cursor) = self.load_registration_cursor()? else {
+            tracing::warn!(
+                "d14n client has no registration cursor (likely registered before migration); \
+                 skipping node visibility check"
+            );
+            return Ok(());
+        };
+
+        self.poll_node_quorum(cursor, &options).await
     }
 }
 
