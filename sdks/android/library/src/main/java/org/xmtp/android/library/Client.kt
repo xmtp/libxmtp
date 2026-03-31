@@ -22,6 +22,7 @@ import uniffi.xmtpv3.FfiClientMode
 import uniffi.xmtpv3.FfiDeviceSyncMode
 import uniffi.xmtpv3.FfiForkRecoveryOpts
 import uniffi.xmtpv3.FfiForkRecoveryPolicy
+import uniffi.xmtpv3.FfiVisibilityConfirmationOptions
 import uniffi.xmtpv3.FfiKeyPackageStatus
 import uniffi.xmtpv3.FfiLogLevel
 import uniffi.xmtpv3.FfiLogRotation
@@ -57,6 +58,7 @@ data class ClientOptions(
     val forkRecoveryOptions: ForkRecoveryOptions? = null,
     val maxDbPoolSize: UInt? = null,
     val minDbPoolSize: UInt? = null,
+    val waitForRegistrationVisible: VisibilityConfirmationOptions? = null,
 ) {
     data class Api(
         val env: XMTPEnvironment = XMTPEnvironment.DEV,
@@ -93,6 +95,21 @@ data class ForkRecoveryOptions(
             groupsToRequestRecovery = this.groupsToRequestRecovery,
             disableRecoveryResponses = this.disableRecoveryResponses,
             workerIntervalNs = this.workerIntervalNs,
+        )
+}
+
+data class VisibilityConfirmationOptions(
+    val quorumPercentage: Float? = null,
+    val quorumAbsolute: ULong? = null,
+    val timeoutMs: ULong? = null,
+    val sleepIntervalMs: ULong? = null,
+) {
+    fun toFfi(): FfiVisibilityConfirmationOptions =
+        FfiVisibilityConfirmationOptions(
+            quorumPercentage = this.quorumPercentage,
+            quorumAbsolute = this.quorumAbsolute,
+            timeoutMs = this.timeoutMs,
+            sleepIntervalMs = this.sleepIntervalMs,
         )
 }
 
@@ -436,7 +453,10 @@ class Client(
                         throw XMTPException("No signer passed but signer was required.")
                     }
 
-                    ffiClient.registerIdentity(signatureRequest)
+                    ffiClient.registerIdentity(
+                        signatureRequest,
+                        clientOptions.waitForRegistrationVisible?.toFfi()
+                    )
                 }
 
                 Client(
@@ -830,7 +850,13 @@ class Client(
     @DelicateApi(
         "This function is delicate and should be used with caution. Should only be used if trying to manage the create and register flow independently otherwise use `create()` instead",
     )
-    suspend fun ffiRegisterIdentity(signatureRequest: SignatureRequest) {
-        ffiClient.registerIdentity(signatureRequest.ffiSignatureRequest)
+    suspend fun ffiRegisterIdentity(
+        signatureRequest: SignatureRequest,
+        visibilityConfirmationOptions: VisibilityConfirmationOptions? = null,
+    ) {
+        ffiClient.registerIdentity(
+            signatureRequest.ffiSignatureRequest,
+            visibilityConfirmationOptions?.toFfi()
+        )
     }
 }
