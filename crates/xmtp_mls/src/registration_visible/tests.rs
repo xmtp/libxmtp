@@ -65,9 +65,12 @@ async fn test_wait_for_registration_visible_fails_when_network_severed() {
     toxiproxy_test(async || {
         tester!(alice, proxy);
 
-        // Sever the network connection after registration.
-        // Sleep briefly to let the proxy close existing HTTP/2 connections —
-        // disable() prevents new connections but cached ones may linger.
+        // Disable all proxies (both xmtpd and gateway) after registration.
+        // We can't selectively disable only the xmtpd proxy here because
+        // poll_node_quorum calls get_node_clients(), which queries GetNodes via
+        // the gateway and builds fresh GrpcClients that connect directly to the
+        // real node addresses — bypassing toxiproxy entirely.
+        // Sleep briefly after disable to let cached HTTP/2 connections drop.
         alice
             .for_each_proxy(async |p| {
                 p.disable().await.unwrap();
