@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -euxo pipefail
+echo ">>> setup.sh started: PWD=$(pwd) USER=$(whoami) HOME=$HOME"
+echo ">>> PATH=$PATH"
+echo ">>> /bin/bash exists: $(ls -la /bin/bash 2>&1)"
+echo ">>> /nix exists: $(ls -d /nix 2>&1)"
+echo ">>> nix-profile: $(ls -la $HOME/.nix-profile 2>&1 || echo 'MISSING')"
 
 # Source the full nix environment (PATH, NIX_PROFILES, NIX_SSL_CERT_FILE, etc.)
 # The nix devcontainer feature may install as root; we need to find the profile
