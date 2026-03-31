@@ -181,6 +181,29 @@ pub struct WasmVisibilityConfirmationOptions {
   pub sleep_interval_ms: Option<u32>,
 }
 
+impl From<WasmVisibilityConfirmationOptions>
+  for xmtp_mls::registration_visible::VisibilityConfirmationOptions
+{
+  fn from(opts: WasmVisibilityConfirmationOptions) -> Self {
+    use xmtp_mls::registration_visible::Quorum;
+
+    let defaults = Self::default();
+    let quorum = match (opts.quorum_absolute, opts.quorum_percentage) {
+      (Some(n), _) => Quorum::Absolute(n as usize),
+      (_, Some(p)) => Quorum::Percentage(p),
+      _ => defaults.quorum,
+    };
+    Self {
+      quorum,
+      timeout_ms: opts.timeout_ms.map(|t| t as u64).unwrap_or(defaults.timeout_ms),
+      sleep_interval_ms: opts
+        .sleep_interval_ms
+        .map(|s| s as u64)
+        .unwrap_or(defaults.sleep_interval_ms),
+    }
+  }
+}
+
 fn init_logging(options: LogOptions) -> Result<(), JsError> {
   LOGGER_INIT
     .get_or_init(|| {
@@ -497,19 +520,9 @@ impl Client {
     &self,
     options: Option<WasmVisibilityConfirmationOptions>,
   ) -> Result<(), JsError> {
-    use xmtp_mls::registration_visible::VisibilityConfirmationOptions;
-
-    let opts = options.unwrap_or_default();
-    let mls_opts = VisibilityConfirmationOptions::from_parts(
-      opts.quorum_percentage,
-      opts.quorum_absolute.map(|n| n as usize),
-      opts.timeout_ms.map(|t| t as u64),
-      opts.sleep_interval_ms.map(|s| s as u64),
-    );
-
     self
       .inner_client
-      .wait_for_registration_visible(mls_opts)
+      .wait_for_registration_visible(options.unwrap_or_default().into())
       .await
       .map_err(|e| JsError::new(&e.to_string()))
   }

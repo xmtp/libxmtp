@@ -1027,18 +1027,8 @@ impl FfiXmtpClient {
         &self,
         options: Option<FfiVisibilityConfirmationOptions>,
     ) -> Result<(), FfiError> {
-        use xmtp_mls::registration_visible::VisibilityConfirmationOptions;
-
-        let opts = options.unwrap_or_default();
-        let mls_opts = VisibilityConfirmationOptions::from_parts(
-            opts.quorum_percentage,
-            opts.quorum_absolute.map(|n| n as usize),
-            opts.timeout_ms,
-            opts.sleep_interval_ms,
-        );
-
         self.inner_client
-            .wait_for_registration_visible(mls_opts)
+            .wait_for_registration_visible(options.unwrap_or_default().into())
             .await?;
 
         Ok(())
@@ -1085,6 +1075,26 @@ pub struct FfiVisibilityConfirmationOptions {
     pub timeout_ms: Option<u64>,
     /// How long to sleep between polling attempts (milliseconds).
     pub sleep_interval_ms: Option<u64>,
+}
+
+impl From<FfiVisibilityConfirmationOptions>
+    for xmtp_mls::registration_visible::VisibilityConfirmationOptions
+{
+    fn from(opts: FfiVisibilityConfirmationOptions) -> Self {
+        use xmtp_mls::registration_visible::Quorum;
+
+        let defaults = Self::default();
+        let quorum = match (opts.quorum_absolute, opts.quorum_percentage) {
+            (Some(n), _) => Quorum::Absolute(n as usize),
+            (_, Some(p)) => Quorum::Percentage(p),
+            _ => defaults.quorum,
+        };
+        Self {
+            quorum,
+            timeout_ms: opts.timeout_ms.unwrap_or(defaults.timeout_ms),
+            sleep_interval_ms: opts.sleep_interval_ms.unwrap_or(defaults.sleep_interval_ms),
+        }
+    }
 }
 
 /// Signature kind used in identity operations
