@@ -29,7 +29,10 @@ impl From<VisibilityConfirmationOptions>
     };
     Self {
       quorum,
-      timeout_ms: opts.timeout_ms.map(|t| t as u64).unwrap_or(defaults.timeout_ms),
+      timeout_ms: opts
+        .timeout_ms
+        .map(|t| t as u64)
+        .unwrap_or(defaults.timeout_ms),
       sleep_interval_ms: opts
         .sleep_interval_ms
         .map(|s| s as u64)
