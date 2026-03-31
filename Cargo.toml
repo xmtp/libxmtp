@@ -85,9 +85,13 @@ openmls = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da981
   "extensions-draft-08",
 ] }
 openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14" }
-openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14" }
+openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14", features = [
+  "extensions-draft-08",
+] }
 openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14" }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14" }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14", features = [
+  "extensions-draft-08",
+] }
 owo-colors = { version = "4.1" }
 p256 = { version = "0.13.2", features = ["ecdsa"] }
 parking_lot = "0.12.3"

@@ -30,7 +30,7 @@ jobs:
       - name: merge coverage files
         run: nix run nixpkgs#lcov -- --add-tracefile result/coverage --add-tracefile result-1/coverage --output-file lcov.info
       - name: Upload coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
