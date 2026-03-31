@@ -10,12 +10,12 @@
       ...
     }:
     let
-      targets = [
-        "x86_64-unknown-linux-musl"
-        "aarch64-unknown-linux-musl"
-      ];
+      # x86_64-musl is available on all systems (same-arch cross for x86_64-linux)
+      x86Targets = [ "x86_64-unknown-linux-musl" ];
+      # aarch64-musl is only available on aarch64-linux (same-arch cross)
+      aarch64Targets = [ "aarch64-unknown-linux-musl" ];
 
-      crossPkgs = self.lib.mkCrossPkgs system targets;
+      x86CrossPkgs = self.lib.mkCrossPkgs system x86Targets;
       mkMlsValidationService = p: p.callPackage ./package/mls_validation_service.nix;
 
       imageCommon = {
@@ -37,10 +37,29 @@
           }
         );
       }
-      # create mls validation service for all the cross compilation targets
+      # x86_64 musl cross-compilation (available on all systems)
       // lib.mapAttrs' (target: crossPkgs: {
         name = "mls-validation-service-${target}";
         value = mkMlsValidationService crossPkgs { };
-      }) crossPkgs;
+      }) x86CrossPkgs
+      # aarch64 musl cross-compilation + docker image (only on aarch64-linux)
+      // lib.optionalAttrs (system == "aarch64-linux") (
+        let
+          aarch64CrossPkgs = self.lib.mkCrossPkgs system aarch64Targets;
+        in
+        (lib.mapAttrs' (target: crossPkgs: {
+          name = "mls-validation-service-${target}";
+          value = mkMlsValidationService crossPkgs { };
+        }) aarch64CrossPkgs)
+        // {
+          validation-service-image-aarch64-multiplatform = pkgs.dockerTools.buildLayeredImage (
+            lib.recursiveUpdate imageCommon {
+              config.entrypoint = [
+                "${self'.packages.mls-validation-service-aarch64-unknown-linux-musl}/bin/mls-validation-service"
+              ];
+            }
+          );
+        }
+      );
     };
 }
