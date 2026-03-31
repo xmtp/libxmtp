@@ -40,7 +40,6 @@ struct CipherProviderVersion {
     cipher_provider_version: String,
 }
 
-
 /// Specialized Connection for r2d2 connection pool.
 #[derive(Clone, Debug, Builder, zeroize::ZeroizeOnDrop)]
 pub struct EncryptedConnection {
