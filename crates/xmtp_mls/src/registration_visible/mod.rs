@@ -58,7 +58,7 @@ impl VisibilityConfirmationOptions {
 impl Default for VisibilityConfirmationOptions {
     fn default() -> Self {
         Self {
-            quorum: Quorum::Percentage(0.5),
+            quorum: Quorum::Absolute(1),
             timeout_ms: 30_000,
         }
     }
@@ -217,16 +217,19 @@ where
                                 .build(),
                         )
                         .build();
-                    let result = xmtp_common::retry_async!(retry, (async {
-                        check_node_visibility(
-                            &client,
-                            node_id,
-                            &inbox_id,
-                            &installation_id,
-                            cursor,
-                        )
-                        .await
-                    }));
+                    let result = xmtp_common::retry_async!(
+                        retry,
+                        (async {
+                            check_node_visibility(
+                                &client,
+                                node_id,
+                                &inbox_id,
+                                &installation_id,
+                                cursor,
+                            )
+                            .await
+                        })
+                    );
                     let result = result.map_err(|_| ClientError::RegistrationNotVisible {
                         failed_nodes: vec![node_id],
                     });

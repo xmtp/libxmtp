@@ -32,9 +32,7 @@ async fn check_node_visibility_returns_not_yet_visible_when_no_envelopes() {
 
     let cursor = xmtp_proto::types::Cursor::new(1, 1u32);
 
-    let result =
-        check_node_visibility(&client, 1u32, "ab01ab01ab01ab01", &[0u8; 32], cursor)
-            .await;
+    let result = check_node_visibility(&client, 1u32, "ab01ab01ab01ab01", &[0u8; 32], cursor).await;
 
     assert!(result.is_err());
     match result.unwrap_err() {
