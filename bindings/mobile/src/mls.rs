@@ -1071,9 +1071,8 @@ impl From<HmacKey> for FfiHmacKey {
 /// Options for `wait_for_registration_visible`.
 ///
 /// All fields are optional. Omitted fields use their default values:
-/// - `quorum_percentage` / `quorum_absolute`: 50% of nodes (`quorum_absolute` takes precedence if both are provided)
+/// - `quorum_percentage` / `quorum_absolute`: 1 node (`quorum_absolute` takes precedence if both are provided)
 /// - `timeout_ms`: 30 000 ms
-/// - `sleep_interval_ms`: 500 ms
 #[derive(uniffi::Record, Default)]
 pub struct FfiVisibilityConfirmationOptions {
     /// Fraction of nodes that must confirm (e.g. 0.5 = 50 %).
@@ -1082,8 +1081,6 @@ pub struct FfiVisibilityConfirmationOptions {
     pub quorum_absolute: Option<u64>,
     /// How long to wait in total before returning an error (milliseconds).
     pub timeout_ms: Option<u64>,
-    /// How long to sleep between polling attempts (milliseconds).
-    pub sleep_interval_ms: Option<u64>,
 }
 
 impl From<FfiVisibilityConfirmationOptions>
@@ -1101,7 +1098,6 @@ impl From<FfiVisibilityConfirmationOptions>
         Self {
             quorum,
             timeout_ms: opts.timeout_ms.unwrap_or(defaults.timeout_ms),
-            sleep_interval_ms: opts.sleep_interval_ms.unwrap_or(defaults.sleep_interval_ms),
         }
     }
 }

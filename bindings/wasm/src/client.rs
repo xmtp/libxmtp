@@ -175,10 +175,6 @@ pub struct WasmVisibilityConfirmationOptions {
   #[tsify(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
   pub timeout_ms: Option<u32>,
-  /// Polling interval in milliseconds (default: 500).
-  #[tsify(optional)]
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub sleep_interval_ms: Option<u32>,
 }
 
 impl From<WasmVisibilityConfirmationOptions>
@@ -199,10 +195,6 @@ impl From<WasmVisibilityConfirmationOptions>
         .timeout_ms
         .map(|t| t as u64)
         .unwrap_or(defaults.timeout_ms),
-      sleep_interval_ms: opts
-        .sleep_interval_ms
-        .map(|s| s as u64)
-        .unwrap_or(defaults.sleep_interval_ms),
     }
   }
 }

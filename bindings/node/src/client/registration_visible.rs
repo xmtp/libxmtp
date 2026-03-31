@@ -11,8 +11,6 @@ pub struct VisibilityConfirmationOptions {
   pub quorum_absolute: Option<u32>,
   /// Overall timeout in milliseconds (default: 30000).
   pub timeout_ms: Option<u32>,
-  /// Sleep interval between retries in milliseconds (default: 500).
-  pub sleep_interval_ms: Option<u32>,
 }
 
 impl From<VisibilityConfirmationOptions>
@@ -33,10 +31,6 @@ impl From<VisibilityConfirmationOptions>
         .timeout_ms
         .map(|t| t as u64)
         .unwrap_or(defaults.timeout_ms),
-      sleep_interval_ms: opts
-        .sleep_interval_ms
-        .map(|s| s as u64)
-        .unwrap_or(defaults.sleep_interval_ms),
     }
   }
 }
