@@ -36,7 +36,7 @@ async fn check_node_visibility_returns_not_yet_visible_when_no_envelopes() {
     let inbox_id_bytes = hex::decode("ab01ab01ab01ab01").unwrap();
     let topics = vec![
         Topic::new_identity_update(&inbox_id_bytes).cloned_vec(),
-        Topic::new_key_package(&[0u8; 32]).cloned_vec(),
+        Topic::new_key_package([0u8; 32]).cloned_vec(),
     ];
 
     let result = check_node_visibility(&client, 1u32, &topics, cursor).await;
