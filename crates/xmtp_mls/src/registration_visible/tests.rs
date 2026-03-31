@@ -70,6 +70,9 @@ async fn test_wait_for_registration_visible_fails_when_network_severed() {
         // poll_node_quorum calls get_node_clients(), which queries GetNodes via
         // the gateway and builds fresh GrpcClients that connect directly to the
         // real node addresses — bypassing toxiproxy entirely.
+        // TODO: figure out how to proxy the direct node connections created by
+        // get_node_clients() so we can test xmtpd failures independently of
+        // the gateway.
         // Sleep briefly after disable to let cached HTTP/2 connections drop.
         alice
             .for_each_proxy(async |p| {
