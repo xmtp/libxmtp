@@ -20,12 +20,13 @@
   "mounts": [
     "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
   ],
+  "workspaceFolder": "/workspaces/libxmtp",
   "remoteUser": "vscode",
   "containerUser": "vscode",
   "remoteEnv": {
     "PATH": "/home/vscode/.nix-profile/bin:/nix/var/nix/profiles/default/bin:${containerEnv:PATH}",
   },
-  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "postCreateCommand": "/bin/bash /workspaces/libxmtp/.devcontainer/setup.sh",
   "postStartCommand": "true",
   "customizations": {
     "vscode": {
