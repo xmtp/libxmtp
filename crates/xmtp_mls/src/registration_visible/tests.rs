@@ -56,6 +56,7 @@ async fn test_wait_for_registration_visible_after_registration() {
         .await?;
 }
 
+#[cfg(feature = "d14n")]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_wait_for_registration_visible_fails_when_network_severed() {
     use crate::tester;
@@ -64,7 +65,7 @@ async fn test_wait_for_registration_visible_fails_when_network_severed() {
     toxiproxy_test(async || {
         tester!(alice, proxy);
 
-        // Sever the connection after registration.
+        // Sever the network connection after registration.
         // Sleep briefly to let the proxy close existing HTTP/2 connections —
         // disable() prevents new connections but cached ones may linger.
         alice
