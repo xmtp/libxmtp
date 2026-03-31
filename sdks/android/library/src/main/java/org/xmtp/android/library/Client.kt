@@ -102,14 +102,12 @@ data class VisibilityConfirmationOptions(
     val quorumPercentage: Float? = null,
     val quorumAbsolute: ULong? = null,
     val timeoutMs: ULong? = null,
-    val sleepIntervalMs: ULong? = null,
 ) {
     fun toFfi(): FfiVisibilityConfirmationOptions =
         FfiVisibilityConfirmationOptions(
             quorumPercentage = this.quorumPercentage,
             quorumAbsolute = this.quorumAbsolute,
             timeoutMs = this.timeoutMs,
-            sleepIntervalMs = this.sleepIntervalMs,
         )
 }
 

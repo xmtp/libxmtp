@@ -12,13 +12,11 @@ class VisibilityConfirmationOptionsTest {
                 quorumPercentage = 0.75f,
                 quorumAbsolute = 3u,
                 timeoutMs = 10_000u,
-                sleepIntervalMs = 250u,
             )
         val ffi = options.toFfi()
         assertEquals(0.75f, ffi.quorumPercentage)
         assertEquals(3.toULong(), ffi.quorumAbsolute)
         assertEquals(10_000.toULong(), ffi.timeoutMs)
-        assertEquals(250.toULong(), ffi.sleepIntervalMs)
     }
 
     @Test
@@ -28,6 +26,5 @@ class VisibilityConfirmationOptionsTest {
         assertNull(ffi.quorumPercentage)
         assertNull(ffi.quorumAbsolute)
         assertNull(ffi.timeoutMs)
-        assertNull(ffi.sleepIntervalMs)
     }
 }

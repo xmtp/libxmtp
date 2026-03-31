@@ -338,13 +338,14 @@ impl Client {
       ));
     }
 
-    let inner = signature_request.inner.lock().await;
-
-    self
-      .inner_client()
-      .register_identity(inner.clone())
-      .await
-      .map_err(ErrorWrapper::js)?;
+    {
+      let inner = signature_request.inner.lock().await;
+      self
+        .inner_client()
+        .register_identity(inner.clone())
+        .await
+        .map_err(ErrorWrapper::js)?;
+    }
 
     if let Some(opts) = visibility_confirmation_options {
       self
