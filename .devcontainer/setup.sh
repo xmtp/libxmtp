@@ -1,7 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Ensure nix profile bins are on PATH for this script
+# Source the full nix environment (PATH, NIX_PROFILES, NIX_SSL_CERT_FILE, etc.)
+# The nix devcontainer feature may install as root; we need to find the profile
+# script from whichever user context it was installed for.
+for nix_sh in \
+  "$HOME/.nix-profile/etc/profile.d/nix.sh" \
+  "/nix/var/nix/profiles/default/etc/profile.d/nix.sh" \
+  "/etc/profile.d/nix.sh"; do
+  if [ -e "$nix_sh" ]; then
+    # shellcheck disable=SC1090
+    . "$nix_sh"
+    break
+  fi
+done
+
+# Fallback: ensure nix profile bins are on PATH even if no profile script found
 export PATH="$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
 
 # Fix nix store ownership (feature installs as root, vscode needs write access)

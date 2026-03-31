@@ -26,7 +26,7 @@
     "PATH": "/home/vscode/.nix-profile/bin:/nix/var/nix/profiles/default/bin:${containerEnv:PATH}",
   },
   "postCreateCommand": "bash .devcontainer/setup.sh",
-  "postStartCommand": "",
+  "postStartCommand": "true",
   "customizations": {
     "vscode": {
       "extensions": [
