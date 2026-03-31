@@ -20,7 +20,7 @@ publish = ["crates-io"]
 [dependencies]
 aead = { version = "0.5", default-features = false, features = ["getrandom", "std"] }
 aes-gcm = { version = "0.10", features = ["std"] }
-alloy = { version = "2", default-features = false, features = ["contract", "provider-anvil-node", "rand", "reqwest-rustls-tls", "signer-local"] }
+alloy = { version = "2", default-features = false, features = ["contract", "provider-anvil-node", "rand", "signer-local"] }
 alloy-core = { version = "1", default-features = false, features = ["dyn-abi", "json-abi", "rand", "rlp"] }
 alloy-json-abi = { version = "1", default-features = false, features = ["serde_json", "std"] }
 alloy-primitives = { version = "1", default-features = false, features = ["k256", "map", "rand", "rlp", "serde", "std"] }
@@ -28,7 +28,7 @@ alloy-provider = { version = "2", default-features = false, features = ["anvil-n
 alloy-rpc-client = { version = "2", default-features = false, features = ["reqwest"] }
 alloy-sol-type-parser = { version = "1", default-features = false, features = ["serde", "std"] }
 alloy-sol-types = { version = "1", default-features = false, features = ["json", "std"] }
-alloy-transport-http = { version = "2", default-features = false, features = ["reqwest", "reqwest-rustls-tls"] }
+alloy-transport-http = { version = "2", default-features = false, features = ["reqwest"] }
 bytes = { version = "1", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 cipher = { version = "0.4", default-features = false, features = ["zeroize"] }
@@ -36,7 +36,6 @@ clap = { version = "4", features = ["derive", "env"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "env", "help", "std", "suggestions", "usage"] }
 const-hex = { version = "1", features = ["core-error", "serde"] }
 crypto-common = { version = "0.1", default-features = false, features = ["getrandom", "std"] }
-ctor = { version = "0.10" }
 derive_more = { version = "2", default-features = false, features = ["add", "add_assign", "as_ref", "deref", "deref_mut", "display", "from", "from_str", "index", "index_mut", "into", "into_iterator", "not", "std"] }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["32-column-tables", "returning_clauses_for_sqlite_3_35", "serde_json"] }
 digest = { version = "0.10", features = ["mac", "oid", "std"] }
@@ -50,22 +49,24 @@ futures-executor = { version = "0.3" }
 futures-io = { version = "0.3" }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 generic-array = { version = "0.14", default-features = false, features = ["more_lengths", "zeroize"] }
-hashbrown = { version = "0.16", features = ["serde"] }
+hashbrown-9067fe90e8c1f593 = { package = "hashbrown", version = "0.17" }
+hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16", features = ["serde"] }
 hpke-rs = { version = "0.6", features = ["hazmat", "libcrux", "serialization"] }
 hyper = { version = "1", features = ["http1", "http2", "server"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
 itertools = { version = "0.14" }
 k256 = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "std"] }
+libcrux-ed25519 = { version = "0.0.7", default-features = false, features = ["rand"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 nu-ansi-term = { version = "0.50" }
 num-traits = { version = "0.2", features = ["libm"] }
-openmls = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14", default-features = false, features = ["extensions-draft-08", "test-utils"] }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14", default-features = false, features = ["clonable", "test-utils"] }
-openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14", default-features = false, features = ["extensions-draft-08", "test-utils"] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14", default-features = false, features = ["test-utils"] }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14", features = ["extensions-draft-08", "test-utils"] }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "0157de2665af051d37148c737427d3c6a8205781", default-features = false, features = ["extensions-draft-08", "test-utils"] }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "0157de2665af051d37148c737427d3c6a8205781", default-features = false, features = ["clonable", "test-utils"] }
+openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "0157de2665af051d37148c737427d3c6a8205781", default-features = false, features = ["extensions-draft-08", "test-utils"] }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "0157de2665af051d37148c737427d3c6a8205781", default-features = false, features = ["test-utils"] }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "0157de2665af051d37148c737427d3c6a8205781", features = ["extensions-draft-08", "test-utils"] }
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9", features = ["serde"] }
@@ -77,7 +78,7 @@ rand_core = { version = "0.9", default-features = false, features = ["os_rng", "
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8" }
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "rustls-no-provider", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "stream"] }
 ruint = { version = "1", default-features = false, features = ["alloy-rlp", "rand-09", "serde", "std"] }
 rustc-hash = { version = "2", features = ["rand"] }
 sec1 = { version = "0.7", features = ["pem", "serde", "std", "subtle"] }
@@ -86,6 +87,7 @@ serde_core = { version = "1", default-features = false, features = ["alloc", "rc
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
 serde_spanned = { version = "1", default-features = false, features = ["serde", "std"] }
 sha1 = { version = "0.10", features = ["compress"] }
+sha2 = { version = "0.10" }
 sha3 = { version = "0.10", default-features = false, features = ["asm", "std"] }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union", "write"] }
@@ -97,6 +99,7 @@ toml_parser = { version = "1" }
 tracing = { version = "0.1", features = ["log", "release_max_level_debug"] }
 tracing-core = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter", "json"] }
+typenum = { version = "1", default-features = false, features = ["const-generics"] }
 url = { version = "2", features = ["serde"] }
 winnow-ca01ad9e24f5d932 = { package = "winnow", version = "0.7", features = ["simd"] }
 winnow-dff4ba8e3ae991db = { package = "winnow", version = "1" }
@@ -105,7 +108,7 @@ zerocopy = { version = "0.8", default-features = false, features = ["derive", "s
 [build-dependencies]
 aead = { version = "0.5", default-features = false, features = ["getrandom", "std"] }
 aes-gcm = { version = "0.10", features = ["std"] }
-alloy = { version = "2", default-features = false, features = ["contract", "provider-anvil-node", "rand", "reqwest-rustls-tls", "signer-local"] }
+alloy = { version = "2", default-features = false, features = ["contract", "provider-anvil-node", "rand", "signer-local"] }
 alloy-core = { version = "1", default-features = false, features = ["dyn-abi", "json-abi", "rand", "rlp"] }
 alloy-json-abi = { version = "1", default-features = false, features = ["serde_json", "std"] }
 alloy-primitives = { version = "1", default-features = false, features = ["k256", "map", "rand", "rlp", "serde", "std"] }
@@ -116,7 +119,7 @@ alloy-sol-macro-expander = { version = "1", default-features = false, features =
 alloy-sol-macro-input = { version = "1", default-features = false, features = ["json"] }
 alloy-sol-type-parser = { version = "1", default-features = false, features = ["serde", "std"] }
 alloy-sol-types = { version = "1", default-features = false, features = ["json", "std"] }
-alloy-transport-http = { version = "2", default-features = false, features = ["reqwest", "reqwest-rustls-tls"] }
+alloy-transport-http = { version = "2", default-features = false, features = ["reqwest"] }
 bytes = { version = "1", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 cipher = { version = "0.4", default-features = false, features = ["zeroize"] }
@@ -124,7 +127,6 @@ clap = { version = "4", features = ["derive", "env"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "env", "help", "std", "suggestions", "usage"] }
 const-hex = { version = "1", features = ["core-error", "serde"] }
 crypto-common = { version = "0.1", default-features = false, features = ["getrandom", "std"] }
-ctor = { version = "0.10" }
 derive_more = { version = "2", default-features = false, features = ["add", "add_assign", "as_ref", "deref", "deref_mut", "display", "from", "from_str", "index", "index_mut", "into", "into_iterator", "not", "std"] }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["32-column-tables", "returning_clauses_for_sqlite_3_35", "serde_json"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", features = ["32-column-tables", "sqlite"] }
@@ -139,22 +141,24 @@ futures-executor = { version = "0.3" }
 futures-io = { version = "0.3" }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 generic-array = { version = "0.14", default-features = false, features = ["more_lengths", "zeroize"] }
-hashbrown = { version = "0.16", features = ["serde"] }
+hashbrown-9067fe90e8c1f593 = { package = "hashbrown", version = "0.17" }
+hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16", features = ["serde"] }
 hpke-rs = { version = "0.6", features = ["hazmat", "libcrux", "serialization"] }
 hyper = { version = "1", features = ["http1", "http2", "server"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
 itertools = { version = "0.14" }
 k256 = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "std"] }
+libcrux-ed25519 = { version = "0.0.7", default-features = false, features = ["rand"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 nu-ansi-term = { version = "0.50" }
 num-traits = { version = "0.2", features = ["libm"] }
-openmls = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14", default-features = false, features = ["extensions-draft-08", "test-utils"] }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14", default-features = false, features = ["clonable", "test-utils"] }
-openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14", default-features = false, features = ["extensions-draft-08", "test-utils"] }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14", default-features = false, features = ["test-utils"] }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "42f1479cdb06727da98132dfc2cc3959f2c66a14", features = ["extensions-draft-08", "test-utils"] }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "0157de2665af051d37148c737427d3c6a8205781", default-features = false, features = ["extensions-draft-08", "test-utils"] }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "0157de2665af051d37148c737427d3c6a8205781", default-features = false, features = ["clonable", "test-utils"] }
+openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "0157de2665af051d37148c737427d3c6a8205781", default-features = false, features = ["extensions-draft-08", "test-utils"] }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "0157de2665af051d37148c737427d3c6a8205781", default-features = false, features = ["test-utils"] }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "0157de2665af051d37148c737427d3c6a8205781", features = ["extensions-draft-08", "test-utils"] }
 p256 = { version = "0.13", features = ["ecdh", "jwk"] }
 percent-encoding = { version = "2" }
 proc-macro2 = { version = "1", features = ["span-locations"] }
@@ -167,7 +171,7 @@ rand_core = { version = "0.9", default-features = false, features = ["os_rng", "
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8" }
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "rustls-no-provider", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "stream"] }
 ruint = { version = "1", default-features = false, features = ["alloy-rlp", "rand-09", "serde", "std"] }
 rustc-hash = { version = "2", features = ["rand"] }
 sec1 = { version = "0.7", features = ["pem", "serde", "std", "subtle"] }
@@ -176,6 +180,7 @@ serde_core = { version = "1", default-features = false, features = ["alloc", "rc
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
 serde_spanned = { version = "1", default-features = false, features = ["serde", "std"] }
 sha1 = { version = "0.10", features = ["compress"] }
+sha2 = { version = "0.10" }
 sha3 = { version = "0.10", default-features = false, features = ["asm", "std"] }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union", "write"] }
@@ -188,6 +193,7 @@ toml_parser = { version = "1" }
 tracing = { version = "0.1", features = ["log", "release_max_level_debug"] }
 tracing-core = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter", "json"] }
+typenum = { version = "1", default-features = false, features = ["const-generics"] }
 url = { version = "2", features = ["serde"] }
 winnow-ca01ad9e24f5d932 = { package = "winnow", version = "0.7", features = ["simd"] }
 winnow-dff4ba8e3ae991db = { package = "winnow", version = "1" }
@@ -201,9 +207,9 @@ hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
-rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "ring", "std", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
-rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
@@ -216,9 +222,9 @@ hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
-rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "ring", "std", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
-rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 
 [target.aarch64-apple-darwin.dependencies]
@@ -231,9 +237,9 @@ hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "se
 libc = { version = "0.2" }
 libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
-rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "ring", "std", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
-rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
@@ -248,9 +254,9 @@ hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "se
 libc = { version = "0.2" }
 libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
-rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "ring", "std", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
-rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 
 [target.aarch64-linux-android.dependencies]
@@ -263,9 +269,9 @@ hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "se
 libc = { version = "0.2" }
 libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
-rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "ring", "std", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
-rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 
 [target.aarch64-linux-android.build-dependencies]
@@ -280,9 +286,9 @@ hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "se
 libc = { version = "0.2" }
 libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
-rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "ring", "std", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
-rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 
 [target.x86_64-linux-android.dependencies]
@@ -294,9 +300,9 @@ hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
-rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "ring", "std", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
-rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 
 [target.x86_64-linux-android.build-dependencies]
@@ -310,9 +316,9 @@ hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
-rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "ring", "std", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
-rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 
 ### END HAKARI SECTION

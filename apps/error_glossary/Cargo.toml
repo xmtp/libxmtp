@@ -11,5 +11,5 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
-syn = { version = "2.0", features = ["full", "parsing"] }
+syn.workspace = true
 walkdir = "2"

@@ -18,7 +18,7 @@ targets = [
 ]
 
 [dependencies]
-alloy = { workspace = true, features = ["sol-types", "reqwest-rustls-tls"] }
+alloy = { workspace = true, features = ["sol-types"] }
 async-trait.workspace = true
 base64.workspace = true
 chrono.workspace = true
@@ -49,7 +49,6 @@ xmtp_proto.workspace = true
 alloy = { workspace = true, features = [
   "sol-types",
   "providers",
-  "reqwest-rustls-tls",
   "rpc",
   "rpc-types",
   "network",
