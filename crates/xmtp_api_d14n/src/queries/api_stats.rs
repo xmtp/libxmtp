@@ -253,6 +253,10 @@ where
 impl<C: XmtpQuery> XmtpQuery for TrackedStatsClient<C> {
     type Error = <C as XmtpQuery>::Error;
 
+    fn is_d14n(&self) -> Result<bool, Self::Error> {
+        <C as XmtpQuery>::is_d14n(&self.inner)
+    }
+
     async fn query_at(
         &self,
         topic: xmtp_proto::types::Topic,

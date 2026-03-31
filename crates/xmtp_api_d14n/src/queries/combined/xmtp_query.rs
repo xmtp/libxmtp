@@ -20,6 +20,10 @@ where
 {
     type Error = ApiClientError;
 
+    fn is_d14n(&self) -> Result<bool, Self::Error> {
+        Ok(self.store.has_migrated()?)
+    }
+
     // WARN query_at is used only in tests so far, so
     // defaulting to XMTPD is no big deal
     // if query_at is used outside of tests it may not have expected behavior

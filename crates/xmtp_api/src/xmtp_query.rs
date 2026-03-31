@@ -9,6 +9,10 @@ where
 {
     type Error = <C as XmtpQuery>::Error;
 
+    fn is_d14n(&self) -> Result<bool, Self::Error> {
+        <C as XmtpQuery>::is_d14n(&self.api_client)
+    }
+
     async fn query_at(
         &self,
         topic: Topic,

@@ -15,6 +15,13 @@ pub trait XmtpQuery: MaybeSend + MaybeSync {
         topic: Topic,
         at: Option<GlobalCursor>,
     ) -> Result<XmtpEnvelope, Self::Error>;
+
+    /// Whether this client is connected to a d14n network.
+    /// V3 clients return `false` (default). D14n clients return `true`.
+    /// MigrationClients check the migration cutover state.
+    fn is_d14n(&self) -> Result<bool, Self::Error> {
+        Ok(false)
+    }
 }
 
 // hides implementation detail of XmtpEnvelope/traits
