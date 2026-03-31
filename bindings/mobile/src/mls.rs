@@ -888,11 +888,18 @@ impl FfiXmtpClient {
     pub async fn register_identity(
         &self,
         signature_request: Arc<FfiSignatureRequest>,
+        visibility_confirmation_options: Option<FfiVisibilityConfirmationOptions>,
     ) -> Result<(), FfiError> {
         let signature_request = signature_request.inner.lock().await;
         self.inner_client
             .register_identity(signature_request.clone())
             .await?;
+
+        if let Some(opts) = visibility_confirmation_options {
+            self.inner_client
+                .wait_for_registration_visible(opts.into())
+                .await?;
+        }
 
         Ok(())
     }
