@@ -12,7 +12,7 @@
     "remoteUser": "vscode",
     "containerUser": "vscode",
     "postCreateCommand": "/bin/bash /workspaces/libxmtp/.devcontainer/setup.sh",
-    "postStartCommand": "direnv allow && direnv exec . true",
+    "postStartCommand": "direnv exec . true",
     "customizations": {
         "vscode": {
             "extensions": [
