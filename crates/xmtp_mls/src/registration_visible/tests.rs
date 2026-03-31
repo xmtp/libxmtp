@@ -1,6 +1,6 @@
 use super::*;
 
-#[test]
+#[xmtp_common::test]
 fn quorum_percentage_ceiling() {
     let q = Quorum::Percentage(0.5);
     assert_eq!(q.required_count(4), 2);
@@ -9,14 +9,14 @@ fn quorum_percentage_ceiling() {
     assert_eq!(q.required_count(0), 0);
 }
 
-#[test]
+#[xmtp_common::test]
 fn quorum_absolute() {
     let q = Quorum::Absolute(3);
     assert_eq!(q.required_count(10), 3);
     assert_eq!(q.required_count(2), 3);
 }
 
-#[test]
+#[xmtp_common::test]
 fn visibility_confirmation_options_defaults() {
     let opts = VisibilityConfirmationOptions::default();
     assert!(matches!(opts.quorum, Quorum::Absolute(1)));
@@ -26,21 +26,25 @@ fn visibility_confirmation_options_defaults() {
 #[xmtp_common::test]
 async fn check_node_visibility_returns_not_yet_visible_when_no_envelopes() {
     use xmtp_proto::api_client::{ApiBuilder, NetConnectConfig};
+    use xmtp_proto::types::Topic;
+
     let mut builder = xmtp_api_grpc::GrpcClient::builder();
     builder.set_host("http://localhost:1".parse().unwrap());
     let client = builder.build().unwrap();
 
     let cursor = xmtp_proto::types::Cursor::new(1, 1u32);
+    let inbox_id_bytes = hex::decode("ab01ab01ab01ab01").unwrap();
+    let topics = vec![
+        Topic::new_identity_update(&inbox_id_bytes).cloned_vec(),
+        Topic::new_key_package(&[0u8; 32]).cloned_vec(),
+    ];
 
-    let result = check_node_visibility(&client, 1u32, "ab01ab01ab01ab01", &[0u8; 32], cursor).await;
+    let result = check_node_visibility(&client, 1u32, &topics, cursor).await;
 
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        crate::client::ClientError::EnvelopesNotYetVisible { node_id } => {
-            assert_eq!(node_id, 1u32);
-        }
-        other => panic!("Expected EnvelopesNotYetVisible, got: {:?}", other),
-    }
+    assert!(matches!(
+        result,
+        Err(crate::client::ClientError::EnvelopesNotYetVisible { node_id: 1 })
+    ));
 }
 
 #[xmtp_common::test(unwrap_try = true)]

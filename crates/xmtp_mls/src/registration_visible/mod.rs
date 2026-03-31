@@ -35,26 +35,6 @@ pub struct VisibilityConfirmationOptions {
     pub timeout_ms: u64,
 }
 
-impl VisibilityConfirmationOptions {
-    /// Build from optional parts (used by binding layers to avoid duplicating default logic).
-    pub fn from_parts(
-        quorum_percentage: Option<f32>,
-        quorum_absolute: Option<usize>,
-        timeout_ms: Option<u64>,
-    ) -> Self {
-        let defaults = Self::default();
-        let quorum = match (quorum_absolute, quorum_percentage) {
-            (Some(n), _) => Quorum::Absolute(n),
-            (_, Some(p)) => Quorum::Percentage(p),
-            _ => defaults.quorum,
-        };
-        Self {
-            quorum,
-            timeout_ms: timeout_ms.unwrap_or(defaults.timeout_ms),
-        }
-    }
-}
-
 impl Default for VisibilityConfirmationOptions {
     fn default() -> Self {
         Self {
@@ -66,25 +46,18 @@ impl Default for VisibilityConfirmationOptions {
 
 /// Perform a single query against one node to check whether both the
 /// identity-update envelope and the key-package envelope are visible.
+///
+/// `topics` should be pre-built from the inbox_id and installation_id
+/// to avoid re-computing on every retry attempt.
 pub(crate) async fn check_node_visibility<C: Client>(
     node_client: &C,
     node_id: u32,
-    inbox_id: &str,
-    installation_id: &[u8],
+    topics: &[Vec<u8>],
     cursor: Cursor,
 ) -> Result<(), ClientError> {
-    use xmtp_proto::types::Topic;
-
-    let inbox_id_bytes = hex::decode(inbox_id)
-        .map_err(|e| ClientError::Generic(format!("invalid hex inbox_id: {e}")))?;
-    let identity_topic = Topic::new_identity_update(&inbox_id_bytes);
-    let key_package_topic = Topic::new_key_package(installation_id);
-
-    let topics = vec![identity_topic.cloned_vec(), key_package_topic.cloned_vec()];
-
     let mut endpoint = QueryEnvelopes::builder()
         .envelopes(EnvelopesQuery {
-            topics,
+            topics: topics.to_vec(),
             originator_node_ids: vec![],
             last_seen: None,
         })
@@ -197,38 +170,32 @@ where
             required = total_nodes;
         }
 
-        let inbox_id = self.inbox_id().to_string();
-        let installation_id: Vec<u8> = self.installation_public_key().to_vec();
-        let timeout_ms = options.timeout_ms;
+        use xmtp_proto::types::Topic;
+
+        let inbox_id_bytes = hex::decode(self.inbox_id())
+            .map_err(|e| ClientError::Generic(format!("invalid hex inbox_id: {e}")))?;
+        let identity_topic = Topic::new_identity_update(&inbox_id_bytes);
+        let key_package_topic = Topic::new_key_package(self.installation_public_key());
+        let topics = vec![identity_topic.cloned_vec(), key_package_topic.cloned_vec()];
+
+        let retry = xmtp_common::Retry::builder()
+            .retries(10)
+            .with_strategy(
+                xmtp_common::ExponentialBackoff::builder()
+                    .total_wait_max(xmtp_common::time::Duration::from_millis(options.timeout_ms))
+                    .build(),
+            )
+            .build();
 
         let futures: FuturesUnordered<_> = node_clients
             .into_iter()
             .map(|(node_id, client)| {
-                let inbox_id = inbox_id.clone();
-                let installation_id = installation_id.clone();
+                let topics = topics.clone();
+                let retry = retry.clone();
                 async move {
-                    let retry = xmtp_common::Retry::builder()
-                        .retries(100)
-                        .with_strategy(
-                            xmtp_common::ExponentialBackoff::builder()
-                                .total_wait_max(xmtp_common::time::Duration::from_millis(
-                                    timeout_ms,
-                                ))
-                                .build(),
-                        )
-                        .build();
                     let result = xmtp_common::retry_async!(
                         retry,
-                        (async {
-                            check_node_visibility(
-                                &client,
-                                node_id,
-                                &inbox_id,
-                                &installation_id,
-                                cursor,
-                            )
-                            .await
-                        })
+                        (async { check_node_visibility(&client, node_id, &topics, cursor).await })
                     );
                     let result = result.map_err(|_| ClientError::RegistrationNotVisible {
                         failed_nodes: vec![node_id],
