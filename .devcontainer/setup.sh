@@ -1,40 +1,44 @@
 #!/usr/bin/env bash
-# Redirect ALL output (stdout, stderr, and xtrace) to a persistent log file
-# so we can debug failures even when the devcontainer runner swallows output.
-LOG="/tmp/devcontainer-setup.log"
-exec > >(tee -a "$LOG") 2>&1
-set -euxo pipefail
+# Log all output for debugging (Coder's envbuilder swallows stdout/stderr)
+exec > >(tee -a /tmp/devcontainer-setup.log) 2>&1
+set -euo pipefail
 
-echo "=== setup.sh started at $(date -u) ==="
-echo "PWD=$(pwd) USER=$(whoami) HOME=$HOME"
-echo "PATH=$PATH"
-echo "/nix exists: $(ls -d /nix 2>&1 || echo 'NO')"
-echo "nix-profile: $(ls -la "$HOME/.nix-profile" 2>&1 || echo 'MISSING')"
-echo "which sudo: $(command -v sudo 2>&1 || echo 'MISSING')"
-echo "which nix-env: $(command -v nix-env 2>&1 || echo 'MISSING')"
-
-# Source the full nix environment (PATH, NIX_PROFILES, NIX_SSL_CERT_FILE, etc.)
-# The nix devcontainer feature may install as root; we need to find the profile
-# script from whichever user context it was installed for.
+# Source the nix environment if it exists (feature may have installed it)
 for nix_sh in \
   "$HOME/.nix-profile/etc/profile.d/nix.sh" \
   "/nix/var/nix/profiles/default/etc/profile.d/nix.sh" \
   "/etc/profile.d/nix.sh"; do
   if [ -e "$nix_sh" ]; then
-    echo "Sourcing $nix_sh"
     # shellcheck disable=SC1090
     . "$nix_sh"
     break
   fi
 done
-
-# Fallback: ensure nix profile bins are on PATH even if no profile script found
 export PATH="$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
-echo "PATH after nix setup: $PATH"
-echo "which nix-env (after): $(command -v nix-env 2>&1 || echo 'STILL MISSING')"
+
+# If nix still isn't available, the devcontainer feature wasn't applied
+# (e.g. Coder envbuilder skips features). Install nix as a fallback.
+if ! command -v nix-env &>/dev/null; then
+  echo "Nix not found — installing (devcontainer feature was not applied)..."
+  curl -fsSL https://nixos.org/nix/install | bash -s -- --no-daemon --no-modify-profile
+  # shellcheck disable=SC1091
+  . "$HOME/.nix-profile/etc/profile.d/nix.sh"
+
+  # Write the nix config that the feature would have provided
+  mkdir -p ~/.config/nix
+  cat > ~/.config/nix/nix.conf << 'NIXCONF'
+experimental-features = nix-command flakes
+accept-flake-config = true
+build-users-group =
+extra-substituters = https://xmtp.cachix.org https://cache.garnix.io
+extra-trusted-public-keys = xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ca1F+Tmq0= cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=
+NIXCONF
+fi
 
 # Fix nix store ownership (feature installs as root, vscode needs write access)
-sudo chown -R vscode:vscode /nix
+if [ -d /nix ] && [ "$(stat -c '%U' /nix 2>/dev/null)" != "$(whoami)" ]; then
+  sudo chown -R "$(whoami):$(id -gn)" /nix
+fi
 
 # Raise stack size hard limit for Nix (needs 60MB+, default is often 10MB)
 echo '* hard stack unlimited' | sudo tee -a /etc/security/limits.conf > /dev/null
@@ -49,7 +53,7 @@ if ! command -v docker &> /dev/null; then
 fi
 
 # Install direnv via nix-env (nix-direnv is already installed by the feature)
-nix-env -iA nixpkgs.direnv
+nix-env -iA nixpkgs.direnv nixpkgs.nix-direnv
 
 # Configure nix-direnv integration
 mkdir -p ~/.config/direnv
@@ -63,7 +67,9 @@ if ! grep -q 'nix.sh' ~/.zshenv 2>/dev/null; then
 ulimit -s unlimited 2>/dev/null
 
 # Nix
-if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix.sh' ]; then
+if [ -e "$HOME/.nix-profile/etc/profile.d/nix.sh" ]; then
+  . "$HOME/.nix-profile/etc/profile.d/nix.sh"
+elif [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix.sh' ]; then
   . '/nix/var/nix/profiles/default/etc/profile.d/nix.sh'
 fi
 NIXEOF
@@ -76,5 +82,3 @@ fi
 
 # Trust the workspace
 direnv allow /workspaces/libxmtp
-
-echo "=== setup.sh completed successfully ==="

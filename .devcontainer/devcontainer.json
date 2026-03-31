@@ -26,7 +26,7 @@
   "remoteEnv": {
     "PATH": "/home/vscode/.nix-profile/bin:/nix/var/nix/profiles/default/bin:${containerEnv:PATH}",
   },
-  "postCreateCommand": "/bin/bash -x /workspaces/libxmtp/.devcontainer/setup.sh 2>&1 || (echo '>>> setup.sh exited with status '$?' <<<' && echo '>>> PWD='$(pwd) '<<<' && echo '>>> PATH='$PATH '<<<' && echo '>>> whoami='$(whoami) '<<<' && echo '>>> ls devcontainer=' && ls -la /workspaces/libxmtp/.devcontainer/ && false)",
+  "postCreateCommand": "/bin/bash /workspaces/libxmtp/.devcontainer/setup.sh",
   "postStartCommand": "true",
   "customizations": {
     "vscode": {
