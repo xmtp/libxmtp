@@ -40,6 +40,7 @@ struct CipherProviderVersion {
     cipher_provider_version: String,
 }
 
+
 /// Specialized Connection for r2d2 connection pool.
 #[derive(Clone, Debug, Builder, zeroize::ZeroizeOnDrop)]
 pub struct EncryptedConnection {
@@ -343,9 +344,15 @@ mod tests {
     use std::fs::File;
     use xmtp_common::tmp_path;
 
-    use super::*;
+    use super::{super::ValidatedConnection, *};
     const SQLITE3_PLAINTEXT_HEADER: &str = "SQLite format 3\0";
     use StorageOption::*;
+
+    #[derive(QueryableByName, Debug)]
+    struct CipherLogLevel {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        cipher_log_level: String,
+    }
 
     #[tokio::test]
     async fn test_sqlcipher_version() {
@@ -429,5 +436,62 @@ mod tests {
             );
         }
         EncryptedMessageStore::<()>::remove_db_files(db_path)
+    }
+
+    #[tokio::test]
+    async fn test_sqlcipher_log_level_configuration() {
+        // cipher_log_level is process-wide in SQLCipher, so both cases
+        // must be tested sequentially in a single test to avoid races.
+
+        // 1. Test default: without SQLCIPHER_LOG, validate() sets ERROR
+        let db_path = tmp_path();
+        {
+            // Ensure env var is not set
+            unsafe { std::env::remove_var("SQLCIPHER_LOG") };
+
+            let key: EncryptionKey = EncryptedMessageStore::<()>::generate_enc_key().into();
+            let enc_conn = EncryptedConnection::new(key, &Persistent(db_path.clone())).unwrap();
+            let conn = &mut SqliteConnection::establish(&db_path).unwrap();
+            enc_conn.validate(conn).unwrap();
+
+            let log_level = sql_query("PRAGMA cipher_log_level")
+                .load::<CipherLogLevel>(conn)
+                .unwrap();
+            assert!(
+                !log_level.is_empty(),
+                "cipher_log_level should return a value"
+            );
+            assert_eq!(
+                log_level[0].cipher_log_level, "ERROR",
+                "Default cipher_log_level should be ERROR"
+            );
+        }
+        EncryptedMessageStore::<()>::remove_db_files(db_path);
+
+        // 2. Test override: with SQLCIPHER_LOG=true, validate() sets INFO
+        let db_path = tmp_path();
+        {
+            unsafe { std::env::set_var("SQLCIPHER_LOG", "true") };
+
+            let key: EncryptionKey = EncryptedMessageStore::<()>::generate_enc_key().into();
+            let enc_conn = EncryptedConnection::new(key, &Persistent(db_path.clone())).unwrap();
+            let conn = &mut SqliteConnection::establish(&db_path).unwrap();
+            enc_conn.validate(conn).unwrap();
+
+            let log_level = sql_query("PRAGMA cipher_log_level")
+                .load::<CipherLogLevel>(conn)
+                .unwrap();
+            assert!(
+                !log_level.is_empty(),
+                "cipher_log_level should return a value"
+            );
+            assert_eq!(
+                log_level[0].cipher_log_level, "INFO",
+                "cipher_log_level should be INFO when SQLCIPHER_LOG=true"
+            );
+
+            unsafe { std::env::remove_var("SQLCIPHER_LOG") };
+        }
+        EncryptedMessageStore::<()>::remove_db_files(db_path);
     }
 }
