@@ -16,6 +16,12 @@ for nix_sh in \
 done
 export PATH="$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
 
+# Fix nix store ownership early — envbuilder may create /nix as root,
+# and the nix installer refuses to write to a directory it doesn't own.
+if [ -d /nix ] && [ "$(stat -c '%U' /nix 2>/dev/null)" != "$(whoami)" ]; then
+  sudo chown -R "$(whoami):$(id -gn)" /nix
+fi
+
 # If nix still isn't available, the devcontainer feature wasn't applied
 # (e.g. Coder envbuilder skips features). Install nix as a fallback.
 if ! command -v nix-env &>/dev/null; then
@@ -33,11 +39,6 @@ build-users-group =
 extra-substituters = https://xmtp.cachix.org https://cache.garnix.io
 extra-trusted-public-keys = xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ca1F+Tmq0= cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=
 NIXCONF
-fi
-
-# Fix nix store ownership (feature installs as root, vscode needs write access)
-if [ -d /nix ] && [ "$(stat -c '%U' /nix 2>/dev/null)" != "$(whoami)" ]; then
-  sudo chown -R "$(whoami):$(id -gn)" /nix
 fi
 
 # Raise stack size hard limit for Nix (needs 60MB+, default is often 10MB)
