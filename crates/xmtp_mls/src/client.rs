@@ -175,6 +175,11 @@ pub enum ClientError {
     /// Registration was not visible on the required number of nodes within the timeout. Not retryable.
     #[error("Registration not visible on required nodes: {failed_nodes:?}")]
     RegistrationNotVisible { failed_nodes: Vec<u32> },
+    /// Envelopes not yet visible.
+    ///
+    /// Registration envelopes haven't propagated to the node yet. Retryable.
+    #[error("Envelopes not yet visible on node {node_id}")]
+    EnvelopesNotYetVisible { node_id: u32 },
 }
 
 impl ClientError {
@@ -206,6 +211,7 @@ impl xmtp_common::RetryableError for ClientError {
             ClientError::Storage(storage_error) => retryable!(storage_error),
             ClientError::Db(db) => retryable!(db),
             ClientError::Generic(err) => err.contains("database is locked"),
+            ClientError::EnvelopesNotYetVisible { .. } => true,
             _ => false,
         }
     }

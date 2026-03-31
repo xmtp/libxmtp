@@ -33,7 +33,6 @@ impl Quorum {
 pub struct VisibilityConfirmationOptions {
     pub quorum: Quorum,
     pub timeout_ms: u64,
-    pub sleep_interval_ms: u64,
 }
 
 impl VisibilityConfirmationOptions {
@@ -42,7 +41,6 @@ impl VisibilityConfirmationOptions {
         quorum_percentage: Option<f32>,
         quorum_absolute: Option<usize>,
         timeout_ms: Option<u64>,
-        sleep_interval_ms: Option<u64>,
     ) -> Self {
         let defaults = Self::default();
         let quorum = match (quorum_absolute, quorum_percentage) {
@@ -53,7 +51,6 @@ impl VisibilityConfirmationOptions {
         Self {
             quorum,
             timeout_ms: timeout_ms.unwrap_or(defaults.timeout_ms),
-            sleep_interval_ms: sleep_interval_ms.unwrap_or(defaults.sleep_interval_ms),
         }
     }
 }
@@ -63,27 +60,19 @@ impl Default for VisibilityConfirmationOptions {
         Self {
             quorum: Quorum::Percentage(0.5),
             timeout_ms: 30_000,
-            sleep_interval_ms: 500,
         }
     }
 }
 
-/// Poll a single node until both the identity-update envelope and the
-/// key-package envelope for this registration are visible, or until the
-/// timeout elapses.
+/// Perform a single query against one node to check whether both the
+/// identity-update envelope and the key-package envelope are visible.
 pub(crate) async fn check_node_visibility<C: Client>(
     node_client: &C,
     node_id: u32,
     inbox_id: &str,
     installation_id: &[u8],
     cursor: Cursor,
-    options: &VisibilityConfirmationOptions,
 ) -> Result<(), ClientError> {
-    use xmtp_common::time::{Duration, Instant, sleep};
-
-    let timeout = Duration::from_millis(options.timeout_ms);
-    let sleep_interval = Duration::from_millis(options.sleep_interval_ms);
-
     use xmtp_proto::types::Topic;
 
     let inbox_id_bytes = hex::decode(inbox_id)
@@ -93,73 +82,57 @@ pub(crate) async fn check_node_visibility<C: Client>(
 
     let topics = vec![identity_topic.cloned_vec(), key_package_topic.cloned_vec()];
 
-    let start = Instant::now();
+    let mut endpoint = QueryEnvelopes::builder()
+        .envelopes(EnvelopesQuery {
+            topics,
+            originator_node_ids: vec![],
+            last_seen: None,
+        })
+        .build()
+        .map_err(|e| {
+            ClientError::Generic(format!("failed to build QueryEnvelopes endpoint: {e}"))
+        })?;
 
-    loop {
-        let mut endpoint = QueryEnvelopes::builder()
-            .envelopes(EnvelopesQuery {
-                topics: topics.clone(),
-                originator_node_ids: vec![],
-                last_seen: None,
-            })
-            .build()
-            .map_err(|e| {
-                ClientError::Generic(format!("failed to build QueryEnvelopes endpoint: {e}"))
-            })?;
+    let response = endpoint.query(node_client).await.map_err(|e| {
+        tracing::warn!(node_id, error = %e, "check_node_visibility: API error querying node");
+        ClientError::EnvelopesNotYetVisible { node_id }
+    })?;
 
-        match endpoint.query(node_client).await {
+    let mut identity_visible = false;
+    let mut key_package_visible = false;
+
+    for env in &response.envelopes {
+        let topic = match env.topic() {
+            Ok(t) => t,
             Err(e) => {
                 tracing::warn!(
-                    node_id,
-                    error = %e,
-                    "check_node_visibility: API error querying node, will retry"
+                    "check_node_visibility: failed to extract topic from envelope: {}",
+                    e
                 );
+                continue;
             }
-            Ok(response) => {
-                let mut identity_visible = false;
-                let mut key_package_visible = false;
+        };
 
-                for env in &response.envelopes {
-                    let topic = match env.topic() {
-                        Ok(t) => t,
-                        Err(e) => {
-                            tracing::warn!(
-                                "check_node_visibility: failed to extract topic from envelope: {}",
-                                e
-                            );
-                            continue;
-                        }
-                    };
-
-                    match topic.kind() {
-                        TopicKind::IdentityUpdatesV1 => {
-                            if let Ok(env_cursor) = env.cursor()
-                                && env_cursor.originator_id == cursor.originator_id
-                                && env_cursor.sequence_id == cursor.sequence_id
-                            {
-                                identity_visible = true;
-                            }
-                        }
-                        TopicKind::KeyPackagesV1 => {
-                            key_package_visible = true;
-                        }
-                        _ => {}
-                    }
-                }
-
-                if identity_visible && key_package_visible {
-                    return Ok(());
+        match topic.kind() {
+            TopicKind::IdentityUpdatesV1 => {
+                if let Ok(env_cursor) = env.cursor()
+                    && env_cursor.originator_id == cursor.originator_id
+                    && env_cursor.sequence_id == cursor.sequence_id
+                {
+                    identity_visible = true;
                 }
             }
+            TopicKind::KeyPackagesV1 => {
+                key_package_visible = true;
+            }
+            _ => {}
         }
+    }
 
-        if start.elapsed() >= timeout {
-            return Err(ClientError::RegistrationNotVisible {
-                failed_nodes: vec![node_id],
-            });
-        }
-
-        sleep(sleep_interval).await;
+    if identity_visible && key_package_visible {
+        Ok(())
+    } else {
+        Err(ClientError::EnvelopesNotYetVisible { node_id })
     }
 }
 
@@ -251,6 +224,7 @@ where
 
         let inbox_id = self.inbox_id().to_string();
         let installation_id: Vec<u8> = self.installation_public_key().to_vec();
+        let timeout_ms = options.timeout_ms;
 
         // Spawn concurrent futures per node
         let futures: FuturesUnordered<_> = node_clients
@@ -258,17 +232,30 @@ where
             .map(|(node_id, client)| {
                 let inbox_id = inbox_id.clone();
                 let installation_id = installation_id.clone();
-                let opts = options.clone();
                 async move {
-                    let result = check_node_visibility(
-                        &client,
-                        node_id,
-                        &inbox_id,
-                        &installation_id,
-                        cursor,
-                        &opts,
-                    )
-                    .await;
+                    let retry = xmtp_common::Retry::builder()
+                        .retries(100)
+                        .with_strategy(
+                            xmtp_common::ExponentialBackoff::builder()
+                                .total_wait_max(xmtp_common::time::Duration::from_millis(
+                                    timeout_ms,
+                                ))
+                                .build(),
+                        )
+                        .build();
+                    let result = xmtp_common::retry_async!(retry, (async {
+                        check_node_visibility(
+                            &client,
+                            node_id,
+                            &inbox_id,
+                            &installation_id,
+                            cursor,
+                        )
+                        .await
+                    }));
+                    let result = result.map_err(|_| ClientError::RegistrationNotVisible {
+                        failed_nodes: vec![node_id],
+                    });
                     (node_id, result)
                 }
             })
