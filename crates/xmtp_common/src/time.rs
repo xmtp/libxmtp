@@ -62,15 +62,9 @@ where
 {
     wasm_or_native! {
         wasm => {
-            use futures::future::Either::*;
-            let millis = duration.as_millis().min(u32::MAX as u128) as u32;
-            let timeout = gloo_timers::future::TimeoutFuture::new(millis);
-            let future = future.into_future();
-            futures::pin_mut!(future);
-            match futures::future::select(timeout, future).await {
-                Left(_) => Err(Expired),
-                Right((value, _)) => Ok(value),
-            }
+            crate::wasm::tokio::time::timeout(duration, future.into_future())
+                .await
+                .map_err(|_| Expired)
         },
         native => {
             tokio::time::timeout(duration, future).await.map_err(Into::into)
@@ -82,7 +76,7 @@ where
 pub async fn sleep(duration: Duration) {
     wasm_or_native! {
         native => {tokio::time::sleep(duration).await},
-        wasm => {gloo_timers::future::sleep(duration).await},
+        wasm => {crate::wasm::tokio::time::sleep(duration).await},
     }
 }
 
@@ -91,8 +85,19 @@ pub fn interval_stream(
 ) -> impl futures::Stream<Item = crate::time::Instant> {
     use futures::StreamExt;
     wasm_or_native! {
-        wasm => {gloo_timers::future::IntervalStream::new(period.as_millis().min(u32::MAX as u128) as u32).map(|_| crate::time::Instant::now())},
-        native => {tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(period)).map(|t| t.into_std())},
+        wasm => {
+            futures::stream::unfold(
+                crate::wasm::tokio::time::interval(period),
+                |mut interval| async move {
+                    interval.tick().await;
+                    Some((crate::time::Instant::now(), interval))
+                },
+            )
+        },
+        native => {
+            tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(period))
+                .map(|t| t.into_std())
+        },
     }
 }
 
