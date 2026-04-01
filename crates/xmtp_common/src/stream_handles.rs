@@ -1,5 +1,5 @@
 //! Consistent Stream behavior between WebAssembly and Native utilizing `tokio::task::spawn` in native and
-//! `wasm_bindgen_futures::spawn` for web.
+//! `tokio_with_wasm::task::spawn` for web.
 
 use crate::{MaybeSend, MaybeSync, if_native, if_wasm};
 
@@ -7,10 +7,6 @@ pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum StreamHandleError {
-    #[error("Result Channel closed")]
-    ChannelClosed,
-    #[error("The stream was closed")]
-    StreamClosed,
     #[error("Stream Cancelled")]
     Cancelled,
     #[error("Stream Panicked With {0}")]
@@ -18,6 +14,9 @@ pub enum StreamHandleError {
     #[cfg(not(target_arch = "wasm32"))]
     #[error(transparent)]
     JoinHandleError(#[from] tokio::task::JoinError),
+    #[cfg(target_arch = "wasm32")]
+    #[error(transparent)]
+    JoinHandleError(#[from] crate::wasm::tokio::task::JoinError),
 }
 /// A handle to a spawned Stream
 /// the spawned stream can be 'joined` by awaiting its Future implementation.
@@ -64,41 +63,33 @@ pub use wasm::*;
 mod wasm {
     use std::{
         future::Future,
-        pin::Pin,
-        task::{Context, Poll},
+        sync::{Arc, atomic::{AtomicBool, Ordering}},
     };
-
-    use futures::future::Either;
 
     use super::*;
 
     pub struct WasmStreamHandle<T> {
-        result: tokio::sync::oneshot::Receiver<T>,
-        // we only send once but oneshot senders aren't cloneable
-        // so we use mpsc here to keep the `&self` on `end`.
-        closer: tokio::sync::mpsc::Sender<()>,
+        inner: crate::wasm::tokio::task::JoinHandle<T>,
         ready: Option<tokio::sync::oneshot::Receiver<()>>,
+        finished: Arc<AtomicBool>,
     }
 
-    impl<T> Future for WasmStreamHandle<Result<T, StreamHandleError>> {
+    impl<T> Future for WasmStreamHandle<T> {
         type Output = Result<T, StreamHandleError>;
 
         fn poll(
             self: std::pin::Pin<&mut Self>,
             cx: &mut std::task::Context<'_>,
         ) -> std::task::Poll<Self::Output> {
-            // safe because we consider `result` to be structurally pinned
-            // pinning: https://doc.rust-lang.org/std/pin/#choosing-pinning-to-be-structural-for-field
-            let result = unsafe { self.map_unchecked_mut(|r| &mut r.result) };
-            result.poll(cx).map(|r| match r {
-                Ok(r) => r,
-                Err(_) => Err(StreamHandleError::ChannelClosed),
-            })
+            let inner = unsafe { self.map_unchecked_mut(|v| &mut v.inner) };
+            inner.poll(cx).map_err(StreamHandleError::from)
         }
     }
 
     #[xmtp_common::async_trait]
-    impl<T> StreamHandle for WasmStreamHandle<Result<T, StreamHandleError>> {
+    impl<T> StreamHandle for WasmStreamHandle<T>
+    where T: 'static
+    {
         type StreamOutput = T;
 
         async fn wait_for_ready(&mut self) {
@@ -107,17 +98,25 @@ mod wasm {
             }
         }
 
-        async fn end_and_wait(&mut self) -> Result<Self::StreamOutput, StreamHandleError> {
-            self.end();
-            self.await
+        fn end(&self) {
+            self.inner.abort();
         }
 
-        fn end(&self) {
-            let _ = self.closer.try_send(());
+        async fn end_and_wait(&mut self) -> Result<Self::StreamOutput, StreamHandleError> {
+            use StreamHandleError::*;
+            self.end();
+            match self.await {
+                Err(JoinHandleError(e)) if e.is_cancelled() => Err(Cancelled),
+                Ok(t) => Ok(t),
+                Err(e) => Err(e),
+            }
         }
 
         fn abort_handle(&self) -> Box<dyn AbortHandle> {
-            Box::new(CloseHandle(self.closer.clone()))
+            Box::new(WasmAbortHandle {
+                inner: self.inner.abort_handle(),
+                finished: self.finished.clone(),
+            })
         }
 
         async fn join(self) -> Result<Self::StreamOutput, StreamHandleError> {
@@ -126,20 +125,21 @@ mod wasm {
     }
 
     #[derive(Clone)]
-    pub struct CloseHandle(tokio::sync::mpsc::Sender<()>);
-    impl AbortHandle for CloseHandle {
+    pub struct WasmAbortHandle {
+        inner: crate::wasm::tokio::task::AbortHandle,
+        finished: Arc<AtomicBool>,
+    }
+
+    impl AbortHandle for WasmAbortHandle {
         fn end(&self) {
-            let _ = self.0.try_send(());
+            self.inner.abort();
         }
 
         fn is_finished(&self) -> bool {
-            self.0.is_closed()
+            self.finished.load(Ordering::Relaxed)
         }
     }
 
-    /// Spawn a future on the `wasm-bindgen` local current-thread executer
-    ///  future does not require `Send`.
-    ///  optionally pass in `ready` to signal when stream will be ready.
     pub fn spawn<F>(
         ready: Option<tokio::sync::oneshot::Receiver<()>>,
         future: F,
@@ -148,55 +148,19 @@ mod wasm {
         F: Future + 'static,
         F::Output: 'static,
     {
-        let (res_tx, res_rx) = tokio::sync::oneshot::channel();
-        let (closer_tx, closer_rx) = tokio::sync::mpsc::channel::<()>(1);
-        let closer_handle = CloserHandle::new(closer_rx);
+        let finished = Arc::new(AtomicBool::new(false));
+        let finished_clone = finished.clone();
 
-        let handle = WasmStreamHandle {
-            result: res_rx,
-            closer: closer_tx,
-            ready,
-        };
-        tracing::info!("Spawning local task on web executor");
-        wasm_bindgen_futures::spawn_local(async move {
-            futures::pin_mut!(closer_handle);
-            futures::pin_mut!(future);
-            let value = match futures::future::select(closer_handle, future).await {
-                Either::Left((_, _)) => {
-                    tracing::warn!("stream closed");
-                    Err(StreamHandleError::StreamClosed)
-                }
-                Either::Right((v, _)) => {
-                    tracing::debug!("Future ended with value");
-                    Ok(v)
-                }
-            };
-            let _ = res_tx.send(value);
-            tracing::info!("spawned local future closing");
+        let inner = crate::wasm::tokio::task::spawn(async move {
+            let result = future.await;
+            finished_clone.store(true, Ordering::Relaxed);
+            result
         });
 
-        handle
-    }
-
-    struct CloserHandle(tokio::sync::mpsc::Receiver<()>);
-
-    impl CloserHandle {
-        fn new(receiver: tokio::sync::mpsc::Receiver<()>) -> Self {
-            Self(receiver)
-        }
-    }
-
-    impl Future for CloserHandle {
-        type Output = ();
-
-        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-            match self.0.poll_recv(cx) {
-                Poll::Pending => Poll::Pending,
-                Poll::Ready(Some(_)) => Poll::Ready(()),
-                // if the channel is closed, the task has detached and must
-                // be kept alive for the duration for the program
-                Poll::Ready(None) => Poll::Pending,
-            }
+        WasmStreamHandle {
+            inner,
+            ready,
+            finished,
         }
     }
 }}
