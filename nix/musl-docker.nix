@@ -52,7 +52,7 @@
           value = mkMlsValidationService crossPkgs { };
         }) aarch64CrossPkgs)
         // {
-          validation-service-image-aarch64-multiplatform = pkgs.dockerTools.buildLayeredImage (
+          validation-service-image-aarch64-unknown-linux-musl = pkgs.dockerTools.buildLayeredImage (
             lib.recursiveUpdate imageCommon {
               config.entrypoint = [
                 "${self'.packages.mls-validation-service-aarch64-unknown-linux-musl}/bin/mls-validation-service"
