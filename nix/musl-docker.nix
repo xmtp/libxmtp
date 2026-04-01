@@ -12,7 +12,7 @@
     let
       # x86_64-musl is available on all systems (same-arch cross for x86_64-linux)
       x86Targets = [ "x86_64-unknown-linux-musl" ];
-      # aarch64-musl is only available on aarch64-linux (same-arch cross)
+      # aarch64-musl is only available on aarch64 systems (same-arch cross)
       aarch64Targets = [ "aarch64-unknown-linux-musl" ];
 
       x86CrossPkgs = self.lib.mkCrossPkgs system x86Targets;
@@ -42,8 +42,8 @@
         name = "mls-validation-service-${target}";
         value = mkMlsValidationService crossPkgs { };
       }) x86CrossPkgs
-      # aarch64 musl cross-compilation + docker image (only on aarch64-linux)
-      // lib.optionalAttrs (system == "aarch64-linux") (
+      # aarch64 musl cross-compilation + docker image (aarch64 systems only)
+      // lib.optionalAttrs (lib.hasPrefix "aarch64" system) (
         let
           aarch64CrossPkgs = self.lib.mkCrossPkgs system aarch64Targets;
         in
