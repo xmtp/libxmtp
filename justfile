@@ -83,17 +83,17 @@ test target="all" *args="":
   just _test-{{target}} {{args}}
 
 [private]
-_test-all: (_test-v3) (_test-d14n)
+_test-all *args="": (_test-v3 args) (_test-d14n args)
 
 [private]
-_test-v3:
-  {{cargo_test}} --profile ci
+_test-v3 *args="":
+  {{cargo_test}} --profile ci {{args}}
 
 [private]
-_test-d14n:
+_test-d14n *args="":
   {{cargo_test}} \
     --features d14n --profile ci-d14n \
-    -E 'package(xmtp_mls)' -E 'rdeps(xmtp_mls)'
+    -E 'package(xmtp_mls)' -E 'rdeps(xmtp_mls)' {{args}}
 
 [private]
 _test-crate +crates:
