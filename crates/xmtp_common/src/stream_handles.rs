@@ -81,6 +81,8 @@ mod wasm {
             self: std::pin::Pin<&mut Self>,
             cx: &mut std::task::Context<'_>,
         ) -> std::task::Poll<Self::Output> {
+            // safe because we consider `inner` to be structurally pinned
+            // https://doc.rust-lang.org/std/pin/#choosing-pinning-to-be-structural-for-field
             let inner = unsafe { self.map_unchecked_mut(|v| &mut v.inner) };
             inner.poll(cx).map_err(StreamHandleError::from)
         }

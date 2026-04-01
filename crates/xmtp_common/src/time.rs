@@ -82,17 +82,17 @@ pub async fn sleep(duration: Duration) {
 
 pub fn interval_stream(
     period: crate::time::Duration,
-) -> impl futures::Stream<Item = crate::time::Instant> {
+) -> impl futures::Stream<Item = crate::time::Instant> + Unpin {
     use futures::StreamExt;
     wasm_or_native! {
         wasm => {
-            futures::stream::unfold(
+            Box::pin(futures::stream::unfold(
                 crate::wasm::tokio::time::interval(period),
                 |mut interval| async move {
                     interval.tick().await;
                     Some((crate::time::Instant::now(), interval))
                 },
-            )
+            ))
         },
         native => {
             tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(period))
