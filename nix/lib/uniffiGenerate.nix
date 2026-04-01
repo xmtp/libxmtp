@@ -1,6 +1,4 @@
-# custom https://crane.dev `cargo napi` command
-# https://crane.dev/custom_cargo_commands.html
-# Does not generate ESM Js glue by default
+# custom https://crane.dev `uniffi-bindgen` command
 {
   ffi-uniffi-bindgen,
   stdenv,

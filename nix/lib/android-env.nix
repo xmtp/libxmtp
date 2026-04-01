@@ -7,6 +7,12 @@
   writeShellScriptBin,
 }:
 let
+  androidTargets = [
+    "aarch64-linux-android"
+    "armv7-linux-androideabi"
+    "x86_64-linux-android"
+    "i686-linux-android"
+  ];
   # Host architecture -> matching Android target (for fast single-target builds)
   hostArch = stdenv.hostPlatform.parsed.cpu.name;
   # The Android emulator is only available for x86_64-linux and *-darwin.
@@ -160,6 +166,7 @@ let
 in
 {
   inherit
+    androidTargets
     sdkConfig
     emulatorConfig
     composeBuildPackages
