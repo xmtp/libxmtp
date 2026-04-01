@@ -49,6 +49,7 @@
         ./nix/ci-checks.nix
         ./nix/fmt.nix
         ./nix/node-packages.nix
+        ./nix/android-packages.nix
       ];
       perSystem =
         {
@@ -69,43 +70,34 @@
           // lib.optionalAttrs pkgs.stdenv.isDarwin {
             ios = pkgs.callPackage ./nix/shells/ios.nix { };
           };
-          packages =
-            let
-              android = pkgs.callPackage ./nix/package/android.nix { };
-              inherit (pkgs.xmtp) androidEnv;
-            in
-            {
-              inherit (pkgs.xmtp) ffi-uniffi-bindgen;
-              inherit (pkgs) napi-rs-cli wasm-bindgen-cli;
-              wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { }).bin;
-              wasm-bindings-test = (pkgs.callPackage ./nix/package/wasm.nix { test = true; }).bin;
-              # Android bindings (.so libraries + Kotlin bindings)
-              android-libs = android.aggregate;
-              # Android bindings - host-matching target only (fast dev/CI builds)
-              android-libs-fast = (android.mkAndroid [ androidEnv.hostAndroidTarget ]).aggregate;
-            }
-            // lib.optionalAttrs pkgs.stdenv.isDarwin {
-              # stdenvNoCC is passed to callPackage (for the aggregate derivation).
-              # This avoids Nix's apple-sdk and cc-wrapper,
-              # which inject -mmacos-version-min flags that
-              # conflict with iOS cross-compilation. The builds are impure (__noChroot)
-              # and use the system Xcode SDK directly via ios-env.nix paths.
-              ios-libs =
+          packages = {
+            inherit (pkgs.xmtp) ffi-uniffi-bindgen;
+            inherit (pkgs) napi-rs-cli wasm-bindgen-cli;
+            wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { }).bin;
+            wasm-bindings-test = (pkgs.callPackage ./nix/package/wasm.nix { test = true; }).bin;
+          }
+          // lib.optionalAttrs pkgs.stdenv.isDarwin {
+            # stdenvNoCC is passed to callPackage (for the aggregate derivation).
+            # This avoids Nix's apple-sdk and cc-wrapper,
+            # which inject -mmacos-version-min flags that
+            # conflict with iOS cross-compilation. The builds are impure (__noChroot)
+            # and use the system Xcode SDK directly via ios-env.nix paths.
+            ios-libs =
+              (pkgs.callPackage ./nix/package/ios.nix {
+                stdenv = pkgs.stdenvNoCC;
+              }).aggregate;
+            # iOS bindings - simulator + host macOS only (fast dev/CI builds)
+            ios-libs-fast =
+              (
                 (pkgs.callPackage ./nix/package/ios.nix {
                   stdenv = pkgs.stdenvNoCC;
-                }).aggregate;
-              # iOS bindings - simulator + host macOS only (fast dev/CI builds)
-              ios-libs-fast =
-                (
-                  (pkgs.callPackage ./nix/package/ios.nix {
-                    stdenv = pkgs.stdenvNoCC;
-                  }).mkIos
-                  [
-                    "aarch64-apple-darwin"
-                    "aarch64-apple-ios-sim"
-                  ]
-                ).aggregate;
-            };
+                }).mkIos
+                [
+                  "aarch64-apple-darwin"
+                  "aarch64-apple-ios-sim"
+                ]
+              ).aggregate;
+          };
         };
     };
 }
