@@ -1099,6 +1099,11 @@ impl Test {
         let group_id_hex = hex::encode(&group_id);
         info!(group_id = group_id_hex, "group created, receiver added");
 
+        // Capture group topic baseline BEFORE sending messages
+        let group_topic = Topic::new_group_message(&group_id);
+        let group_baseline = query_v4_envelopes(v4_client, &group_topic).await.len();
+        info!(group_baseline, "group topic baseline captured");
+
         // Step 3: Send N tagged messages
         info!(msg_count, "sending tagged messages on V3");
         for i in 0..msg_count {
@@ -1127,8 +1132,6 @@ impl Test {
         info!(member_count, "V3 membership captured");
 
         // Step 5: Poll V4 for migrated group messages
-        let group_topic = Topic::new_group_message(&group_id);
-        let group_baseline = query_v4_envelopes(v4_client, &group_topic).await.len();
         let poll_interval = std::time::Duration::from_millis(500);
         let timeout = std::time::Duration::from_secs(timeout_secs);
         let deadline = Instant::now() + timeout;
