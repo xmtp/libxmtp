@@ -33,6 +33,7 @@
   flamegraph,
   cargo-flamegraph,
   inferno,
+  gh,
   jq,
   curl,
   graphite-cli,
@@ -160,6 +161,7 @@ in
 
   # Miscellaneous dev convenience tools
   miscDevTools = [
+    gh
     jq
     curl
     graphite-cli
