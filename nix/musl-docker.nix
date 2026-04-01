@@ -10,12 +10,12 @@
       ...
     }:
     let
-      # x86_64-musl is available on all systems (same-arch cross for x86_64-linux)
-      x86Targets = [ "x86_64-unknown-linux-musl" ];
-      # aarch64-musl is only available on aarch64 systems (same-arch cross)
-      aarch64Targets = [ "aarch64-unknown-linux-musl" ];
+      targets = [
+        "x86_64-unknown-linux-musl"
+        "aarch64-unknown-linux-musl"
+      ];
 
-      x86CrossPkgs = self.lib.mkCrossPkgs system x86Targets;
+      crossPkgs = self.lib.mkCrossPkgs system targets;
       mkMlsValidationService = p: p.callPackage ./package/mls_validation_service.nix;
 
       imageCommon = {
@@ -36,30 +36,18 @@
             architecture = "amd64";
           }
         );
+        validation-service-image-aarch64-unknown-linux-musl = pkgs.dockerTools.buildLayeredImage (
+          lib.recursiveUpdate imageCommon {
+            config.entrypoint = [
+              "${self'.packages.mls-validation-service-aarch64-unknown-linux-musl}/bin/mls-validation-service"
+            ];
+          }
+        );
       }
-      # x86_64 musl cross-compilation (available on all systems)
+      # create mls validation service for all the cross compilation targets
       // lib.mapAttrs' (target: crossPkgs: {
         name = "mls-validation-service-${target}";
         value = mkMlsValidationService crossPkgs { };
-      }) x86CrossPkgs
-      # aarch64 musl cross-compilation + docker image (aarch64 systems only)
-      // lib.optionalAttrs (lib.hasPrefix "aarch64" system) (
-        let
-          aarch64CrossPkgs = self.lib.mkCrossPkgs system aarch64Targets;
-        in
-        (lib.mapAttrs' (target: crossPkgs: {
-          name = "mls-validation-service-${target}";
-          value = mkMlsValidationService crossPkgs { };
-        }) aarch64CrossPkgs)
-        // {
-          validation-service-image-aarch64-unknown-linux-musl = pkgs.dockerTools.buildLayeredImage (
-            lib.recursiveUpdate imageCommon {
-              config.entrypoint = [
-                "${self'.packages.mls-validation-service-aarch64-unknown-linux-musl}/bin/mls-validation-service"
-              ];
-            }
-          );
-        }
-      );
+      }) crossPkgs;
     };
 }
