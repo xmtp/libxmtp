@@ -38,12 +38,10 @@ xmtp_macro.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
-gloo-timers = { workspace = true, features = ["futures"] }
 tracing-wasm = { version = "0.2", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 js-sys.workspace = true
 web-sys = { workspace = true, features = ["Window"] }
-wasm-bindgen-futures.workspace = true
 wasm-bindgen.workspace = true
 tokio_with_wasm = { version = "0.9.0", features = ["full"] }
 
