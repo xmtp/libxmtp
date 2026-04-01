@@ -17,7 +17,7 @@ Named cases (`#[case::name(value)]`) show in test output as `test_group_sizes::c
 
 ## Attribute Stacking Order
 
-When combining multiple attributes, use this order:
+Macros expand from bottom to top, so the test macro must see the rstest-generated test cases. Use this order:
 
 ```rust
 #[xmtp_common::timeout(Duration::from_secs(15))]  // 1. Timeout (outermost)

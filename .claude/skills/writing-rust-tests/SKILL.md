@@ -17,7 +17,7 @@ async fn test_something() {
 
     let group = alix.create_group(None, None)?;
     group.invite(&bo).await?;
-    group.send_msg(b"hello").await;
+    group.send_msg(b"hello").await;  // internally unwraps; returns ()
 
     bo.sync_welcomes().await?;
     let bo_group = bo.group(&group.group_id)?;

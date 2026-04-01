@@ -4,8 +4,13 @@
 
 ```rust
 #[xmtp_common::test(unwrap_try = true)]
-#[cfg_attr(target_arch = "wasm32", ignore)]
-async fn test_native_only() { }
+#[cfg_attr(target_arch = "wasm32", ignore)]  // sync_worker requires native tokio runtime
+async fn test_device_sync() {
+    tester!(alix1, sync_worker);
+    tester!(bo, disable_workers);
+    let (dm, msg) = alix1.test_talk_in_dm_with(&bo).await?;
+    // ...
+}
 ```
 
 Use this for tests that depend on: filesystem, tokio multi-thread, device sync, toxiproxy, or native-only APIs.

@@ -44,7 +44,7 @@ group.test_can_talk_with(&bo_group).await?;
 // Get last application message bytes
 let bytes: Option<Vec<u8>> = group.test_last_message_bytes().await?;
 
-// Get last message from network (not local DB)
+// Get last message directly from the test backend (bypasses local DB cache)
 let msg = group.test_get_last_message_from_network().await?;
 ```
 

@@ -23,7 +23,7 @@ just test v3 -E 'test(/groups::tests/)'
 just test v3 -E 'package(xmtp_mls)'
 ```
 
-**Note:** `just test d14n` already scopes to `xmtp_mls` and its reverse deps via `-E 'package(xmtp_mls)' -E 'rdeps(xmtp_mls)'`. Any additional `-E` filters or name filters you pass are AND'd with this scope.
+**Note:** `just test d14n` already scopes to `xmtp_mls` and its reverse deps via `-E 'package(xmtp_mls)' -E 'rdeps(xmtp_mls)'`. Any additional filters you pass are combined with this scope (both conditions must match).
 
 ## Direct cargo nextest (when you need full control)
 
