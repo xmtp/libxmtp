@@ -7,6 +7,14 @@ pub mod tokio {
             pub use tokio_with_wasm::task::*;
         }
     }
+    pub mod time {
+        crate::if_native! {
+            pub use tokio::time::*;
+        }
+        crate::if_wasm! {
+            pub use tokio_with_wasm::time::*;
+        }
+    }
 }
 
 pub use tokio::*;
