@@ -87,15 +87,13 @@ _test-all: (_test-v3) (_test-d14n)
 
 [private]
 _test-v3:
-  {{cargo_test}} \
-    --profile ci --workspace --exclude bindings_wasm
+  {{cargo_test}} --profile ci
 
 [private]
 _test-d14n:
   {{cargo_test}} \
     --features d14n --profile ci-d14n \
-    -E 'package(xmtp_mls)' -E 'rdeps(xmtp_mls)' \
-    --workspace --exclude bindings_wasm
+    -E 'package(xmtp_mls)' -E 'rdeps(xmtp_mls)'
 
 [private]
 _test-crate +crates:
