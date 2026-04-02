@@ -29,7 +29,7 @@
   ...
 }:
 let
-  inherit (xmtp) iosEnv mobile;
+  inherit (xmtp) iosEnv base;
   # override craneLib rust toolchain with given stdenv
   # https://crane.dev/API.html#mklib
   craneLib = xmtp.craneLib.overrideScope (
@@ -42,14 +42,14 @@ let
   # No clippy/rustfmt — this is a build-only toolchain (the dev shell adds those).
   # overrideToolchain tells crane to use our custom fenix-based toolchain instead
   # of the default nixpkgs rustc.
-  rust-toolchain = xmtp.mkToolchain iosEnv.iosTargets [ ];
-  rust = craneLib.overrideToolchain (p: rust-toolchain);
+  rust-toolchain = p: xmtp.mkToolchain p iosEnv.iosTargets [ ];
+  rust = craneLib.overrideToolchain rust-toolchain;
 
   # Extract version once for use throughout the file
   version = xmtp.mkVersion rust;
 
   # Inherit shared config
-  inherit (mobile) commonArgs bindingsFileset;
+  inherit (base) commonArgs bindingsFileset;
 
   # Build static (.a) and dynamic (.dylib) libraries for a single cross-compilation target.
   #
@@ -127,18 +127,7 @@ let
       __noChroot = true;
       src = bindingsFileset;
       inherit version;
-      cargoArtifacts = rust.buildDepsOnly (
-        commonArgs
-        // {
-          pname = "xmtpv3-swift-bindings-deps";
-          __noChroot = true;
-          cargoExtraArgs = "-p xmtpv3";
-          buildPhaseCargoCommand = ''
-            ${nativeEnvSetup}
-            cargo build --release -p xmtpv3
-          '';
-        }
-      );
+      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false null;
       cargoExtraArgs = "-p xmtpv3";
       buildPhaseCargoCommand = ''
         ${nativeEnvSetup}

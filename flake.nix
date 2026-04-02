@@ -48,9 +48,15 @@
         ./nix/musl-docker.nix
         ./nix/ci-checks.nix
         ./nix/fmt.nix
+        ./nix/node-packages.nix
+        ./nix/android-packages.nix
       ];
       perSystem =
-        { pkgs, lib, ... }:
+        {
+          pkgs,
+          lib,
+          ...
+        }:
         {
           nixpkgs = self.lib.pkgConfig;
           devShells = {
@@ -64,59 +70,34 @@
           // lib.optionalAttrs pkgs.stdenv.isDarwin {
             ios = pkgs.callPackage ./nix/shells/ios.nix { };
           };
-          packages =
-            let
-              android = pkgs.callPackage ./nix/package/android.nix { };
-              inherit (pkgs.xmtp) androidEnv;
-            in
-            {
-              inherit (pkgs.xmtp) ffi-uniffi-bindgen;
-              wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { }).bin;
-              wasm-bindings-test = (pkgs.callPackage ./nix/package/wasm.nix { test = true; }).bin;
-              wasm-bindgen-cli = pkgs.callPackage ./nix/lib/packages/wasm-bindgen-cli.nix { };
-              # Android bindings (.so libraries + Kotlin bindings)
-              android-libs = android.aggregate;
-              # Android bindings - host-matching target only (fast dev/CI builds)
-              android-libs-fast = (android.mkAndroid [ androidEnv.hostAndroidTarget ]).aggregate;
-            }
-            // (
-              let
-                node = pkgs.callPackage ./nix/package/node.nix { };
-                inherit (pkgs.xmtp) nodeEnv;
-              in
-              # Expose per-target packages with NAPI platform names
-              lib.mapAttrs' (
-                triple: drv: lib.nameValuePair "node-bindings-${nodeEnv.targetToNapi.${triple}}" drv
-              ) node.targets
-              // {
-                # Fast: host-matching target only
-                node-bindings-fast = node.buildTarget nodeEnv.hostTarget;
-                # JS/TS bindings (index.js + index.d.ts)
-                node-bindings-js = node.jsBindings;
-              }
-            )
-            // lib.optionalAttrs pkgs.stdenv.isDarwin {
-              # stdenvNoCC is passed to callPackage (for the aggregate derivation).
-              # This avoids Nix's apple-sdk and cc-wrapper,
-              # which inject -mmacos-version-min flags that
-              # conflict with iOS cross-compilation. The builds are impure (__noChroot)
-              # and use the system Xcode SDK directly via ios-env.nix paths.
-              ios-libs =
+          packages = {
+            inherit (pkgs.xmtp) ffi-uniffi-bindgen;
+            inherit (pkgs) napi-rs-cli wasm-bindgen-cli;
+            wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { }).bin;
+            wasm-bindings-test = (pkgs.callPackage ./nix/package/wasm.nix { test = true; }).bin;
+          }
+          // lib.optionalAttrs pkgs.stdenv.isDarwin {
+            # stdenvNoCC is passed to callPackage (for the aggregate derivation).
+            # This avoids Nix's apple-sdk and cc-wrapper,
+            # which inject -mmacos-version-min flags that
+            # conflict with iOS cross-compilation. The builds are impure (__noChroot)
+            # and use the system Xcode SDK directly via ios-env.nix paths.
+            ios-libs =
+              (pkgs.callPackage ./nix/package/ios.nix {
+                stdenv = pkgs.stdenvNoCC;
+              }).aggregate;
+            # iOS bindings - simulator + host macOS only (fast dev/CI builds)
+            ios-libs-fast =
+              (
                 (pkgs.callPackage ./nix/package/ios.nix {
                   stdenv = pkgs.stdenvNoCC;
-                }).aggregate;
-              # iOS bindings - simulator + host macOS only (fast dev/CI builds)
-              ios-libs-fast =
-                (
-                  (pkgs.callPackage ./nix/package/ios.nix {
-                    stdenv = pkgs.stdenvNoCC;
-                  }).mkIos
-                  [
-                    "aarch64-apple-darwin"
-                    "aarch64-apple-ios-sim"
-                  ]
-                ).aggregate;
-            };
+                }).mkIos
+                [
+                  "aarch64-apple-darwin"
+                  "aarch64-apple-ios-sim"
+                ]
+              ).aggregate;
+          };
         };
     };
 }

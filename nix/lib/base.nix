@@ -8,6 +8,8 @@
   sqlite,
   pkg-config,
   perl,
+  darwin,
+  stdenv,
   zlib,
 }:
 let
@@ -30,24 +32,54 @@ let
   # Platform-specific args (like ANDROID_HOME or __noChroot) are added by each derivation.
   commonArgs = {
     src = depsFileset;
-    strictDeps = true;
-    # perl is needed for openssl-sys's vendored build (its Configure script is Perl).
+    # strictDeps=true breaks darwin build with ring
+    strictDeps = if stdenv.buildPlatform.isDarwin then false else true;
+    # these inputs do not get cross compiled
     nativeBuildInputs = [
       pkg-config
       perl
       zlib
-    ];
+    ]
+    ++ lib.optionals stdenv.buildPlatform.isDarwin [ darwin.libiconv ];
+    # these inputs do get cross compiled
     buildInputs = [
       zstd
       openssl
       sqlite
-    ];
+    ]
+    ++ lib.optionals stdenv.hostPlatform.isDarwin [ darwin.libiconv ];
+
     doCheck = false;
     # Disable zerocallusedregs hardening which can cause issues with cross-compilation.
     hardeningDisable = [ "zerocallusedregs" ];
+    CARGO_BUILD_TARGET = stdenv.hostPlatform.rust.rustcTarget;
+    CARGO_PROFILE = "release";
   };
+
+  # Make cargo artifacts for a derivation building rust code
+  # "rust" is the rust toolchain to use (native or host)
+  # "test" is whether to use "test-utils" feature
+  # "zigbuild" uses "cargo zigbuild" instead of "cargo build"
+  mkCargoArtifacts =
+    rust: test: overrides:
+    let
+      maybeTestFeature = if test then "--features test-utils" else "";
+      overrides' = if overrides == null then { } else overrides;
+    in
+    rust.buildDepsOnly (
+      commonArgs
+      // {
+        buildPhaseCargoCommand = "cargo build ${maybeTestFeature} --profile $CARGO_PROFILE --locked";
+      }
+      // overrides'
+    );
 
 in
 {
-  inherit depsFileset bindingsFileset commonArgs;
+  inherit
+    depsFileset
+    bindingsFileset
+    commonArgs
+    mkCargoArtifacts
+    ;
 }

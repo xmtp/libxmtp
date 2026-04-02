@@ -52,7 +52,7 @@ jobs:
             sandbox = relaxed
       - run: nix build --version
       - name: build validation service image
-        run: nix build .#validation-service-image-aarch64-multiplatform
+        run: nix build .#validation-service-image-aarch64-unknown-linux-musl
       - name: push to cachix
         if: github.ref_name == 'main'
         run: nix run nixpkgs#cachix -- push xmtp ./result

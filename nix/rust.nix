@@ -9,7 +9,7 @@ _: {
     }:
     let
       toolchain =
-        pkgs.xmtp.mkToolchain
+        pkgs.xmtp.mkToolchain pkgs
           [
             "x86_64-unknown-linux-musl"
             "aarch64-unknown-linux-musl"
@@ -27,16 +27,7 @@ _: {
           fileset = pkgs.xmtp.filesets.workspace;
         };
         defaults = {
-          perCrate.crane.args = {
-            doCheck = false;
-            nativeBuildInputs = with pkgs; [
-              pkg-config
-              openssl
-              perl
-              sqlite
-              sqlcipher
-            ];
-          };
+          perCrate.crane.args = pkgs.xmtp.base.commonArgs;
         };
         crates = {
           "xmtp_debug" = {

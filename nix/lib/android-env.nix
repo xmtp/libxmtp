@@ -7,23 +7,14 @@
   writeShellScriptBin,
 }:
 let
-  # Android targets for Rust cross-compilation
   androidTargets = [
     "aarch64-linux-android"
     "armv7-linux-androideabi"
     "x86_64-linux-android"
     "i686-linux-android"
   ];
-
   # Host architecture -> matching Android target (for fast single-target builds)
   hostArch = stdenv.hostPlatform.parsed.cpu.name;
-  hostAndroidTarget =
-    {
-      "aarch64" = "aarch64-linux-android";
-      "x86_64" = "x86_64-linux-android";
-    }
-    .${hostArch} or (throw "Unsupported host architecture for Android: ${hostArch}");
-
   # The Android emulator is only available for x86_64-linux and *-darwin.
   # aarch64-linux has no emulator binary in the Android SDK.
   hasEmulator = !stdenv.isLinux || hostArch == "x86_64";
@@ -176,12 +167,10 @@ in
 {
   inherit
     androidTargets
-    hostAndroidTarget
     sdkConfig
     emulatorConfig
     composeBuildPackages
     composeDevPackages
-    mkAndroidPaths
     devComposition
     devPaths
     hasEmulator
