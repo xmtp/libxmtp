@@ -1092,7 +1092,7 @@ impl From<FfiVisibilityConfirmationOptions>
         let defaults = Self::default();
         let quorum = match (opts.quorum_absolute, opts.quorum_percentage) {
             (Some(n), _) => Quorum::Absolute(n as usize),
-            (_, Some(p)) => Quorum::Percentage(p),
+            (_, Some(p)) => Quorum::percentage(p),
             _ => defaults.quorum,
         };
         Self {

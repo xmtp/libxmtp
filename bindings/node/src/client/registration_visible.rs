@@ -22,7 +22,7 @@ impl From<VisibilityConfirmationOptions>
     let defaults = Self::default();
     let quorum = match (opts.quorum_absolute, opts.quorum_percentage) {
       (Some(n), _) => Quorum::Absolute(n as usize),
-      (_, Some(p)) => Quorum::Percentage(p as f32),
+      (_, Some(p)) => Quorum::percentage(p as f32),
       _ => defaults.quorum,
     };
     Self {
