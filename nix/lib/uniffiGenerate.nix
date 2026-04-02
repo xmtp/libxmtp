@@ -31,7 +31,6 @@ stdenv.mkDerivation (
   // rec {
     # Additional overrides we want to explicitly set in this helper
     # Require the caller to specify cargoArtifacts we can use
-    pname = "uniffi-bindgen";
     dontUnpack = true;
     # Set the cargo command we will use and pass through the flags
     buildPhase =

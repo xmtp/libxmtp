@@ -5,7 +5,7 @@
   xmtp,
   zstd,
   openssl,
-  sqlite,
+  sqlcipher,
   pkg-config,
   darwin,
   stdenv,
@@ -52,9 +52,8 @@ let
     buildInputs = [
       zstd
       openssl
-      sqlite
-    ]
-    ++ lib.optionals stdenv.hostPlatform.isDarwin [ darwin.libiconv ];
+      sqlcipher
+    ];
 
     doCheck = false;
     # Disable zerocallusedregs hardening which can cause issues with cross-compilation.
@@ -70,6 +69,15 @@ let
     # https://crane.dev/faq/cross-compiling-aws-lc-sys.html
     "AWS_LC_SYS_TARGET_CC_${buildPlatformSuffix}" = "cc";
     "AWS_LC_SYS_TARGET_CXX_${buildPlatformSuffix}" = "c++";
+
+    # Tell openssl-sys to use the pre-built nixpkgs openssl instead of
+    # vendoring its own. Without this, openssl-sys falls back to building
+    # OpenSSL from source via openssl-src, which calls `xcrun` to find a
+    # compiler and fails in cross-compilation environments.
+    OPENSSL_NO_VENDOR = "1";
+    OPENSSL_DIR = "${openssl.dev}";
+    OPENSSL_LIB_DIR = "${openssl.out}/lib";
+    OPENSSL_INCLUDE_DIR = "${openssl.dev}/include";
 
   };
 

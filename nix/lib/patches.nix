@@ -86,4 +86,20 @@
     }
   )
 
+  # harfbuzz's test-coretext requires access to macOS font services
+  # (CTFontManagerRegisterFontsForURLs) which are unavailable in the
+  # Nix sandbox, causing SIGABRT. Disable the test suite entirely on
+  # Darwin via the meson 'tests' option.
+  #
+  # Pulled into the build graph via:
+  #   remarshal → rich-argparse → rich → pytest-regressions → matplotlib
+  #   → ffmpeg-headless → harfbuzz
+  (
+    final: prev:
+    prev.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
+      harfbuzz = prev.harfbuzz.overrideAttrs (old: {
+        mesonFlags = (old.mesonFlags or [ ]) ++ [ "-Dtests=disabled" ];
+      });
+    }
+  )
 ]

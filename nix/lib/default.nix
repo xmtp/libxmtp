@@ -107,11 +107,11 @@ in
             t = normalize target;
           in
           {
-            name = t.config;
+            name = t.name or t.config;
             value = import inputs.nixpkgs {
               inherit config overlays;
               localSystem = system;
-              crossSystem = t;
+              crossSystem = removeAttrs t [ "name" ];
             };
           }
         ) targets
