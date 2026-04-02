@@ -184,11 +184,13 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
         let subscriber = tracing_subscriber::registry().with(fmt).with(filter);
 
         if options.performance.unwrap_or_default() {
+          // Initialize tracing subscriber. Silently ignored if already set by another crate.
           subscriber
             .with(tracing_web::performance_layer().with_details_from_fields(Pretty::default()))
-            .init();
+            .try_init();
         } else {
-          subscriber.init();
+          // Initialize tracing subscriber. Silently ignored if already set by another crate.
+          subscriber.try_init();
         }
       }
       Ok(())
