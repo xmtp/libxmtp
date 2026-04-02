@@ -172,8 +172,9 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
           .with_level(true)
           .without_time() // need to test whether this would break browsers
           .with_target(true);
-
-        tracing_subscriber::registry().with(filter).with(fmt).init();
+        
+        // Initialize tracing subscriber. Silently ignored if already set by another crate.
+        tracing_subscriber::registry().with(filter).with(fmt).try_init();
       } else {
         let fmt = tracing_subscriber::fmt::layer()
           .with_ansi(false) // not supported by all browsers
