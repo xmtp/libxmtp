@@ -7,7 +7,8 @@
   };
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # nixpkgs.url = "github:insipx/nixpkgs/insipx/ios-build";
+    nixpkgs.url = "git+file:///Users/insipx/code/nixpkgs";
     fenix = {
       url = "github:nix-community/fenix";
       inputs = {
@@ -17,7 +18,10 @@
     flake-parts = {
       url = "github:hercules-ci/flake-parts";
     };
-    foundry.url = "github:shazow/foundry.nix/stable";
+    foundry = {
+      url = "github:shazow/foundry.nix/stable";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     crane = {
       url = "github:ipetkov/crane";
     };
@@ -50,6 +54,7 @@
         ./nix/fmt.nix
         ./nix/node-packages.nix
         ./nix/android-packages.nix
+        ./nix/ios-packages.nix
       ];
       perSystem =
         {
@@ -80,37 +85,37 @@
             inherit (pkgs) napi-rs-cli wasm-bindgen-cli;
             wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { }).bin;
             wasm-bindings-test = (pkgs.callPackage ./nix/package/wasm.nix { test = true; }).bin;
-          }
-          // lib.optionalAttrs pkgs.stdenv.isDarwin {
-            # stdenvNoCC is passed to callPackage (for the aggregate derivation).
-            # This avoids Nix's apple-sdk and cc-wrapper,
-            # which inject -mmacos-version-min flags that
-            # conflict with iOS cross-compilation. The builds are impure (__noChroot)
-            # and use the system Xcode SDK directly via ios-env.nix paths.
-            ios-libs =
-              (pkgs.callPackage ./nix/package/ios.nix {
-                stdenv = pkgs.stdenvNoCC;
-              }).aggregate;
-            # iOS bindings - simulator + host macOS only (fast dev/CI builds)
-            ios-libs-fast =
-              (
-                (pkgs.callPackage ./nix/package/ios.nix {
-                  stdenv = pkgs.stdenvNoCC;
-                }).mkIos
-                [
-                  "aarch64-apple-darwin"
-                  "aarch64-apple-ios-sim"
-                ]
-              ).aggregate;
-            ios-xcframeworks =
-              (pkgs.callPackage ./nix/package/ios.nix {
-                stdenv = pkgs.stdenvNoCC;
-              }).release;
-            ios-xcframeworks-fast =
-              (pkgs.callPackage ./nix/package/ios.nix {
-                stdenv = pkgs.stdenvNoCC;
-              }).devFast;
           };
+          # // lib.optionalAttrs pkgs.stdenv.isDarwin {
+          #   # stdenvNoCC is passed to callPackage (for the aggregate derivation).
+          #   # This avoids Nix's apple-sdk and cc-wrapper,
+          #   # which inject -mmacos-version-min flags that
+          #   # conflict with iOS cross-compilation. The builds are impure (__noChroot)
+          #   # and use the system Xcode SDK directly via ios-env.nix paths.
+          #   ios-libs =
+          #     (pkgs.callPackage ./nix/package/ios.nix {
+          #       stdenv = pkgs.stdenvNoCC;
+          #     }).aggregate;
+          #   # iOS bindings - simulator + host macOS only (fast dev/CI builds)
+          #   ios-libs-fast =
+          #     (
+          #       (pkgs.callPackage ./nix/package/ios.nix {
+          #         stdenv = pkgs.stdenvNoCC;
+          #       }).mkIos
+          #       [
+          #         "aarch64-apple-darwin"
+          #         "aarch64-apple-ios-sim"
+          #       ]
+          #     ).aggregate;
+          #   ios-xcframeworks =
+          #     (pkgs.callPackage ./nix/package/ios.nix {
+          #       stdenv = pkgs.stdenvNoCC;
+          #     }).release;
+          #   ios-xcframeworks-fast =
+          #     (pkgs.callPackage ./nix/package/ios.nix {
+          #       stdenv = pkgs.stdenvNoCC;
+          #     }).devFast;
+          # };
         };
     };
 }

@@ -1,0 +1,134 @@
+Running phase: unpackPhase
+@nix { "action": "setPhase", "phase": "unpackPhase" }
+unpacking source archive /nix/store/vvwbq67wqza8l1cjqdy1v5l4p746j32n-source
+source root is source
+Running phase: patchPhase
+@nix { "action": "setPhase", "phase": "patchPhase" }
+Executing configureCargoCommonVars
+----------------------------------------------------------------------------------
+NOTICE: setting the following environment variables for cross-compilation purposes
+ - if this is unwanted, you can set them to a non-empty value
+ - alternatively, you can disable the built-in cross compilation support
+   by setting `doIncludeCrossToolchainEnv = false` in the derivation
+AR_AARCH64_APPLE_DARWIN=ar
+AR_AARCH64_APPLE_IOS=arm64-apple-ios-ar
+CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=cc
+CARGO_TARGET_AARCH64_APPLE_IOS_LINKER=arm64-apple-ios-cc
+CC_AARCH64_APPLE_DARWIN=cc
+CC_AARCH64_APPLE_IOS=arm64-apple-ios-cc
+CXX_AARCH64_APPLE_DARWIN=c++
+CXX_AARCH64_APPLE_IOS=arm64-apple-ios-c++
+HOST_AR=ar
+HOST_CC=cc
+HOST_CXX=c++
+TARGET_AR=arm64-apple-ios-ar
+TARGET_CC=arm64-apple-ios-cc
+TARGET_CXX=arm64-apple-ios-c++
+----------------------------------------------------------------------------------
+decompressing cargo artifacts from /nix/store/yvv3b4n00ry53vl8f1r7031zdxdmdrhf-cargo-package-deps-arm64-apple-ios-1.10.0/target.tar.zst to target
+Running phase: updateAutotoolsGnuConfigScriptsPhase
+@nix { "action": "setPhase", "phase": "updateAutotoolsGnuConfigScriptsPhase" }
+Running phase: configurePhase
+@nix { "action": "setPhase", "phase": "configurePhase" }
+will append /nix/var/nix/builds/nix-44563-862696738/source/.cargo-home/config.toml with contents of /nix/store/6pk5275j1b21y4776ism53662jws7r92-vendor-cargo-deps/config.toml
+default configurePhase, nothing to do
+Running phase: buildPhase
+@nix { "action": "setPhase", "phase": "buildPhase" }
++++ command cargo --version
+cargo 1.94.1 (29ea6fb6a 2026-03-24)
++++ command cargo build --release --message-format json-render-diagnostics -p xmtpv3
+[1m[92m   Compiling[0m tokio v1.51.1
+[1m[92m   Compiling[0m errno v0.3.14
+[1m[92m   Compiling[0m xmtp-workspace-hack v0.1.0 (/nix/var/nix/builds/nix-44563-862696738/source/crates/xmtp-workspace-hack)
+[1m[92m   Compiling[0m xmtp_macro v1.10.0 (/nix/var/nix/builds/nix-44563-862696738/source/crates/xmtp_macro)
+[1m[92m   Compiling[0m xmtp_proto v1.10.0 (/nix/var/nix/builds/nix-44563-862696738/source/crates/xmtp_proto)
+[1m[92m   Compiling[0m xmtpv3 v1.10.0 (/nix/var/nix/builds/nix-44563-862696738/source/bindings/mobile)
+[1m[92m   Compiling[0m rustix v1.1.4
+[1m[33mwarning[0m[1m: failed running `"xcrun" "--sdk" "macosx" "--show-sdk-path"` to find MacOSX.sdk[0m
+  [1m[94m|[0m
+  [1m[94m= [0m[1mnote[0m: error: unable to find sdk: 'macosx'
+  [1m[94m= [0m[1mnote[0m: the SDK is needed by the linker to know where to find symbols in system libraries and for embedding the SDK version in the final object file
+  [1m[94m= [0m[1mhelp[0m: pass the path of an Xcode installation via the DEVELOPER_DIR environment variable, or an SDK with the SDKROOT environment variable
+
+[1m[33mwarning[0m: `xmtp-workspace-hack` (build script) generated 1 warning
+[1m[33mwarning[0m: `xmtp_macro` (build script) generated 1 warning (1 duplicate)
+[1m[92m   Compiling[0m tempfile v3.27.0
+[1m[92m   Compiling[0m alloy-node-bindings v2.0.0
+[1m[92m   Compiling[0m uniffi_pipeline v0.31.1
+[1m[33mwarning[0m: `xmtp_macro` (lib) generated 1 warning (1 duplicate)
+[1m[33mwarning[0m: `xmtp_proto` (build script) generated 1 warning (1 duplicate)
+[1m[92m   Compiling[0m tokio-util v0.7.18
+[1m[92m   Compiling[0m tokio-rustls v0.26.4
+[1m[92m   Compiling[0m async-compat v0.2.5
+[1m[92m   Compiling[0m uniffi_core v0.31.1
+[1m[33mwarning[0m: `xmtpv3` (build script) generated 1 warning (1 duplicate)
+[1m[92m   Compiling[0m h2 v0.4.13
+[1m[92m   Compiling[0m tower v0.5.3
+[1m[92m   Compiling[0m tokio-stream v0.1.18
+[1m[92m   Compiling[0m uniffi v0.31.1
+[1m[33mwarning[0m: xmtpv3@1.10.0: Could not find a git repository in '/nix/var/nix/builds/nix-44563-862696738/source/bindings/mobile' or in any of its parents within device limits below '/'
+[1m[33mwarning[0m: xmtpv3@1.10.0: VERGEN_GIT_BRANCH set to default
+[1m[33mwarning[0m: xmtpv3@1.10.0: VERGEN_GIT_COMMIT_DATE set to default
+[1m[33mwarning[0m: xmtpv3@1.10.0: VERGEN_GIT_COMMIT_TIMESTAMP set to default
+[1m[33mwarning[0m: xmtpv3@1.10.0: VERGEN_GIT_SHA set to default
+[1m[92m   Compiling[0m tower-http v0.6.8
+[1m[92m   Compiling[0m alloy-transport v2.0.0
+[1m[92m   Compiling[0m axum v0.8.8
+[1m[92m   Compiling[0m hyper v1.9.0
+[1m[92m   Compiling[0m hyper-util v0.1.20
+[1m[92m   Compiling[0m hyper-rustls v0.27.8
+[1m[92m   Compiling[0m hyper-timeout v0.5.2
+[1m[92m   Compiling[0m reqwest v0.13.2
+[1m[92m   Compiling[0m tonic v0.14.5
+[1m[92m   Compiling[0m alloy-transport-http v2.0.0
+[1m[92m   Compiling[0m alloy-rpc-client v2.0.0
+[1m[92m   Compiling[0m alloy-provider v2.0.0
+[1m[92m   Compiling[0m tonic-prost v0.14.5
+[1m[92m   Compiling[0m alloy-contract v2.0.0
+[1m[92m   Compiling[0m alloy v2.0.0
+[1m[92m   Compiling[0m xmtp_cryptography v1.10.0 (/nix/var/nix/builds/nix-44563-862696738/source/crates/xmtp_cryptography)
+[1m[92m   Compiling[0m xmtp_common v1.10.0 (/nix/var/nix/builds/nix-44563-862696738/source/crates/xmtp_common)
+[1m[92m   Compiling[0m xmtp_configuration v1.10.0 (/nix/var/nix/builds/nix-44563-862696738/source/crates/xmtp_configuration)
+[1m[92m   Compiling[0m xmtp_id v1.10.0 (/nix/var/nix/builds/nix-44563-862696738/source/crates/xmtp_id)
+[1m[92m   Compiling[0m xmtp_content_types v1.10.0 (/nix/var/nix/builds/nix-44563-862696738/source/crates/xmtp_content_types)
+[1m[92m   Compiling[0m xmtp_api_grpc v1.10.0 (/nix/var/nix/builds/nix-44563-862696738/source/crates/xmtp_api_grpc)
+[1m[92m   Compiling[0m xmtp_db v1.10.0 (/nix/var/nix/builds/nix-44563-862696738/source/crates/xmtp_db)
+[1m[92m   Compiling[0m xmtp_api_d14n v1.10.0 (/nix/var/nix/builds/nix-44563-862696738/source/crates/xmtp_api_d14n)
+[1m[92m   Compiling[0m xmtp_api v1.10.0 (/nix/var/nix/builds/nix-44563-862696738/source/crates/xmtp_api)
+[1m[92m   Compiling[0m xmtp_mls_common v1.10.0 (/nix/var/nix/builds/nix-44563-862696738/source/crates/xmtp_mls_common)
+[1m[92m   Compiling[0m xmtp_archive v1.10.0 (/nix/var/nix/builds/nix-44563-862696738/source/crates/xmtp_archive)
+[1m[92m   Compiling[0m xmtp_mls v1.10.0 (/nix/var/nix/builds/nix-44563-862696738/source/crates/xmtp_mls)
+[1m[33mwarning[0m[1m: unused import: `tracing_subscriber::EnvFilter`[0m
+  [1m[94m--> [0mbindings/mobile/src/logger.rs:52:9
+   [1m[94m|[0m
+[1m[94m52[0m [1m[94m|[0m     use tracing_subscriber::EnvFilter;
+   [1m[94m|[0m         [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+   [1m[94m|[0m
+   [1m[94m= [0m[1mnote[0m: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+[1m[33mwarning[0m: `xmtpv3` (lib) generated 1 warning (run `cargo fix --lib -p xmtpv3` to apply 1 suggestion)
+[1m[92m    Finished[0m `release` profile [optimized] target(s) in 1m 11s
+searching for bins/libs to install from cargo build log at cargoBuildLog14e6.json
+installing /nix/var/nix/builds/nix-44563-862696738/source/target/aarch64-apple-ios/release/libxmtpv3.dylib in postBuildInstallFromCargoBuildLogOutTempn2F/lib
+installing /nix/var/nix/builds/nix-44563-862696738/source/target/aarch64-apple-ios/release/libxmtpv3.a in postBuildInstallFromCargoBuildLogOutTempn2F/lib
+searching for bins/libs complete
+buildPhase completed in 1 minutes 12 seconds
+Running phase: installPhase
+@nix { "action": "setPhase", "phase": "installPhase" }
+actually installing contents of postBuildInstallFromCargoBuildLogOutTempn2F to /nix/store/yx1ddw38rd40qhaa0wnyvnrns2c6zw1b-xmtpv3-aarch64-apple-ios-arm64-apple-ios-1.10.0
+stripping references to Rust toolchain
+Rust toolchain at: /nix/store/rkyigl69zr34gf8nqjhja0plh5cla50l-rust-mixed
+stripping Rust toolchain references done
+stripping references to cargoVendorDir from:
+/nix/store/yx1ddw38rd40qhaa0wnyvnrns2c6zw1b-xmtpv3-aarch64-apple-ios-arm64-apple-ios-1.10.0/lib/libxmtpv3.a
+/nix/store/yx1ddw38rd40qhaa0wnyvnrns2c6zw1b-xmtpv3-aarch64-apple-ios-arm64-apple-ios-1.10.0/lib/libxmtpv3.dylib
+stripping references done
+signing files:
+signing: /nix/store/yx1ddw38rd40qhaa0wnyvnrns2c6zw1b-xmtpv3-aarch64-apple-ios-arm64-apple-ios-1.10.0/lib/libxmtpv3.a
+signing: /nix/store/yx1ddw38rd40qhaa0wnyvnrns2c6zw1b-xmtpv3-aarch64-apple-ios-arm64-apple-ios-1.10.0/lib/libxmtpv3.dylib
+signing done
+Running phase: fixupPhase
+@nix { "action": "setPhase", "phase": "fixupPhase" }
+checking for references to /nix/var/nix/builds/nix-44563-862696738/ in /nix/store/yx1ddw38rd40qhaa0wnyvnrns2c6zw1b-xmtpv3-aarch64-apple-ios-arm64-apple-ios-1.10.0...
+patching script interpreter paths in /nix/store/yx1ddw38rd40qhaa0wnyvnrns2c6zw1b-xmtpv3-aarch64-apple-ios-arm64-apple-ios-1.10.0
+stripping (with command arm64-apple-ios-strip and flags -S) in  /nix/store/yx1ddw38rd40qhaa0wnyvnrns2c6zw1b-xmtpv3-aarch64-apple-ios-arm64-apple-ios-1.10.0/lib

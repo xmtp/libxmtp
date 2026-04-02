@@ -2,6 +2,8 @@
   xmtp,
   lib,
   stdenv,
+  openssl,
+  zstd,
 }:
 let
   inherit (lib.fileset) unions;
@@ -14,6 +16,12 @@ let
 
   specialArgs = lib.optionalAttrs stdenv.hostPlatform.isMusl {
     RUSTFLAGS = "-C target-feature=+crt-static";
+    # mls validation srevice does not need sqlite since it does not
+    # depend on xmtp_db
+    buildInputs = [
+      openssl
+      zstd
+    ];
   };
 
   commonArgs = base.commonArgs // specialArgs;
