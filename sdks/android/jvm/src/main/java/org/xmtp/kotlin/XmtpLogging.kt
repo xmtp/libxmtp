@@ -2,5 +2,5 @@ package org.xmtp.kotlin
 
 object XmtpLogging {
     @Volatile
-    var logger: XmtpLogger = NoOpLogger
+    var logger: XmtpLogger = StdoutLogger
 }

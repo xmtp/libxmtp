@@ -15,3 +15,19 @@ object NoOpLogger : XmtpLogger {
 
     override fun error(tag: String, message: String, throwable: Throwable?) {}
 }
+
+object StdoutLogger : XmtpLogger {
+    override fun debug(tag: String, message: String) {
+        println("D/$tag: $message")
+    }
+
+    override fun warning(tag: String, message: String, throwable: Throwable?) {
+        System.err.println("W/$tag: $message")
+        throwable?.printStackTrace(System.err)
+    }
+
+    override fun error(tag: String, message: String, throwable: Throwable?) {
+        System.err.println("E/$tag: $message")
+        throwable?.printStackTrace(System.err)
+    }
+}

@@ -75,3 +75,11 @@ typealias XMTPEnvironment = org.xmtp.kotlin.XMTPEnvironment
 
 // XMTPException.kt
 typealias XMTPException = org.xmtp.kotlin.XMTPException
+
+// XmtpLogger.kt
+typealias XmtpLogger = org.xmtp.kotlin.XmtpLogger
+typealias NoOpLogger = org.xmtp.kotlin.NoOpLogger
+typealias StdoutLogger = org.xmtp.kotlin.StdoutLogger
+
+// XmtpLogging.kt
+typealias XmtpLogging = org.xmtp.kotlin.XmtpLogging

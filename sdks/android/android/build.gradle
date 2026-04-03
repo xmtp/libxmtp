@@ -82,12 +82,12 @@ protobuf {
 }
 
 configurations.all {
-    // Prevent tink-android from conflicting with tink (pure JVM) from shared module
+    // Prevent tink-android from conflicting with tink (pure JVM) from jvm module
     exclude group: 'com.google.crypto.tink', module: 'tink-android'
 }
 
 dependencies {
-    api project(':shared')
+    api project(':jvm')
 
     // gRPC dependencies for push notification support
     implementation 'io.grpc:grpc-kotlin-stub:1.4.1'
