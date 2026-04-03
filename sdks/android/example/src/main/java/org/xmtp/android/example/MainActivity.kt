@@ -36,6 +36,7 @@ import org.xmtp.android.example.databinding.ActivityMainBinding
 import org.xmtp.android.example.logs.LogViewerBottomSheet
 import org.xmtp.android.example.pushnotifications.PushNotificationTokenManager
 import org.xmtp.android.example.utils.KeyUtil
+import org.xmtp.android.library.AndroidClientHelper
 import org.xmtp.android.library.Client
 import org.xmtp.android.library.Conversation
 import uniffi.xmtpv3.FfiLogLevel
@@ -165,7 +166,7 @@ class MainActivity :
         super.onResume()
         // Check if logs were previously activated and reactivate if needed
         if (isLogsActivated()) {
-            Client.activatePersistentLibXMTPLogWriter(applicationContext, FfiLogLevel.DEBUG, FfiLogRotation.MINUTELY, 3)
+            Client.activatePersistentLibXMTPLogWriter(AndroidClientHelper.defaultLogDirectory(applicationContext), FfiLogLevel.DEBUG, FfiLogRotation.MINUTELY, 3)
         }
 
         // If we're still in error state, make sure retry is running
@@ -203,7 +204,7 @@ class MainActivity :
             }
             R.id.activate_logs -> {
                 Client.activatePersistentLibXMTPLogWriter(
-                    applicationContext,
+                    AndroidClientHelper.defaultLogDirectory(applicationContext),
                     FfiLogLevel.DEBUG,
                     FfiLogRotation.MINUTELY,
                     3,

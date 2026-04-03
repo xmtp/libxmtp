@@ -19,7 +19,7 @@ import kotlinx.coroutines.runBlocking
 import org.xmtp.android.example.ClientManager
 import org.xmtp.android.example.extension.flowWhileShared
 import org.xmtp.android.example.extension.stateFlow
-import org.xmtp.android.library.Conversation
+import org.xmtp.kotlin.Conversation
 
 class ConversationDetailViewModel(
     private val savedStateHandle: SavedStateHandle,

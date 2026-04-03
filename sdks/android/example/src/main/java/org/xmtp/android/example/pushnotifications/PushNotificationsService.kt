@@ -20,7 +20,7 @@ import org.xmtp.android.example.R
 import org.xmtp.android.example.conversation.ConversationDetailActivity
 import org.xmtp.android.example.extension.truncatedAddress
 import org.xmtp.android.example.utils.KeyUtil
-import org.xmtp.android.library.Topic
+import org.xmtp.kotlin.Topic
 import org.xmtp.android.library.codecs.GroupUpdated
 
 class PushNotificationsService : FirebaseMessagingService() {

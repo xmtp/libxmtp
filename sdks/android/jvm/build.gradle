@@ -1,0 +1,66 @@
+plugins {
+    id 'signing'
+    id 'maven-publish'
+    id 'org.jetbrains.kotlin.jvm'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+    withSourcesJar()
+    withJavadocJar()
+}
+
+kotlin {
+    jvmToolchain(17)
+}
+
+dependencies {
+    api project(':shared')
+    testImplementation 'junit:junit:4.13.2'
+}
+
+afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                groupId = "org.xmtp"
+                artifactId = "jvm"
+                version = rootProject.version
+
+                from components.java
+
+                pom {
+                    name = "XMTP JVM"
+                    description = "XMTP JVM Library"
+                    url = "https://github.com/xmtp/libxmtp"
+
+                    licenses {
+                        license {
+                            name = "MIT License"
+                            url = "https://github.com/xmtp/libxmtp/blob/main/LICENSE"
+                        }
+                    }
+                    developers {
+                        developer {
+                            id = "xmtp"
+                            name = "xmtp"
+                            email = "naomi@xmtp.com"
+                        }
+                    }
+                    scm {
+                        connection = "https://github.com/xmtp/libxmtp.git"
+                        developerConnection = "https://github.com/xmtp/libxmtp.git"
+                        url = "https://github.com/xmtp/libxmtp/tree/main"
+                    }
+                }
+            }
+        }
+    }
+    signing {
+        def signingKey = System.getenv("SIGN_KEY")
+        def signingPassword = System.getenv("SIGN_PASSWORD")
+        useInMemoryPgpKeys(signingKey, signingPassword)
+        sign publishing.publications.release
+    }
+}

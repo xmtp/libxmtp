@@ -8,8 +8,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import org.xmtp.android.example.utils.KeyUtil
+import org.xmtp.android.library.AndroidClientHelper
 import org.xmtp.android.library.Client
-import org.xmtp.android.library.ClientOptions
+import org.xmtp.kotlin.ClientOptions
 import org.xmtp.android.library.XMTPEnvironment
 import org.xmtp.android.library.codecs.GroupUpdatedCodec
 import org.xmtp.android.library.libxmtp.IdentityKind
@@ -32,7 +33,7 @@ object ClientManager {
                     XMTPEnvironment.DEV,
                     isSecure = true,
                 ),
-            appContext = appContext,
+            dbDirectory = AndroidClientHelper.defaultDbDirectory(appContext),
             dbEncryptionKey = encryptionKey,
         )
     }

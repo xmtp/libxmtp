@@ -20,7 +20,7 @@ import org.xmtp.android.example.extension.flowWhileShared
 import org.xmtp.android.example.extension.stateFlow
 import org.xmtp.android.example.pushnotifications.PushNotificationTokenManager
 import org.xmtp.android.library.Conversation
-import org.xmtp.android.library.Topic
+import org.xmtp.kotlin.Topic
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.push.Service
 
