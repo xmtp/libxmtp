@@ -1,21 +1,42 @@
+use alloy::primitives::{BlockNumber, Bytes, keccak256};
 use lru::LruCache;
 use parking_lot::Mutex;
 use std::num::NonZeroUsize;
-
-use alloy::primitives::{BlockNumber, Bytes};
 use xmtp_id::associations::AccountId;
 use xmtp_id::scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
 
-/// Cache key that incorporates all verification parameters to prevent
-/// cross-account cache poisoning and block-number mismatch attacks.
+/// Fixed-size cache key (32 bytes). All verification parameters are hashed
+/// together via keccak256 to prevent cross-account cache poisoning while
+/// keeping memory usage constant per entry.
 /// See: https://github.com/xmtp/libxmtp/issues/3393
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct CacheKey {
-    chain_id: String,
-    account_address: String,
-    hash: [u8; 32],
-    signature: Bytes,
+type CacheKey = [u8; 32];
+
+/// Build a cache key by hashing all verification parameters together.
+fn build_cache_key(
+    account_id: &AccountId,
+    hash: &[u8; 32],
+    signature: &Bytes,
     block_number: Option<BlockNumber>,
+) -> CacheKey {
+    let mut buf = Vec::new();
+    buf.extend_from_slice(account_id.get_chain_id().as_bytes());
+    buf.push(0xff); // domain separator
+    buf.extend_from_slice(account_id.get_account_address().as_bytes());
+    buf.push(0xff);
+    buf.extend_from_slice(hash);
+    buf.push(0xff);
+    buf.extend_from_slice(signature);
+    buf.push(0xff);
+    match block_number {
+        Some(bn) => {
+            buf.push(0x01);
+            buf.extend_from_slice(&bn.to_be_bytes());
+        }
+        None => {
+            buf.push(0x00);
+        }
+    }
+    *keccak256(&buf)
 }
 
 /// A cached smart contract verifier.
@@ -48,13 +69,7 @@ impl SmartContractSignatureVerifier for CachedSmartContractSignatureVerifier {
         signature: Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<ValidationResponse, VerifierError> {
-        let cache_key = CacheKey {
-            chain_id: account_id.get_chain_id().to_string(),
-            account_address: account_id.get_account_address().to_string(),
-            hash,
-            signature: signature.clone(),
-            block_number,
-        };
+        let cache_key = build_cache_key(&account_id, &hash, &signature, block_number);
 
         if let Some(cached_response) = {
             let mut cache = self.cache.lock();
@@ -177,20 +192,8 @@ mod tests {
     async fn test_cache_eviction() {
         let mut cache: LruCache<CacheKey, ValidationResponse> =
             LruCache::new(NonZeroUsize::new(1).unwrap());
-        let key1 = CacheKey {
-            chain_id: "eip155:1".to_string(),
-            account_address: "0xabc".to_string(),
-            hash: [0u8; 32],
-            signature: Bytes::from(vec![1, 2, 3]),
-            block_number: Some(1),
-        };
-        let key2 = CacheKey {
-            chain_id: "eip155:1".to_string(),
-            account_address: "0xdef".to_string(),
-            hash: [1u8; 32],
-            signature: Bytes::from(vec![4, 5, 6]),
-            block_number: Some(2),
-        };
+        let key1 = [0u8; 32];
+        let key2 = [1u8; 32];
 
         assert_ne!(key1, key2);
 
@@ -205,14 +208,14 @@ mod tests {
             error: None,
         };
 
-        cache.put(key1.clone(), val1.clone());
+        cache.put(key1, val1.clone());
         let response = cache.get(&key1).unwrap();
 
         // key1 is correctly cached
         assert_eq!(response.is_valid, val1.is_valid);
         assert_eq!(response.block_number, val1.block_number);
 
-        cache.put(key2.clone(), val2.clone());
+        cache.put(key2, val2.clone());
 
         // key1 is evicted, shouldn't exist
         assert!(cache.get(&key1).is_none());
@@ -227,97 +230,49 @@ mod tests {
     /// Regression test for https://github.com/xmtp/libxmtp/issues/3393
     #[tokio::test]
     async fn test_cache_key_includes_all_params() {
-        let mut cache: LruCache<CacheKey, ValidationResponse> =
-            LruCache::new(NonZeroUsize::new(10).unwrap());
         let hash = [0u8; 32];
+        let sig = Bytes::from(vec![1]);
 
-        // Same hash, different account_address
-        let key_account_a = CacheKey {
-            chain_id: "eip155:1".to_string(),
-            account_address: "0xaaa".to_string(),
-            hash,
-            signature: Bytes::from(vec![1]),
-            block_number: Some(100),
-        };
-        let key_account_b = CacheKey {
-            chain_id: "eip155:1".to_string(),
-            account_address: "0xbbb".to_string(),
-            hash,
-            signature: Bytes::from(vec![1]),
-            block_number: Some(100),
-        };
+        let account_a = AccountId::new("eip155:1".into(), "0xaaa".into());
+        let account_b = AccountId::new("eip155:1".into(), "0xbbb".into());
 
-        cache.put(
-            key_account_a.clone(),
-            ValidationResponse {
-                is_valid: true,
-                block_number: Some(100),
-                error: None,
-            },
+        // Different account_address -> different cache key
+        assert_ne!(
+            build_cache_key(&account_a, &hash, &sig, Some(100)),
+            build_cache_key(&account_b, &hash, &sig, Some(100)),
         );
 
-        // Different account should NOT hit the cache
-        assert!(cache.get(&key_account_b).is_none());
-        // Same account should hit the cache
-        assert!(cache.get(&key_account_a).is_some());
-
-        // Same hash, different block_number
-        let key_block_1 = CacheKey {
-            chain_id: "eip155:1".to_string(),
-            account_address: "0xaaa".to_string(),
-            hash,
-            signature: Bytes::from(vec![1]),
-            block_number: Some(100),
-        };
-        let key_block_2 = CacheKey {
-            chain_id: "eip155:1".to_string(),
-            account_address: "0xaaa".to_string(),
-            hash,
-            signature: Bytes::from(vec![1]),
-            block_number: Some(200),
-        };
-
-        cache.put(
-            key_block_1.clone(),
-            ValidationResponse {
-                is_valid: true,
-                block_number: Some(100),
-                error: None,
-            },
+        // Different block_number -> different cache key
+        assert_ne!(
+            build_cache_key(&account_a, &hash, &sig, Some(100)),
+            build_cache_key(&account_a, &hash, &sig, Some(200)),
         );
 
-        // Different block_number should NOT hit the cache
-        assert!(cache.get(&key_block_2).is_none());
-        assert!(cache.get(&key_block_1).is_some());
-
-        // Same hash, different signature
-        let key_sig_a = CacheKey {
-            chain_id: "eip155:1".to_string(),
-            account_address: "0xaaa".to_string(),
-            hash,
-            signature: Bytes::from(vec![1, 2, 3]),
-            block_number: Some(100),
-        };
-        let key_sig_b = CacheKey {
-            chain_id: "eip155:1".to_string(),
-            account_address: "0xaaa".to_string(),
-            hash,
-            signature: Bytes::from(vec![4, 5, 6]),
-            block_number: Some(100),
-        };
-
-        cache.put(
-            key_sig_a.clone(),
-            ValidationResponse {
-                is_valid: true,
-                block_number: Some(100),
-                error: None,
-            },
+        // Different signature -> different cache key
+        let sig2 = Bytes::from(vec![2]);
+        assert_ne!(
+            build_cache_key(&account_a, &hash, &sig, Some(100)),
+            build_cache_key(&account_a, &hash, &sig2, Some(100)),
         );
 
-        // Different signature should NOT hit the cache
-        assert!(cache.get(&key_sig_b).is_none());
-        assert!(cache.get(&key_sig_a).is_some());
+        // Different hash -> different cache key
+        let hash2 = [1u8; 32];
+        assert_ne!(
+            build_cache_key(&account_a, &hash, &sig, Some(100)),
+            build_cache_key(&account_a, &hash2, &sig, Some(100)),
+        );
+
+        // Same params -> same cache key
+        assert_eq!(
+            build_cache_key(&account_a, &hash, &sig, Some(100)),
+            build_cache_key(&account_a, &hash, &sig, Some(100)),
+        );
+
+        // None vs Some(0) block_number -> different cache key
+        assert_ne!(
+            build_cache_key(&account_a, &hash, &sig, None),
+            build_cache_key(&account_a, &hash, &sig, Some(0)),
+        );
     }
 
     #[tokio::test]
