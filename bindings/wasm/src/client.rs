@@ -174,7 +174,10 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
           .with_target(true);
         
         // Initialize tracing subscriber. Silently ignored if already set by another crate.
-        tracing_subscriber::registry().with(filter).with(fmt).try_init();
+        let subscriber_result = tracing_subscriber::registry().with(filter).with(fmt).try_init();
+        if subscriber_result.is_err() {
+          tracing::warn!("tracing subscriber has not been initialized. Maybe it is already set? Error: {:?}", subscriber_result.err());
+        }
       } else {
         let fmt = tracing_subscriber::fmt::layer()
           .with_ansi(false) // not supported by all browsers
@@ -185,12 +188,18 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
 
         if options.performance.unwrap_or_default() {
           // Initialize tracing subscriber. Silently ignored if already set by another crate.
-          subscriber
+          let subscriber_result = subscriber
             .with(tracing_web::performance_layer().with_details_from_fields(Pretty::default()))
             .try_init();
+          if subscriber_result.is_err() {
+            tracing::warn!("Tracing subscriber has not been initialized. Maybe it is already set? Error: {:?}", subscriber_result.err());
+          }
         } else {
           // Initialize tracing subscriber. Silently ignored if already set by another crate.
-          subscriber.try_init();
+          let subscriber_result = subscriber.try_init();
+          if subscriber_result.is_err() {
+            tracing::warn!("Tracing subscriber has not been initialized. Maybe it is already set? Error: {:?}", subscriber_result.err());
+          }
         }
       }
       Ok(())
