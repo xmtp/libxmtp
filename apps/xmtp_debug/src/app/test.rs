@@ -3,13 +3,15 @@
 use color_eyre::eyre::{Result, eyre};
 use futures::stream::StreamExt;
 use prost::Message as ProstMessage;
+use std::collections::HashSet;
 use std::time::Instant;
 use xmtp_api_d14n::d14n::QueryEnvelopes;
 use xmtp_configuration::Originators;
+use xmtp_db::encrypted_store::group_message::GroupMessageKind;
 use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;
 use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig, Query};
 use xmtp_proto::types::Topic;
-use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
+use xmtp_proto::xmtp::xmtpv4::envelopes::{OriginatorEnvelope, UnsignedOriginatorEnvelope};
 use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
 
 use crate::{
@@ -17,6 +19,44 @@ use crate::{
     args::{self, TestOpts, TestScenario},
     metrics::{self, record_phase_metric},
 };
+
+/// Tag embedded in parity test messages for identification in V3 local store.
+const PARITY_TAG: &str = "__PARITY_CHECK__";
+
+/// Build a V4 query client from a URL.
+/// Must point at a D14N replication node (e.g. grpc.testnet.xmtp.network),
+/// NOT the payer gateway — the gateway doesn't serve QueryEnvelopes.
+fn build_v4_client(url: &url::Url) -> Result<xmtp_api_grpc::GrpcClient> {
+    let mut builder = xmtp_api_grpc::GrpcClient::builder();
+    builder.set_host(url.clone());
+    Ok(builder.build()?)
+}
+
+/// Fetch all envelopes for a topic from V4, returning an empty vec on error.
+async fn query_v4_envelopes(
+    v4_client: &xmtp_api_grpc::GrpcClient,
+    topic: &Topic,
+) -> Vec<OriginatorEnvelope> {
+    let mut endpoint = match QueryEnvelopes::builder()
+        .envelopes(EnvelopesQuery {
+            topics: vec![topic.cloned_vec()],
+            originator_node_ids: vec![],
+            last_seen: None,
+        })
+        .limit(0u32)
+        .build()
+    {
+        Ok(e) => e,
+        Err(_) => return vec![],
+    };
+    match endpoint.query(v4_client).await {
+        Ok(r) => r.envelopes,
+        Err(e) => {
+            debug!(error = %e, "V4 query failed");
+            vec![]
+        }
+    }
+}
 
 pub struct Test {
     opts: TestOpts,
@@ -33,6 +73,7 @@ impl Test {
             TestScenario::MessageVisibility => self.message_visibility_test().await,
             TestScenario::GroupSync => self.group_sync_test().await,
             TestScenario::MigrationLatency => self.migration_latency_test().await,
+            TestScenario::ContentParity => self.content_parity_test().await,
         }
     }
 
@@ -356,14 +397,7 @@ impl Test {
             "starting migration latency test"
         );
 
-        // Build V4 query client once (reused across iterations).
-        // Must point at a D14N replication node (grpc.testnet.xmtp.network),
-        // NOT the payer gateway — the gateway doesn't serve QueryEnvelopes.
-        let v4_client = {
-            let mut builder = xmtp_api_grpc::GrpcClient::builder();
-            builder.set_host(v4_node_url.clone());
-            builder.build()?
-        };
+        let v4_client = build_v4_client(v4_node_url)?;
         info!(v4_node = %v4_node_url, "V4 query client ready");
 
         for i in 0..iterations {
@@ -377,7 +411,7 @@ impl Test {
                     let secs = latency as f64 / 1000.0;
                     metrics::record_migration_success();
                     metrics::record_migration_latency(secs);
-                    metrics::push_metrics("xdbg_test").await;
+                    metrics::push_metrics("xdbg_migration").await;
                     info!(
                         iteration = i + 1,
                         latency_ms = latency,
@@ -391,7 +425,7 @@ impl Test {
                         error = %e,
                         "migration latency iteration failed"
                     );
-                    metrics::push_metrics("xdbg_test").await;
+                    metrics::push_metrics("xdbg_migration").await;
                 }
             }
         }
@@ -438,6 +472,393 @@ impl Test {
             .await;
         client.release_db_connection()?;
         result
+    }
+
+    // -----------------------------------------------------------------------
+    // Content Parity: V3 → V4
+    // -----------------------------------------------------------------------
+
+    /// Validates V3→V4 content parity: write structured payloads to V3, read
+    /// back from V4, and diff content/count/ordering for each data type.
+    async fn content_parity_test(&self) -> Result<()> {
+        let v4_node_url = self
+            .opts
+            .v4_node_url
+            .as_ref()
+            .ok_or_else(|| eyre!("--v4-node-url is required for content-parity scenario"))?;
+
+        let iterations = self.opts.iterations;
+        let msg_count = self.opts.parity_messages;
+        let timeout_secs = self.opts.migration_timeout;
+
+        info!(
+            iterations,
+            msg_count,
+            timeout_secs,
+            v3_backend = ?self.network.backend,
+            v4_node = %v4_node_url,
+            "starting content parity test"
+        );
+
+        let v4_client = build_v4_client(v4_node_url)?;
+
+        for i in 0..iterations {
+            info!(iteration = i + 1, "running content parity iteration");
+            match self.run_single_parity_test(&v4_client).await {
+                Ok(()) => {
+                    info!(iteration = i + 1, "content parity iteration complete");
+                }
+                Err(e) => {
+                    warn!(iteration = i + 1, error = %e, "content parity iteration failed");
+                }
+            }
+            metrics::push_metrics("xdbg_parity").await;
+        }
+
+        Ok(())
+    }
+
+    async fn run_single_parity_test(&self, v4_client: &xmtp_api_grpc::GrpcClient) -> Result<()> {
+        let msg_count = self.opts.parity_messages;
+        let timeout_secs = self.opts.migration_timeout;
+
+        // Step 1: Create 2 V3 clients (sender + receiver)
+        info!("creating sender");
+        let wallet1 = generate_wallet();
+        let client1 = app::temp_client(&self.network, Some(&wallet1)).await?;
+        app::register_client(&client1, wallet1.clone().into_alloy()).await?;
+        let inbox_id1 = client1.inbox_id().to_string();
+        let install_id1 = client1.installation_public_key();
+        info!(inbox_id = inbox_id1, "sender registered");
+
+        info!("creating receiver");
+        let wallet2 = generate_wallet();
+        let client2 = app::temp_client(&self.network, Some(&wallet2)).await?;
+        app::register_client(&client2, wallet2.clone().into_alloy()).await?;
+        let inbox_id2 = client2.inbox_id().to_string();
+        let install_id2 = client2.installation_public_key();
+        info!(inbox_id = inbox_id2, "receiver registered");
+
+        // Step 2: Snapshot V4 baselines BEFORE group operations (concurrent)
+        let identity_topic1 = Topic::new_identity_update(&hex::decode(&inbox_id1)?);
+        let identity_topic2 = Topic::new_identity_update(&hex::decode(&inbox_id2)?);
+        let kp_topic1 = Topic::new_key_package(install_id1);
+        let kp_topic2 = Topic::new_key_package(install_id2);
+        let welcome_topic2 = Topic::new_welcome_message(install_id2);
+
+        let (id_baseline1, id_baseline2, kp_baseline1, kp_baseline2, welcome_baseline2) = tokio::join!(
+            async { query_v4_envelopes(v4_client, &identity_topic1).await.len() },
+            async { query_v4_envelopes(v4_client, &identity_topic2).await.len() },
+            async { query_v4_envelopes(v4_client, &kp_topic1).await.len() },
+            async { query_v4_envelopes(v4_client, &kp_topic2).await.len() },
+            async { query_v4_envelopes(v4_client, &welcome_topic2).await.len() },
+        );
+
+        info!(
+            id_baseline1,
+            id_baseline2, kp_baseline1, kp_baseline2, welcome_baseline2, "V4 baselines captured"
+        );
+
+        // Step 3: Sender creates group, adds receiver
+        info!("creating group and adding receiver");
+        let group = client1.create_group(Default::default(), Default::default())?;
+        group.add_members(std::slice::from_ref(&inbox_id2)).await?;
+        let group_id = group.group_id.clone();
+        let group_id_hex = hex::encode(&group_id);
+        info!(group_id = group_id_hex, "group created, receiver added");
+
+        let group_topic = Topic::new_group_message(&group_id);
+        let group_baseline = query_v4_envelopes(v4_client, &group_topic).await.len();
+        info!(group_baseline, "group topic baseline");
+
+        // Step 4: Send N tagged messages
+        info!(msg_count, "sending tagged messages on V3");
+        let send_start = Instant::now();
+        for i in 0..msg_count {
+            let payload = format!(
+                "{}{}_{}_{}",
+                PARITY_TAG,
+                group_id_hex,
+                i,
+                chrono::Utc::now().timestamp_millis()
+            );
+            group
+                .send_message(
+                    payload.as_bytes(),
+                    SendMessageOptsBuilder::default()
+                        .should_push(false)
+                        .build()
+                        .map_err(|e| eyre!("build SendMessageOpts: {e}"))?,
+                )
+                .await?;
+        }
+        info!(
+            elapsed_ms = send_start.elapsed().as_millis(),
+            "all messages sent on V3"
+        );
+
+        // Extract V3 cursor data for our application messages
+        let v3_messages = group.find_messages(&Default::default())?;
+        let v3_cursors: Vec<(u32, u64)> = v3_messages
+            .iter()
+            .filter(|m| m.kind == GroupMessageKind::Application)
+            .filter(|m| String::from_utf8_lossy(&m.decrypted_message_bytes).contains(PARITY_TAG))
+            .map(|m| (m.originator_id as u32, m.sequence_id as u64))
+            .collect();
+        info!(
+            v3_count = v3_cursors.len(),
+            expected = msg_count,
+            "V3 application messages extracted"
+        );
+
+        // Step 5: Poll V4 until all messages appear (or timeout).
+        // Keep the final envelope list to avoid a redundant re-fetch.
+        let poll_interval = std::time::Duration::from_millis(500);
+        let timeout = std::time::Duration::from_secs(timeout_secs);
+        let deadline = Instant::now() + timeout;
+
+        info!("polling V4 for migrated group messages...");
+        let group_envelopes = loop {
+            if Instant::now() > deadline {
+                warn!(
+                    timeout_secs,
+                    group_id = group_id_hex,
+                    "timeout waiting for group messages on V4"
+                );
+                break query_v4_envelopes(v4_client, &group_topic).await;
+            }
+            tokio::time::sleep(poll_interval).await;
+            let envelopes = query_v4_envelopes(v4_client, &group_topic).await;
+            let new_count = envelopes.len().saturating_sub(group_baseline);
+            if new_count >= msg_count {
+                info!(
+                    new_envelopes = new_count,
+                    total = envelopes.len(),
+                    elapsed_ms = (Instant::now() - (deadline - timeout)).as_millis(),
+                    "sufficient envelopes on V4"
+                );
+                break envelopes;
+            }
+        };
+
+        // Step 6: Run parity checks
+
+        // 6a: Group messages (uses already-fetched envelopes, no extra network call)
+        Self::check_group_message_parity(
+            &group_envelopes,
+            group_baseline,
+            &v3_cursors,
+            &group_id_hex,
+        )
+        .await;
+
+        // 6b-d: Identity updates, welcome messages, key packages (concurrent)
+        let sender_label = format!("sender {}", &inbox_id1[..8]);
+        let receiver_label = format!("receiver {}", &inbox_id2[..8]);
+        tokio::join!(
+            Self::check_topic_presence(
+                v4_client,
+                &identity_topic1,
+                id_baseline1,
+                "identity_updates",
+                &sender_label,
+                timeout_secs,
+            ),
+            Self::check_topic_presence(
+                v4_client,
+                &identity_topic2,
+                id_baseline2,
+                "identity_updates",
+                &receiver_label,
+                timeout_secs,
+            ),
+            Self::check_topic_presence(
+                v4_client,
+                &welcome_topic2,
+                welcome_baseline2,
+                "welcome_messages",
+                &receiver_label,
+                timeout_secs,
+            ),
+            Self::check_topic_presence(
+                v4_client,
+                &kp_topic1,
+                kp_baseline1,
+                "key_packages",
+                &sender_label,
+                timeout_secs,
+            ),
+            Self::check_topic_presence(
+                v4_client,
+                &kp_topic2,
+                kp_baseline2,
+                "key_packages",
+                &receiver_label,
+                timeout_secs,
+            ),
+        );
+
+        // Clean up
+        client1.release_db_connection()?;
+        client2.release_db_connection()?;
+
+        Ok(())
+    }
+
+    /// Check group message parity: match V3 cursors against V4 envelopes.
+    /// Takes pre-fetched envelopes to avoid a redundant network call.
+    async fn check_group_message_parity(
+        envelopes: &[OriginatorEnvelope],
+        baseline: usize,
+        v3_cursors: &[(u32, u64)],
+        group_id_hex: &str,
+    ) {
+        let data_type = "group_messages";
+        let new_envelopes = &envelopes[baseline.min(envelopes.len())..];
+
+        // Decode all new envelopes to get (originator_id, sequence_id) pairs
+        let mut v4_cursors: Vec<(u32, u64)> = Vec::new();
+        for env in new_envelopes {
+            if let Ok(unsigned) =
+                UnsignedOriginatorEnvelope::decode(env.unsigned_originator_envelope.as_slice())
+            {
+                v4_cursors.push((unsigned.originator_node_id, unsigned.originator_sequence_id));
+            }
+        }
+
+        // Check 1: Every V3 cursor should exist in V4
+        let v4_set: HashSet<(u32, u64)> = v4_cursors.iter().copied().collect();
+        let mut matched = 0usize;
+        let mut missing = 0usize;
+        for cursor in v3_cursors {
+            if v4_set.contains(cursor) {
+                matched += 1;
+            } else {
+                missing += 1;
+                warn!(
+                    originator_id = cursor.0,
+                    sequence_id = cursor.1,
+                    group_id = group_id_hex,
+                    "V3 message MISSING on V4"
+                );
+            }
+        }
+
+        // Check 2: Ordering — V4 sequence IDs should be monotonically non-decreasing
+        // within the same originator
+        let mut ordering_ok = true;
+        let mut last_seq_by_originator: std::collections::HashMap<u32, u64> =
+            std::collections::HashMap::new();
+        for &(orig, seq) in &v4_cursors {
+            if let Some(&last) = last_seq_by_originator.get(&orig)
+                && seq < last
+            {
+                ordering_ok = false;
+                warn!(
+                    originator_id = orig,
+                    current_seq = seq,
+                    previous_seq = last,
+                    "V4 ordering violation"
+                );
+            }
+            last_seq_by_originator.insert(orig, seq);
+        }
+
+        // Check 3: No duplicates
+        let unique_count = v4_set.len();
+        let duplicate_count = v4_cursors.len().saturating_sub(unique_count);
+        if duplicate_count > 0 {
+            warn!(duplicate_count, "duplicate envelopes on V4");
+            metrics::record_parity_extra(data_type, duplicate_count as u64);
+        }
+
+        let passed = missing == 0 && ordering_ok && duplicate_count == 0;
+        if passed {
+            metrics::record_parity_pass(data_type);
+            info!(
+                matched,
+                v3_count = v3_cursors.len(),
+                v4_new = v4_cursors.len(),
+                ordering_ok,
+                group_id = group_id_hex,
+                "group message parity: PASS"
+            );
+        } else {
+            metrics::record_parity_fail(data_type);
+            if missing > 0 {
+                metrics::record_parity_missing(data_type, missing as u64);
+            }
+            warn!(
+                matched,
+                missing,
+                duplicate_count,
+                ordering_ok,
+                v3_count = v3_cursors.len(),
+                v4_new = v4_cursors.len(),
+                group_id = group_id_hex,
+                "group message parity: FAIL"
+            );
+        }
+
+        record_phase_metric(
+            "test_content_parity_group_messages",
+            if passed { 1.0 } else { 0.0 },
+            "content_parity",
+            "xdbg_parity",
+        )
+        .await;
+    }
+
+    /// Poll V4 for at least one new envelope on a topic.
+    /// Uses `timeout_secs / 4` as the presence timeout (secondary data types
+    /// should already be migrated by the time group messages arrive).
+    async fn check_topic_presence(
+        v4_client: &xmtp_api_grpc::GrpcClient,
+        topic: &Topic,
+        baseline: usize,
+        data_type: &str,
+        label: &str,
+        timeout_secs: u64,
+    ) {
+        let poll_interval = std::time::Duration::from_secs(2);
+        // Use a quarter of the migration timeout for secondary topics —
+        // they should migrate alongside or before group messages.
+        let timeout = std::time::Duration::from_secs((timeout_secs / 4).max(4));
+        let deadline = Instant::now() + timeout;
+
+        loop {
+            let count = query_v4_envelopes(v4_client, topic).await.len();
+            let new_count = count.saturating_sub(baseline);
+
+            if new_count > 0 {
+                metrics::record_parity_pass(data_type);
+                info!(
+                    data_type,
+                    label,
+                    new_envelopes = new_count,
+                    "{} parity: PASS",
+                    data_type
+                );
+                return;
+            }
+
+            if Instant::now() > deadline {
+                metrics::record_parity_fail(data_type);
+                metrics::record_parity_missing(data_type, 1);
+                warn!(
+                    data_type,
+                    label,
+                    baseline,
+                    current = count,
+                    timeout_secs = timeout.as_secs(),
+                    "{} parity: FAIL — no new envelopes on V4",
+                    data_type
+                );
+                return;
+            }
+
+            tokio::time::sleep(poll_interval).await;
+        }
     }
 
     /// Runs a single V3→V4 migration round-trip. Caller is responsible for DB cleanup.

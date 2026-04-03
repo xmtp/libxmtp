@@ -36,6 +36,11 @@ pub struct Metrics {
     migration_latency: prometheus::Histogram,
     migration_success: prometheus::IntCounter,
     migration_failure: prometheus::IntCounter,
+    // Content-parity metrics
+    parity_pass: prometheus::IntCounterVec,
+    parity_fail: prometheus::IntCounterVec,
+    parity_missing: prometheus::IntCounterVec,
+    parity_extra: prometheus::IntCounterVec,
     client: Client,
 }
 
@@ -89,6 +94,43 @@ impl Metrics {
         )
         .expect("valid counter");
 
+        // Content-parity metrics (labelled by data_type: group_messages, identity_updates, etc.)
+        let parity_pass = prometheus::IntCounterVec::new(
+            Opts::new(
+                "xdbg_parity_pass_total",
+                "Content-parity checks that passed",
+            ),
+            &["data_type"],
+        )
+        .expect("valid counter");
+
+        let parity_fail = prometheus::IntCounterVec::new(
+            Opts::new(
+                "xdbg_parity_fail_total",
+                "Content-parity checks that failed",
+            ),
+            &["data_type"],
+        )
+        .expect("valid counter");
+
+        let parity_missing = prometheus::IntCounterVec::new(
+            Opts::new(
+                "xdbg_parity_missing_total",
+                "V3 payloads missing from V4 after migration",
+            ),
+            &["data_type"],
+        )
+        .expect("valid counter");
+
+        let parity_extra = prometheus::IntCounterVec::new(
+            Opts::new(
+                "xdbg_parity_extra_total",
+                "Unexpected extra envelopes on V4 beyond V3 baseline",
+            ),
+            &["data_type"],
+        )
+        .expect("valid counter");
+
         registry
             .register(Box::new(latency.clone()))
             .expect("register latency");
@@ -107,6 +149,18 @@ impl Metrics {
         registry
             .register(Box::new(migration_failure.clone()))
             .expect("register migration_failure");
+        registry
+            .register(Box::new(parity_pass.clone()))
+            .expect("register parity_pass");
+        registry
+            .register(Box::new(parity_fail.clone()))
+            .expect("register parity_fail");
+        registry
+            .register(Box::new(parity_missing.clone()))
+            .expect("register parity_missing");
+        registry
+            .register(Box::new(parity_extra.clone()))
+            .expect("register parity_extra");
 
         Metrics {
             registry,
@@ -116,6 +170,10 @@ impl Metrics {
             migration_latency,
             migration_success,
             migration_failure,
+            parity_pass,
+            parity_fail,
+            parity_missing,
+            parity_extra,
             client: Client::new(),
         }
     }
@@ -223,6 +281,36 @@ pub fn record_migration_success() {
 pub fn record_migration_failure() {
     if let Some(m) = METRICS.get() {
         m.migration_failure.inc();
+    }
+}
+
+/// Record a content-parity pass for the given data type. No-op when metrics are inactive.
+pub fn record_parity_pass(data_type: &str) {
+    if let Some(m) = METRICS.get() {
+        m.parity_pass.with_label_values(&[data_type]).inc();
+    }
+}
+
+/// Record a content-parity failure for the given data type. No-op when metrics are inactive.
+pub fn record_parity_fail(data_type: &str) {
+    if let Some(m) = METRICS.get() {
+        m.parity_fail.with_label_values(&[data_type]).inc();
+    }
+}
+
+/// Record missing V3 payloads on V4 (count). No-op when metrics are inactive.
+pub fn record_parity_missing(data_type: &str, count: u64) {
+    if let Some(m) = METRICS.get() {
+        m.parity_missing
+            .with_label_values(&[data_type])
+            .inc_by(count);
+    }
+}
+
+/// Record unexpected extra envelopes on V4 (count). No-op when metrics are inactive.
+pub fn record_parity_extra(data_type: &str, count: u64) {
+    if let Some(m) = METRICS.get() {
+        m.parity_extra.with_label_values(&[data_type]).inc_by(count);
     }
 }
 
