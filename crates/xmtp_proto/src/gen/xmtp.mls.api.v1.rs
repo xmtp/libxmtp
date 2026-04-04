@@ -218,8 +218,11 @@ pub mod group_message {
         pub sender_hmac: ::prost::alloc::vec::Vec<u8>,
         #[prost(bool, tag = "6")]
         pub should_push: bool,
+        #[deprecated]
         #[prost(bool, tag = "7")]
         pub is_commit: bool,
+        #[prost(enumeration = "super::MessageType", tag = "8")]
+        pub message_type: i32,
     }
     impl ::prost::Name for V1 {
         const NAME: &'static str = "V1";
@@ -919,6 +922,40 @@ impl ::prost::Name for GetNewestGroupMessageResponse {
     }
     fn type_url() -> ::prost::alloc::string::String {
         "/xmtp.mls.api.v1.GetNewestGroupMessageResponse".into()
+    }
+}
+/// Enum to specify the type of a message.
+/// Primarily used for ordering while retaining some metadata.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum MessageType {
+    Unspecified = 0,
+    Application = 1,
+    Commit = 2,
+    ForkAdminChange = 3,
+}
+impl MessageType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "MESSAGE_TYPE_UNSPECIFIED",
+            Self::Application => "MESSAGE_TYPE_APPLICATION",
+            Self::Commit => "MESSAGE_TYPE_COMMIT",
+            Self::ForkAdminChange => "MESSAGE_TYPE_FORK_ADMIN_CHANGE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "MESSAGE_TYPE_UNSPECIFIED" => Some(Self::Unspecified),
+            "MESSAGE_TYPE_APPLICATION" => Some(Self::Application),
+            "MESSAGE_TYPE_COMMIT" => Some(Self::Commit),
+            "MESSAGE_TYPE_FORK_ADMIN_CHANGE" => Some(Self::ForkAdminChange),
+            _ => None,
+        }
     }
 }
 /// Sort direction for queries

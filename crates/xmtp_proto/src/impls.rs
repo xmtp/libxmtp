@@ -80,6 +80,9 @@ xmtp_common::if_test! {
                 data: xmtp_common::rand_vec::<6>(),
                 sender_hmac: xmtp_common::rand_vec::<6>(),
                 should_push: false,
+                message_type: 1,
+
+                #[allow(deprecated)]
                 is_commit: false,
             }
         }

@@ -190,6 +190,7 @@ pub(crate) mod tests {
     use tls_codec::Serialize as TlsSerialize;
     use xmtp_common::Generate;
     use xmtp_db::group_message::GroupMessageKind;
+    use xmtp_proto::mls_v1::MessageType;
     use xmtp_proto::xmtp::mls::api::v1::{GroupMessage as V3GroupMessage, group_message};
     use xmtp_proto::xmtp::mls::api::v1::{GroupMessageInput, group_message_input};
     use xmtp_proto::xmtp::xmtpv4::envelopes::{
@@ -366,6 +367,9 @@ pub(crate) mod tests {
                 data: message_data,
                 sender_hmac: vec![],
                 should_push: false,
+                message_type: MessageType::Application as i32,
+
+                #[allow(deprecated)]
                 is_commit: false,
             })),
         };

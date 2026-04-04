@@ -193,9 +193,11 @@ mod tests {
             fork_details: "[]".to_string(),
             originator_id: None,
             should_publish_commit_log: false,
-            commit_log_public_key: None,
+            salt: None,
             is_commit_log_forked: None,
             has_pending_leave_request: None,
+            fork_admin: None,
+            fork_admin_change_sequence_id: None,
         }
         .store(conn)
         .unwrap();

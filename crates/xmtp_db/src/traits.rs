@@ -65,6 +65,15 @@ pub trait IntoConnection {
     fn into_connection(self) -> Self::Connection;
 }
 
+#[cfg(not(feature = "commit-log"))]
+pub trait QueryLocalCommitLog {}
+#[cfg(not(feature = "commit-log"))]
+impl<T: ?Sized> QueryLocalCommitLog for T {}
+#[cfg(not(feature = "commit-log"))]
+pub trait QueryRemoteCommitLog {}
+#[cfg(not(feature = "commit-log"))]
+impl<T: ?Sized> QueryRemoteCommitLog for T {}
+
 pub trait DbQuery:
     MaybeSend
     + MaybeSync

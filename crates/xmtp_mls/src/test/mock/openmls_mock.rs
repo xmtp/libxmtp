@@ -1,5 +1,6 @@
 use super::*;
 use crate::groups::group_membership::GroupMembership;
+use crate::groups::mls_sync::GroupMessageProcessingError;
 use crate::groups::{GroupError, build_group_membership_extension};
 use crate::identity::XmtpKeyPackage;
 use crate::{
@@ -128,7 +129,8 @@ fn generate_group_config(
     let mutable_metadata =
         build_mutable_metadata_extension_default(creator_inbox, Default::default())?;
     let group_membership = build_starting_group_membership_extension(creator_inbox, 0);
-    let mutable_permissions = build_mutable_permissions_extension(Default::default())?;
+    let mutable_permissions = build_mutable_permissions_extension(Default::default())
+        .map_err(GroupMessageProcessingError::from)?;
     let group_config = build_group_config(
         protected_metadata,
         mutable_metadata,

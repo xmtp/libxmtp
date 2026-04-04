@@ -50,6 +50,8 @@ pub struct RemoteCommitLog {
     pub applied_epoch_number: i64,
     // The state after the commit was applied, or the existing state otherwise
     pub applied_epoch_authenticator: Vec<u8>,
+    // super-admin installation that published the log
+    pub installation_id: Vec<u8>,
 }
 
 impl_store!(RemoteCommitLog, remote_commit_log);

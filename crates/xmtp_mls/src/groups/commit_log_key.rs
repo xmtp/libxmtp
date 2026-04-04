@@ -3,16 +3,11 @@ use crate::groups::XmtpSharedContext;
 use crate::groups::commit_log::CommitLogError;
 use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
 use openmls_rust_crypto::RustCrypto;
-use openmls_traits::OpenMlsProvider;
 use xmtp_cryptography::Secret;
+use xmtp_cryptography::configuration::SALT_SIZE;
 use xmtp_db::MlsProviderExt;
-use xmtp_db::group::StoredGroupCommitLogPublicKey;
+use xmtp_db::group::StoredGroupCommitLogMetadata;
 use xmtp_db::prelude::QueryGroup;
-use xmtp_db::{
-    XmtpMlsStorageProvider,
-    sql_key_store::{COMMIT_LOG_SIGNER_PRIVATE_KEY, SqlKeyStoreError},
-};
-use xmtp_proto::xmtp::mls::api::v1::QueryCommitLogResponse;
 use xmtp_proto::xmtp::mls::message_contents::CommitLogEntry as CommitLogEntryProto;
 
 pub(crate) trait CommitLogKeyCrypto {
@@ -22,7 +17,8 @@ pub(crate) trait CommitLogKeyCrypto {
     fn verify_commit_log_signature(
         &self,
         entry: &CommitLogEntryProto,
-        expected_public_key: &[u8],
+        installation_id: &[u8],
+        salt: &[u8],
     ) -> Result<(), Self::Error>;
 }
 
@@ -45,148 +41,70 @@ impl CommitLogKeyCrypto for RustCrypto {
     fn verify_commit_log_signature(
         &self,
         entry: &CommitLogEntryProto,
-        expected_public_key: &[u8],
+        installation_id: &[u8],
+        salt: &[u8],
     ) -> Result<(), Self::Error> {
-        let Some(signature) = &entry.signature else {
-            return Err(openmls_traits::types::CryptoError::InvalidSignature);
-        };
-        if signature.public_key != expected_public_key {
-            return Err(openmls_traits::types::CryptoError::InvalidSignature);
-        }
+        let mut data = entry.serialized_commit_log_entry.clone();
+        data.extend(salt);
+
         self.verify_signature(
             SignatureScheme::ED25519,
-            entry.serialized_commit_log_entry.as_slice(),
-            expected_public_key,
-            &signature.bytes,
+            &data,
+            installation_id,
+            &entry.signature,
         )?;
         Ok(())
     }
 }
 
-pub(crate) trait CommitLogKeyStore {
-    type Error: std::error::Error;
-    fn read_commit_log_key(&self, group_id: &[u8]) -> Result<Option<Secret>, Self::Error>;
-    fn write_commit_log_key(&self, group_id: &[u8], value: &Secret) -> Result<(), Self::Error>;
-}
-
-impl<KeyStore: XmtpMlsStorageProvider> CommitLogKeyStore for KeyStore {
-    type Error = SqlKeyStoreError;
-
-    fn read_commit_log_key(&self, group_id: &[u8]) -> Result<Option<Secret>, Self::Error> {
-        let key = bincode::serialize(group_id)?;
-        let value = self
-            .read::<Vec<u8>>(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key)?
-            .map(Secret::new);
-        Ok(value)
-    }
-
-    fn write_commit_log_key(&self, group_id: &[u8], value: &Secret) -> Result<(), Self::Error> {
-        let key = bincode::serialize(group_id)?;
-        let value = Secret::new(bincode::serialize(value.as_slice())?);
-        self.write(COMMIT_LOG_SIGNER_PRIVATE_KEY, &key, value.as_slice())
-    }
-}
-
-pub(crate) async fn maybe_share_private_key(
+pub(crate) async fn maybe_update_salt(
     context: &impl XmtpSharedContext,
     group_id: &[u8],
-    consensus_public_key: &[u8],
 ) -> Result<(), CommitLogError> {
-    let provider = context.mls_provider();
-    if let Some(stored_private_key) = provider.key_store().read_commit_log_key(group_id)?
-        && RustCrypto::public_key_matches_private_key(consensus_public_key, &stored_private_key)
-    {
-        let (group, _) = MlsGroup::new_cached(context, group_id)?;
-        if group.dm_id.is_some() {
-            // We cannot update mutable metadata for DMs
-            return Ok(());
-        }
-        let metadata = group.mutable_metadata()?;
-        if metadata.commit_log_signer().is_none_or(|private_key| {
-            !RustCrypto::public_key_matches_private_key(consensus_public_key, &private_key)
-        }) {
-            group.update_commit_log_signer(stored_private_key).await?;
-        }
+    let (group, _) = MlsGroup::new_cached(context, group_id)?;
+    let mutable_metadata = group.mutable_metadata()?;
+
+    if group.dm_id.is_some() {
+        // We cannot update mutable metadata for DMs
+        return Ok(());
     }
+
+    if mutable_metadata.salt().is_some() {
+        // Salt is already set. No-op.
+        return Ok(());
+    }
+
+    if !mutable_metadata.is_super_admin(context.inbox_id()) {
+        // I cannot set the salt if I am not a super-admin
+        return Ok(());
+    }
+
+    let salt = xmtp_common::rand_secret::<SALT_SIZE>();
+    group.update_salt(salt).await?;
+
     Ok(())
 }
 
-pub(crate) async fn derive_consensus_public_key(
+pub(crate) fn get_salt(
     context: &impl XmtpSharedContext,
-    commit_log_response: &QueryCommitLogResponse,
-) -> Result<Option<Vec<u8>>, CommitLogError> {
-    let provider = context.mls_provider();
-    // Find the first entry with a valid signature and extract its public key
-    for entry in &commit_log_response.commit_log_entries {
-        if let Some(signature) = &entry.signature
-            && provider
-                .crypto()
-                .verify_commit_log_signature(entry, &signature.public_key)
-                .is_ok()
-        {
-            maybe_share_private_key(
-                context,
-                &commit_log_response.group_id,
-                &signature.public_key,
-            )
-            .await?;
-            context.db().set_group_commit_log_public_key(
-                &commit_log_response.group_id,
-                &signature.public_key,
-            )?;
-            return Ok(Some(signature.public_key.clone()));
-        }
-    }
-
-    tracing::warn!(
-        "No valid signature found in commit log response for group {:?}",
-        hex::encode(&commit_log_response.group_id)
-    );
-    Ok(None)
-}
-
-pub(crate) fn get_or_create_signing_key(
-    context: &impl XmtpSharedContext,
-    conversation: &StoredGroupCommitLogPublicKey,
+    log_state: &StoredGroupCommitLogMetadata,
 ) -> Result<Option<Secret>, CommitLogError> {
-    let provider = context.mls_provider();
-    let key_store = provider.key_store();
-    // The consensus_public_key is derived from the first entry in the commit log, if one has been previously received.
-    // If there is one, we try to find the private key in the key store, and then the mutable metadata, returning None if not found.
-    // If there is none, we use any existing private key from the same locations, creating a new key if not found.
-    let consensus_public_key = conversation.commit_log_public_key.as_ref();
+    // If it's in the cache db column, then very well - let's return that.
+    let consensus_public_key = log_state.group_salt.as_ref();
+    let (group, _) = MlsGroup::new_cached(context, &log_state.group_id)?;
 
-    if let Some(private_key) = key_store.read_commit_log_key(&conversation.id)?
-        && consensus_public_key.is_none_or(|consensus_public_key| {
-            RustCrypto::public_key_matches_private_key(consensus_public_key, &private_key)
-        })
-    {
-        return Ok(Some(private_key));
-    }
+    if let Some(salt) = group.mutable_metadata()?.salt() {
+        context
+            .db()
+            .set_group_salt(&group.group_id, salt.as_slice())?;
 
-    let (group, _) = MlsGroup::new_cached(context, &conversation.id)?;
-    if let Some(private_key) = group.mutable_metadata()?.commit_log_signer()
-        && consensus_public_key.is_none_or(|consensus_public_key| {
-            RustCrypto::public_key_matches_private_key(consensus_public_key, &private_key)
-        })
-    {
-        key_store.write_commit_log_key(&conversation.id, &private_key)?;
-        return Ok(Some(private_key));
-    }
-
-    if consensus_public_key.is_none() {
-        // We have not yet seen an agreed upon public key for this conversation, so we generate a new key.
-        // We store the key locally, but do not share it via mutable metadata until we verify that we
-        // published it as the first commit log entry.
-        let private_key = provider.crypto().generate_commit_log_key()?;
-        key_store.write_commit_log_key(&conversation.id, &private_key)?;
-        return Ok(Some(private_key));
+        return Ok(Some(salt));
     }
 
     tracing::warn!(
         "Commit log consensus key {:?} is not available yet for conversation {:?}",
         consensus_public_key.map(hex::encode),
-        hex::encode(&conversation.id)
+        hex::encode(&log_state.group_id)
     );
     Ok(None)
 }
@@ -205,14 +123,14 @@ mod tests {
         let provider = alix.context.mls_provider();
         let key_store = provider.key_store();
 
-        key_store.write_commit_log_key(&[1u8; 32], &Secret::new(vec![10u8; 32]))?;
+        key_store.write_salt(&[1u8; 32], &Secret::new(vec![10u8; 32]))?;
 
         // Query on a value that hasn't been written
-        let result = key_store.read_commit_log_key(&[2u8; 32]);
+        let result = key_store.read_salt(&[2u8; 32]);
         assert!(result.is_ok(), "{}", result.err().unwrap());
         assert!(result.unwrap().is_none());
 
-        let result = key_store.read_commit_log_key(&[1u8; 32]);
+        let result = key_store.read_salt(&[1u8; 32]);
         assert!(result.is_ok(), "{}", result.err().unwrap());
         assert_eq!(result.unwrap().unwrap().as_slice(), &[10u8; 32]);
     }
@@ -487,14 +405,15 @@ mod tests {
         // Create a group - this will have a commit_log_signer in mutable metadata by default
         let group = alix.create_group(None, None).unwrap();
         let metadata = group.mutable_metadata().unwrap();
-        let mutable_metadata_key = metadata.commit_log_signer().unwrap();
+        let mutable_metadata_key = metadata.salt().unwrap();
 
-        let conversation = StoredGroupCommitLogPublicKey {
-            id: group.group_id.clone(),
-            commit_log_public_key: None, // No consensus key
+        let conversation = StoredGroupCommitLogMetadata {
+            group_id: group.group_id.clone(),
+            group_salt: None, // No consensus key
+            local_commit_log_cursor: None,
         };
 
-        let key = get_or_create_signing_key(&alix.context, &conversation).unwrap();
+        let key = get_salt(&alix.context, &conversation).unwrap();
         assert!(key.is_some());
         // Should return the key from mutable metadata
         assert_eq!(key.unwrap().as_slice(), mutable_metadata_key.as_slice());
@@ -511,9 +430,7 @@ mod tests {
 
         // Store a key that doesn't match the consensus
         let stored_key = crypto.generate_commit_log_key().unwrap();
-        key_store
-            .write_commit_log_key(&group.group_id, &stored_key)
-            .unwrap();
+        key_store.write_salt(&group.group_id, &stored_key).unwrap();
 
         // Set a different consensus key
         let consensus_key = crypto.generate_commit_log_key().unwrap();
@@ -521,12 +438,13 @@ mod tests {
             .unwrap()
             .to_vec();
 
-        let conversation = StoredGroupCommitLogPublicKey {
-            id: group.group_id.clone(),
-            commit_log_public_key: Some(consensus_public_key),
+        let conversation = StoredGroupCommitLogMetadata {
+            group_id: group.group_id.clone(),
+            group_salt: Some(consensus_public_key),
+            local_commit_log_cursor: None,
         };
 
-        let key = get_or_create_signing_key(&alix.context, &conversation).unwrap();
+        let key = get_salt(&alix.context, &conversation).unwrap();
         // Should return None because stored key doesn't match consensus
         assert!(key.is_none());
     }
@@ -545,17 +463,16 @@ mod tests {
         let stored_public_key = xmtp_cryptography::signature::to_public_key(&stored_key)
             .unwrap()
             .to_vec();
-        key_store
-            .write_commit_log_key(&group.group_id, &stored_key)
-            .unwrap();
+        key_store.write_salt(&group.group_id, &stored_key).unwrap();
 
         // Set consensus key that matches the stored key
-        let conversation = StoredGroupCommitLogPublicKey {
-            id: group.group_id.clone(),
-            commit_log_public_key: Some(stored_public_key),
+        let conversation = StoredGroupCommitLogMetadata {
+            group_id: group.group_id.clone(),
+            group_salt: Some(stored_public_key),
+            local_commit_log_cursor: None,
         };
 
-        let key = get_or_create_signing_key(&alix.context, &conversation).unwrap();
+        let key = get_salt(&alix.context, &conversation).unwrap();
         assert!(key.is_some());
         // Should return the stored key that matches consensus
         assert_eq!(key.unwrap().as_slice(), stored_key.as_slice());
@@ -567,18 +484,19 @@ mod tests {
 
         let group = alix.create_group(None, None).unwrap();
         let metadata = group.mutable_metadata().unwrap();
-        let metadata_key = metadata.commit_log_signer().unwrap();
+        let metadata_key = metadata.salt().unwrap();
         let metadata_public_key = xmtp_cryptography::signature::to_public_key(&metadata_key)
             .unwrap()
             .to_vec();
 
         // Set consensus key that matches the mutable metadata key
-        let conversation = StoredGroupCommitLogPublicKey {
-            id: group.group_id.clone(),
-            commit_log_public_key: Some(metadata_public_key),
+        let conversation = StoredGroupCommitLogMetadata {
+            group_id: group.group_id.clone(),
+            group_salt: Some(metadata_public_key),
+            local_commit_log_cursor: None,
         };
 
-        let key = get_or_create_signing_key(&alix.context, &conversation).unwrap();
+        let key = get_salt(&alix.context, &conversation).unwrap();
         assert!(key.is_some());
         // Should return the key from mutable metadata that matches consensus
         assert_eq!(key.unwrap().as_slice(), metadata_key.as_slice());
@@ -597,7 +515,7 @@ mod tests {
         // Clear the key store to ensure no stored key exists
         key_store
             .delete::<1>(
-                xmtp_db::sql_key_store::COMMIT_LOG_SIGNER_PRIVATE_KEY,
+                xmtp_db::sql_key_store::SALT,
                 &bincode::serialize(&group_id).unwrap(),
             )
             .ok();
@@ -608,12 +526,13 @@ mod tests {
             .unwrap()
             .to_vec();
 
-        let conversation = StoredGroupCommitLogPublicKey {
-            id: group_id,
-            commit_log_public_key: Some(consensus_public_key),
+        let conversation = StoredGroupCommitLogMetadata {
+            group_id: group_id,
+            group_salt: Some(consensus_public_key),
+            local_commit_log_cursor: None,
         };
 
-        let key = get_or_create_signing_key(&alix.context, &conversation).unwrap();
+        let key = get_salt(&alix.context, &conversation).unwrap();
         // Should return None because:
         // 1. No key exists in the key store
         // 2. Mutable metadata key doesn't match consensus

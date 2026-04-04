@@ -39,7 +39,6 @@ pub const CREATE_PQ_KEY_PACKAGE_EXTENSION: bool = true;
 pub const SUPER_ADMIN_METADATA_PREFIX: &str = "_";
 pub const HMAC_SALT: &[u8] = b"libXMTP HKDF salt!";
 
-pub const ENABLE_COMMIT_LOG: bool = true;
 pub const MIN_RECOVERY_REQUEST_VERSION: &str = "1.6.0";
 
 // Welcome pointers are mostly the hpke public key and less than 100 bytes for the welcome pointer

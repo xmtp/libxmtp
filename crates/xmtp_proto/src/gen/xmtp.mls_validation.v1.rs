@@ -229,8 +229,14 @@ pub mod validate_group_messages_response {
         pub error_message: ::prost::alloc::string::String,
         #[prost(string, tag = "3")]
         pub group_id: ::prost::alloc::string::String,
+        #[deprecated]
         #[prost(bool, tag = "4")]
         pub is_commit: bool,
+        #[prost(
+            enumeration = "super::super::super::mls::api::v1::MessageType",
+            tag = "5"
+        )]
+        pub message_type: i32,
     }
     impl ::prost::Name for ValidationResponse {
         const NAME: &'static str = "ValidationResponse";

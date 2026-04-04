@@ -5,11 +5,11 @@ use hex::FromHexError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{Secret, configuration::ED25519_KEY_LENGTH};
+use crate::{Secret, configuration::SALT_SIZE};
 
-pub fn to_public_key(private_key: &Secret) -> Result<[u8; ED25519_KEY_LENGTH], TryFromSliceError> {
+pub fn to_public_key(private_key: &Secret) -> Result<[u8; SALT_SIZE], TryFromSliceError> {
     let private_key = private_key.as_slice().try_into()?;
-    let mut computed_public_key = [0u8; ED25519_KEY_LENGTH];
+    let mut computed_public_key = [0u8; SALT_SIZE];
     libcrux_ed25519::secret_to_public(&mut computed_public_key, &private_key);
     Ok(computed_public_key)
 }

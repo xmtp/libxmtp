@@ -48,12 +48,14 @@ pub mod prelude {
     pub use super::identity_update::QueryIdentityUpdates;
     pub use super::key_package_history::QueryKeyPackageHistory;
     pub use super::key_store_entry::QueryKeyStoreEntry;
+    #[cfg(feature = "commit-log")]
     pub use super::local_commit_log::QueryLocalCommitLog;
     pub use super::migrations::QueryMigrations;
     pub use super::pragmas::Pragmas;
     pub use super::processed_device_sync_messages::QueryDeviceSyncMessages;
     pub use super::readd_status::QueryReaddStatus;
     pub use super::refresh_state::QueryRefreshState;
+    #[cfg(feature = "commit-log")]
     pub use super::remote_commit_log::QueryRemoteCommitLog;
     pub use super::tasks::QueryTasks;
     pub use super::traits::*;

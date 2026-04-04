@@ -96,10 +96,11 @@ pub struct StoredGroup {
     /// Whether the user should publish the commit log for this group
     #[builder(default = false)]
     pub should_publish_commit_log: bool,
-    /// The consensus public key of the commit log for this group
-    /// Derived from the first entry of the commit log
+    /// 32 bytes of entropy to prevent reverse hash lookups on installation_ids
+    /// on the commit_log from outsiders. Can safely be used for other purposes.
+    /// It's designed to be constant across time and among all members.
     #[builder(default = None)]
-    pub commit_log_public_key: Option<Vec<u8>>,
+    pub salt: Option<Vec<u8>>,
     /// Whether the local commit log has diverged from the remote commit log
     /// NULL if the remote commit log is not up to date yet
     #[builder(default = None)]
@@ -108,7 +109,14 @@ pub struct StoredGroup {
     /// NULL if the pending-remove didn't receive an update yet
     #[builder(default = None)]
     pub has_pending_leave_request: Option<bool>,
-    //todo: store member role?
+    /// Installation_id of the fork-admin. This installation is the provider
+    /// of the primary remote commit log.
+    #[builder(default = None)]
+    pub fork_admin: Option<Vec<u8>>,
+    /// Used to prevent replay attacks on fork admin changes.
+    /// This field should only increase in value.
+    #[builder(default = None)]
+    pub fork_admin_change_sequence_id: Option<i64>,
 }
 
 impl StoredGroupBuilder {
@@ -144,12 +152,15 @@ impl StoredGroupBuilder {
     }
 }
 
-/// A subset of the group table for fetching the commit log public key
-#[derive(Queryable)]
-#[diesel(table_name = groups)]
-pub struct StoredGroupCommitLogPublicKey {
-    pub id: Vec<u8>,
-    pub commit_log_public_key: Option<Vec<u8>>,
+/// A subset of the group table for fetching the commit log public key and local commit log cursor
+#[derive(Debug, Clone, Queryable, QueryableByName)]
+pub struct StoredGroupCommitLogMetadata {
+    #[diesel(sql_type = diesel::sql_types::Binary)]
+    pub group_id: Vec<u8>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Binary>)]
+    pub group_salt: Option<Vec<u8>>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Integer>)]
+    pub local_commit_log_cursor: Option<i32>,
 }
 
 /// A struct for fetching groups that need readd requests with their latest epoch
@@ -317,12 +328,12 @@ pub trait QueryGroup {
     /// Get conversations for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
     fn get_conversation_ids_for_remote_log_publish(
         &self,
-    ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
+    ) -> Result<Vec<StoredGroupCommitLogMetadata>, crate::ConnectionError>;
 
     /// Get conversations for all conversations that require a remote commit log download (DMs and groups that are not sync groups)
     fn get_conversation_ids_for_remote_log_download(
         &self,
-    ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
+    ) -> Result<Vec<StoredGroupCommitLogMetadata>, crate::ConnectionError>;
 
     /// Get conversation IDs for fork checking (excludes already forked conversations and sync groups)
     fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
@@ -343,11 +354,7 @@ pub trait QueryGroup {
     ) -> Result<ConversationType, crate::ConnectionError>;
 
     /// Updates the commit log public key for a group
-    fn set_group_commit_log_public_key(
-        &self,
-        group_id: &[u8],
-        public_key: &[u8],
-    ) -> Result<(), StorageError>;
+    fn set_group_salt(&self, group_id: &[u8], salt: &[u8]) -> Result<(), StorageError>;
 
     /// Updates the is_commit_log_forked status for a group
     fn set_group_commit_log_forked_status(
@@ -489,13 +496,13 @@ where
     /// Get conversation IDs for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
     fn get_conversation_ids_for_remote_log_publish(
         &self,
-    ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
+    ) -> Result<Vec<StoredGroupCommitLogMetadata>, crate::ConnectionError> {
         (**self).get_conversation_ids_for_remote_log_publish()
     }
 
     fn get_conversation_ids_for_remote_log_download(
         &self,
-    ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
+    ) -> Result<Vec<StoredGroupCommitLogMetadata>, crate::ConnectionError> {
         (**self).get_conversation_ids_for_remote_log_download()
     }
 
@@ -522,12 +529,8 @@ where
         (**self).get_conversation_type(group_id)
     }
 
-    fn set_group_commit_log_public_key(
-        &self,
-        group_id: &[u8],
-        public_key: &[u8],
-    ) -> Result<(), StorageError> {
-        (**self).set_group_commit_log_public_key(group_id, public_key)
+    fn set_group_salt(&self, group_id: &[u8], public_key: &[u8]) -> Result<(), StorageError> {
+        (**self).set_group_salt(group_id, public_key)
     }
 
     fn set_group_commit_log_forked_status(
@@ -1013,8 +1016,14 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     /// (DMs and groups where user is super admin, excluding sync groups and rejected groups)
     fn get_conversation_ids_for_remote_log_publish(
         &self,
-    ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
+    ) -> Result<Vec<StoredGroupCommitLogMetadata>, crate::ConnectionError> {
         use crate::schema::consent_records::dsl as consent_dsl;
+        use crate::schema::local_commit_log::dsl as log_dsl;
+
+        let cursor_subquery = log_dsl::local_commit_log
+            .filter(log_dsl::group_id.eq(dsl::id))
+            .select(diesel::dsl::max(log_dsl::rowid))
+            .single_value();
 
         let query = dsl::groups
             .filter(
@@ -1028,27 +1037,34 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                 sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
             ))
             .filter(consent_dsl::state.eq(ConsentState::Allowed))
-            .select((dsl::id, dsl::commit_log_public_key))
+            .select((dsl::id, dsl::salt, cursor_subquery))
             .order(dsl::created_at_ns.asc());
 
-        self.raw_query_read(|conn| query.load::<StoredGroupCommitLogPublicKey>(conn))
+        self.raw_query_read(|conn| query.load::<StoredGroupCommitLogMetadata>(conn))
     }
 
     // All dms and groups that are not sync groups and have consent state Allowed
     fn get_conversation_ids_for_remote_log_download(
         &self,
-    ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
+    ) -> Result<Vec<StoredGroupCommitLogMetadata>, crate::ConnectionError> {
         use crate::schema::consent_records::dsl as consent_dsl;
+        use crate::schema::local_commit_log::dsl as log_dsl;
+
+        let cursor_subquery = log_dsl::local_commit_log
+            .filter(log_dsl::group_id.eq(dsl::id))
+            .select(diesel::dsl::max(log_dsl::rowid))
+            .single_value();
 
         let query = dsl::groups
             .filter(dsl::conversation_type.ne_all(ConversationType::virtual_types()))
             .inner_join(consent_dsl::consent_records.on(
+                // This is a full table scan.
                 sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
             ))
             .filter(consent_dsl::state.eq(ConsentState::Allowed))
-            .select((dsl::id, dsl::commit_log_public_key));
+            .select((dsl::id, dsl::salt, cursor_subquery));
 
-        self.raw_query_read(|conn| query.load::<StoredGroupCommitLogPublicKey>(conn))
+        self.raw_query_read(|conn| query.load::<StoredGroupCommitLogMetadata>(conn))
     }
 
     // Get conversation IDs for fork checking (excludes already forked conversations and sync groups)
@@ -1125,20 +1141,12 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(conversation_type)
     }
 
-    fn set_group_commit_log_public_key(
-        &self,
-        group_id: &[u8],
-        public_key: &[u8],
-    ) -> Result<(), StorageError> {
+    fn set_group_salt(&self, group_id: &[u8], public_key: &[u8]) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;
         let num_updated = self.raw_query_write(|conn| {
             diesel::update(dsl::groups)
-                .filter(
-                    dsl::id
-                        .eq(group_id)
-                        .and(dsl::commit_log_public_key.is_null()),
-                )
-                .set(dsl::commit_log_public_key.eq(public_key))
+                .filter(dsl::id.eq(group_id).and(dsl::salt.is_null()))
+                .set(dsl::salt.eq(public_key))
                 .execute(conn)
         })?;
         if num_updated == 0 {
@@ -1755,7 +1763,7 @@ pub(crate) mod tests {
             let mut group3 = generate_group(None);
             let mut group4 = generate_group(None);
             group1.should_publish_commit_log = true;
-            group1.commit_log_public_key = None;
+            group1.salt = None;
             generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
@@ -1763,10 +1771,10 @@ pub(crate) mod tests {
             )
             .store(conn)?;
             group2.should_publish_commit_log = true;
-            group2.commit_log_public_key = Some(rand_vec::<32>());
+            group2.salt = Some(rand_vec::<32>());
 
             group3.should_publish_commit_log = true;
-            group3.commit_log_public_key = Some(rand_vec::<32>());
+            group3.salt = Some(rand_vec::<32>());
             generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
@@ -1781,13 +1789,10 @@ pub(crate) mod tests {
 
             let commit_log_keys = conn.get_conversation_ids_for_remote_log_publish().unwrap();
             assert_eq!(commit_log_keys.len(), 2);
-            assert_eq!(commit_log_keys[0].id, group1.id);
-            assert_eq!(commit_log_keys[1].id, group3.id);
-            assert_eq!(commit_log_keys[0].commit_log_public_key, None);
-            assert_eq!(
-                commit_log_keys[1].commit_log_public_key,
-                group3.commit_log_public_key
-            );
+            assert_eq!(commit_log_keys[0].group_id, group1.id);
+            assert_eq!(commit_log_keys[1].group_id, group3.id);
+            assert_eq!(commit_log_keys[0].group_salt, None);
+            assert_eq!(commit_log_keys[1].group_salt, group3.salt);
         })
     }
 
@@ -1825,7 +1830,7 @@ pub(crate) mod tests {
             // Function should only return groups with Allowed consent state
             let commit_log_keys = conn.get_conversation_ids_for_remote_log_publish().unwrap();
             assert_eq!(commit_log_keys.len(), 1);
-            assert_eq!(commit_log_keys[0].id, allowed_group.id);
+            assert_eq!(commit_log_keys[0].group_id, allowed_group.id);
         })
     }
 
@@ -1871,7 +1876,7 @@ pub(crate) mod tests {
             // Function should only return groups with Allowed consent state, excluding sync groups
             let conversation_ids = conn.get_conversation_ids_for_remote_log_download().unwrap();
             assert_eq!(conversation_ids.len(), 1);
-            assert_eq!(conversation_ids[0].id, allowed_group.id);
+            assert_eq!(conversation_ids[0].group_id, allowed_group.id);
         })
     }
 

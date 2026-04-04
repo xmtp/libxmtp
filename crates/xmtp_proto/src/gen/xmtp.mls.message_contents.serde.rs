@@ -12,7 +12,10 @@ impl serde::Serialize for CommitLogEntry {
         if !self.serialized_commit_log_entry.is_empty() {
             len += 1;
         }
-        if self.signature.is_some() {
+        if self.deprecated_signature.is_some() {
+            len += 1;
+        }
+        if !self.signature.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.CommitLogEntry", len)?;
@@ -26,8 +29,13 @@ impl serde::Serialize for CommitLogEntry {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("serialized_commit_log_entry", pbjson::private::base64::encode(&self.serialized_commit_log_entry).as_str())?;
         }
-        if let Some(v) = self.signature.as_ref() {
-            struct_ser.serialize_field("signature", v)?;
+        if let Some(v) = self.deprecated_signature.as_ref() {
+            struct_ser.serialize_field("deprecated_signature", v)?;
+        }
+        if !self.signature.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("signature", pbjson::private::base64::encode(&self.signature).as_str())?;
         }
         struct_ser.end()
     }
@@ -43,6 +51,8 @@ impl<'de> serde::Deserialize<'de> for CommitLogEntry {
             "sequenceId",
             "serialized_commit_log_entry",
             "serializedCommitLogEntry",
+            "deprecated_signature",
+            "deprecatedSignature",
             "signature",
         ];
 
@@ -50,6 +60,7 @@ impl<'de> serde::Deserialize<'de> for CommitLogEntry {
         enum GeneratedField {
             SequenceId,
             SerializedCommitLogEntry,
+            DeprecatedSignature,
             Signature,
             __SkipField__,
         }
@@ -75,6 +86,7 @@ impl<'de> serde::Deserialize<'de> for CommitLogEntry {
                         match value {
                             "sequenceId" | "sequence_id" => Ok(GeneratedField::SequenceId),
                             "serializedCommitLogEntry" | "serialized_commit_log_entry" => Ok(GeneratedField::SerializedCommitLogEntry),
+                            "deprecatedSignature" | "deprecated_signature" => Ok(GeneratedField::DeprecatedSignature),
                             "signature" => Ok(GeneratedField::Signature),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -97,6 +109,7 @@ impl<'de> serde::Deserialize<'de> for CommitLogEntry {
             {
                 let mut sequence_id__ = None;
                 let mut serialized_commit_log_entry__ = None;
+                let mut deprecated_signature__ = None;
                 let mut signature__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -116,11 +129,19 @@ impl<'de> serde::Deserialize<'de> for CommitLogEntry {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::DeprecatedSignature => {
+                            if deprecated_signature__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("deprecatedSignature"));
+                            }
+                            deprecated_signature__ = map_.next_value()?;
+                        }
                         GeneratedField::Signature => {
                             if signature__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("signature"));
                             }
-                            signature__ = map_.next_value()?;
+                            signature__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -130,7 +151,8 @@ impl<'de> serde::Deserialize<'de> for CommitLogEntry {
                 Ok(CommitLogEntry {
                     sequence_id: sequence_id__.unwrap_or_default(),
                     serialized_commit_log_entry: serialized_commit_log_entry__.unwrap_or_default(),
-                    signature: signature__,
+                    deprecated_signature: deprecated_signature__,
+                    signature: signature__.unwrap_or_default(),
                 })
             }
         }
@@ -805,6 +827,149 @@ impl<'de> serde::Deserialize<'de> for EncodedContent {
             }
         }
         deserializer.deserialize_struct("xmtp.mls.message_contents.EncodedContent", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for ForkAdminChange {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.sequence_id != 0 {
+            len += 1;
+        }
+        if !self.fork_admin_hmac.is_empty() {
+            len += 1;
+        }
+        if !self.signature.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.ForkAdminChange", len)?;
+        if self.sequence_id != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("sequence_id", ToString::to_string(&self.sequence_id).as_str())?;
+        }
+        if !self.fork_admin_hmac.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("fork_admin_hmac", pbjson::private::base64::encode(&self.fork_admin_hmac).as_str())?;
+        }
+        if !self.signature.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("signature", pbjson::private::base64::encode(&self.signature).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ForkAdminChange {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "sequence_id",
+            "sequenceId",
+            "fork_admin_hmac",
+            "forkAdminHmac",
+            "signature",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            SequenceId,
+            ForkAdminHmac,
+            Signature,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "sequenceId" | "sequence_id" => Ok(GeneratedField::SequenceId),
+                            "forkAdminHmac" | "fork_admin_hmac" => Ok(GeneratedField::ForkAdminHmac),
+                            "signature" => Ok(GeneratedField::Signature),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ForkAdminChange;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.ForkAdminChange")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ForkAdminChange, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut sequence_id__ = None;
+                let mut fork_admin_hmac__ = None;
+                let mut signature__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::SequenceId => {
+                            if sequence_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sequenceId"));
+                            }
+                            sequence_id__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::ForkAdminHmac => {
+                            if fork_admin_hmac__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("forkAdminHmac"));
+                            }
+                            fork_admin_hmac__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Signature => {
+                            if signature__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("signature"));
+                            }
+                            signature__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(ForkAdminChange {
+                    sequence_id: sequence_id__.unwrap_or_default(),
+                    fork_admin_hmac: fork_admin_hmac__.unwrap_or_default(),
+                    signature: signature__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.ForkAdminChange", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for GroupMembership {
@@ -3592,6 +3757,9 @@ impl serde::Serialize for PlaintextCommitLogEntry {
         if !self.applied_epoch_authenticator.is_empty() {
             len += 1;
         }
+        if !self.installation_hmac.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.PlaintextCommitLogEntry", len)?;
         if !self.group_id.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -3623,6 +3791,11 @@ impl serde::Serialize for PlaintextCommitLogEntry {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("applied_epoch_authenticator", pbjson::private::base64::encode(&self.applied_epoch_authenticator).as_str())?;
         }
+        if !self.installation_hmac.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("installation_hmac", pbjson::private::base64::encode(&self.installation_hmac).as_str())?;
+        }
         struct_ser.end()
     }
 }
@@ -3645,6 +3818,8 @@ impl<'de> serde::Deserialize<'de> for PlaintextCommitLogEntry {
             "appliedEpochNumber",
             "applied_epoch_authenticator",
             "appliedEpochAuthenticator",
+            "installation_hmac",
+            "installationHmac",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3655,6 +3830,7 @@ impl<'de> serde::Deserialize<'de> for PlaintextCommitLogEntry {
             CommitResult,
             AppliedEpochNumber,
             AppliedEpochAuthenticator,
+            InstallationHmac,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3683,6 +3859,7 @@ impl<'de> serde::Deserialize<'de> for PlaintextCommitLogEntry {
                             "commitResult" | "commit_result" => Ok(GeneratedField::CommitResult),
                             "appliedEpochNumber" | "applied_epoch_number" => Ok(GeneratedField::AppliedEpochNumber),
                             "appliedEpochAuthenticator" | "applied_epoch_authenticator" => Ok(GeneratedField::AppliedEpochAuthenticator),
+                            "installationHmac" | "installation_hmac" => Ok(GeneratedField::InstallationHmac),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3708,6 +3885,7 @@ impl<'de> serde::Deserialize<'de> for PlaintextCommitLogEntry {
                 let mut commit_result__ = None;
                 let mut applied_epoch_number__ = None;
                 let mut applied_epoch_authenticator__ = None;
+                let mut installation_hmac__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::GroupId => {
@@ -3756,6 +3934,14 @@ impl<'de> serde::Deserialize<'de> for PlaintextCommitLogEntry {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::InstallationHmac => {
+                            if installation_hmac__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("installationHmac"));
+                            }
+                            installation_hmac__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3768,6 +3954,7 @@ impl<'de> serde::Deserialize<'de> for PlaintextCommitLogEntry {
                     commit_result: commit_result__.unwrap_or_default(),
                     applied_epoch_number: applied_epoch_number__.unwrap_or_default(),
                     applied_epoch_authenticator: applied_epoch_authenticator__.unwrap_or_default(),
+                    installation_hmac: installation_hmac__.unwrap_or_default(),
                 })
             }
         }

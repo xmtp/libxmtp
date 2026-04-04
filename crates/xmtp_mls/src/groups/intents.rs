@@ -242,9 +242,9 @@ impl UpdateMetadataIntentData {
         }
     }
 
-    pub fn new_update_commit_log_signer(commit_log_signer: xmtp_cryptography::Secret) -> Self {
+    pub fn new_update_salt(commit_log_signer: xmtp_cryptography::Secret) -> Self {
         Self {
-            field_name: MetadataField::CommitLogSigner.to_string(),
+            field_name: MetadataField::Salt.to_string(),
             field_value: hex::encode(commit_log_signer.as_slice()),
         }
     }

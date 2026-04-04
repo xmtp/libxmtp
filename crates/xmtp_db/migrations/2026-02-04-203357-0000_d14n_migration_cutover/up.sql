@@ -1,5 +1,5 @@
 CREATE TABLE d14n_migration_cutover (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
+    id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
     cutover_ns BIGINT NOT NULL DEFAULT 9223372036854775807,
     last_checked_ns BIGINT NOT NULL DEFAULT 0,
     has_migrated BOOL NOT NULL DEFAULT FALSE

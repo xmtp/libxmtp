@@ -1,9 +1,7 @@
 use crate::groups::MlsGroup;
 use crate::groups::PolicySet;
 use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
-use crate::groups::commit_log_key::{
-    CommitLogKeyCrypto, CommitLogKeyStore, get_or_create_signing_key,
-};
+use crate::groups::commit_log_key::{CommitLogKeyCrypto, get_salt};
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::{context::XmtpSharedContext, tester};
 use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
@@ -64,8 +62,8 @@ async fn test_commit_log_signer_on_group_creation() {
     let b = bo.sync_welcomes().await?.first()?.to_owned();
     let a_metadata = a.mutable_metadata()?;
     let b_metadata = b.mutable_metadata()?;
-    let a_commit_log_signer = a_metadata.commit_log_signer();
-    let b_commit_log_signer = b_metadata.commit_log_signer();
+    let a_commit_log_signer = a_metadata.salt();
+    let b_commit_log_signer = b_metadata.salt();
 
     assert!(a_commit_log_signer.is_some());
     assert!(b_commit_log_signer.is_some());
@@ -75,7 +73,7 @@ async fn test_commit_log_signer_on_group_creation() {
     );
     assert_eq!(
         a_commit_log_signer.unwrap().as_slice().len(),
-        xmtp_cryptography::configuration::ED25519_KEY_LENGTH
+        xmtp_cryptography::configuration::SALT_SIZE
     );
 
     let a = alix
@@ -84,8 +82,8 @@ async fn test_commit_log_signer_on_group_creation() {
     let b = bo.sync_welcomes().await?.first()?.to_owned();
     let a_metadata = a.mutable_metadata()?;
     let b_metadata = b.mutable_metadata()?;
-    let a_commit_log_signer = a_metadata.commit_log_signer();
-    let b_commit_log_signer = b_metadata.commit_log_signer();
+    let a_commit_log_signer = a_metadata.salt();
+    let b_commit_log_signer = b_metadata.salt();
 
     assert!(a_commit_log_signer.is_some());
     assert!(b_commit_log_signer.is_some());
@@ -95,7 +93,7 @@ async fn test_commit_log_signer_on_group_creation() {
     );
     assert_eq!(
         a_commit_log_signer.unwrap().as_slice().len(),
-        xmtp_cryptography::configuration::ED25519_KEY_LENGTH
+        xmtp_cryptography::configuration::SALT_SIZE
     );
 }
 
@@ -124,8 +122,8 @@ async fn test_device_sync_mutable_metadata_is_overwritten() {
     let b = bo.group(&a.group_id)?;
     let a_metadata = a.mutable_metadata()?;
     let b_metadata = b.mutable_metadata()?;
-    let a_commit_log_signer = a_metadata.commit_log_signer();
-    let b_commit_log_signer = b_metadata.commit_log_signer();
+    let a_commit_log_signer = a_metadata.salt();
+    let b_commit_log_signer = b_metadata.salt();
     assert_ne!(
         a_commit_log_signer.as_ref().map(|s| s.as_slice()),
         b_commit_log_signer.as_ref().map(|s| s.as_slice())
@@ -133,7 +131,7 @@ async fn test_device_sync_mutable_metadata_is_overwritten() {
 
     let b = bo.sync_welcomes().await?.first()?.to_owned();
     let b_metadata = b.mutable_metadata()?;
-    let b_commit_log_signer = b_metadata.commit_log_signer();
+    let b_commit_log_signer = b_metadata.salt();
     assert_eq!(
         a_commit_log_signer.as_ref().unwrap().as_slice(),
         b_commit_log_signer.as_ref().unwrap().as_slice()
@@ -158,10 +156,13 @@ async fn test_commit_log_publish_and_query_apis() {
     let commit_log_entry = PlaintextCommitLogEntry {
         group_id: group_id.clone(),
         commit_sequence_id: 123,
-        last_epoch_authenticator: vec![5, 6, 7, 8],
         commit_result: 1, // Success
         applied_epoch_number: 456,
         applied_epoch_authenticator: vec![9, 10, 11, 12],
+        installation_hmac: vec![6, 7, 8],
+
+        #[allow(deprecated)]
+        last_epoch_authenticator: vec![],
     };
 
     // Sign the commit log entry since backend now requires signatures
@@ -214,11 +215,13 @@ async fn test_commit_log_publish_and_query_apis() {
 
     // Verify the backend preserved the signature
     assert!(
-        returned_entry.signature.is_some(),
+        !returned_entry.signature.is_empty(),
         "Backend should preserve signature"
     );
-    let sig = returned_entry.signature.as_ref().unwrap();
-    assert_eq!(sig.public_key, public_key, "Public key should match");
+    assert_eq!(
+        returned_entry.signature, public_key,
+        "Public key should match"
+    );
 
     // TODO(cvoell): this will require decryption once encrypted key is added
     let entry = PlaintextCommitLogEntry::decode(raw_bytes.as_slice()).unwrap();
@@ -226,10 +229,6 @@ async fn test_commit_log_publish_and_query_apis() {
     assert_eq!(
         entry.commit_sequence_id,
         commit_log_entry.commit_sequence_id
-    );
-    assert_eq!(
-        entry.last_epoch_authenticator,
-        commit_log_entry.last_epoch_authenticator
     );
     assert_eq!(entry.commit_result, commit_log_entry.commit_result);
     assert_eq!(
@@ -993,18 +992,17 @@ async fn test_all_users_use_same_signing_key_for_publishing() {
     // Find the DM conversation key for each party
     let alix_dm_key = alix_conversation_keys
         .iter()
-        .find(|k| k.id == alix_dm.group_id)
+        .find(|k| k.group_id == alix_dm.group_id)
         .expect("Alix should have DM key");
     let bo_dm_key = bo_conversation_keys
         .iter()
-        .find(|k| k.id == bo_dm.group_id)
+        .find(|k| k.group_id == bo_dm.group_id)
         .expect("Bo should have DM key");
 
     // Get the signing keys that would be used for publishing
-    let alix_signing_key = get_or_create_signing_key(&alix.context, alix_dm_key)?
-        .expect("Alix should have signing key");
-    let bo_signing_key =
-        get_or_create_signing_key(&bo.context, bo_dm_key)?.expect("Bo should have signing key");
+    let alix_signing_key =
+        get_salt(&alix.context, alix_dm_key)?.expect("Alix should have signing key");
+    let bo_signing_key = get_salt(&bo.context, bo_dm_key)?.expect("Bo should have signing key");
 
     // Derive public keys from the private keys
     let alix_public_key = xmtp_cryptography::signature::to_public_key(&alix_signing_key)?;
@@ -1288,21 +1286,9 @@ async fn test_update_commit_log_signer_sync_across_parties() {
     let charlie_group = charlie_welcomes[0].clone();
 
     // Get initial commit log signer for all parties
-    let initial_alix_signer = alix_group
-        .mutable_metadata()
-        .unwrap()
-        .commit_log_signer()
-        .unwrap();
-    let initial_bo_signer = bo_group
-        .mutable_metadata()
-        .unwrap()
-        .commit_log_signer()
-        .unwrap();
-    let initial_charlie_signer = charlie_group
-        .mutable_metadata()
-        .unwrap()
-        .commit_log_signer()
-        .unwrap();
+    let initial_alix_signer = alix_group.mutable_metadata().unwrap().salt().unwrap();
+    let initial_bo_signer = bo_group.mutable_metadata().unwrap().salt().unwrap();
+    let initial_charlie_signer = charlie_group.mutable_metadata().unwrap().salt().unwrap();
 
     // All parties should have the same initial signer
     assert_eq!(initial_alix_signer.as_slice(), initial_bo_signer.as_slice());
@@ -1320,17 +1306,10 @@ async fn test_update_commit_log_signer_sync_across_parties() {
         .generate_commit_log_key()
         .unwrap();
     println!("Alix updating commit log signer...");
-    alix_group
-        .update_commit_log_signer(new_signer.clone())
-        .await
-        .unwrap();
+    alix_group.update_salt(new_signer.clone()).await.unwrap();
 
     // Alix should see the new signer immediately
-    let alix_updated_signer = alix_group
-        .mutable_metadata()
-        .unwrap()
-        .commit_log_signer()
-        .unwrap();
+    let alix_updated_signer = alix_group.mutable_metadata().unwrap().salt().unwrap();
     assert_eq!(alix_updated_signer.as_slice(), new_signer.as_slice());
     assert_ne!(
         alix_updated_signer.as_slice(),
@@ -1339,16 +1318,8 @@ async fn test_update_commit_log_signer_sync_across_parties() {
     println!("✓ Alix sees the updated commit log signer immediately");
 
     // Bo and charlie shouldn't see the change yet (before sync)
-    let bo_pre_sync_signer = bo_group
-        .mutable_metadata()
-        .unwrap()
-        .commit_log_signer()
-        .unwrap();
-    let charlie_pre_sync_signer = charlie_group
-        .mutable_metadata()
-        .unwrap()
-        .commit_log_signer()
-        .unwrap();
+    let bo_pre_sync_signer = bo_group.mutable_metadata().unwrap().salt().unwrap();
+    let charlie_pre_sync_signer = charlie_group.mutable_metadata().unwrap().salt().unwrap();
     assert_eq!(
         bo_pre_sync_signer.as_slice(),
         initial_alix_signer.as_slice()
@@ -1366,21 +1337,9 @@ async fn test_update_commit_log_signer_sync_across_parties() {
     charlie_group.sync_with_conn().await.unwrap();
 
     // After sync, everyone should see the new signer
-    let final_alix_signer = alix_group
-        .mutable_metadata()
-        .unwrap()
-        .commit_log_signer()
-        .unwrap();
-    let final_bo_signer = bo_group
-        .mutable_metadata()
-        .unwrap()
-        .commit_log_signer()
-        .unwrap();
-    let final_charlie_signer = charlie_group
-        .mutable_metadata()
-        .unwrap()
-        .commit_log_signer()
-        .unwrap();
+    let final_alix_signer = alix_group.mutable_metadata().unwrap().salt().unwrap();
+    let final_bo_signer = bo_group.mutable_metadata().unwrap().salt().unwrap();
+    let final_charlie_signer = charlie_group.mutable_metadata().unwrap().salt().unwrap();
 
     // All parties should now have the new signer
     assert_eq!(final_alix_signer.as_slice(), new_signer.as_slice());
@@ -1416,9 +1375,9 @@ async fn test_updating_group_name_preserves_commit_log_signer() {
 
     // Get the initial signing key from alix's perspective
     let alix_initial_metadata = group.mutable_metadata().unwrap();
-    let initial_signer = alix_initial_metadata.commit_log_signer().unwrap();
+    let initial_signer = alix_initial_metadata.salt().unwrap();
     let bo_initial_metadata = bo_group.mutable_metadata().unwrap();
-    let bo_initial_signer = bo_initial_metadata.commit_log_signer().unwrap();
+    let bo_initial_signer = bo_initial_metadata.salt().unwrap();
 
     // Verify both parties have the same signing key initially
     assert_eq!(initial_signer.as_slice(), bo_initial_signer.as_slice());
@@ -1438,11 +1397,11 @@ async fn test_updating_group_name_preserves_commit_log_signer() {
 
     // Verify the signing key is preserved on alix's side
     let alix_updated_metadata = group.mutable_metadata().unwrap();
-    let alix_updated_signer = alix_updated_metadata.commit_log_signer().unwrap();
+    let alix_updated_signer = alix_updated_metadata.salt().unwrap();
 
     // Verify the signing key is preserved on bo's side
     let bo_updated_metadata = bo_group.mutable_metadata().unwrap();
-    let bo_updated_signer = bo_updated_metadata.commit_log_signer().unwrap();
+    let bo_updated_signer = bo_updated_metadata.salt().unwrap();
 
     // Verify the group name was actually updated
     assert_eq!(
@@ -1509,7 +1468,7 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
 
     // Store this key in alix's key store (overwriting any existing key)
     key_store
-        .write_commit_log_key(&group.group_id, &new_signing_key)
+        .write_salt(&group.group_id, &new_signing_key)
         .unwrap();
 
     println!("✓ Generated and stored new signing key for alix in key store");
@@ -1536,7 +1495,7 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
 
     // Verify alix now has the new signing key in mutable metadata
     let alix_metadata_after = group.mutable_metadata().unwrap();
-    let alix_signer_after = alix_metadata_after.commit_log_signer();
+    let alix_signer_after = alix_metadata_after.salt();
 
     assert!(
         alix_signer_after.is_some(),
@@ -1557,10 +1516,10 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
 
     // Verify bo and charlie now have the signing key in their mutable metadata
     let bo_metadata = bo_group.mutable_metadata().unwrap();
-    let bo_signer = bo_metadata.commit_log_signer();
+    let bo_signer = bo_metadata.salt();
 
     let charlie_metadata = charlie_group.mutable_metadata().unwrap();
-    let charlie_signer = charlie_metadata.commit_log_signer();
+    let charlie_signer = charlie_metadata.salt();
 
     assert!(
         bo_signer.is_some(),
@@ -1582,10 +1541,7 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
 
     // Additional verification: the consensus key should be set in the database
     let stored_group = alix.context.db().find_group(&group.group_id)?.unwrap();
-    assert_eq!(
-        stored_group.commit_log_public_key,
-        Some(new_public_key.clone())
-    );
+    assert_eq!(stored_group.salt, Some(new_public_key.clone()));
 
     println!("✓ Consensus public key correctly stored in database");
 

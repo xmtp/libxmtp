@@ -22,6 +22,7 @@ pub mod types;
 pub use error::*;
 pub use generated::*;
 pub use impls::update_dedupe::GroupUpdateDeduper;
+pub use prost;
 pub use proto_cache::*;
 pub use traits::short_hex::ShortHex;
 

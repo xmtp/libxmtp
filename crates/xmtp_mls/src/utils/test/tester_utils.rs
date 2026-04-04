@@ -605,7 +605,7 @@ where
                 enable_recovery_requests: ForkRecoveryPolicy::All,
                 groups_to_request_recovery: vec![],
                 disable_recovery_responses: false,
-                worker_interval_ns: None,
+                ..self.fork_recovery_opts.unwrap_or_default()
             }),
             ..self
         }
@@ -617,7 +617,7 @@ where
                 enable_recovery_requests: ForkRecoveryPolicy::AllowlistedGroups,
                 groups_to_request_recovery: groups,
                 disable_recovery_responses: false,
-                worker_interval_ns: None,
+                ..self.fork_recovery_opts.unwrap_or_default()
             }),
             ..self
         }
@@ -629,7 +629,7 @@ where
                 enable_recovery_requests: ForkRecoveryPolicy::None,
                 groups_to_request_recovery: vec![],
                 disable_recovery_responses: true,
-                worker_interval_ns: None,
+                ..self.fork_recovery_opts.unwrap_or_default()
             }),
             ..self
         }
