@@ -81,7 +81,7 @@ impl Query {
                     };
                     match kind {
                         xmtp_proto::xmtp::identity::associations::identity_action::Kind::CreateInbox(create_inbox) => {
-                          println!("    create_inbox: nonce: {}, account_identifier: {}", create_inbox.nonce, create_inbox.initial_identifier);
+                          println!("    create_inbox: nonce: {}, account_identifier: {}, signature: {:?}", create_inbox.nonce, create_inbox.initial_identifier, create_inbox.initial_identifier_signature);
                         }
                         xmtp_proto::xmtp::identity::associations::identity_action::Kind::Add(add_association) => {
                           let new_member_identifier = match add_association.new_member_identifier.and_then(|x| x.kind) {
