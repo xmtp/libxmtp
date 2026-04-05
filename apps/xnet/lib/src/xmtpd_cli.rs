@@ -49,11 +49,12 @@ impl<S: xmtpd_cli_builder::IsComplete> XmtpdCliBuilder<S> {
         // Delegate to `build_internal()` to get the instance of user.
         let mut this = self.build_internal();
         let config = Config::load_unchecked();
+        // Only override the version from config, not the image.
+        // The CLI image (ghcr.io/xmtp/xmtpd-cli) is distinct from the
+        // xmtpd server image (ghcr.io/xmtp/xmtpd) — using the server
+        // image here would run the wrong binary.
         if let Some(version) = config.xmtpd.version {
             this.version = version;
-        }
-        if let Some(image) = config.xmtpd.image {
-            this.image = image;
         }
         this
     }
@@ -77,7 +78,7 @@ impl XmtpdCli {
         let addr = node.address();
         let pubkey = hex::encode(node.compressed_public_key());
         let cmd = vec![
-            "--config-file=config://anvil".into(),
+            "--environment=anvil".into(),
             format!("--private-key={}", AnvilConst::ADMIN_KEY),
             format!("--settlement-rpc-url={}", AnvilConst::SETTLEMENT_RPC_URL),
             "nodes".to_string(),
@@ -93,7 +94,7 @@ impl XmtpdCli {
     pub async fn enable(&self, node: &mut XmtpdNode, w: impl Write) -> Result<()> {
         let id = node.id();
         let cmd = vec![
-            "--config-file=config://anvil".into(),
+            "--environment=anvil".into(),
             format!("--private-key={}", AnvilConst::ADMIN_KEY),
             format!("--settlement-rpc-url={}", AnvilConst::SETTLEMENT_RPC_URL),
             "nodes".to_string(),
