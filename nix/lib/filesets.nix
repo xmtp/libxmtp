@@ -58,6 +58,7 @@ let
     (src + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
     (src + /crates/xmtp_db/migrations)
     (src + /crates/xmtp_proto/src/gen/proto_descriptor.bin)
+    (src + /apps/xnet/lib/signers.txt)
     (src + /webdriver.json)
     (src + /.cargo/config.toml)
     (src + /.config/nextest.toml)

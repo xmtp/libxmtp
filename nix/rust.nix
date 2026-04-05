@@ -23,7 +23,6 @@ _: {
           fileset = lib.fileset.unions [
             pkgs.xmtp.filesets.libraries
             (pkgs.xmtp.craneLib.fileset.commonCargoSources (src + /apps/xnet/lib))
-            (src + /apps/xnet/lib/signers.txt)
             crate
           ];
         };
