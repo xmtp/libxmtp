@@ -129,9 +129,10 @@ let
       inherit version;
       cargoArtifacts = xmtp.base.mkCargoArtifacts rust false null;
       cargoExtraArgs = "-p xmtpv3";
+      CARGO_BUILD_TARGET = "aarch64-apple-darwin";
       buildPhaseCargoCommand = ''
         ${nativeEnvSetup}
-        cargo build --release -p xmtpv3
+        cargo build --release --target aarch64-apple-darwin -p xmtpv3
       '';
       # Prevent crane from trying to find and install cargo binaries from $out/bin.
       # This derivation produces generated source files, not executables.
@@ -145,7 +146,7 @@ let
         #   - xmtpv3FFI.h: C header for the FFI layer
         #   - xmtpv3FFI.modulemap: Clang module map (renamed to module.modulemap)
         ${ffi-uniffi-bindgen} generate \
-          --library target/release/libxmtpv3.a \
+          --library target/aarch64-apple-darwin/release/libxmtpv3.a \
           --out-dir $TMPDIR/swift-out \
           --language swift
 
