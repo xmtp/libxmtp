@@ -35,7 +35,8 @@ _: {
     in
     {
       packages = {
-        xnet-gui = (callPackage ./package/xnet-gui.nix { }).bin;
+        # harfbuzz/fontconfig biuld is broken in nixos-unstable, commented until fixed
+        # xnet-gui = (callPackage ./package/xnet-gui.nix { }).bin;
         default = self'.packages.xdbg;
       };
       devShells.xnet-gui = (callPackage ./package/xnet-gui.nix { }).devShell;
