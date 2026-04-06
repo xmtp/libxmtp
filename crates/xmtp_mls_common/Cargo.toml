@@ -11,6 +11,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+bon.workspace = true
 hex.workspace = true
 openmls.workspace = true
 prost.workspace = true
