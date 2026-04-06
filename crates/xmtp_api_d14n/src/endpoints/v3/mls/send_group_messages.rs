@@ -21,7 +21,7 @@ impl SendGroupMessages {
 impl Endpoint for SendGroupMessages {
     type Output = ();
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        xmtp_proto::path_and_query::<SendGroupMessagesRequest>()
+        Cow::Borrowed("/xmtp.mls.api.v1.MlsApi/SendGroupMessages")
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -39,12 +39,6 @@ mod test {
     use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::xmtp::mls::api::v1::*;
     use xmtp_proto::{api, prelude::*};
-
-    #[xmtp_common::test]
-    fn test_file_descriptor() {
-        let pnq = xmtp_proto::path_and_query::<SendGroupMessagesRequest>();
-        println!("{}", pnq);
-    }
 
     #[xmtp_common::test]
     fn test_grpc_endpoint_returns_correct_path() {

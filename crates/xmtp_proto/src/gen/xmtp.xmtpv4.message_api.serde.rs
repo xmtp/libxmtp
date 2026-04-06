@@ -2359,6 +2359,413 @@ impl<'de> serde::Deserialize<'de> for SubscribeEnvelopesResponse {
         deserializer.deserialize_struct("xmtp.xmtpv4.message_api.SubscribeEnvelopesResponse", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for SubscribeOriginatorsRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.filter.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.message_api.SubscribeOriginatorsRequest", len)?;
+        if let Some(v) = self.filter.as_ref() {
+            struct_ser.serialize_field("filter", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SubscribeOriginatorsRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "filter",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Filter,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "filter" => Ok(GeneratedField::Filter),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SubscribeOriginatorsRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.xmtpv4.message_api.SubscribeOriginatorsRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SubscribeOriginatorsRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut filter__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Filter => {
+                            if filter__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("filter"));
+                            }
+                            filter__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SubscribeOriginatorsRequest {
+                    filter: filter__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.xmtpv4.message_api.SubscribeOriginatorsRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for subscribe_originators_request::OriginatorFilter {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.originator_node_ids.is_empty() {
+            len += 1;
+        }
+        if self.last_seen.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.message_api.SubscribeOriginatorsRequest.OriginatorFilter", len)?;
+        if !self.originator_node_ids.is_empty() {
+            struct_ser.serialize_field("originator_node_ids", &self.originator_node_ids)?;
+        }
+        if let Some(v) = self.last_seen.as_ref() {
+            struct_ser.serialize_field("last_seen", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for subscribe_originators_request::OriginatorFilter {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "originator_node_ids",
+            "originatorNodeIds",
+            "last_seen",
+            "lastSeen",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            OriginatorNodeIds,
+            LastSeen,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "originatorNodeIds" | "originator_node_ids" => Ok(GeneratedField::OriginatorNodeIds),
+                            "lastSeen" | "last_seen" => Ok(GeneratedField::LastSeen),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = subscribe_originators_request::OriginatorFilter;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.xmtpv4.message_api.SubscribeOriginatorsRequest.OriginatorFilter")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<subscribe_originators_request::OriginatorFilter, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut originator_node_ids__ = None;
+                let mut last_seen__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::OriginatorNodeIds => {
+                            if originator_node_ids__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("originatorNodeIds"));
+                            }
+                            originator_node_ids__ = 
+                                Some(map_.next_value::<Vec<::pbjson::private::NumberDeserialize<_>>>()?
+                                    .into_iter().map(|x| x.0).collect())
+                            ;
+                        }
+                        GeneratedField::LastSeen => {
+                            if last_seen__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("lastSeen"));
+                            }
+                            last_seen__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(subscribe_originators_request::OriginatorFilter {
+                    originator_node_ids: originator_node_ids__.unwrap_or_default(),
+                    last_seen: last_seen__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.xmtpv4.message_api.SubscribeOriginatorsRequest.OriginatorFilter", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for SubscribeOriginatorsResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.response.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.message_api.SubscribeOriginatorsResponse", len)?;
+        if let Some(v) = self.response.as_ref() {
+            match v {
+                subscribe_originators_response::Response::Envelopes(v) => {
+                    struct_ser.serialize_field("envelopes", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SubscribeOriginatorsResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "envelopes",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Envelopes,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "envelopes" => Ok(GeneratedField::Envelopes),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SubscribeOriginatorsResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.xmtpv4.message_api.SubscribeOriginatorsResponse")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SubscribeOriginatorsResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut response__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Envelopes => {
+                            if response__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("envelopes"));
+                            }
+                            response__ = map_.next_value::<::std::option::Option<_>>()?.map(subscribe_originators_response::Response::Envelopes)
+;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SubscribeOriginatorsResponse {
+                    response: response__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.xmtpv4.message_api.SubscribeOriginatorsResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for subscribe_originators_response::Envelopes {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.envelopes.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.message_api.SubscribeOriginatorsResponse.Envelopes", len)?;
+        if !self.envelopes.is_empty() {
+            struct_ser.serialize_field("envelopes", &self.envelopes)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for subscribe_originators_response::Envelopes {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "envelopes",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Envelopes,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "envelopes" => Ok(GeneratedField::Envelopes),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = subscribe_originators_response::Envelopes;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.xmtpv4.message_api.SubscribeOriginatorsResponse.Envelopes")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<subscribe_originators_response::Envelopes, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut envelopes__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Envelopes => {
+                            if envelopes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("envelopes"));
+                            }
+                            envelopes__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(subscribe_originators_response::Envelopes {
+                    envelopes: envelopes__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.xmtpv4.message_api.SubscribeOriginatorsResponse.Envelopes", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for SubscribeTopicsRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
