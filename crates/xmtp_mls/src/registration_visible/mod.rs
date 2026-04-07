@@ -21,6 +21,13 @@ pub enum Quorum {
 }
 
 impl Quorum {
+    /// Create a percentage quorum, clamping to `[0.0, 1.0]`.
+    /// NaN is treated as 0.0.
+    pub fn percentage(p: f32) -> Self {
+        let p = if p.is_nan() { 0.0 } else { p.clamp(0.0, 1.0) };
+        Self::Percentage(p)
+    }
+
     pub fn required_count(&self, total: usize) -> usize {
         match self {
             Quorum::Percentage(p) => ((total as f32) * p).ceil() as usize,

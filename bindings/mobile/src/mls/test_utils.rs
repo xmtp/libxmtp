@@ -51,7 +51,7 @@ impl LocalBuilder<PrivateKeySigner> for TesterBuilder<PrivateKeySigner> {
                     .unwrap(),
             )
             .await?;
-        client.register_identity(signature_request).await?;
+        client.register_identity(signature_request, None).await?;
 
         let mut worker = None;
         if self.wait_for_init && self.sync_mode != DeviceSyncMode::Disabled {
@@ -105,7 +105,7 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
             })
             .await
             .unwrap();
-        client.register_identity(signature_request).await?;
+        client.register_identity(signature_request, None).await?;
 
         let mut worker = None;
         if self.wait_for_init && self.sync_mode != DeviceSyncMode::Disabled {

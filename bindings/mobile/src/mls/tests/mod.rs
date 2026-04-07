@@ -312,7 +312,7 @@ pub(crate) async fn register_client_with_wallet_no_panic(
         )
         .await?;
 
-    client.register_identity(signature_request).await?;
+    client.register_identity(signature_request, None).await?;
 
     Ok(())
 }
