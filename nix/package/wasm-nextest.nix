@@ -2,11 +2,6 @@
 {
   xmtp,
   lib,
-  pkg-config,
-  openssl,
-  perl,
-  sqlite,
-  sqlcipher,
   chromedriver,
   google-chrome,
   chromium,
@@ -19,11 +14,11 @@
 }:
 let
   inherit (lib.fileset) unions fileFilter;
-  inherit (xmtp) craneLib;
+  inherit (xmtp) craneLib base;
   inherit (craneLib.fileset) commonCargoSources;
   root = ./../..;
-  rust-toolchain = xmtp.mkToolchain [ "wasm32-unknown-unknown" ] [ "llvm-tools-preview" ];
-  rust = craneLib.overrideToolchain (p: rust-toolchain);
+  rust-toolchain = p: xmtp.mkToolchain p [ "wasm32-unknown-unknown" ] [ "llvm-tools-preview" ];
+  rust = craneLib.overrideToolchain rust-toolchain;
 
   src = lib.fileset.toSource {
     inherit root;
@@ -38,20 +33,12 @@ let
     ];
   };
 
-  nativeBuildInputs = [
-    pkg-config
-    openssl
-    perl
-    sqlite
-    sqlcipher
-    wasm-bindgen-cli
-    cargo-nextest
-    nodejs_24
-  ];
-  commonArgs = {
-    inherit src;
-    strictDeps = true;
-    inherit nativeBuildInputs;
+  commonArgs = base.commonArgs // {
+    nativeBuildInputs = base.commonArgs.nativeBuildInputs ++ [
+      cargo-nextest
+      wasm-bindgen-cli
+      nodejs_24
+    ];
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
     preConfigure = ''
       export HOME=$TMPDIR
@@ -70,7 +57,6 @@ let
   cargoArtifacts = rust.buildDepsOnly (
     commonArgs
     // {
-      doCheck = false;
       buildPhaseCargoCommand = "cargo nextest run --locked --cargo-profile $CARGO_PROFILE --no-run ${wasmPackages}";
     }
   );
@@ -78,18 +64,19 @@ in
 rust.cargoNextest (
   commonArgs
   // {
-    inherit cargoArtifacts;
+    inherit src cargoArtifacts;
     inherit (xmtp.shellCommon.wasmEnv)
       CHROMEDRIVER
       RSTEST_TIMEOUT
       WASM_BINDGEN_TEST_TIMEOUT
       WASM_BINDGEN_TEST_WEBDRIVER_JSON
       ;
+    doCheck = true;
     WASM_BINDGEN_TEST_NO_ORIGIN_ISOLATION = "1";
     # chromedriver requires home to be editable/set, otherwise it SIGKILLS and fails tests.
     preBuild = "export HOME=$TMPDIR";
-    nativeBuildInputs =
-      nativeBuildInputs
+    buildInputs =
+      base.commonArgs.buildInputs
       ++ [
         chromedriver
       ]

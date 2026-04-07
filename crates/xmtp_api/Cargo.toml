@@ -38,7 +38,7 @@ xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-tokio = { workspace = true, features = ["rt"] }
+tokio = { workspace = true }
 wasm-bindgen-test.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

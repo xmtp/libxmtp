@@ -3,8 +3,6 @@
   lib,
   wasm-pack,
   binaryen,
-  zstd,
-  zlib,
   mkShell,
   sqlite,
   llvmPackages,
@@ -14,36 +12,27 @@
   google-chrome,
   chromium,
   corepack,
-  pkg-config,
   cargo-nextest,
   stdenv,
   test ? false,
 }:
 let
-  inherit (xmtp) craneLib;
+  inherit (xmtp) craneLib base;
   # Pinned Rust Version (must use mkToolchain to match the rest of the project)
   rust-toolchain =
-    xmtp.mkToolchain
+    xmtp.mkNativeToolchain
       [ "wasm32-unknown-unknown" ]
       [ "clippy-preview" "rustfmt-preview" ];
   rust = craneLib.overrideToolchain (p: rust-toolchain);
 
   features = if test then "--features test-utils" else "";
-
-  libraryFileset = lib.fileset.toSource {
-    root = ./../..;
-    fileset = xmtp.filesets.libraries;
-  };
-
   bindingsFileset = lib.fileset.toSource {
     root = ./../..;
     fileset = xmtp.filesets.forCrate ./../../bindings/wasm;
   };
 
-  commonArgs = {
+  commonArgs = base.commonArgs // {
     meta.description = "WebAssembly Bindings";
-    src = libraryFileset;
-    strictDeps = true;
     # EM_CACHE = "$TMPDIR/.emscripten_cache";
     # we need to set tmpdir for emscripten cache
     preConfigure = ''
@@ -54,10 +43,7 @@ let
       # export EM_CACHE=$TMPDIR
       # export EMCC_DEBUG=2
     '';
-    nativeBuildInputs = [
-      zstd
-      zlib
-      pkg-config
+    nativeBuildInputs = base.commonArgs.nativeBuildInputs ++ [
       wasm-pack
       emscripten
       llvmPackages.lld
@@ -65,8 +51,6 @@ let
       wasm-bindgen-cli
     ];
     buildInputs = [ sqlite ];
-    doCheck = false;
-    cargoExtraArgs = "--package bindings_wasm ${features}";
     hardeningDisable = [
       "zerocallusedregs"
       "stackprotector"
@@ -75,21 +59,24 @@ let
 
   commonEnv = {
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
-    NIX_DEBUG = 1;
     inherit (xmtp.shellCommon.wasmEnv)
       CC_wasm32_unknown_unknown
       AR_wasm32_unknown_unknown
       CFLAGS_wasm32_unknown_unknown
       ;
     # why CC manually (zstd): https://github.com/gyscos/zstd-rs/issues/339
-    # SQLITE_WASM_RS_UPDATE_PREBUILD = 1;
   };
 
   # enables caching all build time crates
-  cargoArtifacts = rust.buildDepsOnly (commonEnv // commonArgs);
+  cargoArtifacts = rust.buildDepsOnly (
+    (base.commonArgs // commonEnv)
+    // {
+      buildPhaseCargoCommand = "cargo build --package bindings_wasm ${features} --profile $CARGO_PROFILE --locked";
+    }
+  );
 
   bin = rust.buildPackage (
-    (commonEnv // commonArgs)
+    (commonArgs // commonEnv)
     // {
       inherit cargoArtifacts;
       src = bindingsFileset;

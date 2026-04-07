@@ -31,18 +31,18 @@ format: install
 wasm_packages := "-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_d14n -p xmtp_content_types"
 
 # WASM bindings Rust tests (v3 + d14n)
-test: test-v3 test-d14n
+test *args="": (test-v3 args) (test-d14n args)
 
 # WASM bindings Rust tests (v3)
-test-v3:
+test-v3 *args="":
     XMTP_TEST_LOGGING=false RUST_LOG=off cargo nextest run --locked --profile ci --cargo-profile wasm-test --target wasm32-unknown-unknown \
-      {{ wasm_packages }}
+      {{ wasm_packages }} {{ args }}
 
 # WASM bindings Rust tests (d14n)
-test-d14n:
+test-d14n *args="":
     XMTP_TEST_LOGGING=false RUST_LOG=off cargo nextest run --locked --profile ci-d14n --cargo-profile wasm-test --target wasm32-unknown-unknown \
       --features d14n \
-      {{ wasm_packages }}
+      {{ wasm_packages }} {{ args }}
 
 # nix derivation for wasm v3 tests (no local incremental builds, but uses cachix)
 nix-test-v3:

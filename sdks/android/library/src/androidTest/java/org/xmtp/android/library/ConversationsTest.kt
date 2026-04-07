@@ -15,7 +15,6 @@ import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
@@ -23,6 +22,7 @@ import org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.messages.PrivateKeyBuilder
+import uniffi.xmtpv3.FfiConversationMessageKind
 import java.security.SecureRandom
 import kotlin.time.Duration.Companion.seconds
 
@@ -212,11 +212,11 @@ class ConversationsTest : BaseInstrumentedTest() {
 //        assert(runBlocking { boClient.conversations.syncAllConversations() }.toInt() >= 1)
     }
 
-    @Ignore("Flaky: stream collects extra messages non-deterministically")
     @Test
     fun testCanStreamAllMessages() {
         val group = runBlocking { caroClient.conversations.newGroup(listOf(boClient.inboxId)) }
         val conversation = runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
+        // Sync to drain any membership change messages before starting the stream
         runBlocking { boClient.conversations.syncAllConversations() }
 
         val allMessages = mutableListOf<DecodedMessage>()
@@ -236,7 +236,11 @@ class ConversationsTest : BaseInstrumentedTest() {
             conversation.send("hi")
         }
         Thread.sleep(1000)
-        assertEquals(2, allMessages.size)
+        val applicationMessages =
+            allMessages.filter {
+                it.kind == FfiConversationMessageKind.APPLICATION
+            }
+        assertEquals(2, applicationMessages.size)
         job.cancel()
     }
 
