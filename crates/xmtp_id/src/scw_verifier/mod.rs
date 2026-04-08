@@ -194,10 +194,10 @@ impl std::fmt::Debug for MultiSmartContractSignatureVerifier {
 /// or a `FallbackSmartContractWalletVerifier` for multiple.
 fn make_verifier(urls: Vec<Url>) -> Result<Box<dyn SmartContractSignatureVerifier>, VerifierError> {
     match urls.len() {
-        0 => Err(VerifierError::Other(Box::new(std::io::Error::new(
+        0 => Err(VerifierError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "empty URL list for chain",
-        )))),
+        ))),
         1 => Ok(Box::new(RpcSmartContractWalletVerifier::new(
             urls.into_iter().next().unwrap().to_string(),
         )?)),
