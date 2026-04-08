@@ -263,12 +263,16 @@ impl App {
                 mgr.reload_node_go(cutover_ns).await?;
             }
             crate::config::Commands::Addresses => self.addresses().await?,
-            crate::config::Commands::Cutover => {
-                let mgr = ServiceManager::start().await?;
-                let url = mgr
-                    .node_go
-                    .external_grpc_url()
-                    .ok_or_eyre("node-go not running")?;
+            crate::config::Commands::Cutover(cutover) => {
+                let url = match &cutover.grpc_url {
+                    Some(u) => u.clone(),
+                    None => {
+                        let mgr = ServiceManager::start().await?;
+                        mgr.node_go.external_grpc_url().ok_or_eyre(
+                            "node-go has no external gRPC URL (ToxiProxy port not configured)",
+                        )?
+                    }
+                };
                 let client = xmtp_api_grpc::GrpcClient::create(url).map_err(|e| eyre!("{}", e))?;
                 let response: FetchD14nCutoverResponse = FetchD14nCutover
                     .query(&client)
