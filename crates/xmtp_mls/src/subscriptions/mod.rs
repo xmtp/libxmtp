@@ -293,8 +293,8 @@ where
         let mut known_welcomes = HashSet::from_iter(conn.group_cursors()?.into_iter());
         let welcome = decode_welcome_message(envelope_bytes.as_slice())?;
         let welcomes: Vec<_> = match welcome {
-            V3OrD14n::D14n(s) => {
-                let messages = s.envelopes;
+            V3OrD14n::D14n(envelope) => {
+                let messages = vec![envelope];
                 stream::try_extractor::<_, WelcomeMessageExtractor>(future_stream::once(
                     future::ready(Ok::<_, EnvelopeError>(messages)),
                 ))
@@ -700,6 +700,7 @@ pub(crate) mod tests {
     #[xmtp_common::test(flavor = "multi_thread", worker_threads = 5, unwrap_try = true)]
     async fn test_process_streamed_welcome_message_d14n() {
         use prost::Message;
+        use xmtp_api_d14n::protocol::extractors::test_utils::TestEnvelopeBuilder;
         use xmtp_proto::types::TopicKind;
 
         tester!(alix);
@@ -719,57 +720,22 @@ pub(crate) mod tests {
             )
             .await?;
 
-        // Get the client envelopes and cursors
-        let client_envelopes = envelope.client_envelopes()?;
-        let cursors = envelope.cursors()?;
-
-        // Wrap in D14n envelope structure
-        let mut envelope_bytes = Vec::new();
-        xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse {
-            envelopes: client_envelopes
-                .into_iter()
-                .zip(cursors.iter())
-                .map(|(client_env, cursor)| {
-                    use xmtp_proto::xmtp::xmtpv4::envelopes::*;
-
-                    let mut client_bytes = Vec::new();
-                    client_env.encode(&mut client_bytes).unwrap();
-
-                    let payer_envelope = PayerEnvelope {
-                        unsigned_client_envelope: client_bytes,
-                        payer_signature: None,
-                        target_originator: cursor.originator_id,
-                        message_retention_days: 30,
-                    };
-
-                    let mut payer_bytes = Vec::new();
-                    payer_envelope.encode(&mut payer_bytes).unwrap();
-
-                    let unsigned_originator_envelope = UnsignedOriginatorEnvelope {
-                        originator_node_id: cursor.originator_id,
-                        originator_sequence_id: cursor.sequence_id,
-                        originator_ns: 1000000,
-                        payer_envelope_bytes: payer_bytes,
-                        base_fee_picodollars: 0,
-                        congestion_fee_picodollars: 0,
-                        expiry_unixtime: 0,
-                    };
-
-                    let mut unsigned_bytes = Vec::new();
-                    unsigned_originator_envelope
-                        .encode(&mut unsigned_bytes)
-                        .unwrap();
-
-                    OriginatorEnvelope {
-                        unsigned_originator_envelope: unsigned_bytes,
-                        proof: Some(originator_envelope::Proof::OriginatorSignature(
-                            Default::default(),
-                        )),
-                    }
-                })
-                .collect(),
-        }
-        .encode(&mut envelope_bytes)?;
+        let client_env = envelope
+            .client_envelopes()?
+            .into_iter()
+            .next()
+            .expect("expected at least one welcome envelope");
+        let cursor = envelope
+            .cursors()?
+            .into_iter()
+            .next()
+            .expect("expected at least one welcome cursor");
+        let envelope_bytes = TestEnvelopeBuilder::new()
+            .with_cursor(cursor)
+            .with_originator_ns(1_000_000)
+            .with_client_envelope(client_env)
+            .build()
+            .encode_to_vec();
 
         // Process the streamed welcome message
         let groups = bo.process_streamed_welcome_message(envelope_bytes).await?;
