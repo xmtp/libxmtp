@@ -284,22 +284,27 @@ where
             .map_err(crate::dyn_err)
     }
 
-    pub async fn publish_commit_log(&self, requests: Vec<PublishCommitLogRequest>) -> Result<()> {
+    /// Returns `true` if data was actually published, `false` if commit log is disabled.
+    pub async fn publish_commit_log(&self, requests: Vec<PublishCommitLogRequest>) -> Result<bool> {
         tracing::debug!(inbox_id = self.inbox_id, "publishing commit log");
 
         const BATCH_SIZE: usize = 10;
 
         // Process requests in batches of 10
         for batch in requests.chunks(BATCH_SIZE) {
-            self.api_client
+            let published = self
+                .api_client
                 .publish_commit_log(BatchPublishCommitLogRequest {
                     requests: batch.to_vec(),
                 })
                 .await
                 .map_err(crate::dyn_err)?;
+            if !published {
+                return Ok(false);
+            }
         }
 
-        Ok(())
+        Ok(true)
     }
 
     pub async fn query_commit_log(

@@ -207,7 +207,7 @@ where
     async fn publish_commit_log(
         &self,
         request: mls_v1::BatchPublishCommitLogRequest,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<bool, Self::Error> {
         self.write_with_refresh(|| {
             let value = request.clone();
             async move { self.choose_client().await?.publish_commit_log(value).await }

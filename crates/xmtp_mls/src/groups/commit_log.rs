@@ -258,7 +258,7 @@ where
         // Step 3 is to publish commit log entries to the API and update cursors
         let api = self.context.api();
         match api.publish_commit_log(all_entries).await {
-            Ok(_) => {
+            Ok(true) => {
                 // Publishing was successful, let's update every group's cursor
                 for conversation_cursor_info in &conversation_cursor_info {
                     tracing::info!(
@@ -273,6 +273,10 @@ where
                         ),
                     )?;
                 }
+            }
+            Ok(false) => {
+                // Commit log is disabled (e.g. d14n), do not update cursor
+                tracing::debug!("Commit log publish was a no-op, skipping cursor update");
             }
             Err(e) => {
                 // In this case we do not update the cursor, so next worker iteration will try again

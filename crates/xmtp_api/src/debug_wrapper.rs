@@ -178,7 +178,7 @@ where
     async fn publish_commit_log(
         &self,
         request: BatchPublishCommitLogRequest,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<bool, Self::Error> {
         wrap_err(
             || self.inner.publish_commit_log(request),
             || self.inner.aggregate_stats(),

@@ -88,7 +88,7 @@ mock! {
         async fn query_latest_group_message(&self, group_id: GroupId) -> Result<Option<GroupMessage>, MockError>;
 
         async fn query_welcome_messages(&self, installation_key: InstallationId) -> Result<Vec<WelcomeMessage>, MockError>;
-        async fn publish_commit_log(&self, request: BatchPublishCommitLogRequest) -> Result<(), MockError>;
+        async fn publish_commit_log(&self, request: BatchPublishCommitLogRequest) -> Result<bool, MockError>;
         async fn query_commit_log(&self, request: BatchQueryCommitLogRequest) -> Result<BatchQueryCommitLogResponse, MockError>;
         async fn get_newest_group_message(&self, request: xmtp_proto::mls_v1::GetNewestGroupMessageRequest) -> Result<Vec<Option<GroupMessageMetadata>>, MockError>;
     }

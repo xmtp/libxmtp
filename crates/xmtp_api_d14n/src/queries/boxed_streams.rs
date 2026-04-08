@@ -85,7 +85,7 @@ where
     async fn publish_commit_log(
         &self,
         request: mls_v1::BatchPublishCommitLogRequest,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<bool, Self::Error> {
         self.inner.publish_commit_log(request).await
     }
 

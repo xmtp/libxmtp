@@ -216,8 +216,9 @@ where
     async fn publish_commit_log(
         &self,
         _request: mls_v1::BatchPublishCommitLogRequest,
-    ) -> Result<(), Self::Error> {
-        Ok(())
+    ) -> Result<bool, Self::Error> {
+        tracing::debug!("commit log publish disabled for d14n");
+        Ok(false)
     }
 
     async fn query_commit_log(
