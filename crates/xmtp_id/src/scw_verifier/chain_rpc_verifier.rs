@@ -59,6 +59,12 @@ pub struct FallbackSmartContractWalletVerifier {
 
 impl FallbackSmartContractWalletVerifier {
     pub fn new(urls: Vec<String>) -> Result<Self, VerifierError> {
+        if urls.is_empty() {
+            return Err(VerifierError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "at least one RPC URL is required for fallback verifier",
+            )));
+        }
         let verifiers = urls
             .into_iter()
             .map(RpcSmartContractWalletVerifier::new)
@@ -204,6 +210,12 @@ mod fallback_tests {
         };
         // Just verify the struct was created correctly
         assert_eq!(verifier.verifiers.len(), 1);
+    }
+
+    #[test]
+    fn test_fallback_new_empty_urls_rejected() {
+        let result = FallbackSmartContractWalletVerifier::new(vec![]);
+        assert!(result.is_err());
     }
 
     #[xmtp_common::test(unwrap_try = true)]
