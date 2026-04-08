@@ -60,10 +60,9 @@ pub struct FallbackSmartContractWalletVerifier {
 impl FallbackSmartContractWalletVerifier {
     pub fn new(urls: Vec<String>) -> Result<Self, VerifierError> {
         if urls.is_empty() {
-            return Err(VerifierError::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "at least one RPC URL is required for fallback verifier",
-            )));
+            return Err(VerifierError::Configuration(
+                "at least one RPC URL is required for fallback verifier".into(),
+            ));
         }
         let verifiers = urls
             .into_iter()

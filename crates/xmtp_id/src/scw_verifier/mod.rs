@@ -68,6 +68,11 @@ pub enum VerifierError {
     /// Chain ID string lacks expected eip155: prefix. Not retryable.
     #[error("Chain IDs must be preceded with eip155:")]
     MalformedEipUrl,
+    /// Configuration error.
+    ///
+    /// Invalid verifier configuration. Not retryable.
+    #[error("invalid verifier configuration: {0}")]
+    Configuration(String),
     /// No verifier.
     ///
     /// Verifier not configured for the given chain ID. Retryable.
@@ -194,10 +199,9 @@ impl std::fmt::Debug for MultiSmartContractSignatureVerifier {
 /// or a `FallbackSmartContractWalletVerifier` for multiple.
 fn make_verifier(urls: Vec<Url>) -> Result<Box<dyn SmartContractSignatureVerifier>, VerifierError> {
     match urls.len() {
-        0 => Err(VerifierError::Io(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "empty URL list for chain",
-        ))),
+        0 => Err(VerifierError::Configuration(
+            "at least one RPC URL is required per chain".into(),
+        )),
         1 => Ok(Box::new(RpcSmartContractWalletVerifier::new(
             urls.into_iter().next().unwrap().to_string(),
         )?)),
