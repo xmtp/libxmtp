@@ -33,8 +33,9 @@ pub enum Commands {
     Info(Info),
     /// Set a migration time
     Migrate(Migrate),
-    /// Query the current d14n cutover timestamp from node-go
-    Cutover,
+    /// Query the current d14n cutover timestamp from node-go.
+    /// Pass --grpc-url to bypass ServiceManager and query a node directly without Docker.
+    Cutover(Cutover),
     /// Display the public Ethereum addresses of registered xmtpd nodes
     Addresses,
 }
@@ -92,6 +93,14 @@ impl Migrate {
             }
         }
     }
+}
+
+#[derive(Args, Debug, Clone)]
+// url::Url is not Copy, so Copy cannot be derived
+pub struct Cutover {
+    /// gRPC URL of the xmtp-node-go instance to query (e.g. http://localhost:5050).
+    #[arg(long)]
+    pub grpc_url: Option<url::Url>,
 }
 
 /// specify the log output
