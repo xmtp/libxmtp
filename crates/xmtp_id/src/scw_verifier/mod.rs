@@ -7,6 +7,7 @@ use alloy::{
 };
 pub use chain_rpc_verifier::*;
 pub use remote_signature_verifier::*;
+use serde::Deserialize;
 use std::{collections::HashMap, fs, path::Path, sync::Arc};
 use thiserror::Error;
 use tracing::info;
@@ -14,6 +15,23 @@ use url::Url;
 use xmtp_common::{ErrorCode, MaybeSend, MaybeSync, RetryableError};
 
 static DEFAULT_CHAIN_URLS: &str = include_str!("chain_urls_default.json");
+
+/// Accepts both a single URL string and an array of URL strings for backward compatibility.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum UrlOrUrls {
+    Single(Url),
+    Multiple(Vec<Url>),
+}
+
+impl UrlOrUrls {
+    fn into_vec(self) -> Vec<Url> {
+        match self {
+            UrlOrUrls::Single(url) => vec![url],
+            UrlOrUrls::Multiple(urls) => urls,
+        }
+    }
+}
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum VerifierError {
@@ -171,16 +189,29 @@ impl std::fmt::Debug for MultiSmartContractSignatureVerifier {
     }
 }
 
+/// Helper to create the appropriate verifier for a list of URLs.
+/// Returns a single `RpcSmartContractWalletVerifier` for one URL,
+/// or a `FallbackSmartContractWalletVerifier` for multiple.
+fn make_verifier(urls: Vec<Url>) -> Result<Box<dyn SmartContractSignatureVerifier>, VerifierError> {
+    match urls.len() {
+        0 => Err(VerifierError::Other(Box::new(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "empty URL list for chain",
+        )))),
+        1 => Ok(Box::new(RpcSmartContractWalletVerifier::new(
+            urls.into_iter().next().unwrap().to_string(),
+        )?)),
+        _ => Ok(Box::new(FallbackSmartContractWalletVerifier::new(
+            urls.into_iter().map(|u| u.to_string()).collect(),
+        )?)),
+    }
+}
+
 impl MultiSmartContractSignatureVerifier {
-    pub fn new(urls: HashMap<String, url::Url>) -> Result<Self, VerifierError> {
+    pub fn new(urls: HashMap<String, Vec<Url>>) -> Result<Self, VerifierError> {
         let verifiers = urls
             .into_iter()
-            .map(|(chain_id, url)| {
-                Ok::<_, VerifierError>((
-                    chain_id,
-                    Box::new(RpcSmartContractWalletVerifier::new(url.to_string())?) as Box<_>,
-                ))
-            })
+            .map(|(chain_id, urls)| Ok::<_, VerifierError>((chain_id, make_verifier(urls)?)))
             .collect::<Result<HashMap<_, _>, _>>()?;
 
         Ok(Self { verifiers })
@@ -199,25 +230,34 @@ impl MultiSmartContractSignatureVerifier {
         Ok(Self { verifiers })
     }
 
+    fn parse_chain_urls(json: &str) -> Result<HashMap<String, Vec<Url>>, VerifierError> {
+        let raw: HashMap<String, UrlOrUrls> = serde_json::from_str(json)?;
+        Ok(raw.into_iter().map(|(k, v)| (k, v.into_vec())).collect())
+    }
+
     pub fn new_from_env() -> Result<Self, VerifierError> {
-        let urls: HashMap<String, Url> = serde_json::from_str(DEFAULT_CHAIN_URLS)?;
+        let urls = Self::parse_chain_urls(DEFAULT_CHAIN_URLS)?;
         Self::new(urls)?.upgrade()
     }
 
     pub fn new_from_file(path: impl AsRef<Path>) -> Result<Self, VerifierError> {
         let json = fs::read_to_string(path.as_ref())?;
-        let urls: HashMap<String, Url> = serde_json::from_str(&json)?;
-
+        let urls = Self::parse_chain_urls(&json)?;
         Self::new(urls)
     }
 
     /// Upgrade the default urls to paid/private/alternative urls if the env vars are present.
+    /// Env vars can contain comma-separated URLs for fallback support.
     pub fn upgrade(mut self) -> Result<Self, VerifierError> {
         for (id, verifier) in self.verifiers.iter_mut() {
             // TODO: coda - update the chain id env var ids to preceded with "EIP155_"
             let eip_id = id.split(":").nth(1).ok_or(VerifierError::MalformedEipUrl)?;
-            if let Ok(url) = std::env::var(format!("CHAIN_RPC_{eip_id}")) {
-                *verifier = Box::new(RpcSmartContractWalletVerifier::new(url)?);
+            if let Ok(val) = std::env::var(format!("CHAIN_RPC_{eip_id}")) {
+                let urls: Vec<Url> = val
+                    .split(',')
+                    .map(|s| s.trim().parse())
+                    .collect::<Result<_, _>>()?;
+                *verifier = make_verifier(urls)?;
             } else {
                 info!("No upgraded chain url for chain {id}, using default.");
             };
@@ -265,5 +305,93 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
         }
 
         Err(VerifierError::NoVerifier(account_id.chain_id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_chain_urls_array_format() {
+        let json = r#"{
+            "eip155:1": ["https://rpc1.example.com", "https://rpc2.example.com"],
+            "eip155:8453": ["https://rpc1.base.org"]
+        }"#;
+        let result = MultiSmartContractSignatureVerifier::parse_chain_urls(json).unwrap();
+        assert_eq!(result["eip155:1"].len(), 2);
+        assert_eq!(result["eip155:8453"].len(), 1);
+    }
+
+    #[test]
+    fn test_parse_chain_urls_single_string_format() {
+        let json = r#"{
+            "eip155:1": "https://rpc1.example.com",
+            "eip155:8453": "https://rpc1.base.org"
+        }"#;
+        let result = MultiSmartContractSignatureVerifier::parse_chain_urls(json).unwrap();
+        assert_eq!(result["eip155:1"].len(), 1);
+        assert_eq!(result["eip155:8453"].len(), 1);
+    }
+
+    #[test]
+    fn test_parse_chain_urls_mixed_format() {
+        let json = r#"{
+            "eip155:1": ["https://rpc1.example.com", "https://rpc2.example.com"],
+            "eip155:8453": "https://rpc1.base.org"
+        }"#;
+        let result = MultiSmartContractSignatureVerifier::parse_chain_urls(json).unwrap();
+        assert_eq!(result["eip155:1"].len(), 2);
+        assert_eq!(result["eip155:8453"].len(), 1);
+    }
+
+    #[test]
+    fn test_parse_default_chain_urls() {
+        let result =
+            MultiSmartContractSignatureVerifier::parse_chain_urls(DEFAULT_CHAIN_URLS).unwrap();
+        assert!(result.len() >= 11);
+        assert!(!result["eip155:1"].is_empty());
+    }
+
+    #[test]
+    fn test_make_verifier_single_url() {
+        let urls = vec!["https://rpc1.example.com".parse().unwrap()];
+        let verifier = make_verifier(urls);
+        assert!(verifier.is_ok());
+    }
+
+    #[test]
+    fn test_make_verifier_multiple_urls() {
+        let urls = vec![
+            "https://rpc1.example.com".parse().unwrap(),
+            "https://rpc2.example.com".parse().unwrap(),
+        ];
+        let verifier = make_verifier(urls);
+        assert!(verifier.is_ok());
+    }
+
+    #[test]
+    fn test_make_verifier_empty_urls() {
+        let urls: Vec<Url> = vec![];
+        let verifier = make_verifier(urls);
+        assert!(verifier.is_err());
+    }
+
+    #[test]
+    fn test_new_with_multi_url_map() {
+        let mut urls = HashMap::new();
+        urls.insert(
+            "eip155:1".to_string(),
+            vec![
+                "https://rpc1.example.com".parse().unwrap(),
+                "https://rpc2.example.com".parse().unwrap(),
+            ],
+        );
+        urls.insert(
+            "eip155:8453".to_string(),
+            vec!["https://rpc1.base.org".parse().unwrap()],
+        );
+        let verifier = MultiSmartContractSignatureVerifier::new(urls);
+        assert!(verifier.is_ok());
     }
 }
