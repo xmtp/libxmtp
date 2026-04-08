@@ -175,7 +175,7 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ValidationResponse {
     pub is_valid: bool,
     pub block_number: Option<u64>,
@@ -197,13 +197,15 @@ impl std::fmt::Debug for MultiSmartContractSignatureVerifier {
 /// Helper to create the appropriate verifier for a list of URLs.
 /// Returns a single `RpcSmartContractWalletVerifier` for one URL,
 /// or a `FallbackSmartContractWalletVerifier` for multiple.
-fn make_verifier(urls: Vec<Url>) -> Result<Box<dyn SmartContractSignatureVerifier>, VerifierError> {
+fn make_verifier(
+    mut urls: Vec<Url>,
+) -> Result<Box<dyn SmartContractSignatureVerifier>, VerifierError> {
     match urls.len() {
         0 => Err(VerifierError::Configuration(
             "at least one RPC URL is required per chain".into(),
         )),
         1 => Ok(Box::new(RpcSmartContractWalletVerifier::new(
-            urls.into_iter().next().unwrap().to_string(),
+            urls.remove(0).to_string(),
         )?)),
         _ => Ok(Box::new(FallbackSmartContractWalletVerifier::new(
             urls.into_iter().map(|u| u.to_string()).collect(),
