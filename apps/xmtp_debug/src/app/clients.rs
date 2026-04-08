@@ -90,7 +90,7 @@ async fn new_client_inner(
         .map_err(|_| eyre::eyre!("Conversion failed from OsString"))?;
     let db = NativeDb::builder()
         .max_pool_size(2)
-        .min_pool_size(2)
+        .min_pool_size(0)
         .persistent(path)
         .build_unencrypted()?;
     db.db().set_sqlcipher_log("NONE")?;
@@ -153,7 +153,9 @@ fn existing_client_inner(
 
     let db = NativeDb::builder()
         .max_pool_size(2)
-        .min_pool_size(2)
+        // min_pool_size(0): don't eagerly maintain idle connections, since xdbg loads 100+
+        // clients and each idle connection consumes a file descriptor (see #3231).
+        .min_pool_size(0)
         .persistent(path)
         .build_unencrypted()
         .wrap_err(format!(
@@ -191,22 +193,34 @@ pub fn load_all_identities(
         .load(u64::from(network))?
         .ok_or(eyre!("no identities in store, try generating some"))?;
     let now = std::time::Instant::now();
-    let mut clients_len = 0;
-    let clients = identities
-        .map(move |i| {
-            let item = (
-                i.value().inbox_id,
-                Mutex::new(client_from_identity(&i.value(), network).wrap_err(format!(
-                    "failed to load client for {}, {} other clients succeeded",
-                    hex::encode(i.value().inbox_id),
-                    clients_len
-                ))?),
-            );
-            clients_len += 1;
-            Ok::<_, eyre::Report>(item)
-        })
-        .collect::<Result<HashMap<_, _>, _>>()?;
-    tracing::info!("took {:?} to load {} clients", now.elapsed(), clients.len());
+    let mut clients = HashMap::new();
+    let mut skipped = 0u32;
+    for i in identities {
+        let inbox_id = i.value().inbox_id;
+        match client_from_identity(&i.value(), network) {
+            Ok(client) => {
+                clients.insert(inbox_id, Mutex::new(client));
+            }
+            Err(e) => {
+                skipped += 1;
+                warn!(
+                    inbox_id = hex::encode(inbox_id),
+                    loaded = clients.len(),
+                    skipped,
+                    "skipping client that failed to load: {e:#}"
+                );
+            }
+        }
+    }
+    if clients.is_empty() {
+        eyre::bail!("all clients failed to load");
+    }
+    tracing::info!(
+        "took {:?} to load {} clients (skipped {})",
+        now.elapsed(),
+        clients.len(),
+        skipped
+    );
     Ok(Arc::new(clients))
 }
 
