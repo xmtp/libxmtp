@@ -33,6 +33,9 @@ pub struct XnetToml {
     pub toxiproxy_port: Option<u16>,
     /// Pause broadcaster contracts on startup (same as `--paused` CLI flag)
     pub paused: bool,
+    /// Public IP for remote addressing mode (sslip.io).
+    /// Equivalent to the --remote CLI flag.
+    pub remote_ip: Option<std::net::IpAddr>,
 }
 
 impl Default for XnetToml {
@@ -41,6 +44,7 @@ impl Default for XnetToml {
             use_standard_ports: true,
             toxiproxy_port: Default::default(),
             paused: false,
+            remote_ip: None,
         }
     }
 }

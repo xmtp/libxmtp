@@ -123,20 +123,28 @@ pub async fn execute_delete() -> Result<()> {
 
 pub async fn execute_add_node() -> Result<NodeInfo> {
     let node = App::parse()?.add_node(&AddNode { migrator: false }).await?;
+    let config = xnet::Config::load()?;
     Ok(NodeInfo {
         id: *node.id(),
         container_name: format!("xnet-{}", node.id()),
-        url: format!("http://node{}.xmtpd.local", node.id()),
+        url: format!(
+            "http://{}",
+            config.address_mode.hostname(&format!("node{}", node.id()))
+        ),
         address: node.address().to_string(),
     })
 }
 
 pub async fn execute_add_migrator() -> Result<NodeInfo> {
     let node = App::parse()?.add_node(&AddNode { migrator: true }).await?;
+    let config = xnet::Config::load()?;
     Ok(NodeInfo {
         id: *node.id(),
         container_name: format!("xnet-{}", node.id()),
-        url: format!("http://node{}.xmtpd.local", node.id()),
+        url: format!(
+            "http://{}",
+            config.address_mode.hostname(&format!("node{}", node.id()))
+        ),
         address: node.address().to_string(),
     })
 }

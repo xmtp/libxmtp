@@ -12,6 +12,7 @@ use crate::app::App;
 use crate::config::AppArgs;
 use crate::constants::{ToxiProxy as ToxiProxyConst, Xmtpd as XmtpdConst};
 
+use super::AddressMode;
 use super::toml_config::{ImageConfig, MigrationConfig, NodeToml, TomlConfig};
 
 static CONF: OnceLock<Config> = OnceLock::new();
@@ -66,6 +67,9 @@ pub struct Config {
     /// Grafana image overrides
     #[builder(default)]
     pub grafana: ImageConfig,
+    /// Addressing mode (local or remote/sslip.io)
+    #[builder(default)]
+    pub address_mode: AddressMode,
 }
 
 impl Config {
@@ -81,6 +85,31 @@ impl Config {
             let app = App::parse()?;
             let toml = Self::load_toml(&app.args)?;
             let signers = Self::load_signers();
+            // Resolve address mode: XNET_REMOTE_IP env > --remote CLI flag > TOML remote_ip > Local
+            let address_mode = if let Ok(env_ip) = std::env::var("XNET_REMOTE_IP") {
+                match env_ip.parse::<std::net::IpAddr>() {
+                    Ok(ip) => {
+                        tracing::info!("Remote mode from env XNET_REMOTE_IP: {}", ip);
+                        AddressMode::Remote(ip)
+                    }
+                    Err(_) => {
+                        tracing::error!(
+                            "XNET_REMOTE_IP is not a valid IP: '{}', falling back to local mode",
+                            env_ip
+                        );
+                        AddressMode::Local
+                    }
+                }
+            } else if let Some(ip) = app.args.remote {
+                tracing::info!("Remote mode from --remote flag: {}", ip);
+                AddressMode::Remote(ip)
+            } else if let Some(ip) = toml.xnet.remote_ip {
+                tracing::info!("Remote mode from TOML remote_ip: {}", ip);
+                AddressMode::Remote(ip)
+            } else {
+                AddressMode::Local
+            };
+
             let mut c = Config::builder()
                 .use_standard_ports(toml.xnet.use_standard_ports)
                 .paused(toml.xnet.paused)
@@ -99,6 +128,7 @@ impl Config {
                 .maybe_toxiproxy_port(toml.xnet.toxiproxy_port)
                 .prometheus(toml.prometheus)
                 .grafana(toml.grafana)
+                .address_mode(address_mode)
                 .build();
 
             // Allow XNET_CUTOVER_TIMESTAMP env var to override the TOML migration_timestamp

@@ -252,7 +252,16 @@ impl TraefikConfig {
     ///
     /// Returns a formatted string that can be appended to /etc/hosts.
     /// All hostnames resolve to 127.0.0.1 for local access through Traefik.
+    /// In remote mode, returns empty (sslip.io handles DNS resolution).
     pub fn hosts_entries(&self) -> String {
+        // In remote mode, no /etc/hosts entries needed
+        if crate::Config::load()
+            .map(|c| c.address_mode.is_remote())
+            .unwrap_or(false)
+        {
+            return String::new();
+        }
+
         let routes = self.routes.lock().unwrap();
 
         if routes.is_empty() {

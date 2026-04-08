@@ -126,15 +126,19 @@ impl Traefik {
 
         // Pre-allocate all possible XMTPD node hostnames + gateway
         // Node IDs increment by XmtpdConst::NODE_ID_INCREMENT (100), so: node100, node200, node300, ...
+        let xnet_config = Config::load()?;
         let mut aliases = vec![TraefikConst::CONTAINER_NAME.to_string()];
         for i in 1..=MAX_XMTPD_NODES {
             let node_id = i * XmtpdConst::NODE_ID_INCREMENT as usize;
-            aliases.push(format!("node{}.xmtpd.local", node_id));
+            aliases.push(
+                xnet_config
+                    .address_mode
+                    .hostname(&format!("node{}", node_id)),
+            );
         }
-        let xnet_config = Config::load()?;
-        for NodeToml { name, .. } in xnet_config.xmtpd_nodes {
+        for NodeToml { name, .. } in &xnet_config.xmtpd_nodes {
             if let Some(n) = name {
-                aliases.push(format!("{}.xmtpd.local", n));
+                aliases.push(xnet_config.address_mode.hostname(n));
             }
         }
 
