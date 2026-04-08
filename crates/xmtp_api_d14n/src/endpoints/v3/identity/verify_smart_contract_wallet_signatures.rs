@@ -24,7 +24,7 @@ impl VerifySmartContractWalletSignatures {
 impl Endpoint for VerifySmartContractWalletSignatures {
     type Output = VerifySmartContractWalletSignaturesResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        xmtp_proto::path_and_query::<VerifySmartContractWalletSignaturesRequest>()
+        Cow::Borrowed("/xmtp.identity.api.v1.IdentityApi/VerifySmartContractWalletSignatures")
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -41,12 +41,6 @@ mod test {
     use super::*;
     use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::{api, prelude::*};
-
-    #[xmtp_common::test]
-    fn test_file_descriptor() {
-        let pnq = xmtp_proto::path_and_query::<VerifySmartContractWalletSignaturesRequest>();
-        println!("{}", pnq);
-    }
 
     #[xmtp_common::test]
     fn test_grpc_endpoint_returns_correct_path() {

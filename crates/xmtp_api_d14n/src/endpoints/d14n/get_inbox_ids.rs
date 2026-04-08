@@ -26,7 +26,7 @@ impl GetInboxIds {
 impl Endpoint for GetInboxIds {
     type Output = GetInboxIdsResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        xmtp_proto::path_and_query::<GetInboxIdsRequest>()
+        Cow::Borrowed("/xmtp.xmtpv4.message_api.ReplicationApi/GetInboxIds")
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -61,12 +61,6 @@ mod test {
     use crate::d14n::GetInboxIds;
     use xmtp_api_grpc::test::XmtpdClient;
     use xmtp_proto::{api, prelude::*};
-
-    #[xmtp_common::test]
-    fn test_file_descriptor() {
-        let pnq = xmtp_proto::path_and_query::<GetInboxIdsRequest>();
-        println!("{}", pnq);
-    }
 
     #[xmtp_common::test]
     fn test_grpc_endpoint_returns_correct_path() {

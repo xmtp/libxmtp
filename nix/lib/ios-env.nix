@@ -85,30 +85,51 @@ let
   # In buildPackage: use as preBuild hook.
   envSetup =
     target:
+    let
+      # For iOS targets, SDKROOT must point to the macOS SDK so that build scripts
+      # (which run on the host) link against macOS libc. The iOS SDK is passed to
+      # the target compiler via target-specific CFLAGS and bindgen args.
+      effectiveSdkSuffix =
+        if isIosTarget target then
+          "Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+        else
+          sdkSuffixForTarget target;
+    in
     resolveXcode
     + ''
       export DEVELOPER_DIR="$_XCODE_DEV"
-      export SDKROOT="$_XCODE_DEV/${sdkSuffixForTarget target}"
+      export SDKROOT="$_XCODE_DEV/${effectiveSdkSuffix}"
       export IPHONEOS_DEPLOYMENT_TARGET="14"
       export PATH="$_XCODE_DEV/usr/bin:$PATH"
-    ''
-    + lib.optionalString (isIosTarget target) ''
+
+      # Always use Xcode's clang directly for ALL targets (not just iOS). Even for
+      # macOS targets, unsetting NIX_LDFLAGS is not enough — rustc falls back to
+      # `cc` in PATH when compiling build scripts, which may still resolve to a
+      # Nix shim that can't link against the real macOS SDK. Pointing CC and the
+      # host-target linker at Xcode's clang ensures build scripts link correctly.
       _XCODE_CLANG="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
       _XCODE_CLANGXX="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"
       export CC="$_XCODE_CLANG"
       export CXX="$_XCODE_CLANGXX"
+      export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="$_XCODE_CLANG"
+      export CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER="$_XCODE_CLANG"
+    ''
+    + lib.optionalString (isIosTarget target) ''
+      _IOS_SDKROOT="$_XCODE_DEV/${sdkSuffixForTarget target}"
     ''
     + lib.optionalString (target == "aarch64-apple-ios") ''
       export CC_aarch64_apple_ios="$_XCODE_CLANG"
       export CXX_aarch64_apple_ios="$_XCODE_CLANGXX"
       export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER="$_XCODE_CLANG"
-      export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios="--target=arm64-apple-ios --sysroot=$SDKROOT"
+      export CFLAGS_aarch64_apple_ios="--sysroot=$_IOS_SDKROOT"
+      export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios="--target=arm64-apple-ios --sysroot=$_IOS_SDKROOT"
     ''
     + lib.optionalString (target == "aarch64-apple-ios-sim") ''
       export CC_aarch64_apple_ios_sim="$_XCODE_CLANG"
       export CXX_aarch64_apple_ios_sim="$_XCODE_CLANGXX"
       export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER="$_XCODE_CLANG"
-      export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios_sim="--target=arm64-apple-ios-simulator --sysroot=$SDKROOT"
+      export CFLAGS_aarch64_apple_ios_sim="--sysroot=$_IOS_SDKROOT"
+      export BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios_sim="--target=arm64-apple-ios-simulator --sysroot=$_IOS_SDKROOT"
     '';
 
   # Shell snippet that sets all cross-compilation env vars for the dev shell.

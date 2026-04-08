@@ -21,7 +21,7 @@ impl SendWelcomeMessages {
 impl Endpoint for SendWelcomeMessages {
     type Output = ();
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        xmtp_proto::path_and_query::<SendWelcomeMessagesRequest>()
+        Cow::Borrowed("/xmtp.mls.api.v1.MlsApi/SendWelcomeMessages")
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -37,16 +37,8 @@ impl Endpoint for SendWelcomeMessages {
 mod test {
     use crate::v3::SendWelcomeMessages;
     use xmtp_api_grpc::test::NodeGoClient;
-    use xmtp_proto::xmtp::mls::api::v1::{
-        SendWelcomeMessagesRequest, WelcomeMessageInput, welcome_message_input,
-    };
+    use xmtp_proto::xmtp::mls::api::v1::{WelcomeMessageInput, welcome_message_input};
     use xmtp_proto::{api, prelude::*};
-
-    #[xmtp_common::test]
-    fn test_file_descriptor() {
-        let pnq = xmtp_proto::path_and_query::<SendWelcomeMessagesRequest>();
-        println!("{}", pnq);
-    }
 
     #[xmtp_common::test]
     fn test_grpc_endpoint_returns_correct_path() {

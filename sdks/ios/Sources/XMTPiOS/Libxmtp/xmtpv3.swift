@@ -352,19 +352,29 @@ private func uniffiTraitInterfaceCallWithError<T, E>(
         callStatus.pointee.errorBuf = FfiConverterString.lower(String(describing: error))
     }
 }
+// Initial value and increment amount for handles. 
+// These ensure that SWIFT handles always have the lowest bit set
+fileprivate let UNIFFI_HANDLEMAP_INITIAL: UInt64 = 1
+fileprivate let UNIFFI_HANDLEMAP_DELTA: UInt64 = 2
+
 fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
     // All mutation happens with this lock held, which is why we implement @unchecked Sendable.
     private let lock = NSLock()
     private var map: [UInt64: T] = [:]
-    private var currentHandle: UInt64 = 1
+    private var currentHandle: UInt64 = UNIFFI_HANDLEMAP_INITIAL
 
     func insert(obj: T) -> UInt64 {
         lock.withLock {
-            let handle = currentHandle
-            currentHandle += 1
-            map[handle] = obj
-            return handle
+            return doInsert(obj)
         }
+    }
+
+    // Low-level insert function, this assumes `lock` is held.
+    private func doInsert(_ obj: T) -> UInt64 {
+        let handle = currentHandle
+        currentHandle += UNIFFI_HANDLEMAP_DELTA
+        map[handle] = obj
+        return handle
     }
 
      func get(handle: UInt64) throws -> T {
@@ -373,6 +383,15 @@ fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
                 throw UniffiInternalError.unexpectedStaleHandle
             }
             return obj
+        }
+    }
+
+     func clone(handle: UInt64) throws -> UInt64 {
+        try lock.withLock {
+            guard let obj = map[handle] else {
+                throw UniffiInternalError.unexpectedStaleHandle
+            }
+            return doInsert(obj)
         }
     }
 
@@ -591,13 +610,13 @@ public protocol FfiAuthCallback: AnyObject, Sendable {
     
 }
 open class FfiAuthCallbackImpl: FfiAuthCallback, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -607,36 +626,37 @@ open class FfiAuthCallbackImpl: FfiAuthCallback, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_ffiauthcallback(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_ffiauthcallback(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_ffiauthcallback(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_ffiauthcallback(handle, $0) }
     }
 
     
@@ -647,7 +667,7 @@ open func onAuthRequired()async throws  -> FfiCredential  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffiauthcallback_on_auth_required(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -660,7 +680,9 @@ open func onAuthRequired()async throws  -> FfiCredential  {
 }
     
 
+    
 }
+
 
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
@@ -672,11 +694,25 @@ fileprivate struct UniffiCallbackInterfaceFfiAuthCallback {
     // This creates 1-element array, since this seems to be the only way to construct a const
     // pointer that we can pass to the Rust code.
     static let vtable: [UniffiVTableCallbackInterfaceFfiAuthCallback] = [UniffiVTableCallbackInterfaceFfiAuthCallback(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeFfiAuthCallback.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface FfiAuthCallback: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeFfiAuthCallback.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface FfiAuthCallback: handle missing in uniffiClone")
+            }
+        },
         onAuthRequired: { (
             uniffiHandle: UInt64,
             uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
             uniffiCallbackData: UInt64,
-            uniffiOutReturn: UnsafeMutablePointer<UniffiForeignFuture>
+            uniffiOutDroppedCallback: UnsafeMutablePointer<UniffiForeignFutureDroppedCallbackStruct>
         ) in
             let makeCall = {
                 () async throws -> FfiCredential in
@@ -690,7 +726,7 @@ fileprivate struct UniffiCallbackInterfaceFfiAuthCallback {
             let uniffiHandleSuccess = { (returnValue: FfiCredential) in
                 uniffiFutureCallback(
                     uniffiCallbackData,
-                    UniffiForeignFutureStructRustBuffer(
+                    UniffiForeignFutureResultRustBuffer(
                         returnValue: FfiConverterTypeFfiCredential_lower(returnValue),
                         callStatus: RustCallStatus()
                     )
@@ -699,25 +735,19 @@ fileprivate struct UniffiCallbackInterfaceFfiAuthCallback {
             let uniffiHandleError = { (statusCode, errorBuf) in
                 uniffiFutureCallback(
                     uniffiCallbackData,
-                    UniffiForeignFutureStructRustBuffer(
+                    UniffiForeignFutureResultRustBuffer(
                         returnValue: RustBuffer.empty(),
                         callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
                     )
                 )
             }
-            let uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+            uniffiTraitInterfaceCallAsyncWithError(
                 makeCall: makeCall,
                 handleSuccess: uniffiHandleSuccess,
                 handleError: uniffiHandleError,
-                lowerError: FfiConverterTypeFfiError_lower
+                lowerError: FfiConverterTypeFfiError_lower,
+                droppedCallback: uniffiOutDroppedCallback
             )
-            uniffiOutReturn.pointee = uniffiForeignFuture
-        },
-        uniffiFree: { (uniffiHandle: UInt64) -> () in
-            let result = try? FfiConverterTypeFfiAuthCallback.handleMap.remove(handle: uniffiHandle)
-            if result == nil {
-                print("Uniffi callback interface FfiAuthCallback: handle missing in uniffiFree")
-            }
         }
     )]
 }
@@ -726,42 +756,43 @@ private func uniffiCallbackInitFfiAuthCallback() {
     uniffi_xmtpv3_fn_init_callback_vtable_ffiauthcallback(UniffiCallbackInterfaceFfiAuthCallback.vtable)
 }
 
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiAuthCallback: FfiConverter {
     fileprivate static let handleMap = UniffiHandleMap<FfiAuthCallback>()
 
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiAuthCallback
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiAuthCallback {
-        return FfiAuthCallbackImpl(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiAuthCallback {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return FfiAuthCallbackImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
     }
 
-    public static func lower(_ value: FfiAuthCallback) -> UnsafeMutableRawPointer {
-        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: handleMap.insert(obj: value))) else {
-            fatalError("Cast to UnsafeMutableRawPointer failed")
-        }
-        return ptr
+    public static func lower(_ value: FfiAuthCallback) -> UInt64 {
+         if let rustImpl = value as? FfiAuthCallbackImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiAuthCallback {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiAuthCallback, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -769,14 +800,14 @@ public struct FfiConverterTypeFfiAuthCallback: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiAuthCallback_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiAuthCallback {
-    return try FfiConverterTypeFfiAuthCallback.lift(pointer)
+public func FfiConverterTypeFfiAuthCallback_lift(_ handle: UInt64) throws -> FfiAuthCallback {
+    return try FfiConverterTypeFfiAuthCallback.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiAuthCallback_lower(_ value: FfiAuthCallback) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiAuthCallback_lower(_ value: FfiAuthCallback) -> UInt64 {
     return FfiConverterTypeFfiAuthCallback.lower(value)
 }
 
@@ -793,13 +824,13 @@ public protocol FfiAuthHandleProtocol: AnyObject, Sendable {
     
 }
 open class FfiAuthHandle: FfiAuthHandleProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -809,43 +840,44 @@ open class FfiAuthHandle: FfiAuthHandleProtocol, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_ffiauthhandle(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_ffiauthhandle(self.handle, $0) }
     }
 public convenience init() {
-    let pointer =
+    let handle =
         try! rustCall() {
     uniffi_xmtpv3_fn_constructor_ffiauthhandle_new($0
     )
 }
-    self.init(unsafeFromRawPointer: pointer)
+    self.init(unsafeFromHandle: handle)
 }
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_ffiauthhandle(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_ffiauthhandle(handle, $0) }
     }
 
     
@@ -853,7 +885,8 @@ public convenience init() {
     
 open func id() -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffiauthhandle_id(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffiauthhandle_id(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -863,7 +896,7 @@ open func set(credential: FfiCredential)async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffiauthhandle_set(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiCredential_lower(credential)
                 )
             },
@@ -876,6 +909,7 @@ open func set(credential: FfiCredential)async throws   {
 }
     
 
+    
 }
 
 
@@ -883,33 +917,24 @@ open func set(credential: FfiCredential)async throws   {
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiAuthHandle: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiAuthHandle
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiAuthHandle {
-        return FfiAuthHandle(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiAuthHandle {
+        return FfiAuthHandle(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: FfiAuthHandle) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: FfiAuthHandle) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiAuthHandle {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiAuthHandle, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -917,14 +942,14 @@ public struct FfiConverterTypeFfiAuthHandle: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiAuthHandle_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiAuthHandle {
-    return try FfiConverterTypeFfiAuthHandle.lift(pointer)
+public func FfiConverterTypeFfiAuthHandle_lift(_ handle: UInt64) throws -> FfiAuthHandle {
+    return try FfiConverterTypeFfiAuthHandle.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiAuthHandle_lower(_ value: FfiAuthHandle) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiAuthHandle_lower(_ value: FfiAuthHandle) -> UInt64 {
     return FfiConverterTypeFfiAuthHandle.lower(value)
 }
 
@@ -943,13 +968,13 @@ public protocol FfiConsentCallback: AnyObject, Sendable {
     
 }
 open class FfiConsentCallbackImpl: FfiConsentCallback, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -959,63 +984,69 @@ open class FfiConsentCallbackImpl: FfiConsentCallback, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_fficonsentcallback(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_fficonsentcallback(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_fficonsentcallback(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_fficonsentcallback(handle, $0) }
     }
 
     
 
     
 open func onConsentUpdate(consent: [FfiConsent])  {try! rustCall() {
-    uniffi_xmtpv3_fn_method_fficonsentcallback_on_consent_update(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_fficonsentcallback_on_consent_update(
+            self.uniffiCloneHandle(),
         FfiConverterSequenceTypeFfiConsent.lower(consent),$0
     )
 }
 }
     
 open func onError(error: FfiError)  {try! rustCall() {
-    uniffi_xmtpv3_fn_method_fficonsentcallback_on_error(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_fficonsentcallback_on_error(
+            self.uniffiCloneHandle(),
         FfiConverterTypeFfiError_lower(error),$0
     )
 }
 }
     
 open func onClose()  {try! rustCall() {
-    uniffi_xmtpv3_fn_method_fficonsentcallback_on_close(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonsentcallback_on_close(
+            self.uniffiCloneHandle(),$0
     )
 }
 }
     
 
+    
 }
+
 
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
@@ -1027,6 +1058,20 @@ fileprivate struct UniffiCallbackInterfaceFfiConsentCallback {
     // This creates 1-element array, since this seems to be the only way to construct a const
     // pointer that we can pass to the Rust code.
     static let vtable: [UniffiVTableCallbackInterfaceFfiConsentCallback] = [UniffiVTableCallbackInterfaceFfiConsentCallback(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeFfiConsentCallback.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface FfiConsentCallback: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeFfiConsentCallback.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface FfiConsentCallback: handle missing in uniffiClone")
+            }
+        },
         onConsentUpdate: { (
             uniffiHandle: UInt64,
             consent: RustBuffer,
@@ -1096,12 +1141,6 @@ fileprivate struct UniffiCallbackInterfaceFfiConsentCallback {
                 makeCall: makeCall,
                 writeReturn: writeReturn
             )
-        },
-        uniffiFree: { (uniffiHandle: UInt64) -> () in
-            let result = try? FfiConverterTypeFfiConsentCallback.handleMap.remove(handle: uniffiHandle)
-            if result == nil {
-                print("Uniffi callback interface FfiConsentCallback: handle missing in uniffiFree")
-            }
         }
     )]
 }
@@ -1110,42 +1149,43 @@ private func uniffiCallbackInitFfiConsentCallback() {
     uniffi_xmtpv3_fn_init_callback_vtable_fficonsentcallback(UniffiCallbackInterfaceFfiConsentCallback.vtable)
 }
 
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiConsentCallback: FfiConverter {
     fileprivate static let handleMap = UniffiHandleMap<FfiConsentCallback>()
 
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiConsentCallback
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiConsentCallback {
-        return FfiConsentCallbackImpl(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiConsentCallback {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return FfiConsentCallbackImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
     }
 
-    public static func lower(_ value: FfiConsentCallback) -> UnsafeMutableRawPointer {
-        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: handleMap.insert(obj: value))) else {
-            fatalError("Cast to UnsafeMutableRawPointer failed")
-        }
-        return ptr
+    public static func lower(_ value: FfiConsentCallback) -> UInt64 {
+         if let rustImpl = value as? FfiConsentCallbackImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiConsentCallback {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiConsentCallback, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -1153,14 +1193,14 @@ public struct FfiConverterTypeFfiConsentCallback: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiConsentCallback_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiConsentCallback {
-    return try FfiConverterTypeFfiConsentCallback.lift(pointer)
+public func FfiConverterTypeFfiConsentCallback_lift(_ handle: UInt64) throws -> FfiConsentCallback {
+    return try FfiConverterTypeFfiConsentCallback.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiConsentCallback_lower(_ value: FfiConsentCallback) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiConsentCallback_lower(_ value: FfiConsentCallback) -> UInt64 {
     return FfiConverterTypeFfiConsentCallback.lower(value)
 }
 
@@ -1303,13 +1343,13 @@ public protocol FfiConversationProtocol: AnyObject, Sendable {
     
 }
 open class FfiConversation: FfiConversationProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -1319,36 +1359,37 @@ open class FfiConversation: FfiConversationProtocol, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_fficonversation(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_fficonversation(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_fficonversation(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_fficonversation(handle, $0) }
     }
 
     
@@ -1359,7 +1400,7 @@ open func addAdmin(inboxId: String)async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_add_admin(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterString.lower(inboxId)
                 )
             },
@@ -1376,7 +1417,7 @@ open func addMembers(inboxIds: [String])async throws  -> FfiUpdateGroupMembershi
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_add_members(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterSequenceString.lower(inboxIds)
                 )
             },
@@ -1393,7 +1434,7 @@ open func addMembersByIdentity(accountIdentifiers: [FfiIdentifier])async throws 
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_add_members_by_identity(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterSequenceTypeFfiIdentifier.lower(accountIdentifiers)
                 )
             },
@@ -1410,7 +1451,7 @@ open func addSuperAdmin(inboxId: String)async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_add_super_admin(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterString.lower(inboxId)
                 )
             },
@@ -1424,28 +1465,32 @@ open func addSuperAdmin(inboxId: String)async throws   {
     
 open func addedByInboxId()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_added_by_inbox_id(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_added_by_inbox_id(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func adminList()throws  -> [String]  {
     return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_admin_list(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_admin_list(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func appData()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_app_data(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_app_data(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func consentState()throws  -> FfiConsentState  {
     return try  FfiConverterTypeFfiConsentState_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_consent_state(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_consent_state(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -1455,7 +1500,7 @@ open func conversationDebugInfo()async throws  -> FfiConversationDebugInfo  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_conversation_debug_info(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -1469,21 +1514,24 @@ open func conversationDebugInfo()async throws  -> FfiConversationDebugInfo  {
     
 open func conversationMessageDisappearingSettings()throws  -> FfiMessageDisappearingSettings?  {
     return try  FfiConverterOptionTypeFfiMessageDisappearingSettings.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_conversation_message_disappearing_settings(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_conversation_message_disappearing_settings(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func conversationType() -> FfiConversationType  {
     return try!  FfiConverterTypeFfiConversationType_lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_fficonversation_conversation_type(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_conversation_type(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func countMessages(opts: FfiListMessagesOptions)throws  -> Int64  {
     return try  FfiConverterInt64.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_count_messages(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_fficonversation_count_messages(
+            self.uniffiCloneHandle(),
         FfiConverterTypeFfiListMessagesOptions_lower(opts),$0
     )
 })
@@ -1491,7 +1539,8 @@ open func countMessages(opts: FfiListMessagesOptions)throws  -> Int64  {
     
 open func createdAtNs() -> Int64  {
     return try!  FfiConverterInt64.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_fficonversation_created_at_ns(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_created_at_ns(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -1501,7 +1550,8 @@ open func createdAtNs() -> Int64  {
      */
 open func deleteMessage(messageId: Data)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_delete_message(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_fficonversation_delete_message(
+            self.uniffiCloneHandle(),
         FfiConverterData.lower(messageId),$0
     )
 })
@@ -1509,7 +1559,8 @@ open func deleteMessage(messageId: Data)throws  -> Data  {
     
 open func dmPeerInboxId() -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_fficonversation_dm_peer_inbox_id(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_dm_peer_inbox_id(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -1519,7 +1570,7 @@ open func findDuplicateDms()async throws  -> [FfiConversation]  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_find_duplicate_dms(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -1533,7 +1584,8 @@ open func findDuplicateDms()async throws  -> [FfiConversation]  {
     
 open func findEnrichedMessages(opts: FfiListMessagesOptions)throws  -> [FfiDecodedMessage]  {
     return try  FfiConverterSequenceTypeFfiDecodedMessage.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_find_enriched_messages(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_fficonversation_find_enriched_messages(
+            self.uniffiCloneHandle(),
         FfiConverterTypeFfiListMessagesOptions_lower(opts),$0
     )
 })
@@ -1544,7 +1596,7 @@ open func findMessages(opts: FfiListMessagesOptions)async throws  -> [FfiMessage
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_find_messages(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiListMessagesOptions_lower(opts)
                 )
             },
@@ -1558,7 +1610,8 @@ open func findMessages(opts: FfiListMessagesOptions)async throws  -> [FfiMessage
     
 open func findMessagesWithReactions(opts: FfiListMessagesOptions)throws  -> [FfiMessageWithReactions]  {
     return try  FfiConverterSequenceTypeFfiMessageWithReactions.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_find_messages_with_reactions(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_fficonversation_find_messages_with_reactions(
+            self.uniffiCloneHandle(),
         FfiConverterTypeFfiListMessagesOptions_lower(opts),$0
     )
 })
@@ -1566,28 +1619,32 @@ open func findMessagesWithReactions(opts: FfiListMessagesOptions)throws  -> [Ffi
     
 open func getHmacKeys()throws  -> [Data: [FfiHmacKey]]  {
     return try  FfiConverterDictionaryDataSequenceTypeFfiHmacKey.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_get_hmac_keys(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_get_hmac_keys(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func getLastReadTimes()throws  -> [String: Int64]  {
     return try  FfiConverterDictionaryStringInt64.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_get_last_read_times(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_get_last_read_times(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func groupDescription()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_group_description(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_group_description(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func groupImageUrlSquare()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_group_image_url_square(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_group_image_url_square(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -1597,13 +1654,13 @@ open func groupMetadata()async throws  -> FfiConversationMetadata  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_group_metadata(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiConversationMetadata_lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
@@ -1611,35 +1668,40 @@ open func groupMetadata()async throws  -> FfiConversationMetadata  {
     
 open func groupName()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_group_name(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_group_name(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func groupPermissions()throws  -> FfiGroupPermissions  {
     return try  FfiConverterTypeFfiGroupPermissions_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_group_permissions(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_group_permissions(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func id() -> Data  {
     return try!  FfiConverterData.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_fficonversation_id(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_id(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func isActive()throws  -> Bool  {
     return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_is_active(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_is_active(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func isAdmin(inboxId: String)throws  -> Bool  {
     return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_is_admin(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_fficonversation_is_admin(
+            self.uniffiCloneHandle(),
         FfiConverterString.lower(inboxId),$0
     )
 })
@@ -1647,14 +1709,16 @@ open func isAdmin(inboxId: String)throws  -> Bool  {
     
 open func isConversationMessageDisappearingEnabled()throws  -> Bool  {
     return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_is_conversation_message_disappearing_enabled(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_is_conversation_message_disappearing_enabled(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func isSuperAdmin(inboxId: String)throws  -> Bool  {
     return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_is_super_admin(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_fficonversation_is_super_admin(
+            self.uniffiCloneHandle(),
         FfiConverterString.lower(inboxId),$0
     )
 })
@@ -1665,7 +1729,7 @@ open func leaveGroup()async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_leave_group(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -1682,7 +1746,7 @@ open func listMembers()async throws  -> [FfiConversationMember]  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_list_members(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -1696,14 +1760,16 @@ open func listMembers()async throws  -> [FfiConversationMember]  {
     
 open func membershipState()throws  -> FfiGroupMembershipState  {
     return try  FfiConverterTypeFfiGroupMembershipState_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_membership_state(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_membership_state(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func pausedForVersion()throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_paused_for_version(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_paused_for_version(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -1714,7 +1780,8 @@ open func pausedForVersion()throws  -> String?  {
      */
 open func prepareMessage(contentBytes: Data, shouldPush: Bool)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_prepare_message(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_fficonversation_prepare_message(
+            self.uniffiCloneHandle(),
         FfiConverterData.lower(contentBytes),
         FfiConverterBool.lower(shouldPush),$0
     )
@@ -1726,7 +1793,7 @@ open func processStreamedConversationMessage(envelopeBytes: Data)async throws  -
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_process_streamed_conversation_message(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterData.lower(envelopeBytes)
                 )
             },
@@ -1746,7 +1813,7 @@ open func publishMessages()async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_publish_messages(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -1766,7 +1833,7 @@ open func publishStoredMessage(messageId: Data)async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_publish_stored_message(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterData.lower(messageId)
                 )
             },
@@ -1783,7 +1850,7 @@ open func removeAdmin(inboxId: String)async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_remove_admin(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterString.lower(inboxId)
                 )
             },
@@ -1800,7 +1867,7 @@ open func removeConversationMessageDisappearingSettings()async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_remove_conversation_message_disappearing_settings(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -1817,7 +1884,7 @@ open func removeMembers(inboxIds: [String])async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_remove_members(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterSequenceString.lower(inboxIds)
                 )
             },
@@ -1834,7 +1901,7 @@ open func removeMembersByIdentity(accountIdentifiers: [FfiIdentifier])async thro
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_remove_members_by_identity(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterSequenceTypeFfiIdentifier.lower(accountIdentifiers)
                 )
             },
@@ -1851,7 +1918,7 @@ open func removeSuperAdmin(inboxId: String)async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_remove_super_admin(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterString.lower(inboxId)
                 )
             },
@@ -1868,7 +1935,7 @@ open func send(contentBytes: Data, opts: FfiSendMessageOpts)async throws  -> Dat
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_send(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterData.lower(contentBytes),FfiConverterTypeFfiSendMessageOpts_lower(opts)
                 )
             },
@@ -1885,7 +1952,8 @@ open func send(contentBytes: Data, opts: FfiSendMessageOpts)async throws  -> Dat
      */
 open func sendOptimistic(contentBytes: Data, opts: FfiSendMessageOpts)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_send_optimistic(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_fficonversation_send_optimistic(
+            self.uniffiCloneHandle(),
         FfiConverterData.lower(contentBytes),
         FfiConverterTypeFfiSendMessageOpts_lower(opts),$0
     )
@@ -1897,7 +1965,7 @@ open func sendText(text: String)async throws  -> Data  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_send_text(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterString.lower(text)
                 )
             },
@@ -1914,13 +1982,13 @@ open func stream(messageCallback: FfiMessageCallback)async  -> FfiStreamCloser  
         try!  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_stream(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiMessageCallback_lower(messageCallback)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiStreamCloser_lift,
             errorHandler: nil
             
@@ -1929,7 +1997,8 @@ open func stream(messageCallback: FfiMessageCallback)async  -> FfiStreamCloser  
     
 open func superAdminList()throws  -> [String]  {
     return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_super_admin_list(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversation_super_admin_list(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -1939,7 +2008,7 @@ open func sync()async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_sync(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -1956,7 +2025,7 @@ open func updateAppData(appData: String)async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_update_app_data(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterString.lower(appData)
                 )
             },
@@ -1969,7 +2038,8 @@ open func updateAppData(appData: String)async throws   {
 }
     
 open func updateConsentState(state: FfiConsentState)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversation_update_consent_state(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_fficonversation_update_consent_state(
+            self.uniffiCloneHandle(),
         FfiConverterTypeFfiConsentState_lower(state),$0
     )
 }
@@ -1980,7 +2050,7 @@ open func updateConversationMessageDisappearingSettings(settings: FfiMessageDisa
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_update_conversation_message_disappearing_settings(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiMessageDisappearingSettings_lower(settings)
                 )
             },
@@ -1997,7 +2067,7 @@ open func updateGroupDescription(groupDescription: String)async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_update_group_description(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterString.lower(groupDescription)
                 )
             },
@@ -2014,7 +2084,7 @@ open func updateGroupImageUrlSquare(groupImageUrlSquare: String)async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_update_group_image_url_square(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterString.lower(groupImageUrlSquare)
                 )
             },
@@ -2031,7 +2101,7 @@ open func updateGroupName(groupName: String)async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_update_group_name(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterString.lower(groupName)
                 )
             },
@@ -2048,7 +2118,7 @@ open func updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType, 
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_update_permission_policy(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiPermissionUpdateType_lower(permissionUpdateType),FfiConverterTypeFfiPermissionPolicy_lower(permissionPolicyOption),FfiConverterOptionTypeFfiMetadataField.lower(metadataField)
                 )
             },
@@ -2061,6 +2131,7 @@ open func updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType, 
 }
     
 
+    
 }
 
 
@@ -2068,33 +2139,24 @@ open func updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType, 
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiConversation: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiConversation
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiConversation {
-        return FfiConversation(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiConversation {
+        return FfiConversation(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: FfiConversation) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: FfiConversation) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiConversation {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiConversation, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -2102,14 +2164,14 @@ public struct FfiConverterTypeFfiConversation: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiConversation_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiConversation {
-    return try FfiConverterTypeFfiConversation.lift(pointer)
+public func FfiConverterTypeFfiConversation_lift(_ handle: UInt64) throws -> FfiConversation {
+    return try FfiConverterTypeFfiConversation.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiConversation_lower(_ value: FfiConversation) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiConversation_lower(_ value: FfiConversation) -> UInt64 {
     return FfiConverterTypeFfiConversation.lower(value)
 }
 
@@ -2128,13 +2190,13 @@ public protocol FfiConversationCallback: AnyObject, Sendable {
     
 }
 open class FfiConversationCallbackImpl: FfiConversationCallback, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -2144,63 +2206,69 @@ open class FfiConversationCallbackImpl: FfiConversationCallback, @unchecked Send
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_fficonversationcallback(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_fficonversationcallback(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_fficonversationcallback(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_fficonversationcallback(handle, $0) }
     }
 
     
 
     
 open func onConversation(conversation: FfiConversation)  {try! rustCall() {
-    uniffi_xmtpv3_fn_method_fficonversationcallback_on_conversation(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_fficonversationcallback_on_conversation(
+            self.uniffiCloneHandle(),
         FfiConverterTypeFfiConversation_lower(conversation),$0
     )
 }
 }
     
 open func onError(error: FfiError)  {try! rustCall() {
-    uniffi_xmtpv3_fn_method_fficonversationcallback_on_error(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_fficonversationcallback_on_error(
+            self.uniffiCloneHandle(),
         FfiConverterTypeFfiError_lower(error),$0
     )
 }
 }
     
 open func onClose()  {try! rustCall() {
-    uniffi_xmtpv3_fn_method_fficonversationcallback_on_close(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversationcallback_on_close(
+            self.uniffiCloneHandle(),$0
     )
 }
 }
     
 
+    
 }
+
 
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
@@ -2212,9 +2280,23 @@ fileprivate struct UniffiCallbackInterfaceFfiConversationCallback {
     // This creates 1-element array, since this seems to be the only way to construct a const
     // pointer that we can pass to the Rust code.
     static let vtable: [UniffiVTableCallbackInterfaceFfiConversationCallback] = [UniffiVTableCallbackInterfaceFfiConversationCallback(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeFfiConversationCallback.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface FfiConversationCallback: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeFfiConversationCallback.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface FfiConversationCallback: handle missing in uniffiClone")
+            }
+        },
         onConversation: { (
             uniffiHandle: UInt64,
-            conversation: UnsafeMutableRawPointer,
+            conversation: UInt64,
             uniffiOutReturn: UnsafeMutableRawPointer,
             uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
         ) in
@@ -2281,12 +2363,6 @@ fileprivate struct UniffiCallbackInterfaceFfiConversationCallback {
                 makeCall: makeCall,
                 writeReturn: writeReturn
             )
-        },
-        uniffiFree: { (uniffiHandle: UInt64) -> () in
-            let result = try? FfiConverterTypeFfiConversationCallback.handleMap.remove(handle: uniffiHandle)
-            if result == nil {
-                print("Uniffi callback interface FfiConversationCallback: handle missing in uniffiFree")
-            }
         }
     )]
 }
@@ -2295,42 +2371,43 @@ private func uniffiCallbackInitFfiConversationCallback() {
     uniffi_xmtpv3_fn_init_callback_vtable_fficonversationcallback(UniffiCallbackInterfaceFfiConversationCallback.vtable)
 }
 
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiConversationCallback: FfiConverter {
     fileprivate static let handleMap = UniffiHandleMap<FfiConversationCallback>()
 
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiConversationCallback
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiConversationCallback {
-        return FfiConversationCallbackImpl(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiConversationCallback {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return FfiConversationCallbackImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
     }
 
-    public static func lower(_ value: FfiConversationCallback) -> UnsafeMutableRawPointer {
-        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: handleMap.insert(obj: value))) else {
-            fatalError("Cast to UnsafeMutableRawPointer failed")
-        }
-        return ptr
+    public static func lower(_ value: FfiConversationCallback) -> UInt64 {
+         if let rustImpl = value as? FfiConversationCallbackImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiConversationCallback {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiConversationCallback, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -2338,14 +2415,14 @@ public struct FfiConverterTypeFfiConversationCallback: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiConversationCallback_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiConversationCallback {
-    return try FfiConverterTypeFfiConversationCallback.lift(pointer)
+public func FfiConverterTypeFfiConversationCallback_lift(_ handle: UInt64) throws -> FfiConversationCallback {
+    return try FfiConverterTypeFfiConversationCallback.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiConversationCallback_lower(_ value: FfiConversationCallback) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiConversationCallback_lower(_ value: FfiConversationCallback) -> UInt64 {
     return FfiConverterTypeFfiConversationCallback.lower(value)
 }
 
@@ -2364,13 +2441,13 @@ public protocol FfiConversationListItemProtocol: AnyObject, Sendable {
     
 }
 open class FfiConversationListItem: FfiConversationListItemProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -2380,36 +2457,37 @@ open class FfiConversationListItem: FfiConversationListItemProtocol, @unchecked 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_fficonversationlistitem(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_fficonversationlistitem(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_fficonversationlistitem(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_fficonversationlistitem(handle, $0) }
     }
 
     
@@ -2417,26 +2495,30 @@ open class FfiConversationListItem: FfiConversationListItemProtocol, @unchecked 
     
 open func conversation() -> FfiConversation  {
     return try!  FfiConverterTypeFfiConversation_lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_fficonversationlistitem_conversation(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversationlistitem_conversation(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func isCommitLogForked() -> Bool?  {
     return try!  FfiConverterOptionBool.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_fficonversationlistitem_is_commit_log_forked(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversationlistitem_is_commit_log_forked(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func lastMessage() -> FfiMessage?  {
     return try!  FfiConverterOptionTypeFfiMessage.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_fficonversationlistitem_last_message(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversationlistitem_last_message(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 
+    
 }
 
 
@@ -2444,33 +2526,24 @@ open func lastMessage() -> FfiMessage?  {
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiConversationListItem: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiConversationListItem
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiConversationListItem {
-        return FfiConversationListItem(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiConversationListItem {
+        return FfiConversationListItem(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: FfiConversationListItem) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: FfiConversationListItem) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiConversationListItem {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiConversationListItem, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -2478,14 +2551,14 @@ public struct FfiConverterTypeFfiConversationListItem: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiConversationListItem_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiConversationListItem {
-    return try FfiConverterTypeFfiConversationListItem.lift(pointer)
+public func FfiConverterTypeFfiConversationListItem_lift(_ handle: UInt64) throws -> FfiConversationListItem {
+    return try FfiConverterTypeFfiConversationListItem.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiConversationListItem_lower(_ value: FfiConversationListItem) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiConversationListItem_lower(_ value: FfiConversationListItem) -> UInt64 {
     return FfiConverterTypeFfiConversationListItem.lower(value)
 }
 
@@ -2502,13 +2575,13 @@ public protocol FfiConversationMetadataProtocol: AnyObject, Sendable {
     
 }
 open class FfiConversationMetadata: FfiConversationMetadataProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -2518,36 +2591,37 @@ open class FfiConversationMetadata: FfiConversationMetadataProtocol, @unchecked 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_fficonversationmetadata(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_fficonversationmetadata(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_fficonversationmetadata(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_fficonversationmetadata(handle, $0) }
     }
 
     
@@ -2555,19 +2629,22 @@ open class FfiConversationMetadata: FfiConversationMetadataProtocol, @unchecked 
     
 open func conversationType() -> FfiConversationType  {
     return try!  FfiConverterTypeFfiConversationType_lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_fficonversationmetadata_conversation_type(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversationmetadata_conversation_type(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func creatorInboxId() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_fficonversationmetadata_creator_inbox_id(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversationmetadata_creator_inbox_id(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 
+    
 }
 
 
@@ -2575,33 +2652,24 @@ open func creatorInboxId() -> String  {
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiConversationMetadata: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiConversationMetadata
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiConversationMetadata {
-        return FfiConversationMetadata(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiConversationMetadata {
+        return FfiConversationMetadata(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: FfiConversationMetadata) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: FfiConversationMetadata) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiConversationMetadata {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiConversationMetadata, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -2609,14 +2677,14 @@ public struct FfiConverterTypeFfiConversationMetadata: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiConversationMetadata_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiConversationMetadata {
-    return try FfiConverterTypeFfiConversationMetadata.lift(pointer)
+public func FfiConverterTypeFfiConversationMetadata_lift(_ handle: UInt64) throws -> FfiConversationMetadata {
+    return try FfiConverterTypeFfiConversationMetadata.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiConversationMetadata_lower(_ value: FfiConversationMetadata) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiConversationMetadata_lower(_ value: FfiConversationMetadata) -> UInt64 {
     return FfiConverterTypeFfiConversationMetadata.lower(value)
 }
 
@@ -2685,13 +2753,13 @@ public protocol FfiConversationsProtocol: AnyObject, Sendable {
     
 }
 open class FfiConversations: FfiConversationsProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -2701,36 +2769,37 @@ open class FfiConversations: FfiConversationsProtocol, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_fficonversations(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_fficonversations(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_fficonversations(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_fficonversations(handle, $0) }
     }
 
     
@@ -2741,13 +2810,13 @@ open func createGroup(inboxIds: [String], opts: FfiCreateGroupOptions)async thro
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversations_create_group(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterSequenceString.lower(inboxIds),FfiConverterTypeFfiCreateGroupOptions_lower(opts)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiConversation_lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
@@ -2758,13 +2827,13 @@ open func createGroupByIdentity(accountIdentities: [FfiIdentifier], opts: FfiCre
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversations_create_group_by_identity(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterSequenceTypeFfiIdentifier.lower(accountIdentities),FfiConverterTypeFfiCreateGroupOptions_lower(opts)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiConversation_lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
@@ -2772,7 +2841,8 @@ open func createGroupByIdentity(accountIdentities: [FfiIdentifier], opts: FfiCre
     
 open func createGroupOptimistic(opts: FfiCreateGroupOptions)throws  -> FfiConversation  {
     return try  FfiConverterTypeFfiConversation_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversations_create_group_optimistic(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_fficonversations_create_group_optimistic(
+            self.uniffiCloneHandle(),
         FfiConverterTypeFfiCreateGroupOptions_lower(opts),$0
     )
 })
@@ -2783,13 +2853,13 @@ open func findOrCreateDm(inboxId: String, opts: FfiCreateDmOptions)async throws 
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversations_find_or_create_dm(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterString.lower(inboxId),FfiConverterTypeFfiCreateDMOptions_lower(opts)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiConversation_lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
@@ -2800,13 +2870,13 @@ open func findOrCreateDmByIdentity(targetIdentity: FfiIdentifier, opts: FfiCreat
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversations_find_or_create_dm_by_identity(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiIdentifier_lower(targetIdentity),FfiConverterTypeFfiCreateDMOptions_lower(opts)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiConversation_lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
@@ -2814,14 +2884,16 @@ open func findOrCreateDmByIdentity(targetIdentity: FfiIdentifier, opts: FfiCreat
     
 open func getHmacKeys()throws  -> [Data: [FfiHmacKey]]  {
     return try  FfiConverterDictionaryDataSequenceTypeFfiHmacKey.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversations_get_hmac_keys(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_fficonversations_get_hmac_keys(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func list(opts: FfiListConversationsOptions)throws  -> [FfiConversationListItem]  {
     return try  FfiConverterSequenceTypeFfiConversationListItem.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversations_list(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_fficonversations_list(
+            self.uniffiCloneHandle(),
         FfiConverterTypeFfiListConversationsOptions_lower(opts),$0
     )
 })
@@ -2829,7 +2901,8 @@ open func list(opts: FfiListConversationsOptions)throws  -> [FfiConversationList
     
 open func listDms(opts: FfiListConversationsOptions)throws  -> [FfiConversationListItem]  {
     return try  FfiConverterSequenceTypeFfiConversationListItem.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversations_list_dms(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_fficonversations_list_dms(
+            self.uniffiCloneHandle(),
         FfiConverterTypeFfiListConversationsOptions_lower(opts),$0
     )
 })
@@ -2837,7 +2910,8 @@ open func listDms(opts: FfiListConversationsOptions)throws  -> [FfiConversationL
     
 open func listGroups(opts: FfiListConversationsOptions)throws  -> [FfiConversationListItem]  {
     return try  FfiConverterSequenceTypeFfiConversationListItem.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_fficonversations_list_groups(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_fficonversations_list_groups(
+            self.uniffiCloneHandle(),
         FfiConverterTypeFfiListConversationsOptions_lower(opts),$0
     )
 })
@@ -2848,7 +2922,7 @@ open func processStreamedWelcomeMessage(envelopeBytes: Data)async throws  -> [Ff
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversations_process_streamed_welcome_message(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterData.lower(envelopeBytes)
                 )
             },
@@ -2865,13 +2939,13 @@ open func stream(callback: FfiConversationCallback)async  -> FfiStreamCloser  {
         try!  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversations_stream(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiConversationCallback_lower(callback)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiStreamCloser_lift,
             errorHandler: nil
             
@@ -2883,13 +2957,13 @@ open func streamAllDmMessages(messageCallback: FfiMessageCallback, consentStates
         try!  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversations_stream_all_dm_messages(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiMessageCallback_lower(messageCallback),FfiConverterOptionSequenceTypeFfiConsentState.lower(consentStates)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiStreamCloser_lift,
             errorHandler: nil
             
@@ -2901,13 +2975,13 @@ open func streamAllGroupMessages(messageCallback: FfiMessageCallback, consentSta
         try!  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversations_stream_all_group_messages(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiMessageCallback_lower(messageCallback),FfiConverterOptionSequenceTypeFfiConsentState.lower(consentStates)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiStreamCloser_lift,
             errorHandler: nil
             
@@ -2919,13 +2993,13 @@ open func streamAllMessages(messageCallback: FfiMessageCallback, consentStates: 
         try!  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversations_stream_all_messages(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiMessageCallback_lower(messageCallback),FfiConverterOptionSequenceTypeFfiConsentState.lower(consentStates)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiStreamCloser_lift,
             errorHandler: nil
             
@@ -2941,13 +3015,13 @@ open func streamConsent(callback: FfiConsentCallback)async  -> FfiStreamCloser  
         try!  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversations_stream_consent(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiConsentCallback_lower(callback)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiStreamCloser_lift,
             errorHandler: nil
             
@@ -2959,13 +3033,13 @@ open func streamDms(callback: FfiConversationCallback)async  -> FfiStreamCloser 
         try!  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversations_stream_dms(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiConversationCallback_lower(callback)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiStreamCloser_lift,
             errorHandler: nil
             
@@ -2977,13 +3051,13 @@ open func streamGroups(callback: FfiConversationCallback)async  -> FfiStreamClos
         try!  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversations_stream_groups(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiConversationCallback_lower(callback)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiStreamCloser_lift,
             errorHandler: nil
             
@@ -2999,13 +3073,13 @@ open func streamMessageDeletions(callback: FfiMessageDeletionCallback)async  -> 
         try!  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversations_stream_message_deletions(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiMessageDeletionCallback_lower(callback)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiStreamCloser_lift,
             errorHandler: nil
             
@@ -3017,13 +3091,13 @@ open func streamMessages(messageCallback: FfiMessageCallback, conversationType: 
         try!  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversations_stream_messages(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiMessageCallback_lower(messageCallback),FfiConverterOptionTypeFfiConversationType.lower(conversationType),FfiConverterOptionSequenceTypeFfiConsentState.lower(consentStates)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiStreamCloser_lift,
             errorHandler: nil
             
@@ -3039,13 +3113,13 @@ open func streamPreferences(callback: FfiPreferenceCallback)async  -> FfiStreamC
         try!  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversations_stream_preferences(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiPreferenceCallback_lower(callback)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiStreamCloser_lift,
             errorHandler: nil
             
@@ -3057,7 +3131,7 @@ open func sync()async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversations_sync(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -3074,7 +3148,7 @@ open func syncAllConversations(consentStates: [FfiConsentState]?)async throws  -
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversations_sync_all_conversations(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterOptionSequenceTypeFfiConsentState.lower(consentStates)
                 )
             },
@@ -3087,6 +3161,7 @@ open func syncAllConversations(consentStates: [FfiConsentState]?)async throws  -
 }
     
 
+    
 }
 
 
@@ -3094,33 +3169,24 @@ open func syncAllConversations(consentStates: [FfiConsentState]?)async throws  -
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiConversations: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiConversations
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiConversations {
-        return FfiConversations(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiConversations {
+        return FfiConversations(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: FfiConversations) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: FfiConversations) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiConversations {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiConversations, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -3128,14 +3194,14 @@ public struct FfiConverterTypeFfiConversations: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiConversations_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiConversations {
-    return try FfiConverterTypeFfiConversations.lift(pointer)
+public func FfiConverterTypeFfiConversations_lift(_ handle: UInt64) throws -> FfiConversations {
+    return try FfiConverterTypeFfiConversations.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiConversations_lower(_ value: FfiConversations) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiConversations_lower(_ value: FfiConversations) -> UInt64 {
     return FfiConverterTypeFfiConversations.lower(value)
 }
 
@@ -3180,13 +3246,13 @@ public protocol FfiDecodedMessageProtocol: AnyObject, Sendable {
     
 }
 open class FfiDecodedMessage: FfiDecodedMessageProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -3196,36 +3262,37 @@ open class FfiDecodedMessage: FfiDecodedMessageProtocol, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_ffidecodedmessage(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_ffidecodedmessage(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_ffidecodedmessage(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_ffidecodedmessage(handle, $0) }
     }
 
     
@@ -3233,117 +3300,134 @@ open class FfiDecodedMessage: FfiDecodedMessageProtocol, @unchecked Sendable {
     
 open func content() -> FfiDecodedMessageContent  {
     return try!  FfiConverterTypeFfiDecodedMessageContent_lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffidecodedmessage_content(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffidecodedmessage_content(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func contentTypeId() -> FfiContentTypeId  {
     return try!  FfiConverterTypeFfiContentTypeId_lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffidecodedmessage_content_type_id(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffidecodedmessage_content_type_id(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func conversationId() -> Data  {
     return try!  FfiConverterData.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffidecodedmessage_conversation_id(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffidecodedmessage_conversation_id(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func deliveryStatus() -> FfiDeliveryStatus  {
     return try!  FfiConverterTypeFfiDeliveryStatus_lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffidecodedmessage_delivery_status(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffidecodedmessage_delivery_status(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func expiresAtNs() -> Int64?  {
     return try!  FfiConverterOptionInt64.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffidecodedmessage_expires_at_ns(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffidecodedmessage_expires_at_ns(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func fallbackText() -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffidecodedmessage_fallback_text(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffidecodedmessage_fallback_text(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func hasReactions() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffidecodedmessage_has_reactions(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffidecodedmessage_has_reactions(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func id() -> Data  {
     return try!  FfiConverterData.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffidecodedmessage_id(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffidecodedmessage_id(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func insertedAtNs() -> Int64  {
     return try!  FfiConverterInt64.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffidecodedmessage_inserted_at_ns(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffidecodedmessage_inserted_at_ns(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func kind() -> FfiGroupMessageKind  {
     return try!  FfiConverterTypeFfiGroupMessageKind_lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffidecodedmessage_kind(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffidecodedmessage_kind(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func numReplies() -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffidecodedmessage_num_replies(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffidecodedmessage_num_replies(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func reactionCount() -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffidecodedmessage_reaction_count(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffidecodedmessage_reaction_count(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func reactions() -> [FfiDecodedMessage]  {
     return try!  FfiConverterSequenceTypeFfiDecodedMessage.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffidecodedmessage_reactions(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffidecodedmessage_reactions(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func senderInboxId() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffidecodedmessage_sender_inbox_id(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffidecodedmessage_sender_inbox_id(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func senderInstallationId() -> Data  {
     return try!  FfiConverterData.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffidecodedmessage_sender_installation_id(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffidecodedmessage_sender_installation_id(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func sentAtNs() -> Int64  {
     return try!  FfiConverterInt64.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffidecodedmessage_sent_at_ns(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffidecodedmessage_sent_at_ns(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 
+    
 }
 
 
@@ -3351,33 +3435,24 @@ open func sentAtNs() -> Int64  {
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiDecodedMessage: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiDecodedMessage
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiDecodedMessage {
-        return FfiDecodedMessage(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiDecodedMessage {
+        return FfiDecodedMessage(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: FfiDecodedMessage) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: FfiDecodedMessage) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiDecodedMessage {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiDecodedMessage, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -3385,14 +3460,14 @@ public struct FfiConverterTypeFfiDecodedMessage: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiDecodedMessage_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiDecodedMessage {
-    return try FfiConverterTypeFfiDecodedMessage.lift(pointer)
+public func FfiConverterTypeFfiDecodedMessage_lift(_ handle: UInt64) throws -> FfiDecodedMessage {
+    return try FfiConverterTypeFfiDecodedMessage.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiDecodedMessage_lower(_ value: FfiDecodedMessage) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiDecodedMessage_lower(_ value: FfiDecodedMessage) -> UInt64 {
     return FfiConverterTypeFfiDecodedMessage.lower(value)
 }
 
@@ -3409,13 +3484,13 @@ public protocol FfiGroupPermissionsProtocol: AnyObject, Sendable {
     
 }
 open class FfiGroupPermissions: FfiGroupPermissionsProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -3425,36 +3500,37 @@ open class FfiGroupPermissions: FfiGroupPermissionsProtocol, @unchecked Sendable
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_ffigrouppermissions(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_ffigrouppermissions(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_ffigrouppermissions(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_ffigrouppermissions(handle, $0) }
     }
 
     
@@ -3462,19 +3538,22 @@ open class FfiGroupPermissions: FfiGroupPermissionsProtocol, @unchecked Sendable
     
 open func policySet()throws  -> FfiPermissionPolicySet  {
     return try  FfiConverterTypeFfiPermissionPolicySet_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_ffigrouppermissions_policy_set(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffigrouppermissions_policy_set(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func policyType()throws  -> FfiGroupPermissionsOptions  {
     return try  FfiConverterTypeFfiGroupPermissionsOptions_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_ffigrouppermissions_policy_type(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffigrouppermissions_policy_type(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 
+    
 }
 
 
@@ -3482,33 +3561,24 @@ open func policyType()throws  -> FfiGroupPermissionsOptions  {
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiGroupPermissions: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiGroupPermissions
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiGroupPermissions {
-        return FfiGroupPermissions(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiGroupPermissions {
+        return FfiGroupPermissions(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: FfiGroupPermissions) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: FfiGroupPermissions) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiGroupPermissions {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiGroupPermissions, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -3516,14 +3586,14 @@ public struct FfiConverterTypeFfiGroupPermissions: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiGroupPermissions_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiGroupPermissions {
-    return try FfiConverterTypeFfiGroupPermissions.lift(pointer)
+public func FfiConverterTypeFfiGroupPermissions_lift(_ handle: UInt64) throws -> FfiGroupPermissions {
+    return try FfiConverterTypeFfiGroupPermissions.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiGroupPermissions_lower(_ value: FfiGroupPermissions) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiGroupPermissions_lower(_ value: FfiGroupPermissions) -> UInt64 {
     return FfiConverterTypeFfiGroupPermissions.lower(value)
 }
 
@@ -3540,13 +3610,13 @@ public protocol FfiInboxOwner: AnyObject, Sendable {
     
 }
 open class FfiInboxOwnerImpl: FfiInboxOwner, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -3556,36 +3626,37 @@ open class FfiInboxOwnerImpl: FfiInboxOwner, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_ffiinboxowner(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_ffiinboxowner(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_ffiinboxowner(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_ffiinboxowner(handle, $0) }
     }
 
     
@@ -3593,21 +3664,25 @@ open class FfiInboxOwnerImpl: FfiInboxOwner, @unchecked Sendable {
     
 open func getIdentifier()throws  -> FfiIdentifier  {
     return try  FfiConverterTypeFfiIdentifier_lift(try rustCallWithError(FfiConverterTypeIdentityValidationError_lift) {
-    uniffi_xmtpv3_fn_method_ffiinboxowner_get_identifier(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffiinboxowner_get_identifier(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func sign(text: String)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeSigningError_lift) {
-    uniffi_xmtpv3_fn_method_ffiinboxowner_sign(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_ffiinboxowner_sign(
+            self.uniffiCloneHandle(),
         FfiConverterString.lower(text),$0
     )
 })
 }
     
 
+    
 }
+
 
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
@@ -3619,6 +3694,20 @@ fileprivate struct UniffiCallbackInterfaceFfiInboxOwner {
     // This creates 1-element array, since this seems to be the only way to construct a const
     // pointer that we can pass to the Rust code.
     static let vtable: [UniffiVTableCallbackInterfaceFfiInboxOwner] = [UniffiVTableCallbackInterfaceFfiInboxOwner(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeFfiInboxOwner.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface FfiInboxOwner: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeFfiInboxOwner.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface FfiInboxOwner: handle missing in uniffiClone")
+            }
+        },
         getIdentifier: { (
             uniffiHandle: UInt64,
             uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
@@ -3666,12 +3755,6 @@ fileprivate struct UniffiCallbackInterfaceFfiInboxOwner {
                 writeReturn: writeReturn,
                 lowerError: FfiConverterTypeSigningError_lower
             )
-        },
-        uniffiFree: { (uniffiHandle: UInt64) -> () in
-            let result = try? FfiConverterTypeFfiInboxOwner.handleMap.remove(handle: uniffiHandle)
-            if result == nil {
-                print("Uniffi callback interface FfiInboxOwner: handle missing in uniffiFree")
-            }
         }
     )]
 }
@@ -3680,42 +3763,43 @@ private func uniffiCallbackInitFfiInboxOwner() {
     uniffi_xmtpv3_fn_init_callback_vtable_ffiinboxowner(UniffiCallbackInterfaceFfiInboxOwner.vtable)
 }
 
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiInboxOwner: FfiConverter {
     fileprivate static let handleMap = UniffiHandleMap<FfiInboxOwner>()
 
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiInboxOwner
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiInboxOwner {
-        return FfiInboxOwnerImpl(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiInboxOwner {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return FfiInboxOwnerImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
     }
 
-    public static func lower(_ value: FfiInboxOwner) -> UnsafeMutableRawPointer {
-        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: handleMap.insert(obj: value))) else {
-            fatalError("Cast to UnsafeMutableRawPointer failed")
-        }
-        return ptr
+    public static func lower(_ value: FfiInboxOwner) -> UInt64 {
+         if let rustImpl = value as? FfiInboxOwnerImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiInboxOwner {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiInboxOwner, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -3723,14 +3807,14 @@ public struct FfiConverterTypeFfiInboxOwner: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiInboxOwner_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiInboxOwner {
-    return try FfiConverterTypeFfiInboxOwner.lift(pointer)
+public func FfiConverterTypeFfiInboxOwner_lift(_ handle: UInt64) throws -> FfiInboxOwner {
+    return try FfiConverterTypeFfiInboxOwner.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiInboxOwner_lower(_ value: FfiInboxOwner) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiInboxOwner_lower(_ value: FfiInboxOwner) -> UInt64 {
     return FfiConverterTypeFfiInboxOwner.lower(value)
 }
 
@@ -3749,13 +3833,13 @@ public protocol FfiMessageCallback: AnyObject, Sendable {
     
 }
 open class FfiMessageCallbackImpl: FfiMessageCallback, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -3765,63 +3849,69 @@ open class FfiMessageCallbackImpl: FfiMessageCallback, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_ffimessagecallback(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_ffimessagecallback(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_ffimessagecallback(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_ffimessagecallback(handle, $0) }
     }
 
     
 
     
 open func onMessage(message: FfiMessage)  {try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffimessagecallback_on_message(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_ffimessagecallback_on_message(
+            self.uniffiCloneHandle(),
         FfiConverterTypeFfiMessage_lower(message),$0
     )
 }
 }
     
 open func onError(error: FfiError)  {try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffimessagecallback_on_error(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_ffimessagecallback_on_error(
+            self.uniffiCloneHandle(),
         FfiConverterTypeFfiError_lower(error),$0
     )
 }
 }
     
 open func onClose()  {try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffimessagecallback_on_close(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffimessagecallback_on_close(
+            self.uniffiCloneHandle(),$0
     )
 }
 }
     
 
+    
 }
+
 
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
@@ -3833,6 +3923,20 @@ fileprivate struct UniffiCallbackInterfaceFfiMessageCallback {
     // This creates 1-element array, since this seems to be the only way to construct a const
     // pointer that we can pass to the Rust code.
     static let vtable: [UniffiVTableCallbackInterfaceFfiMessageCallback] = [UniffiVTableCallbackInterfaceFfiMessageCallback(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeFfiMessageCallback.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface FfiMessageCallback: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeFfiMessageCallback.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface FfiMessageCallback: handle missing in uniffiClone")
+            }
+        },
         onMessage: { (
             uniffiHandle: UInt64,
             message: RustBuffer,
@@ -3902,12 +4006,6 @@ fileprivate struct UniffiCallbackInterfaceFfiMessageCallback {
                 makeCall: makeCall,
                 writeReturn: writeReturn
             )
-        },
-        uniffiFree: { (uniffiHandle: UInt64) -> () in
-            let result = try? FfiConverterTypeFfiMessageCallback.handleMap.remove(handle: uniffiHandle)
-            if result == nil {
-                print("Uniffi callback interface FfiMessageCallback: handle missing in uniffiFree")
-            }
         }
     )]
 }
@@ -3916,42 +4014,43 @@ private func uniffiCallbackInitFfiMessageCallback() {
     uniffi_xmtpv3_fn_init_callback_vtable_ffimessagecallback(UniffiCallbackInterfaceFfiMessageCallback.vtable)
 }
 
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiMessageCallback: FfiConverter {
     fileprivate static let handleMap = UniffiHandleMap<FfiMessageCallback>()
 
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiMessageCallback
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiMessageCallback {
-        return FfiMessageCallbackImpl(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiMessageCallback {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return FfiMessageCallbackImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
     }
 
-    public static func lower(_ value: FfiMessageCallback) -> UnsafeMutableRawPointer {
-        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: handleMap.insert(obj: value))) else {
-            fatalError("Cast to UnsafeMutableRawPointer failed")
-        }
-        return ptr
+    public static func lower(_ value: FfiMessageCallback) -> UInt64 {
+         if let rustImpl = value as? FfiMessageCallbackImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMessageCallback {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiMessageCallback, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -3959,14 +4058,14 @@ public struct FfiConverterTypeFfiMessageCallback: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiMessageCallback_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiMessageCallback {
-    return try FfiConverterTypeFfiMessageCallback.lift(pointer)
+public func FfiConverterTypeFfiMessageCallback_lift(_ handle: UInt64) throws -> FfiMessageCallback {
+    return try FfiConverterTypeFfiMessageCallback.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiMessageCallback_lower(_ value: FfiMessageCallback) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiMessageCallback_lower(_ value: FfiMessageCallback) -> UInt64 {
     return FfiConverterTypeFfiMessageCallback.lower(value)
 }
 
@@ -3981,13 +4080,13 @@ public protocol FfiMessageDeletionCallback: AnyObject, Sendable {
     
 }
 open class FfiMessageDeletionCallbackImpl: FfiMessageDeletionCallback, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -3997,50 +4096,54 @@ open class FfiMessageDeletionCallbackImpl: FfiMessageDeletionCallback, @unchecke
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_ffimessagedeletioncallback(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_ffimessagedeletioncallback(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_ffimessagedeletioncallback(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_ffimessagedeletioncallback(handle, $0) }
     }
 
     
 
     
 open func onMessageDeleted(message: FfiDecodedMessage)  {try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffimessagedeletioncallback_on_message_deleted(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_ffimessagedeletioncallback_on_message_deleted(
+            self.uniffiCloneHandle(),
         FfiConverterTypeFfiDecodedMessage_lower(message),$0
     )
 }
 }
     
 
+    
 }
+
 
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
@@ -4052,9 +4155,23 @@ fileprivate struct UniffiCallbackInterfaceFfiMessageDeletionCallback {
     // This creates 1-element array, since this seems to be the only way to construct a const
     // pointer that we can pass to the Rust code.
     static let vtable: [UniffiVTableCallbackInterfaceFfiMessageDeletionCallback] = [UniffiVTableCallbackInterfaceFfiMessageDeletionCallback(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeFfiMessageDeletionCallback.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface FfiMessageDeletionCallback: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeFfiMessageDeletionCallback.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface FfiMessageDeletionCallback: handle missing in uniffiClone")
+            }
+        },
         onMessageDeleted: { (
             uniffiHandle: UInt64,
-            message: UnsafeMutableRawPointer,
+            message: UInt64,
             uniffiOutReturn: UnsafeMutableRawPointer,
             uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
         ) in
@@ -4075,12 +4192,6 @@ fileprivate struct UniffiCallbackInterfaceFfiMessageDeletionCallback {
                 makeCall: makeCall,
                 writeReturn: writeReturn
             )
-        },
-        uniffiFree: { (uniffiHandle: UInt64) -> () in
-            let result = try? FfiConverterTypeFfiMessageDeletionCallback.handleMap.remove(handle: uniffiHandle)
-            if result == nil {
-                print("Uniffi callback interface FfiMessageDeletionCallback: handle missing in uniffiFree")
-            }
         }
     )]
 }
@@ -4089,42 +4200,43 @@ private func uniffiCallbackInitFfiMessageDeletionCallback() {
     uniffi_xmtpv3_fn_init_callback_vtable_ffimessagedeletioncallback(UniffiCallbackInterfaceFfiMessageDeletionCallback.vtable)
 }
 
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiMessageDeletionCallback: FfiConverter {
     fileprivate static let handleMap = UniffiHandleMap<FfiMessageDeletionCallback>()
 
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiMessageDeletionCallback
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiMessageDeletionCallback {
-        return FfiMessageDeletionCallbackImpl(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiMessageDeletionCallback {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return FfiMessageDeletionCallbackImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
     }
 
-    public static func lower(_ value: FfiMessageDeletionCallback) -> UnsafeMutableRawPointer {
-        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: handleMap.insert(obj: value))) else {
-            fatalError("Cast to UnsafeMutableRawPointer failed")
-        }
-        return ptr
+    public static func lower(_ value: FfiMessageDeletionCallback) -> UInt64 {
+         if let rustImpl = value as? FfiMessageDeletionCallbackImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMessageDeletionCallback {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiMessageDeletionCallback, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -4132,14 +4244,14 @@ public struct FfiConverterTypeFfiMessageDeletionCallback: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiMessageDeletionCallback_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiMessageDeletionCallback {
-    return try FfiConverterTypeFfiMessageDeletionCallback.lift(pointer)
+public func FfiConverterTypeFfiMessageDeletionCallback_lift(_ handle: UInt64) throws -> FfiMessageDeletionCallback {
+    return try FfiConverterTypeFfiMessageDeletionCallback.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiMessageDeletionCallback_lower(_ value: FfiMessageDeletionCallback) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiMessageDeletionCallback_lower(_ value: FfiMessageDeletionCallback) -> UInt64 {
     return FfiConverterTypeFfiMessageDeletionCallback.lower(value)
 }
 
@@ -4158,13 +4270,13 @@ public protocol FfiPreferenceCallback: AnyObject, Sendable {
     
 }
 open class FfiPreferenceCallbackImpl: FfiPreferenceCallback, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -4174,63 +4286,69 @@ open class FfiPreferenceCallbackImpl: FfiPreferenceCallback, @unchecked Sendable
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_ffipreferencecallback(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_ffipreferencecallback(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_ffipreferencecallback(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_ffipreferencecallback(handle, $0) }
     }
 
     
 
     
 open func onPreferenceUpdate(preference: [FfiPreferenceUpdate])  {try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffipreferencecallback_on_preference_update(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_ffipreferencecallback_on_preference_update(
+            self.uniffiCloneHandle(),
         FfiConverterSequenceTypeFfiPreferenceUpdate.lower(preference),$0
     )
 }
 }
     
 open func onError(error: FfiError)  {try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffipreferencecallback_on_error(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_ffipreferencecallback_on_error(
+            self.uniffiCloneHandle(),
         FfiConverterTypeFfiError_lower(error),$0
     )
 }
 }
     
 open func onClose()  {try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffipreferencecallback_on_close(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffipreferencecallback_on_close(
+            self.uniffiCloneHandle(),$0
     )
 }
 }
     
 
+    
 }
+
 
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
@@ -4242,6 +4360,20 @@ fileprivate struct UniffiCallbackInterfaceFfiPreferenceCallback {
     // This creates 1-element array, since this seems to be the only way to construct a const
     // pointer that we can pass to the Rust code.
     static let vtable: [UniffiVTableCallbackInterfaceFfiPreferenceCallback] = [UniffiVTableCallbackInterfaceFfiPreferenceCallback(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeFfiPreferenceCallback.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface FfiPreferenceCallback: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeFfiPreferenceCallback.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface FfiPreferenceCallback: handle missing in uniffiClone")
+            }
+        },
         onPreferenceUpdate: { (
             uniffiHandle: UInt64,
             preference: RustBuffer,
@@ -4311,12 +4443,6 @@ fileprivate struct UniffiCallbackInterfaceFfiPreferenceCallback {
                 makeCall: makeCall,
                 writeReturn: writeReturn
             )
-        },
-        uniffiFree: { (uniffiHandle: UInt64) -> () in
-            let result = try? FfiConverterTypeFfiPreferenceCallback.handleMap.remove(handle: uniffiHandle)
-            if result == nil {
-                print("Uniffi callback interface FfiPreferenceCallback: handle missing in uniffiFree")
-            }
         }
     )]
 }
@@ -4325,42 +4451,43 @@ private func uniffiCallbackInitFfiPreferenceCallback() {
     uniffi_xmtpv3_fn_init_callback_vtable_ffipreferencecallback(UniffiCallbackInterfaceFfiPreferenceCallback.vtable)
 }
 
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiPreferenceCallback: FfiConverter {
     fileprivate static let handleMap = UniffiHandleMap<FfiPreferenceCallback>()
 
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiPreferenceCallback
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiPreferenceCallback {
-        return FfiPreferenceCallbackImpl(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiPreferenceCallback {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return FfiPreferenceCallbackImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
     }
 
-    public static func lower(_ value: FfiPreferenceCallback) -> UnsafeMutableRawPointer {
-        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: handleMap.insert(obj: value))) else {
-            fatalError("Cast to UnsafeMutableRawPointer failed")
-        }
-        return ptr
+    public static func lower(_ value: FfiPreferenceCallback) -> UInt64 {
+         if let rustImpl = value as? FfiPreferenceCallbackImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPreferenceCallback {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiPreferenceCallback, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -4368,14 +4495,14 @@ public struct FfiConverterTypeFfiPreferenceCallback: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiPreferenceCallback_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiPreferenceCallback {
-    return try FfiConverterTypeFfiPreferenceCallback.lift(pointer)
+public func FfiConverterTypeFfiPreferenceCallback_lift(_ handle: UInt64) throws -> FfiPreferenceCallback {
+    return try FfiConverterTypeFfiPreferenceCallback.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiPreferenceCallback_lower(_ value: FfiPreferenceCallback) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiPreferenceCallback_lower(_ value: FfiPreferenceCallback) -> UInt64 {
     return FfiConverterTypeFfiPreferenceCallback.lower(value)
 }
 
@@ -4403,13 +4530,13 @@ public protocol FfiSignatureRequestProtocol: AnyObject, Sendable {
     
 }
 open class FfiSignatureRequest: FfiSignatureRequestProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -4419,36 +4546,37 @@ open class FfiSignatureRequest: FfiSignatureRequestProtocol, @unchecked Sendable
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_ffisignaturerequest(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_ffisignaturerequest(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_ffisignaturerequest(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_ffisignaturerequest(handle, $0) }
     }
 
     
@@ -4459,7 +4587,7 @@ open func addEcdsaSignature(signatureBytes: Data)async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffisignaturerequest_add_ecdsa_signature(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterData.lower(signatureBytes)
                 )
             },
@@ -4476,7 +4604,7 @@ open func addPasskeySignature(signature: FfiPasskeySignature)async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffisignaturerequest_add_passkey_signature(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiPasskeySignature_lower(signature)
                 )
             },
@@ -4493,7 +4621,7 @@ open func addScwSignature(signatureBytes: Data, address: String, chainId: UInt64
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffisignaturerequest_add_scw_signature(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterData.lower(signatureBytes),FfiConverterString.lower(address),FfiConverterUInt64.lower(chainId),FfiConverterOptionUInt64.lower(blockNumber)
                 )
             },
@@ -4510,7 +4638,7 @@ open func isReady()async  -> Bool  {
         try!  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffisignaturerequest_is_ready(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -4531,7 +4659,7 @@ open func missingAddressSignatures()async throws  -> [String]  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffisignaturerequest_missing_address_signatures(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -4548,7 +4676,7 @@ open func signatureText()async throws  -> String  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffisignaturerequest_signature_text(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -4561,6 +4689,7 @@ open func signatureText()async throws  -> String  {
 }
     
 
+    
 }
 
 
@@ -4568,33 +4697,24 @@ open func signatureText()async throws  -> String  {
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiSignatureRequest: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiSignatureRequest
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiSignatureRequest {
-        return FfiSignatureRequest(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiSignatureRequest {
+        return FfiSignatureRequest(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: FfiSignatureRequest) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: FfiSignatureRequest) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSignatureRequest {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiSignatureRequest, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -4602,14 +4722,14 @@ public struct FfiConverterTypeFfiSignatureRequest: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiSignatureRequest_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiSignatureRequest {
-    return try FfiConverterTypeFfiSignatureRequest.lift(pointer)
+public func FfiConverterTypeFfiSignatureRequest_lift(_ handle: UInt64) throws -> FfiSignatureRequest {
+    return try FfiConverterTypeFfiSignatureRequest.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiSignatureRequest_lower(_ value: FfiSignatureRequest) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiSignatureRequest_lower(_ value: FfiSignatureRequest) -> UInt64 {
     return FfiConverterTypeFfiSignatureRequest.lower(value)
 }
 
@@ -4637,13 +4757,13 @@ public protocol FfiStreamCloserProtocol: AnyObject, Sendable {
     
 }
 open class FfiStreamCloser: FfiStreamCloserProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -4653,36 +4773,37 @@ open class FfiStreamCloser: FfiStreamCloserProtocol, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_ffistreamcloser(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_ffistreamcloser(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_ffistreamcloser(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_ffistreamcloser(handle, $0) }
     }
 
     
@@ -4693,7 +4814,8 @@ open class FfiStreamCloser: FfiStreamCloserProtocol, @unchecked Sendable {
      * Does not wait for the stream to end.
      */
 open func end()  {try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffistreamcloser_end(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffistreamcloser_end(
+            self.uniffiCloneHandle(),$0
     )
 }
 }
@@ -4706,7 +4828,7 @@ open func endAndWait()async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffistreamcloser_end_and_wait(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -4720,7 +4842,8 @@ open func endAndWait()async throws   {
     
 open func isClosed() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffistreamcloser_is_closed(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffistreamcloser_is_closed(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -4730,7 +4853,7 @@ open func waitForReady()async   {
         try!  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffistreamcloser_wait_for_ready(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -4744,6 +4867,7 @@ open func waitForReady()async   {
 }
     
 
+    
 }
 
 
@@ -4751,33 +4875,24 @@ open func waitForReady()async   {
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiStreamCloser: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiStreamCloser
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiStreamCloser {
-        return FfiStreamCloser(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiStreamCloser {
+        return FfiStreamCloser(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: FfiStreamCloser) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: FfiStreamCloser) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiStreamCloser {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiStreamCloser, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -4785,14 +4900,14 @@ public struct FfiConverterTypeFfiStreamCloser: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiStreamCloser_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiStreamCloser {
-    return try FfiConverterTypeFfiStreamCloser.lift(pointer)
+public func FfiConverterTypeFfiStreamCloser_lift(_ handle: UInt64) throws -> FfiStreamCloser {
+    return try FfiConverterTypeFfiStreamCloser.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiStreamCloser_lower(_ value: FfiStreamCloser) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiStreamCloser_lower(_ value: FfiStreamCloser) -> UInt64 {
     return FfiConverterTypeFfiStreamCloser.lower(value)
 }
 
@@ -4807,13 +4922,13 @@ public protocol FfiSyncWorkerProtocol: AnyObject, Sendable {
     
 }
 open class FfiSyncWorker: FfiSyncWorkerProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -4823,36 +4938,37 @@ open class FfiSyncWorker: FfiSyncWorkerProtocol, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_ffisyncworker(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_ffisyncworker(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_ffisyncworker(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_ffisyncworker(handle, $0) }
     }
 
     
@@ -4863,7 +4979,7 @@ open func wait(metric: FfiSyncMetric, count: UInt64)async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffisyncworker_wait(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiSyncMetric_lower(metric),FfiConverterUInt64.lower(count)
                 )
             },
@@ -4876,6 +4992,7 @@ open func wait(metric: FfiSyncMetric, count: UInt64)async throws   {
 }
     
 
+    
 }
 
 
@@ -4883,33 +5000,24 @@ open func wait(metric: FfiSyncMetric, count: UInt64)async throws   {
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiSyncWorker: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiSyncWorker
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiSyncWorker {
-        return FfiSyncWorker(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiSyncWorker {
+        return FfiSyncWorker(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: FfiSyncWorker) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: FfiSyncWorker) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSyncWorker {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiSyncWorker, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -4917,14 +5025,14 @@ public struct FfiConverterTypeFfiSyncWorker: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiSyncWorker_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiSyncWorker {
-    return try FfiConverterTypeFfiSyncWorker.lift(pointer)
+public func FfiConverterTypeFfiSyncWorker_lift(_ handle: UInt64) throws -> FfiSyncWorker {
+    return try FfiConverterTypeFfiSyncWorker.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiSyncWorker_lower(_ value: FfiSyncWorker) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiSyncWorker_lower(_ value: FfiSyncWorker) -> UInt64 {
     return FfiConverterTypeFfiSyncWorker.lower(value)
 }
 
@@ -4956,12 +5064,6 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
     
     func applySignatureRequest(signatureRequest: FfiSignatureRequest) async throws 
     
-    /**
-     * Load the metadata for an archive to see what it contains.
-     * Reads only the metadata without loading the entire file, so this function is quick.
-     */
-    func archiveMetadata(path: String, key: Data) async throws  -> FfiBackupMetadata
-    
     func canMessage(accountIdentifiers: [FfiIdentifier]) async throws  -> [FfiIdentifier: Bool]
     
     /**
@@ -4974,11 +5076,6 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
     func conversation(conversationId: Data) throws  -> FfiConversation
     
     func conversations()  -> FfiConversations
-    
-    /**
-     * Archive application elements to file for later restoration.
-     */
-    func createArchive(path: String, opts: FfiArchiveOptions, key: Data) async throws  -> FfiBackupMetadata
     
     func dbReconnect() async throws 
     
@@ -5000,11 +5097,6 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
     
     func getLatestInboxState(inboxId: String) async throws  -> FfiInboxState
     
-    /**
-     * Import a previous archive from file.
-     */
-    func importArchive(path: String, key: Data) async throws 
-    
     func inboxId()  -> String
     
     /**
@@ -5017,20 +5109,7 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
     
     func installationId()  -> Data
     
-    /**
-     * List the archives available for import in the sync group.
-     * You may need to manually sync the sync group before calling
-     * this function to see recently uploaded archives.
-     */
-    func listAvailableArchives(daysCutoff: Int64) throws  -> [FfiAvailableArchive]
-    
     func message(messageId: Data) throws  -> FfiMessage
-    
-    /**
-     * Manually process a sync archive that matches the pin given.
-     * If no pin is given, then it will process the last archive sent.
-     */
-    func processSyncArchive(archivePin: String?) async throws 
     
     func registerIdentity(signatureRequest: FfiSignatureRequest) async throws 
     
@@ -5053,17 +5132,6 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
      */
     func revokeInstallations(installationIds: [Data]) async throws  -> FfiSignatureRequest
     
-    /**
-     * Manually send a sync archive to the sync group.
-     * The pin will be later used as a reference when importing.
-     */
-    func sendSyncArchive(options: FfiArchiveOptions, serverUrl: String, pin: String) async throws 
-    
-    /**
-     * Manually trigger a device sync request to sync records from another active device on this account.
-     */
-    func sendSyncRequest(options: FfiArchiveOptions, serverUrl: String) async throws 
-    
     func setConsentStates(records: [FfiConsent]) async throws 
     
     /**
@@ -5072,11 +5140,6 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
     func signWithInstallationKey(text: String) throws  -> Data
     
     func signatureRequest()  -> FfiSignatureRequest?
-    
-    /**
-     * Manually sync all device sync groups.
-     */
-    func syncAllDeviceSyncGroups() async throws  -> FfiGroupSyncSummary
     
     func syncPreferences() async throws  -> FfiGroupSyncSummary
     
@@ -5091,15 +5154,60 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
      */
     func verifySignedWithPublicKey(signatureText: String, signatureBytes: Data, publicKey: Data) throws 
     
+    /**
+     * Load the metadata for an archive to see what it contains.
+     * Reads only the metadata without loading the entire file, so this function is quick.
+     */
+    func archiveMetadata(path: String, key: Data) async throws  -> FfiBackupMetadata
+    
+    /**
+     * Archive application elements to file for later restoration.
+     */
+    func createArchive(path: String, opts: FfiArchiveOptions, key: Data) async throws  -> FfiBackupMetadata
+    
+    /**
+     * Import a previous archive from file.
+     */
+    func importArchive(path: String, key: Data) async throws 
+    
+    /**
+     * List the archives available for import in the sync group.
+     * You may need to manually sync the sync group before calling
+     * this function to see recently uploaded archives.
+     */
+    func listAvailableArchives(daysCutoff: Int64) throws  -> [FfiAvailableArchive]
+    
+    /**
+     * Manually process a sync archive that matches the pin given.
+     * If no pin is given, then it will process the last archive sent.
+     */
+    func processSyncArchive(archivePin: String?) async throws 
+    
+    /**
+     * Manually send a sync archive to the sync group.
+     * The pin will be later used as a reference when importing.
+     */
+    func sendSyncArchive(options: FfiArchiveOptions, serverUrl: String, pin: String) async throws 
+    
+    /**
+     * Manually trigger a device sync request to sync records from another active device on this account.
+     */
+    func sendSyncRequest(options: FfiArchiveOptions, serverUrl: String) async throws 
+    
+    /**
+     * Manually sync all device sync groups.
+     */
+    func syncAllDeviceSyncGroups() async throws  -> FfiGroupSyncSummary
+    
 }
 open class FfiXmtpClient: FfiXmtpClientProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -5109,36 +5217,37 @@ open class FfiXmtpClient: FfiXmtpClientProtocol, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_ffixmtpclient(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_ffixmtpclient(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_ffixmtpclient(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_ffixmtpclient(handle, $0) }
     }
 
     
@@ -5152,13 +5261,13 @@ open func addIdentity(newIdentity: FfiIdentifier)async throws  -> FfiSignatureRe
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_add_identity(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiIdentifier_lower(newIdentity)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiSignatureRequest_lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
@@ -5175,7 +5284,7 @@ open func addressesFromInboxId(refreshFromNetwork: Bool, inboxIds: [String])asyn
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_addresses_from_inbox_id(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterBool.lower(refreshFromNetwork),FfiConverterSequenceString.lower(inboxIds)
                 )
             },
@@ -5189,21 +5298,24 @@ open func addressesFromInboxId(refreshFromNetwork: Bool, inboxIds: [String])asyn
     
 open func apiAggregateStatistics() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_api_aggregate_statistics(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffixmtpclient_api_aggregate_statistics(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func apiIdentityStatistics() -> FfiIdentityStats  {
     return try!  FfiConverterTypeFfiIdentityStats_lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_api_identity_statistics(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffixmtpclient_api_identity_statistics(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func apiStatistics() -> FfiApiStats  {
     return try!  FfiConverterTypeFfiApiStats_lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_api_statistics(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffixmtpclient_api_statistics(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -5213,7 +5325,7 @@ open func applySignatureRequest(signatureRequest: FfiSignatureRequest)async thro
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_apply_signature_request(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiSignatureRequest_lower(signatureRequest)
                 )
             },
@@ -5225,33 +5337,12 @@ open func applySignatureRequest(signatureRequest: FfiSignatureRequest)async thro
         )
 }
     
-    /**
-     * Load the metadata for an archive to see what it contains.
-     * Reads only the metadata without loading the entire file, so this function is quick.
-     */
-open func archiveMetadata(path: String, key: Data)async throws  -> FfiBackupMetadata  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_xmtpv3_fn_method_ffixmtpclient_archive_metadata(
-                    self.uniffiClonePointer(),
-                    FfiConverterString.lower(path),FfiConverterData.lower(key)
-                )
-            },
-            pollFunc: ffi_xmtpv3_rust_future_poll_rust_buffer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
-            freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterTypeFfiBackupMetadata_lift,
-            errorHandler: FfiConverterTypeFfiError_lift
-        )
-}
-    
 open func canMessage(accountIdentifiers: [FfiIdentifier])async throws  -> [FfiIdentifier: Bool]  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_can_message(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterSequenceTypeFfiIdentifier.lower(accountIdentifiers)
                 )
             },
@@ -5271,27 +5362,29 @@ open func changeRecoveryIdentifier(newRecoveryIdentifier: FfiIdentifier)async th
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_change_recovery_identifier(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiIdentifier_lower(newRecoveryIdentifier)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiSignatureRequest_lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
 }
     
 open func clearAllStatistics()  {try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_clear_all_statistics(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffixmtpclient_clear_all_statistics(
+            self.uniffiCloneHandle(),$0
     )
 }
 }
     
 open func conversation(conversationId: Data)throws  -> FfiConversation  {
     return try  FfiConverterTypeFfiConversation_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_conversation(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_ffixmtpclient_conversation(
+            self.uniffiCloneHandle(),
         FfiConverterData.lower(conversationId),$0
     )
 })
@@ -5299,29 +5392,10 @@ open func conversation(conversationId: Data)throws  -> FfiConversation  {
     
 open func conversations() -> FfiConversations  {
     return try!  FfiConverterTypeFfiConversations_lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_conversations(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffixmtpclient_conversations(
+            self.uniffiCloneHandle(),$0
     )
 })
-}
-    
-    /**
-     * Archive application elements to file for later restoration.
-     */
-open func createArchive(path: String, opts: FfiArchiveOptions, key: Data)async throws  -> FfiBackupMetadata  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_xmtpv3_fn_method_ffixmtpclient_create_archive(
-                    self.uniffiClonePointer(),
-                    FfiConverterString.lower(path),FfiConverterTypeFfiArchiveOptions_lower(opts),FfiConverterData.lower(key)
-                )
-            },
-            pollFunc: ffi_xmtpv3_rust_future_poll_rust_buffer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
-            freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterTypeFfiBackupMetadata_lift,
-            errorHandler: FfiConverterTypeFfiError_lift
-        )
 }
     
 open func dbReconnect()async throws   {
@@ -5329,7 +5403,7 @@ open func dbReconnect()async throws   {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_db_reconnect(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -5343,7 +5417,8 @@ open func dbReconnect()async throws   {
     
 open func deleteMessage(messageId: Data)throws  -> UInt32  {
     return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_delete_message(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_ffixmtpclient_delete_message(
+            self.uniffiCloneHandle(),
         FfiConverterData.lower(messageId),$0
     )
 })
@@ -5351,7 +5426,8 @@ open func deleteMessage(messageId: Data)throws  -> UInt32  {
     
 open func dmConversation(targetInboxId: String)throws  -> FfiConversation  {
     return try  FfiConverterTypeFfiConversation_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_dm_conversation(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_ffixmtpclient_dm_conversation(
+            self.uniffiCloneHandle(),
         FfiConverterString.lower(targetInboxId),$0
     )
 })
@@ -5359,7 +5435,8 @@ open func dmConversation(targetInboxId: String)throws  -> FfiConversation  {
     
 open func enrichedMessage(messageId: Data)throws  -> FfiDecodedMessage  {
     return try  FfiConverterTypeFfiDecodedMessage_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_enriched_message(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_ffixmtpclient_enriched_message(
+            self.uniffiCloneHandle(),
         FfiConverterData.lower(messageId),$0
     )
 })
@@ -5370,7 +5447,7 @@ open func fetchInboxUpdatesCount(refreshFromNetwork: Bool, inboxIds: [String])as
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_fetch_inbox_updates_count(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterBool.lower(refreshFromNetwork),FfiConverterSequenceString.lower(inboxIds)
                 )
             },
@@ -5387,7 +5464,7 @@ open func fetchOwnInboxUpdatesCount(refreshFromNetwork: Bool)async throws  -> UI
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_fetch_own_inbox_updates_count(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterBool.lower(refreshFromNetwork)
                 )
             },
@@ -5404,7 +5481,7 @@ open func findInboxId(identifier: FfiIdentifier)async throws  -> String?  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_find_inbox_id(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiIdentifier_lower(identifier)
                 )
             },
@@ -5421,7 +5498,7 @@ open func getConsentState(entityType: FfiConsentEntityType, entity: String)async
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_get_consent_state(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiConsentEntityType_lower(entityType),FfiConverterString.lower(entity)
                 )
             },
@@ -5438,7 +5515,7 @@ open func getKeyPackageStatusesForInstallationIds(installationIds: [Data])async 
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_get_key_package_statuses_for_installation_ids(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterSequenceData.lower(installationIds)
                 )
             },
@@ -5455,7 +5532,7 @@ open func getLatestInboxState(inboxId: String)async throws  -> FfiInboxState  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_get_latest_inbox_state(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterString.lower(inboxId)
                 )
             },
@@ -5467,29 +5544,10 @@ open func getLatestInboxState(inboxId: String)async throws  -> FfiInboxState  {
         )
 }
     
-    /**
-     * Import a previous archive from file.
-     */
-open func importArchive(path: String, key: Data)async throws   {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_xmtpv3_fn_method_ffixmtpclient_import_archive(
-                    self.uniffiClonePointer(),
-                    FfiConverterString.lower(path),FfiConverterData.lower(key)
-                )
-            },
-            pollFunc: ffi_xmtpv3_rust_future_poll_void,
-            completeFunc: ffi_xmtpv3_rust_future_complete_void,
-            freeFunc: ffi_xmtpv3_rust_future_free_void,
-            liftFunc: { $0 },
-            errorHandler: FfiConverterTypeFfiError_lift
-        )
-}
-    
 open func inboxId() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_inbox_id(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffixmtpclient_inbox_id(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -5505,7 +5563,7 @@ open func inboxState(refreshFromNetwork: Bool)async throws  -> FfiInboxState  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_inbox_state(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterBool.lower(refreshFromNetwork)
                 )
             },
@@ -5519,51 +5577,19 @@ open func inboxState(refreshFromNetwork: Bool)async throws  -> FfiInboxState  {
     
 open func installationId() -> Data  {
     return try!  FfiConverterData.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_installation_id(self.uniffiClonePointer(),$0
-    )
-})
-}
-    
-    /**
-     * List the archives available for import in the sync group.
-     * You may need to manually sync the sync group before calling
-     * this function to see recently uploaded archives.
-     */
-open func listAvailableArchives(daysCutoff: Int64)throws  -> [FfiAvailableArchive]  {
-    return try  FfiConverterSequenceTypeFfiAvailableArchive.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_list_available_archives(self.uniffiClonePointer(),
-        FfiConverterInt64.lower(daysCutoff),$0
+    uniffi_xmtpv3_fn_method_ffixmtpclient_installation_id(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 open func message(messageId: Data)throws  -> FfiMessage  {
     return try  FfiConverterTypeFfiMessage_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_message(self.uniffiClonePointer(),
+    uniffi_xmtpv3_fn_method_ffixmtpclient_message(
+            self.uniffiCloneHandle(),
         FfiConverterData.lower(messageId),$0
     )
 })
-}
-    
-    /**
-     * Manually process a sync archive that matches the pin given.
-     * If no pin is given, then it will process the last archive sent.
-     */
-open func processSyncArchive(archivePin: String?)async throws   {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_xmtpv3_fn_method_ffixmtpclient_process_sync_archive(
-                    self.uniffiClonePointer(),
-                    FfiConverterOptionString.lower(archivePin)
-                )
-            },
-            pollFunc: ffi_xmtpv3_rust_future_poll_void,
-            completeFunc: ffi_xmtpv3_rust_future_complete_void,
-            freeFunc: ffi_xmtpv3_rust_future_free_void,
-            liftFunc: { $0 },
-            errorHandler: FfiConverterTypeFfiError_lift
-        )
 }
     
 open func registerIdentity(signatureRequest: FfiSignatureRequest)async throws   {
@@ -5571,7 +5597,7 @@ open func registerIdentity(signatureRequest: FfiSignatureRequest)async throws   
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_register_identity(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiSignatureRequest_lower(signatureRequest)
                 )
             },
@@ -5584,7 +5610,8 @@ open func registerIdentity(signatureRequest: FfiSignatureRequest)async throws   
 }
     
 open func releaseDbConnection()throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_release_db_connection(self.uniffiClonePointer(),$0
+    uniffi_xmtpv3_fn_method_ffixmtpclient_release_db_connection(
+            self.uniffiCloneHandle(),$0
     )
 }
 }
@@ -5599,7 +5626,7 @@ open func revokeAllOtherInstallationsSignatureRequest()async throws  -> FfiSigna
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_revoke_all_other_installations_signature_request(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -5619,13 +5646,13 @@ open func revokeIdentity(identifier: FfiIdentifier)async throws  -> FfiSignature
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_revoke_identity(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiIdentifier_lower(identifier)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiSignatureRequest_lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
@@ -5639,14 +5666,190 @@ open func revokeInstallations(installationIds: [Data])async throws  -> FfiSignat
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_revoke_installations(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterSequenceData.lower(installationIds)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiSignatureRequest_lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+    
+open func setConsentStates(records: [FfiConsent])async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_method_ffixmtpclient_set_consent_states(
+                    self.uniffiCloneHandle(),
+                    FfiConverterSequenceTypeFfiConsent.lower(records)
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_void,
+            completeFunc: ffi_xmtpv3_rust_future_complete_void,
+            freeFunc: ffi_xmtpv3_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+    
+    /**
+     * A utility function to sign a piece of text with this installation's private key.
+     */
+open func signWithInstallationKey(text: String)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_xmtpv3_fn_method_ffixmtpclient_sign_with_installation_key(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(text),$0
+    )
+})
+}
+    
+open func signatureRequest() -> FfiSignatureRequest?  {
+    return try!  FfiConverterOptionTypeFfiSignatureRequest.lift(try! rustCall() {
+    uniffi_xmtpv3_fn_method_ffixmtpclient_signature_request(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+open func syncPreferences()async throws  -> FfiGroupSyncSummary  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_method_ffixmtpclient_sync_preferences(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
+            freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeFfiGroupSyncSummary_lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+    
+    /**
+     * A utility function to easily verify that a piece of text was signed by this installation.
+     */
+open func verifySignedWithInstallationKey(signatureText: String, signatureBytes: Data)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_xmtpv3_fn_method_ffixmtpclient_verify_signed_with_installation_key(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(signatureText),
+        FfiConverterData.lower(signatureBytes),$0
+    )
+}
+}
+    
+    /**
+     * A utility function to easily verify that a string has been signed by another libXmtp installation.
+     * Only works for verifying libXmtp public context signatures.
+     */
+open func verifySignedWithPublicKey(signatureText: String, signatureBytes: Data, publicKey: Data)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_xmtpv3_fn_method_ffixmtpclient_verify_signed_with_public_key(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(signatureText),
+        FfiConverterData.lower(signatureBytes),
+        FfiConverterData.lower(publicKey),$0
+    )
+}
+}
+    
+    /**
+     * Load the metadata for an archive to see what it contains.
+     * Reads only the metadata without loading the entire file, so this function is quick.
+     */
+open func archiveMetadata(path: String, key: Data)async throws  -> FfiBackupMetadata  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_method_ffixmtpclient_archive_metadata(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(path),FfiConverterData.lower(key)
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
+            freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeFfiBackupMetadata_lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+    
+    /**
+     * Archive application elements to file for later restoration.
+     */
+open func createArchive(path: String, opts: FfiArchiveOptions, key: Data)async throws  -> FfiBackupMetadata  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_method_ffixmtpclient_create_archive(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(path),FfiConverterTypeFfiArchiveOptions_lower(opts),FfiConverterData.lower(key)
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
+            freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeFfiBackupMetadata_lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+    
+    /**
+     * Import a previous archive from file.
+     */
+open func importArchive(path: String, key: Data)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_method_ffixmtpclient_import_archive(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(path),FfiConverterData.lower(key)
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_void,
+            completeFunc: ffi_xmtpv3_rust_future_complete_void,
+            freeFunc: ffi_xmtpv3_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+    
+    /**
+     * List the archives available for import in the sync group.
+     * You may need to manually sync the sync group before calling
+     * this function to see recently uploaded archives.
+     */
+open func listAvailableArchives(daysCutoff: Int64)throws  -> [FfiAvailableArchive]  {
+    return try  FfiConverterSequenceTypeFfiAvailableArchive.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_xmtpv3_fn_method_ffixmtpclient_list_available_archives(
+            self.uniffiCloneHandle(),
+        FfiConverterInt64.lower(daysCutoff),$0
+    )
+})
+}
+    
+    /**
+     * Manually process a sync archive that matches the pin given.
+     * If no pin is given, then it will process the last archive sent.
+     */
+open func processSyncArchive(archivePin: String?)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_method_ffixmtpclient_process_sync_archive(
+                    self.uniffiCloneHandle(),
+                    FfiConverterOptionString.lower(archivePin)
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_void,
+            completeFunc: ffi_xmtpv3_rust_future_complete_void,
+            freeFunc: ffi_xmtpv3_rust_future_free_void,
+            liftFunc: { $0 },
             errorHandler: FfiConverterTypeFfiError_lift
         )
 }
@@ -5660,7 +5863,7 @@ open func sendSyncArchive(options: FfiArchiveOptions, serverUrl: String, pin: St
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_send_sync_archive(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiArchiveOptions_lower(options),FfiConverterString.lower(serverUrl),FfiConverterString.lower(pin)
                 )
             },
@@ -5680,7 +5883,7 @@ open func sendSyncRequest(options: FfiArchiveOptions, serverUrl: String)async th
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_send_sync_request(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeFfiArchiveOptions_lower(options),FfiConverterString.lower(serverUrl)
                 )
             },
@@ -5692,41 +5895,6 @@ open func sendSyncRequest(options: FfiArchiveOptions, serverUrl: String)async th
         )
 }
     
-open func setConsentStates(records: [FfiConsent])async throws   {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_xmtpv3_fn_method_ffixmtpclient_set_consent_states(
-                    self.uniffiClonePointer(),
-                    FfiConverterSequenceTypeFfiConsent.lower(records)
-                )
-            },
-            pollFunc: ffi_xmtpv3_rust_future_poll_void,
-            completeFunc: ffi_xmtpv3_rust_future_complete_void,
-            freeFunc: ffi_xmtpv3_rust_future_free_void,
-            liftFunc: { $0 },
-            errorHandler: FfiConverterTypeFfiError_lift
-        )
-}
-    
-    /**
-     * A utility function to sign a piece of text with this installation's private key.
-     */
-open func signWithInstallationKey(text: String)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_sign_with_installation_key(self.uniffiClonePointer(),
-        FfiConverterString.lower(text),$0
-    )
-})
-}
-    
-open func signatureRequest() -> FfiSignatureRequest?  {
-    return try!  FfiConverterOptionTypeFfiSignatureRequest.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_signature_request(self.uniffiClonePointer(),$0
-    )
-})
-}
-    
     /**
      * Manually sync all device sync groups.
      */
@@ -5735,7 +5903,7 @@ open func syncAllDeviceSyncGroups()async throws  -> FfiGroupSyncSummary  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_sync_all_device_sync_groups(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -5745,50 +5913,10 @@ open func syncAllDeviceSyncGroups()async throws  -> FfiGroupSyncSummary  {
             liftFunc: FfiConverterTypeFfiGroupSyncSummary_lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
-}
-    
-open func syncPreferences()async throws  -> FfiGroupSyncSummary  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_xmtpv3_fn_method_ffixmtpclient_sync_preferences(
-                    self.uniffiClonePointer()
-                    
-                )
-            },
-            pollFunc: ffi_xmtpv3_rust_future_poll_rust_buffer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
-            freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterTypeFfiGroupSyncSummary_lift,
-            errorHandler: FfiConverterTypeFfiError_lift
-        )
-}
-    
-    /**
-     * A utility function to easily verify that a piece of text was signed by this installation.
-     */
-open func verifySignedWithInstallationKey(signatureText: String, signatureBytes: Data)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_verify_signed_with_installation_key(self.uniffiClonePointer(),
-        FfiConverterString.lower(signatureText),
-        FfiConverterData.lower(signatureBytes),$0
-    )
-}
-}
-    
-    /**
-     * A utility function to easily verify that a string has been signed by another libXmtp installation.
-     * Only works for verifying libXmtp public context signatures.
-     */
-open func verifySignedWithPublicKey(signatureText: String, signatureBytes: Data, publicKey: Data)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_method_ffixmtpclient_verify_signed_with_public_key(self.uniffiClonePointer(),
-        FfiConverterString.lower(signatureText),
-        FfiConverterData.lower(signatureBytes),
-        FfiConverterData.lower(publicKey),$0
-    )
-}
 }
     
 
+    
 }
 
 
@@ -5796,33 +5924,24 @@ open func verifySignedWithPublicKey(signatureText: String, signatureBytes: Data,
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeFfiXmtpClient: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = FfiXmtpClient
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiXmtpClient {
-        return FfiXmtpClient(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> FfiXmtpClient {
+        return FfiXmtpClient(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: FfiXmtpClient) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: FfiXmtpClient) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiXmtpClient {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: FfiXmtpClient, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -5830,14 +5949,14 @@ public struct FfiConverterTypeFfiXmtpClient: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiXmtpClient_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiXmtpClient {
-    return try FfiConverterTypeFfiXmtpClient.lift(pointer)
+public func FfiConverterTypeFfiXmtpClient_lift(_ handle: UInt64) throws -> FfiXmtpClient {
+    return try FfiConverterTypeFfiXmtpClient.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeFfiXmtpClient_lower(_ value: FfiXmtpClient) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeFfiXmtpClient_lower(_ value: FfiXmtpClient) -> UInt64 {
     return FfiConverterTypeFfiXmtpClient.lower(value)
 }
 
@@ -5856,13 +5975,13 @@ public protocol XmtpApiClientProtocol: AnyObject, Sendable {
  * the opaque Xmtp Api Client for iOS/Android bindings
  */
 open class XmtpApiClient: XmtpApiClientProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -5872,42 +5991,44 @@ open class XmtpApiClient: XmtpApiClientProtocol, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_xmtpv3_fn_clone_xmtpapiclient(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtpv3_fn_clone_xmtpapiclient(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_xmtpv3_fn_free_xmtpapiclient(pointer, $0) }
+        try! rustCall { uniffi_xmtpv3_fn_free_xmtpapiclient(handle, $0) }
     }
 
     
 
     
 
+    
 }
 
 
@@ -5915,33 +6036,24 @@ open class XmtpApiClient: XmtpApiClientProtocol, @unchecked Sendable {
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeXmtpApiClient: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = XmtpApiClient
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> XmtpApiClient {
-        return XmtpApiClient(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> XmtpApiClient {
+        return XmtpApiClient(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: XmtpApiClient) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: XmtpApiClient) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> XmtpApiClient {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: XmtpApiClient, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -5949,21 +6061,21 @@ public struct FfiConverterTypeXmtpApiClient: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeXmtpApiClient_lift(_ pointer: UnsafeMutableRawPointer) throws -> XmtpApiClient {
-    return try FfiConverterTypeXmtpApiClient.lift(pointer)
+public func FfiConverterTypeXmtpApiClient_lift(_ handle: UInt64) throws -> XmtpApiClient {
+    return try FfiConverterTypeXmtpApiClient.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeXmtpApiClient_lower(_ value: XmtpApiClient) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeXmtpApiClient_lower(_ value: XmtpApiClient) -> UInt64 {
     return FfiConverterTypeXmtpApiClient.lower(value)
 }
 
 
 
 
-public struct DbOptions {
+public struct DbOptions: Equatable, Hashable {
     public var db: String?
     public var encryptionKey: Data?
     public var maxDbPoolSize: UInt32?
@@ -5977,39 +6089,15 @@ public struct DbOptions {
         self.maxDbPoolSize = maxDbPoolSize
         self.minDbPoolSize = minDbPoolSize
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension DbOptions: Sendable {}
 #endif
-
-
-extension DbOptions: Equatable, Hashable {
-    public static func ==(lhs: DbOptions, rhs: DbOptions) -> Bool {
-        if lhs.db != rhs.db {
-            return false
-        }
-        if lhs.encryptionKey != rhs.encryptionKey {
-            return false
-        }
-        if lhs.maxDbPoolSize != rhs.maxDbPoolSize {
-            return false
-        }
-        if lhs.minDbPoolSize != rhs.minDbPoolSize {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(db)
-        hasher.combine(encryptionKey)
-        hasher.combine(maxDbPoolSize)
-        hasher.combine(minDbPoolSize)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -6049,7 +6137,7 @@ public func FfiConverterTypeDbOptions_lower(_ value: DbOptions) -> RustBuffer {
 }
 
 
-public struct FfiAction {
+public struct FfiAction: Equatable, Hashable {
     public var id: String
     public var label: String
     public var imageUrl: String?
@@ -6065,43 +6153,15 @@ public struct FfiAction {
         self.style = style
         self.expiresAtNs = expiresAtNs
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiAction: Sendable {}
 #endif
-
-
-extension FfiAction: Equatable, Hashable {
-    public static func ==(lhs: FfiAction, rhs: FfiAction) -> Bool {
-        if lhs.id != rhs.id {
-            return false
-        }
-        if lhs.label != rhs.label {
-            return false
-        }
-        if lhs.imageUrl != rhs.imageUrl {
-            return false
-        }
-        if lhs.style != rhs.style {
-            return false
-        }
-        if lhs.expiresAtNs != rhs.expiresAtNs {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
-        hasher.combine(label)
-        hasher.combine(imageUrl)
-        hasher.combine(style)
-        hasher.combine(expiresAtNs)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -6143,7 +6203,7 @@ public func FfiConverterTypeFfiAction_lower(_ value: FfiAction) -> RustBuffer {
 }
 
 
-public struct FfiActions {
+public struct FfiActions: Equatable, Hashable {
     public var id: String
     public var description: String
     public var actions: [FfiAction]
@@ -6157,39 +6217,15 @@ public struct FfiActions {
         self.actions = actions
         self.expiresAtNs = expiresAtNs
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiActions: Sendable {}
 #endif
-
-
-extension FfiActions: Equatable, Hashable {
-    public static func ==(lhs: FfiActions, rhs: FfiActions) -> Bool {
-        if lhs.id != rhs.id {
-            return false
-        }
-        if lhs.description != rhs.description {
-            return false
-        }
-        if lhs.actions != rhs.actions {
-            return false
-        }
-        if lhs.expiresAtNs != rhs.expiresAtNs {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
-        hasher.combine(description)
-        hasher.combine(actions)
-        hasher.combine(expiresAtNs)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -6229,7 +6265,7 @@ public func FfiConverterTypeFfiActions_lower(_ value: FfiActions) -> RustBuffer 
 }
 
 
-public struct FfiApiStats {
+public struct FfiApiStats: Equatable, Hashable {
     public var uploadKeyPackage: UInt64
     public var fetchKeyPackage: UInt64
     public var sendGroupMessages: UInt64
@@ -6251,55 +6287,15 @@ public struct FfiApiStats {
         self.subscribeMessages = subscribeMessages
         self.subscribeWelcomes = subscribeWelcomes
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiApiStats: Sendable {}
 #endif
-
-
-extension FfiApiStats: Equatable, Hashable {
-    public static func ==(lhs: FfiApiStats, rhs: FfiApiStats) -> Bool {
-        if lhs.uploadKeyPackage != rhs.uploadKeyPackage {
-            return false
-        }
-        if lhs.fetchKeyPackage != rhs.fetchKeyPackage {
-            return false
-        }
-        if lhs.sendGroupMessages != rhs.sendGroupMessages {
-            return false
-        }
-        if lhs.sendWelcomeMessages != rhs.sendWelcomeMessages {
-            return false
-        }
-        if lhs.queryGroupMessages != rhs.queryGroupMessages {
-            return false
-        }
-        if lhs.queryWelcomeMessages != rhs.queryWelcomeMessages {
-            return false
-        }
-        if lhs.subscribeMessages != rhs.subscribeMessages {
-            return false
-        }
-        if lhs.subscribeWelcomes != rhs.subscribeWelcomes {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(uploadKeyPackage)
-        hasher.combine(fetchKeyPackage)
-        hasher.combine(sendGroupMessages)
-        hasher.combine(sendWelcomeMessages)
-        hasher.combine(queryGroupMessages)
-        hasher.combine(queryWelcomeMessages)
-        hasher.combine(subscribeMessages)
-        hasher.combine(subscribeWelcomes)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -6347,7 +6343,7 @@ public func FfiConverterTypeFfiApiStats_lower(_ value: FfiApiStats) -> RustBuffe
 }
 
 
-public struct FfiArchiveOptions {
+public struct FfiArchiveOptions: Equatable, Hashable {
     public var startNs: Int64?
     public var endNs: Int64?
     public var elements: [FfiBackupElementSelection]
@@ -6361,39 +6357,15 @@ public struct FfiArchiveOptions {
         self.elements = elements
         self.excludeDisappearingMessages = excludeDisappearingMessages
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiArchiveOptions: Sendable {}
 #endif
-
-
-extension FfiArchiveOptions: Equatable, Hashable {
-    public static func ==(lhs: FfiArchiveOptions, rhs: FfiArchiveOptions) -> Bool {
-        if lhs.startNs != rhs.startNs {
-            return false
-        }
-        if lhs.endNs != rhs.endNs {
-            return false
-        }
-        if lhs.elements != rhs.elements {
-            return false
-        }
-        if lhs.excludeDisappearingMessages != rhs.excludeDisappearingMessages {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(startNs)
-        hasher.combine(endNs)
-        hasher.combine(elements)
-        hasher.combine(excludeDisappearingMessages)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -6433,7 +6405,7 @@ public func FfiConverterTypeFfiArchiveOptions_lower(_ value: FfiArchiveOptions) 
 }
 
 
-public struct FfiAttachment {
+public struct FfiAttachment: Equatable, Hashable {
     public var filename: String?
     public var mimeType: String
     public var content: Data
@@ -6445,35 +6417,15 @@ public struct FfiAttachment {
         self.mimeType = mimeType
         self.content = content
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiAttachment: Sendable {}
 #endif
-
-
-extension FfiAttachment: Equatable, Hashable {
-    public static func ==(lhs: FfiAttachment, rhs: FfiAttachment) -> Bool {
-        if lhs.filename != rhs.filename {
-            return false
-        }
-        if lhs.mimeType != rhs.mimeType {
-            return false
-        }
-        if lhs.content != rhs.content {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(filename)
-        hasher.combine(mimeType)
-        hasher.combine(content)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -6511,7 +6463,7 @@ public func FfiConverterTypeFfiAttachment_lower(_ value: FfiAttachment) -> RustB
 }
 
 
-public struct FfiAvailableArchive {
+public struct FfiAvailableArchive: Equatable, Hashable {
     public var pin: String
     public var metadata: FfiBackupMetadata
     public var sentByInstallation: Data
@@ -6523,35 +6475,15 @@ public struct FfiAvailableArchive {
         self.metadata = metadata
         self.sentByInstallation = sentByInstallation
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiAvailableArchive: Sendable {}
 #endif
-
-
-extension FfiAvailableArchive: Equatable, Hashable {
-    public static func ==(lhs: FfiAvailableArchive, rhs: FfiAvailableArchive) -> Bool {
-        if lhs.pin != rhs.pin {
-            return false
-        }
-        if lhs.metadata != rhs.metadata {
-            return false
-        }
-        if lhs.sentByInstallation != rhs.sentByInstallation {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(pin)
-        hasher.combine(metadata)
-        hasher.combine(sentByInstallation)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -6589,7 +6521,7 @@ public func FfiConverterTypeFfiAvailableArchive_lower(_ value: FfiAvailableArchi
 }
 
 
-public struct FfiBackupMetadata {
+public struct FfiBackupMetadata: Equatable, Hashable {
     public var backupVersion: UInt16
     public var elements: [FfiBackupElementSelection]
     public var exportedAtNs: Int64
@@ -6605,43 +6537,15 @@ public struct FfiBackupMetadata {
         self.startNs = startNs
         self.endNs = endNs
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiBackupMetadata: Sendable {}
 #endif
-
-
-extension FfiBackupMetadata: Equatable, Hashable {
-    public static func ==(lhs: FfiBackupMetadata, rhs: FfiBackupMetadata) -> Bool {
-        if lhs.backupVersion != rhs.backupVersion {
-            return false
-        }
-        if lhs.elements != rhs.elements {
-            return false
-        }
-        if lhs.exportedAtNs != rhs.exportedAtNs {
-            return false
-        }
-        if lhs.startNs != rhs.startNs {
-            return false
-        }
-        if lhs.endNs != rhs.endNs {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(backupVersion)
-        hasher.combine(elements)
-        hasher.combine(exportedAtNs)
-        hasher.combine(startNs)
-        hasher.combine(endNs)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -6683,7 +6587,7 @@ public func FfiConverterTypeFfiBackupMetadata_lower(_ value: FfiBackupMetadata) 
 }
 
 
-public struct FfiConsent {
+public struct FfiConsent: Equatable, Hashable {
     public var entityType: FfiConsentEntityType
     public var state: FfiConsentState
     public var entity: String
@@ -6695,35 +6599,15 @@ public struct FfiConsent {
         self.state = state
         self.entity = entity
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiConsent: Sendable {}
 #endif
-
-
-extension FfiConsent: Equatable, Hashable {
-    public static func ==(lhs: FfiConsent, rhs: FfiConsent) -> Bool {
-        if lhs.entityType != rhs.entityType {
-            return false
-        }
-        if lhs.state != rhs.state {
-            return false
-        }
-        if lhs.entity != rhs.entity {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(entityType)
-        hasher.combine(state)
-        hasher.combine(entity)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -6761,7 +6645,7 @@ public func FfiConverterTypeFfiConsent_lower(_ value: FfiConsent) -> RustBuffer 
 }
 
 
-public struct FfiContentTypeId {
+public struct FfiContentTypeId: Equatable, Hashable {
     public var authorityId: String
     public var typeId: String
     public var versionMajor: UInt32
@@ -6775,39 +6659,15 @@ public struct FfiContentTypeId {
         self.versionMajor = versionMajor
         self.versionMinor = versionMinor
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiContentTypeId: Sendable {}
 #endif
-
-
-extension FfiContentTypeId: Equatable, Hashable {
-    public static func ==(lhs: FfiContentTypeId, rhs: FfiContentTypeId) -> Bool {
-        if lhs.authorityId != rhs.authorityId {
-            return false
-        }
-        if lhs.typeId != rhs.typeId {
-            return false
-        }
-        if lhs.versionMajor != rhs.versionMajor {
-            return false
-        }
-        if lhs.versionMinor != rhs.versionMinor {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(authorityId)
-        hasher.combine(typeId)
-        hasher.combine(versionMajor)
-        hasher.combine(versionMinor)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -6847,7 +6707,7 @@ public func FfiConverterTypeFfiContentTypeId_lower(_ value: FfiContentTypeId) ->
 }
 
 
-public struct FfiConversationDebugInfo {
+public struct FfiConversationDebugInfo: Equatable, Hashable {
     public var epoch: UInt64
     public var maybeForked: Bool
     public var forkDetails: String
@@ -6867,51 +6727,15 @@ public struct FfiConversationDebugInfo {
         self.remoteCommitLog = remoteCommitLog
         self.cursor = cursor
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiConversationDebugInfo: Sendable {}
 #endif
-
-
-extension FfiConversationDebugInfo: Equatable, Hashable {
-    public static func ==(lhs: FfiConversationDebugInfo, rhs: FfiConversationDebugInfo) -> Bool {
-        if lhs.epoch != rhs.epoch {
-            return false
-        }
-        if lhs.maybeForked != rhs.maybeForked {
-            return false
-        }
-        if lhs.forkDetails != rhs.forkDetails {
-            return false
-        }
-        if lhs.isCommitLogForked != rhs.isCommitLogForked {
-            return false
-        }
-        if lhs.localCommitLog != rhs.localCommitLog {
-            return false
-        }
-        if lhs.remoteCommitLog != rhs.remoteCommitLog {
-            return false
-        }
-        if lhs.cursor != rhs.cursor {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(epoch)
-        hasher.combine(maybeForked)
-        hasher.combine(forkDetails)
-        hasher.combine(isCommitLogForked)
-        hasher.combine(localCommitLog)
-        hasher.combine(remoteCommitLog)
-        hasher.combine(cursor)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -6957,7 +6781,7 @@ public func FfiConverterTypeFfiConversationDebugInfo_lower(_ value: FfiConversat
 }
 
 
-public struct FfiConversationMember {
+public struct FfiConversationMember: Equatable, Hashable {
     public var inboxId: String
     public var accountIdentifiers: [FfiIdentifier]
     public var installationIds: [Data]
@@ -6973,43 +6797,15 @@ public struct FfiConversationMember {
         self.permissionLevel = permissionLevel
         self.consentState = consentState
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiConversationMember: Sendable {}
 #endif
-
-
-extension FfiConversationMember: Equatable, Hashable {
-    public static func ==(lhs: FfiConversationMember, rhs: FfiConversationMember) -> Bool {
-        if lhs.inboxId != rhs.inboxId {
-            return false
-        }
-        if lhs.accountIdentifiers != rhs.accountIdentifiers {
-            return false
-        }
-        if lhs.installationIds != rhs.installationIds {
-            return false
-        }
-        if lhs.permissionLevel != rhs.permissionLevel {
-            return false
-        }
-        if lhs.consentState != rhs.consentState {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(inboxId)
-        hasher.combine(accountIdentifiers)
-        hasher.combine(installationIds)
-        hasher.combine(permissionLevel)
-        hasher.combine(consentState)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -7051,7 +6847,7 @@ public func FfiConverterTypeFfiConversationMember_lower(_ value: FfiConversation
 }
 
 
-public struct FfiCreateDmOptions {
+public struct FfiCreateDmOptions: Equatable, Hashable {
     public var messageDisappearingSettings: FfiMessageDisappearingSettings?
 
     // Default memberwise initializers are never public by default, so we
@@ -7059,27 +6855,15 @@ public struct FfiCreateDmOptions {
     public init(messageDisappearingSettings: FfiMessageDisappearingSettings?) {
         self.messageDisappearingSettings = messageDisappearingSettings
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiCreateDmOptions: Sendable {}
 #endif
-
-
-extension FfiCreateDmOptions: Equatable, Hashable {
-    public static func ==(lhs: FfiCreateDmOptions, rhs: FfiCreateDmOptions) -> Bool {
-        if lhs.messageDisappearingSettings != rhs.messageDisappearingSettings {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(messageDisappearingSettings)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -7113,7 +6897,7 @@ public func FfiConverterTypeFfiCreateDMOptions_lower(_ value: FfiCreateDmOptions
 }
 
 
-public struct FfiCreateGroupOptions {
+public struct FfiCreateGroupOptions: Equatable, Hashable {
     public var permissions: FfiGroupPermissionsOptions?
     public var groupName: String?
     public var groupImageUrlSquare: String?
@@ -7133,51 +6917,15 @@ public struct FfiCreateGroupOptions {
         self.messageDisappearingSettings = messageDisappearingSettings
         self.appData = appData
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiCreateGroupOptions: Sendable {}
 #endif
-
-
-extension FfiCreateGroupOptions: Equatable, Hashable {
-    public static func ==(lhs: FfiCreateGroupOptions, rhs: FfiCreateGroupOptions) -> Bool {
-        if lhs.permissions != rhs.permissions {
-            return false
-        }
-        if lhs.groupName != rhs.groupName {
-            return false
-        }
-        if lhs.groupImageUrlSquare != rhs.groupImageUrlSquare {
-            return false
-        }
-        if lhs.groupDescription != rhs.groupDescription {
-            return false
-        }
-        if lhs.customPermissionPolicySet != rhs.customPermissionPolicySet {
-            return false
-        }
-        if lhs.messageDisappearingSettings != rhs.messageDisappearingSettings {
-            return false
-        }
-        if lhs.appData != rhs.appData {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(permissions)
-        hasher.combine(groupName)
-        hasher.combine(groupImageUrlSquare)
-        hasher.combine(groupDescription)
-        hasher.combine(customPermissionPolicySet)
-        hasher.combine(messageDisappearingSettings)
-        hasher.combine(appData)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -7223,7 +6971,7 @@ public func FfiConverterTypeFfiCreateGroupOptions_lower(_ value: FfiCreateGroupO
 }
 
 
-public struct FfiCredential {
+public struct FfiCredential: Equatable, Hashable {
     public var name: String?
     public var value: String
     public var expiresAtSeconds: Int64
@@ -7235,35 +6983,15 @@ public struct FfiCredential {
         self.value = value
         self.expiresAtSeconds = expiresAtSeconds
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiCredential: Sendable {}
 #endif
-
-
-extension FfiCredential: Equatable, Hashable {
-    public static func ==(lhs: FfiCredential, rhs: FfiCredential) -> Bool {
-        if lhs.name != rhs.name {
-            return false
-        }
-        if lhs.value != rhs.value {
-            return false
-        }
-        if lhs.expiresAtSeconds != rhs.expiresAtSeconds {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(name)
-        hasher.combine(value)
-        hasher.combine(expiresAtSeconds)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -7301,7 +7029,7 @@ public func FfiConverterTypeFfiCredential_lower(_ value: FfiCredential) -> RustB
 }
 
 
-public struct FfiCursor {
+public struct FfiCursor: Equatable, Hashable {
     public var originatorId: UInt32
     public var sequenceId: UInt64
 
@@ -7311,31 +7039,15 @@ public struct FfiCursor {
         self.originatorId = originatorId
         self.sequenceId = sequenceId
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiCursor: Sendable {}
 #endif
-
-
-extension FfiCursor: Equatable, Hashable {
-    public static func ==(lhs: FfiCursor, rhs: FfiCursor) -> Bool {
-        if lhs.originatorId != rhs.originatorId {
-            return false
-        }
-        if lhs.sequenceId != rhs.sequenceId {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(originatorId)
-        hasher.combine(sequenceId)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -7371,7 +7083,7 @@ public func FfiConverterTypeFfiCursor_lower(_ value: FfiCursor) -> RustBuffer {
 }
 
 
-public struct FfiDecodedMessageMetadata {
+public struct FfiDecodedMessageMetadata: Equatable, Hashable {
     public var id: Data
     public var sentAtNs: Int64
     public var kind: FfiGroupMessageKind
@@ -7395,59 +7107,15 @@ public struct FfiDecodedMessageMetadata {
         self.insertedAtNs = insertedAtNs
         self.expiresAtNs = expiresAtNs
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiDecodedMessageMetadata: Sendable {}
 #endif
-
-
-extension FfiDecodedMessageMetadata: Equatable, Hashable {
-    public static func ==(lhs: FfiDecodedMessageMetadata, rhs: FfiDecodedMessageMetadata) -> Bool {
-        if lhs.id != rhs.id {
-            return false
-        }
-        if lhs.sentAtNs != rhs.sentAtNs {
-            return false
-        }
-        if lhs.kind != rhs.kind {
-            return false
-        }
-        if lhs.senderInstallationId != rhs.senderInstallationId {
-            return false
-        }
-        if lhs.senderInboxId != rhs.senderInboxId {
-            return false
-        }
-        if lhs.contentType != rhs.contentType {
-            return false
-        }
-        if lhs.conversationId != rhs.conversationId {
-            return false
-        }
-        if lhs.insertedAtNs != rhs.insertedAtNs {
-            return false
-        }
-        if lhs.expiresAtNs != rhs.expiresAtNs {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
-        hasher.combine(sentAtNs)
-        hasher.combine(kind)
-        hasher.combine(senderInstallationId)
-        hasher.combine(senderInboxId)
-        hasher.combine(contentType)
-        hasher.combine(conversationId)
-        hasher.combine(insertedAtNs)
-        hasher.combine(expiresAtNs)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -7500,7 +7168,7 @@ public func FfiConverterTypeFfiDecodedMessageMetadata_lower(_ value: FfiDecodedM
 /**
  * Represents a request to delete a message.
  */
-public struct FfiDeleteMessage {
+public struct FfiDeleteMessage: Equatable, Hashable {
     /**
      * The ID of the message to delete
      */
@@ -7514,27 +7182,15 @@ public struct FfiDeleteMessage {
          */messageId: String) {
         self.messageId = messageId
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiDeleteMessage: Sendable {}
 #endif
-
-
-extension FfiDeleteMessage: Equatable, Hashable {
-    public static func ==(lhs: FfiDeleteMessage, rhs: FfiDeleteMessage) -> Bool {
-        if lhs.messageId != rhs.messageId {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(messageId)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -7568,7 +7224,7 @@ public func FfiConverterTypeFfiDeleteMessage_lower(_ value: FfiDeleteMessage) ->
 }
 
 
-public struct FfiDeletedMessage {
+public struct FfiDeletedMessage: Equatable, Hashable {
     public var deletedBy: FfiDeletedBy
 
     // Default memberwise initializers are never public by default, so we
@@ -7576,27 +7232,15 @@ public struct FfiDeletedMessage {
     public init(deletedBy: FfiDeletedBy) {
         self.deletedBy = deletedBy
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiDeletedMessage: Sendable {}
 #endif
-
-
-extension FfiDeletedMessage: Equatable, Hashable {
-    public static func ==(lhs: FfiDeletedMessage, rhs: FfiDeletedMessage) -> Bool {
-        if lhs.deletedBy != rhs.deletedBy {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(deletedBy)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -7630,7 +7274,7 @@ public func FfiConverterTypeFfiDeletedMessage_lower(_ value: FfiDeletedMessage) 
 }
 
 
-public struct FfiEncodedContent {
+public struct FfiEncodedContent: Equatable, Hashable {
     public var typeId: FfiContentTypeId?
     public var parameters: [String: String]
     public var fallback: String?
@@ -7646,43 +7290,15 @@ public struct FfiEncodedContent {
         self.compression = compression
         self.content = content
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiEncodedContent: Sendable {}
 #endif
-
-
-extension FfiEncodedContent: Equatable, Hashable {
-    public static func ==(lhs: FfiEncodedContent, rhs: FfiEncodedContent) -> Bool {
-        if lhs.typeId != rhs.typeId {
-            return false
-        }
-        if lhs.parameters != rhs.parameters {
-            return false
-        }
-        if lhs.fallback != rhs.fallback {
-            return false
-        }
-        if lhs.compression != rhs.compression {
-            return false
-        }
-        if lhs.content != rhs.content {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(typeId)
-        hasher.combine(parameters)
-        hasher.combine(fallback)
-        hasher.combine(compression)
-        hasher.combine(content)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -7736,13 +7352,15 @@ public struct FfiEnrichedReply {
         self.content = content
         self.referenceId = referenceId
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiEnrichedReply: Sendable {}
 #endif
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -7780,7 +7398,7 @@ public func FfiConverterTypeFfiEnrichedReply_lower(_ value: FfiEnrichedReply) ->
 }
 
 
-public struct FfiForkRecoveryOpts {
+public struct FfiForkRecoveryOpts: Equatable, Hashable {
     public var enableRecoveryRequests: FfiForkRecoveryPolicy
     public var groupsToRequestRecovery: [String]
     public var disableRecoveryResponses: Bool?
@@ -7794,39 +7412,15 @@ public struct FfiForkRecoveryOpts {
         self.disableRecoveryResponses = disableRecoveryResponses
         self.workerIntervalNs = workerIntervalNs
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiForkRecoveryOpts: Sendable {}
 #endif
-
-
-extension FfiForkRecoveryOpts: Equatable, Hashable {
-    public static func ==(lhs: FfiForkRecoveryOpts, rhs: FfiForkRecoveryOpts) -> Bool {
-        if lhs.enableRecoveryRequests != rhs.enableRecoveryRequests {
-            return false
-        }
-        if lhs.groupsToRequestRecovery != rhs.groupsToRequestRecovery {
-            return false
-        }
-        if lhs.disableRecoveryResponses != rhs.disableRecoveryResponses {
-            return false
-        }
-        if lhs.workerIntervalNs != rhs.workerIntervalNs {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(enableRecoveryRequests)
-        hasher.combine(groupsToRequestRecovery)
-        hasher.combine(disableRecoveryResponses)
-        hasher.combine(workerIntervalNs)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -7866,7 +7460,7 @@ public func FfiConverterTypeFfiForkRecoveryOpts_lower(_ value: FfiForkRecoveryOp
 }
 
 
-public struct FfiGroupSyncSummary {
+public struct FfiGroupSyncSummary: Equatable, Hashable {
     public var numEligible: UInt64
     public var numSynced: UInt64
 
@@ -7876,31 +7470,15 @@ public struct FfiGroupSyncSummary {
         self.numEligible = numEligible
         self.numSynced = numSynced
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiGroupSyncSummary: Sendable {}
 #endif
-
-
-extension FfiGroupSyncSummary: Equatable, Hashable {
-    public static func ==(lhs: FfiGroupSyncSummary, rhs: FfiGroupSyncSummary) -> Bool {
-        if lhs.numEligible != rhs.numEligible {
-            return false
-        }
-        if lhs.numSynced != rhs.numSynced {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(numEligible)
-        hasher.combine(numSynced)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -7936,7 +7514,7 @@ public func FfiConverterTypeFfiGroupSyncSummary_lower(_ value: FfiGroupSyncSumma
 }
 
 
-public struct FfiGroupUpdated {
+public struct FfiGroupUpdated: Equatable, Hashable {
     public var initiatedByInboxId: String
     public var addedInboxes: [FfiInbox]
     public var removedInboxes: [FfiInbox]
@@ -7960,59 +7538,15 @@ public struct FfiGroupUpdated {
         self.addedSuperAdminInboxes = addedSuperAdminInboxes
         self.removedSuperAdminInboxes = removedSuperAdminInboxes
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiGroupUpdated: Sendable {}
 #endif
-
-
-extension FfiGroupUpdated: Equatable, Hashable {
-    public static func ==(lhs: FfiGroupUpdated, rhs: FfiGroupUpdated) -> Bool {
-        if lhs.initiatedByInboxId != rhs.initiatedByInboxId {
-            return false
-        }
-        if lhs.addedInboxes != rhs.addedInboxes {
-            return false
-        }
-        if lhs.removedInboxes != rhs.removedInboxes {
-            return false
-        }
-        if lhs.leftInboxes != rhs.leftInboxes {
-            return false
-        }
-        if lhs.metadataFieldChanges != rhs.metadataFieldChanges {
-            return false
-        }
-        if lhs.addedAdminInboxes != rhs.addedAdminInboxes {
-            return false
-        }
-        if lhs.removedAdminInboxes != rhs.removedAdminInboxes {
-            return false
-        }
-        if lhs.addedSuperAdminInboxes != rhs.addedSuperAdminInboxes {
-            return false
-        }
-        if lhs.removedSuperAdminInboxes != rhs.removedSuperAdminInboxes {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(initiatedByInboxId)
-        hasher.combine(addedInboxes)
-        hasher.combine(removedInboxes)
-        hasher.combine(leftInboxes)
-        hasher.combine(metadataFieldChanges)
-        hasher.combine(addedAdminInboxes)
-        hasher.combine(removedAdminInboxes)
-        hasher.combine(addedSuperAdminInboxes)
-        hasher.combine(removedSuperAdminInboxes)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -8062,7 +7596,7 @@ public func FfiConverterTypeFfiGroupUpdated_lower(_ value: FfiGroupUpdated) -> R
 }
 
 
-public struct FfiHmacKey {
+public struct FfiHmacKey: Equatable, Hashable {
     public var key: Data
     public var epoch: Int64
 
@@ -8072,31 +7606,15 @@ public struct FfiHmacKey {
         self.key = key
         self.epoch = epoch
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiHmacKey: Sendable {}
 #endif
-
-
-extension FfiHmacKey: Equatable, Hashable {
-    public static func ==(lhs: FfiHmacKey, rhs: FfiHmacKey) -> Bool {
-        if lhs.key != rhs.key {
-            return false
-        }
-        if lhs.epoch != rhs.epoch {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(key)
-        hasher.combine(epoch)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -8132,7 +7650,7 @@ public func FfiConverterTypeFfiHmacKey_lower(_ value: FfiHmacKey) -> RustBuffer 
 }
 
 
-public struct FfiIdentifier {
+public struct FfiIdentifier: Equatable, Hashable {
     public var identifier: String
     public var identifierKind: FfiIdentifierKind
 
@@ -8142,31 +7660,15 @@ public struct FfiIdentifier {
         self.identifier = identifier
         self.identifierKind = identifierKind
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiIdentifier: Sendable {}
 #endif
-
-
-extension FfiIdentifier: Equatable, Hashable {
-    public static func ==(lhs: FfiIdentifier, rhs: FfiIdentifier) -> Bool {
-        if lhs.identifier != rhs.identifier {
-            return false
-        }
-        if lhs.identifierKind != rhs.identifierKind {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(identifier)
-        hasher.combine(identifierKind)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -8202,7 +7704,7 @@ public func FfiConverterTypeFfiIdentifier_lower(_ value: FfiIdentifier) -> RustB
 }
 
 
-public struct FfiIdentityStats {
+public struct FfiIdentityStats: Equatable, Hashable {
     public var publishIdentityUpdate: UInt64
     public var getIdentityUpdatesV2: UInt64
     public var getInboxIds: UInt64
@@ -8216,39 +7718,15 @@ public struct FfiIdentityStats {
         self.getInboxIds = getInboxIds
         self.verifySmartContractWalletSignature = verifySmartContractWalletSignature
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiIdentityStats: Sendable {}
 #endif
-
-
-extension FfiIdentityStats: Equatable, Hashable {
-    public static func ==(lhs: FfiIdentityStats, rhs: FfiIdentityStats) -> Bool {
-        if lhs.publishIdentityUpdate != rhs.publishIdentityUpdate {
-            return false
-        }
-        if lhs.getIdentityUpdatesV2 != rhs.getIdentityUpdatesV2 {
-            return false
-        }
-        if lhs.getInboxIds != rhs.getInboxIds {
-            return false
-        }
-        if lhs.verifySmartContractWalletSignature != rhs.verifySmartContractWalletSignature {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(publishIdentityUpdate)
-        hasher.combine(getIdentityUpdatesV2)
-        hasher.combine(getInboxIds)
-        hasher.combine(verifySmartContractWalletSignature)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -8288,7 +7766,7 @@ public func FfiConverterTypeFfiIdentityStats_lower(_ value: FfiIdentityStats) ->
 }
 
 
-public struct FfiInbox {
+public struct FfiInbox: Equatable, Hashable {
     public var inboxId: String
 
     // Default memberwise initializers are never public by default, so we
@@ -8296,27 +7774,15 @@ public struct FfiInbox {
     public init(inboxId: String) {
         self.inboxId = inboxId
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiInbox: Sendable {}
 #endif
-
-
-extension FfiInbox: Equatable, Hashable {
-    public static func ==(lhs: FfiInbox, rhs: FfiInbox) -> Bool {
-        if lhs.inboxId != rhs.inboxId {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(inboxId)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -8350,7 +7816,7 @@ public func FfiConverterTypeFfiInbox_lower(_ value: FfiInbox) -> RustBuffer {
 }
 
 
-public struct FfiInboxState {
+public struct FfiInboxState: Equatable, Hashable {
     public var inboxId: String
     public var recoveryIdentity: FfiIdentifier
     public var installations: [FfiInstallation]
@@ -8366,43 +7832,15 @@ public struct FfiInboxState {
         self.accountIdentities = accountIdentities
         self.creationSignatureKind = creationSignatureKind
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiInboxState: Sendable {}
 #endif
-
-
-extension FfiInboxState: Equatable, Hashable {
-    public static func ==(lhs: FfiInboxState, rhs: FfiInboxState) -> Bool {
-        if lhs.inboxId != rhs.inboxId {
-            return false
-        }
-        if lhs.recoveryIdentity != rhs.recoveryIdentity {
-            return false
-        }
-        if lhs.installations != rhs.installations {
-            return false
-        }
-        if lhs.accountIdentities != rhs.accountIdentities {
-            return false
-        }
-        if lhs.creationSignatureKind != rhs.creationSignatureKind {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(inboxId)
-        hasher.combine(recoveryIdentity)
-        hasher.combine(installations)
-        hasher.combine(accountIdentities)
-        hasher.combine(creationSignatureKind)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -8444,7 +7882,7 @@ public func FfiConverterTypeFfiInboxState_lower(_ value: FfiInboxState) -> RustB
 }
 
 
-public struct FfiInstallation {
+public struct FfiInstallation: Equatable, Hashable {
     public var id: Data
     public var clientTimestampNs: UInt64?
 
@@ -8454,31 +7892,15 @@ public struct FfiInstallation {
         self.id = id
         self.clientTimestampNs = clientTimestampNs
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiInstallation: Sendable {}
 #endif
-
-
-extension FfiInstallation: Equatable, Hashable {
-    public static func ==(lhs: FfiInstallation, rhs: FfiInstallation) -> Bool {
-        if lhs.id != rhs.id {
-            return false
-        }
-        if lhs.clientTimestampNs != rhs.clientTimestampNs {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
-        hasher.combine(clientTimestampNs)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -8514,7 +7936,7 @@ public func FfiConverterTypeFfiInstallation_lower(_ value: FfiInstallation) -> R
 }
 
 
-public struct FfiIntent {
+public struct FfiIntent: Equatable, Hashable {
     public var id: String
     public var actionId: String
     public var metadata: String?
@@ -8526,35 +7948,15 @@ public struct FfiIntent {
         self.actionId = actionId
         self.metadata = metadata
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiIntent: Sendable {}
 #endif
-
-
-extension FfiIntent: Equatable, Hashable {
-    public static func ==(lhs: FfiIntent, rhs: FfiIntent) -> Bool {
-        if lhs.id != rhs.id {
-            return false
-        }
-        if lhs.actionId != rhs.actionId {
-            return false
-        }
-        if lhs.metadata != rhs.metadata {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
-        hasher.combine(actionId)
-        hasher.combine(metadata)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -8592,7 +7994,7 @@ public func FfiConverterTypeFfiIntent_lower(_ value: FfiIntent) -> RustBuffer {
 }
 
 
-public struct FfiKeyPackageStatus {
+public struct FfiKeyPackageStatus: Equatable, Hashable {
     public var lifetime: FfiLifetime?
     public var validationError: String?
 
@@ -8602,31 +8004,15 @@ public struct FfiKeyPackageStatus {
         self.lifetime = lifetime
         self.validationError = validationError
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiKeyPackageStatus: Sendable {}
 #endif
-
-
-extension FfiKeyPackageStatus: Equatable, Hashable {
-    public static func ==(lhs: FfiKeyPackageStatus, rhs: FfiKeyPackageStatus) -> Bool {
-        if lhs.lifetime != rhs.lifetime {
-            return false
-        }
-        if lhs.validationError != rhs.validationError {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(lifetime)
-        hasher.combine(validationError)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -8665,7 +8051,7 @@ public func FfiConverterTypeFfiKeyPackageStatus_lower(_ value: FfiKeyPackageStat
 /**
  * Represents a leave request message sent when a user wants to leave a group.
  */
-public struct FfiLeaveRequest {
+public struct FfiLeaveRequest: Equatable, Hashable {
     /**
      * Optional authenticated note for the leave request
      */
@@ -8679,27 +8065,15 @@ public struct FfiLeaveRequest {
          */authenticatedNote: Data?) {
         self.authenticatedNote = authenticatedNote
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiLeaveRequest: Sendable {}
 #endif
-
-
-extension FfiLeaveRequest: Equatable, Hashable {
-    public static func ==(lhs: FfiLeaveRequest, rhs: FfiLeaveRequest) -> Bool {
-        if lhs.authenticatedNote != rhs.authenticatedNote {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(authenticatedNote)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -8733,7 +8107,7 @@ public func FfiConverterTypeFfiLeaveRequest_lower(_ value: FfiLeaveRequest) -> R
 }
 
 
-public struct FfiLifetime {
+public struct FfiLifetime: Equatable, Hashable {
     public var notBefore: UInt64
     public var notAfter: UInt64
 
@@ -8743,31 +8117,15 @@ public struct FfiLifetime {
         self.notBefore = notBefore
         self.notAfter = notAfter
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiLifetime: Sendable {}
 #endif
-
-
-extension FfiLifetime: Equatable, Hashable {
-    public static func ==(lhs: FfiLifetime, rhs: FfiLifetime) -> Bool {
-        if lhs.notBefore != rhs.notBefore {
-            return false
-        }
-        if lhs.notAfter != rhs.notAfter {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(notBefore)
-        hasher.combine(notAfter)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -8803,7 +8161,7 @@ public func FfiConverterTypeFfiLifetime_lower(_ value: FfiLifetime) -> RustBuffe
 }
 
 
-public struct FfiListConversationsOptions {
+public struct FfiListConversationsOptions: Equatable, Hashable {
     public var createdAfterNs: Int64?
     public var createdBeforeNs: Int64?
     public var lastActivityBeforeNs: Int64?
@@ -8825,55 +8183,15 @@ public struct FfiListConversationsOptions {
         self.consentStates = consentStates
         self.includeDuplicateDms = includeDuplicateDms
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiListConversationsOptions: Sendable {}
 #endif
-
-
-extension FfiListConversationsOptions: Equatable, Hashable {
-    public static func ==(lhs: FfiListConversationsOptions, rhs: FfiListConversationsOptions) -> Bool {
-        if lhs.createdAfterNs != rhs.createdAfterNs {
-            return false
-        }
-        if lhs.createdBeforeNs != rhs.createdBeforeNs {
-            return false
-        }
-        if lhs.lastActivityBeforeNs != rhs.lastActivityBeforeNs {
-            return false
-        }
-        if lhs.lastActivityAfterNs != rhs.lastActivityAfterNs {
-            return false
-        }
-        if lhs.orderBy != rhs.orderBy {
-            return false
-        }
-        if lhs.limit != rhs.limit {
-            return false
-        }
-        if lhs.consentStates != rhs.consentStates {
-            return false
-        }
-        if lhs.includeDuplicateDms != rhs.includeDuplicateDms {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(createdAfterNs)
-        hasher.combine(createdBeforeNs)
-        hasher.combine(lastActivityBeforeNs)
-        hasher.combine(lastActivityAfterNs)
-        hasher.combine(orderBy)
-        hasher.combine(limit)
-        hasher.combine(consentStates)
-        hasher.combine(includeDuplicateDms)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -8921,7 +8239,7 @@ public func FfiConverterTypeFfiListConversationsOptions_lower(_ value: FfiListCo
 }
 
 
-public struct FfiListMessagesOptions {
+public struct FfiListMessagesOptions: Equatable, Hashable {
     public var sentBeforeNs: Int64?
     public var sentAfterNs: Int64?
     public var limit: Int64?
@@ -8949,67 +8267,15 @@ public struct FfiListMessagesOptions {
         self.insertedAfterNs = insertedAfterNs
         self.insertedBeforeNs = insertedBeforeNs
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiListMessagesOptions: Sendable {}
 #endif
-
-
-extension FfiListMessagesOptions: Equatable, Hashable {
-    public static func ==(lhs: FfiListMessagesOptions, rhs: FfiListMessagesOptions) -> Bool {
-        if lhs.sentBeforeNs != rhs.sentBeforeNs {
-            return false
-        }
-        if lhs.sentAfterNs != rhs.sentAfterNs {
-            return false
-        }
-        if lhs.limit != rhs.limit {
-            return false
-        }
-        if lhs.deliveryStatus != rhs.deliveryStatus {
-            return false
-        }
-        if lhs.direction != rhs.direction {
-            return false
-        }
-        if lhs.contentTypes != rhs.contentTypes {
-            return false
-        }
-        if lhs.excludeContentTypes != rhs.excludeContentTypes {
-            return false
-        }
-        if lhs.excludeSenderInboxIds != rhs.excludeSenderInboxIds {
-            return false
-        }
-        if lhs.sortBy != rhs.sortBy {
-            return false
-        }
-        if lhs.insertedAfterNs != rhs.insertedAfterNs {
-            return false
-        }
-        if lhs.insertedBeforeNs != rhs.insertedBeforeNs {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(sentBeforeNs)
-        hasher.combine(sentAfterNs)
-        hasher.combine(limit)
-        hasher.combine(deliveryStatus)
-        hasher.combine(direction)
-        hasher.combine(contentTypes)
-        hasher.combine(excludeContentTypes)
-        hasher.combine(excludeSenderInboxIds)
-        hasher.combine(sortBy)
-        hasher.combine(insertedAfterNs)
-        hasher.combine(insertedBeforeNs)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -9063,7 +8329,7 @@ public func FfiConverterTypeFfiListMessagesOptions_lower(_ value: FfiListMessage
 }
 
 
-public struct FfiMarkdownContent {
+public struct FfiMarkdownContent: Equatable, Hashable {
     public var content: String
 
     // Default memberwise initializers are never public by default, so we
@@ -9071,27 +8337,15 @@ public struct FfiMarkdownContent {
     public init(content: String) {
         self.content = content
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiMarkdownContent: Sendable {}
 #endif
-
-
-extension FfiMarkdownContent: Equatable, Hashable {
-    public static func ==(lhs: FfiMarkdownContent, rhs: FfiMarkdownContent) -> Bool {
-        if lhs.content != rhs.content {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(content)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -9125,7 +8379,7 @@ public func FfiConverterTypeFfiMarkdownContent_lower(_ value: FfiMarkdownContent
 }
 
 
-public struct FfiMessage {
+public struct FfiMessage: Equatable, Hashable {
     public var id: Data
     public var sentAtNs: Int64
     public var conversationId: Data
@@ -9153,67 +8407,15 @@ public struct FfiMessage {
         self.insertedAtNs = insertedAtNs
         self.expireAtNs = expireAtNs
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiMessage: Sendable {}
 #endif
-
-
-extension FfiMessage: Equatable, Hashable {
-    public static func ==(lhs: FfiMessage, rhs: FfiMessage) -> Bool {
-        if lhs.id != rhs.id {
-            return false
-        }
-        if lhs.sentAtNs != rhs.sentAtNs {
-            return false
-        }
-        if lhs.conversationId != rhs.conversationId {
-            return false
-        }
-        if lhs.senderInboxId != rhs.senderInboxId {
-            return false
-        }
-        if lhs.content != rhs.content {
-            return false
-        }
-        if lhs.kind != rhs.kind {
-            return false
-        }
-        if lhs.deliveryStatus != rhs.deliveryStatus {
-            return false
-        }
-        if lhs.sequenceId != rhs.sequenceId {
-            return false
-        }
-        if lhs.originatorId != rhs.originatorId {
-            return false
-        }
-        if lhs.insertedAtNs != rhs.insertedAtNs {
-            return false
-        }
-        if lhs.expireAtNs != rhs.expireAtNs {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
-        hasher.combine(sentAtNs)
-        hasher.combine(conversationId)
-        hasher.combine(senderInboxId)
-        hasher.combine(content)
-        hasher.combine(kind)
-        hasher.combine(deliveryStatus)
-        hasher.combine(sequenceId)
-        hasher.combine(originatorId)
-        hasher.combine(insertedAtNs)
-        hasher.combine(expireAtNs)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -9275,7 +8477,7 @@ public func FfiConverterTypeFfiMessage_lower(_ value: FfiMessage) -> RustBuffer 
  * * `from_ns` - The timestamp (in nanoseconds) from when messages should be tracked for deletion.
  * * `in_ns` - The duration (in nanoseconds) after which tracked messages will be deleted.
  */
-public struct FfiMessageDisappearingSettings {
+public struct FfiMessageDisappearingSettings: Equatable, Hashable {
     public var fromNs: Int64
     public var inNs: Int64
 
@@ -9285,31 +8487,15 @@ public struct FfiMessageDisappearingSettings {
         self.fromNs = fromNs
         self.inNs = inNs
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiMessageDisappearingSettings: Sendable {}
 #endif
-
-
-extension FfiMessageDisappearingSettings: Equatable, Hashable {
-    public static func ==(lhs: FfiMessageDisappearingSettings, rhs: FfiMessageDisappearingSettings) -> Bool {
-        if lhs.fromNs != rhs.fromNs {
-            return false
-        }
-        if lhs.inNs != rhs.inNs {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(fromNs)
-        hasher.combine(inNs)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -9345,7 +8531,7 @@ public func FfiConverterTypeFfiMessageDisappearingSettings_lower(_ value: FfiMes
 }
 
 
-public struct FfiMessageMetadata {
+public struct FfiMessageMetadata: Equatable, Hashable {
     public var cursor: FfiCursor
     public var createdNs: Int64
 
@@ -9355,31 +8541,15 @@ public struct FfiMessageMetadata {
         self.cursor = cursor
         self.createdNs = createdNs
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiMessageMetadata: Sendable {}
 #endif
-
-
-extension FfiMessageMetadata: Equatable, Hashable {
-    public static func ==(lhs: FfiMessageMetadata, rhs: FfiMessageMetadata) -> Bool {
-        if lhs.cursor != rhs.cursor {
-            return false
-        }
-        if lhs.createdNs != rhs.createdNs {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(cursor)
-        hasher.combine(createdNs)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -9415,7 +8585,7 @@ public func FfiConverterTypeFfiMessageMetadata_lower(_ value: FfiMessageMetadata
 }
 
 
-public struct FfiMessageWithReactions {
+public struct FfiMessageWithReactions: Equatable, Hashable {
     public var message: FfiMessage
     public var reactions: [FfiMessage]
 
@@ -9425,31 +8595,15 @@ public struct FfiMessageWithReactions {
         self.message = message
         self.reactions = reactions
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiMessageWithReactions: Sendable {}
 #endif
-
-
-extension FfiMessageWithReactions: Equatable, Hashable {
-    public static func ==(lhs: FfiMessageWithReactions, rhs: FfiMessageWithReactions) -> Bool {
-        if lhs.message != rhs.message {
-            return false
-        }
-        if lhs.reactions != rhs.reactions {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(message)
-        hasher.combine(reactions)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -9485,7 +8639,7 @@ public func FfiConverterTypeFfiMessageWithReactions_lower(_ value: FfiMessageWit
 }
 
 
-public struct FfiMetadataFieldChange {
+public struct FfiMetadataFieldChange: Equatable, Hashable {
     public var fieldName: String
     public var oldValue: String?
     public var newValue: String?
@@ -9497,35 +8651,15 @@ public struct FfiMetadataFieldChange {
         self.oldValue = oldValue
         self.newValue = newValue
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiMetadataFieldChange: Sendable {}
 #endif
-
-
-extension FfiMetadataFieldChange: Equatable, Hashable {
-    public static func ==(lhs: FfiMetadataFieldChange, rhs: FfiMetadataFieldChange) -> Bool {
-        if lhs.fieldName != rhs.fieldName {
-            return false
-        }
-        if lhs.oldValue != rhs.oldValue {
-            return false
-        }
-        if lhs.newValue != rhs.newValue {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(fieldName)
-        hasher.combine(oldValue)
-        hasher.combine(newValue)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -9563,7 +8697,7 @@ public func FfiConverterTypeFfiMetadataFieldChange_lower(_ value: FfiMetadataFie
 }
 
 
-public struct FfiMultiRemoteAttachment {
+public struct FfiMultiRemoteAttachment: Equatable, Hashable {
     public var attachments: [FfiRemoteAttachment]
 
     // Default memberwise initializers are never public by default, so we
@@ -9571,27 +8705,15 @@ public struct FfiMultiRemoteAttachment {
     public init(attachments: [FfiRemoteAttachment]) {
         self.attachments = attachments
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiMultiRemoteAttachment: Sendable {}
 #endif
-
-
-extension FfiMultiRemoteAttachment: Equatable, Hashable {
-    public static func ==(lhs: FfiMultiRemoteAttachment, rhs: FfiMultiRemoteAttachment) -> Bool {
-        if lhs.attachments != rhs.attachments {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(attachments)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -9625,7 +8747,7 @@ public func FfiConverterTypeFfiMultiRemoteAttachment_lower(_ value: FfiMultiRemo
 }
 
 
-public struct FfiPasskeySignature {
+public struct FfiPasskeySignature: Equatable, Hashable {
     public var publicKey: Data
     public var signature: Data
     public var authenticatorData: Data
@@ -9639,39 +8761,15 @@ public struct FfiPasskeySignature {
         self.authenticatorData = authenticatorData
         self.clientDataJson = clientDataJson
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiPasskeySignature: Sendable {}
 #endif
-
-
-extension FfiPasskeySignature: Equatable, Hashable {
-    public static func ==(lhs: FfiPasskeySignature, rhs: FfiPasskeySignature) -> Bool {
-        if lhs.publicKey != rhs.publicKey {
-            return false
-        }
-        if lhs.signature != rhs.signature {
-            return false
-        }
-        if lhs.authenticatorData != rhs.authenticatorData {
-            return false
-        }
-        if lhs.clientDataJson != rhs.clientDataJson {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(publicKey)
-        hasher.combine(signature)
-        hasher.combine(authenticatorData)
-        hasher.combine(clientDataJson)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -9711,7 +8809,7 @@ public func FfiConverterTypeFfiPasskeySignature_lower(_ value: FfiPasskeySignatu
 }
 
 
-public struct FfiPermissionPolicySet {
+public struct FfiPermissionPolicySet: Equatable, Hashable {
     public var addMemberPolicy: FfiPermissionPolicy
     public var removeMemberPolicy: FfiPermissionPolicy
     public var addAdminPolicy: FfiPermissionPolicy
@@ -9735,59 +8833,15 @@ public struct FfiPermissionPolicySet {
         self.updateMessageDisappearingPolicy = updateMessageDisappearingPolicy
         self.updateAppDataPolicy = updateAppDataPolicy
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiPermissionPolicySet: Sendable {}
 #endif
-
-
-extension FfiPermissionPolicySet: Equatable, Hashable {
-    public static func ==(lhs: FfiPermissionPolicySet, rhs: FfiPermissionPolicySet) -> Bool {
-        if lhs.addMemberPolicy != rhs.addMemberPolicy {
-            return false
-        }
-        if lhs.removeMemberPolicy != rhs.removeMemberPolicy {
-            return false
-        }
-        if lhs.addAdminPolicy != rhs.addAdminPolicy {
-            return false
-        }
-        if lhs.removeAdminPolicy != rhs.removeAdminPolicy {
-            return false
-        }
-        if lhs.updateGroupNamePolicy != rhs.updateGroupNamePolicy {
-            return false
-        }
-        if lhs.updateGroupDescriptionPolicy != rhs.updateGroupDescriptionPolicy {
-            return false
-        }
-        if lhs.updateGroupImageUrlSquarePolicy != rhs.updateGroupImageUrlSquarePolicy {
-            return false
-        }
-        if lhs.updateMessageDisappearingPolicy != rhs.updateMessageDisappearingPolicy {
-            return false
-        }
-        if lhs.updateAppDataPolicy != rhs.updateAppDataPolicy {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(addMemberPolicy)
-        hasher.combine(removeMemberPolicy)
-        hasher.combine(addAdminPolicy)
-        hasher.combine(removeAdminPolicy)
-        hasher.combine(updateGroupNamePolicy)
-        hasher.combine(updateGroupDescriptionPolicy)
-        hasher.combine(updateGroupImageUrlSquarePolicy)
-        hasher.combine(updateMessageDisappearingPolicy)
-        hasher.combine(updateAppDataPolicy)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -9837,7 +8891,7 @@ public func FfiConverterTypeFfiPermissionPolicySet_lower(_ value: FfiPermissionP
 }
 
 
-public struct FfiReactionPayload {
+public struct FfiReactionPayload: Equatable, Hashable {
     public var reference: String
     public var referenceInboxId: String
     public var action: FfiReactionAction
@@ -9853,43 +8907,15 @@ public struct FfiReactionPayload {
         self.content = content
         self.schema = schema
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiReactionPayload: Sendable {}
 #endif
-
-
-extension FfiReactionPayload: Equatable, Hashable {
-    public static func ==(lhs: FfiReactionPayload, rhs: FfiReactionPayload) -> Bool {
-        if lhs.reference != rhs.reference {
-            return false
-        }
-        if lhs.referenceInboxId != rhs.referenceInboxId {
-            return false
-        }
-        if lhs.action != rhs.action {
-            return false
-        }
-        if lhs.content != rhs.content {
-            return false
-        }
-        if lhs.schema != rhs.schema {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(reference)
-        hasher.combine(referenceInboxId)
-        hasher.combine(action)
-        hasher.combine(content)
-        hasher.combine(schema)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -9931,29 +8957,21 @@ public func FfiConverterTypeFfiReactionPayload_lower(_ value: FfiReactionPayload
 }
 
 
-public struct FfiReadReceipt {
+public struct FfiReadReceipt: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init() {
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiReadReceipt: Sendable {}
 #endif
-
-
-extension FfiReadReceipt: Equatable, Hashable {
-    public static func ==(lhs: FfiReadReceipt, rhs: FfiReadReceipt) -> Bool {
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -9984,7 +9002,7 @@ public func FfiConverterTypeFfiReadReceipt_lower(_ value: FfiReadReceipt) -> Rus
 }
 
 
-public struct FfiRemoteAttachment {
+public struct FfiRemoteAttachment: Equatable, Hashable {
     public var url: String
     public var contentDigest: String
     public var secret: Data
@@ -10006,55 +9024,15 @@ public struct FfiRemoteAttachment {
         self.contentLength = contentLength
         self.filename = filename
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiRemoteAttachment: Sendable {}
 #endif
-
-
-extension FfiRemoteAttachment: Equatable, Hashable {
-    public static func ==(lhs: FfiRemoteAttachment, rhs: FfiRemoteAttachment) -> Bool {
-        if lhs.url != rhs.url {
-            return false
-        }
-        if lhs.contentDigest != rhs.contentDigest {
-            return false
-        }
-        if lhs.secret != rhs.secret {
-            return false
-        }
-        if lhs.salt != rhs.salt {
-            return false
-        }
-        if lhs.nonce != rhs.nonce {
-            return false
-        }
-        if lhs.scheme != rhs.scheme {
-            return false
-        }
-        if lhs.contentLength != rhs.contentLength {
-            return false
-        }
-        if lhs.filename != rhs.filename {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(url)
-        hasher.combine(contentDigest)
-        hasher.combine(secret)
-        hasher.combine(salt)
-        hasher.combine(nonce)
-        hasher.combine(scheme)
-        hasher.combine(contentLength)
-        hasher.combine(filename)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -10102,7 +9080,7 @@ public func FfiConverterTypeFfiRemoteAttachment_lower(_ value: FfiRemoteAttachme
 }
 
 
-public struct FfiReply {
+public struct FfiReply: Equatable, Hashable {
     public var reference: String
     public var referenceInboxId: String?
     public var content: FfiEncodedContent
@@ -10114,35 +9092,15 @@ public struct FfiReply {
         self.referenceInboxId = referenceInboxId
         self.content = content
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiReply: Sendable {}
 #endif
-
-
-extension FfiReply: Equatable, Hashable {
-    public static func ==(lhs: FfiReply, rhs: FfiReply) -> Bool {
-        if lhs.reference != rhs.reference {
-            return false
-        }
-        if lhs.referenceInboxId != rhs.referenceInboxId {
-            return false
-        }
-        if lhs.content != rhs.content {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(reference)
-        hasher.combine(referenceInboxId)
-        hasher.combine(content)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -10180,7 +9138,7 @@ public func FfiConverterTypeFfiReply_lower(_ value: FfiReply) -> RustBuffer {
 }
 
 
-public struct FfiSendMessageOpts {
+public struct FfiSendMessageOpts: Equatable, Hashable {
     public var shouldPush: Bool
 
     // Default memberwise initializers are never public by default, so we
@@ -10188,27 +9146,15 @@ public struct FfiSendMessageOpts {
     public init(shouldPush: Bool) {
         self.shouldPush = shouldPush
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiSendMessageOpts: Sendable {}
 #endif
-
-
-extension FfiSendMessageOpts: Equatable, Hashable {
-    public static func ==(lhs: FfiSendMessageOpts, rhs: FfiSendMessageOpts) -> Bool {
-        if lhs.shouldPush != rhs.shouldPush {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(shouldPush)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -10242,7 +9188,7 @@ public func FfiConverterTypeFfiSendMessageOpts_lower(_ value: FfiSendMessageOpts
 }
 
 
-public struct FfiTextContent {
+public struct FfiTextContent: Equatable, Hashable {
     public var content: String
 
     // Default memberwise initializers are never public by default, so we
@@ -10250,27 +9196,15 @@ public struct FfiTextContent {
     public init(content: String) {
         self.content = content
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiTextContent: Sendable {}
 #endif
-
-
-extension FfiTextContent: Equatable, Hashable {
-    public static func ==(lhs: FfiTextContent, rhs: FfiTextContent) -> Bool {
-        if lhs.content != rhs.content {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(content)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -10304,7 +9238,7 @@ public func FfiConverterTypeFfiTextContent_lower(_ value: FfiTextContent) -> Rus
 }
 
 
-public struct FfiTransactionMetadata {
+public struct FfiTransactionMetadata: Equatable, Hashable {
     public var transactionType: String
     public var currency: String
     public var amount: Double
@@ -10322,47 +9256,15 @@ public struct FfiTransactionMetadata {
         self.fromAddress = fromAddress
         self.toAddress = toAddress
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiTransactionMetadata: Sendable {}
 #endif
-
-
-extension FfiTransactionMetadata: Equatable, Hashable {
-    public static func ==(lhs: FfiTransactionMetadata, rhs: FfiTransactionMetadata) -> Bool {
-        if lhs.transactionType != rhs.transactionType {
-            return false
-        }
-        if lhs.currency != rhs.currency {
-            return false
-        }
-        if lhs.amount != rhs.amount {
-            return false
-        }
-        if lhs.decimals != rhs.decimals {
-            return false
-        }
-        if lhs.fromAddress != rhs.fromAddress {
-            return false
-        }
-        if lhs.toAddress != rhs.toAddress {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(transactionType)
-        hasher.combine(currency)
-        hasher.combine(amount)
-        hasher.combine(decimals)
-        hasher.combine(fromAddress)
-        hasher.combine(toAddress)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -10406,7 +9308,7 @@ public func FfiConverterTypeFfiTransactionMetadata_lower(_ value: FfiTransaction
 }
 
 
-public struct FfiTransactionReference {
+public struct FfiTransactionReference: Equatable, Hashable {
     public var namespace: String?
     public var networkId: String
     public var reference: String
@@ -10420,39 +9322,15 @@ public struct FfiTransactionReference {
         self.reference = reference
         self.metadata = metadata
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiTransactionReference: Sendable {}
 #endif
-
-
-extension FfiTransactionReference: Equatable, Hashable {
-    public static func ==(lhs: FfiTransactionReference, rhs: FfiTransactionReference) -> Bool {
-        if lhs.namespace != rhs.namespace {
-            return false
-        }
-        if lhs.networkId != rhs.networkId {
-            return false
-        }
-        if lhs.reference != rhs.reference {
-            return false
-        }
-        if lhs.metadata != rhs.metadata {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(namespace)
-        hasher.combine(networkId)
-        hasher.combine(reference)
-        hasher.combine(metadata)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -10492,7 +9370,7 @@ public func FfiConverterTypeFfiTransactionReference_lower(_ value: FfiTransactio
 }
 
 
-public struct FfiUpdateGroupMembershipResult {
+public struct FfiUpdateGroupMembershipResult: Equatable, Hashable {
     public var addedMembers: [String: UInt64]
     public var removedMembers: [String]
     public var failedInstallations: [Data]
@@ -10504,35 +9382,15 @@ public struct FfiUpdateGroupMembershipResult {
         self.removedMembers = removedMembers
         self.failedInstallations = failedInstallations
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiUpdateGroupMembershipResult: Sendable {}
 #endif
-
-
-extension FfiUpdateGroupMembershipResult: Equatable, Hashable {
-    public static func ==(lhs: FfiUpdateGroupMembershipResult, rhs: FfiUpdateGroupMembershipResult) -> Bool {
-        if lhs.addedMembers != rhs.addedMembers {
-            return false
-        }
-        if lhs.removedMembers != rhs.removedMembers {
-            return false
-        }
-        if lhs.failedInstallations != rhs.failedInstallations {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(addedMembers)
-        hasher.combine(removedMembers)
-        hasher.combine(failedInstallations)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -10570,7 +9428,7 @@ public func FfiConverterTypeFfiUpdateGroupMembershipResult_lower(_ value: FfiUpd
 }
 
 
-public struct FfiWalletCall {
+public struct FfiWalletCall: Equatable, Hashable {
     public var to: String?
     public var data: String?
     public var value: String?
@@ -10586,43 +9444,15 @@ public struct FfiWalletCall {
         self.gas = gas
         self.metadata = metadata
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiWalletCall: Sendable {}
 #endif
-
-
-extension FfiWalletCall: Equatable, Hashable {
-    public static func ==(lhs: FfiWalletCall, rhs: FfiWalletCall) -> Bool {
-        if lhs.to != rhs.to {
-            return false
-        }
-        if lhs.data != rhs.data {
-            return false
-        }
-        if lhs.value != rhs.value {
-            return false
-        }
-        if lhs.gas != rhs.gas {
-            return false
-        }
-        if lhs.metadata != rhs.metadata {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(to)
-        hasher.combine(data)
-        hasher.combine(value)
-        hasher.combine(gas)
-        hasher.combine(metadata)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -10664,7 +9494,7 @@ public func FfiConverterTypeFfiWalletCall_lower(_ value: FfiWalletCall) -> RustB
 }
 
 
-public struct FfiWalletCallMetadata {
+public struct FfiWalletCallMetadata: Equatable, Hashable {
     public var description: String
     public var transactionType: String
     public var extra: [String: String]
@@ -10676,35 +9506,15 @@ public struct FfiWalletCallMetadata {
         self.transactionType = transactionType
         self.extra = extra
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiWalletCallMetadata: Sendable {}
 #endif
-
-
-extension FfiWalletCallMetadata: Equatable, Hashable {
-    public static func ==(lhs: FfiWalletCallMetadata, rhs: FfiWalletCallMetadata) -> Bool {
-        if lhs.description != rhs.description {
-            return false
-        }
-        if lhs.transactionType != rhs.transactionType {
-            return false
-        }
-        if lhs.extra != rhs.extra {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(description)
-        hasher.combine(transactionType)
-        hasher.combine(extra)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -10742,7 +9552,7 @@ public func FfiConverterTypeFfiWalletCallMetadata_lower(_ value: FfiWalletCallMe
 }
 
 
-public struct FfiWalletSendCalls {
+public struct FfiWalletSendCalls: Equatable, Hashable {
     public var version: String
     public var chainId: String
     public var from: String
@@ -10758,43 +9568,15 @@ public struct FfiWalletSendCalls {
         self.calls = calls
         self.capabilities = capabilities
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension FfiWalletSendCalls: Sendable {}
 #endif
-
-
-extension FfiWalletSendCalls: Equatable, Hashable {
-    public static func ==(lhs: FfiWalletSendCalls, rhs: FfiWalletSendCalls) -> Bool {
-        if lhs.version != rhs.version {
-            return false
-        }
-        if lhs.chainId != rhs.chainId {
-            return false
-        }
-        if lhs.from != rhs.from {
-            return false
-        }
-        if lhs.calls != rhs.calls {
-            return false
-        }
-        if lhs.capabilities != rhs.capabilities {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(version)
-        hasher.combine(chainId)
-        hasher.combine(from)
-        hasher.combine(calls)
-        hasher.combine(capabilities)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -10838,13 +9620,17 @@ public func FfiConverterTypeFfiWalletSendCalls_lower(_ value: FfiWalletSendCalls
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiActionStyle {
+public enum FfiActionStyle: Equatable, Hashable {
     
     case primary
     case secondary
     case danger
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiActionStyle: Sendable {}
@@ -10905,22 +9691,19 @@ public func FfiConverterTypeFfiActionStyle_lower(_ value: FfiActionStyle) -> Rus
 }
 
 
-extension FfiActionStyle: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiBackupElementSelection {
+public enum FfiBackupElementSelection: Equatable, Hashable {
     
     case messages
     case consent
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiBackupElementSelection: Sendable {}
@@ -10975,22 +9758,19 @@ public func FfiConverterTypeFfiBackupElementSelection_lower(_ value: FfiBackupEl
 }
 
 
-extension FfiBackupElementSelection: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiClientMode {
+public enum FfiClientMode: Equatable, Hashable {
     
     case `default`
     case notification
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiClientMode: Sendable {}
@@ -11045,22 +9825,19 @@ public func FfiConverterTypeFfiClientMode_lower(_ value: FfiClientMode) -> RustB
 }
 
 
-extension FfiClientMode: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiConsentEntityType {
+public enum FfiConsentEntityType: Equatable, Hashable {
     
     case conversationId
     case inboxId
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiConsentEntityType: Sendable {}
@@ -11115,23 +9892,20 @@ public func FfiConverterTypeFfiConsentEntityType_lower(_ value: FfiConsentEntity
 }
 
 
-extension FfiConsentEntityType: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiConsentState {
+public enum FfiConsentState: Equatable, Hashable {
     
     case unknown
     case allowed
     case denied
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiConsentState: Sendable {}
@@ -11192,17 +9966,10 @@ public func FfiConverterTypeFfiConsentState_lower(_ value: FfiConsentState) -> R
 }
 
 
-extension FfiConsentState: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiContentType {
+public enum FfiContentType: Equatable, Hashable {
     
     case unknown
     case text
@@ -11220,8 +9987,12 @@ public enum FfiContentType {
     case actions
     case intent
     case multiRemoteAttachment
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiContentType: Sendable {}
@@ -11360,22 +10131,19 @@ public func FfiConverterTypeFfiContentType_lower(_ value: FfiContentType) -> Rus
 }
 
 
-extension FfiContentType: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiConversationMessageKind {
+public enum FfiConversationMessageKind: Equatable, Hashable {
     
     case application
     case membershipChange
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiConversationMessageKind: Sendable {}
@@ -11430,24 +10198,21 @@ public func FfiConverterTypeFfiConversationMessageKind_lower(_ value: FfiConvers
 }
 
 
-extension FfiConversationMessageKind: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiConversationType {
+public enum FfiConversationType: Equatable, Hashable {
     
     case group
     case dm
     case sync
     case oneshot
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiConversationType: Sendable {}
@@ -11514,15 +10279,8 @@ public func FfiConverterTypeFfiConversationType_lower(_ value: FfiConversationTy
 }
 
 
-extension FfiConversationType: Equatable, Hashable {}
 
-
-
-
-
-
-
-public enum FfiCryptoError: Swift.Error {
+public enum FfiCryptoError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
     
@@ -11530,8 +10288,21 @@ public enum FfiCryptoError: Swift.Error {
     case InvalidKey
     case SignFailure
     case DecompressFailure
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
 }
 
+#if compiler(>=6)
+extension FfiCryptoError: Sendable {}
+#endif
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -11596,25 +10367,10 @@ public func FfiConverterTypeFfiCryptoError_lower(_ value: FfiCryptoError) -> Rus
     return FfiConverterTypeFfiCryptoError.lower(value)
 }
 
-
-extension FfiCryptoError: Equatable, Hashable {}
-
-
-
-
-extension FfiCryptoError: Foundation.LocalizedError {
-    public var errorDescription: String? {
-        String(reflecting: self)
-    }
-}
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiDecodedMessageBody {
+public enum FfiDecodedMessageBody: Equatable, Hashable {
     
     case text(FfiTextContent
     )
@@ -11646,8 +10402,12 @@ public enum FfiDecodedMessageBody {
     )
     case custom(FfiEncodedContent
     )
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiDecodedMessageBody: Sendable {}
@@ -11810,13 +10570,6 @@ public func FfiConverterTypeFfiDecodedMessageBody_lower(_ value: FfiDecodedMessa
 }
 
 
-extension FfiDecodedMessageBody: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
@@ -11854,8 +10607,12 @@ public enum FfiDecodedMessageContent {
     )
     case custom(FfiEncodedContent
     )
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiDecodedMessageContent: Sendable {}
@@ -12026,20 +10783,20 @@ public func FfiConverterTypeFfiDecodedMessageContent_lower(_ value: FfiDecodedMe
 }
 
 
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiDeletedBy {
+public enum FfiDeletedBy: Equatable, Hashable {
     
     case sender
     case admin(inboxId: String
     )
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiDeletedBy: Sendable {}
@@ -12096,23 +10853,20 @@ public func FfiConverterTypeFfiDeletedBy_lower(_ value: FfiDeletedBy) -> RustBuf
 }
 
 
-extension FfiDeletedBy: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiDeliveryStatus {
+public enum FfiDeliveryStatus: Equatable, Hashable {
     
     case unpublished
     case published
     case failed
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiDeliveryStatus: Sendable {}
@@ -12173,22 +10927,19 @@ public func FfiConverterTypeFfiDeliveryStatus_lower(_ value: FfiDeliveryStatus) 
 }
 
 
-extension FfiDeliveryStatus: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiDeviceSyncMode {
+public enum FfiDeviceSyncMode: Equatable, Hashable {
     
     case enabled
     case disabled
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiDeviceSyncMode: Sendable {}
@@ -12243,22 +10994,19 @@ public func FfiConverterTypeFfiDeviceSyncMode_lower(_ value: FfiDeviceSyncMode) 
 }
 
 
-extension FfiDeviceSyncMode: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiDirection {
+public enum FfiDirection: Equatable, Hashable {
     
     case ascending
     case descending
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiDirection: Sendable {}
@@ -12313,27 +11061,33 @@ public func FfiConverterTypeFfiDirection_lower(_ value: FfiDirection) -> RustBuf
 }
 
 
-extension FfiDirection: Equatable, Hashable {}
-
-
-
-
-
-
 
 /**
  * Wrapper that formats errors as `[error_code] message` for mobile SDKs.
  * UniFFI uses Display to convert errors to strings, so this wrapper
  * ensures mobile clients receive machine-readable error codes.
  */
-public enum FfiError: Swift.Error {
+public enum FfiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
     
     case Error(message: String)
     
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
 }
 
+#if compiler(>=6)
+extension FfiError: Sendable {}
+#endif
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -12386,31 +11140,20 @@ public func FfiConverterTypeFfiError_lower(_ value: FfiError) -> RustBuffer {
     return FfiConverterTypeFfiError.lower(value)
 }
 
-
-extension FfiError: Equatable, Hashable {}
-
-
-
-
-extension FfiError: Foundation.LocalizedError {
-    public var errorDescription: String? {
-        String(reflecting: self)
-    }
-}
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiForkRecoveryPolicy {
+public enum FfiForkRecoveryPolicy: Equatable, Hashable {
     
     case none
     case allowlistedGroups
     case all
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiForkRecoveryPolicy: Sendable {}
@@ -12471,25 +11214,22 @@ public func FfiConverterTypeFfiForkRecoveryPolicy_lower(_ value: FfiForkRecovery
 }
 
 
-extension FfiForkRecoveryPolicy: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiGroupMembershipState {
+public enum FfiGroupMembershipState: Equatable, Hashable {
     
     case allowed
     case rejected
     case pending
     case restored
     case pendingRemove
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiGroupMembershipState: Sendable {}
@@ -12562,22 +11302,19 @@ public func FfiConverterTypeFfiGroupMembershipState_lower(_ value: FfiGroupMembe
 }
 
 
-extension FfiGroupMembershipState: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiGroupMessageKind {
+public enum FfiGroupMessageKind: Equatable, Hashable {
     
     case application
     case membershipChange
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiGroupMessageKind: Sendable {}
@@ -12632,23 +11369,20 @@ public func FfiConverterTypeFfiGroupMessageKind_lower(_ value: FfiGroupMessageKi
 }
 
 
-extension FfiGroupMessageKind: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiGroupPermissionsOptions {
+public enum FfiGroupPermissionsOptions: Equatable, Hashable {
     
     case `default`
     case adminOnly
     case customPolicy
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiGroupPermissionsOptions: Sendable {}
@@ -12709,22 +11443,19 @@ public func FfiConverterTypeFfiGroupPermissionsOptions_lower(_ value: FfiGroupPe
 }
 
 
-extension FfiGroupPermissionsOptions: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiGroupQueryOrderBy {
+public enum FfiGroupQueryOrderBy: Equatable, Hashable {
     
     case createdAt
     case lastActivity
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiGroupQueryOrderBy: Sendable {}
@@ -12779,22 +11510,19 @@ public func FfiConverterTypeFfiGroupQueryOrderBy_lower(_ value: FfiGroupQueryOrd
 }
 
 
-extension FfiGroupQueryOrderBy: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiIdentifierKind {
+public enum FfiIdentifierKind: Equatable, Hashable {
     
     case ethereum
     case passkey
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiIdentifierKind: Sendable {}
@@ -12849,20 +11577,13 @@ public func FfiConverterTypeFfiIdentifierKind_lower(_ value: FfiIdentifierKind) 
 }
 
 
-extension FfiIdentifierKind: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
  * Enum representing log levels
  */
 
-public enum FfiLogLevel {
+public enum FfiLogLevel: Equatable, Hashable {
     
     /**
      * Error level logs only
@@ -12884,8 +11605,12 @@ public enum FfiLogLevel {
      * Trace level and all logs
      */
     case trace
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiLogLevel: Sendable {}
@@ -12958,20 +11683,13 @@ public func FfiConverterTypeFfiLogLevel_lower(_ value: FfiLogLevel) -> RustBuffe
 }
 
 
-extension FfiLogLevel: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
  * Enum representing log file rotation options
  */
 
-public enum FfiLogRotation {
+public enum FfiLogRotation: Equatable, Hashable {
     
     /**
      * Rotate log files every minute
@@ -12989,8 +11707,12 @@ public enum FfiLogRotation {
      * Never rotate log files
      */
     case never
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiLogRotation: Sendable {}
@@ -13057,24 +11779,21 @@ public func FfiConverterTypeFfiLogRotation_lower(_ value: FfiLogRotation) -> Rus
 }
 
 
-extension FfiLogRotation: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiMetadataField {
+public enum FfiMetadataField: Equatable, Hashable {
     
     case groupName
     case description
     case imageUrlSquare
     case appData
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiMetadataField: Sendable {}
@@ -13141,23 +11860,20 @@ public func FfiConverterTypeFfiMetadataField_lower(_ value: FfiMetadataField) ->
 }
 
 
-extension FfiMetadataField: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiPermissionLevel {
+public enum FfiPermissionLevel: Equatable, Hashable {
     
     case member
     case admin
     case superAdmin
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiPermissionLevel: Sendable {}
@@ -13218,17 +11934,10 @@ public func FfiConverterTypeFfiPermissionLevel_lower(_ value: FfiPermissionLevel
 }
 
 
-extension FfiPermissionLevel: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiPermissionPolicy {
+public enum FfiPermissionPolicy: Equatable, Hashable {
     
     case allow
     case deny
@@ -13236,8 +11945,12 @@ public enum FfiPermissionPolicy {
     case superAdmin
     case doesNotExist
     case other
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiPermissionPolicy: Sendable {}
@@ -13316,25 +12029,22 @@ public func FfiConverterTypeFfiPermissionPolicy_lower(_ value: FfiPermissionPoli
 }
 
 
-extension FfiPermissionPolicy: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiPermissionUpdateType {
+public enum FfiPermissionUpdateType: Equatable, Hashable {
     
     case addMember
     case removeMember
     case addAdmin
     case removeAdmin
     case updateMetadata
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiPermissionUpdateType: Sendable {}
@@ -13407,22 +12117,19 @@ public func FfiConverterTypeFfiPermissionUpdateType_lower(_ value: FfiPermission
 }
 
 
-extension FfiPermissionUpdateType: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiPreferenceUpdate {
+public enum FfiPreferenceUpdate: Equatable, Hashable {
     
     case hmac(key: Data
     )
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiPreferenceUpdate: Sendable {}
@@ -13473,20 +12180,13 @@ public func FfiConverterTypeFfiPreferenceUpdate_lower(_ value: FfiPreferenceUpda
 }
 
 
-extension FfiPreferenceUpdate: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
  * Enum representing process types for logging
  */
 
-public enum FfiProcessType {
+public enum FfiProcessType: Equatable, Hashable {
     
     /**
      * Main application process
@@ -13496,8 +12196,12 @@ public enum FfiProcessType {
      * Notification extension/service process
      */
     case notificationExtension
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiProcessType: Sendable {}
@@ -13552,23 +12256,20 @@ public func FfiConverterTypeFfiProcessType_lower(_ value: FfiProcessType) -> Rus
 }
 
 
-extension FfiProcessType: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiReactionAction {
+public enum FfiReactionAction: Equatable, Hashable {
     
     case unknown
     case added
     case removed
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiReactionAction: Sendable {}
@@ -13629,24 +12330,21 @@ public func FfiConverterTypeFfiReactionAction_lower(_ value: FfiReactionAction) 
 }
 
 
-extension FfiReactionAction: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiReactionSchema {
+public enum FfiReactionSchema: Equatable, Hashable {
     
     case unknown
     case unicode
     case shortcode
     case custom
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiReactionSchema: Sendable {}
@@ -13713,20 +12411,13 @@ public func FfiConverterTypeFfiReactionSchema_lower(_ value: FfiReactionSchema) 
 }
 
 
-extension FfiReactionSchema: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
  * Signature kind used in identity operations
  */
 
-public enum FfiSignatureKind {
+public enum FfiSignatureKind: Equatable, Hashable {
     
     /**
      * ERC-191 signature (Externally Owned Account/EOA)
@@ -13748,8 +12439,12 @@ public enum FfiSignatureKind {
      * P256 passkey signature
      */
     case p256
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiSignatureKind: Sendable {}
@@ -13822,22 +12517,19 @@ public func FfiConverterTypeFfiSignatureKind_lower(_ value: FfiSignatureKind) ->
 }
 
 
-extension FfiSignatureKind: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiSortBy {
+public enum FfiSortBy: Equatable, Hashable {
     
     case sentAt
     case insertedAt
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiSortBy: Sendable {}
@@ -13892,17 +12584,10 @@ public func FfiConverterTypeFfiSortBy_lower(_ value: FfiSortBy) -> RustBuffer {
 }
 
 
-extension FfiSortBy: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum FfiSyncMetric {
+public enum FfiSyncMetric: Equatable, Hashable {
     
     case `init`
     case syncGroupCreated
@@ -13914,8 +12599,12 @@ public enum FfiSyncMetric {
     case hmacReceived
     case consentSent
     case consentReceived
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension FfiSyncMetric: Sendable {}
@@ -14018,22 +12707,28 @@ public func FfiConverterTypeFfiSyncMetric_lower(_ value: FfiSyncMetric) -> RustB
 }
 
 
-extension FfiSyncMetric: Equatable, Hashable {}
 
-
-
-
-
-
-
-public enum IdentityValidationError: Swift.Error {
+public enum IdentityValidationError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
     
     case Generic(String
     )
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
 }
 
+#if compiler(>=6)
+extension IdentityValidationError: Sendable {}
+#endif
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -14087,28 +12782,26 @@ public func FfiConverterTypeIdentityValidationError_lower(_ value: IdentityValid
 }
 
 
-extension IdentityValidationError: Equatable, Hashable {}
-
-
-
-
-extension IdentityValidationError: Foundation.LocalizedError {
-    public var errorDescription: String? {
-        String(reflecting: self)
-    }
-}
-
-
-
-
-
-public enum SigningError: Swift.Error {
+public enum SigningError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
     
     case Generic
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
 }
 
+#if compiler(>=6)
+extension SigningError: Sendable {}
+#endif
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -14157,21 +12850,6 @@ public func FfiConverterTypeSigningError_lift(_ buf: RustBuffer) throws -> Signi
 public func FfiConverterTypeSigningError_lower(_ value: SigningError) -> RustBuffer {
     return FfiConverterTypeSigningError.lower(value)
 }
-
-
-extension SigningError: Equatable, Hashable {}
-
-
-
-
-extension SigningError: Foundation.LocalizedError {
-    public var errorDescription: String? {
-        String(reflecting: self)
-    }
-}
-
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -15869,7 +14547,7 @@ fileprivate struct FfiConverterDictionaryTypeFfiIdentifierBool: FfiConverterRust
     }
 }
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
-private let UNIFFI_RUST_FUTURE_POLL_MAYBE_READY: Int8 = 1
+private let UNIFFI_RUST_FUTURE_POLL_WAKE: Int8 = 1
 
 fileprivate let uniffiContinuationHandleMap = UniffiHandleMap<UnsafeContinuation<Int8, Never>>()
 
@@ -15893,7 +14571,9 @@ fileprivate func uniffiRustCallAsync<F, T>(
         pollResult = await withUnsafeContinuation {
             pollFunc(
                 rustFuture,
-                uniffiFutureContinuationCallback,
+                { handle, pollResult in
+                    uniffiFutureContinuationCallback(handle: handle, pollResult: pollResult)
+                },
                 uniffiContinuationHandleMap.insert(obj: $0)
             )
         }
@@ -15917,8 +14597,9 @@ fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: In
 private func uniffiTraitInterfaceCallAsync<T>(
     makeCall: @escaping () async throws -> T,
     handleSuccess: @escaping (T) -> (),
-    handleError: @escaping (Int8, RustBuffer) -> ()
-) -> UniffiForeignFuture {
+    handleError: @escaping (Int8, RustBuffer) -> (),
+    droppedCallback: UnsafeMutablePointer<UniffiForeignFutureDroppedCallbackStruct>
+) {
     let task = Task {
         // Note: it's important we call either `handleSuccess` or `handleError` exactly once.  Each
         // call consumes an Arc reference, which means there should be no possibility of a double
@@ -15938,16 +14619,19 @@ private func uniffiTraitInterfaceCallAsync<T>(
         handleSuccess(callResult)
     }
     let handle = UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.insert(obj: task)
-    return UniffiForeignFuture(handle: handle, free: uniffiForeignFutureFree)
-
+    droppedCallback.pointee = UniffiForeignFutureDroppedCallbackStruct(
+        handle: handle,
+        free: uniffiForeignFutureDroppedCallback
+    )
 }
 
 private func uniffiTraitInterfaceCallAsyncWithError<T, E>(
     makeCall: @escaping () async throws -> T,
     handleSuccess: @escaping (T) -> (),
     handleError: @escaping (Int8, RustBuffer) -> (),
-    lowerError: @escaping (E) -> RustBuffer
-) -> UniffiForeignFuture {
+    lowerError: @escaping (E) -> RustBuffer,
+    droppedCallback: UnsafeMutablePointer<UniffiForeignFutureDroppedCallbackStruct>
+) {
     let task = Task {
         // See the note in uniffiTraitInterfaceCallAsync for details on `handleSuccess` and
         // `handleError`.
@@ -15964,7 +14648,10 @@ private func uniffiTraitInterfaceCallAsyncWithError<T, E>(
         handleSuccess(callResult)
     }
     let handle = UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.insert(obj: task)
-    return UniffiForeignFuture(handle: handle, free: uniffiForeignFutureFree)
+    droppedCallback.pointee = UniffiForeignFutureDroppedCallbackStruct(
+        handle: handle,
+        free: uniffiForeignFutureDroppedCallback
+    )
 }
 
 // Borrow the callback handle map implementation to store foreign future handles
@@ -15981,7 +14668,7 @@ fileprivate protocol UniffiForeignFutureTask {
 
 extension Task: UniffiForeignFutureTask {}
 
-private func uniffiForeignFutureFree(handle: UInt64) {
+private func uniffiForeignFutureDroppedCallback(handle: UInt64) {
     do {
         let task = try UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.remove(handle: handle)
         // Set the cancellation flag on the task.  If it's still running, the code can check the
@@ -15989,13 +14676,119 @@ private func uniffiForeignFutureFree(handle: UInt64) {
         // a no-op.
         task.cancel()
     } catch {
-        print("uniffiForeignFutureFree: handle missing from handlemap")
+        print("uniffiForeignFutureDroppedCallback: handle missing from handlemap")
     }
 }
 
 // For testing
 public func uniffiForeignFutureHandleCountXmtpv3() -> Int {
     UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.count
+}
+public func getVersionInfo() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_xmtpv3_fn_func_get_version_info($0
+    )
+})
+}
+/**
+ * 3) Ethereum address from public key (accepts 65-byte 0x04||XY or 64-byte XY).
+ */
+public func ethereumAddressFromPubkey(pubkey: Data)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiCryptoError_lift) {
+    uniffi_xmtpv3_fn_func_ethereum_address_from_pubkey(
+        FfiConverterData.lower(pubkey),$0
+    )
+})
+}
+/**
+ * 1) Ethereum compatible public key from 32-byte private key.
+ * Returns **65-byte uncompressed** (0x04 || X || Y)
+ * Private key is automatically zeroized after use for security
+ */
+public func ethereumGeneratePublicKey(privateKey32: Data)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiCryptoError_lift) {
+    uniffi_xmtpv3_fn_func_ethereum_generate_public_key(
+        FfiConverterData.lower(privateKey32),$0
+    )
+})
+}
+/**
+ * 4) EIP-191 personal message hash: keccak256("\x19Ethereum Signed Message:\n{len}" || message)
+ */
+public func ethereumHashPersonal(message: String)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiCryptoError_lift) {
+    uniffi_xmtpv3_fn_func_ethereum_hash_personal(
+        FfiConverterString.lower(message),$0
+    )
+})
+}
+/**
+ * 2) Ethereum recoverable signature (FFI).
+ * Returns 65 bytes `r || s || v`, with **v ∈ {27,28}**
+ * (legacy/Electrum encoding where **v = 27 + parity**, parity ∈ {0,1}).
+ * - If `hashing == true`: signs per **EIP-191**
+ * ("Ethereum Signed Message:\n{len(msg)}" || msg, then keccak256).
+ * - If `hashing == false`: `msg` must be a **32-byte** prehash (e.g., keccak256/EIP-712 digest).
+ * - Private key is automatically zeroized after signing for security
+ */
+public func ethereumSignRecoverable(msg: Data, privateKey32: Data, hashing: Bool)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiCryptoError_lift) {
+    uniffi_xmtpv3_fn_func_ethereum_sign_recoverable(
+        FfiConverterData.lower(msg),
+        FfiConverterData.lower(privateKey32),
+        FfiConverterBool.lower(hashing),$0
+    )
+})
+}
+public func generateInboxId(accountIdentifier: FfiIdentifier, nonce: UInt64)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_xmtpv3_fn_func_generate_inbox_id(
+        FfiConverterTypeFfiIdentifier_lower(accountIdentifier),
+        FfiConverterUInt64.lower(nonce),$0
+    )
+})
+}
+/**
+ * turns on logging to a file on-disk in the directory specified.
+ * files will be prefixed with 'libxmtp-v{version}.{commit}.{process_type}.{pid}.log' and suffixed with the timestamp,
+ * i.e "libxmtp-v1.6.0.abc123.main.12345.log.2025-04-02"
+ * A maximum of 'max_files' log files are kept.
+ */
+public func enterDebugWriter(directory: String, logLevel: FfiLogLevel, rotation: FfiLogRotation, maxFiles: UInt32, processType: FfiProcessType)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_xmtpv3_fn_func_enter_debug_writer(
+        FfiConverterString.lower(directory),
+        FfiConverterTypeFfiLogLevel_lower(logLevel),
+        FfiConverterTypeFfiLogRotation_lower(rotation),
+        FfiConverterUInt32.lower(maxFiles),
+        FfiConverterTypeFfiProcessType_lower(processType),$0
+    )
+}
+}
+/**
+ * turns on logging to a file on-disk with a specified log level.
+ * files will be prefixed with 'libxmtp-v{version}.{commit}.{process_type}.{pid}.log' and suffixed with the timestamp,
+ * i.e "libxmtp-v1.6.0.abc123.notif.67890.log.2025-04-02"
+ * A maximum of 'max_files' log files are kept.
+ */
+public func enterDebugWriterWithLevel(directory: String, rotation: FfiLogRotation, maxFiles: UInt32, logLevel: FfiLogLevel, processType: FfiProcessType)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_xmtpv3_fn_func_enter_debug_writer_with_level(
+        FfiConverterString.lower(directory),
+        FfiConverterTypeFfiLogRotation_lower(rotation),
+        FfiConverterUInt32.lower(maxFiles),
+        FfiConverterTypeFfiLogLevel_lower(logLevel),
+        FfiConverterTypeFfiProcessType_lower(processType),$0
+    )
+}
+}
+/**
+ * Flush loglines from libxmtp log writer to the file, ensuring logs are written.
+ * This should be called before the program exits, to ensure all the logs in memory have been
+ * written. this ends the writer thread.
+ */
+public func exitDebugWriter()throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_xmtpv3_fn_func_exit_debug_writer($0
+    )
+}
 }
 /**
  * * Static apply a signature request
@@ -16020,16 +14813,16 @@ public func applySignatureRequest(api: XmtpApiClient, signatureRequest: FfiSigna
  * and assumes `host` is set to the correct
  * d14n backend url.
  */
-public func connectToBackend(v3Host: String, gatewayHost: String?, isSecure: Bool, clientMode: FfiClientMode?, appVersion: String?, authCallback: FfiAuthCallback?, authHandle: FfiAuthHandle?)async throws  -> XmtpApiClient  {
+public func connectToBackend(v3Host: String, gatewayHost: String?, clientMode: FfiClientMode?, appVersion: String?, authCallback: FfiAuthCallback?, authHandle: FfiAuthHandle?)async throws  -> XmtpApiClient  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_xmtpv3_fn_func_connect_to_backend(FfiConverterString.lower(v3Host),FfiConverterOptionString.lower(gatewayHost),FfiConverterBool.lower(isSecure),FfiConverterOptionTypeFfiClientMode.lower(clientMode),FfiConverterOptionString.lower(appVersion),FfiConverterOptionTypeFfiAuthCallback.lower(authCallback),FfiConverterOptionTypeFfiAuthHandle.lower(authHandle)
+                uniffi_xmtpv3_fn_func_connect_to_backend(FfiConverterString.lower(v3Host),FfiConverterOptionString.lower(gatewayHost),FfiConverterOptionTypeFfiClientMode.lower(clientMode),FfiConverterOptionString.lower(appVersion),FfiConverterOptionTypeFfiAuthCallback.lower(authCallback),FfiConverterOptionTypeFfiAuthHandle.lower(authHandle)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeXmtpApiClient_lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
@@ -16062,9 +14855,9 @@ public func createClient(api: XmtpApiClient, syncApi: XmtpApiClient, db: DbOptio
                 uniffi_xmtpv3_fn_func_create_client(FfiConverterTypeXmtpApiClient_lower(api),FfiConverterTypeXmtpApiClient_lower(syncApi),FfiConverterTypeDbOptions_lower(db),FfiConverterString.lower(inboxId),FfiConverterTypeFfiIdentifier_lower(accountIdentifier),FfiConverterUInt64.lower(nonce),FfiConverterOptionData.lower(legacySignedPrivateKeyProto),FfiConverterOptionTypeFfiDeviceSyncMode.lower(deviceSyncMode),FfiConverterOptionBool.lower(allowOffline),FfiConverterOptionTypeFfiForkRecoveryOpts.lower(forkRecoveryOpts)
                 )
             },
-            pollFunc: ffi_xmtpv3_rust_future_poll_pointer,
-            completeFunc: ffi_xmtpv3_rust_future_complete_pointer,
-            freeFunc: ffi_xmtpv3_rust_future_free_pointer,
+            pollFunc: ffi_xmtpv3_rust_future_poll_u64,
+            completeFunc: ffi_xmtpv3_rust_future_complete_u64,
+            freeFunc: ffi_xmtpv3_rust_future_free_u64,
             liftFunc: FfiConverterTypeFfiXmtpClient_lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
@@ -16272,106 +15065,6 @@ public func encodeWalletSendCalls(walletSendCalls: FfiWalletSendCalls)throws  ->
     )
 })
 }
-/**
- * turns on logging to a file on-disk in the directory specified.
- * files will be prefixed with 'libxmtp-v{version}.{commit}.{process_type}.{pid}.log' and suffixed with the timestamp,
- * i.e "libxmtp-v1.6.0.abc123.main.12345.log.2025-04-02"
- * A maximum of 'max_files' log files are kept.
- */
-public func enterDebugWriter(directory: String, logLevel: FfiLogLevel, rotation: FfiLogRotation, maxFiles: UInt32, processType: FfiProcessType)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_func_enter_debug_writer(
-        FfiConverterString.lower(directory),
-        FfiConverterTypeFfiLogLevel_lower(logLevel),
-        FfiConverterTypeFfiLogRotation_lower(rotation),
-        FfiConverterUInt32.lower(maxFiles),
-        FfiConverterTypeFfiProcessType_lower(processType),$0
-    )
-}
-}
-/**
- * turns on logging to a file on-disk with a specified log level.
- * files will be prefixed with 'libxmtp-v{version}.{commit}.{process_type}.{pid}.log' and suffixed with the timestamp,
- * i.e "libxmtp-v1.6.0.abc123.notif.67890.log.2025-04-02"
- * A maximum of 'max_files' log files are kept.
- */
-public func enterDebugWriterWithLevel(directory: String, rotation: FfiLogRotation, maxFiles: UInt32, logLevel: FfiLogLevel, processType: FfiProcessType)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_func_enter_debug_writer_with_level(
-        FfiConverterString.lower(directory),
-        FfiConverterTypeFfiLogRotation_lower(rotation),
-        FfiConverterUInt32.lower(maxFiles),
-        FfiConverterTypeFfiLogLevel_lower(logLevel),
-        FfiConverterTypeFfiProcessType_lower(processType),$0
-    )
-}
-}
-/**
- * 3) Ethereum address from public key (accepts 65-byte 0x04||XY or 64-byte XY).
- */
-public func ethereumAddressFromPubkey(pubkey: Data)throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiCryptoError_lift) {
-    uniffi_xmtpv3_fn_func_ethereum_address_from_pubkey(
-        FfiConverterData.lower(pubkey),$0
-    )
-})
-}
-/**
- * 1) Ethereum compatible public key from 32-byte private key.
- * Returns **65-byte uncompressed** (0x04 || X || Y)
- * Private key is automatically zeroized after use for security
- */
-public func ethereumGeneratePublicKey(privateKey32: Data)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiCryptoError_lift) {
-    uniffi_xmtpv3_fn_func_ethereum_generate_public_key(
-        FfiConverterData.lower(privateKey32),$0
-    )
-})
-}
-/**
- * 4) EIP-191 personal message hash: keccak256("\x19Ethereum Signed Message:\n{len}" || message)
- */
-public func ethereumHashPersonal(message: String)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiCryptoError_lift) {
-    uniffi_xmtpv3_fn_func_ethereum_hash_personal(
-        FfiConverterString.lower(message),$0
-    )
-})
-}
-/**
- * 2) Ethereum recoverable signature (FFI).
- * Returns 65 bytes `r || s || v`, with **v ∈ {27,28}**
- * (legacy/Electrum encoding where **v = 27 + parity**, parity ∈ {0,1}).
- * - If `hashing == true`: signs per **EIP-191**
- * ("Ethereum Signed Message:\n{len(msg)}" || msg, then keccak256).
- * - If `hashing == false`: `msg` must be a **32-byte** prehash (e.g., keccak256/EIP-712 digest).
- * - Private key is automatically zeroized after signing for security
- */
-public func ethereumSignRecoverable(msg: Data, privateKey32: Data, hashing: Bool)throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiCryptoError_lift) {
-    uniffi_xmtpv3_fn_func_ethereum_sign_recoverable(
-        FfiConverterData.lower(msg),
-        FfiConverterData.lower(privateKey32),
-        FfiConverterBool.lower(hashing),$0
-    )
-})
-}
-/**
- * Flush loglines from libxmtp log writer to the file, ensuring logs are written.
- * This should be called before the program exits, to ensure all the logs in memory have been
- * written. this ends the writer thread.
- */
-public func exitDebugWriter()throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_func_exit_debug_writer($0
-    )
-}
-}
-public func generateInboxId(accountIdentifier: FfiIdentifier, nonce: UInt64)throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_xmtpv3_fn_func_generate_inbox_id(
-        FfiConverterTypeFfiIdentifier_lower(accountIdentifier),
-        FfiConverterUInt64.lower(nonce),$0
-    )
-})
-}
 public func getInboxIdForIdentifier(api: XmtpApiClient, accountIdentifier: FfiIdentifier)async throws  -> String?  {
     return
         try  await uniffiRustCallAsync(
@@ -16399,12 +15092,6 @@ public func getNewestMessageMetadata(api: XmtpApiClient, groupIds: [Data])async 
             liftFunc: FfiConverterDictionaryDataTypeFfiMessageMetadata.lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
-}
-public func getVersionInfo() -> String  {
-    return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_xmtpv3_fn_func_get_version_info($0
-    )
-})
 }
 /**
  * * Static Get the inbox state for each `inbox_id`.
@@ -16461,676 +15148,676 @@ private enum InitializationResult {
 // the code inside is only computed once.
 private let initializationResult: InitializationResult = {
     // Get the bindings contract version from our ComponentInterface
-    let bindings_contract_version = 29
+    let bindings_contract_version = 30
     // Get the scaffolding contract version by calling the into the dylib
     let scaffolding_contract_version = ffi_xmtpv3_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_apply_signature_request() != 5495) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_connect_to_backend() != 63000) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_create_client() != 7276) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_decode_actions() != 48968) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_decode_attachment() != 8697) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_decode_delete_message() != 63471) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_decode_group_updated() != 51824) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_decode_intent() != 59375) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_decode_leave_request() != 14629) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_decode_markdown() != 20635) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_decode_multi_remote_attachment() != 49952) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_decode_reaction() != 22136) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_decode_read_receipt() != 27191) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_decode_remote_attachment() != 21885) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_decode_reply() != 634) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_decode_text() != 8275) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_decode_transaction_reference() != 61157) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_decode_wallet_send_calls() != 48334) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_encode_actions() != 42882) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_encode_attachment() != 42159) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_encode_delete_message() != 6766) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_encode_intent() != 29847) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_encode_leave_request() != 33190) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_encode_markdown() != 45065) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_encode_multi_remote_attachment() != 41160) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_encode_reaction() != 56943) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_encode_read_receipt() != 16585) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_encode_remote_attachment() != 62508) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_encode_reply() != 21560) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_encode_text() != 31759) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_encode_transaction_reference() != 62574) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_encode_wallet_send_calls() != 55402) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_enter_debug_writer() != 17248) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_enter_debug_writer_with_level() != 18287) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_ethereum_address_from_pubkey() != 12568) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_ethereum_generate_public_key() != 36134) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_ethereum_hash_personal() != 43764) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_ethereum_sign_recoverable() != 58098) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_exit_debug_writer() != 27560) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_generate_inbox_id() != 42067) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_get_inbox_id_for_identifier() != 61855) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_func_get_newest_message_metadata() != 27949) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_xmtpv3_checksum_func_get_version_info() != 29277) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_inbox_state_from_inbox_ids() != 9472) {
+    if (uniffi_xmtpv3_checksum_func_ethereum_address_from_pubkey() != 53897) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_is_connected() != 17295) {
+    if (uniffi_xmtpv3_checksum_func_ethereum_generate_public_key() != 42360) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_revoke_installations() != 64481) {
+    if (uniffi_xmtpv3_checksum_func_ethereum_hash_personal() != 51674) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffiauthcallback_on_auth_required() != 29742) {
+    if (uniffi_xmtpv3_checksum_func_ethereum_sign_recoverable() != 61061) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffiauthhandle_id() != 11318) {
+    if (uniffi_xmtpv3_checksum_func_generate_inbox_id() != 43047) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffiauthhandle_set() != 2395) {
+    if (uniffi_xmtpv3_checksum_func_enter_debug_writer() != 17013) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonsentcallback_on_consent_update() != 12532) {
+    if (uniffi_xmtpv3_checksum_func_enter_debug_writer_with_level() != 40203) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonsentcallback_on_error() != 56475) {
+    if (uniffi_xmtpv3_checksum_func_exit_debug_writer() != 22580) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonsentcallback_on_close() != 18566) {
+    if (uniffi_xmtpv3_checksum_func_apply_signature_request() != 41574) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_add_admin() != 14149) {
+    if (uniffi_xmtpv3_checksum_func_connect_to_backend() != 18361) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_add_members() != 40357) {
+    if (uniffi_xmtpv3_checksum_func_create_client() != 20159) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_add_members_by_identity() != 56401) {
+    if (uniffi_xmtpv3_checksum_func_decode_actions() != 20603) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_add_super_admin() != 57341) {
+    if (uniffi_xmtpv3_checksum_func_decode_attachment() != 35829) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_added_by_inbox_id() != 56785) {
+    if (uniffi_xmtpv3_checksum_func_decode_delete_message() != 26073) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_admin_list() != 44882) {
+    if (uniffi_xmtpv3_checksum_func_decode_group_updated() != 9297) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_app_data() != 26219) {
+    if (uniffi_xmtpv3_checksum_func_decode_intent() != 23890) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_consent_state() != 3821) {
+    if (uniffi_xmtpv3_checksum_func_decode_leave_request() != 40799) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_conversation_debug_info() != 23207) {
+    if (uniffi_xmtpv3_checksum_func_decode_markdown() != 30781) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_conversation_message_disappearing_settings() != 48701) {
+    if (uniffi_xmtpv3_checksum_func_decode_multi_remote_attachment() != 29913) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_conversation_type() != 43322) {
+    if (uniffi_xmtpv3_checksum_func_decode_reaction() != 65185) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_count_messages() != 243) {
+    if (uniffi_xmtpv3_checksum_func_decode_read_receipt() != 13677) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_created_at_ns() != 17973) {
+    if (uniffi_xmtpv3_checksum_func_decode_remote_attachment() != 43059) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_delete_message() != 34540) {
+    if (uniffi_xmtpv3_checksum_func_decode_reply() != 49607) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_dm_peer_inbox_id() != 2178) {
+    if (uniffi_xmtpv3_checksum_func_decode_text() != 31287) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_find_duplicate_dms() != 52) {
+    if (uniffi_xmtpv3_checksum_func_decode_transaction_reference() != 17820) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_find_enriched_messages() != 59362) {
+    if (uniffi_xmtpv3_checksum_func_decode_wallet_send_calls() != 30123) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_find_messages() != 54046) {
+    if (uniffi_xmtpv3_checksum_func_encode_actions() != 52112) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_find_messages_with_reactions() != 14034) {
+    if (uniffi_xmtpv3_checksum_func_encode_attachment() != 48715) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_get_hmac_keys() != 49256) {
+    if (uniffi_xmtpv3_checksum_func_encode_delete_message() != 36852) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_get_last_read_times() != 24795) {
+    if (uniffi_xmtpv3_checksum_func_encode_intent() != 4583) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_group_description() != 6993) {
+    if (uniffi_xmtpv3_checksum_func_encode_leave_request() != 65452) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_group_image_url_square() != 22193) {
+    if (uniffi_xmtpv3_checksum_func_encode_markdown() != 25092) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_group_metadata() != 17919) {
+    if (uniffi_xmtpv3_checksum_func_encode_multi_remote_attachment() != 38709) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_group_name() != 16617) {
+    if (uniffi_xmtpv3_checksum_func_encode_reaction() != 60746) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_group_permissions() != 47434) {
+    if (uniffi_xmtpv3_checksum_func_encode_read_receipt() != 17495) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_id() != 5542) {
+    if (uniffi_xmtpv3_checksum_func_encode_remote_attachment() != 333) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_is_active() != 52886) {
+    if (uniffi_xmtpv3_checksum_func_encode_reply() != 18741) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_is_admin() != 2121) {
+    if (uniffi_xmtpv3_checksum_func_encode_text() != 29496) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_is_conversation_message_disappearing_enabled() != 65312) {
+    if (uniffi_xmtpv3_checksum_func_encode_transaction_reference() != 31295) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_is_super_admin() != 38152) {
+    if (uniffi_xmtpv3_checksum_func_encode_wallet_send_calls() != 48217) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_leave_group() != 64752) {
+    if (uniffi_xmtpv3_checksum_func_get_inbox_id_for_identifier() != 7581) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_list_members() != 33630) {
+    if (uniffi_xmtpv3_checksum_func_get_newest_message_metadata() != 30637) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_membership_state() != 23889) {
+    if (uniffi_xmtpv3_checksum_func_inbox_state_from_inbox_ids() != 6995) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_paused_for_version() != 35645) {
+    if (uniffi_xmtpv3_checksum_func_is_connected() != 54619) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_prepare_message() != 17501) {
+    if (uniffi_xmtpv3_checksum_func_revoke_installations() != 46055) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_process_streamed_conversation_message() != 25980) {
+    if (uniffi_xmtpv3_checksum_method_ffiinboxowner_get_identifier() != 59650) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_publish_messages() != 29588) {
+    if (uniffi_xmtpv3_checksum_method_ffiinboxowner_sign() != 50886) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_publish_stored_message() != 5747) {
+    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_content() != 24196) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_admin() != 5640) {
+    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_content_type_id() != 47449) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_conversation_message_disappearing_settings() != 62483) {
+    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_conversation_id() != 23352) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_members() != 24740) {
+    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_delivery_status() != 44534) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_members_by_identity() != 1043) {
+    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_expires_at_ns() != 16382) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_super_admin() != 8802) {
+    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_fallback_text() != 49808) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_send() != 5758) {
+    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_has_reactions() != 56913) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_send_optimistic() != 50020) {
+    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_id() != 50776) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_send_text() != 61657) {
+    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_inserted_at_ns() != 60350) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_stream() != 26870) {
+    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_kind() != 11481) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_super_admin_list() != 1368) {
+    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_num_replies() != 37877) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_sync() != 64532) {
+    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_reaction_count() != 52157) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_update_app_data() != 49116) {
+    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_reactions() != 28217) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_update_consent_state() != 55592) {
+    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_sender_inbox_id() != 42589) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_update_conversation_message_disappearing_settings() != 59303) {
+    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_sender_installation_id() != 28667) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_update_group_description() != 26687) {
+    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_sent_at_ns() != 49462) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_update_group_image_url_square() != 23989) {
+    if (uniffi_xmtpv3_checksum_method_fficonsentcallback_on_consent_update() != 5644) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_update_group_name() != 25195) {
+    if (uniffi_xmtpv3_checksum_method_fficonsentcallback_on_error() != 23297) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_update_permission_policy() != 43445) {
+    if (uniffi_xmtpv3_checksum_method_fficonsentcallback_on_close() != 9804) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversationcallback_on_conversation() != 25316) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_add_admin() != 35944) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversationcallback_on_error() != 17078) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_add_members() != 23463) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversationcallback_on_close() != 26905) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_add_members_by_identity() != 26918) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversationlistitem_conversation() != 20525) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_add_super_admin() != 44900) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversationlistitem_is_commit_log_forked() != 16358) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_added_by_inbox_id() != 18033) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversationlistitem_last_message() != 42510) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_admin_list() != 3185) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversationmetadata_conversation_type() != 22241) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_app_data() != 167) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversationmetadata_creator_inbox_id() != 61067) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_consent_state() != 21925) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_create_group() != 11757) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_conversation_debug_info() != 42965) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_create_group_by_identity() != 40956) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_conversation_message_disappearing_settings() != 41268) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_create_group_optimistic() != 7796) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_conversation_type() != 42508) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_find_or_create_dm() != 25156) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_count_messages() != 34807) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_find_or_create_dm_by_identity() != 632) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_created_at_ns() != 8320) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_get_hmac_keys() != 60241) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_delete_message() != 25834) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_list() != 45877) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_dm_peer_inbox_id() != 2891) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_list_dms() != 14878) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_find_duplicate_dms() != 57431) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_list_groups() != 13236) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_find_enriched_messages() != 48794) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_process_streamed_welcome_message() != 47818) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_find_messages() != 25533) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_stream() != 31576) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_find_messages_with_reactions() != 22524) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_all_dm_messages() != 7006) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_get_hmac_keys() != 9466) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_all_group_messages() != 16815) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_get_last_read_times() != 32937) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_all_messages() != 34596) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_group_description() != 43956) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_consent() != 27123) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_group_image_url_square() != 33998) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_dms() != 52710) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_group_metadata() != 40913) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_groups() != 11064) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_group_name() != 65340) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_message_deletions() != 47172) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_group_permissions() != 12143) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_messages() != 45879) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_id() != 12493) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_preferences() != 37452) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_is_active() != 62100) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_sync() != 44913) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_is_admin() != 26473) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversations_sync_all_conversations() != 7672) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_is_conversation_message_disappearing_enabled() != 28872) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_content() != 6416) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_is_super_admin() != 3236) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_content_type_id() != 63211) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_leave_group() != 56409) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_conversation_id() != 1070) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_list_members() != 8237) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_delivery_status() != 10321) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_membership_state() != 43503) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_expires_at_ns() != 54265) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_paused_for_version() != 17083) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_fallback_text() != 1914) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_prepare_message() != 38231) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_has_reactions() != 60219) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_process_streamed_conversation_message() != 45021) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_id() != 41676) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_publish_messages() != 1758) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_inserted_at_ns() != 46609) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_publish_stored_message() != 41574) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_kind() != 55657) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_admin() != 36580) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_num_replies() != 35773) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_conversation_message_disappearing_settings() != 15615) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_reaction_count() != 7084) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_members() != 39027) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_reactions() != 53291) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_members_by_identity() != 55047) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_sender_inbox_id() != 12782) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_remove_super_admin() != 28063) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_sender_installation_id() != 58886) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_send() != 28093) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffidecodedmessage_sent_at_ns() != 54409) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_send_optimistic() != 13405) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_set() != 56212) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_send_text() != 8076) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_type() != 31831) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_stream() != 13270) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffiinboxowner_get_identifier() != 4926) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_super_admin_list() != 64511) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffiinboxowner_sign() != 10423) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_sync() != 52433) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffimessagecallback_on_message() != 5286) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_update_app_data() != 2749) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffimessagecallback_on_error() != 60750) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_update_consent_state() != 39794) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffimessagecallback_on_close() != 9150) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_update_conversation_message_disappearing_settings() != 23667) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffimessagedeletioncallback_on_message_deleted() != 60335) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_update_group_description() != 36279) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_preference_update() != 19900) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_update_group_image_url_square() != 60375) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_error() != 23172) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_update_group_name() != 978) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_close() != 48198) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_update_permission_policy() != 18605) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_ecdsa_signature() != 23442) {
+    if (uniffi_xmtpv3_checksum_method_fficonversationcallback_on_conversation() != 61602) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_passkey_signature() != 57092) {
+    if (uniffi_xmtpv3_checksum_method_fficonversationcallback_on_error() != 18036) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_scw_signature() != 35063) {
+    if (uniffi_xmtpv3_checksum_method_fficonversationcallback_on_close() != 52580) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_is_ready() != 65051) {
+    if (uniffi_xmtpv3_checksum_method_fficonversationlistitem_conversation() != 52751) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_missing_address_signatures() != 46165) {
+    if (uniffi_xmtpv3_checksum_method_fficonversationlistitem_is_commit_log_forked() != 223) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_signature_text() != 22797) {
+    if (uniffi_xmtpv3_checksum_method_fficonversationlistitem_last_message() != 13233) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffistreamcloser_end() != 11040) {
+    if (uniffi_xmtpv3_checksum_method_fficonversationmetadata_conversation_type() != 58527) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffistreamcloser_end_and_wait() != 32223) {
+    if (uniffi_xmtpv3_checksum_method_fficonversationmetadata_creator_inbox_id() != 57966) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffistreamcloser_is_closed() != 62423) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_create_group() != 39691) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffistreamcloser_wait_for_ready() != 38545) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_create_group_by_identity() != 3471) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffisyncworker_wait() != 27531) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_create_group_optimistic() != 36454) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_add_identity() != 16903) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_find_or_create_dm() != 52656) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_addresses_from_inbox_id() != 24531) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_find_or_create_dm_by_identity() != 36481) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_api_aggregate_statistics() != 18475) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_get_hmac_keys() != 55020) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_api_identity_statistics() != 47055) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_list() != 11038) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_api_statistics() != 31059) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_list_dms() != 60471) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_apply_signature_request() != 27496) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_list_groups() != 47717) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_archive_metadata() != 9006) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_process_streamed_welcome_message() != 20315) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_can_message() != 44069) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_stream() != 52081) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_change_recovery_identifier() != 2778) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_all_dm_messages() != 29002) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_clear_all_statistics() != 38737) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_all_group_messages() != 56670) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_conversation() != 54250) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_all_messages() != 47653) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_conversations() != 47463) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_consent() != 56082) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_create_archive() != 32355) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_dms() != 55411) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_db_reconnect() != 61877) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_groups() != 48992) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_delete_message() != 18971) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_message_deletions() != 34016) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_dm_conversation() != 6444) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_messages() != 48767) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_enriched_message() != 25161) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_stream_preferences() != 16637) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_fetch_inbox_updates_count() != 12507) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_sync() != 36549) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_fetch_own_inbox_updates_count() != 4788) {
+    if (uniffi_xmtpv3_checksum_method_fficonversations_sync_all_conversations() != 18790) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_find_inbox_id() != 48840) {
+    if (uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_set() != 46006) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_get_consent_state() != 10787) {
+    if (uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_type() != 12375) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_get_key_package_statuses_for_installation_ids() != 46014) {
+    if (uniffi_xmtpv3_checksum_method_ffimessagecallback_on_message() != 483) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_get_latest_inbox_state() != 54337) {
+    if (uniffi_xmtpv3_checksum_method_ffimessagecallback_on_error() != 1862) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_import_archive() != 56828) {
+    if (uniffi_xmtpv3_checksum_method_ffimessagecallback_on_close() != 35309) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_id() != 25128) {
+    if (uniffi_xmtpv3_checksum_method_ffimessagedeletioncallback_on_message_deleted() != 61707) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_state() != 7500) {
+    if (uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_preference_update() != 19243) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_installation_id() != 37173) {
+    if (uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_error() != 32066) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_list_available_archives() != 47380) {
+    if (uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_close() != 45888) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_message() != 51724) {
+    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_ecdsa_signature() != 5473) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_process_sync_archive() != 57506) {
+    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_passkey_signature() != 36811) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_register_identity() != 15231) {
+    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_scw_signature() != 29758) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_release_db_connection() != 45722) {
+    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_is_ready() != 27245) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_all_other_installations_signature_request() != 4877) {
+    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_missing_address_signatures() != 24475) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_identity() != 48860) {
+    if (uniffi_xmtpv3_checksum_method_ffisignaturerequest_signature_text() != 17677) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_installations() != 2461) {
+    if (uniffi_xmtpv3_checksum_method_ffistreamcloser_end() != 16941) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_send_sync_archive() != 860) {
+    if (uniffi_xmtpv3_checksum_method_ffistreamcloser_end_and_wait() != 17029) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_send_sync_request() != 63511) {
+    if (uniffi_xmtpv3_checksum_method_ffistreamcloser_is_closed() != 29780) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_set_consent_states() != 8012) {
+    if (uniffi_xmtpv3_checksum_method_ffistreamcloser_wait_for_ready() != 14457) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_sign_with_installation_key() != 7127) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_add_identity() != 43903) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_signature_request() != 18270) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_addresses_from_inbox_id() != 36070) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_all_device_sync_groups() != 5558) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_api_aggregate_statistics() != 43020) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_preferences() != 11661) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_api_identity_statistics() != 63528) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_verify_signed_with_installation_key() != 40247) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_api_statistics() != 39743) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_verify_signed_with_public_key() != 6101) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_apply_signature_request() != 22342) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_constructor_ffiauthhandle_new() != 11700) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_can_message() != 35116) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_change_recovery_identifier() != 49256) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_clear_all_statistics() != 32955) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_conversation() != 40574) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_conversations() != 20365) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_db_reconnect() != 19722) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_delete_message() != 18209) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_dm_conversation() != 3808) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_enriched_message() != 56963) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_fetch_inbox_updates_count() != 46137) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_fetch_own_inbox_updates_count() != 36976) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_find_inbox_id() != 7917) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_get_consent_state() != 37053) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_get_key_package_statuses_for_installation_ids() != 47406) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_get_latest_inbox_state() != 52742) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_id() != 21792) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_state() != 52295) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_installation_id() != 4987) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_message() != 59175) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_register_identity() != 34353) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_release_db_connection() != 19003) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_all_other_installations_signature_request() != 13600) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_identity() != 27915) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_installations() != 6594) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_set_consent_states() != 26184) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_sign_with_installation_key() != 9313) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_signature_request() != 63118) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_preferences() != 59848) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_verify_signed_with_installation_key() != 35697) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_verify_signed_with_public_key() != 21052) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_archive_metadata() != 24491) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_create_archive() != 39155) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_import_archive() != 64163) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_list_available_archives() != 22532) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_process_sync_archive() != 41867) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_send_sync_archive() != 852) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_send_sync_request() != 17825) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_all_device_sync_groups() != 55088) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffiauthcallback_on_auth_required() != 12598) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffiauthhandle_id() != 53534) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffiauthhandle_set() != 22003) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffisyncworker_wait() != 39079) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_constructor_ffiauthhandle_new() != 58263) {
         return InitializationResult.apiChecksumMismatch
     }
 

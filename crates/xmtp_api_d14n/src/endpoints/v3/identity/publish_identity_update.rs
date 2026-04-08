@@ -23,7 +23,7 @@ impl PublishIdentityUpdate {
 impl Endpoint for PublishIdentityUpdate {
     type Output = PublishIdentityUpdateResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        xmtp_proto::path_and_query::<PublishIdentityUpdateRequest>()
+        Cow::Borrowed("/xmtp.identity.api.v1.IdentityApi/PublishIdentityUpdate")
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -40,12 +40,6 @@ mod test {
     use super::*;
     use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::{identity_v1::PublishIdentityUpdateResponse, prelude::*};
-
-    #[xmtp_common::test]
-    fn test_file_descriptor() {
-        use xmtp_proto::xmtp::identity::api::v1::PublishIdentityUpdateRequest;
-        let _pnq = xmtp_proto::path_and_query::<PublishIdentityUpdateRequest>();
-    }
 
     #[xmtp_common::test]
     fn test_grpc_endpoint_returns_correct_path() {

@@ -72,7 +72,6 @@ pub mod payer_api_server {
     /// Generated trait containing gRPC methods that should be implemented for use with PayerApiServer.
     #[async_trait]
     pub trait PayerApi: std::marker::Send + std::marker::Sync + 'static {
-        /// Publish envelope
         async fn publish_client_envelopes(
             &self,
             request: tonic::Request<super::PublishClientEnvelopesRequest>,
@@ -88,7 +87,7 @@ pub mod payer_api_server {
             tonic::Status,
         >;
     }
-    /// A narrowly scoped API for publishing messages through a payer
+    /// Deprecated: use gateway_api.GatewayApi
     #[derive(Debug)]
     pub struct PayerApiServer<T> {
         inner: Arc<T>,
