@@ -25,7 +25,7 @@ impl GetInboxIds {
 impl Endpoint for GetInboxIds {
     type Output = GetInboxIdsResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        xmtp_proto::path_and_query::<GetInboxIdsRequest>()
+        Cow::Borrowed("/xmtp.identity.api.v1.IdentityApi/GetInboxIds")
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -59,14 +59,6 @@ mod test {
     use super::*;
     use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::{identity_v1::GetInboxIdsResponse, prelude::*};
-
-    #[xmtp_common::test]
-    fn test_file_descriptor() {
-        use xmtp_proto::xmtp::identity::api::v1::GetInboxIdsRequest;
-
-        let pnq = xmtp_proto::path_and_query::<GetInboxIdsRequest>();
-        println!("{}", pnq);
-    }
 
     #[xmtp_common::test]
     fn test_grpc_endpoint_returns_correct_path() {

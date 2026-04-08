@@ -24,7 +24,7 @@ check target="workspace" *args="":
 
 [private]
 _check-workspace:
-  cargo check --locked --workspace --exclude bindings_wasm
+  cargo check --locked
 
 [private]
 _check-crate +crates:
@@ -36,8 +36,7 @@ _check-crate +crates:
 lint: lint-rust lint-config lint-markdown
 
 lint-rust:
-  cargo clippy --locked --workspace \
-    --all-features --all-targets --no-deps --exclude bindings_wasm -- -Dwarnings
+  cargo clippy --locked --all-features --all-targets --no-deps -- -Dwarnings
   cargo fmt --check
   cargo hakari generate --diff
   cargo hakari manage-deps --dry-run

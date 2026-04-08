@@ -173,7 +173,17 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
           .without_time() // need to test whether this would break browsers
           .with_target(true);
 
-        tracing_subscriber::registry().with(filter).with(fmt).init();
+        // Initialize tracing subscriber. Silently ignored if already set by another crate.
+        let subscriber_result = tracing_subscriber::registry()
+          .with(filter)
+          .with(fmt)
+          .try_init();
+        if subscriber_result.is_err() {
+          tracing::warn!(
+            "tracing subscriber has not been initialized. Maybe it is already set? Error: {:?}",
+            subscriber_result.err()
+          );
+        }
       } else {
         let fmt = tracing_subscriber::fmt::layer()
           .with_ansi(false) // not supported by all browsers
@@ -183,11 +193,25 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
         let subscriber = tracing_subscriber::registry().with(fmt).with(filter);
 
         if options.performance.unwrap_or_default() {
-          subscriber
+          // Initialize tracing subscriber. Silently ignored if already set by another crate.
+          let subscriber_result = subscriber
             .with(tracing_web::performance_layer().with_details_from_fields(Pretty::default()))
-            .init();
+            .try_init();
+          if subscriber_result.is_err() {
+            tracing::warn!(
+              "Tracing subscriber has not been initialized. Maybe it is already set? Error: {:?}",
+              subscriber_result.err()
+            );
+          }
         } else {
-          subscriber.init();
+          // Initialize tracing subscriber. Silently ignored if already set by another crate.
+          let subscriber_result = subscriber.try_init();
+          if subscriber_result.is_err() {
+            tracing::warn!(
+              "Tracing subscriber has not been initialized. Maybe it is already set? Error: {:?}",
+              subscriber_result.err()
+            );
+          }
         }
       }
       Ok(())
