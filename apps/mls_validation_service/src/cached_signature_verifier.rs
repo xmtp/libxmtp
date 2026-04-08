@@ -245,6 +245,10 @@ mod tests {
         // Different account_address -> different cache key
         assert_ne!(base, build_cache_key(&account_b, &hash, sig, Some(100)));
 
+        // Different chain_id -> different cache key
+        let account_c = AccountId::new("eip155:137".into(), "0xaaa".into());
+        assert_ne!(base, build_cache_key(&account_c, &hash, sig, Some(100)));
+
         // Different block_number -> different cache key
         assert_ne!(base, build_cache_key(&account_a, &hash, sig, Some(200)));
 
