@@ -22,7 +22,7 @@ impl QueryCommitLog {
 impl Endpoint for QueryCommitLog {
     type Output = BatchQueryCommitLogResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        xmtp_proto::path_and_query::<BatchQueryCommitLogRequest>()
+        Cow::Borrowed("/xmtp.mls.api.v1.MlsApi/BatchQueryCommitLog")
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -40,12 +40,6 @@ mod test {
     use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_common::rand_vec;
     use xmtp_proto::prelude::*;
-
-    #[xmtp_common::test]
-    fn test_file_descriptor() {
-        let pnq = xmtp_proto::path_and_query::<BatchQueryCommitLogRequest>();
-        println!("{}", pnq);
-    }
 
     #[xmtp_common::test]
     fn test_grpc_endpoint_returns_correct_path() {

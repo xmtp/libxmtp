@@ -210,7 +210,7 @@ mod tests {
                 let err_str = e.to_string();
                 // The query shouldn't return a valid message.
                 // But it shouldn't return any other type of error.
-                assert!(err_str.contains("missing field group_message"));
+                assert!(err_str.contains("missing field group_message"), "{err_str}");
             }
             Ok(_) => panic!("expected error for empty group id"),
         }

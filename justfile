@@ -24,7 +24,7 @@ check target="workspace" *args="":
 
 [private]
 _check-workspace:
-  cargo check --locked --workspace --exclude bindings_wasm
+  cargo check --locked
 
 [private]
 _check-crate +crates:
@@ -36,8 +36,7 @@ _check-crate +crates:
 lint: lint-rust lint-config lint-markdown
 
 lint-rust:
-  cargo clippy --locked --workspace \
-    --all-features --all-targets --no-deps --exclude bindings_wasm -- -Dwarnings
+  cargo clippy --locked --all-features --all-targets --no-deps -- -Dwarnings
   cargo fmt --check
   cargo hakari generate --diff
   cargo hakari manage-deps --dry-run
@@ -83,19 +82,17 @@ test target="all" *args="":
   just _test-{{target}} {{args}}
 
 [private]
-_test-all: (_test-v3) (_test-d14n)
+_test-all *args="": (_test-v3 args) (_test-d14n args)
 
 [private]
-_test-v3:
-  {{cargo_test}} \
-    --profile ci --workspace --exclude bindings_wasm
+_test-v3 *args="":
+  {{cargo_test}} --profile ci {{args}}
 
 [private]
-_test-d14n:
+_test-d14n *args="":
   {{cargo_test}} \
     --features d14n --profile ci-d14n \
-    -E 'package(xmtp_mls)' -E 'rdeps(xmtp_mls)' \
-    --workspace --exclude bindings_wasm
+    -E 'package(xmtp_mls)' -E 'rdeps(xmtp_mls)' {{args}}
 
 [private]
 _test-crate +crates:

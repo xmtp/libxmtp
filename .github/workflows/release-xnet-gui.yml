@@ -1,0 +1,292 @@
+name: Release XNet GUI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/xnet/gui/**"
+      - "apps/xnet/lib/**"
+      - "nix/package/xnet-gui.nix"
+      - ".github/workflows/release-xnet-gui.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-dmg:
+    name: Build macOS DMG
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Nix
+        uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Build xnet-gui with Nix
+        run: |
+          echo "Building xnet-gui binary..."
+          nix build .#xnet-gui --out-link result
+          ls -lah result/bin/
+
+      - name: Inspect binary dependencies
+        run: |
+          echo "Current dependencies:"
+          otool -L result/bin/xnet-gui
+
+      - name: Fix rpaths for non-Nix macOS
+        run: |
+          set -e
+
+          # Create working directory
+          mkdir -p build
+          cp result/bin/xnet-gui build/xnet-gui
+          chmod +w build/xnet-gui
+
+          # Get current rpaths
+          echo "Removing Nix store rpaths..."
+          RPATHS=$(otool -l build/xnet-gui | grep -A2 LC_RPATH | grep path | awk '{print $2}' | grep '/nix/store' || true)
+
+          # Remove each Nix store rpath
+          for rpath in $RPATHS; do
+            echo "Removing rpath: $rpath"
+            install_name_tool -delete_rpath "$rpath" build/xnet-gui || echo "Failed to remove $rpath (may not exist)"
+          done
+
+          # Update dylib paths to use system frameworks
+          echo "Checking for Nix store dylib references..."
+          DYLIBS=$(otool -L build/xnet-gui | grep '/nix/store' | awk '{print $1}' || true)
+
+          for dylib in $DYLIBS; do
+            # Extract just the library name
+            libname=$(basename "$dylib")
+            echo "Found Nix dylib reference: $dylib"
+
+            # Try to find system equivalent
+            # For most system libraries, we can reference them directly
+            if [[ "$libname" == "libc++."* ]] || [[ "$libname" == "libSystem."* ]]; then
+              echo "  Skipping system library: $libname"
+            elif [[ "$libname" == "libiconv."* ]]; then
+              install_name_tool -change "$dylib" "/usr/lib/libiconv.dylib" build/xnet-gui || true
+            elif [[ "$libname" == "libz."* ]]; then
+              install_name_tool -change "$dylib" "/usr/lib/libz.dylib" build/xnet-gui || true
+            else
+              echo "  Warning: Unknown library $libname - may need bundling"
+            fi
+          done
+
+          echo "Final dependencies:"
+          otool -L build/xnet-gui
+
+      - name: Create macOS .app bundle
+        run: |
+          set -e
+
+          APP_NAME="XNet"
+          APP_BUNDLE="build/${APP_NAME}.app"
+
+          # Create bundle structure
+          mkdir -p "${APP_BUNDLE}/Contents/"{MacOS,Resources}
+
+          # Copy binary
+          cp build/xnet-gui "${APP_BUNDLE}/Contents/MacOS/xnet-gui"
+          chmod +x "${APP_BUNDLE}/Contents/MacOS/xnet-gui"
+
+          # Create Info.plist
+          cat > "${APP_BUNDLE}/Contents/Info.plist" << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleDevelopmentRegion</key>
+              <string>en</string>
+              <key>CFBundleExecutable</key>
+              <string>xnet-gui</string>
+              <key>CFBundleIconFile</key>
+              <string>icon.icns</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.xmtp.xnet</string>
+              <key>CFBundleInfoDictionaryVersion</key>
+              <string>6.0</string>
+              <key>CFBundleName</key>
+              <string>XNet</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0.0</string>
+              <key>CFBundleVersion</key>
+              <string>1</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>11.0</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+              <key>NSSupportsAutomaticGraphicsSwitching</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+          echo "Created .app bundle at ${APP_BUNDLE}"
+          ls -lah "${APP_BUNDLE}/Contents/MacOS/"
+
+      - name: Convert icon to ICNS
+        run: |
+          set -e
+
+          APP_BUNDLE="build/XNet.app"
+          ICON_SOURCE="apps/xnet/gui/assets/logo.png"
+
+          if [ -f "$ICON_SOURCE" ]; then
+            echo "Converting icon from $ICON_SOURCE"
+
+            # Create iconset directory
+            mkdir -p build/icon.iconset
+
+            # Generate various sizes (macOS requires multiple resolutions)
+            sips -z 16 16     "$ICON_SOURCE" --out build/icon.iconset/icon_16x16.png
+            sips -z 32 32     "$ICON_SOURCE" --out build/icon.iconset/icon_16x16@2x.png
+            sips -z 32 32     "$ICON_SOURCE" --out build/icon.iconset/icon_32x32.png
+            sips -z 64 64     "$ICON_SOURCE" --out build/icon.iconset/icon_32x32@2x.png
+            sips -z 128 128   "$ICON_SOURCE" --out build/icon.iconset/icon_128x128.png
+            sips -z 256 256   "$ICON_SOURCE" --out build/icon.iconset/icon_128x128@2x.png
+            sips -z 256 256   "$ICON_SOURCE" --out build/icon.iconset/icon_256x256.png
+            sips -z 512 512   "$ICON_SOURCE" --out build/icon.iconset/icon_256x256@2x.png
+            sips -z 512 512   "$ICON_SOURCE" --out build/icon.iconset/icon_512x512.png
+            sips -z 1024 1024 "$ICON_SOURCE" --out build/icon.iconset/icon_512x512@2x.png
+
+            # Convert to icns
+            iconutil -c icns build/icon.iconset -o "${APP_BUNDLE}/Contents/Resources/icon.icns"
+
+            echo "Icon created successfully"
+          else
+            echo "Warning: Icon source not found at $ICON_SOURCE"
+          fi
+
+      - name: Ad-hoc code sign the app
+        run: |
+          set -e
+
+          APP_BUNDLE="build/XNet.app"
+
+          echo "Ad-hoc signing application..."
+          # Ad-hoc signing prevents tampering but doesn't provide developer identity
+          codesign --force --deep --sign - "${APP_BUNDLE}"
+
+          # Verify the signature
+          echo "Verifying code signature..."
+          codesign --verify --deep --strict --verbose=2 "${APP_BUNDLE}"
+
+          echo "✅ App signed (ad-hoc)"
+
+      - name: Install create-dmg
+        run: |
+          brew install create-dmg
+
+      - name: Create DMG
+        run: |
+          set -e
+
+          APP_NAME="XNet"
+          VERSION="${GITHUB_SHA:0:7}"
+          DMG_NAME="${APP_NAME}-${VERSION}.dmg"
+
+          # Create DMG with create-dmg
+          create-dmg \
+            --volname "${APP_NAME}" \
+            --volicon "build/${APP_NAME}.app/Contents/Resources/icon.icns" \
+            --window-pos 200 120 \
+            --window-size 800 400 \
+            --icon-size 100 \
+            --icon "${APP_NAME}.app" 200 190 \
+            --hide-extension "${APP_NAME}.app" \
+            --app-drop-link 600 185 \
+            --no-internet-enable \
+            "build/${DMG_NAME}" \
+            "build/${APP_NAME}.app" || {
+              # create-dmg returns non-zero even on success sometimes
+              # Check if DMG was actually created
+              if [ -f "build/${DMG_NAME}" ]; then
+                echo "DMG created successfully despite non-zero exit code"
+              else
+                echo "DMG creation failed"
+                exit 1
+              fi
+            }
+
+          echo "DMG_PATH=build/${DMG_NAME}" >> $GITHUB_ENV
+          echo "DMG_NAME=${DMG_NAME}" >> $GITHUB_ENV
+
+      - name: Compute checksum
+        run: |
+          cd build
+          shasum -a 256 "$DMG_NAME" | tee "${DMG_NAME}.sha256"
+          echo "CHECKSUM=$(shasum -a 256 $DMG_NAME | awk '{print $1}')" >> $GITHUB_ENV
+
+      # - name: Test binary
+      #   run: |
+      #     # Quick verification that the app can at least print help
+      #     ./build/XNet.app/Contents/MacOS/xnet-gui --help || echo "Binary executed (exit code: $?)"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xnet-gui-macos-dmg
+          path: |
+            ${{ env.DMG_PATH }}
+            ${{ env.DMG_PATH }}.sha256
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA=$(git rev-parse --short=7 HEAD)
+          TAG="xnet-gui-v${SHA}"
+
+          # Create release
+          gh release create "$TAG" \
+            --title "XNet GUI ${SHA}" \
+            --notes "Automated release of XNet GUI
+
+          **Build Info:**
+          - Commit: ${GITHUB_SHA}
+          - Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - SHA256: \`${CHECKSUM}\`
+
+          **Installation:**
+          1. Download the DMG file
+          2. Open the DMG
+          3. Drag XNet.app to your Applications folder
+          4. **First Launch:** The app will show a \"damaged\" warning because it's not notarized by Apple
+
+          **To bypass the warning (choose one method):**
+
+          **Option 1 - Right-click method (easiest):**
+          - Right-click (or Control-click) on XNet.app in Applications
+          - Select \"Open\" from the menu
+          - Click \"Open\" in the dialog that appears
+          - Future launches will work normally with double-click
+
+          **Option 2 - Command line:**
+          \`\`\`bash
+          xattr -cr /Applications/XNet.app
+          open /Applications/XNet.app
+          \`\`\`
+
+          **Option 3 - System Settings:**
+          - Try to open the app (it will be blocked)
+          - Go to System Settings → Privacy & Security
+          - Click \"Open Anyway\" next to the XNet security warning
+
+          ---
+          _This is a development build with ad-hoc code signing. For distribution builds with proper Apple Developer ID signing, contact the maintainers._" \
+            "${DMG_PATH}" \
+            "${DMG_PATH}.sha256"
+
+          echo "Release created: $TAG"

@@ -1,40 +1,26 @@
 // For format details, see https://aka.ms/devcontainer.json.
 {
-  "name": "libxmtp (Nix)",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
-  "features": {
-    "ghcr.io/devcontainers/features/nix:1": {
-      "multiUser": false,
-      "version": "2.34.1",
-      "packages": "nix-direnv",
-      "extraNixConfig": "experimental-features = nix-command flakes,accept-flake-config = true,build-users-group =,extra-substituters = https://xmtp.cachix.org https://cache.garnix.io,extra-trusted-public-keys = xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0= cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=",
+    "name": "libxmtp (Nix)",
+    "build": {
+        "dockerfile": "Dockerfile"
     },
-    "ghcr.io/devcontainers/features/common-utils:2": {
-      "configureZshAsDefaultShell": true,
-      "installOhMyZsh": true,
-    },
-    "ghcr.io/devcontainers/features/node:1": {
-      "version": "24.11.0",
-    },
-  },
-  "mounts": [
-    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
-  ],
-  "remoteUser": "vscode",
-  "containerUser": "vscode",
-  "remoteEnv": {
-    "PATH": "/home/vscode/.nix-profile/bin:/nix/var/nix/profiles/default/bin:${containerEnv:PATH}",
-  },
-  "postCreateCommand": "bash .devcontainer/setup.sh",
-  "postStartCommand": "",
-  "customizations": {
-    "vscode": {
-      "extensions": [
-        "tamasfe.even-better-toml",
-        "rust-lang.rust-analyzer",
-        "jnoortheen.nix-ide",
-        "mkhl.direnv",
-      ],
-    },
-  },
+    "runArgs": ["--ulimit", "stack=-1:-1"],
+    "mounts": [
+        "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
+    ],
+    "workspaceFolder": "/workspaces/libxmtp",
+    "remoteUser": "vscode",
+    "containerUser": "vscode",
+    "postCreateCommand": "/bin/bash /workspaces/libxmtp/.devcontainer/setup.sh",
+    "postStartCommand": "direnv exec . true",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "tamasfe.even-better-toml",
+                "rust-lang.rust-analyzer",
+                "jnoortheen.nix-ide",
+                "mkhl.direnv"
+            ]
+        }
+    }
 }

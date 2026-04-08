@@ -16,6 +16,7 @@ pub(crate) mod gateway_auth;
 mod identity;
 mod inbox_state;
 pub mod options;
+mod registration_visible;
 mod signatures;
 mod stats;
 

@@ -117,6 +117,8 @@ diesel::table! {
         credential_bytes -> Binary,
         rowid -> Nullable<Integer>,
         next_key_package_rotation_ns -> Nullable<BigInt>,
+        registration_cursor_originator_id -> Nullable<BigInt>,
+        registration_cursor_sequence_id -> Nullable<BigInt>,
     }
 }
 

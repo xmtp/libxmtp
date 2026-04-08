@@ -71,7 +71,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: bindings_node_${{ matrix.target }}
-          path: result/bindings_node.${{ matrix.target }}.node
+          path: result/dist/bindings_node.${{ matrix.target }}.node
           retention-days: 1
 
   build-macos:
@@ -99,7 +99,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: bindings_node_${{ matrix.target }}
-          path: result/bindings_node.${{ matrix.target }}.node
+          path: result/dist/bindings_node.${{ matrix.target }}.node
           retention-days: 1
 
   build-js:
@@ -124,8 +124,8 @@ jobs:
         with:
           name: bindings_node_js
           path: |
-            result/index.js
-            result/index.d.ts
+            result/dist/index.js
+            result/dist/index.d.ts
           retention-days: 1
 
   build-windows:
@@ -156,7 +156,7 @@ jobs:
           workspaces: |
             .
             bindings/node
-          warp: 'true'
+          warp: "true"
 
       - uses: ./.github/actions/setup-release-tools
 
@@ -234,7 +234,15 @@ jobs:
           retention-days: 1
 
   publish:
-    needs: [setup, build-linux, build-macos, build-macos-universal, build-js, build-windows]
+    needs:
+      [
+        setup,
+        build-linux,
+        build-macos,
+        build-macos-universal,
+        build-js,
+        build-windows,
+      ]
     uses: ./.github/workflows/npm-publish.yml
     with:
       package-dir: bindings/node

@@ -70,6 +70,30 @@ public struct ForkRecoveryOptions {
 	}
 }
 
+public struct VisibilityConfirmationOptions {
+	public var quorumPercentage: Float?
+	public var quorumAbsolute: UInt64?
+	public var timeoutMs: UInt64?
+
+	public init(
+		quorumPercentage: Float? = nil,
+		quorumAbsolute: UInt64? = nil,
+		timeoutMs: UInt64? = nil
+	) {
+		self.quorumPercentage = quorumPercentage
+		self.quorumAbsolute = quorumAbsolute
+		self.timeoutMs = timeoutMs
+	}
+
+	func toFfi() -> FfiVisibilityConfirmationOptions {
+		FfiVisibilityConfirmationOptions(
+			quorumPercentage: quorumPercentage,
+			quorumAbsolute: quorumAbsolute,
+			timeoutMs: timeoutMs
+		)
+	}
+}
+
 /// Specify configuration options for creating a ``Client``.
 public struct ClientOptions {
 	/// Specify network options
@@ -109,6 +133,7 @@ public struct ClientOptions {
 	public var deviceSyncEnabled: Bool
 	public var debugEventsEnabled: Bool
 	public var forkRecoveryOptions: ForkRecoveryOptions?
+	public var waitForRegistrationVisible: VisibilityConfirmationOptions?
 
 	public init(
 		api: Api = Api(),
@@ -118,7 +143,8 @@ public struct ClientOptions {
 		dbDirectory: String? = nil,
 		deviceSyncEnabled: Bool = true,
 		debugEventsEnabled: Bool = false,
-		forkRecoveryOptions: ForkRecoveryOptions? = nil
+		forkRecoveryOptions: ForkRecoveryOptions? = nil,
+		waitForRegistrationVisible: VisibilityConfirmationOptions? = nil
 	) {
 		self.api = api
 		self.codecs = codecs
@@ -128,6 +154,7 @@ public struct ClientOptions {
 		self.deviceSyncEnabled = deviceSyncEnabled
 		self.debugEventsEnabled = debugEventsEnabled
 		self.forkRecoveryOptions = forkRecoveryOptions
+		self.waitForRegistrationVisible = waitForRegistrationVisible
 	}
 }
 
@@ -224,7 +251,9 @@ public final class Client {
 						for: signatureRequest, signingKey: signingKey
 					)
 					try await client.ffiClient.registerIdentity(
-						signatureRequest: signatureRequest
+						signatureRequest: signatureRequest,
+						visibilityConfirmationOptions: options
+							.waitForRegistrationVisible?.toFfi()
 					)
 				} catch {
 					throw ClientError.creationError(
@@ -1082,11 +1111,14 @@ public final class Client {
 		otherwise use `create()` instead.
 		"""
 	)
-	public func ffiRegisterIdentity(signatureRequest: SignatureRequest)
-		async throws
-	{
+	public func ffiRegisterIdentity(
+		signatureRequest: SignatureRequest,
+		visibilityConfirmationOptions: VisibilityConfirmationOptions? = nil
+	) async throws {
 		try await ffiClient.registerIdentity(
-			signatureRequest: signatureRequest.ffiSignatureRequest
+			signatureRequest: signatureRequest.ffiSignatureRequest,
+			visibilityConfirmationOptions: visibilityConfirmationOptions?
+				.toFfi()
 		)
 	}
 }

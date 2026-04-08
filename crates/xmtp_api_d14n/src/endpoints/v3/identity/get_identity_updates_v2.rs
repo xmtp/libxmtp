@@ -23,7 +23,7 @@ impl GetIdentityUpdatesV2 {
 impl Endpoint for GetIdentityUpdatesV2 {
     type Output = GetIdentityUpdatesResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        xmtp_proto::path_and_query::<GetIdentityUpdatesRequest>()
+        Cow::Borrowed("/xmtp.identity.api.v1.IdentityApi/GetIdentityUpdates")
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -40,12 +40,6 @@ mod test {
     use super::*;
     use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::{identity_v1::GetIdentityUpdatesResponse, prelude::*};
-
-    #[xmtp_common::test]
-    fn test_file_descriptor() {
-        let pnq = xmtp_proto::path_and_query::<GetIdentityUpdatesRequest>();
-        println!("{}", pnq);
-    }
 
     #[xmtp_common::test]
     fn test_grpc_endpoint_returns_correct_path() {

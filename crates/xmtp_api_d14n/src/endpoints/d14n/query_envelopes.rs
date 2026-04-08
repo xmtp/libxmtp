@@ -4,8 +4,9 @@ use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::types::{GlobalCursor, Topic};
-use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesRequest;
-use xmtp_proto::xmtp::xmtpv4::message_api::{EnvelopesQuery, QueryEnvelopesResponse};
+use xmtp_proto::xmtp::xmtpv4::message_api::{
+    EnvelopesQuery, QueryEnvelopesRequest, QueryEnvelopesResponse,
+};
 
 /// Query a single thing
 #[derive(Debug, Builder, Default, Clone)]
@@ -26,7 +27,7 @@ impl QueryEnvelope {
 impl Endpoint for QueryEnvelope {
     type Output = QueryEnvelopesResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        xmtp_proto::path_and_query::<QueryEnvelopesRequest>()
+        Cow::Borrowed("/xmtp.xmtpv4.message_api.ReplicationApi/QueryEnvelopes")
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -61,7 +62,7 @@ impl QueryEnvelopes {
 impl Endpoint for QueryEnvelopes {
     type Output = QueryEnvelopesResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        xmtp_proto::path_and_query::<QueryEnvelopesRequest>()
+        Cow::Borrowed("/xmtp.xmtpv4.message_api.ReplicationApi/QueryEnvelopes")
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -81,24 +82,8 @@ mod test {
     use xmtp_proto::{api, prelude::*, types::TopicKind};
 
     #[xmtp_common::test]
-    fn test_file_descriptor() {
-        use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesRequest;
-        let pnq = xmtp_proto::path_and_query::<QueryEnvelopesRequest>();
-        println!("{}", pnq);
-    }
-
-    #[xmtp_common::test]
     fn test_grpc_endpoint_returns_correct_path() {
         let endpoint = QueryEnvelopes::default();
-        assert_eq!(
-            endpoint.grpc_endpoint(),
-            "/xmtp.xmtpv4.message_api.ReplicationApi/QueryEnvelopes"
-        );
-    }
-
-    #[xmtp_common::test]
-    fn test_query_envelope_grpc_endpoint_returns_correct_path() {
-        let endpoint = QueryEnvelope::default();
         assert_eq!(
             endpoint.grpc_endpoint(),
             "/xmtp.xmtpv4.message_api.ReplicationApi/QueryEnvelopes"

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use xmtp_proto::types::{GlobalCursor, Topic};
@@ -11,6 +12,10 @@ where
 {
     type Error = T::Error;
 
+    fn is_d14n(&self) -> Result<bool, Self::Error> {
+        <T as XmtpQuery>::is_d14n(&**self)
+    }
+
     /// Query every [`Topic`] at [`GlobalCursor`]
     async fn query_at(
         &self,
@@ -18,6 +23,12 @@ where
         at: Option<GlobalCursor>,
     ) -> Result<XmtpEnvelope, Self::Error> {
         <T as XmtpQuery>::query_at(&**self, topic, at).await
+    }
+
+    async fn get_node_clients(
+        &self,
+    ) -> Result<HashMap<u32, xmtp_api_grpc::GrpcClient>, Self::Error> {
+        <T as XmtpQuery>::get_node_clients(&**self).await
     }
 }
 
@@ -28,6 +39,10 @@ where
 {
     type Error = T::Error;
 
+    fn is_d14n(&self) -> Result<bool, Self::Error> {
+        <T as XmtpQuery>::is_d14n(&**self)
+    }
+
     /// Query every [`Topic`] at [`GlobalCursor`]
     async fn query_at(
         &self,
@@ -35,5 +50,11 @@ where
         at: Option<GlobalCursor>,
     ) -> Result<XmtpEnvelope, Self::Error> {
         <T as XmtpQuery>::query_at(&**self, topic, at).await
+    }
+
+    async fn get_node_clients(
+        &self,
+    ) -> Result<HashMap<u32, xmtp_api_grpc::GrpcClient>, Self::Error> {
+        <T as XmtpQuery>::get_node_clients(&**self).await
     }
 }

@@ -1,4 +1,6 @@
 //! XmtpQuery allows accessing the network while bypassing any local cursor cache.
+use std::collections::HashMap;
+
 use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_proto::types::Cursor;
 
@@ -15,6 +17,22 @@ pub trait XmtpQuery: MaybeSend + MaybeSync {
         topic: Topic,
         at: Option<GlobalCursor>,
     ) -> Result<XmtpEnvelope, Self::Error>;
+
+    /// Whether this client is connected to a d14n network.
+    /// V3 clients return `false` (default). D14n clients return `true`.
+    /// MigrationClients check the migration cutover state.
+    fn is_d14n(&self) -> Result<bool, Self::Error> {
+        Ok(false)
+    }
+
+    /// Return per-node gRPC client instances for direct node queries.
+    /// D14n implementations call GetNodes and build a client per node.
+    /// V3/other implementations return an empty map.
+    async fn get_node_clients(
+        &self,
+    ) -> Result<HashMap<u32, xmtp_api_grpc::GrpcClient>, Self::Error> {
+        Ok(HashMap::new())
+    }
 }
 
 // hides implementation detail of XmtpEnvelope/traits

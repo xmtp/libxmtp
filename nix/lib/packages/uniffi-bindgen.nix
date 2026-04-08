@@ -3,14 +3,14 @@
   lib,
 }:
 let
-  inherit (xmtp) mobile;
-  rust-toolchain = xmtp.mkToolchain [ ] [ ];
-  rust = xmtp.craneLib.overrideToolchain (p: rust-toolchain);
-  cargoArtifacts = rust.buildDepsOnly mobile.commonArgs;
+  inherit (xmtp) base;
+  rust-toolchain = p: xmtp.mkToolchain p [ ] [ ];
+  rust = xmtp.craneLib.overrideToolchain rust-toolchain;
+  cargoArtifacts = xmtp.base.mkCargoArtifacts rust false null;
   src = ./../../..;
 in
 rust.buildPackage (
-  mobile.commonArgs
+  base.commonArgs
   // {
     inherit cargoArtifacts;
     pname = "ffi-uniffi-bindgen";

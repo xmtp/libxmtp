@@ -1,12 +1,48 @@
+use alloy::primitives::{BlockNumber, Bytes, keccak256};
 use lru::LruCache;
 use parking_lot::Mutex;
 use std::num::NonZeroUsize;
-
-use alloy::primitives::{BlockNumber, Bytes};
 use xmtp_id::associations::AccountId;
 use xmtp_id::scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
 
+/// 32-byte cache key derived from all verification parameters via keccak256.
+/// Prevents cross-account cache poisoning while keeping memory constant per entry.
+/// See: https://github.com/xmtp/libxmtp/issues/3393
 type CacheKey = [u8; 32];
+
+/// Build a collision-resistant cache key by hashing all verification parameters.
+/// All fields are borrowed — no cloning required.
+fn build_cache_key(
+    account_id: &AccountId,
+    hash: &[u8; 32],
+    signature: &[u8],
+    block_number: Option<BlockNumber>,
+) -> CacheKey {
+    let chain_id = account_id.get_chain_id().as_bytes();
+    let account_address = account_id.get_account_address().as_bytes();
+    let bn_bytes = block_number.map(|bn| bn.to_be_bytes());
+
+    // Pre-allocate: 4-byte lengths for 3 variable fields + field data + 1 tag + 8 optional
+    let capacity = 4 + chain_id.len() + 4 + account_address.len() + 32 + 4 + signature.len() + 9;
+    let mut buf = Vec::with_capacity(capacity);
+
+    // Length-prefix variable-length fields for unambiguous encoding
+    buf.extend_from_slice(&(chain_id.len() as u32).to_be_bytes());
+    buf.extend_from_slice(chain_id);
+    buf.extend_from_slice(&(account_address.len() as u32).to_be_bytes());
+    buf.extend_from_slice(account_address);
+    buf.extend_from_slice(hash);
+    buf.extend_from_slice(&(signature.len() as u32).to_be_bytes());
+    buf.extend_from_slice(signature);
+    match bn_bytes {
+        Some(bytes) => {
+            buf.push(0x01);
+            buf.extend_from_slice(&bytes);
+        }
+        None => buf.push(0x00),
+    }
+    *keccak256(&buf)
+}
 
 /// A cached smart contract verifier.
 ///
@@ -38,9 +74,11 @@ impl SmartContractSignatureVerifier for CachedSmartContractSignatureVerifier {
         signature: Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<ValidationResponse, VerifierError> {
+        let cache_key = build_cache_key(&account_id, &hash, &signature, block_number);
+
         if let Some(cached_response) = {
             let mut cache = self.cache.lock();
-            cache.get(&hash).cloned()
+            cache.get(&cache_key).cloned()
         } {
             return Ok(cached_response);
         }
@@ -51,7 +89,7 @@ impl SmartContractSignatureVerifier for CachedSmartContractSignatureVerifier {
             .await?;
 
         let mut cache = self.cache.lock();
-        cache.put(hash, response.clone());
+        cache.put(cache_key, response.clone());
 
         Ok(response)
     }
@@ -191,6 +229,44 @@ mod tests {
         let response2 = cache.get(&key2).unwrap();
         assert_eq!(response2.is_valid, val2.is_valid);
         assert_eq!(response2.block_number, val2.block_number);
+    }
+
+    /// Verifies that same hash with different account/signature/block produces different cache keys.
+    /// Regression test for https://github.com/xmtp/libxmtp/issues/3393
+    #[tokio::test]
+    async fn test_cache_key_includes_all_params() {
+        let hash = [0u8; 32];
+        let sig = &[1u8];
+        let account_a = AccountId::new("eip155:1".into(), "0xaaa".into());
+        let account_b = AccountId::new("eip155:1".into(), "0xbbb".into());
+
+        let base = build_cache_key(&account_a, &hash, sig, Some(100));
+
+        // Different account_address -> different cache key
+        assert_ne!(base, build_cache_key(&account_b, &hash, sig, Some(100)));
+
+        // Different chain_id -> different cache key
+        let account_c = AccountId::new("eip155:137".into(), "0xaaa".into());
+        assert_ne!(base, build_cache_key(&account_c, &hash, sig, Some(100)));
+
+        // Different block_number -> different cache key
+        assert_ne!(base, build_cache_key(&account_a, &hash, sig, Some(200)));
+
+        // Different signature -> different cache key
+        assert_ne!(base, build_cache_key(&account_a, &hash, &[2u8], Some(100)));
+
+        // Different hash -> different cache key
+        let hash2 = [1u8; 32];
+        assert_ne!(base, build_cache_key(&account_a, &hash2, sig, Some(100)));
+
+        // Same params -> same cache key
+        assert_eq!(base, build_cache_key(&account_a, &hash, sig, Some(100)));
+
+        // None vs Some(0) block_number -> different cache key
+        assert_ne!(
+            build_cache_key(&account_a, &hash, sig, None),
+            build_cache_key(&account_a, &hash, sig, Some(0)),
+        );
     }
 
     #[tokio::test]

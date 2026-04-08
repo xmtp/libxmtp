@@ -1,151 +1,93 @@
-# Node.js NAPI-RS bindings: per-target .node files + JS/TS generation.
-# Follows the same crane two-phase pattern as android.nix / ios.nix.
 {
-  lib,
   xmtp,
-  nodejs,
   cacert,
+  lib,
+  stdenv,
   darwin,
   cargo-zigbuild,
-  ...
+  test ? false,
+  withJs ? false,
 }:
 let
-  inherit (xmtp) craneLib nodeEnv mobile;
-  inherit (nodeEnv) targetToNapi;
+  inherit (xmtp) craneLib;
+  inherit (lib.fileset) unions;
+  inherit (craneLib.fileset) commonCargoSources;
+  # p is important here, since crane splices packages according to host/build platform
+  # so it must be used to create the right toolchain for the platform.
+  rust-toolchain = p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ ];
 
-  rust-toolchain = xmtp.mkToolchain nodeEnv.nodeTargets [ ];
-  rust = craneLib.overrideToolchain (p: rust-toolchain);
+  isGnu = stdenv.hostPlatform.isLinux && !stdenv.hostPlatform.isMusl;
+
+  # overrideToolchain accepts a function that accepts `p` a pkg set
+  rust = craneLib.overrideToolchain rust-toolchain;
+  root = ./../..;
+  src = lib.fileset.toSource {
+    inherit root;
+    fileset = unions [
+      xmtp.filesets.libraries
+      (commonCargoSources (root + /bindings/node))
+      (root + /bindings/node/package.json)
+    ];
+  };
+  maybeTestFeature = if test then "--features test-utils" else "";
   version = xmtp.mkVersion rust;
+  targetGlibcVersion = if isGnu then "2.27" else null;
 
-  bindingsFileset = lib.fileset.toSource {
-    root = ./../..;
-    fileset = xmtp.filesets.forCrate ./../../bindings/node;
-  };
-
-  commonArgs = mobile.commonArgs // {
-    cargoExtraArgs = "-p bindings_node";
-    nativeBuildInputs = mobile.commonArgs.nativeBuildInputs ++ [ nodejs ];
-  };
-
-  isGnu = target: lib.hasInfix "gnu" target;
-
-  # Per-target args shared between deps and build phases.
-  mkTargetArgs =
-    target:
-    let
-      # For GNU targets, cargo-zigbuild needs the glibc version suffix
-      zigTarget = if isGnu target then "${target}.${nodeEnv.gnuGlibcVersion}" else target;
-    in
-    commonArgs
-    // (nodeEnv.crossEnvFor target)
-    // {
-      CARGO_BUILD_TARGET = target;
-      cargoExtraArgs = "--target ${zigTarget} -p bindings_node";
-      nativeBuildInputs =
-        commonArgs.nativeBuildInputs
-        ++ (nodeEnv.crossPkgsFor target)
-        ++ lib.optionals (isGnu target) [ cargo-zigbuild ];
+  specialArgs =
+    lib.optionalAttrs stdenv.hostPlatform.isMusl {
+      # Use -crt-static to allow cdylib output on musl targets.
+      RUSTFLAGS = "-C target-feature=-crt-static";
     }
-    // lib.optionalAttrs (isGnu target) {
-      # Use cargo-zigbuild instead of cargo for GNU targets.
-      # cargo-zigbuild uses zig as the linker to target a specific glibc version.
-      cargoBuildCommand = "cargo zigbuild --profile release";
-      cargoCheckCommand = "cargo zigbuild --profile release";
-      # cargo-zigbuild caches zig downloads under $HOME/Library/Caches (macOS) or
-      # $XDG_CACHE_HOME (Linux). In the Nix sandbox HOME=/homeless-shelter is read-only,
-      # so we redirect the cache to $TMPDIR which is always writable.
-      preBuild = "export HOME=$TMPDIR";
+    // lib.optionalAttrs isGnu {
+      # overwrite build target for glibc
+      CARGO_BUILD_TARGET = "${stdenv.hostPlatform.rust.rustcTarget}.${targetGlibcVersion}";
     };
 
-  # Phase 1: build dependencies (cached separately per target)
-  buildTargetDeps =
-    target:
-    rust.buildDepsOnly (
-      mkTargetArgs target
-      // {
-        pname = "bindings-node-deps-${target}";
-      }
-    );
+  commonArgs =
+    xmtp.base.commonArgs
+    // {
+      inherit version;
+    }
+    // specialArgs;
 
-  # Phase 2: build the .node file using cached deps
-  buildTarget =
-    target:
-    let
-      napiName = targetToNapi.${target};
-      libExt = if lib.hasInfix "apple" target then "dylib" else "so";
-    in
-    rust.buildPackage (
-      mkTargetArgs target
-      // {
-        inherit version;
-        pname = "bindings-node-${napiName}";
-        src = bindingsFileset;
-        cargoArtifacts = buildTargetDeps target;
-        doNotPostBuildInstallCargoBinaries = true;
-        nativeBuildInputs =
-          (mkTargetArgs target).nativeBuildInputs
-          ++ lib.optionals (lib.hasInfix "apple" target) [ darwin.cctools ];
-        installPhaseCommand = ''
-          mkdir -p $out
-          cp target/${target}/release/libbindings_node.${libExt} \
-             $out/bindings_node.${napiName}.node
-        ''
-        + lib.optionalString (lib.hasInfix "apple" target) ''
-          # Rewrite Nix store rpaths to standard macOS system paths
-          for nixlib in $(otool -L $out/bindings_node.${napiName}.node | grep /nix/store | awk '{print $1}'); do
-            basename=$(basename "$nixlib")
-            install_name_tool -change "$nixlib" "/usr/lib/$basename" \
-              $out/bindings_node.${napiName}.node
-          done
-          # Re-sign after modification (install_name_tool invalidates ad-hoc signatures)
-          if ! codesign -s - $out/bindings_node.${napiName}.node 2>/dev/null; then
-            echo "Warning: ad-hoc codesign failed — binary may not load on macOS with strict Gatekeeper policies" >&2
-          fi
-        '';
-      }
-    );
-
-  # JS/TS generation: builds on host, runs napi CLI for index.js + index.d.ts.
-  # Uses __noChroot for yarn install (network access). Must run on macOS in CI
-  # since Linux enforces sandbox=true.
-  jsBindings =
-    let
-      hostTarget = nodeEnv.hostTarget;
-    in
-    rust.buildPackage (
-      commonArgs
-      // {
-        inherit version;
-        pname = "bindings-node-js";
-        src = bindingsFileset;
-        cargoArtifacts = buildTargetDeps hostTarget;
-        CARGO_BUILD_TARGET = hostTarget;
-        cargoExtraArgs = "--target ${hostTarget} -p bindings_node";
-        __noChroot = true;
-        doNotPostBuildInstallCargoBinaries = true;
-        installPhaseCommand = ''
-          cd bindings/node
-          export HOME=$TMPDIR
-          export SSL_CERT_FILE=${cacert}/etc/ssl/certs/ca-bundle.crt
-          export NODE_EXTRA_CA_CERTS=${cacert}/etc/ssl/certs/ca-bundle.crt
-          node .yarn/releases/yarn-*.cjs install --immutable
-          node node_modules/.bin/napi build --platform --release --esm \
-            --target ${hostTarget}
-
-          mkdir -p $out
-          cp index.js $out/
-          cp index.d.ts $out/
-        '';
-      }
-    );
-
-  mkNode = targetList: {
-    targets = lib.genAttrs targetList buildTarget;
-    inherit jsBindings;
-  };
+  cargoArtifacts = xmtp.base.mkCargoArtifacts rust test (
+    specialArgs
+    // lib.optionalAttrs isGnu {
+      # override everything for glibc compatibility
+      preBuild = "export HOME=$TMPDIR";
+      nativeBuildInputs = xmtp.base.commonArgs.nativeBuildInputs ++ [ cargo-zigbuild ];
+      buildPhaseCargoCommand = "cargo zigbuild ${maybeTestFeature} --profile $CARGO_PROFILE --locked";
+    }
+  );
 
 in
-{
-  inherit mkNode buildTarget jsBindings;
-  inherit (mkNode nodeEnv.nodeTargets) targets;
-}
+rust.napiBuild (
+  commonArgs
+  // {
+    inherit src cargoArtifacts;
+    SSL_CERT_FILE = "${cacert}/etc/ssl/certs/ca-bundle.crt";
+    NODE_EXTRA_CA_CERTS = "${cacert}/etc/ssl/certs/ca-bundle.crt";
+    napiExtraArgs = "-p bindings_node ${maybeTestFeature} --package-json-path ${src}/bindings/node/package.json";
+    pname = "bindings-node-js";
+    napiGenerateJs = withJs;
+    zigBuild = isGnu;
+  }
+  // lib.optionalAttrs stdenv.hostPlatform.isMusl {
+    # remove nix specific rpaths for compatibility with musl dynamic linker
+    postFixup = ''
+      patchelf --remove-rpath $out/dist/bindings_node.*.node
+    '';
+  }
+  // lib.optionalAttrs stdenv.hostPlatform.isDarwin {
+    nativeBuildInputs = commonArgs.nativeBuildInputs ++ [
+      darwin.autoSignDarwinBinariesHook
+    ];
+    postFixup = ''
+      NODE_LIB=$(echo $out/dist/bindings_node.*.node)
+
+      # Fix the dylib's own install name (LC_ID_DYLIB) — it embeds the ephemeral Nix build path
+      install_name_tool -id "@loader_path/$(basename $NODE_LIB)" "$NODE_LIB"
+      install_name_tool -change "${darwin.libiconv}/lib/libiconv.2.dylib" "/usr/lib/libiconv.2.dylib" "$NODE_LIB"
+    '';
+  }
+)

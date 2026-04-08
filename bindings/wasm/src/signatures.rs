@@ -1,4 +1,5 @@
 use crate::ErrorWrapper;
+use crate::client::WasmVisibilityConfirmationOptions;
 use crate::client::backend::Backend;
 use crate::{
   client::Client,
@@ -328,6 +329,8 @@ impl Client {
   pub async fn register_identity(
     &mut self,
     #[wasm_bindgen(js_name = signatureRequest)] signature_request: SignatureRequestHandle,
+    #[wasm_bindgen(js_name = visibilityConfirmationOptions)]
+    visibility_confirmation_options: Option<WasmVisibilityConfirmationOptions>,
   ) -> Result<(), JsError> {
     if self.is_registered() {
       return Err(JsError::new(
@@ -335,13 +338,22 @@ impl Client {
       ));
     }
 
-    let inner = signature_request.inner.lock().await;
+    {
+      let inner = signature_request.inner.lock().await;
+      self
+        .inner_client()
+        .register_identity(inner.clone())
+        .await
+        .map_err(ErrorWrapper::js)?;
+    }
 
-    self
-      .inner_client()
-      .register_identity(inner.clone())
-      .await
-      .map_err(ErrorWrapper::js)?;
+    if let Some(opts) = visibility_confirmation_options {
+      self
+        .inner_client()
+        .wait_for_registration_visible(opts.into())
+        .await
+        .map_err(ErrorWrapper::js)?;
+    }
 
     Ok(())
   }
