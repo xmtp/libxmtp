@@ -207,9 +207,11 @@ let
       inherit version;
       __noChroot = true;
       dontUnpack = true;
+      dontFixup = true;
       buildInputs = [ ];
       installPhase = ''
         ${iosEnv.envSetup "aarch64-apple-darwin"}
+        export PATH="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin:/usr/bin:$PATH"
         set -euo pipefail
 
         echo "=== Building static xcframework ==="
@@ -311,9 +313,11 @@ let
       inherit version;
       __noChroot = true;
       dontUnpack = true;
+      dontFixup = true;
       buildInputs = [ ];
       installPhase = ''
         ${iosEnv.envSetup "aarch64-apple-darwin"}
+        export PATH="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin:/usr/bin:$PATH"
         set -euo pipefail
 
         echo "=== Building dynamic xcframework ==="
@@ -388,9 +392,85 @@ let
       '';
     };
 
+  # Aggregate for release: zip-ready directories with xcframeworks + Sources + LICENSE.
+  mkRelease =
+    {
+      static,
+      dynamic,
+      swiftBindings,
+      licenseFile,
+    }:
+    stdenv.mkDerivation {
+      pname = "xmtpv3-ios-xcframeworks";
+      inherit version;
+      dontUnpack = true;
+      installPhase = ''
+        # Static zip contents
+        mkdir -p $out/LibXMTPSwiftFFI/Sources/LibXMTP
+        cp -r ${static}/LibXMTPSwiftFFI.xcframework $out/LibXMTPSwiftFFI/
+        cp ${swiftBindings}/swift/xmtpv3.swift $out/LibXMTPSwiftFFI/Sources/LibXMTP/
+        cp ${licenseFile} $out/LibXMTPSwiftFFI/LICENSE
+
+        # Dynamic zip contents
+        mkdir -p $out/LibXMTPSwiftFFIDynamic/Sources/LibXMTP
+        cp -r ${dynamic}/LibXMTPSwiftFFIDynamic.xcframework $out/LibXMTPSwiftFFIDynamic/
+        cp ${swiftBindings}/swift/xmtpv3.swift $out/LibXMTPSwiftFFIDynamic/Sources/LibXMTP/
+        cp ${licenseFile} $out/LibXMTPSwiftFFIDynamic/LICENSE
+
+        chmod -R u+w $out
+      '';
+    };
+
+  # Aggregate for dev: bare xcframeworks at paths Package.swift expects.
+  mkDev =
+    {
+      static,
+      dynamic ? null,
+      swiftBindings,
+    }:
+    stdenv.mkDerivation {
+      pname = "xmtpv3-ios-xcframeworks-dev";
+      inherit version;
+      dontUnpack = true;
+      installPhase = ''
+        mkdir -p $out
+        cp -r ${static}/LibXMTPSwiftFFI.xcframework $out/
+        ${lib.optionalString (dynamic != null) ''
+          cp -r ${dynamic}/LibXMTPSwiftFFIDynamic.xcframework $out/
+        ''}
+        # Include generated Swift bindings for dev script to copy to SDK source tree
+        cp ${swiftBindings}/swift/xmtpv3.swift $out/xmtpv3.swift
+        chmod -R u+w $out
+      '';
+    };
+
 in
 {
   inherit swiftBindings mkIos;
   # Default: all targets (for backward compat)
   inherit (mkIos iosEnv.iosTargets) targets aggregate;
+  # Release: zip-ready directories for CI
+  release =
+    let
+      ios = mkIos iosEnv.iosTargets;
+    in
+    mkRelease {
+      static = mkStaticXcframework iosEnv.iosTargets ios.targets swiftBindings;
+      dynamic = mkDynamicXcframework iosEnv.iosTargets ios.targets swiftBindings;
+      inherit swiftBindings;
+      licenseFile = ../../LICENSE;
+    };
+  # Dev fast: simulator + macOS only, static only
+  devFast =
+    let
+      fastTargets = [
+        "aarch64-apple-darwin"
+        "aarch64-apple-ios-sim"
+      ];
+      ios = mkIos fastTargets;
+    in
+    mkDev {
+      static = mkStaticXcframework fastTargets ios.targets swiftBindings;
+      inherit swiftBindings;
+    };
 }

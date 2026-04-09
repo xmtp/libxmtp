@@ -101,6 +101,14 @@
                   "aarch64-apple-ios-sim"
                 ]
               ).aggregate;
+            ios-xcframeworks =
+              (pkgs.callPackage ./nix/package/ios.nix {
+                stdenv = pkgs.stdenvNoCC;
+              }).release;
+            ios-xcframeworks-fast =
+              (pkgs.callPackage ./nix/package/ios.nix {
+                stdenv = pkgs.stdenvNoCC;
+              }).devFast;
           };
         };
     };
