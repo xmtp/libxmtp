@@ -69,19 +69,23 @@ jobs:
           cp ../../LICENSE ./LICENSE
           # Fix permissions on xcframework (xcodebuild creates read-only headers)
           chmod -R u+w build/swift/LibXMTPSwiftFFI.xcframework
-          zip -r LibXMTPSwiftFFI.zip \
-            Sources \
-            build/swift/LibXMTPSwiftFFI.xcframework \
-            LICENSE
+          mkdir -p staging
+          cp -r Sources staging/
+          cp -r build/swift/LibXMTPSwiftFFI.xcframework staging/
+          cp LICENSE staging/
+          (cd staging && zip -r ../LibXMTPSwiftFFI.zip .)
+          rm -rf staging
       - name: Package dynamic zip
         working-directory: bindings/mobile
         run: |
           # Fix permissions on xcframework (xcodebuild creates read-only headers)
           chmod -R u+w build/swift/LibXMTPSwiftFFIDynamic.xcframework
-          zip -r LibXMTPSwiftFFIDynamic.zip \
-            Sources \
-            build/swift/LibXMTPSwiftFFIDynamic.xcframework \
-            LICENSE
+          mkdir -p staging
+          cp -r Sources staging/
+          cp -r build/swift/LibXMTPSwiftFFIDynamic.xcframework staging/
+          cp LICENSE staging/
+          (cd staging && zip -r ../LibXMTPSwiftFFIDynamic.zip .)
+          rm -rf staging
       - name: Compute checksums
         id: checksum
         working-directory: bindings/mobile
@@ -159,7 +163,7 @@ jobs:
           cp -r Sources/* bundle/Sources/
           # Overwrite checked-in xmtpv3.swift with freshly generated version from artifact
           cp artifact/Sources/LibXMTP/xmtpv3.swift bundle/Sources/XMTPiOS/Libxmtp/xmtpv3.swift
-          cp -r artifact/build/swift/LibXMTPSwiftFFI.xcframework bundle/
+          cp -r artifact/LibXMTPSwiftFFI.xcframework bundle/
           cp ../../LICENSE bundle/
           (cd bundle && zip -qry ../XMTP-${VERSION}.zip .)
           chmod -R u+w artifact bundle 2>/dev/null || true
