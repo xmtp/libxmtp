@@ -109,18 +109,36 @@ framework-fast:
 	cp -f $(SWIFT_OUT)/xmtpv3.swift $(IOS_SDK_SWIFT_DIR)/xmtpv3.swift
 
 frameworkdyn: lipodyn
-	mkdir -p build/swift build/aarch64-apple-ios
+	mkdir -p build/swift
 	chmod -R u+w build/swift/LibXMTPSwiftFFIDynamic.xcframework 2>/dev/null || true
-	rm -rf build/swift/LibXMTPSwiftFFIDynamic.xcframework
-	cp -f $(NIX_OUT)/aarch64-apple-ios/$(DYLIB) build/aarch64-apple-ios/$(DYLIB)
-	install_name_tool -id @rpath/libxmtpv3.dylib build/aarch64-apple-ios/$(DYLIB)
+	rm -rf build/swift/LibXMTPSwiftFFIDynamic.xcframework build/fw_ios build/fw_sim build/fw_mac
+	# Stage dylibs to writable locations for framework wrapping
+	mkdir -p build/fw_ios && cp $(NIX_OUT)/aarch64-apple-ios/$(DYLIB) build/fw_ios/$(DYLIB)
+	mkdir -p build/fw_sim && cp build/lipo_ios_sim/$(DYLIB) build/fw_sim/$(DYLIB)
+	mkdir -p build/fw_mac && cp build/lipo_macos/$(DYLIB) build/fw_mac/$(DYLIB)
+	# Wrap each platform dylib in a .framework bundle so Xcode embeds a proper
+	# framework instead of a bare dylib in the app's Frameworks/ directory
+	for dir in build/fw_ios build/fw_sim build/fw_mac; do \
+		mkdir -p $$dir/libxmtpv3.framework/Headers $$dir/libxmtpv3.framework/Modules && \
+		cp $$dir/$(DYLIB) $$dir/libxmtpv3.framework/libxmtpv3 && \
+		install_name_tool -id @rpath/libxmtpv3.framework/libxmtpv3 $$dir/libxmtpv3.framework/libxmtpv3 && \
+		cp $(SWIFT_OUT)/include/libxmtp/*.h $$dir/libxmtpv3.framework/Headers/ && \
+		cp $(SWIFT_OUT)/include/libxmtp/module.modulemap $$dir/libxmtpv3.framework/Modules/ && \
+		/usr/libexec/PlistBuddy \
+			-c "Add :CFBundleExecutable string libxmtpv3" \
+			-c "Add :CFBundleIdentifier string org.xmtp.libxmtpv3" \
+			-c "Add :CFBundleInfoDictionaryVersion string 6.0" \
+			-c "Add :CFBundleName string libxmtpv3" \
+			-c "Add :CFBundlePackageType string FMWK" \
+			-c "Add :CFBundleVersion string 1" \
+			-c "Add :CFBundleShortVersionString string 1.0" \
+			$$dir/libxmtpv3.framework/Info.plist \
+		|| exit 1; \
+	done
 	xcodebuild -create-xcframework \
-		-library build/aarch64-apple-ios/$(DYLIB) \
-		-headers $(SWIFT_OUT)/include/libxmtp/ \
-		-library build/lipo_ios_sim/$(DYLIB) \
-		-headers $(SWIFT_OUT)/include/libxmtp/ \
-		-library build/lipo_macos/$(DYLIB) \
-		-headers $(SWIFT_OUT)/include/libxmtp/ \
+		-framework build/fw_ios/libxmtpv3.framework \
+		-framework build/fw_sim/libxmtpv3.framework \
+		-framework build/fw_mac/libxmtpv3.framework \
 		-output build/swift/LibXMTPSwiftFFIDynamic.xcframework
 
 bindgenstatic:
