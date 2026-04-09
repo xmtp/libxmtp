@@ -48,9 +48,11 @@ impl App {
         Self::new(args.clone())
     }
 
-    pub async fn up(&self, paused: bool) -> Result<()> {
+    pub async fn up(&self, cli_paused: bool) -> Result<()> {
         let network = Network::new().await?;
         let mgr = ServiceManager::start().await?;
+        let config = Config::load()?;
+        let paused = cli_paused || config.paused;
         if paused {
             crate::contracts::set_broadcasters_paused(
                 mgr.anvil_rpc_url().as_str(),
