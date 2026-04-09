@@ -132,7 +132,8 @@ frameworkdyn: lipodyn
 			-c "Add :CFBundlePackageType string FMWK" \
 			-c "Add :CFBundleVersion string 1" \
 			-c "Add :CFBundleShortVersionString string 1.0" \
-			$$dir/xmtpv3FFI.framework/Info.plist \
+			$$dir/xmtpv3FFI.framework/Info.plist && \
+		codesign --force --sign - $$dir/xmtpv3FFI.framework \
 		|| exit 1; \
 	done
 	xcodebuild -create-xcframework \
