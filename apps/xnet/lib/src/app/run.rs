@@ -280,16 +280,20 @@ impl App {
                     .map_err(|e| eyre!("{}", e))?;
                 let ts_ns = response.timestamp_ns;
                 let secs = (ts_ns / 1_000_000_000) as i64;
-                let nanos = (ts_ns % 1_000_000_000) as u32;
-                let dt: DateTime<Local> = Local
-                    .timestamp_opt(secs, nanos)
-                    .single()
-                    .ok_or_eyre("invalid timestamp")?;
-                println!(
-                    "d14n cutover: {} ({} ns)",
-                    dt.format("%Y-%m-%d %H:%M:%S %Z"),
-                    ts_ns
-                );
+                if cutover.unix {
+                    println!("{}", secs);
+                } else {
+                    let nanos = (ts_ns % 1_000_000_000) as u32;
+                    let dt: DateTime<Local> = Local
+                        .timestamp_opt(secs, nanos)
+                        .single()
+                        .ok_or_eyre("invalid timestamp")?;
+                    println!(
+                        "d14n cutover: {} ({} ns)",
+                        dt.format("%Y-%m-%d %H:%M:%S %Z"),
+                        ts_ns
+                    );
+                }
             }
         }
         Ok(())

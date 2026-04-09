@@ -101,6 +101,9 @@ pub struct Cutover {
     /// gRPC URL of the xmtp-node-go instance to query (e.g. http://localhost:5050).
     #[arg(long)]
     pub grpc_url: Option<url::Url>,
+    /// Print cutover time as a UNIX timestamp (seconds since epoch)
+    #[arg(long)]
+    pub unix: bool,
 }
 
 /// specify the log output
