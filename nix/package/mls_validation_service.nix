@@ -33,6 +33,7 @@ let
 
       (root + /bindings/.gitkeep)
       (root + /apps/.gitkeep)
+      (root + /apps/xnet/.gitkeep)
 
       # Actual source for crates needed to compile mls-validation-service
       (commonCargoSources (root + /crates/xmtp-workspace-hack))

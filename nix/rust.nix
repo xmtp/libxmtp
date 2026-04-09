@@ -16,12 +16,33 @@ _: {
           ]
           [ ];
       src = ./..;
+      xnetFileset =
+        crate:
+        lib.fileset.toSource {
+          root = ./..;
+          fileset = lib.fileset.unions [
+            pkgs.xmtp.filesets.libraries
+            (pkgs.xmtp.craneLib.fileset.commonCargoSources (src + /apps/xnet/lib))
+            crate
+          ];
+        };
+      callPackage = lib.callPackageWith (
+        pkgs
+        // {
+          inherit xnetFileset;
+        }
+      );
     in
     {
+      packages = {
+        xnet-gui = (callPackage ./package/xnet-gui.nix { }).bin;
+        default = self'.packages.xdbg;
+      };
+      devShells.xnet-gui = (callPackage ./package/xnet-gui.nix { }).devShell;
       rust-project = {
         inherit toolchain;
         # Override the default src to use our workspace fileset which includes
-        # non-Cargo files like proto_descriptor.bin
+        # non-Cargo files like proto_descriptor.bin (used for building dependencies)
         src = lib.fileset.toSource {
           root = ./..;
           fileset = pkgs.xmtp.filesets.workspace;
@@ -42,8 +63,20 @@ _: {
             # wasm bindings have custom build in wasm.nix
             autoWire = [ ];
           };
+          "xnet" = {
+            path = src + /apps/xnet/lib;
+            autoWire = [ "crate" ];
+          };
+          "xnet-gui" = {
+            path = src + /apps/xnet/gui;
+            autoWire = [ ];
+          };
+          "xnet-cli" = {
+            crane.args.src = xnetFileset (src + /apps/xnet/cli);
+            path = src + /apps/xnet/cli;
+            autoWire = [ "crate" ];
+          };
         };
       };
-      packages.default = self'.packages.xdbg;
     };
 }

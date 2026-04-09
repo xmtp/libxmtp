@@ -35,6 +35,9 @@ workspace-members = [
   "xmtp-db-tools",
   "xdbg",
   "error_glossary",
+  "xnet-cli",
+  "xnet-gui",
+  "xnet-lib",
 ]
 third-party = [
   { name = "tonic" },
@@ -50,6 +53,9 @@ workspace-members = [
   "xmtp-db-tools",
   "xdbg",
   "error_glossary",
+  "xnet-cli",
+  "xnet-gui",
+  "xnet-lib",
 ]
 third-party = [
   { name = "tonic" },

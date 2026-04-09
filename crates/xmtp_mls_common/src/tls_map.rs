@@ -58,12 +58,14 @@ impl<K: std::fmt::Debug, V: std::fmt::Debug> std::fmt::Debug for TlsMapEntry<K, 
 }
 
 impl<K: Size, V: Size> Size for TlsMapEntry<K, V> {
+    #[inline]
     fn tls_serialized_len(&self) -> usize {
         self.key.tls_serialized_len() + self.value.tls_serialized_len()
     }
 }
 
 impl<K: Serialize, V: Serialize> Serialize for TlsMapEntry<K, V> {
+    #[inline]
     fn tls_serialize<W: Write>(&self, writer: &mut W) -> Result<usize, tls_codec::Error> {
         let key_size = self.key.tls_serialize(writer)?;
         let value_size = self.value.tls_serialize(writer)?;
@@ -72,6 +74,7 @@ impl<K: Serialize, V: Serialize> Serialize for TlsMapEntry<K, V> {
 }
 
 impl<K: Deserialize + Size, V: Deserialize + Size> Deserialize for TlsMapEntry<K, V> {
+    #[inline]
     fn tls_deserialize<R: Read>(bytes: &mut R) -> Result<Self, tls_codec::Error>
     where
         Self: Sized,
@@ -113,6 +116,7 @@ pub struct TlsMap<K, V> {
 }
 
 impl<K, V> Default for TlsMap<K, V> {
+    #[inline]
     fn default() -> Self {
         Self {
             entries: Vec::new(),
@@ -132,6 +136,7 @@ where
     /// let map = TlsMap::<u8, u16>::new();
     /// assert!(map.is_empty());
     /// ```
+    #[inline]
     pub fn new() -> Self {
         Self::default()
     }
@@ -167,6 +172,7 @@ where
     /// assert!(map.insert(1, 10).is_ok());
     /// assert!(map.insert(1, 20).is_err()); // duplicate key
     /// ```
+    #[inline]
     pub fn insert(&mut self, key: K, value: V) -> Result<(), TlsMapError> {
         match self.entries.binary_search_by(|e| e.key.cmp(&key)) {
             Ok(_) => Err(TlsMapError::KeyExists),
@@ -188,6 +194,7 @@ where
     /// assert_eq!(map.get(&1), Some(&20));
     /// assert!(map.update(99, 0).is_err()); // key not found
     /// ```
+    #[inline]
     pub fn update(&mut self, key: K, value: V) -> Result<(), TlsMapError> {
         match self.entries.binary_search_by(|e| e.key.cmp(&key)) {
             Ok(idx) => {
@@ -209,6 +216,7 @@ where
     /// assert_eq!(map.get(&1), Some(&20));
     /// assert_eq!(map.len(), 1);
     /// ```
+    #[inline]
     pub fn set(&mut self, key: K, value: V) {
         match self.entries.binary_search_by(|e| e.key.cmp(&key)) {
             Ok(idx) => self.entries[idx].value = value,
@@ -226,6 +234,7 @@ where
     /// assert_eq!(map.remove(&1).unwrap(), 10);
     /// assert!(map.remove(&1).is_err()); // already removed
     /// ```
+    #[inline]
     pub fn remove(&mut self, key: &K) -> Result<V, TlsMapError> {
         match self.entries.binary_search_by(|e| e.key.cmp(key)) {
             Ok(idx) => Ok(self.entries.remove(idx).value),
@@ -243,6 +252,7 @@ where
     /// assert_eq!(map.get(&1), Some(&10));
     /// assert_eq!(map.get(&2), None);
     /// ```
+    #[inline]
     pub fn get(&self, key: &K) -> Option<&V> {
         self.entries
             .binary_search_by(|e| e.key.cmp(key))
@@ -260,6 +270,7 @@ where
     /// *map.get_mut(&1).unwrap() = 20;
     /// assert_eq!(map.get(&1), Some(&20));
     /// ```
+    #[inline]
     pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
         self.entries
             .binary_search_by(|e| e.key.cmp(key))
@@ -268,16 +279,19 @@ where
     }
 
     /// Check if a key exists in the map.
+    #[inline]
     pub fn contains_key(&self, key: &K) -> bool {
         self.entries.binary_search_by(|e| e.key.cmp(key)).is_ok()
     }
 
     /// Returns the number of entries in the map.
+    #[inline]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
     /// Returns true if the map contains no entries.
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -291,16 +305,19 @@ where
     /// let pairs: Vec<_> = map.iter().collect();
     /// assert_eq!(pairs, vec![(&1, &"a"), (&2, &"b")]);
     /// ```
+    #[inline]
     pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
         self.entries.iter().map(|e| (&e.key, &e.value))
     }
 
     /// Iterate over keys in sorted order.
+    #[inline]
     pub fn keys(&self) -> impl Iterator<Item = &K> {
         self.entries.iter().map(|e| &e.key)
     }
 
     /// Iterate over values in key-sorted order.
+    #[inline]
     pub fn values(&self) -> impl Iterator<Item = &V> {
         self.entries.iter().map(|e| &e.value)
     }
@@ -311,6 +328,7 @@ where
 // then validates sorted + unique keys on deserialization.
 
 impl<K: Size, V: Size> Size for TlsMap<K, V> {
+    #[inline]
     fn tls_serialized_len(&self) -> usize {
         self.entries.tls_serialized_len()
     }
@@ -319,6 +337,7 @@ impl<K: Size, V: Size> Size for TlsMap<K, V> {
 impl<K: Serialize + Size + std::fmt::Debug, V: Serialize + Size + std::fmt::Debug> Serialize
     for TlsMap<K, V>
 {
+    #[inline]
     fn tls_serialize<W: Write>(&self, writer: &mut W) -> Result<usize, tls_codec::Error> {
         self.entries.tls_serialize(writer)
     }
@@ -407,6 +426,7 @@ pub struct TlsMapDelta<K, V> {
 
 impl<K, V> TlsMapDelta<K, V> {
     /// Create an empty delta with no mutations.
+    #[inline]
     pub fn new() -> Self {
         Self {
             mutations: Vec::new(),
@@ -414,18 +434,21 @@ impl<K, V> TlsMapDelta<K, V> {
     }
 
     /// Append an insert mutation. Consumes and returns `self` for chaining.
+    #[inline]
     pub fn insert(mut self, key: K, value: V) -> Self {
         self.mutations.push(TlsMapMutation::Insert { key, value });
         self
     }
 
     /// Append an update mutation. Consumes and returns `self` for chaining.
+    #[inline]
     pub fn update(mut self, key: K, value: V) -> Self {
         self.mutations.push(TlsMapMutation::Update { key, value });
         self
     }
 
     /// Append a delete mutation. Consumes and returns `self` for chaining.
+    #[inline]
     pub fn delete(mut self, key: K) -> Self {
         self.mutations.push(TlsMapMutation::Delete { key });
         self
@@ -433,6 +456,7 @@ impl<K, V> TlsMapDelta<K, V> {
 }
 
 impl<K, V> Default for TlsMapDelta<K, V> {
+    #[inline]
     fn default() -> Self {
         Self::new()
     }
@@ -583,6 +607,7 @@ where
 }
 
 impl<K: Size, V: Size> Size for TlsMapDelta<K, V> {
+    #[inline]
     fn tls_serialized_len(&self) -> usize {
         self.mutations.tls_serialized_len()
     }
@@ -591,6 +616,7 @@ impl<K: Size, V: Size> Size for TlsMapDelta<K, V> {
 impl<K: Serialize + Size + std::fmt::Debug, V: Serialize + Size + std::fmt::Debug> Serialize
     for TlsMapDelta<K, V>
 {
+    #[inline]
     fn tls_serialize<W: Write>(&self, writer: &mut W) -> Result<usize, tls_codec::Error> {
         self.mutations.tls_serialize(writer)
     }
@@ -617,12 +643,14 @@ impl<K, V> IntoIterator for TlsMap<K, V> {
     type IntoIter =
         std::iter::Map<std::vec::IntoIter<TlsMapEntry<K, V>>, fn(TlsMapEntry<K, V>) -> (K, V)>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.entries.into_iter().map(|e| (e.key, e.value))
     }
 }
 
 impl<K: Ord + Eq, V> FromIterator<(K, V)> for TlsMap<K, V> {
+    #[inline]
     fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
         Self::from_pairs(iter)
     }

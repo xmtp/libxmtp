@@ -13,6 +13,7 @@ mod intents;
 pub mod messages;
 pub mod mls_store;
 mod mutex_registry;
+pub mod registration_visible;
 pub mod subscriptions;
 pub mod utils;
 pub mod worker;

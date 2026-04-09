@@ -1,6 +1,6 @@
 use crate::{
     mls_v1::QueryGroupMessagesResponse,
-    types::{GroupId, GroupMessageMetadata, TopicCursor, WelcomeMessage},
+    types::{Cursor, GroupId, GroupMessageMetadata, TopicCursor, WelcomeMessage},
     xmtp::xmtpv4::{envelopes::OriginatorEnvelope, message_api::QueryEnvelopesResponse},
 };
 
@@ -338,7 +338,7 @@ where
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,
-    ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
+    ) -> Result<Option<Cursor>, Self::Error> {
         (**self).publish_identity_update(request).await
     }
 
@@ -376,7 +376,7 @@ where
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,
-    ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
+    ) -> Result<Option<Cursor>, Self::Error> {
         (**self).publish_identity_update(request).await
     }
 

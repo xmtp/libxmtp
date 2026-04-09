@@ -520,139 +520,6 @@ impl Compression {
         }
     }
 }
-/// A group member and affected installation IDs
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct MembershipChange {
-    #[prost(bytes = "vec", repeated, tag = "1")]
-    pub installation_ids: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-    #[prost(string, tag = "2")]
-    pub account_address: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
-    pub initiated_by_account_address: ::prost::alloc::string::String,
-}
-impl ::prost::Name for MembershipChange {
-    const NAME: &'static str = "MembershipChange";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.MembershipChange".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.MembershipChange".into()
-    }
-}
-/// The group membership change proto
-///
-/// protolint:disable REPEATED_FIELD_NAMES_PLURALIZED
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GroupMembershipChanges {
-    /// Members that have been added in the commit
-    #[prost(message, repeated, tag = "1")]
-    pub members_added: ::prost::alloc::vec::Vec<MembershipChange>,
-    /// Members that have been removed in the commit
-    #[prost(message, repeated, tag = "2")]
-    pub members_removed: ::prost::alloc::vec::Vec<MembershipChange>,
-    /// Installations that have been added in the commit, grouped by member
-    #[prost(message, repeated, tag = "3")]
-    pub installations_added: ::prost::alloc::vec::Vec<MembershipChange>,
-    /// Installations removed in the commit, grouped by member
-    #[prost(message, repeated, tag = "4")]
-    pub installations_removed: ::prost::alloc::vec::Vec<MembershipChange>,
-}
-impl ::prost::Name for GroupMembershipChanges {
-    const NAME: &'static str = "GroupMembershipChanges";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.GroupMembershipChanges".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.GroupMembershipChanges".into()
-    }
-}
-/// A summary of the changes in a commit.
-/// Includes added/removed inboxes and changes to metadata
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GroupUpdated {
-    #[prost(string, tag = "1")]
-    pub initiated_by_inbox_id: ::prost::alloc::string::String,
-    /// The inboxes added in the commit
-    #[prost(message, repeated, tag = "2")]
-    pub added_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
-    /// The inboxes removed in the commit
-    #[prost(message, repeated, tag = "3")]
-    pub removed_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
-    /// The metadata changes in the commit
-    #[prost(message, repeated, tag = "4")]
-    pub metadata_field_changes: ::prost::alloc::vec::Vec<
-        group_updated::MetadataFieldChange,
-    >,
-    /// / The inboxes that were removed from the group in response to pending-remove/self-remove requests
-    #[prost(message, repeated, tag = "5")]
-    pub left_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
-    /// The inboxes that were added to admin list in the commit
-    #[prost(message, repeated, tag = "6")]
-    pub added_admin_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
-    /// The inboxes that were removed from admin list in the commit
-    #[prost(message, repeated, tag = "7")]
-    pub removed_admin_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
-    /// The inboxes that were added to super admin list in the commit
-    #[prost(message, repeated, tag = "8")]
-    pub added_super_admin_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
-    /// The inboxes that were removed from super admin list in the commit
-    #[prost(message, repeated, tag = "9")]
-    pub removed_super_admin_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
-}
-/// Nested message and enum types in `GroupUpdated`.
-pub mod group_updated {
-    /// An inbox that was added or removed in this commit
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct Inbox {
-        #[prost(string, tag = "1")]
-        pub inbox_id: ::prost::alloc::string::String,
-    }
-    impl ::prost::Name for Inbox {
-        const NAME: &'static str = "Inbox";
-        const PACKAGE: &'static str = "xmtp.mls.message_contents";
-        fn full_name() -> ::prost::alloc::string::String {
-            "xmtp.mls.message_contents.GroupUpdated.Inbox".into()
-        }
-        fn type_url() -> ::prost::alloc::string::String {
-            "/xmtp.mls.message_contents.GroupUpdated.Inbox".into()
-        }
-    }
-    /// A summary of a change to the mutable metadata
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct MetadataFieldChange {
-        /// The field that was changed
-        #[prost(string, tag = "1")]
-        pub field_name: ::prost::alloc::string::String,
-        /// The previous value
-        #[prost(string, optional, tag = "2")]
-        pub old_value: ::core::option::Option<::prost::alloc::string::String>,
-        /// The updated value
-        #[prost(string, optional, tag = "3")]
-        pub new_value: ::core::option::Option<::prost::alloc::string::String>,
-    }
-    impl ::prost::Name for MetadataFieldChange {
-        const NAME: &'static str = "MetadataFieldChange";
-        const PACKAGE: &'static str = "xmtp.mls.message_contents";
-        fn full_name() -> ::prost::alloc::string::String {
-            "xmtp.mls.message_contents.GroupUpdated.MetadataFieldChange".into()
-        }
-        fn type_url() -> ::prost::alloc::string::String {
-            "/xmtp.mls.message_contents.GroupUpdated.MetadataFieldChange".into()
-        }
-    }
-}
-impl ::prost::Name for GroupUpdated {
-    const NAME: &'static str = "GroupUpdated";
-    const PACKAGE: &'static str = "xmtp.mls.message_contents";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.mls.message_contents.GroupUpdated".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.mls.message_contents.GroupUpdated".into()
-    }
-}
 /// Message for group mutable metadata
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupMutablePermissionsV1 {
@@ -1019,6 +886,236 @@ impl ::prost::Name for PermissionsUpdatePolicy {
     }
     fn type_url() -> ::prost::alloc::string::String {
         "/xmtp.mls.message_contents.PermissionsUpdatePolicy".into()
+    }
+}
+/// Per-component permission policy with separate rules for insert, update,
+/// and delete operations.
+///
+/// Insert and update are separate because some components need different
+/// permission levels for creating vs modifying entries. For example, group
+/// membership allows any member to update (installations/sequence ID) but
+/// only admins to insert (add a new member).
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ComponentPermissions {
+    /// Policy for inserting a new value (component does not yet exist)
+    #[prost(message, optional, tag = "1")]
+    pub insert_policy: ::core::option::Option<MetadataPolicy>,
+    /// Policy for updating an existing value
+    #[prost(message, optional, tag = "2")]
+    pub update_policy: ::core::option::Option<MetadataPolicy>,
+    /// Policy for deleting a value
+    #[prost(message, optional, tag = "3")]
+    pub delete_policy: ::core::option::Option<MetadataPolicy>,
+}
+impl ::prost::Name for ComponentPermissions {
+    const NAME: &'static str = "ComponentPermissions";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.ComponentPermissions".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.ComponentPermissions".into()
+    }
+}
+/// Metadata describing a component: its data type and permission policies.
+///
+/// Stored as the value in the component registry (ComponentId 0x8000).
+/// Each registered component has one of these describing what kind of data
+/// it holds and who can insert, update, or delete it.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ComponentMetadata {
+    /// Permission policies for this component
+    #[prost(message, optional, tag = "1")]
+    pub permissions: ::core::option::Option<ComponentPermissions>,
+    /// The data structure type of the component's value
+    #[prost(enumeration = "ComponentType", tag = "2")]
+    pub component_type: i32,
+}
+impl ::prost::Name for ComponentMetadata {
+    const NAME: &'static str = "ComponentMetadata";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.ComponentMetadata".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.ComponentMetadata".into()
+    }
+}
+/// The data structure type of a component's value
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ComponentType {
+    Unspecified = 0,
+    /// Opaque bytes, replaced atomically
+    Bytes = 1,
+    /// A TlsMap\<bytes, bytes> supporting key-level insert/update/delete via deltas
+    TlsMapBytesBytes = 2,
+    /// A TlsMap\<InboxId, bytes> supporting key-level insert/update/delete via deltas
+    TlsMapInboxIdBytes = 3,
+    /// A TlsSet<bytes> supporting insert/remove/remove-by-hash via deltas
+    SetBytes = 4,
+    /// A TlsSet<InboxId> supporting insert/remove/remove-by-hash via deltas
+    SetInboxId = 5,
+}
+impl ComponentType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "COMPONENT_TYPE_UNSPECIFIED",
+            Self::Bytes => "COMPONENT_TYPE_BYTES",
+            Self::TlsMapBytesBytes => "COMPONENT_TYPE_TLS_MAP_BYTES_BYTES",
+            Self::TlsMapInboxIdBytes => "COMPONENT_TYPE_TLS_MAP_INBOX_ID_BYTES",
+            Self::SetBytes => "COMPONENT_TYPE_SET_BYTES",
+            Self::SetInboxId => "COMPONENT_TYPE_SET_INBOX_ID",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "COMPONENT_TYPE_UNSPECIFIED" => Some(Self::Unspecified),
+            "COMPONENT_TYPE_BYTES" => Some(Self::Bytes),
+            "COMPONENT_TYPE_TLS_MAP_BYTES_BYTES" => Some(Self::TlsMapBytesBytes),
+            "COMPONENT_TYPE_TLS_MAP_INBOX_ID_BYTES" => Some(Self::TlsMapInboxIdBytes),
+            "COMPONENT_TYPE_SET_BYTES" => Some(Self::SetBytes),
+            "COMPONENT_TYPE_SET_INBOX_ID" => Some(Self::SetInboxId),
+            _ => None,
+        }
+    }
+}
+/// A group member and affected installation IDs
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct MembershipChange {
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub installation_ids: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    #[prost(string, tag = "2")]
+    pub account_address: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub initiated_by_account_address: ::prost::alloc::string::String,
+}
+impl ::prost::Name for MembershipChange {
+    const NAME: &'static str = "MembershipChange";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.MembershipChange".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.MembershipChange".into()
+    }
+}
+/// The group membership change proto
+///
+/// protolint:disable REPEATED_FIELD_NAMES_PLURALIZED
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GroupMembershipChanges {
+    /// Members that have been added in the commit
+    #[prost(message, repeated, tag = "1")]
+    pub members_added: ::prost::alloc::vec::Vec<MembershipChange>,
+    /// Members that have been removed in the commit
+    #[prost(message, repeated, tag = "2")]
+    pub members_removed: ::prost::alloc::vec::Vec<MembershipChange>,
+    /// Installations that have been added in the commit, grouped by member
+    #[prost(message, repeated, tag = "3")]
+    pub installations_added: ::prost::alloc::vec::Vec<MembershipChange>,
+    /// Installations removed in the commit, grouped by member
+    #[prost(message, repeated, tag = "4")]
+    pub installations_removed: ::prost::alloc::vec::Vec<MembershipChange>,
+}
+impl ::prost::Name for GroupMembershipChanges {
+    const NAME: &'static str = "GroupMembershipChanges";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.GroupMembershipChanges".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.GroupMembershipChanges".into()
+    }
+}
+/// A summary of the changes in a commit.
+/// Includes added/removed inboxes and changes to metadata
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GroupUpdated {
+    #[prost(string, tag = "1")]
+    pub initiated_by_inbox_id: ::prost::alloc::string::String,
+    /// The inboxes added in the commit
+    #[prost(message, repeated, tag = "2")]
+    pub added_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
+    /// The inboxes removed in the commit
+    #[prost(message, repeated, tag = "3")]
+    pub removed_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
+    /// The metadata changes in the commit
+    #[prost(message, repeated, tag = "4")]
+    pub metadata_field_changes: ::prost::alloc::vec::Vec<
+        group_updated::MetadataFieldChange,
+    >,
+    /// / The inboxes that were removed from the group in response to pending-remove/self-remove requests
+    #[prost(message, repeated, tag = "5")]
+    pub left_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
+    /// The inboxes that were added to admin list in the commit
+    #[prost(message, repeated, tag = "6")]
+    pub added_admin_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
+    /// The inboxes that were removed from admin list in the commit
+    #[prost(message, repeated, tag = "7")]
+    pub removed_admin_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
+    /// The inboxes that were added to super admin list in the commit
+    #[prost(message, repeated, tag = "8")]
+    pub added_super_admin_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
+    /// The inboxes that were removed from super admin list in the commit
+    #[prost(message, repeated, tag = "9")]
+    pub removed_super_admin_inboxes: ::prost::alloc::vec::Vec<group_updated::Inbox>,
+}
+/// Nested message and enum types in `GroupUpdated`.
+pub mod group_updated {
+    /// An inbox that was added or removed in this commit
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Inbox {
+        #[prost(string, tag = "1")]
+        pub inbox_id: ::prost::alloc::string::String,
+    }
+    impl ::prost::Name for Inbox {
+        const NAME: &'static str = "Inbox";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.GroupUpdated.Inbox".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.GroupUpdated.Inbox".into()
+        }
+    }
+    /// A summary of a change to the mutable metadata
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct MetadataFieldChange {
+        /// The field that was changed
+        #[prost(string, tag = "1")]
+        pub field_name: ::prost::alloc::string::String,
+        /// The previous value
+        #[prost(string, optional, tag = "2")]
+        pub old_value: ::core::option::Option<::prost::alloc::string::String>,
+        /// The updated value
+        #[prost(string, optional, tag = "3")]
+        pub new_value: ::core::option::Option<::prost::alloc::string::String>,
+    }
+    impl ::prost::Name for MetadataFieldChange {
+        const NAME: &'static str = "MetadataFieldChange";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.GroupUpdated.MetadataFieldChange".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.GroupUpdated.MetadataFieldChange".into()
+        }
+    }
+}
+impl ::prost::Name for GroupUpdated {
+    const NAME: &'static str = "GroupUpdated";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.GroupUpdated".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.GroupUpdated".into()
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

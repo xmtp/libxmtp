@@ -22,7 +22,7 @@ impl FetchKeyPackages {
 impl Endpoint for FetchKeyPackages {
     type Output = FetchKeyPackagesResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        xmtp_proto::path_and_query::<FetchKeyPackagesRequest>()
+        Cow::Borrowed("/xmtp.mls.api.v1.MlsApi/FetchKeyPackages")
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -39,13 +39,6 @@ mod test {
     use super::*;
     use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::{mls_v1::FetchKeyPackagesResponse, prelude::*};
-
-    #[xmtp_common::test]
-    fn test_file_descriptor() {
-        use xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest;
-        let pnq = xmtp_proto::path_and_query::<FetchKeyPackagesRequest>();
-        println!("{}", pnq);
-    }
 
     #[xmtp_common::test]
     fn test_grpc_endpoint_returns_correct_path() {
