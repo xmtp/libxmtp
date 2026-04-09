@@ -34,7 +34,7 @@ pub enum Commands {
     /// Set a migration time
     Migrate(Migrate),
     /// Query the current d14n cutover timestamp from node-go
-    Cutover,
+    Cutover(CutoverArgs),
     /// Display the public Ethereum addresses of registered xmtpd nodes
     Addresses,
 }
@@ -60,6 +60,13 @@ pub struct AddNode {
 
 #[derive(Args, Debug, Copy, Clone)]
 pub struct Info {}
+
+#[derive(Args, Debug, Copy, Clone)]
+pub struct CutoverArgs {
+    /// Print cutover time as a UNIX timestamp (seconds since epoch)
+    #[arg(long)]
+    pub unix: bool,
+}
 
 #[derive(Args, Debug, Clone)]
 pub struct Migrate {
