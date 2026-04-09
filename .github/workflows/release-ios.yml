@@ -56,63 +56,16 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "base-version=$BASE" >> "$GITHUB_OUTPUT"
           echo "Computed version: $VERSION"
-      - name: Build iOS libs
-        run: nix build .#ios-libs --out-link bindings/mobile/build/nix
       - name: Build xcframeworks
-        run: |
-          nix develop .#ios --command make -C bindings/mobile lipo framework frameworkdyn
-      - name: Validate xcframeworks
-        working-directory: bindings/mobile
-        run: |
-          set -euo pipefail
-          echo "Validating static xcframework..."
-          test -d build/swift/LibXMTPSwiftFFI.xcframework
+        run: nix build .#ios-xcframeworks --out-link build/ios
 
-          echo "Validating dynamic xcframework .framework bundles..."
-          FOUND=0
-          for fw in build/swift/LibXMTPSwiftFFIDynamic.xcframework/*/xmtpv3FFI.framework; do
-            [ -d "$fw" ] || { echo "FAIL: No .framework bundles found"; exit 1; }
-            FOUND=$((FOUND + 1))
-            test -f "$fw/xmtpv3FFI" || { echo "FAIL: Missing binary in $fw"; exit 1; }
-            test -f "$fw/Info.plist" || { echo "FAIL: Missing Info.plist in $fw"; exit 1; }
-            test -d "$fw/Headers" || { echo "FAIL: Missing Headers in $fw"; exit 1; }
-            test -d "$fw/Modules" || { echo "FAIL: Missing Modules in $fw"; exit 1; }
-            INSTALL_NAME=$(otool -D "$fw/xmtpv3FFI" | tail -1)
-            echo "$INSTALL_NAME" | grep -q "@rpath/xmtpv3FFI.framework/xmtpv3FFI" || \
-              { echo "FAIL: Bad install name '$INSTALL_NAME' in $fw"; exit 1; }
-            echo "  OK $(basename $(dirname $fw))"
-          done
-          [ "$FOUND" -ge 3 ] || { echo "FAIL: Expected 3 platform slices, found $FOUND"; exit 1; }
-          echo "All validations passed ($FOUND platform slices)"
-      - name: Package zip
-        working-directory: bindings/mobile
-        run: |
-          mkdir -p Sources/LibXMTP
-          cp build/nix/swift/xmtpv3.swift Sources/LibXMTP/
-          cp ../../LICENSE ./LICENSE
-          # Fix permissions on xcframework (xcodebuild creates read-only headers)
-          chmod -R u+w build/swift/LibXMTPSwiftFFI.xcframework
-          mkdir -p staging
-          cp -r Sources staging/
-          cp -r build/swift/LibXMTPSwiftFFI.xcframework staging/
-          cp LICENSE staging/
-          (cd staging && zip -r ../LibXMTPSwiftFFI.zip .)
-          rm -rf staging
-      - name: Package dynamic zip
-        working-directory: bindings/mobile
-        run: |
-          # Fix permissions on xcframework (xcodebuild creates read-only headers)
-          chmod -R u+w build/swift/LibXMTPSwiftFFIDynamic.xcframework
-          mkdir -p staging
-          cp -r Sources staging/
-          cp -r build/swift/LibXMTPSwiftFFIDynamic.xcframework staging/
-          cp LICENSE staging/
-          (cd staging && zip -r ../LibXMTPSwiftFFIDynamic.zip .)
-          rm -rf staging
-      - name: Compute checksums
+      - name: Package and checksum
         id: checksum
-        working-directory: bindings/mobile
         run: |
+          cp -rL build/ios/LibXMTPSwiftFFI LibXMTPSwiftFFI
+          (cd LibXMTPSwiftFFI && zip -qr ../LibXMTPSwiftFFI.zip .)
+          cp -rL build/ios/LibXMTPSwiftFFIDynamic LibXMTPSwiftFFIDynamic
+          (cd LibXMTPSwiftFFIDynamic && zip -qr ../LibXMTPSwiftFFIDynamic.zip .)
           echo "checksum=$(shasum -a 256 LibXMTPSwiftFFI.zip | awk '{ print $1 }')" >> "$GITHUB_OUTPUT"
           echo "dynamic-checksum=$(shasum -a 256 LibXMTPSwiftFFIDynamic.zip | awk '{ print $1 }')" >> "$GITHUB_OUTPUT"
       - name: Create or update GitHub Release
@@ -120,7 +73,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
-        working-directory: bindings/mobile
         run: |
           SHA=$(git rev-parse --short=7 HEAD)
           TAG="libxmtp-ios-${SHA}"
