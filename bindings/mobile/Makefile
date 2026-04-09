@@ -111,12 +111,13 @@ framework-fast:
 	cp -f $(SWIFT_OUT)/xmtpv3.swift $(IOS_SDK_SWIFT_DIR)/xmtpv3.swift
 
 frameworkdyn: lipodyn
-	mkdir -p build/swift
+	mkdir -p build/swift build/aarch64-apple-ios
 	chmod -R u+w build/swift/LibXMTPSwiftFFIDynamic.xcframework 2>/dev/null || true
 	rm -rf build/swift/LibXMTPSwiftFFIDynamic.xcframework
-	install_name_tool -id @rpath/libxmtpv3.dylib $(NIX_OUT)/aarch64-apple-ios/$(DYLIB)
+	cp -f $(NIX_OUT)/aarch64-apple-ios/$(DYLIB) build/aarch64-apple-ios/$(DYLIB)
+	install_name_tool -id @rpath/libxmtpv3.dylib build/aarch64-apple-ios/$(DYLIB)
 	xcodebuild -create-xcframework \
-		-library $(NIX_OUT)/aarch64-apple-ios/$(DYLIB) \
+		-library build/aarch64-apple-ios/$(DYLIB) \
 		-headers $(SWIFT_OUT)/include/libxmtp/ \
 		-library build/lipo_ios_sim/$(DYLIB) \
 		-headers $(SWIFT_OUT)/include/libxmtp/ \
