@@ -22,6 +22,9 @@ pub struct Config {
     /// use the same ports as in docker-compose.yml
     #[builder(default = true)]
     pub use_standard_ports: bool,
+    /// Pause broadcaster contracts on startup
+    #[builder(default)]
+    pub paused: bool,
     /// Ethereum Signers for XMTPD
     pub signers: [PrivateKeySigner; 100],
     /// Migration configuration
@@ -80,6 +83,7 @@ impl Config {
             let signers = Self::load_signers();
             let mut c = Config::builder()
                 .use_standard_ports(toml.xnet.use_standard_ports)
+                .paused(toml.xnet.paused)
                 .signers(signers)
                 .migration(toml.migration)
                 .xmtpd(toml.xmtpd.image)
