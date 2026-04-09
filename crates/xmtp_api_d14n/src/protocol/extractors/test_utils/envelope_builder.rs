@@ -71,7 +71,12 @@ impl TestEnvelopeBuilder {
         if let FrankenMlsMessageBody::PublicMessage(ref mut m) = msg.inner.body {
             m.content.group_id = group_id.into();
         }
-        self.with_group_message_custom(MlsMessageOut::from(msg).to_bytes().unwrap(), vec![])
+        self.with_group_message_custom(
+            MlsMessageOut::from(msg)
+                .to_bytes()
+                .expect("test application message should serialize"),
+            vec![],
+        )
     }
 
     #[allow(unused)]
@@ -80,7 +85,12 @@ impl TestEnvelopeBuilder {
         if let FrankenMlsMessageBody::PrivateMessage(ref mut m) = msg.inner.body {
             m.group_id = group_id.into();
         }
-        self.with_group_message_custom(MlsMessageOut::from(msg).to_bytes().unwrap(), vec![])
+        self.with_group_message_custom(
+            MlsMessageOut::from(msg)
+                .to_bytes()
+                .expect("test commit message should serialize"),
+            vec![],
+        )
     }
 
     pub fn with_group_message_custom(mut self, data: Vec<u8>, sender_hmac: Vec<u8>) -> Self {
@@ -154,8 +164,12 @@ impl TestEnvelopeBuilder {
                 &installation,
                 credential,
             )
-            .unwrap();
-        self.with_key_package_custom(kp.key_package().tls_serialize_detached().unwrap())
+            .expect("test key package should build");
+        self.with_key_package_custom(
+            kp.key_package()
+                .tls_serialize_detached()
+                .expect("test key package should serialize"),
+        )
     }
 
     pub fn with_key_package_custom(mut self, key_package_data: Vec<u8>) -> Self {
