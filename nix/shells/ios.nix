@@ -50,8 +50,6 @@ mkShell {
     swiftlint
   ]
   ++ lib.optionals isDarwin [
-    # cctools provides lipo for combining multi-arch static libraries
-    # into universal (fat) binaries in the Makefile's `lipo` target.
     darwin.cctools
   ];
 
