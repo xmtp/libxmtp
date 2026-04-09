@@ -49,6 +49,8 @@ pub struct Config {
     pub toxiproxy: ImageConfig,
     /// ToxiProxy port override
     pub toxiproxy_port: Option<u16>,
+    /// Traefik HTTP host port override
+    pub traefik_port: Option<u16>,
     /// Gateway image overrides
     #[builder(default)]
     pub gateway: ImageConfig,
@@ -126,6 +128,7 @@ impl Config {
                 .history(toml.history)
                 .toxiproxy(toml.toxiproxy)
                 .maybe_toxiproxy_port(toml.xnet.toxiproxy_port)
+                .maybe_traefik_port(toml.xnet.traefik_port)
                 .prometheus(toml.prometheus)
                 .grafana(toml.grafana)
                 .address_mode(address_mode)

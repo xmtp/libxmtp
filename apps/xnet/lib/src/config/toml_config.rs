@@ -31,6 +31,8 @@ pub struct ImageConfig {
 pub struct XnetToml {
     pub use_standard_ports: bool,
     pub toxiproxy_port: Option<u16>,
+    /// Override the Traefik HTTP host port (default: 80)
+    pub traefik_port: Option<u16>,
     /// Pause broadcaster contracts on startup (same as `--paused` CLI flag)
     pub paused: bool,
     /// Public IP for remote addressing mode (sslip.io).
@@ -43,6 +45,7 @@ impl Default for XnetToml {
         Self {
             use_standard_ports: true,
             toxiproxy_port: Default::default(),
+            traefik_port: None,
             paused: false,
             remote_ip: None,
         }
