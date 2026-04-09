@@ -187,6 +187,207 @@ let
       aggregate = selectedAggregate;
     };
 
+  # Assemble a static xcframework from per-target .a files.
+  # Takes the target list, built target derivations, and swift bindings.
+  # Produces $out/LibXMTPSwiftFFI.xcframework/
+  mkStaticXcframework =
+    targetList: selectedTargets: swiftBindings:
+    let
+      deviceTargets = builtins.filter (t: t == "aarch64-apple-ios") targetList;
+      simTargets = builtins.filter (t: lib.hasSuffix "-ios-sim" t) targetList;
+      macTargets = builtins.filter (t: lib.hasSuffix "-darwin" t) targetList;
+      expectedSlices =
+        (if deviceTargets != [ ] then 1 else 0)
+        + (if simTargets != [ ] then 1 else 0)
+        + (if macTargets != [ ] then 1 else 0);
+      headerDir = "${swiftBindings}/swift/include/libxmtp";
+    in
+    stdenv.mkDerivation {
+      pname = "xmtpv3-static-xcframework";
+      inherit version;
+      __noChroot = true;
+      dontUnpack = true;
+      buildInputs = [ ];
+      installPhase = ''
+        ${iosEnv.envSetup "aarch64-apple-darwin"}
+        set -euo pipefail
+
+        echo "=== Building static xcframework ==="
+
+        # lipo sim .a files into fat lib
+        ${lib.optionalString (builtins.length simTargets > 0) ''
+          mkdir -p $TMPDIR/lipo_sim
+          lipo -create \
+            ${lib.concatMapStringsSep " " (t: "${selectedTargets.${t}}/${t}/libxmtpv3.a") simTargets} \
+            -output $TMPDIR/lipo_sim/libxmtpv3.a
+        ''}
+
+        # lipo macOS .a files into fat lib
+        ${lib.optionalString (builtins.length macTargets > 0) ''
+          mkdir -p $TMPDIR/lipo_macos
+          lipo -create \
+            ${lib.concatMapStringsSep " " (t: "${selectedTargets.${t}}/${t}/libxmtpv3.a") macTargets} \
+            -output $TMPDIR/lipo_macos/libxmtpv3.a
+        ''}
+
+        # Build xcodebuild args
+        XCF_ARGS=""
+        ${lib.optionalString (deviceTargets != [ ]) ''
+          XCF_ARGS="$XCF_ARGS -library ${selectedTargets.${"aarch64-apple-ios"}}/aarch64-apple-ios/libxmtpv3.a -headers ${headerDir}"
+        ''}
+        ${lib.optionalString (simTargets != [ ]) ''
+          XCF_ARGS="$XCF_ARGS -library $TMPDIR/lipo_sim/libxmtpv3.a -headers ${headerDir}"
+        ''}
+        ${lib.optionalString (macTargets != [ ]) ''
+          XCF_ARGS="$XCF_ARGS -library $TMPDIR/lipo_macos/libxmtpv3.a -headers ${headerDir}"
+        ''}
+
+        mkdir -p $out
+        xcodebuild -create-xcframework \
+          $XCF_ARGS \
+          -output $out/LibXMTPSwiftFFI.xcframework
+
+        # === Validation ===
+        echo "Validating static xcframework..."
+        FOUND=0
+        for slice in $out/LibXMTPSwiftFFI.xcframework/*/; do
+          [ -d "$slice/Headers" ] || continue
+          FOUND=$((FOUND + 1))
+          test -f "$slice/Headers/xmtpv3FFI.h" || { echo "FAIL: Missing xmtpv3FFI.h in $slice"; exit 1; }
+          test -f "$slice/Headers/module.modulemap" || { echo "FAIL: Missing modulemap in $slice"; exit 1; }
+          head -1 "$slice/Headers/module.modulemap" | grep -q "module xmtpv3FFI" || \
+            { echo "FAIL: Bad modulemap in $slice"; exit 1; }
+          echo "  static OK: $(basename $slice)"
+        done
+        [ "$FOUND" -ge ${toString expectedSlices} ] || \
+          { echo "FAIL: Expected >= ${toString expectedSlices} static slices, found $FOUND"; exit 1; }
+        echo "Static xcframework validation passed ($FOUND slices)"
+
+        chmod -R u+w $out
+      '';
+    };
+
+  # Assemble a dynamic xcframework from per-target .dylib files.
+  # Takes the target list, built target derivations, and swift bindings.
+  # Produces $out/LibXMTPSwiftFFIDynamic.xcframework/
+  mkDynamicXcframework =
+    targetList: selectedTargets: swiftBindings:
+    let
+      deviceTargets = builtins.filter (t: t == "aarch64-apple-ios") targetList;
+      simTargets = builtins.filter (t: lib.hasSuffix "-ios-sim" t) targetList;
+      macTargets = builtins.filter (t: lib.hasSuffix "-darwin" t) targetList;
+      expectedSlices =
+        (if deviceTargets != [ ] then 1 else 0)
+        + (if simTargets != [ ] then 1 else 0)
+        + (if macTargets != [ ] then 1 else 0);
+      headerDir = "${swiftBindings}/swift/include/libxmtp";
+
+      # Shell snippet to wrap a dylib in a .framework bundle
+      mkFrameworkBundle = name: dylibPath: ''
+        echo "Building framework bundle: ${name}"
+        mkdir -p $TMPDIR/${name}/xmtpv3FFI.framework/Headers
+        mkdir -p $TMPDIR/${name}/xmtpv3FFI.framework/Modules
+        cp ${dylibPath} $TMPDIR/${name}/xmtpv3FFI.framework/xmtpv3FFI
+        install_name_tool -id @rpath/xmtpv3FFI.framework/xmtpv3FFI \
+          $TMPDIR/${name}/xmtpv3FFI.framework/xmtpv3FFI
+        cp ${headerDir}/*.h $TMPDIR/${name}/xmtpv3FFI.framework/Headers/
+        sed 's/^module /framework module /' \
+          ${headerDir}/module.modulemap \
+          > $TMPDIR/${name}/xmtpv3FFI.framework/Modules/module.modulemap
+        /usr/libexec/PlistBuddy \
+          -c "Add :CFBundleExecutable string xmtpv3FFI" \
+          -c "Add :CFBundleIdentifier string org.xmtp.xmtpv3FFI" \
+          -c "Add :CFBundleInfoDictionaryVersion string 6.0" \
+          -c "Add :CFBundleName string xmtpv3FFI" \
+          -c "Add :CFBundlePackageType string FMWK" \
+          -c "Add :CFBundleVersion string 1" \
+          -c "Add :CFBundleShortVersionString string 1.0" \
+          $TMPDIR/${name}/xmtpv3FFI.framework/Info.plist
+        codesign --force --sign - $TMPDIR/${name}/xmtpv3FFI.framework
+      '';
+    in
+    stdenv.mkDerivation {
+      pname = "xmtpv3-dynamic-xcframework";
+      inherit version;
+      __noChroot = true;
+      dontUnpack = true;
+      buildInputs = [ ];
+      installPhase = ''
+        ${iosEnv.envSetup "aarch64-apple-darwin"}
+        set -euo pipefail
+
+        echo "=== Building dynamic xcframework ==="
+
+        # lipo sim .dylib files into fat dylib
+        ${lib.optionalString (builtins.length simTargets > 0) ''
+          mkdir -p $TMPDIR/lipo_sim
+          lipo -create \
+            ${lib.concatMapStringsSep " " (t: "${selectedTargets.${t}}/${t}/libxmtpv3.dylib") simTargets} \
+            -output $TMPDIR/lipo_sim/libxmtpv3.dylib
+        ''}
+
+        # lipo macOS .dylib files into fat dylib
+        ${lib.optionalString (builtins.length macTargets > 0) ''
+          mkdir -p $TMPDIR/lipo_macos
+          lipo -create \
+            ${lib.concatMapStringsSep " " (t: "${selectedTargets.${t}}/${t}/libxmtpv3.dylib") macTargets} \
+            -output $TMPDIR/lipo_macos/libxmtpv3.dylib
+        ''}
+
+        # Build .framework bundles per platform
+        ${lib.optionalString (deviceTargets != [ ]) (
+          mkFrameworkBundle "fw_ios" "${selectedTargets.${"aarch64-apple-ios"}}/aarch64-apple-ios/libxmtpv3.dylib"
+        )}
+        ${lib.optionalString (simTargets != [ ]) (
+          mkFrameworkBundle "fw_sim" "$TMPDIR/lipo_sim/libxmtpv3.dylib"
+        )}
+        ${lib.optionalString (macTargets != [ ]) (
+          mkFrameworkBundle "fw_mac" "$TMPDIR/lipo_macos/libxmtpv3.dylib"
+        )}
+
+        # Build xcodebuild args
+        XCF_ARGS=""
+        ${lib.optionalString (deviceTargets != [ ]) ''
+          XCF_ARGS="$XCF_ARGS -framework $TMPDIR/fw_ios/xmtpv3FFI.framework"
+        ''}
+        ${lib.optionalString (simTargets != [ ]) ''
+          XCF_ARGS="$XCF_ARGS -framework $TMPDIR/fw_sim/xmtpv3FFI.framework"
+        ''}
+        ${lib.optionalString (macTargets != [ ]) ''
+          XCF_ARGS="$XCF_ARGS -framework $TMPDIR/fw_mac/xmtpv3FFI.framework"
+        ''}
+
+        mkdir -p $out
+        xcodebuild -create-xcframework \
+          $XCF_ARGS \
+          -output $out/LibXMTPSwiftFFIDynamic.xcframework
+
+        # === Validation ===
+        echo "Validating dynamic xcframework..."
+        FOUND=0
+        for fw in $out/LibXMTPSwiftFFIDynamic.xcframework/*/xmtpv3FFI.framework; do
+          test -d "$fw" || continue
+          FOUND=$((FOUND + 1))
+          test -f "$fw/xmtpv3FFI" || { echo "FAIL: Missing binary in $fw"; exit 1; }
+          test -f "$fw/Info.plist" || { echo "FAIL: Missing Info.plist in $fw"; exit 1; }
+          test -d "$fw/Headers" || { echo "FAIL: Missing Headers in $fw"; exit 1; }
+          test -f "$fw/Headers/xmtpv3FFI.h" || { echo "FAIL: Missing xmtpv3FFI.h in $fw"; exit 1; }
+          test -f "$fw/Modules/module.modulemap" || { echo "FAIL: Missing modulemap in $fw"; exit 1; }
+          head -1 "$fw/Modules/module.modulemap" | grep -q "^framework module xmtpv3FFI" || \
+            { echo "FAIL: modulemap missing 'framework module' prefix in $fw"; exit 1; }
+          INSTALL_NAME=$(otool -D "$fw/xmtpv3FFI" | tail -1)
+          echo "$INSTALL_NAME" | grep -q "@rpath/xmtpv3FFI.framework/xmtpv3FFI" || \
+            { echo "FAIL: Bad install name '$INSTALL_NAME' in $fw"; exit 1; }
+          echo "  dynamic OK: $(basename $(dirname $fw))"
+        done
+        [ "$FOUND" -ge ${toString expectedSlices} ] || \
+          { echo "FAIL: Expected >= ${toString expectedSlices} dynamic slices, found $FOUND"; exit 1; }
+        echo "Dynamic xcframework validation passed ($FOUND slices)"
+
+        chmod -R u+w $out
+      '';
+    };
+
 in
 {
   inherit swiftBindings mkIos;
