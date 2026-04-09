@@ -61,6 +61,29 @@ jobs:
       - name: Build xcframeworks
         run: |
           nix develop .#ios --command make -C bindings/mobile lipo framework frameworkdyn
+      - name: Validate xcframeworks
+        working-directory: bindings/mobile
+        run: |
+          set -euo pipefail
+          echo "Validating static xcframework..."
+          test -d build/swift/LibXMTPSwiftFFI.xcframework
+
+          echo "Validating dynamic xcframework .framework bundles..."
+          FOUND=0
+          for fw in build/swift/LibXMTPSwiftFFIDynamic.xcframework/*/libxmtpv3.framework; do
+            [ -d "$fw" ] || { echo "FAIL: No .framework bundles found"; exit 1; }
+            FOUND=$((FOUND + 1))
+            test -f "$fw/libxmtpv3" || { echo "FAIL: Missing binary in $fw"; exit 1; }
+            test -f "$fw/Info.plist" || { echo "FAIL: Missing Info.plist in $fw"; exit 1; }
+            test -d "$fw/Headers" || { echo "FAIL: Missing Headers in $fw"; exit 1; }
+            test -d "$fw/Modules" || { echo "FAIL: Missing Modules in $fw"; exit 1; }
+            INSTALL_NAME=$(otool -D "$fw/libxmtpv3" | tail -1)
+            echo "$INSTALL_NAME" | grep -q "@rpath/libxmtpv3.framework/libxmtpv3" || \
+              { echo "FAIL: Bad install name '$INSTALL_NAME' in $fw"; exit 1; }
+            echo "  OK $(basename $(dirname $fw))"
+          done
+          [ "$FOUND" -ge 3 ] || { echo "FAIL: Expected 3 platform slices, found $FOUND"; exit 1; }
+          echo "All validations passed ($FOUND platform slices)"
       - name: Package zip
         working-directory: bindings/mobile
         run: |
