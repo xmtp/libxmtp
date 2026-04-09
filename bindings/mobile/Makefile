@@ -119,26 +119,26 @@ frameworkdyn: lipodyn
 	# Wrap each platform dylib in a .framework bundle so Xcode embeds a proper
 	# framework instead of a bare dylib in the app's Frameworks/ directory
 	for dir in build/fw_ios build/fw_sim build/fw_mac; do \
-		mkdir -p $$dir/libxmtpv3.framework/Headers $$dir/libxmtpv3.framework/Modules && \
-		cp $$dir/$(DYLIB) $$dir/libxmtpv3.framework/libxmtpv3 && \
-		install_name_tool -id @rpath/libxmtpv3.framework/libxmtpv3 $$dir/libxmtpv3.framework/libxmtpv3 && \
-		cp $(SWIFT_OUT)/include/libxmtp/*.h $$dir/libxmtpv3.framework/Headers/ && \
-		cp $(SWIFT_OUT)/include/libxmtp/module.modulemap $$dir/libxmtpv3.framework/Modules/ && \
+		mkdir -p $$dir/xmtpv3FFI.framework/Headers $$dir/xmtpv3FFI.framework/Modules && \
+		cp $$dir/$(DYLIB) $$dir/xmtpv3FFI.framework/xmtpv3FFI && \
+		install_name_tool -id @rpath/xmtpv3FFI.framework/xmtpv3FFI $$dir/xmtpv3FFI.framework/xmtpv3FFI && \
+		cp $(SWIFT_OUT)/include/libxmtp/*.h $$dir/xmtpv3FFI.framework/Headers/ && \
+		cp $(SWIFT_OUT)/include/libxmtp/module.modulemap $$dir/xmtpv3FFI.framework/Modules/ && \
 		/usr/libexec/PlistBuddy \
-			-c "Add :CFBundleExecutable string libxmtpv3" \
-			-c "Add :CFBundleIdentifier string org.xmtp.libxmtpv3" \
+			-c "Add :CFBundleExecutable string xmtpv3FFI" \
+			-c "Add :CFBundleIdentifier string org.xmtp.xmtpv3FFI" \
 			-c "Add :CFBundleInfoDictionaryVersion string 6.0" \
-			-c "Add :CFBundleName string libxmtpv3" \
+			-c "Add :CFBundleName string xmtpv3FFI" \
 			-c "Add :CFBundlePackageType string FMWK" \
 			-c "Add :CFBundleVersion string 1" \
 			-c "Add :CFBundleShortVersionString string 1.0" \
-			$$dir/libxmtpv3.framework/Info.plist \
+			$$dir/xmtpv3FFI.framework/Info.plist \
 		|| exit 1; \
 	done
 	xcodebuild -create-xcframework \
-		-framework build/fw_ios/libxmtpv3.framework \
-		-framework build/fw_sim/libxmtpv3.framework \
-		-framework build/fw_mac/libxmtpv3.framework \
+		-framework build/fw_ios/xmtpv3FFI.framework \
+		-framework build/fw_sim/xmtpv3FFI.framework \
+		-framework build/fw_mac/xmtpv3FFI.framework \
 		-output build/swift/LibXMTPSwiftFFIDynamic.xcframework
 
 bindgenstatic:
