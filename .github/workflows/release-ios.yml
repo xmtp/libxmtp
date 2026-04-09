@@ -176,11 +176,11 @@ jobs:
         env:
           VERSION: ${{ needs.build-and-package.outputs.version }}
         run: |
-          # Always commit Package.swift, only commit podspec for final releases
+          # Always commit Package.swift + updated bindings, only commit podspec for final releases
           if [ "${{ inputs.release-type }}" = "final" ]; then
-            git add Package.swift sdks/ios/XMTP.podspec
+            git add Package.swift sdks/ios/XMTP.podspec sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift
           else
-            git add Package.swift
+            git add Package.swift sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift
           fi
           if ! git diff-index --quiet HEAD --; then
             git commit -m "release: iOS SDK $VERSION [skip ci]"
