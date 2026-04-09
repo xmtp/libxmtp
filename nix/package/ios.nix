@@ -187,19 +187,41 @@ let
       aggregate = selectedAggregate;
     };
 
+  # Classify targets into platform groups for xcframework assembly.
+  # Each non-empty group produces one platform slice in the xcframework.
+  # Currently the only device target is aarch64-apple-ios; if more are added
+  # they would need lipo like sim/macOS groups.
+  classifyTargets =
+    targetList:
+    let
+      device = builtins.filter (t: t == "aarch64-apple-ios") targetList;
+      sim = builtins.filter (t: lib.hasSuffix "-ios-sim" t) targetList;
+      mac = builtins.filter (t: lib.hasSuffix "-darwin" t) targetList;
+    in
+    {
+      deviceTargets = device;
+      simTargets = sim;
+      macTargets = mac;
+      expectedSlices =
+        (if device != [ ] then 1 else 0)
+        + (if sim != [ ] then 1 else 0)
+        + (if mac != [ ] then 1 else 0);
+    };
+
+  # Shell preamble for xcframework derivations: resolves Xcode and adds
+  # toolchain binaries (lipo, otool, install_name_tool) and /usr/bin (codesign) to PATH.
+  xcframeworkEnvSetup = ''
+    ${iosEnv.envSetup "aarch64-apple-darwin"}
+    export PATH="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin:/usr/bin:$PATH"
+  '';
+
   # Assemble a static xcframework from per-target .a files.
   # Takes the target list, built target derivations, and swift bindings.
   # Produces $out/LibXMTPSwiftFFI.xcframework/
   mkStaticXcframework =
     targetList: selectedTargets: swiftBindings:
     let
-      deviceTargets = builtins.filter (t: t == "aarch64-apple-ios") targetList;
-      simTargets = builtins.filter (t: lib.hasSuffix "-ios-sim" t) targetList;
-      macTargets = builtins.filter (t: lib.hasSuffix "-darwin" t) targetList;
-      expectedSlices =
-        (if deviceTargets != [ ] then 1 else 0)
-        + (if simTargets != [ ] then 1 else 0)
-        + (if macTargets != [ ] then 1 else 0);
+      inherit (classifyTargets targetList) deviceTargets simTargets macTargets expectedSlices;
       headerDir = "${swiftBindings}/swift/include/libxmtp";
     in
     stdenv.mkDerivation {
@@ -208,10 +230,8 @@ let
       __noChroot = true;
       dontUnpack = true;
       dontFixup = true;
-      buildInputs = [ ];
       installPhase = ''
-        ${iosEnv.envSetup "aarch64-apple-darwin"}
-        export PATH="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin:/usr/bin:$PATH"
+        ${xcframeworkEnvSetup}
         set -euo pipefail
 
         echo "=== Building static xcframework ==="
@@ -275,13 +295,7 @@ let
   mkDynamicXcframework =
     targetList: selectedTargets: swiftBindings:
     let
-      deviceTargets = builtins.filter (t: t == "aarch64-apple-ios") targetList;
-      simTargets = builtins.filter (t: lib.hasSuffix "-ios-sim" t) targetList;
-      macTargets = builtins.filter (t: lib.hasSuffix "-darwin" t) targetList;
-      expectedSlices =
-        (if deviceTargets != [ ] then 1 else 0)
-        + (if simTargets != [ ] then 1 else 0)
-        + (if macTargets != [ ] then 1 else 0);
+      inherit (classifyTargets targetList) deviceTargets simTargets macTargets expectedSlices;
       headerDir = "${swiftBindings}/swift/include/libxmtp";
 
       # Shell snippet to wrap a dylib in a .framework bundle
@@ -314,10 +328,8 @@ let
       __noChroot = true;
       dontUnpack = true;
       dontFixup = true;
-      buildInputs = [ ];
       installPhase = ''
-        ${iosEnv.envSetup "aarch64-apple-darwin"}
-        export PATH="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin:/usr/bin:$PATH"
+        ${xcframeworkEnvSetup}
         set -euo pipefail
 
         echo "=== Building dynamic xcframework ==="
