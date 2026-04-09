@@ -1,17 +1,16 @@
 # iOS cross-compilation package derivation.
 # Builds static and dynamic libraries for 4 targets + Swift bindings, cacheable in Cachix.
+# Assembles xcframeworks (static + dynamic) from built targets.
 # Uses shared config from nix/lib/ios-env.nix and nix/lib/mobile-common.nix.
 #
-# This file produces 6 derivations:
-#   1-4. Per-target static+dynamic libraries (impure — need Xcode SDK):
-#        xmtpv3-{x86_64-apple-darwin,aarch64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim}
-#   5.   Swift bindings (impure — needs Xcode SDK for native host build):
-#        xmtpv3-swift-bindings (runs uniffi-bindgen, outputs .swift + .h + .modulemap)
-#   6.   Aggregate (pure — just symlinks):
-#        xmtpv3-ios-libs (combines all outputs into a single derivation)
-#
-# All impure derivations use __noChroot = true to access the system Xcode SDK.
-# The aggregate derivation is pure since it only creates symlinks to Nix store paths.
+# Key derivations:
+#   - Per-target static+dynamic libraries (impure — need Xcode SDK)
+#   - Swift bindings (impure — runs uniffi-bindgen)
+#   - Aggregate ios-libs (pure — symlinks to all targets)
+#   - Static xcframework assembly (impure — needs Xcode for lipo + xcodebuild)
+#   - Dynamic xcframework assembly (impure — needs Xcode for .framework wrapping)
+#   - Release aggregate (pure — zip-ready directory layout)
+#   - Dev aggregate (pure — bare xcframeworks for Package.swift detection)
 #
 {
   lib,
