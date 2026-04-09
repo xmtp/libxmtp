@@ -78,7 +78,7 @@ impl Config {
             let app = App::parse()?;
             let toml = Self::load_toml(&app.args)?;
             let signers = Self::load_signers();
-            let c = Config::builder()
+            let mut c = Config::builder()
                 .use_standard_ports(toml.xnet.use_standard_ports)
                 .signers(signers)
                 .migration(toml.migration)
@@ -96,6 +96,27 @@ impl Config {
                 .prometheus(toml.prometheus)
                 .grafana(toml.grafana)
                 .build();
+
+            // Allow XNET_CUTOVER_TIMESTAMP env var to override the TOML migration_timestamp
+            if let Ok(env_val) = std::env::var("XNET_CUTOVER_TIMESTAMP") {
+                match env_val.parse::<u64>() {
+                    Ok(ts) => {
+                        tracing::info!(
+                            "Overriding migration_timestamp from env: {} (config had: {:?})",
+                            ts,
+                            c.migration.migration_timestamp
+                        );
+                        c.migration.migration_timestamp = Some(ts);
+                    }
+                    Err(_) => {
+                        tracing::warn!(
+                            "XNET_CUTOVER_TIMESTAMP env var is not a valid u64: '{}', falling back to TOML value",
+                            env_val
+                        );
+                    }
+                }
+            }
+
             CONF.set(c)
                 .map_err(|_| eyre!("Config already initialized"))?;
         }
