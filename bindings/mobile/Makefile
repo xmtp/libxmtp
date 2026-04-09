@@ -76,8 +76,6 @@ lipodyn:
 	mkdir -p build/lipo_macos build/lipo_ios_sim
 	lipo -create -output build/lipo_ios_sim/$(DYLIB) $(foreach arch,$(ARCHS_IOS),$(wildcard $(NIX_OUT)/$(arch)/$(DYLIB)))
 	lipo -create -output build/lipo_macos/$(DYLIB) $(foreach arch,$(ARCHS_MAC),$(wildcard $(NIX_OUT)/$(arch)/$(DYLIB)))
-	install_name_tool -id @rpath/libxmtpv3.dylib build/lipo_ios_sim/$(DYLIB)
-	install_name_tool -id @rpath/libxmtpv3.dylib build/lipo_macos/$(DYLIB)
 
 # xcframework combines libs for different platforms (iOS, iOS-simulator, macOS, ...) into one framework that can be used in Xcode
 framework: lipo
