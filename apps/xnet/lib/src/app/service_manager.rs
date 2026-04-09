@@ -10,10 +10,9 @@ use crate::{
     network::{Network, XNET_NETWORK_NAME},
     services::{
         self, CoreDns, Gateway, Grafana, NodeGo, Otterscan, PgAdmin, Prometheus, ReplicationDb,
-        Service, ToxiProxy, Traefik, TraefikConfig, Xmtpd, allocate_xmtpd_port,
-        create_and_start_container,
+        Service, ToxiProxy, Traefik, TraefikConfig, Xmtpd, create_and_start_container,
     },
-    types::XmtpdNode,
+    types::{XmtpdNode, resolve_port},
     xmtpd_cli::XmtpdCli,
 };
 use bollard::{
@@ -127,6 +126,7 @@ impl ServiceManager {
             migrator,
             name,
             enable,
+            use_standard_port,
         } in config.xmtpd_nodes
         {
             id += XmtpdConst::NODE_ID_INCREMENT;
@@ -139,11 +139,7 @@ impl ServiceManager {
                 continue;
             }
             let node = XmtpdNode::builder();
-            let node = if let Some(p) = port {
-                node.port(p)
-            } else {
-                node.port(allocate_xmtpd_port()?)
-            };
+            let node = node.port(resolve_port(use_standard_port, port)?);
             let node = if let Some(n) = name {
                 node.name(n)
             } else {

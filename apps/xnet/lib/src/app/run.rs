@@ -112,13 +112,36 @@ impl App {
             .await?;
         }
 
+        if add.use_standard_port {
+            // Check all registered ToxiProxy proxies, not just mgr.nodes() which
+            // only contains nodes started in the current session. Nodes whose proxy
+            // already existed at startup are skipped by ServiceManager::start() and
+            // never added to self.nodes, so we must query ToxiProxy directly.
+            let standard_port = crate::constants::Xmtpd::GRPC_PORT;
+            let existing_proxies = mgr.proxy.list_proxies().await?;
+            for proxy in existing_proxies.values() {
+                let listen = &proxy.proxy_pack.listen;
+                let port: u16 = listen
+                    .rsplit(':')
+                    .next()
+                    .and_then(|p| p.parse().ok())
+                    .unwrap_or(0);
+                if port == standard_port {
+                    return Err(eyre!(
+                        "cannot add node with --use-standard-port: port {} is already in use by an existing proxy",
+                        standard_port
+                    ));
+                }
+            }
+        }
+
         let cli = XmtpdCli::builder().toxiproxy(mgr.proxy.clone());
         let mut output = self.cli_output.lock().await;
         let gateway = mgr
             .gateway
             .external_url()
             .ok_or_eyre("no url for gateway")?;
-        let mut xmtpd = XmtpdNode::new(gateway.as_str()).await?;
+        let mut xmtpd = XmtpdNode::new(gateway.as_str(), add.use_standard_port).await?;
         cli.clone()
             .build()
             .register(&mgr, &mut *output, &xmtpd)

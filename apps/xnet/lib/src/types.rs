@@ -23,18 +23,30 @@ pub struct XmtpdNode {
     name: String,
 }
 
+/// Determine the port for an XMTPD node.
+///
+/// Rules:
+/// - `use_standard_port=true` + explicit port → error
+/// - `use_standard_port=true` + no port       → 5050 (XmtpdConst::GRPC_PORT)
+/// - `use_standard_port=false` + explicit port → use that port
+/// - `use_standard_port=false` + no port       → allocate from range 8150-8200
+pub fn resolve_port(use_standard_port: bool, port: Option<u16>) -> Result<u16> {
+    match (use_standard_port, port) {
+        (true, Some(_)) => color_eyre::eyre::bail!(
+            "cannot set both `use_standard_port` and an explicit `port` for the same node"
+        ),
+        (true, None) => Ok(XmtpdConst::GRPC_PORT),
+        (false, Some(p)) => Ok(p),
+        (false, None) => allocate_xmtpd_port(),
+    }
+}
+
 impl XmtpdNode {
-    pub async fn new(gateway_host: &str) -> Result<Self> {
+    pub async fn new(gateway_host: &str, use_standard_port: bool) -> Result<Self> {
         let config = Config::load()?;
         let next_id = Self::get_next_id(gateway_host).await?;
-        // if its the first node use the standard 5050 for compatibility
-        let port = if config.use_standard_ports && next_id == XmtpdConst::NODE_ID_INCREMENT {
-            5050
-        } else {
-            allocate_xmtpd_port()?
-        };
+        let port = resolve_port(use_standard_port, None)?;
 
-        let config = Config::load()?;
         let num_ids = next_id / XmtpdConst::NODE_ID_INCREMENT;
         let base_idx = num_ids as usize * 3 + 1;
         Ok(Self {
@@ -100,5 +112,44 @@ impl XmtpdNode {
         let nodes = GetNodes::builder().build()?.query(&grpc).await?;
         let ids = nodes.nodes.keys().max();
         Ok(ids.unwrap_or(&0) + XmtpdConst::NODE_ID_INCREMENT)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_port_standard_port_none_returns_5050() {
+        let result = resolve_port(true, None).unwrap();
+        assert_eq!(result, XmtpdConst::GRPC_PORT);
+    }
+
+    #[test]
+    fn resolve_port_auto_allocates_in_range() {
+        use crate::constants::ToxiProxy as ToxiProxyConst;
+        let result = resolve_port(false, None).unwrap();
+        assert!(
+            result >= ToxiProxyConst::XMTPD_PORT_RANGE.0
+                && result < ToxiProxyConst::XMTPD_PORT_RANGE.1,
+            "allocated port {} not in range {}..{}",
+            result,
+            ToxiProxyConst::XMTPD_PORT_RANGE.0,
+            ToxiProxyConst::XMTPD_PORT_RANGE.1,
+        );
+    }
+
+    #[test]
+    fn resolve_port_explicit_port_returns_that_port() {
+        let result = resolve_port(false, Some(9999)).unwrap();
+        assert_eq!(result, 9999);
+    }
+
+    #[test]
+    fn resolve_port_standard_port_and_explicit_errors() {
+        let result = resolve_port(true, Some(9999));
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("cannot set both"));
     }
 }

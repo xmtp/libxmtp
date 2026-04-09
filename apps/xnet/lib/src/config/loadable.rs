@@ -17,6 +17,31 @@ use super::toml_config::{ImageConfig, MigrationConfig, NodeToml, TomlConfig};
 
 static CONF: OnceLock<Config> = OnceLock::new();
 
+/// Validate the node slice from TOML configuration.
+///
+/// Rules:
+/// - At most one node may have `use_standard_port = true`
+/// - A node cannot have both `use_standard_port = true` and an explicit `port`
+pub fn validate_node_toml(nodes: &[NodeToml]) -> Result<()> {
+    let standard_port_count = nodes.iter().filter(|n| n.use_standard_port).count();
+    if standard_port_count > 1 {
+        color_eyre::eyre::bail!(
+            "at most one node may have `use_standard_port = true`, found {}",
+            standard_port_count
+        );
+    }
+    for node in nodes {
+        if node.use_standard_port && node.port.is_some() {
+            let name = node.name.as_deref().unwrap_or("<unnamed>");
+            color_eyre::eyre::bail!(
+                "node '{}': cannot set both `use_standard_port = true` and an explicit `port`",
+                name
+            );
+        }
+    }
+    Ok(())
+}
+
 #[derive(Builder, Debug, Clone)]
 #[builder(on(String, into), derive(Debug))]
 pub struct Config {
@@ -153,6 +178,9 @@ impl Config {
                     }
                 }
             }
+
+            // Validate node configuration
+            validate_node_toml(&c.xmtpd_nodes)?;
 
             CONF.set(c)
                 .map_err(|_| eyre!("Config already initialized"))?;
