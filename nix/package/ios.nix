@@ -13,15 +13,6 @@
 # All impure derivations use __noChroot = true to access the system Xcode SDK.
 # The aggregate derivation is pure since it only creates symlinks to Nix store paths.
 #
-# --- Why xcframework assembly stays in the Makefile ---
-# It's technically feasible to move lipo + xcodebuild -create-xcframework into Nix
-# (lipo is in the devShell, and __noChroot makes xcodebuild accessible). However:
-#   1. Negligible caching benefit — lipo + xcodebuild takes ~5s vs 30-60 min compilation.
-#   2. xcframework invalidates whenever any .a changes — so it's a cache miss exactly
-#      when the static libs are also cache misses (the only scenario where caching matters).
-#   3. Clean separation — Nix does expensive compilation/caching, Make does fast assembly.
-#   4. `make local` would break — devs who don't use nix build depend on the Makefile flow.
-#   5. Manually building xcframework (without xcodebuild) would be fragile.
 {
   lib,
   xmtp,
@@ -203,9 +194,7 @@ let
       simTargets = sim;
       macTargets = mac;
       expectedSlices =
-        (if device != [ ] then 1 else 0)
-        + (if sim != [ ] then 1 else 0)
-        + (if mac != [ ] then 1 else 0);
+        (if device != [ ] then 1 else 0) + (if sim != [ ] then 1 else 0) + (if mac != [ ] then 1 else 0);
     };
 
   # Shell preamble for xcframework derivations: resolves Xcode and adds
@@ -221,7 +210,12 @@ let
   mkStaticXcframework =
     targetList: selectedTargets: swiftBindings:
     let
-      inherit (classifyTargets targetList) deviceTargets simTargets macTargets expectedSlices;
+      inherit (classifyTargets targetList)
+        deviceTargets
+        simTargets
+        macTargets
+        expectedSlices
+        ;
       headerDir = "${swiftBindings}/swift/include/libxmtp";
     in
     stdenv.mkDerivation {
@@ -255,7 +249,9 @@ let
         # Build xcodebuild args
         XCF_ARGS=""
         ${lib.optionalString (deviceTargets != [ ]) ''
-          XCF_ARGS="$XCF_ARGS -library ${selectedTargets.${"aarch64-apple-ios"}}/aarch64-apple-ios/libxmtpv3.a -headers ${headerDir}"
+          XCF_ARGS="$XCF_ARGS -library ${
+            selectedTargets.${"aarch64-apple-ios"}
+          }/aarch64-apple-ios/libxmtpv3.a -headers ${headerDir}"
         ''}
         ${lib.optionalString (simTargets != [ ]) ''
           XCF_ARGS="$XCF_ARGS -library $TMPDIR/lipo_sim/libxmtpv3.a -headers ${headerDir}"
@@ -295,7 +291,12 @@ let
   mkDynamicXcframework =
     targetList: selectedTargets: swiftBindings:
     let
-      inherit (classifyTargets targetList) deviceTargets simTargets macTargets expectedSlices;
+      inherit (classifyTargets targetList)
+        deviceTargets
+        simTargets
+        macTargets
+        expectedSlices
+        ;
       headerDir = "${swiftBindings}/swift/include/libxmtp";
 
       # Shell snippet to wrap a dylib in a .framework bundle
@@ -352,7 +353,9 @@ let
 
         # Build .framework bundles per platform
         ${lib.optionalString (deviceTargets != [ ]) (
-          mkFrameworkBundle "fw_ios" "${selectedTargets.${"aarch64-apple-ios"}}/aarch64-apple-ios/libxmtpv3.dylib"
+          mkFrameworkBundle "fw_ios" "${
+            selectedTargets.${"aarch64-apple-ios"}
+          }/aarch64-apple-ios/libxmtpv3.dylib"
         )}
         ${lib.optionalString (simTargets != [ ]) (
           mkFrameworkBundle "fw_sim" "$TMPDIR/lipo_sim/libxmtpv3.dylib"
