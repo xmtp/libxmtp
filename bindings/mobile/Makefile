@@ -123,7 +123,7 @@ frameworkdyn: lipodyn
 		cp $$dir/$(DYLIB) $$dir/xmtpv3FFI.framework/xmtpv3FFI && \
 		install_name_tool -id @rpath/xmtpv3FFI.framework/xmtpv3FFI $$dir/xmtpv3FFI.framework/xmtpv3FFI && \
 		cp $(SWIFT_OUT)/include/libxmtp/*.h $$dir/xmtpv3FFI.framework/Headers/ && \
-		cp $(SWIFT_OUT)/include/libxmtp/module.modulemap $$dir/xmtpv3FFI.framework/Modules/ && \
+		sed 's/^module /framework module /' $(SWIFT_OUT)/include/libxmtp/module.modulemap > $$dir/xmtpv3FFI.framework/Modules/module.modulemap && \
 		/usr/libexec/PlistBuddy \
 			-c "Add :CFBundleExecutable string xmtpv3FFI" \
 			-c "Add :CFBundleIdentifier string org.xmtp.xmtpv3FFI" \
