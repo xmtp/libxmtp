@@ -31,6 +31,8 @@ pub struct ImageConfig {
 pub struct XnetToml {
     pub use_standard_ports: bool,
     pub toxiproxy_port: Option<u16>,
+    /// Pause broadcaster contracts on startup (same as `--paused` CLI flag)
+    pub paused: bool,
 }
 
 impl Default for XnetToml {
@@ -38,6 +40,7 @@ impl Default for XnetToml {
         Self {
             use_standard_ports: true,
             toxiproxy_port: Default::default(),
+            paused: false,
         }
     }
 }
