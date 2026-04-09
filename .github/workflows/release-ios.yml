@@ -163,6 +163,8 @@ jobs:
           cp -r Sources/* bundle/Sources/
           # Overwrite checked-in xmtpv3.swift with freshly generated version from artifact
           cp artifact/Sources/LibXMTP/xmtpv3.swift bundle/Sources/XMTPiOS/Libxmtp/xmtpv3.swift
+          # Also update the repo copy so it gets committed with the release
+          cp artifact/Sources/LibXMTP/xmtpv3.swift Sources/XMTPiOS/Libxmtp/xmtpv3.swift
           cp -r artifact/LibXMTPSwiftFFI.xcframework bundle/
           cp ../../LICENSE bundle/
           (cd bundle && zip -qry ../XMTP-${VERSION}.zip .)
