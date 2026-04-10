@@ -29,7 +29,6 @@ pub use coredns::CoreDns;
 pub use gateway::Gateway;
 pub use grafana::Grafana;
 pub use history::HistoryServer;
-use map_macro::hash_map;
 pub use mlsdb::MlsDb;
 pub use node_go::NodeGo;
 pub use otterscan::Otterscan;
@@ -250,9 +249,9 @@ pub async fn create_and_start_container(
         .and_then(|h| h.port_bindings.clone())
         .map(|p| p.keys().cloned().collect());
     config.exposed_ports = exposed;
-    config.labels = Some(hash_map! {
-        "com.xmtp.network".to_string() => "xnet".to_string()
-    });
+    let mut labels = config.labels.take().unwrap_or_default();
+    labels.insert("com.xmtp.network".to_string(), "xnet".to_string());
+    config.labels = Some(labels);
     let response = docker
         .create_container(Some(options.build()), config)
         .await?;
