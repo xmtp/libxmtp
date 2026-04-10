@@ -8,6 +8,8 @@ on:
       - "apps/xnet/gui/**"
       - "apps/xnet/lib/**"
       - "nix/package/xnet-gui.nix"
+      - "nix/rust.nix"
+      - "flake.nix"
       - ".github/workflows/release-xnet-gui.yml"
   workflow_dispatch:
 
