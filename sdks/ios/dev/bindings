@@ -10,6 +10,7 @@ if [[ "${1:-}" == "--release" ]]; then
     mkdir -p "$SWIFT_OUT"
     cp -rL "${ROOT}/bindings/mobile/build/release/LibXMTPSwiftFFI/LibXMTPSwiftFFI.xcframework" "$SWIFT_OUT/"
     cp -rL "${ROOT}/bindings/mobile/build/release/LibXMTPSwiftFFIDynamic/LibXMTPSwiftFFIDynamic.xcframework" "$SWIFT_OUT/"
+    chmod -R u+w "$SWIFT_OUT"
     cp -f "${ROOT}/bindings/mobile/build/release/LibXMTPSwiftFFI/Sources/LibXMTP/xmtpv3.swift" \
         "${ROOT}/sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift"
 else
