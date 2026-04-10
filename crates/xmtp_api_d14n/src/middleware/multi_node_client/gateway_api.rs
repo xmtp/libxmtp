@@ -197,4 +197,26 @@ mod tests {
         assert_eq!(clients.len(), 1, "expected one built client");
         assert!(clients.contains_key(&1), "expected node id 1 in clients");
     }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn retry_get_nodes_exhausts_budget_on_repeated_transient_failure() {
+        let mut mock = MockNetworkClient::new();
+        mock.expect_request()
+            .returning(|_, _, _| Err(ApiClientError::client(MockError::ARetryableError)));
+
+        let err = get_nodes(&mock, &GrpcClient::builder())
+            .await
+            .expect_err("get_nodes should give up after exhausting the retry budget");
+
+        // The gRPC path is attached by the query layer before get_nodes can re-tag it,
+        // so the error contains the gRPC path rather than the ApiEndpoint display name.
+        let expected_tag = "/xmtp.xmtpv4.payer_api.PayerApi/GetNodes";
+        let err_string = err.to_string();
+        assert!(
+            err_string.contains(expected_tag),
+            "expected endpoint tag {:?} in error, got: {}",
+            expected_tag,
+            err_string,
+        );
+    }
 }
