@@ -195,6 +195,7 @@ impl Traefik {
     pub const IMAGE: &str = "traefik";
     pub const VERSION: &str = "v3.2";
     pub const HTTP_PORT: u16 = 80;
+    pub const HTTPS_PORT: u16 = 443;
     pub const DASHBOARD_PORT: u16 = 8080;
     pub const CONTAINER_NAME: &str = "xnet-traefik";
 }

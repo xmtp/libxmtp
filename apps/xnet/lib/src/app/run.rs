@@ -54,8 +54,9 @@ impl App {
         let config = Config::load()?;
         let paused = cli_paused || config.paused;
         if paused {
+            let rpc = mgr.anvil_rpc_url().ok_or_eyre("Anvil not running")?;
             crate::contracts::set_broadcasters_paused(
-                mgr.anvil_rpc_url().as_str(),
+                rpc.as_str(),
                 crate::constants::Anvil::ADMIN_KEY,
                 true,
             )
@@ -82,9 +83,8 @@ impl App {
         if add.migrator {
             // Broadcaster contracts must be paused before adding a migrator node.
             // If they're unpaused, d14n has been activated and migrators can't be added.
-            let statuses =
-                crate::contracts::get_broadcaster_pause_status(mgr.anvil_rpc_url().as_str())
-                    .await?;
+            let rpc = mgr.anvil_rpc_url().ok_or_eyre("Anvil not running")?;
+            let statuses = crate::contracts::get_broadcaster_pause_status(rpc.as_str()).await?;
             let all_paused = statuses.iter().all(|(_, paused)| *paused);
             if !all_paused {
                 return Err(eyre!(
@@ -96,6 +96,8 @@ impl App {
             // Set the new node's migration payer as the payload bootstrapper
             let gateway_url = mgr
                 .gateway
+                .as_ref()
+                .ok_or_eyre("Gateway not running")?
                 .external_url()
                 .ok_or_eyre("no url for gateway")?;
             let node_id = crate::types::XmtpdNode::get_next_id(gateway_url.as_str()).await?;
@@ -105,7 +107,9 @@ impl App {
             let migration_payer = &config.signers[base_idx + 2];
             let bootstrapper_addr = migration_payer.address();
             crate::contracts::set_payload_bootstrapper(
-                mgr.anvil_rpc_url().as_str(),
+                mgr.anvil_rpc_url()
+                    .ok_or_eyre("Anvil not running")?
+                    .as_str(),
                 crate::constants::Anvil::ADMIN_KEY,
                 bootstrapper_addr,
             )
@@ -139,6 +143,8 @@ impl App {
         let mut output = self.cli_output.lock().await;
         let gateway = mgr
             .gateway
+            .as_ref()
+            .ok_or_eyre("Gateway not running")?
             .external_url()
             .ok_or_eyre("no url for gateway")?;
         let mut xmtpd = XmtpdNode::new(gateway.as_str(), add.use_standard_port).await?;
@@ -157,7 +163,11 @@ impl App {
 
     pub async fn gateway_url(&self) -> Result<url::Url> {
         let mgr = ServiceManager::start().await?;
-        mgr.gateway.external_url().ok_or_eyre("no url for gateway")
+        mgr.gateway
+            .as_ref()
+            .ok_or_eyre("Gateway not running (enable_d14n required)")?
+            .external_url()
+            .ok_or_eyre("no url for gateway")
     }
 
     pub async fn addresses(&self) -> Result<()> {
@@ -166,6 +176,8 @@ impl App {
         let mgr = ServiceManager::start().await?;
         let gateway_url = mgr
             .gateway
+            .as_ref()
+            .ok_or_eyre("Gateway not running")?
             .external_url()
             .ok_or_eyre("gateway not running")?;
         let grpc =
@@ -221,12 +233,9 @@ impl App {
     pub async fn activate_d14n(&self) -> Result<()> {
         use crate::constants::Anvil as AnvilConst;
         let mut mgr = ServiceManager::start().await?;
-        crate::contracts::set_broadcasters_paused(
-            mgr.anvil_rpc_url().as_str(),
-            AnvilConst::ADMIN_KEY,
-            false,
-        )
-        .await?;
+        let rpc = mgr.anvil_rpc_url().ok_or_eyre("Anvil not running")?;
+        crate::contracts::set_broadcasters_paused(rpc.as_str(), AnvilConst::ADMIN_KEY, false)
+            .await?;
         mgr.remove_migrators().await?;
         Ok(())
     }
@@ -239,8 +248,8 @@ impl App {
         ServiceManager::print_port_allocations();
 
         let mgr = ServiceManager::start().await?;
-        let statuses =
-            crate::contracts::get_broadcaster_pause_status(mgr.anvil_rpc_url().as_str()).await?;
+        let rpc = mgr.anvil_rpc_url().ok_or_eyre("Anvil not running")?;
+        let statuses = crate::contracts::get_broadcaster_pause_status(rpc.as_str()).await?;
 
         println!();
         let mut table = AsciiTable::default();
@@ -293,9 +302,13 @@ impl App {
                     Some(u) => u.clone(),
                     None => {
                         let mgr = ServiceManager::start().await?;
-                        mgr.node_go.external_grpc_url().ok_or_eyre(
-                            "node-go has no external gRPC URL (ToxiProxy port not configured)",
-                        )?
+                        mgr.node_go
+                            .as_ref()
+                            .ok_or_eyre("node-go not running (enable_v3 required)")?
+                            .external_grpc_url()
+                            .ok_or_eyre(
+                                "node-go has no external gRPC URL (ToxiProxy port not configured)",
+                            )?
                     }
                 };
                 let client = xmtp_api_grpc::GrpcClient::create(url).map_err(|e| eyre!("{}", e))?;

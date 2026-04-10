@@ -87,6 +87,10 @@ pub struct Traefik {
     #[builder(default = TraefikConst::HTTP_PORT)]
     http_port: u16,
 
+    /// The host port for HTTPS/gRPC traffic (default: 443)
+    #[builder(default = TraefikConst::HTTPS_PORT)]
+    https_port: u16,
+
     /// Managed container state
     #[builder(default = ManagedContainer::new())]
     container: ManagedContainer,
@@ -124,7 +128,7 @@ impl Traefik {
         // Map host ports - expose 80 and 443 for HTTP/gRPC traffic
         let port_bindings = hash_map! {
             "80/tcp".to_string() => expose(self.http_port),
-            "443/tcp".to_string() => expose(443),
+            "443/tcp".to_string() => expose(self.https_port),
             "8080/tcp".to_string() => expose_127(TraefikConst::DASHBOARD_PORT),
         };
 

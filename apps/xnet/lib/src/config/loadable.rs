@@ -69,13 +69,27 @@ pub struct Config {
     pub v3: ImageConfig,
     /// V3 node-go port override
     pub v3_port: Option<u16>,
+    /// Enable the V3 stack
+    #[builder(default = true)]
+    pub enable_v3: bool,
+    /// Enable the D14n stack
+    #[builder(default = true)]
+    pub enable_d14n: bool,
+    /// Enable monitoring services
+    #[builder(default = true)]
+    pub enable_monitoring: bool,
     /// Toxiproxy image overrides
     #[builder(default)]
     pub toxiproxy: ImageConfig,
     /// ToxiProxy port override
     pub toxiproxy_port: Option<u16>,
+    /// Traefik image overrides
+    #[builder(default)]
+    pub traefik: ImageConfig,
     /// Traefik HTTP host port override
     pub traefik_port: Option<u16>,
+    /// Traefik HTTPS host port override
+    pub traefik_https_port: Option<u16>,
     /// Gateway image overrides
     #[builder(default)]
     pub gateway: ImageConfig,
@@ -151,9 +165,14 @@ impl Config {
                 .validation(toml.validation)
                 .contracts(toml.contracts)
                 .history(toml.history)
-                .toxiproxy(toml.toxiproxy)
-                .maybe_toxiproxy_port(toml.xnet.toxiproxy_port)
-                .maybe_traefik_port(toml.xnet.traefik_port)
+                .toxiproxy(toml.toxiproxy.image)
+                .maybe_toxiproxy_port(toml.toxiproxy.port)
+                .traefik(toml.traefik.image)
+                .maybe_traefik_port(toml.traefik.port)
+                .maybe_traefik_https_port(toml.traefik.https_port)
+                .enable_v3(toml.xnet.enable_v3)
+                .enable_d14n(toml.xnet.enable_d14n)
+                .enable_monitoring(toml.xnet.enable_monitoring)
                 .prometheus(toml.prometheus)
                 .grafana(toml.grafana)
                 .address_mode(address_mode)
