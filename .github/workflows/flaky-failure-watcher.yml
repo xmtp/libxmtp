@@ -59,19 +59,13 @@ jobs:
           fetch-depth: 1
 
       - name: Investigate failure
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@v1.0.92
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          model: "claude-sonnet-4-5-20250929"
-          allowed_tools: |
-            Bash(gh run view *)
-            Bash(gh run list *)
-            Bash(gh issue list *)
-            Bash(gh issue create *)
-            Bash(gh issue comment *)
-            Bash(gh issue view *)
-            Bash(gh issue edit *)
-          direct_prompt: |
+          claude_args: |
+            --model sonnet
+            --allowedTools "Bash(gh run view *),Bash(gh issue list *),Bash(gh issue create *),Bash(gh issue comment *),Bash(gh issue view *)"
+          prompt: |
             A workflow has failed on the main branch. Investigate and report it.
 
             ## Context
