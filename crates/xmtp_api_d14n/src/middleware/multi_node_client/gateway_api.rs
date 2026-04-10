@@ -161,7 +161,7 @@ pub async fn get_fastest_node(
 mod tests {
     use super::*;
     use prost::Message;
-    use prost::bytes;
+    use prost::bytes::Bytes;
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -170,10 +170,10 @@ mod tests {
     use xmtp_proto::api::mock::{MockError, MockNetworkClient};
     use xmtp_proto::xmtp::xmtpv4::payer_api::GetNodesResponse;
 
-    fn encoded_nodes_response() -> bytes::Bytes {
+    fn encoded_nodes_response() -> Bytes {
         let mut nodes = HashMap::new();
         nodes.insert(1u32, "http://localhost:65535".to_string());
-        bytes::Bytes::from(GetNodesResponse { nodes }.encode_to_vec())
+        Bytes::from(GetNodesResponse { nodes }.encode_to_vec())
     }
 
     #[xmtp_common::test(unwrap_try = true)]
