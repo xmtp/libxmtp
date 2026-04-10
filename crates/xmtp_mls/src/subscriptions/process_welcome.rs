@@ -4,8 +4,9 @@ use crate::groups::GroupError;
 use crate::groups::InitialMembershipValidator;
 use crate::groups::welcome_sync::WelcomeService;
 use crate::intents::ProcessIntentError;
+use crate::subscriptions::stream_conversations::BoundedCursorSet;
 use crate::{groups::MlsGroup, subscriptions::WelcomeOrGroup};
-use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 use xmtp_common::{Retry, retry_async};
 use xmtp_db::{consent_record::ConsentState, group::ConversationType, prelude::*};
 use xmtp_proto::types::OriginatorId;
@@ -14,8 +15,10 @@ use xmtp_proto::types::{Cursor, WelcomeMessage};
 
 /// Future for processing `WelcomeorGroup`
 pub struct ProcessWelcomeFuture<Context> {
-    /// welcome ids in DB and which are already processed
-    known_welcome_ids: HashSet<Cursor>,
+    /// Shared, bounded set of welcome cursors that are already known to the
+    /// owning stream. Using `Arc<Mutex<..>>` avoids cloning a growing
+    /// `HashSet` per welcome, which was a DoS vector (issue #3395).
+    known_welcome_ids: Arc<Mutex<BoundedCursorSet>>,
     /// The libxmtp client
     context: Context,
     /// the welcome or group being processed in this future
@@ -71,8 +74,8 @@ where
     /// Returns an error if initialization fails
     ///
     /// # Example
-    pub fn new(
-        known_welcome_ids: HashSet<Cursor>,
+    pub(crate) fn new(
+        known_welcome_ids: Arc<Mutex<BoundedCursorSet>>,
         context: Context,
         item: WelcomeOrGroup,
         conversation_type: Option<ConversationType>,
@@ -131,7 +134,12 @@ where
                 // of processing a welcome & erroring
                 // for immediate return, this must stay in the top-level future,
                 // to avoid a possible yield on the await in on_welcome.
-                if self.known_welcome_ids.contains(&welcome.cursor) {
+                if self
+                    .known_welcome_ids
+                    .lock()
+                    .expect("known_welcome_ids mutex poisoned")
+                    .contains(&welcome.cursor)
+                {
                     tracing::debug!(
                         "Found existing welcome. Returning from db & skipping processing"
                     );

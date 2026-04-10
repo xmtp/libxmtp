@@ -12,8 +12,9 @@ use futures::Stream;
 use pin_project::{pin_project, pinned_drop};
 use std::{
     borrow::Cow,
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     pin::Pin,
+    sync::{Arc, Mutex},
     task::{Poll, ready},
 };
 use tokio_stream::wrappers::BroadcastStream;
@@ -22,6 +23,67 @@ use xmtp_db::prelude::*;
 use xmtp_macro::log_event;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::types::{Cursor, OriginatorId, SequenceId, WelcomeMessage};
+
+/// Maximum number of in-flight welcome-processing futures per
+/// `StreamConversations`. Bounds CPU/memory under burst welcomes
+/// (see issue #3395).
+const MAX_CONCURRENT_WELCOME_TASKS: usize = 16;
+
+/// Maximum number of known welcome cursors held in memory by a single
+/// `StreamConversations`. The database remains the authoritative record
+/// of processed welcomes; this in-memory set is a fast-path optimization.
+pub(crate) const MAX_KNOWN_WELCOME_IDS: usize = 10_000;
+
+/// Insertion-ordered, bounded set of welcome cursors used as an in-memory
+/// dedup cache for the welcome stream. Evicts the oldest entries when the
+/// configured capacity is exceeded so memory stays bounded under sustained
+/// welcome traffic (see issue #3395).
+#[derive(Debug)]
+pub(crate) struct BoundedCursorSet {
+    set: HashSet<Cursor>,
+    order: VecDeque<Cursor>,
+    cap: usize,
+}
+
+impl BoundedCursorSet {
+    pub(crate) fn with_capacity(cap: usize) -> Self {
+        Self {
+            set: HashSet::with_capacity(cap),
+            order: VecDeque::with_capacity(cap),
+            cap,
+        }
+    }
+
+    pub(crate) fn from_iter_with_cap<I: IntoIterator<Item = Cursor>>(iter: I, cap: usize) -> Self {
+        let mut this = Self::with_capacity(cap);
+        for c in iter {
+            this.insert(c);
+        }
+        this
+    }
+
+    pub(crate) fn contains(&self, cursor: &Cursor) -> bool {
+        self.set.contains(cursor)
+    }
+
+    pub(crate) fn insert(&mut self, cursor: Cursor) {
+        if self.set.insert(cursor) {
+            self.order.push_back(cursor);
+            while self.set.len() > self.cap {
+                if let Some(oldest) = self.order.pop_front() {
+                    self.set.remove(&oldest);
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.set.len()
+    }
+}
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConversationStreamError {
@@ -168,9 +230,14 @@ pub struct StreamConversations<'a, Context: Clone + XmtpSharedContext, Subscript
     #[pin]
     welcome_syncs: JoinSet<Result<ProcessWelcomeResult<Context>>>,
     conversation_type: Option<ConversationType>,
-    known_welcome_ids: HashSet<Cursor>,
+    known_welcome_ids: Arc<Mutex<BoundedCursorSet>>,
     include_duplicated_dms: bool,
     consent_states: Option<Vec<ConsentState>>,
+    /// Number of welcome-processing futures currently outstanding on the
+    /// `welcome_syncs` JoinSet. Tracked manually (rather than via
+    /// `JoinSet::len()`) so the backpressure gate works identically on
+    /// native tokio and `tokio_with_wasm`.
+    in_flight: usize,
 }
 
 #[pinned_drop]
@@ -284,7 +351,10 @@ where
             .subscribe_welcome_messages(&installation_key)
             .await?;
         let subscription = SubscriptionStream::new(subscription);
-        let known_welcome_ids = HashSet::from_iter(conn.group_cursors()?.into_iter());
+        let known_welcome_ids = Arc::new(Mutex::new(BoundedCursorSet::from_iter_with_cap(
+            conn.group_cursors()?.into_iter(),
+            MAX_KNOWN_WELCOME_IDS,
+        )));
 
         let stream = multiplexed(subscription, events);
 
@@ -296,6 +366,7 @@ where
             welcome_syncs: JoinSet::new(),
             include_duplicated_dms,
             consent_states,
+            in_flight: 0,
         })
     }
 }
@@ -336,27 +407,42 @@ where
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
+        // Drain one finished welcome-processing future, if any.
+        //
         // We don't care if this is:
-        // - Pending: we return pending by-default in the next section
-        // - Ready(None): this just means the JoinSet is empty (no welcome syncs ongoing)
-        // - Ready(Some(Err(welcome_result))): processing the welcome failed and the task failed with
-        // a panic/error, we just ignore this.
-        if let Poll::Ready(Some(Ok(welcome_result))) =
-            self.as_mut().project().welcome_syncs.poll_join_next(cx)
-        {
-            // if filter is None, we continue to poll the inner stream.
-            // the inner stream propagates a Pending, if its not pending, we register the task for
-            // wakeup again. Therefore, we can ignore the None.
-            if let Some(new_welcome) = self.as_mut().filter_welcome(welcome_result) {
-                return Poll::Ready(Some(new_welcome));
+        // - Pending: tasks in flight, waker was registered for later wake-up.
+        // - Ready(None): JoinSet is empty (no welcome syncs ongoing).
+        // - Ready(Some(Err(welcome_result))): processing the welcome failed
+        //   with a task panic/cancel — decrement the counter and ignore.
+        let drained = self.as_mut().project().welcome_syncs.poll_join_next(cx);
+        match drained {
+            Poll::Ready(Some(Ok(welcome_result))) => {
+                *self.as_mut().project().in_flight =
+                    self.as_mut().project().in_flight.saturating_sub(1);
+                // if filter is None, we continue to poll the inner stream.
+                if let Some(new_welcome) = self.as_mut().filter_welcome(welcome_result) {
+                    return Poll::Ready(Some(new_welcome));
+                }
             }
+            Poll::Ready(Some(Err(_))) => {
+                *self.as_mut().project().in_flight =
+                    self.as_mut().project().in_flight.saturating_sub(1);
+            }
+            Poll::Ready(None) | Poll::Pending => {}
+        }
+
+        // Backpressure: stop consuming from the inner stream while at cap.
+        // The poll_join_next above registered our waker on the JoinSet when it
+        // returned Pending, so we will be re-polled when a task completes.
+        if *self.as_mut().project().in_flight >= MAX_CONCURRENT_WELCOME_TASKS {
+            return Poll::Pending;
         }
 
         let mut this = self.as_mut().project();
         match ready!(this.inner.poll_next(cx)) {
             Some(welcome_envelope) => {
                 let future = ProcessWelcomeFuture::new(
-                    this.known_welcome_ids.clone(),
+                    Arc::clone(&*this.known_welcome_ids),
                     this.context.clone().into_owned(),
                     welcome_envelope?,
                     *this.conversation_type,
@@ -364,6 +450,7 @@ where
                     this.consent_states.clone(),
                 )?;
                 this.welcome_syncs.spawn(future.process());
+                *this.in_flight += 1;
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
@@ -379,7 +466,7 @@ where
     C::Db: 'static,
     Subscription: Stream<Item = Result<WelcomeOrGroup>> + 'static,
 {
-    /// adds the processed welcome id to our inner hashset
+    /// adds the processed welcome id to our inner bounded set
     fn filter_welcome(
         mut self: Pin<&mut Self>,
         welcome: Result<ProcessWelcomeResult<C>>,
@@ -395,13 +482,19 @@ where
                     "finished processing with group {}",
                     hex::encode(&group.group_id)
                 );
-                this.known_welcome_ids.insert(welcome_id);
+                this.known_welcome_ids
+                    .lock()
+                    .expect("known_welcome_ids mutex poisoned")
+                    .insert(welcome_id);
                 Some(Ok(group))
             }
             // we are ignoring this payload with id
             Ok(ProcessWelcomeResult::IgnoreId { id }) => {
                 tracing::debug!("ignoring streamed conversation payload with welcome id {id}");
-                this.known_welcome_ids.insert(id);
+                this.known_welcome_ids
+                    .lock()
+                    .expect("known_welcome_ids mutex poisoned")
+                    .insert(id);
                 None
             }
             Ok(ProcessWelcomeResult::Ignore) => {
@@ -422,6 +515,8 @@ where
                     && let Some(originator) = maybe_originator
                 {
                     this.known_welcome_ids
+                        .lock()
+                        .expect("known_welcome_ids mutex poisoned")
                         .insert(Cursor::new(id as SequenceId, originator as OriginatorId));
                 }
                 Some(Ok(group))
@@ -445,6 +540,67 @@ mod test {
 
     use futures::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
+
+    fn cursor(seq: u64, originator: u32) -> Cursor {
+        Cursor::new(seq, originator)
+    }
+
+    #[test]
+    fn bounded_cursor_set_bounds_length_and_evicts_oldest() {
+        let mut set = BoundedCursorSet::with_capacity(3);
+        set.insert(cursor(1, 1));
+        set.insert(cursor(2, 1));
+        set.insert(cursor(3, 1));
+        set.insert(cursor(4, 1));
+        assert_eq!(set.len(), 3, "len must be capped at capacity");
+        assert!(!set.contains(&cursor(1, 1)), "oldest entry must be evicted");
+        assert!(set.contains(&cursor(2, 1)));
+        assert!(set.contains(&cursor(3, 1)));
+        assert!(set.contains(&cursor(4, 1)));
+    }
+
+    #[test]
+    fn bounded_cursor_set_duplicate_insert_does_not_evict() {
+        let mut set = BoundedCursorSet::with_capacity(2);
+        set.insert(cursor(1, 1));
+        set.insert(cursor(2, 1));
+        // Re-inserting an existing entry must not evict anything.
+        set.insert(cursor(1, 1));
+        assert_eq!(set.len(), 2);
+        assert!(set.contains(&cursor(1, 1)));
+        assert!(set.contains(&cursor(2, 1)));
+    }
+
+    #[test]
+    fn bounded_cursor_set_from_iter_caps_input() {
+        let iter = (0..10u64).map(|i| cursor(i, 1));
+        let set = BoundedCursorSet::from_iter_with_cap(iter, 4);
+        assert_eq!(set.len(), 4);
+        // Last four inserted should be retained.
+        for i in 6..10u64 {
+            assert!(set.contains(&cursor(i, 1)), "missing {i}");
+        }
+        for i in 0..6u64 {
+            assert!(!set.contains(&cursor(i, 1)), "should be evicted: {i}");
+        }
+    }
+
+    #[test]
+    fn arc_mutex_bounded_cursor_set_is_cheaply_cloneable() {
+        let known: Arc<std::sync::Mutex<BoundedCursorSet>> = Arc::new(std::sync::Mutex::new(
+            BoundedCursorSet::with_capacity(MAX_KNOWN_WELCOME_IDS),
+        ));
+        known.lock().expect("mutex poisoned").insert(cursor(7, 1));
+        // Cloning the Arc must not clone the inner set.
+        let cloned = Arc::clone(&known);
+        assert!(
+            cloned
+                .lock()
+                .expect("mutex poisoned")
+                .contains(&cursor(7, 1))
+        );
+        assert_eq!(Arc::strong_count(&known), 2);
+    }
 
     #[xmtp_common::timeout(std::time::Duration::from_secs(10))]
     #[rstest::rstest]
@@ -697,5 +853,43 @@ mod test {
         for _ in 0..dms {
             let _welcome = stream.next().await;
         }
+    }
+
+    /// Regression test for issue #3395: a burst of welcomes exceeding the
+    /// concurrency cap must still drain completely and in bounded memory.
+    #[xmtp_common::timeout(std::time::Duration::from_secs(60))]
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    #[awt]
+    #[cfg_attr(all(feature = "d14n"), ignore)]
+    async fn stream_welcomes_burst_respects_backpressure(
+        #[future] alix: ClientTester,
+        #[future] bo: ClientTester,
+    ) {
+        // Exercise the backpressure gate by generating twice the cap.
+        let burst = MAX_CONCURRENT_WELCOME_TASKS * 2;
+
+        let mut stream = StreamConversations::new(&bo.context, None, false, None)
+            .await
+            .unwrap();
+
+        let mut expected_ids = Vec::with_capacity(burst);
+        for _ in 0..burst {
+            let g = alix.create_group(None, None).unwrap();
+            expected_ids.push(g.group_id.clone());
+            g.add_members(&[bo.inbox_id()]).await.unwrap();
+        }
+
+        let mut received = 0usize;
+        while received < burst {
+            let group = stream.next().await.unwrap().unwrap();
+            assert!(
+                expected_ids.iter().any(|id| id == &group.group_id),
+                "received unexpected group id {}",
+                hex::encode(&group.group_id)
+            );
+            received += 1;
+        }
+        assert_eq!(received, burst, "all welcomes must arrive despite cap");
     }
 }
