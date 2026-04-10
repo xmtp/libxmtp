@@ -9,6 +9,8 @@ ignore = [
   # Remove these ignores once the xmtp/openmls fork merges upstream.
   { id = "RUSTSEC-2026-0075", reason = "libcrux-ed25519 0.0.6 pinned by xmtp/openmls fork; upstream fix in openmls/openmls@68bd8b28" },
   { id = "RUSTSEC-2026-0073", reason = "libcrux-poly1305 0.0.4 pinned by xmtp/openmls fork; upstream fix in openmls/openmls@68bd8b28" },
+  { id = "RUSTSEC-2025-0134", reason = "used in temporary xnet-gui" },
+  { id = "RUSTSEC-2025-0052", reason = "used in temporary xnet-gui" },
 ]
 
 # This rustsec can be added to ignore list if using mls `test_utils` for tests
@@ -31,6 +33,8 @@ allow = [
   "BSL-1.0",
   "CDLA-Permissive-2.0",
   "NCSA",
+  "0BSD",
+  "Apache-2.0 WITH LLVM-exception",
 ]
 confidence-threshold = 1.0
 

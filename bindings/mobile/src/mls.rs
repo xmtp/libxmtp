@@ -888,11 +888,20 @@ impl FfiXmtpClient {
     pub async fn register_identity(
         &self,
         signature_request: Arc<FfiSignatureRequest>,
+        visibility_confirmation_options: Option<FfiVisibilityConfirmationOptions>,
     ) -> Result<(), FfiError> {
-        let signature_request = signature_request.inner.lock().await;
-        self.inner_client
-            .register_identity(signature_request.clone())
-            .await?;
+        {
+            let signature_request = signature_request.inner.lock().await;
+            self.inner_client
+                .register_identity(signature_request.clone())
+                .await?;
+        }
+
+        if let Some(opts) = visibility_confirmation_options {
+            self.inner_client
+                .wait_for_registration_visible(opts.into())
+                .await?;
+        }
 
         Ok(())
     }
@@ -1018,6 +1027,21 @@ impl FfiXmtpClient {
             scw_verifier: self.inner_client.scw_verifier().clone(),
         }))
     }
+
+    /// Wait until this client's registration is visible on the network.
+    ///
+    /// `options` controls the quorum, timeout, and polling interval.
+    /// Pass `None` to use the defaults (50% quorum, 30s timeout, 500ms interval).
+    pub async fn wait_for_registration_visible(
+        &self,
+        options: Option<FfiVisibilityConfirmationOptions>,
+    ) -> Result<(), FfiError> {
+        self.inner_client
+            .wait_for_registration_visible(options.unwrap_or_default().into())
+            .await?;
+
+        Ok(())
+    }
 }
 
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
@@ -1040,6 +1064,40 @@ impl From<HmacKey> for FfiHmacKey {
         Self {
             epoch: value.epoch,
             key: value.key.to_vec(),
+        }
+    }
+}
+
+/// Options for `wait_for_registration_visible`.
+///
+/// All fields are optional. Omitted fields use their default values:
+/// - `quorum_percentage` / `quorum_absolute`: 1 node (`quorum_absolute` takes precedence if both are provided)
+/// - `timeout_ms`: 30 000 ms
+#[derive(uniffi::Record, Default)]
+pub struct FfiVisibilityConfirmationOptions {
+    /// Fraction of nodes that must confirm (e.g. 0.5 = 50 %).
+    pub quorum_percentage: Option<f32>,
+    /// Exact number of nodes that must confirm. Takes precedence over `quorum_percentage`.
+    pub quorum_absolute: Option<u64>,
+    /// How long to wait in total before returning an error (milliseconds).
+    pub timeout_ms: Option<u64>,
+}
+
+impl From<FfiVisibilityConfirmationOptions>
+    for xmtp_mls::registration_visible::VisibilityConfirmationOptions
+{
+    fn from(opts: FfiVisibilityConfirmationOptions) -> Self {
+        use xmtp_mls::registration_visible::Quorum;
+
+        let defaults = Self::default();
+        let quorum = match (opts.quorum_absolute, opts.quorum_percentage) {
+            (Some(n), _) => Quorum::Absolute(n as usize),
+            (_, Some(p)) => Quorum::percentage(p),
+            _ => defaults.quorum,
+        };
+        Self {
+            quorum,
+            timeout_ms: opts.timeout_ms.unwrap_or(defaults.timeout_ms),
         }
     }
 }

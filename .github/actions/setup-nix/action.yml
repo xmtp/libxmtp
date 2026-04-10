@@ -24,6 +24,8 @@ runs:
   steps:
     - uses: cachix/install-nix-action@v31
       with:
+        # https://github.com/nixos/nix/issues/15619 2.34.4 causes pach failures
+        install_url: https://releases.nixos.org/nix/nix-2.31.2/install
         github_access_token: ${{ inputs.github-token }}
         extra_nix_config: |
           accept-flake-config = true
@@ -31,12 +33,12 @@ runs:
       if: ${{ inputs.with-warpbuild-cache == 'true' }}
       with:
         gc-max-store-size: ${{ inputs.gc-max-store-size }}
-    - uses: cachix/cachix-action@v16
+    - uses: cachix/cachix-action@v17
       if: ${{ inputs.cachix-auth-token != '' }}
       with:
         name: xmtp
         authToken: ${{ inputs.cachix-auth-token }}
-    - uses: cachix/cachix-action@v16
+    - uses: cachix/cachix-action@v17
       if: ${{ inputs.cachix-auth-token == '' }}
       with:
         name: xmtp

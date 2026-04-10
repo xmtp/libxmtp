@@ -10,10 +10,7 @@ use std::{
 use crate::error::GrpcError;
 use futures::{Stream, TryStream};
 use pin_project::pin_project;
-use xmtp_proto::{
-    ApiEndpoint,
-    api::{ApiClientError, BytesStream, Client},
-};
+use xmtp_proto::{ApiEndpoint, api::ApiClientError};
 
 #[pin_project]
 /// A stream which maps the tonic error to ApiClientError, and attaches endpoint metadata
@@ -31,24 +28,6 @@ impl<S, T> XmtpTonicStream<S, T> {
             endpoint,
             _marker: PhantomData,
         }
-    }
-}
-
-impl<T> XmtpTonicStream<BytesStream, T> {
-    /// create a stream from the body of a request
-    /// makes the request and starts the stream
-    pub async fn from_body<B: prost::Name>(
-        body: B,
-        client: crate::GrpcClient,
-        endpoint: ApiEndpoint,
-    ) -> Result<Self, ApiClientError> {
-        let pnq = xmtp_proto::path_and_query::<B>();
-        let request = http::Request::builder();
-        let path = http::uri::PathAndQuery::try_from(pnq.as_ref())?;
-        let s = client
-            .stream(request, path, body.encode_to_vec().into())
-            .await?;
-        Ok(Self::new(s.into_body(), endpoint))
     }
 }
 

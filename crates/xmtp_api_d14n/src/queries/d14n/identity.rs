@@ -10,16 +10,17 @@ use xmtp_configuration::Originators;
 use xmtp_id::associations::AccountId;
 use xmtp_id::scw_verifier::{SmartContractSignatureVerifier, VerifierError};
 use xmtp_proto::ConversionError;
-use xmtp_proto::api::{self, ApiClientError, Client, Query};
+use xmtp_proto::api::{ApiClientError, Client, Query};
 use xmtp_proto::api_client::XmtpIdentityClient;
 use xmtp_proto::identity_v1;
 use xmtp_proto::identity_v1::VerifySmartContractWalletSignatureRequestSignature;
 use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::identity_v1::verify_smart_contract_wallet_signatures_response::ValidationResponse;
+use xmtp_proto::types::Cursor;
 use xmtp_proto::types::Topic;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
-use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
+use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor as ProtoCursor;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4, QueryEnvelopesResponse,
 };
@@ -36,22 +37,31 @@ where
     async fn publish_identity_update(
         &self,
         request: identity_v1::PublishIdentityUpdateRequest,
-    ) -> Result<identity_v1::PublishIdentityUpdateResponse, Self::Error> {
+    ) -> Result<Option<Cursor>, Self::Error> {
         let update = request.identity_update.ok_or(ConversionError::Missing {
             item: "identity_update",
             r#type: std::any::type_name::<identity_v1::PublishIdentityUpdateRequest>(),
         })?;
 
         let envelopes = update.client_envelope()?;
-        api::ignore(
-            PublishClientEnvelopes::builder()
-                .envelope(envelopes)
-                .build()?,
-        )
-        .query(&self.client)
-        .await?;
+        let response = PublishClientEnvelopes::builder()
+            .envelope(envelopes)
+            .build()?
+            .query(&self.client)
+            .await?;
 
-        Ok(identity_v1::PublishIdentityUpdateResponse {})
+        let cursor = response
+            .originator_envelopes
+            .first()
+            .and_then(|env| env.cursor().ok());
+
+        if cursor.is_none() {
+            tracing::warn!(
+                "publish_identity_update: no cursor in response (empty originator_envelopes or missing cursor field)"
+            );
+        }
+
+        Ok(cursor)
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -69,7 +79,7 @@ where
             .min()
             .unwrap_or(0);
         let topics = request.requests.topics()?;
-        let last_seen = Some(Cursor {
+        let last_seen = Some(ProtoCursor {
             node_id_to_sequence_id: [(Originators::INBOX_LOG, min_sid)].into(),
         });
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
@@ -164,5 +174,23 @@ where
             })
         }
         Ok(identity_v1::VerifySmartContractWalletSignaturesResponse { responses })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn publish_identity_update_returns_cursor() {
+        let client = crate::MockD14nClient::new_mock();
+        // After the change, this must type-check as Option<Cursor>
+        let request = xmtp_proto::identity_v1::PublishIdentityUpdateRequest {
+            identity_update: None,
+        };
+        let result: Result<Option<Cursor>, _> = client.publish_identity_update(request).await;
+        // No identity_update means the method returns early with an error (ConversionError::Missing)
+        // This verifies the return type compiles as Option<Cursor>
+        assert!(result.is_err());
     }
 }

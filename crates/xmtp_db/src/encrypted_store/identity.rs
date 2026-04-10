@@ -19,6 +19,10 @@ pub struct StoredIdentity {
     #[builder(setter(skip))]
     rowid: Option<i32>,
     pub next_key_package_rotation_ns: Option<i64>,
+    #[builder(default)]
+    pub registration_cursor_originator_id: Option<i64>,
+    #[builder(default)]
+    pub registration_cursor_sequence_id: Option<i64>,
 }
 
 impl_fetch!(StoredIdentity, identity);
@@ -36,6 +40,8 @@ impl StoredIdentity {
             credential_bytes,
             rowid: None,
             next_key_package_rotation_ns: None,
+            registration_cursor_originator_id: None,
+            registration_cursor_sequence_id: None,
         }
     }
 }

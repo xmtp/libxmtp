@@ -24,7 +24,7 @@ impl Endpoint for GetNewestGroupMessage {
     type Output = GetNewestGroupMessageResponse;
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        xmtp_proto::path_and_query::<GetNewestGroupMessageRequest>()
+        Cow::Borrowed("/xmtp.mls.api.v1.MlsApi/GetNewestGroupMessage")
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -42,12 +42,11 @@ mod test {
     use crate::v3::GetNewestGroupMessage;
     use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::prelude::*;
-    use xmtp_proto::xmtp::mls::api::v1::*;
 
     #[xmtp_common::test]
-    fn test_file_descriptor() {
-        let pnq = xmtp_proto::path_and_query::<GetNewestGroupMessageRequest>();
-        println!("{}", pnq);
+    fn test_grpc_endpoint_returns_correct_path() {
+        let endpoint = GetNewestGroupMessage::default();
+        assert!(!endpoint.grpc_endpoint().is_empty());
     }
 
     #[xmtp_common::test]

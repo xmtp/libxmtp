@@ -2555,21 +2555,7 @@ where
                                     err = ?err
                                 );
 
-                                if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
-                                    tracing::error!(
-                                        intent.id,
-                                        intent.kind = %intent.kind,
-                                        inbox_id = self.context.inbox_id(),
-                                        installation_id = %self.context.installation_id(),group_id = hex::encode(&self.group_id),
-                                        "intent {} has reached max publish attempts", intent.id);
-                                    // TODO: Eventually clean up errored attempts
-                                    let id = utils::id::calculate_message_id_for_intent(&intent)?;
-                                    db.set_group_intent_error_and_fail_msg(&intent, id)?;
-                                } else {
-                                    // Reset so the next retry re-encrypts at the current epoch.
-                                    db.increment_intent_publish_attempt_count(intent.id)?;
-                                    db.set_group_intent_to_publish(intent.id)?;
-                                }
+                                handle_published_intent_send_failure(&db, &intent)?;
                                 return Err(err)?;
                             }
                             (kind, Ok(_)) => {
@@ -3909,13 +3895,37 @@ pub(crate) fn decode_staged_commit(
     Ok(xmtp_db::db_deserialize(data)?)
 }
 
+fn handle_published_intent_send_failure<Db: QueryGroupIntent>(
+    db: &Db,
+    intent: &StoredGroupIntent,
+) -> Result<(), GroupError> {
+    if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
+        tracing::error!(
+            intent.id,
+            intent.kind = %intent.kind,
+            "intent {} has reached max publish attempts",
+            intent.id
+        );
+        let id = utils::id::calculate_message_id_for_intent(intent)?;
+        db.set_group_intent_error_and_fail_msg(intent, id)?;
+    } else {
+        // Reset so the next retry re-encrypts at the current epoch.
+        db.increment_intent_publish_attempt_count(intent.id)?;
+        db.set_group_intent_to_publish(intent.id)?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
 
     use super::*;
     use crate::{builder::ClientBuilder, utils::TestMlsGroup};
+    use mockall::predicate::eq;
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_db::mock::MockDbQuery;
 
     /// This test is not reproducible in webassembly, b/c webassembly has only one thread.
     #[cfg_attr(
@@ -3989,6 +3999,38 @@ pub(crate) mod tests {
         assert_eq!(hmac_keys[0].epoch, current_epoch - 1);
         assert_eq!(hmac_keys[1].epoch, current_epoch);
         assert_eq!(hmac_keys[2].epoch, current_epoch + 1);
+    }
+
+    #[test]
+    fn send_failures_for_published_intents_revert_to_to_publish() {
+        let intent = StoredGroupIntent {
+            id: 42,
+            kind: IntentKind::SendMessage,
+            group_id: xmtp_common::rand_vec::<16>(),
+            data: Vec::new(),
+            state: IntentState::Published,
+            payload_hash: Some(xmtp_common::rand_vec::<32>()),
+            post_commit_data: None,
+            publish_attempts: 0,
+            staged_commit: None,
+            published_in_epoch: Some(7),
+            should_push: false,
+            sequence_id: None,
+            originator_id: None,
+        };
+
+        let mut db = MockDbQuery::new();
+        db.expect_increment_intent_publish_attempt_count()
+            .with(eq(intent.id))
+            .times(1)
+            .returning(|_| Ok(()));
+        db.expect_set_group_intent_to_publish()
+            .with(eq(intent.id))
+            .times(1)
+            .returning(|_| Ok(()));
+
+        let result = handle_published_intent_send_failure(&db, &intent);
+        assert!(result.is_ok());
     }
 
     /// Test that process_delete_message handles completely malformed bytes gracefully

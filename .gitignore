@@ -191,9 +191,12 @@ om.json
 /.build
 /.swiftpm
 **/.direnv/**
-
+*.qcow2
 # Superpowers
 docs/plans
 
 # VM Images
 *.qcow2
+
+# Firecrawl
+.firecrawl

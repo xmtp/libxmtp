@@ -154,6 +154,51 @@ impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for GroupSyncSummary
   }
 }
 
+/// Options for `waitForRegistrationVisible`.
+///
+/// Both `quorumPercentage` and `quorumAbsolute` are optional; if neither is
+/// provided, the default of 50 % is used.  When both are provided,
+/// `quorumAbsolute` takes precedence.
+#[derive(Clone, Default, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmVisibilityConfirmationOptions {
+  /// Fraction of nodes that must confirm (e.g. 0.5 for 50 %).
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub quorum_percentage: Option<f32>,
+  /// Exact number of nodes that must confirm.
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub quorum_absolute: Option<u32>,
+  /// Maximum wait time in milliseconds (default: 30 000).
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub timeout_ms: Option<u32>,
+}
+
+impl From<WasmVisibilityConfirmationOptions>
+  for xmtp_mls::registration_visible::VisibilityConfirmationOptions
+{
+  fn from(opts: WasmVisibilityConfirmationOptions) -> Self {
+    use xmtp_mls::registration_visible::Quorum;
+
+    let defaults = Self::default();
+    let quorum = match (opts.quorum_absolute, opts.quorum_percentage) {
+      (Some(n), _) => Quorum::Absolute(n as usize),
+      (_, Some(p)) => Quorum::percentage(p),
+      _ => defaults.quorum,
+    };
+    Self {
+      quorum,
+      timeout_ms: opts
+        .timeout_ms
+        .map(|t| t as u64)
+        .unwrap_or(defaults.timeout_ms),
+    }
+  }
+}
+
 fn init_logging(options: LogOptions) -> Result<(), JsError> {
   LOGGER_INIT
     .get_or_init(|| {
@@ -173,7 +218,17 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
           .without_time() // need to test whether this would break browsers
           .with_target(true);
 
-        tracing_subscriber::registry().with(filter).with(fmt).init();
+        // Initialize tracing subscriber. Silently ignored if already set by another crate.
+        let subscriber_result = tracing_subscriber::registry()
+          .with(filter)
+          .with(fmt)
+          .try_init();
+        if subscriber_result.is_err() {
+          tracing::warn!(
+            "tracing subscriber has not been initialized. Maybe it is already set? Error: {:?}",
+            subscriber_result.err()
+          );
+        }
       } else {
         let fmt = tracing_subscriber::fmt::layer()
           .with_ansi(false) // not supported by all browsers
@@ -183,11 +238,25 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
         let subscriber = tracing_subscriber::registry().with(fmt).with(filter);
 
         if options.performance.unwrap_or_default() {
-          subscriber
+          // Initialize tracing subscriber. Silently ignored if already set by another crate.
+          let subscriber_result = subscriber
             .with(tracing_web::performance_layer().with_details_from_fields(Pretty::default()))
-            .init();
+            .try_init();
+          if subscriber_result.is_err() {
+            tracing::warn!(
+              "Tracing subscriber has not been initialized. Maybe it is already set? Error: {:?}",
+              subscriber_result.err()
+            );
+          }
         } else {
-          subscriber.init();
+          // Initialize tracing subscriber. Silently ignored if already set by another crate.
+          let subscriber_result = subscriber.try_init();
+          if subscriber_result.is_err() {
+            tracing::warn!(
+              "Tracing subscriber has not been initialized. Maybe it is already set? Error: {:?}",
+              subscriber_result.err()
+            );
+          }
         }
       }
       Ok(())
@@ -457,5 +526,23 @@ impl Client {
   #[wasm_bindgen(js_name = clearAllStatistics)]
   pub fn clear_all_statistics(&self) {
     self.inner_client.clear_stats()
+  }
+
+  /// Wait until this client's registration is visible on the network.
+  ///
+  /// For V3 clients (no cursor stored) this falls back to checking
+  /// `isRegistered`.  For D14n clients it polls each node directly and
+  /// returns once a quorum confirms both the identity-update and
+  /// key-package envelopes are visible.
+  #[wasm_bindgen(js_name = waitForRegistrationVisible)]
+  pub async fn wait_for_registration_visible(
+    &self,
+    options: Option<WasmVisibilityConfirmationOptions>,
+  ) -> Result<(), JsError> {
+    self
+      .inner_client
+      .wait_for_registration_visible(options.unwrap_or_default().into())
+      .await
+      .map_err(|e| JsError::new(&e.to_string()))
   }
 }

@@ -170,6 +170,16 @@ pub enum ClientError {
     /// Data type failed to convert. Not retryable.
     #[error(transparent)]
     Conversion(#[from] xmtp_proto::ConversionError),
+    /// Registration not visible.
+    ///
+    /// Registration was not visible on the required number of nodes within the timeout. Not retryable.
+    #[error("Registration not visible on required nodes: {failed_nodes:?}")]
+    RegistrationNotVisible { failed_nodes: Vec<u32> },
+    /// Envelopes not yet visible.
+    ///
+    /// Registration envelopes haven't propagated to the node yet. Retryable.
+    #[error("Envelopes not yet visible on node {node_id}")]
+    EnvelopesNotYetVisible { node_id: u32 },
 }
 
 impl ClientError {
@@ -201,6 +211,7 @@ impl xmtp_common::RetryableError for ClientError {
             ClientError::Storage(storage_error) => retryable!(storage_error),
             ClientError::Db(db) => retryable!(db),
             ClientError::Generic(err) => err.contains("database is locked"),
+            ClientError::EnvelopesNotYetVisible { .. } => true,
             _ => false,
         }
     }
@@ -971,7 +982,8 @@ where
             .await?;
 
         // Step 4: Publish identity update (makes installation visible)
-        self.context
+        let registration_cursor = self
+            .context
             .api()
             .publish_identity_update(identity_update)
             .await?;
@@ -1000,7 +1012,12 @@ where
             .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
 
         // Mark identity as ready
-        StoredIdentity::try_from(self.identity())?.store(&self.context.db())?;
+        let mut stored_identity = StoredIdentity::try_from(self.identity())?;
+        if let Some(cursor) = registration_cursor {
+            stored_identity.registration_cursor_originator_id = Some(cursor.originator_id as i64);
+            stored_identity.registration_cursor_sequence_id = Some(cursor.sequence_id as i64);
+        }
+        stored_identity.store(&self.context.db())?;
         self.identity().set_ready();
         Ok(())
     }

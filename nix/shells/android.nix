@@ -5,7 +5,6 @@
   kotlin,
   ktlint,
   jdk17,
-  cargo-ndk,
   openssl,
   lib,
   gnused,
@@ -47,7 +46,6 @@ mkShell (
         ktlint
         androidEnv.devComposition.androidsdk
         jdk17
-        cargo-ndk
         gnused
       ]
       ++ lib.optionals androidEnv.hasEmulator [

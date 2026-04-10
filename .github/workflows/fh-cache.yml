@@ -13,30 +13,34 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [warp-ubuntu-latest-x64-16x, warp-macos-15-arm64-6x]
+        os: [warp-ubuntu-latest-x64-16x, warp-macos-26-arm64-12x]
     runs-on: ${{ matrix.os }}
     permissions:
       id-token: write
       contents: read
     steps:
       - uses: actions/checkout@v6
-      - uses: nixbuild/nix-quick-install-action@v34
+      - uses: ./.github/actions/setup-nix
         with:
-          nix_conf: |
-            extra-substituters = https://cache.garnix.io https://xmtp.cachix.org
-            extra-trusted-public-keys = cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g= xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0=
-            sandbox = relaxed
-      - run: nix build --version
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Install omnix
         run: nix profile install nixpkgs#omnix
-      - name: build all flake outputs
+      - name: Build all flake outputs
         run: om ci run --include-all-dependencies --results=om.json
-      - name: push to cachix
-        if: env.BRANCH_NAME == 'main'
-        run: nix run github:juspay/cachix-push -- --cache xmtp --subflake omnix --prefix "$BRANCH_NAME" < om.json
+      - name: Pin outputs to cachix
+        # if: github.ref_name == 'main'
+        run: |
+          BRANCH_NAME="${{ github.head_ref || github.ref_name }}"
+          SYSTEM=$(jq -r '.systems[0]' om.json)
+          jq -r --arg prefix "$BRANCH_NAME" --arg sys "$SYSTEM" \
+            '.result.omnix.build.byName | to_entries[] | "\($prefix)-\($sys)-\(.key) \(.value)"' \
+            om.json | while read -r pin_name store_path; do
+              echo "Pinning: $pin_name => $store_path"
+              cachix pin xmtp "$pin_name" "$store_path"
+            done
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
   validation-image-aarch64:
     runs-on: warp-ubuntu-latest-arm64-16x
     permissions:
@@ -44,22 +48,14 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
-      - uses: nixbuild/nix-quick-install-action@v34
+      - uses: ./.github/actions/setup-nix
         with:
-          nix_conf: |
-            extra-substituters = https://cache.garnix.io https://xmtp.cachix.org
-            extra-trusted-public-keys = cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g= xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0=
-            sandbox = relaxed
-      - run: nix build --version
-      - name: build validation service image
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Build validation service image
         run: nix build .#validation-service-image-aarch64-unknown-linux-musl
-      - name: push to cachix
+      - name: Pin to cachix
         if: github.ref_name == 'main'
-        run: nix run nixpkgs#cachix -- push xmtp ./result
-        env:
-          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - name: pin to cachix
-        if: github.ref_name == 'main'
-        run: nix run nixpkgs#cachix -- pin xmtp validation-service-image-aarch64 ./result
+        run: cachix pin xmtp validation-service-image-aarch64 ./result
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}

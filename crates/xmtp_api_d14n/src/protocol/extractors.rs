@@ -32,7 +32,7 @@ pub use bytes::*;
 mod orphaned_envelope;
 pub use orphaned_envelope::*;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
 #[derive(thiserror::Error, Debug)]

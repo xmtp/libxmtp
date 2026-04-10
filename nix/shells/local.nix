@@ -17,7 +17,6 @@
   foundry-bin,
   sqlcipher,
   corepack,
-  cargo-ndk,
   gnused,
   swiftformat,
   swiftlint,
@@ -36,7 +35,6 @@ let
     "wasm32-unknown-unknown"
     "x86_64-unknown-linux-gnu"
   ]
-  ++ androidEnv.androidTargets
   ++ lib.optionals isDarwin iosEnv.iosTargets;
 
   rust-toolchain = xmtp.mkNativeToolchain allTargets [
@@ -93,7 +91,6 @@ mkShell (
 
         # Android
         androidEnv.devComposition.androidsdk
-        cargo-ndk
         gnused
 
         # Kotlin / JDK
