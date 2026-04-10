@@ -353,9 +353,12 @@ class DmTests: XCTestCase {
 	func testDmDisappearingMessages() async throws {
 		let fixtures = try await fixtures()
 
+		// Retention is 5s (long enough that the initial count assertion
+		// below wins the race with the 1s-interval disappearing_messages
+		// worker even on slow CI runners — see issue #3448).
 		let initialSettings = DisappearingMessageSettings(
 			disappearStartingAtNs: 1_000_000_000,
-			retentionDurationInNs: 1_000_000_000 // 1s duration
+			retentionDurationInNs: 5_000_000_000 // 5s duration
 		)
 
 		// Create group with disappearing messages enabled
@@ -378,7 +381,8 @@ class DmTests: XCTestCase {
 		XCTAssertEqual(alixGroupMessagesCount, 2) // memberAdd howdy
 		XCTAssertNotNil(boGroupSettings)
 
-		try await Task.sleep(nanoseconds: 5_000_000_000) // Sleep for 5 seconds
+		// Sleep longer than retention (5s) + worker interval (1s) + buffer.
+		try await Task.sleep(nanoseconds: 8_000_000_000) // Sleep for 8 seconds
 
 		let boGroupMessagesAfterSleep = try await boDm.messages().count
 		let alixGroupMessagesAfterSleep = try await alixDm?.messages().count
