@@ -53,30 +53,36 @@ let
   # IMPROVEMENT: buildDepsOnly could include an Xcode existence check in its
   # buildPhaseCargoCommand to provide a clearer error message if Xcode is missing,
   # rather than failing deep in the cc-rs build with cryptic SDK path errors.
-  buildTarget =
+  # Per-target dep cache — rebuilds only when Cargo.lock, Cargo.toml, or build.rs change.
+  # Keyed by target triple. Impure (__noChroot) because build scripts need Xcode SDK.
+  # Shared between buildTarget and swiftBindings (for aarch64-apple-darwin).
+  mkDepsForTarget =
     target:
     let
       envSetup = iosEnv.envSetup target;
+    in
+    rust.buildDepsOnly (
+      commonArgs
+      // {
+        pname = "xmtpv3-deps-${target}";
+        CARGO_BUILD_TARGET = target;
+        __noChroot = true;
+        cargoExtraArgs = "--target ${target} -p xmtpv3";
+        # envSetup is inlined in buildPhaseCargoCommand because crane's buildDepsOnly
+        # strips preBuild hooks (it needs full control of the build phase to replace
+        # source files with dummies). envSetup dynamically resolves the Xcode path
+        # via xcode-select and sets DEVELOPER_DIR, SDKROOT, CC/CXX, and bindgen args.
+        buildPhaseCargoCommand = ''
+          ${envSetup}
+          cargo build --locked --release --target ${target} -p xmtpv3
+        '';
+      }
+    );
 
-      # Phase 1: Dep caching — rebuilds when Cargo.lock, Cargo.toml, or build.rs change.
-      cargoArtifacts = rust.buildDepsOnly (
-        commonArgs
-        // {
-          pname = "xmtpv3-deps-${target}";
-          CARGO_BUILD_TARGET = target;
-          # Impure: needs Xcode SDK for bindgen during dep compilation
-          __noChroot = true;
-          cargoExtraArgs = "--target ${target} -p xmtpv3";
-          # envSetup is inlined in buildPhaseCargoCommand because crane's buildDepsOnly
-          # strips preBuild hooks (it needs full control of the build phase to replace
-          # source files with dummies). envSetup dynamically resolves the Xcode path
-          # via xcode-select and sets DEVELOPER_DIR, SDKROOT, CC/CXX, and bindgen args.
-          buildPhaseCargoCommand = ''
-            ${envSetup}
-            cargo build --locked --release --target ${target} -p xmtpv3
-          '';
-        }
-      );
+  buildTarget =
+    target:
+    let
+      cargoArtifacts = mkDepsForTarget target;
     in
     # Phase 2: Build project source using cached dep artifacts.
     rust.buildPackage (
@@ -117,7 +123,7 @@ let
       __noChroot = true;
       src = bindingsFileset;
       inherit version;
-      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false null;
+      cargoArtifacts = mkDepsForTarget "aarch64-apple-darwin";
       cargoExtraArgs = "-p xmtpv3";
       CARGO_BUILD_TARGET = "aarch64-apple-darwin";
       buildPhaseCargoCommand = ''
