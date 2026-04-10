@@ -2,7 +2,7 @@
 set -eou pipefail
 
 rm -rf ./_site
-cargo doc --workspace --no-deps --exclude bindings_wasm
+cargo doc --workspace --no-deps --exclude bindings_wasm --exclude log_parser
 rm -f target/doc/.lock
 cp -r target/doc _site
 echo "generating site index"
