@@ -60,11 +60,9 @@ impl ServiceManager {
 
         // Start Traefik first so we can get its IP for CoreDNS
         let config = Config::load()?;
-        let mut traefik_builder = Traefik::builder();
-        if let Some(port) = config.traefik_port {
-            traefik_builder = traefik_builder.http_port(port);
-        }
-        let mut traefik = traefik_builder.build();
+        let mut traefik = Traefik::builder()
+            .maybe_http_port(config.traefik_port)
+            .build();
         traefik.start(&proxy).await?;
 
         // Get Traefik's IP address for CoreDNS container-facing DNS
