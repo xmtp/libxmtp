@@ -10,11 +10,7 @@ pub struct FetchD14nCutover;
 impl Endpoint for FetchD14nCutover {
     type Output = FetchD14nCutoverResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-<<<<<<< Updated upstream
         Cow::Borrowed("/xmtp.migration.api.v1.D14nMigrationApi/FetchD14nCutover")
-=======
-        xmtp_proto::path_and_query::<FetchD14nCutoverResponse>("D14nMigrationApi")
->>>>>>> Stashed changes
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {

@@ -22,11 +22,7 @@ impl UploadKeyPackage {
 impl Endpoint for UploadKeyPackage {
     type Output = ();
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-<<<<<<< Updated upstream
         Cow::Borrowed("/xmtp.mls.api.v1.MlsApi/UploadKeyPackage")
-=======
-        xmtp_proto::path_and_query::<UploadKeyPackageRequest>("MlsApi")
->>>>>>> Stashed changes
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -47,15 +43,6 @@ mod test {
     use xmtp_proto::{api, prelude::*};
 
     #[xmtp_common::test]
-<<<<<<< Updated upstream
-=======
-    fn test_file_descriptor() {
-        let pnq = xmtp_proto::path_and_query::<UploadKeyPackageRequest>("MlsApi");
-        println!("{}", pnq);
-    }
-
-    #[xmtp_common::test]
->>>>>>> Stashed changes
     fn test_grpc_endpoint_returns_correct_path() {
         let endpoint = UploadKeyPackage::default();
         assert_eq!(

@@ -22,11 +22,7 @@ impl FetchKeyPackages {
 impl Endpoint for FetchKeyPackages {
     type Output = FetchKeyPackagesResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-<<<<<<< Updated upstream
         Cow::Borrowed("/xmtp.mls.api.v1.MlsApi/FetchKeyPackages")
-=======
-        xmtp_proto::path_and_query::<FetchKeyPackagesRequest>("MlsApi")
->>>>>>> Stashed changes
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -45,16 +41,6 @@ mod test {
     use xmtp_proto::{mls_v1::FetchKeyPackagesResponse, prelude::*};
 
     #[xmtp_common::test]
-<<<<<<< Updated upstream
-=======
-    fn test_file_descriptor() {
-        use xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest;
-        let pnq = xmtp_proto::path_and_query::<FetchKeyPackagesRequest>("MlsApi");
-        println!("{}", pnq);
-    }
-
-    #[xmtp_common::test]
->>>>>>> Stashed changes
     fn test_grpc_endpoint_returns_correct_path() {
         let endpoint = FetchKeyPackages::default();
         assert_eq!(

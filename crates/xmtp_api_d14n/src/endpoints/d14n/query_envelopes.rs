@@ -27,11 +27,7 @@ impl QueryEnvelope {
 impl Endpoint for QueryEnvelope {
     type Output = QueryEnvelopesResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-<<<<<<< Updated upstream
         Cow::Borrowed("/xmtp.xmtpv4.message_api.ReplicationApi/QueryEnvelopes")
-=======
-        xmtp_proto::path_and_query::<QueryEnvelopesRequest>("ReplicationApi")
->>>>>>> Stashed changes
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -66,11 +62,7 @@ impl QueryEnvelopes {
 impl Endpoint for QueryEnvelopes {
     type Output = QueryEnvelopesResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-<<<<<<< Updated upstream
         Cow::Borrowed("/xmtp.xmtpv4.message_api.ReplicationApi/QueryEnvelopes")
-=======
-        xmtp_proto::path_and_query::<QueryEnvelopesRequest>("ReplicationApi")
->>>>>>> Stashed changes
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -90,16 +82,6 @@ mod test {
     use xmtp_proto::{api, prelude::*, types::TopicKind};
 
     #[xmtp_common::test]
-<<<<<<< Updated upstream
-=======
-    fn test_file_descriptor() {
-        use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesRequest;
-        let pnq = xmtp_proto::path_and_query::<QueryEnvelopesRequest>("ReplicationApi");
-        println!("{}", pnq);
-    }
-
-    #[xmtp_common::test]
->>>>>>> Stashed changes
     fn test_grpc_endpoint_returns_correct_path() {
         let endpoint = QueryEnvelopes::default();
         assert_eq!(

@@ -24,11 +24,7 @@ impl QueryWelcomeMessages {
 impl Endpoint for QueryWelcomeMessages {
     type Output = QueryWelcomeMessagesResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-<<<<<<< Updated upstream
         Cow::Borrowed("/xmtp.mls.api.v1.MlsApi/QueryWelcomeMessages")
-=======
-        xmtp_proto::path_and_query::<QueryWelcomeMessagesRequest>("MlsApi")
->>>>>>> Stashed changes
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -54,19 +50,7 @@ mod test {
     use crate::v3::QueryWelcomeMessages;
     use xmtp_api_grpc::test::NodeGoClient;
     use xmtp_proto::prelude::*;
-<<<<<<< Updated upstream
     use xmtp_proto::xmtp::mls::api::v1::QueryWelcomeMessagesResponse;
-=======
-    use xmtp_proto::xmtp::mls::api::v1::{
-        QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
-    };
-
-    #[xmtp_common::test]
-    fn test_file_descriptor() {
-        let pnq = xmtp_proto::path_and_query::<QueryWelcomeMessagesRequest>("MlsApi");
-        println!("{}", pnq);
-    }
->>>>>>> Stashed changes
 
     #[xmtp_common::test]
     fn test_grpc_endpoint_returns_correct_path() {

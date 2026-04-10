@@ -4,8 +4,8 @@ use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::api::{BodyError, Endpoint};
 use xmtp_proto::identity_v1::GetIdentityUpdatesResponse;
-use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_request::Request;
 use xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesRequest;
+use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_request::Request;
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option), build_fn(error = "BodyError"))]
@@ -23,11 +23,7 @@ impl GetIdentityUpdatesV2 {
 impl Endpoint for GetIdentityUpdatesV2 {
     type Output = GetIdentityUpdatesResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-<<<<<<< Updated upstream
         Cow::Borrowed("/xmtp.identity.api.v1.IdentityApi/GetIdentityUpdates")
-=======
-        xmtp_proto::path_and_query::<GetIdentityUpdatesRequest>("IdentityApi")
->>>>>>> Stashed changes
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -46,15 +42,6 @@ mod test {
     use xmtp_proto::{identity_v1::GetIdentityUpdatesResponse, prelude::*};
 
     #[xmtp_common::test]
-<<<<<<< Updated upstream
-=======
-    fn test_file_descriptor() {
-        let pnq = xmtp_proto::path_and_query::<GetIdentityUpdatesRequest>("IdentityApi");
-        println!("{}", pnq);
-    }
-
-    #[xmtp_common::test]
->>>>>>> Stashed changes
     fn test_grpc_endpoint_returns_correct_path() {
         let endpoint = GetIdentityUpdatesV2::default();
         assert_eq!(

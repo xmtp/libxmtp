@@ -22,11 +22,7 @@ impl QueryCommitLog {
 impl Endpoint for QueryCommitLog {
     type Output = BatchQueryCommitLogResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-<<<<<<< Updated upstream
         Cow::Borrowed("/xmtp.mls.api.v1.MlsApi/BatchQueryCommitLog")
-=======
-        xmtp_proto::path_and_query::<BatchQueryCommitLogRequest>("MlsApi")
->>>>>>> Stashed changes
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -46,15 +42,6 @@ mod test {
     use xmtp_proto::prelude::*;
 
     #[xmtp_common::test]
-<<<<<<< Updated upstream
-=======
-    fn test_file_descriptor() {
-        let pnq = xmtp_proto::path_and_query::<BatchQueryCommitLogRequest>("MlsApi");
-        println!("{}", pnq);
-    }
-
-    #[xmtp_common::test]
->>>>>>> Stashed changes
     fn test_grpc_endpoint_returns_correct_path() {
         let endpoint = QueryCommitLog::default();
         assert_eq!(

@@ -31,28 +31,6 @@ impl<S, T> XmtpTonicStream<S, T> {
     }
 }
 
-<<<<<<< Updated upstream
-=======
-impl<T> XmtpTonicStream<BytesStream, T> {
-    /// create a stream from the body of a request
-    /// makes the request and starts the stream
-    pub async fn from_body<B: prost::Name>(
-        body: B,
-        client: crate::GrpcClient,
-        endpoint: ApiEndpoint,
-        service: &str,
-    ) -> Result<Self, ApiClientError> {
-        let pnq = xmtp_proto::path_and_query::<B>(service);
-        let request = http::Request::builder();
-        let path = http::uri::PathAndQuery::try_from(pnq.as_ref())?;
-        let s = client
-            .stream(request, path, body.encode_to_vec().into())
-            .await?;
-        Ok(Self::new(s.into_body(), endpoint))
-    }
-}
-
->>>>>>> Stashed changes
 impl<S, T> Stream for XmtpTonicStream<S, T>
 where
     S: TryStream<Ok = Bytes, Error = GrpcError>,

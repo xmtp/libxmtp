@@ -25,11 +25,7 @@ impl GetInboxIds {
 impl Endpoint for GetInboxIds {
     type Output = GetInboxIdsResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-<<<<<<< Updated upstream
         Cow::Borrowed("/xmtp.identity.api.v1.IdentityApi/GetInboxIds")
-=======
-        xmtp_proto::path_and_query::<GetInboxIdsRequest>("IdentityApi")
->>>>>>> Stashed changes
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -65,17 +61,6 @@ mod test {
     use xmtp_proto::{identity_v1::GetInboxIdsResponse, prelude::*};
 
     #[xmtp_common::test]
-<<<<<<< Updated upstream
-=======
-    fn test_file_descriptor() {
-        use xmtp_proto::xmtp::identity::api::v1::GetInboxIdsRequest;
-
-        let pnq = xmtp_proto::path_and_query::<GetInboxIdsRequest>("IdentityApi");
-        println!("{}", pnq);
-    }
-
-    #[xmtp_common::test]
->>>>>>> Stashed changes
     fn test_grpc_endpoint_returns_correct_path() {
         let endpoint = GetInboxIds::default();
         assert_eq!(

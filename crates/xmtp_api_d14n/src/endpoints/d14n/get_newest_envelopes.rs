@@ -27,11 +27,7 @@ impl GetNewestEnvelopes {
 impl Endpoint for GetNewestEnvelopes {
     type Output = GetNewestEnvelopeResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-<<<<<<< Updated upstream
         Cow::Borrowed("/xmtp.xmtpv4.message_api.ReplicationApi/GetNewestEnvelope")
-=======
-        xmtp_proto::path_and_query::<GetNewestEnvelopeRequest>("ReplicationApi")
->>>>>>> Stashed changes
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -48,16 +44,6 @@ mod test {
     use xmtp_proto::{api, prelude::*};
 
     #[xmtp_common::test]
-<<<<<<< Updated upstream
-=======
-    fn test_file_descriptor() {
-        use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeRequest;
-        let pnq = xmtp_proto::path_and_query::<GetNewestEnvelopeRequest>("ReplicationApi");
-        println!("{}", pnq);
-    }
-
-    #[xmtp_common::test]
->>>>>>> Stashed changes
     fn test_grpc_endpoint_returns_correct_path() {
         use crate::d14n::GetNewestEnvelopes;
         let endpoint = GetNewestEnvelopes::default();
