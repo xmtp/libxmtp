@@ -47,12 +47,19 @@ jobs:
       - name: Build and push image
         id: push
         uses: docker/build-push-action@v7
+        env:
+          # Pin the image config timestamp so identical inputs produce an
+          # identical manifest digest. Combined with dropping volatile labels
+          # (metadata-action's default set includes `created` and `revision`)
+          # and disabling provenance, this keeps the pushed digest stable
+          # across rebuilds.
+          SOURCE_DATE_EPOCH: "0"
         with:
           context: ./.devcontainer
           file: ./.devcontainer/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=min
 
