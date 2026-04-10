@@ -106,7 +106,6 @@ jobs:
             gh issue create \
               --title "Flaky CI Failure: <short description of the error>" \
               --label "flaky" \
-              --assignee "xmtp-coder-agent" \
               --body "<body>"
             ```
 
