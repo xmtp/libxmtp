@@ -172,9 +172,7 @@ impl ServiceManager {
         // Start PgAdmin AFTER xmtpd nodes so it can discover their
         // ReplicationDb containers via Docker labels (xnet.pgadmin=true).
         // Dependency chain: ReplicationDb (labels) → PgAdmin (scans labels)
-        let mut pgadmin = pgadmin;
-        pgadmin.start(&this.proxy).await?;
-        this.pgadmin = pgadmin;
+        this.pgadmin.start(&this.proxy).await?;
 
         Ok(this)
     }

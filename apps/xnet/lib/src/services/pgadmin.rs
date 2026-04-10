@@ -30,6 +30,7 @@ use bollard::models::{ContainerCreateBody, HostConfig, PortBinding};
 use bollard::query_parameters::{CreateContainerOptionsBuilder, ListContainersOptionsBuilder};
 use bon::Builder;
 use color_eyre::eyre::Result;
+use serde::Serialize;
 use url::Url;
 
 use crate::{
@@ -173,59 +174,56 @@ impl PgAdmin {
         let servers_path = Path::new(PGADMIN_DIR).join("servers.json");
 
         let mut server_id = 0u32;
-        let mut entries = Vec::new();
+        let mut servers = HashMap::new();
 
         // Static databases (always present)
         server_id += 1;
-        entries.push(format!(
-            r#"    "{}": {{
-      "Name": "xnet-db (V3)",
-      "Group": "XNET",
-      "Host": "{}",
-      "Port": {},
-      "MaintenanceDB": "postgres",
-      "Username": "postgres",
-      "SSLMode": "prefer"
-    }}"#,
-            server_id,
-            V3DbConst::CONTAINER_NAME,
-            5432
-        ));
+        servers.insert(
+            server_id.to_string(),
+            PgAdminServer {
+                name: "xnet-db (V3)".to_string(),
+                group: "XNET".to_string(),
+                host: V3DbConst::CONTAINER_NAME.to_string(),
+                port: 5432,
+                maintenance_db: "postgres".to_string(),
+                username: "postgres".to_string(),
+                ssl_mode: "prefer".to_string(),
+            },
+        );
 
         server_id += 1;
-        entries.push(format!(
-            r#"    "{}": {{
-      "Name": "xnet-mlsdb (MLS)",
-      "Group": "XNET",
-      "Host": "{}",
-      "Port": {},
-      "MaintenanceDB": "postgres",
-      "Username": "postgres",
-      "SSLMode": "prefer"
-    }}"#,
-            server_id,
-            MlsDbConst::CONTAINER_NAME,
-            5432
-        ));
+        servers.insert(
+            server_id.to_string(),
+            PgAdminServer {
+                name: "xnet-mlsdb (MLS)".to_string(),
+                group: "XNET".to_string(),
+                host: MlsDbConst::CONTAINER_NAME.to_string(),
+                port: 5432,
+                maintenance_db: "postgres".to_string(),
+                username: "postgres".to_string(),
+                ssl_mode: "disable".to_string(),
+            },
+        );
 
         // Discovered databases (from Docker labels)
         for db in discovered {
             server_id += 1;
-            entries.push(format!(
-                r#"    "{}": {{
-      "Name": "{}",
-      "Group": "XNET",
-      "Host": "{}",
-      "Port": {},
-      "MaintenanceDB": "postgres",
-      "Username": "postgres",
-      "SSLMode": "disable"
-    }}"#,
-                server_id, db.name, db.host, db.port
-            ));
+            servers.insert(
+                server_id.to_string(),
+                PgAdminServer {
+                    name: db.name.clone(),
+                    group: "XNET".to_string(),
+                    host: db.host.clone(),
+                    port: db.port,
+                    maintenance_db: "postgres".to_string(),
+                    username: "postgres".to_string(),
+                    ssl_mode: "disable".to_string(),
+                },
+            );
         }
 
-        let json = format!("{{\n  \"Servers\": {{\n{}\n  }}\n}}", entries.join(",\n"));
+        let wrapper = PgAdminServersFile { servers };
+        let json = serde_json::to_string_pretty(&wrapper)?;
         fs::write(&servers_path, json)?;
 
         Ok(())
@@ -260,6 +258,32 @@ struct DiscoveredDb {
     host: String,
     /// Database port (from `xnet.pgadmin.port` label)
     port: u16,
+}
+
+/// Top-level structure for PgAdmin's `servers.json` file.
+#[derive(Serialize)]
+struct PgAdminServersFile {
+    #[serde(rename = "Servers")]
+    servers: HashMap<String, PgAdminServer>,
+}
+
+/// A single server entry in PgAdmin's `servers.json`.
+#[derive(Serialize)]
+struct PgAdminServer {
+    #[serde(rename = "Name")]
+    name: String,
+    #[serde(rename = "Group")]
+    group: String,
+    #[serde(rename = "Host")]
+    host: String,
+    #[serde(rename = "Port")]
+    port: u16,
+    #[serde(rename = "MaintenanceDB")]
+    maintenance_db: String,
+    #[serde(rename = "Username")]
+    username: String,
+    #[serde(rename = "SSLMode")]
+    ssl_mode: String,
 }
 
 #[async_trait]
