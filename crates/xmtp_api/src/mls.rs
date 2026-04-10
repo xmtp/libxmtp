@@ -236,6 +236,8 @@ where
         Ok(())
     }
 
+    // Subscription setup is retried so callers tolerate transient transport
+    // errors on the first post-reconnect RPC (see issue #3438).
     pub async fn subscribe_group_messages(
         &self,
         group_ids: &[&GroupId],
@@ -244,10 +246,11 @@ where
         ApiClient: XmtpMlsStreams,
     {
         tracing::debug!(inbox_id = self.inbox_id, "subscribing to group messages");
-        self.api_client
-            .subscribe_group_messages(group_ids)
-            .await
-            .map_err(crate::dyn_err)
+        retry_async!(
+            self.retry_strategy,
+            (async { self.api_client.subscribe_group_messages(group_ids).await })
+        )
+        .map_err(crate::dyn_err)
     }
 
     pub async fn subscribe_group_messages_with_cursors(
@@ -261,10 +264,15 @@ where
             inbox_id = self.inbox_id,
             "subscribing to group messages with cursors"
         );
-        self.api_client
-            .subscribe_group_messages_with_cursors(groups_with_cursors)
-            .await
-            .map_err(crate::dyn_err)
+        retry_async!(
+            self.retry_strategy,
+            (async {
+                self.api_client
+                    .subscribe_group_messages_with_cursors(groups_with_cursors)
+                    .await
+            })
+        )
+        .map_err(crate::dyn_err)
     }
 
     pub async fn subscribe_welcome_messages(
@@ -275,18 +283,6 @@ where
         ApiClient: XmtpMlsStreams,
     {
         tracing::debug!(inbox_id = self.inbox_id, "subscribing to welcome messages");
-        // _NOTE_:
-        // Default ID Cursor should be one
-        // else we miss welcome messages
-        //
-        // Retry the subscription setup so callers are insulated from
-        // transient transport errors — for example, after a network blip
-        // the underlying tonic `Channel` reconnects lazily on the next RPC
-        // and the first post-reconnect call can observe a
-        // `Status::Cancelled` / "connection closed" while the channel is
-        // still transitioning out of its transient-failure state
-        // (see issue #3438). Non-retryable errors short-circuit via
-        // `RetryableError`.
         retry_async!(
             self.retry_strategy,
             (async {
