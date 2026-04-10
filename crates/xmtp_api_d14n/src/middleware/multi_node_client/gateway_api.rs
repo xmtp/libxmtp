@@ -219,4 +219,17 @@ mod tests {
             err_string,
         );
     }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn retry_get_nodes_fails_fast_on_non_retryable_error() {
+        let mut mock = MockNetworkClient::new();
+        mock.expect_request()
+            .times(1)
+            .returning(|_, _, _| Err(ApiClientError::client(MockError::ANonRetryableError)));
+
+        let err = get_nodes(&mock, &GrpcClient::builder())
+            .await
+            .expect_err("get_nodes should not retry non-retryable errors");
+        let _ = err; // assertion is enforced by mockall's `.times(1)` on Drop
+    }
 }
