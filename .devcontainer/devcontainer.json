@@ -1,7 +1,7 @@
 // For format details, see https://aka.ms/devcontainer.json.
 {
     "name": "libxmtp (Nix)",
-    "image": "ghcr.io/xmtp/libxmtp-devcontainer@sha256:df10fa19355d27388ae0ff0134a6059b6c2a54e7564ebec1cfc0764dc1c9efd3",
+    "image": "ghcr.io/xmtp/libxmtp-devcontainer@sha256:f8c7e41f2d51e2c6974131085f7028d1a8a309d3ca5ddbd3a76c2aa9ccac9688",
     "runArgs": ["--ulimit", "stack=-1:-1"],
     "mounts": [
         "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
