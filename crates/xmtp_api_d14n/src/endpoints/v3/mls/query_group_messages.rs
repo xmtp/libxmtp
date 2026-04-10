@@ -23,7 +23,11 @@ impl QueryGroupMessages {
 impl Endpoint for QueryGroupMessages {
     type Output = QueryGroupMessagesResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
+<<<<<<< Updated upstream
         Cow::Borrowed("/xmtp.mls.api.v1.MlsApi/QueryGroupMessages")
+=======
+        xmtp_proto::path_and_query::<QueryGroupMessagesRequest>("MlsApi")
+>>>>>>> Stashed changes
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -52,6 +56,15 @@ mod test {
     use xmtp_proto::xmtp::mls::api::v1::*;
 
     #[xmtp_common::test]
+<<<<<<< Updated upstream
+=======
+    fn test_file_descriptor() {
+        let pnq = xmtp_proto::path_and_query::<QueryGroupMessagesRequest>("MlsApi");
+        println!("{}", pnq);
+    }
+
+    #[xmtp_common::test]
+>>>>>>> Stashed changes
     fn test_grpc_endpoint_returns_correct_path() {
         let endpoint = QueryGroupMessages::default();
         assert_eq!(

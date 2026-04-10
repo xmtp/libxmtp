@@ -30,7 +30,11 @@ impl Endpoint for SubscribeTopics {
     type Output = SubscribeTopicsResponse;
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
+<<<<<<< Updated upstream
         Cow::Borrowed("/xmtp.xmtpv4.message_api.ReplicationApi/SubscribeTopics")
+=======
+        xmtp_proto::path_and_query::<SubscribeTopicsRequest>("ReplicationApi")
+>>>>>>> Stashed changes
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {

@@ -24,7 +24,11 @@ impl PublishClientEnvelopes {
 impl Endpoint for PublishClientEnvelopes {
     type Output = PublishClientEnvelopesResponse;
     fn grpc_endpoint(&self) -> Cow<'static, str> {
+<<<<<<< Updated upstream
         Cow::Borrowed("/xmtp.xmtpv4.payer_api.PayerApi/PublishClientEnvelopes")
+=======
+        xmtp_proto::path_and_query::<PublishClientEnvelopesRequest>("PayerApi")
+>>>>>>> Stashed changes
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -52,6 +56,17 @@ mod test {
     };
 
     #[xmtp_common::test]
+<<<<<<< Updated upstream
+=======
+    fn test_file_descriptor() {
+        use xmtp_proto::xmtp::xmtpv4::payer_api::PublishClientEnvelopesRequest;
+
+        let pnq = xmtp_proto::path_and_query::<PublishClientEnvelopesRequest>("PayerApi");
+        println!("{}", pnq);
+    }
+
+    #[xmtp_common::test]
+>>>>>>> Stashed changes
     fn test_grpc_endpoint_returns_correct_path() {
         let endpoint = PublishClientEnvelopes::default();
         assert_eq!(

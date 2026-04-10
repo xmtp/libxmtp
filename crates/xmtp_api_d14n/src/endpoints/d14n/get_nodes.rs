@@ -19,7 +19,11 @@ impl Endpoint for GetNodes {
     type Output = GetNodesResponse;
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
+<<<<<<< Updated upstream
         Cow::Borrowed("/xmtp.xmtpv4.payer_api.PayerApi/GetNodes")
+=======
+        xmtp_proto::path_and_query::<GetNodesRequest>("PayerApi")
+>>>>>>> Stashed changes
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -35,9 +39,15 @@ mod test {
     use xmtp_proto::prelude::*;
 
     #[xmtp_common::test]
+<<<<<<< Updated upstream
     fn test_grpc_endpoint_returns_correct_path() {
         let endpoint = GetNodes::default();
         assert!(!endpoint.grpc_endpoint().is_empty());
+=======
+    fn test_file_descriptor() {
+        let pnq = xmtp_proto::path_and_query::<GetNodesRequest>("PayerApi");
+        println!("{}", pnq);
+>>>>>>> Stashed changes
     }
 
     #[xmtp_common::test]

@@ -24,7 +24,11 @@ impl Endpoint for GetNewestGroupMessage {
     type Output = GetNewestGroupMessageResponse;
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
+<<<<<<< Updated upstream
         Cow::Borrowed("/xmtp.mls.api.v1.MlsApi/GetNewestGroupMessage")
+=======
+        xmtp_proto::path_and_query::<GetNewestGroupMessageRequest>("MlsApi")
+>>>>>>> Stashed changes
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
@@ -44,9 +48,15 @@ mod test {
     use xmtp_proto::prelude::*;
 
     #[xmtp_common::test]
+<<<<<<< Updated upstream
     fn test_grpc_endpoint_returns_correct_path() {
         let endpoint = GetNewestGroupMessage::default();
         assert!(!endpoint.grpc_endpoint().is_empty());
+=======
+    fn test_file_descriptor() {
+        let pnq = xmtp_proto::path_and_query::<GetNewestGroupMessageRequest>("MlsApi");
+        println!("{}", pnq);
+>>>>>>> Stashed changes
     }
 
     #[xmtp_common::test]
