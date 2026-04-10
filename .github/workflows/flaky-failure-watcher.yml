@@ -1,7 +1,6 @@
 name: Flaky Failure Watcher
 
 on:
-  workflow_dispatch: # Manual trigger for testing
   workflow_run:
     # NOTE: workflow_run requires explicit names — no wildcards.
     # When adding a new workflow that runs on main, add it here too.
@@ -49,9 +48,7 @@ permissions:
 jobs:
   investigate:
     runs-on: ubuntu-latest
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'failure'
+    if: github.event.workflow_run.conclusion == 'failure'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
