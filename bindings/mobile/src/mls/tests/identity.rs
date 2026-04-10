@@ -238,7 +238,12 @@ async fn test_invalid_external_signature() {
     .unwrap();
 
     let signature_request = client.signature_request().unwrap();
-    assert!(client.register_identity(signature_request).await.is_err());
+    assert!(
+        client
+            .register_identity(signature_request, None)
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]

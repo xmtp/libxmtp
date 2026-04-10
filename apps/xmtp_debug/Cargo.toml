@@ -46,7 +46,7 @@ serde_json.workspace = true
 speedy = "0.8"
 tempfile = "3.15"
 thiserror.workspace = true
-tokio = "1.43"
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 tokio-stream.workspace = true
 tracing = { workspace = true, features = ["valuable"] }
 tracing-appender = "0.2"

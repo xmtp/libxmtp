@@ -5,7 +5,6 @@
   kotlin,
   ktlint,
   jdk17,
-  cargo-ndk,
   openssl,
   lib,
   gnused,
@@ -13,10 +12,10 @@
   zlib,
 }:
 let
-  inherit (xmtp) androidEnv mobile shellCommon;
+  inherit (xmtp) androidEnv base shellCommon;
 
   # Rust toolchain with Android cross-compilation targets
-  rust-android-toolchain = xmtp.mkToolchain androidEnv.androidTargets [
+  rust-android-toolchain = xmtp.mkNativeToolchain androidEnv.androidTargets [
     "clippy-preview"
     "rustfmt-preview"
   ];
@@ -37,17 +36,16 @@ mkShell (
       zlib
     ];
 
-    inherit (mobile.commonArgs) nativeBuildInputs;
+    inherit (base.commonArgs) nativeBuildInputs;
 
     buildInputs =
-      mobile.commonArgs.buildInputs
+      base.commonArgs.buildInputs
       ++ [
         rust-android-toolchain
         kotlin
         ktlint
         androidEnv.devComposition.androidsdk
         jdk17
-        cargo-ndk
         gnused
       ]
       ++ lib.optionals androidEnv.hasEmulator [

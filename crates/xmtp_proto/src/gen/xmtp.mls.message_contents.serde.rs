@@ -217,6 +217,336 @@ impl<'de> serde::Deserialize<'de> for CommitResult {
         deserializer.deserialize_any(GeneratedVisitor)
     }
 }
+impl serde::Serialize for ComponentMetadata {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.permissions.is_some() {
+            len += 1;
+        }
+        if self.component_type != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.ComponentMetadata", len)?;
+        if let Some(v) = self.permissions.as_ref() {
+            struct_ser.serialize_field("permissions", v)?;
+        }
+        if self.component_type != 0 {
+            let v = ComponentType::try_from(self.component_type)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.component_type)))?;
+            struct_ser.serialize_field("component_type", &v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ComponentMetadata {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "permissions",
+            "component_type",
+            "componentType",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Permissions,
+            ComponentType,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "permissions" => Ok(GeneratedField::Permissions),
+                            "componentType" | "component_type" => Ok(GeneratedField::ComponentType),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ComponentMetadata;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.ComponentMetadata")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ComponentMetadata, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut permissions__ = None;
+                let mut component_type__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Permissions => {
+                            if permissions__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("permissions"));
+                            }
+                            permissions__ = map_.next_value()?;
+                        }
+                        GeneratedField::ComponentType => {
+                            if component_type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("componentType"));
+                            }
+                            component_type__ = Some(map_.next_value::<ComponentType>()? as i32);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(ComponentMetadata {
+                    permissions: permissions__,
+                    component_type: component_type__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.ComponentMetadata", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for ComponentPermissions {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.insert_policy.is_some() {
+            len += 1;
+        }
+        if self.update_policy.is_some() {
+            len += 1;
+        }
+        if self.delete_policy.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.ComponentPermissions", len)?;
+        if let Some(v) = self.insert_policy.as_ref() {
+            struct_ser.serialize_field("insert_policy", v)?;
+        }
+        if let Some(v) = self.update_policy.as_ref() {
+            struct_ser.serialize_field("update_policy", v)?;
+        }
+        if let Some(v) = self.delete_policy.as_ref() {
+            struct_ser.serialize_field("delete_policy", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ComponentPermissions {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "insert_policy",
+            "insertPolicy",
+            "update_policy",
+            "updatePolicy",
+            "delete_policy",
+            "deletePolicy",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            InsertPolicy,
+            UpdatePolicy,
+            DeletePolicy,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "insertPolicy" | "insert_policy" => Ok(GeneratedField::InsertPolicy),
+                            "updatePolicy" | "update_policy" => Ok(GeneratedField::UpdatePolicy),
+                            "deletePolicy" | "delete_policy" => Ok(GeneratedField::DeletePolicy),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ComponentPermissions;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.ComponentPermissions")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ComponentPermissions, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut insert_policy__ = None;
+                let mut update_policy__ = None;
+                let mut delete_policy__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::InsertPolicy => {
+                            if insert_policy__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("insertPolicy"));
+                            }
+                            insert_policy__ = map_.next_value()?;
+                        }
+                        GeneratedField::UpdatePolicy => {
+                            if update_policy__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("updatePolicy"));
+                            }
+                            update_policy__ = map_.next_value()?;
+                        }
+                        GeneratedField::DeletePolicy => {
+                            if delete_policy__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("deletePolicy"));
+                            }
+                            delete_policy__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(ComponentPermissions {
+                    insert_policy: insert_policy__,
+                    update_policy: update_policy__,
+                    delete_policy: delete_policy__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.ComponentPermissions", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for ComponentType {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unspecified => "COMPONENT_TYPE_UNSPECIFIED",
+            Self::Bytes => "COMPONENT_TYPE_BYTES",
+            Self::TlsMapBytesBytes => "COMPONENT_TYPE_TLS_MAP_BYTES_BYTES",
+            Self::TlsMapInboxIdBytes => "COMPONENT_TYPE_TLS_MAP_INBOX_ID_BYTES",
+            Self::SetBytes => "COMPONENT_TYPE_SET_BYTES",
+            Self::SetInboxId => "COMPONENT_TYPE_SET_INBOX_ID",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for ComponentType {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "COMPONENT_TYPE_UNSPECIFIED",
+            "COMPONENT_TYPE_BYTES",
+            "COMPONENT_TYPE_TLS_MAP_BYTES_BYTES",
+            "COMPONENT_TYPE_TLS_MAP_INBOX_ID_BYTES",
+            "COMPONENT_TYPE_SET_BYTES",
+            "COMPONENT_TYPE_SET_INBOX_ID",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl serde::de::Visitor<'_> for GeneratedVisitor {
+            type Value = ComponentType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "COMPONENT_TYPE_UNSPECIFIED" => Ok(ComponentType::Unspecified),
+                    "COMPONENT_TYPE_BYTES" => Ok(ComponentType::Bytes),
+                    "COMPONENT_TYPE_TLS_MAP_BYTES_BYTES" => Ok(ComponentType::TlsMapBytesBytes),
+                    "COMPONENT_TYPE_TLS_MAP_INBOX_ID_BYTES" => Ok(ComponentType::TlsMapInboxIdBytes),
+                    "COMPONENT_TYPE_SET_BYTES" => Ok(ComponentType::SetBytes),
+                    "COMPONENT_TYPE_SET_INBOX_ID" => Ok(ComponentType::SetInboxId),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
 impl serde::Serialize for Compression {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>

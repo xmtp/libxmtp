@@ -5,6 +5,8 @@ use crate::signatures::SignatureRequestHandle;
 use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
 
+use super::registration_visible::VisibilityConfirmationOptions;
+
 #[napi]
 impl Client {
   #[napi(getter)]
@@ -33,20 +35,33 @@ impl Client {
   }
 
   #[napi]
-  pub async fn register_identity(&self, signature_request: &SignatureRequestHandle) -> Result<()> {
+  pub async fn register_identity(
+    &self,
+    signature_request: &SignatureRequestHandle,
+    visibility_confirmation_options: Option<VisibilityConfirmationOptions>,
+  ) -> Result<()> {
     if self.is_registered() {
       return Err(Error::from_reason(
         "An identity is already registered with this client",
       ));
     }
 
-    let inner = signature_request.inner().lock().await;
+    {
+      let inner = signature_request.inner().lock().await;
+      self
+        .inner_client
+        .register_identity(inner.clone())
+        .await
+        .map_err(ErrorWrapper::from)?;
+    }
 
-    self
-      .inner_client
-      .register_identity(inner.clone())
-      .await
-      .map_err(ErrorWrapper::from)?;
+    if let Some(opts) = visibility_confirmation_options {
+      self
+        .inner_client
+        .wait_for_registration_visible(opts.into())
+        .await
+        .map_err(ErrorWrapper::from)?;
+    }
 
     Ok(())
   }

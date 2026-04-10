@@ -56,36 +56,18 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "base-version=$BASE" >> "$GITHUB_OUTPUT"
           echo "Computed version: $VERSION"
-      - name: Build iOS libs
-        run: nix build .#ios-libs --out-link bindings/mobile/build/nix
       - name: Build xcframeworks
-        run: |
-          nix develop .#ios --command make -C bindings/mobile lipo framework frameworkdyn
-      - name: Package zip
-        working-directory: bindings/mobile
-        run: |
-          mkdir -p Sources/LibXMTP
-          cp build/nix/swift/xmtpv3.swift Sources/LibXMTP/
-          cp ../../LICENSE ./LICENSE
-          # Fix permissions on xcframework (xcodebuild creates read-only headers)
-          chmod -R u+w build/swift/LibXMTPSwiftFFI.xcframework
-          zip -r LibXMTPSwiftFFI.zip \
-            Sources \
-            build/swift/LibXMTPSwiftFFI.xcframework \
-            LICENSE
-      - name: Package dynamic zip
-        working-directory: bindings/mobile
-        run: |
-          # Fix permissions on xcframework (xcodebuild creates read-only headers)
-          chmod -R u+w build/swift/LibXMTPSwiftFFIDynamic.xcframework
-          zip -r LibXMTPSwiftFFIDynamic.zip \
-            Sources \
-            build/swift/LibXMTPSwiftFFIDynamic.xcframework \
-            LICENSE
-      - name: Compute checksums
+        run: nix build .#ios-xcframeworks --out-link build/ios
+
+      - name: Package and checksum
         id: checksum
-        working-directory: bindings/mobile
         run: |
+          cp -rL build/ios/LibXMTPSwiftFFI LibXMTPSwiftFFI
+          chmod -R u+w LibXMTPSwiftFFI
+          (cd LibXMTPSwiftFFI && zip -qr ../LibXMTPSwiftFFI.zip .)
+          cp -rL build/ios/LibXMTPSwiftFFIDynamic LibXMTPSwiftFFIDynamic
+          chmod -R u+w LibXMTPSwiftFFIDynamic
+          (cd LibXMTPSwiftFFIDynamic && zip -qr ../LibXMTPSwiftFFIDynamic.zip .)
           echo "checksum=$(shasum -a 256 LibXMTPSwiftFFI.zip | awk '{ print $1 }')" >> "$GITHUB_OUTPUT"
           echo "dynamic-checksum=$(shasum -a 256 LibXMTPSwiftFFIDynamic.zip | awk '{ print $1 }')" >> "$GITHUB_OUTPUT"
       - name: Create or update GitHub Release
@@ -93,7 +75,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
-        working-directory: bindings/mobile
         run: |
           SHA=$(git rev-parse --short=7 HEAD)
           TAG="libxmtp-ios-${SHA}"
@@ -159,7 +140,9 @@ jobs:
           cp -r Sources/* bundle/Sources/
           # Overwrite checked-in xmtpv3.swift with freshly generated version from artifact
           cp artifact/Sources/LibXMTP/xmtpv3.swift bundle/Sources/XMTPiOS/Libxmtp/xmtpv3.swift
-          cp -r artifact/build/swift/LibXMTPSwiftFFI.xcframework bundle/
+          # Also update the repo copy so it gets committed with the release
+          cp artifact/Sources/LibXMTP/xmtpv3.swift Sources/XMTPiOS/Libxmtp/xmtpv3.swift
+          cp -r artifact/LibXMTPSwiftFFI.xcframework bundle/
           cp ../../LICENSE bundle/
           (cd bundle && zip -qry ../XMTP-${VERSION}.zip .)
           chmod -R u+w artifact bundle 2>/dev/null || true
@@ -170,11 +153,11 @@ jobs:
         env:
           VERSION: ${{ needs.build-and-package.outputs.version }}
         run: |
-          # Always commit Package.swift, only commit podspec for final releases
+          # Always commit Package.swift + updated bindings, only commit podspec for final releases
           if [ "${{ inputs.release-type }}" = "final" ]; then
-            git add Package.swift sdks/ios/XMTP.podspec
+            git add Package.swift sdks/ios/XMTP.podspec sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift
           else
-            git add Package.swift
+            git add Package.swift sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift
           fi
           if ! git diff-index --quiet HEAD --; then
             git commit -m "release: iOS SDK $VERSION [skip ci]"

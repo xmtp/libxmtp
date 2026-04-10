@@ -1,0 +1,120 @@
+use std::net::IpAddr;
+use std::path::PathBuf;
+
+use clap::{Args, Parser, Subcommand};
+use clap_verbosity_flag::{InfoLevel, Verbosity};
+use color_eyre::eyre::{Result, eyre};
+
+#[derive(Parser, Clone, Debug)]
+pub struct AppArgs {
+    #[arg(long)]
+    pub version: bool,
+    #[command(subcommand)]
+    pub cmd: Option<Commands>,
+    #[command(flatten)]
+    pub log: LogOptions,
+    /// Path to a TOML configuration to use for xnet
+    #[arg(long, short)]
+    pub config: Option<PathBuf>,
+    /// Enable remote addressing mode with sslip.io.
+    /// Hostnames become {name}.{ip-dashed}.sslip.io instead of {name}.xmtpd.local.
+    #[arg(long)]
+    pub remote: Option<IpAddr>,
+}
+
+#[derive(Subcommand, Clone, Debug)]
+pub enum Commands {
+    /// Bring XNet services Up. Initialize them if they have not yet been initialized.
+    Up(Up),
+    /// Bring XNet Services Down
+    Down,
+    Delete,
+    /// Node Operations (Add XMTPD Nodes)
+    #[command(subcommand)]
+    Node(Node),
+    /// Activate d14n: remove migrator flags from nodes and unpause broadcaster contracts
+    ActivateD14n,
+    /// Print Information about the network
+    Info(Info),
+    /// Set a migration time
+    Migrate(Migrate),
+    /// Query the current d14n cutover timestamp from node-go.
+    /// Pass --grpc-url to bypass ServiceManager and query a node directly without Docker.
+    Cutover(Cutover),
+    /// Display the public Ethereum addresses of registered xmtpd nodes
+    Addresses,
+}
+
+#[derive(Subcommand, Debug, Copy, Clone)]
+pub enum Node {
+    Add(AddNode),
+}
+
+#[derive(Args, Debug, Copy, Clone)]
+pub struct Up {
+    /// Pause broadcaster contracts on startup (required before adding migrator nodes)
+    #[arg(long)]
+    pub paused: bool,
+}
+
+#[derive(Args, Debug, Copy, Clone)]
+pub struct AddNode {
+    /// make this node a migrator node
+    #[arg(long, short)]
+    pub migrator: bool,
+}
+
+#[derive(Args, Debug, Copy, Clone)]
+pub struct Info {}
+
+#[derive(Args, Debug, Clone)]
+pub struct Migrate {
+    /// Cutover time: a duration offset like "30s", "5m", "1h" (computed as now + offset),
+    /// OR a raw nanosecond timestamp. If omitted, uses "now".
+    #[arg(long, short)]
+    pub cutover: Option<String>,
+}
+
+impl Migrate {
+    pub fn cutover_ns(&self) -> Result<i64> {
+        let now_ns = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| eyre!("system time error: {}", e))?
+            .as_nanos() as i64;
+
+        match &self.cutover {
+            None => Ok(now_ns),
+            Some(val) => {
+                // Try raw integer first (nanosecond timestamp)
+                if let Ok(ns) = val.parse::<i64>() {
+                    return Ok(ns);
+                }
+                // Parse as human-readable duration via humantime
+                let duration: std::time::Duration = val
+                    .parse::<humantime::Duration>()
+                    .map_err(|e| eyre!("invalid cutover '{}': {}", val, e))?
+                    .into();
+                Ok(now_ns + duration.as_nanos() as i64)
+            }
+        }
+    }
+}
+
+#[derive(Args, Debug, Clone)]
+// url::Url is not Copy, so Copy cannot be derived
+pub struct Cutover {
+    /// gRPC URL of the xmtp-node-go instance to query (e.g. http://localhost:5050).
+    #[arg(long)]
+    pub grpc_url: Option<url::Url>,
+    /// Print cutover time as a UNIX timestamp (seconds since epoch)
+    #[arg(long)]
+    pub unix: bool,
+}
+
+/// specify the log output
+#[derive(Args, Debug, Default, Copy, Clone)]
+pub struct LogOptions {
+    /// Specify verbosity of logs, default ERROR
+    #[command(flatten)]
+    pub verbose: Verbosity<InfoLevel>,
+}

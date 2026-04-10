@@ -35,10 +35,6 @@ where
 {
     /// External proxy for `process_stream_entry`
     /// Useful for streaming outside of an InboxApp, like for Push Notifications.
-    /// in d14n, may return multiple
-    /// [`StoredGroupMessage`](xmtp_db::group_message::StoredGroupMessage)'s,
-    /// since a subscription response may include many
-    /// [`OriginatorEnvelope`](xmtp_proto::xmtp::xmtpv4::envelopes::OriginatorEnvelope)'s.
     /// In case d14n iceboxes the message, returns an empty vector.
     pub async fn process_streamed_group_message(
         &self,
@@ -46,8 +42,8 @@ where
     ) -> Result<Vec<StoredGroupMessage>> {
         let message = decode_group_message(envelope_bytes.as_slice())?;
         let messages: Vec<_> = match message {
-            V3OrD14n::D14n(subscribe) => {
-                let messages = subscribe.envelopes;
+            V3OrD14n::D14n(envelope) => {
+                let messages = vec![envelope];
                 let topics = messages.topics()?;
                 let store = SqliteCursorStore::new(self.context.db());
                 let cursor: TopicCursor = store
@@ -196,7 +192,6 @@ pub(crate) mod tests {
         AuthenticatedData, ClientEnvelope, OriginatorEnvelope, PayerEnvelope,
         UnsignedOriginatorEnvelope, client_envelope, originator_envelope,
     };
-    use xmtp_proto::xmtp::xmtpv4::message_api::SubscribeEnvelopesResponse;
 
     use std::time::Duration;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -497,12 +492,8 @@ pub(crate) mod tests {
             )),
         };
 
-        let d14n_response = SubscribeEnvelopesResponse {
-            envelopes: vec![originator_envelope],
-        };
-
         let mut envelope_bytes = Vec::new();
-        d14n_response.encode(&mut envelope_bytes).unwrap();
+        originator_envelope.encode(&mut envelope_bytes).unwrap();
 
         let result = group.process_streamed_group_message(envelope_bytes).await;
 

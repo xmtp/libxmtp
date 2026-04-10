@@ -16,6 +16,7 @@ openmls.workspace = true
 prost.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+tls_codec.workspace = true
 xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
@@ -25,6 +26,8 @@ xmtp_id.workspace = true
 xmtp_proto.workspace = true
 
 [dev-dependencies]
+proptest.workspace = true
+xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]

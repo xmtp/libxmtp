@@ -1,0 +1,3 @@
+if [ -e '/home/vscode/.nix-profile/etc/profile.d/nix.sh' ]; then
+  . '/home/vscode/.nix-profile/etc/profile.d/nix.sh'
+fi

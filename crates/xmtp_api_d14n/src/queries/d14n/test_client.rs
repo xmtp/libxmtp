@@ -88,6 +88,7 @@ where
                 .unwrap(),
             cursor_store: self.store,
             scw_verifier: Arc::new(MultiSmartContractSignatureVerifier::new_from_env().unwrap()),
+            app_version: None,
         })
     }
 }

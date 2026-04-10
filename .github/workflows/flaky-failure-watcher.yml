@@ -1,0 +1,163 @@
+name: Flaky Failure Watcher
+
+on:
+  workflow_run:
+    # NOTE: workflow_run requires explicit names — no wildcards.
+    # When adding a new workflow that runs on main, add it here too.
+    workflows:
+      # Test orchestrator (covers test-workspace, test-node, test-wasm, etc.)
+      - "Test"
+      # Lint orchestrator (covers lint-workspace, lint-node, lint-config, etc.)
+      - "Lint"
+      # Release workflows
+      - "Release"
+      - "Release iOS SDK"
+      - "Release Android SDK"
+      - "Release Node Bindings"
+      - "Release WASM Bindings"
+      - "Release Kotlin Bindings"
+      - "Build (and push/deploy) MLS Validation Service"
+      - "Release XNet GUI"
+      - "Release Notes"
+      - "Create Release Branch"
+      # Docs & publishing
+      - "Deploy Docs to GitHub Pages"
+      - "iOS Docs"
+      - "NPM Publish"
+      # Monitoring & utilities
+      - "Ignored Tests Tracker"
+      - "Cargo-Deny Checker"
+      - "Error Glossary"
+      - "Nightly Automation"
+      - "Push XDBG Image"
+      - "Cache all Nix Outputs"
+      - "Cleanup iOS Test Apps"
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: flaky-failure-watcher-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+  id-token: write
+
+jobs:
+  investigate:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'failure'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Investigate failure
+        uses: anthropics/claude-code-action@v1.0.92
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          claude_args: |
+            --model sonnet
+            --allowedTools "Bash(gh run view *),Bash(gh issue list *),Bash(gh issue create *),Bash(gh issue comment *),Bash(gh issue view *)"
+          prompt: |
+            A workflow has failed on the main branch. Investigate and report it.
+
+            ## Context
+
+            - **Workflow:** ${{ github.event.workflow_run.name }}
+            - **Run ID:** ${{ github.event.workflow_run.id }}
+            - **Run URL:** ${{ github.event.workflow_run.html_url }}
+            - **Commit:** ${{ github.event.workflow_run.head_sha }}
+            - **Branch:** ${{ github.event.workflow_run.head_branch }}
+            - **Repository:** ${{ github.repository }}
+
+            ## Instructions
+
+            ### Step 1: Fetch and analyze the failure
+
+            Run `gh run view ${{ github.event.workflow_run.id }} --log-failed` to get the failed job logs.
+            If the output is very large, focus on the last 200 lines of each failed step.
+
+            Identify:
+            - Which job(s) and step(s) failed
+            - The key error messages, stack traces, or assertion failures
+            - Whether this is a test/code failure or an infrastructure failure (runner OOM, network timeout, Docker pull failure, rate limit, etc.)
+
+            ### Step 2: Search for existing flaky issues
+
+            Run `gh issue list --label flaky --state open --json number,title,body,comments --limit 50` to find existing reports.
+
+            For each open issue, compare the failure signature:
+            - Same workflow?
+            - Same or similar error message / stack trace?
+            - Same failing test name?
+            - Same root cause, even if details differ?
+
+            ### Step 3: Take action
+
+            **If no existing issue matches this failure:**
+
+            Create a new issue:
+            ```
+            gh issue create \
+              --title "Flaky CI Failure: <short description of the error>" \
+              --label "flaky" \
+              --body "<body>"
+            ```
+
+            The issue body MUST follow this format:
+            ```
+            ## Flaky CI Failure: <short description>
+
+            **Workflow:** <workflow name>
+            **Failed run:** <run URL>
+            **Commit:** <sha>
+            **Failed jobs:** <job names>
+
+            ### Summary
+
+            <2-4 sentence description of the failure>
+
+            ### Error Details
+
+            <relevant log excerpts, stack traces — use code blocks>
+
+            ### Analysis
+
+            <root cause hypothesis, affected area, related code>
+            <note if this is an infrastructure failure vs. a test/code failure>
+
+            ---
+            *Reported by [Flaky Failure Watcher](${{ github.server_url }}/${{ github.repository }}/blob/main/.github/workflows/flaky-failure-watcher.yml)*
+            ```
+
+            **If an existing issue matches AND this occurrence has new context** (different error message, new affected test, different stack trace, new reproduction conditions):
+
+            Add a comment to the existing issue:
+            ```
+            gh issue comment <issue_number> --body "<body>"
+            ```
+
+            The comment body MUST follow this format:
+            ```
+            ### Recurrence — <today's date>
+
+            **Failed run:** <run URL>
+            **Commit:** <sha>
+
+            <What is new or different about this occurrence compared to previous reports>
+            ```
+
+            **If an existing issue matches AND this is the exact same failure with no new information:**
+
+            Do nothing. Exit without creating an issue or comment. Explain your reasoning briefly in your response but take no action.
+
+            ## Important
+
+            - Do NOT create duplicate issues. If in doubt, err on the side of commenting on an existing issue.
+            - Keep error excerpts concise — include the most relevant 20-50 lines, not entire logs.
+            - Always use code blocks for error output and stack traces.
