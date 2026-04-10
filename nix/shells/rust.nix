@@ -1,6 +1,7 @@
 # Focused Rust dev shell for crates/ and bindings/ work.
 # Supports: dev/lint, dev/lint-rust, cargo test, cargo nextest, WASM checks.
-# Does NOT include debugging/profiling tools or convenience packages — see local.nix.
+# Does NOT include debugging/profiling tools or broader convenience packages — see local.nix.
+# Does include shellCommon.basicCliTools (e.g. gh) so GitHub workflows remain usable.
 {
   stdenv,
   darwin,
@@ -49,6 +50,7 @@ mkShell {
     ++ shellCommon.cargoCiTools
     ++ shellCommon.protoTools
     ++ shellCommon.lintTools
+    ++ shellCommon.basicCliTools
     ++ lib.optionals isDarwin [
       darwin.cctools
     ];

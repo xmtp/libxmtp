@@ -48,6 +48,7 @@ mkShell (
         jdk17
         gnused
       ]
+      ++ shellCommon.basicCliTools
       ++ lib.optionals androidEnv.hasEmulator [
         androidEnv.emulator
       ]

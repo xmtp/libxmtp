@@ -150,9 +150,16 @@ in
   ]
   ++ lib.optionals isLinux [ rr ];
 
+  # Basic CLI tools every dev shell should include.
+  # Keep this list minimal — these are promoted out of miscDevTools so they are
+  # available in focused shells (rust, android, wasm, js) that intentionally
+  # exclude the broader convenience toolset.
+  basicCliTools = [
+    gh
+  ];
+
   # Miscellaneous dev convenience tools
   miscDevTools = [
-    gh
     jq
     curl
     graphite-cli

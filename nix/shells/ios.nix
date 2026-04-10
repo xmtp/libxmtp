@@ -49,6 +49,7 @@ mkShell {
     swiftformat
     swiftlint
   ]
+  ++ xmtp.shellCommon.basicCliTools
   ++ lib.optionals isDarwin [
     darwin.cctools
   ];

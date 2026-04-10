@@ -109,6 +109,7 @@ let
         chromedriver
         corepack
       ]
+      ++ xmtp.shellCommon.basicCliTools
       # chromium unsupported on darwin
       # google-chrome unsupported on aarch64-linux
       # Firefox compiles from scratch on everything but x86_64 (unreliable build)

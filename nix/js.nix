@@ -11,6 +11,7 @@
   playwright,
   lib,
   mkShell,
+  xmtp,
 }:
 
 mkShell {
@@ -30,6 +31,7 @@ mkShell {
     playwright-driver.browsers
     corepack
   ]
+  ++ xmtp.shellCommon.basicCliTools
   ++ lib.optionals stdenv.isDarwin [
     darwin.cctools
   ];

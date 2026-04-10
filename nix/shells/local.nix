@@ -112,6 +112,7 @@ mkShell (
       ++ shellCommon.lintTools
       # Debug & profiling
       ++ shellCommon.debugTools
+      ++ shellCommon.basicCliTools
       ++ shellCommon.miscDevTools
       # Emulator (not available on aarch64-linux)
       ++ lib.optionals androidEnv.hasEmulator [
