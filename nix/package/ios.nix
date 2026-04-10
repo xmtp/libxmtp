@@ -304,8 +304,9 @@ let
         ;
       headerDir = "${swiftBindings}/swift/include/libxmtp";
 
-      # Shell snippet to wrap a dylib in a .framework bundle
-      mkFrameworkBundle = name: dylibPath: ''
+      # Shell snippet to wrap a dylib in a .framework bundle.
+      # minOSVersion is required by App Store validation for embedded frameworks.
+      mkFrameworkBundle = name: dylibPath: minOSVersion: ''
         echo "Building framework bundle: ${name}"
         mkdir -p $TMPDIR/${name}/xmtpv3FFI.framework/Headers
         mkdir -p $TMPDIR/${name}/xmtpv3FFI.framework/Modules
@@ -324,6 +325,7 @@ let
           -c "Add :CFBundlePackageType string FMWK" \
           -c "Add :CFBundleVersion string 1" \
           -c "Add :CFBundleShortVersionString string 1.0" \
+          -c "Add :MinimumOSVersion string ${minOSVersion}" \
           $TMPDIR/${name}/xmtpv3FFI.framework/Info.plist
         codesign --force --sign - $TMPDIR/${name}/xmtpv3FFI.framework
       '';
@@ -360,13 +362,13 @@ let
         ${lib.optionalString (deviceTargets != [ ]) (
           mkFrameworkBundle "fw_ios" "${
             selectedTargets.${"aarch64-apple-ios"}
-          }/aarch64-apple-ios/libxmtpv3.dylib"
+          }/aarch64-apple-ios/libxmtpv3.dylib" "14.0"
         )}
         ${lib.optionalString (simTargets != [ ]) (
-          mkFrameworkBundle "fw_sim" "$TMPDIR/lipo_sim/libxmtpv3.dylib"
+          mkFrameworkBundle "fw_sim" "$TMPDIR/lipo_sim/libxmtpv3.dylib" "14.0"
         )}
         ${lib.optionalString (macTargets != [ ]) (
-          mkFrameworkBundle "fw_mac" "$TMPDIR/lipo_macos/libxmtpv3.dylib"
+          mkFrameworkBundle "fw_mac" "$TMPDIR/lipo_macos/libxmtpv3.dylib" "11.0"
         )}
 
         # Build xcodebuild args
