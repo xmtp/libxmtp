@@ -35,11 +35,21 @@ _: {
     in
     {
       packages = {
-        # harfbuzz/fontconfig biuld is broken in nixos-unstable, commented until fixed
-        # xnet-gui = (callPackage ./package/xnet-gui.nix { }).bin;
         default = self'.packages.xdbg;
       };
-      devShells.xnet-gui = (callPackage ./package/xnet-gui.nix { }).devShell;
+      # xnet-gui is exposed via legacyPackages (instead of packages/devShells) so
+      # it is excluded from the Cache all Nix Outputs workflow. `om ci run` uses
+      # devour-flake, which walks packages/devShells/checks/apps but ignores
+      # arbitrary legacyPackages attrs. This avoids flaky darwin build failures
+      # caused by xnet-gui's GUI toolchain dependencies (apple-sdk, harfbuzz,
+      # fontconfig) without disabling the package outright. Both
+      # `nix build .#xnet-gui` and `nix develop .#xnet-gui-shell` continue to
+      # work via Nix's legacyPackages fallback, so release-xnet-gui.yml needs
+      # no changes.
+      legacyPackages = {
+        xnet-gui = (callPackage ./package/xnet-gui.nix { }).bin;
+        xnet-gui-shell = (callPackage ./package/xnet-gui.nix { }).devShell;
+      };
       rust-project = {
         inherit toolchain;
         # Override the default src to use our workspace fileset which includes
