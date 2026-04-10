@@ -45,53 +45,42 @@
             #   mesonFlags = (old.mesonFlags or [ ]) ++ [ "-Dtests=disabled" ];
             # });
           })
-          # tcl 8.6.16 (pinned via nixpkgs 09061f74...) has two cross-compile
-          # bugs when targeting {x86_64,aarch64}-unknown-linux-musl, which
-          # cascade into sqlite -> cargo-package-deps -> bindings-node-js-napi
-          # / mls-validation-service -> devour-output:
+          # tcl 8.6.16 (pinned via nixpkgs 09061f74...) has multiple
+          # cross-compile bugs when targeting *-unknown-linux-musl, and the
+          # Hydra build farm only caches the x86_64-linux build host (not
+          # aarch64-darwin), so builds from a darwin host hit the bugs cold.
+          # See https://github.com/xmtp/libxmtp/issues/3444.
           #
-          #  1. compat/mkstemp.c calls strlen() without including <string.h>.
-          #     gcc 15 promotes -Wimplicit-function-declaration to an error,
-          #     breaking the musl cross-build (seen on x86_64-linux-musl from
-          #     any host).
+          # Symptoms seen in CI on warp-macos-26-arm64-12x:
+          #   * compat/mkstemp.c: strlen() called without <string.h>; gcc 15
+          #     promotes -Wimplicit-function-declaration to an error.
+          #   * unix/configure's `uname -s` = "Darwin" on the build host
+          #     defines TCL_WIDE_CLICKS + MAC_OSX_TCL even when cross-compiling
+          #     to linux-musl, so tclUnixTime.c tries to include
+          #     <mach/mach_time.h> against a linux sysroot.
           #
-          #  2. unix/tcl.m4's SC_CONFIG_SYSTEM macro reads `uname -s` on the
-          #     build host to set tcl_cv_sys_version. When building on a
-          #     Darwin runner (warp-macos-26-arm64-12x) this becomes Darwin-*,
-          #     which selects the MAC_OSX_TCL / MAC_OSX_OBJS code path and
-          #     causes macOS-only headers (mach/mach_time.h, libkern/*) to be
-          #     compiled against a linux-musl sysroot.
+          # Rather than patching tcl itself — which requires fixing both the
+          # generated configure script and the MAC_OSX_SRCS makefile variable,
+          # and is fragile across nixpkgs revisions — we sidestep the build
+          # entirely. sqlite only depends on tcl for its tclsqlite3 extension
+          # and its test harness; libxmtp consumes libsqlite3 directly, so
+          # --disable-tcl is safe. sqlite's autosetup uses the bundled jimsh0.c
+          # for its own code generation when tcl is disabled.
           #
-          # Remove this override when the nixpkgs pin is bumped past a rev
-          # that adds the missing include and honors the autoconf host triple
-          # in SC_CONFIG_SYSTEM.
-          # See https://github.com/xmtp/libxmtp/issues/3444
+          # Override is gated on `hostPlatform.isMusl` so native sqlite on
+          # linux/darwin keeps substituting from cache.nixos.org unchanged.
           (
             final: prev:
-            let
-              patchedTcl86 = prev.tcl-8_6.overrideAttrs (old: {
-                postPatch = (old.postPatch or "") + ''
-                  substituteInPlace compat/mkstemp.c \
-                    --replace-fail '#include <unistd.h>' '#include <unistd.h>
-                  #include <string.h>'
-                '';
-                preConfigure =
-                  (old.preConfigure or "")
-                  + lib.optionalString prev.stdenv.hostPlatform.isLinux ''
-                    # Override tcl's SC_CONFIG_SYSTEM autoconf cache: tcl reads
-                    # `uname -s` from the *build* host (Darwin on CI), which
-                    # would wrongly select the Darwin-* code path when
-                    # cross-compiling to linux-musl. Force it to Linux so the
-                    # configure script does not gate on MAC_OSX_TCL /
-                    # TCL_WIDE_CLICKS and does not try to compile
-                    # tclMacOSXFCmd.c or include mach/mach_time.h.
-                    export tcl_cv_sys_version=Linux
-                  '';
+            prev.lib.optionalAttrs prev.stdenv.hostPlatform.isMusl {
+              sqlite = prev.sqlite.overrideAttrs (old: {
+                configureFlags =
+                  (prev.lib.filter (f: !(prev.lib.hasPrefix "--with-tcl=" f)) old.configureFlags)
+                  ++ [ "--disable-tcl" ];
+                nativeBuildInputs = prev.lib.filter (p: !(prev.lib.hasPrefix "tcl" (p.pname or ""))) (
+                  old.nativeBuildInputs or [ ]
+                );
+                doCheck = false;
               });
-            in
-            {
-              tcl-8_6 = patchedTcl86;
-              tcl = patchedTcl86;
             }
           )
         ];
