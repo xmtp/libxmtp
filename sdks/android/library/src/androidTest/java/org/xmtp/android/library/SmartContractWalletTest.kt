@@ -57,7 +57,7 @@ class SmartContractWalletTest : BaseInstrumentedTest() {
                 Client.build(
                     publicIdentity = davonSCW.publicIdentity,
                     createClientOptions(
-                        ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                        ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                         dbDirectory = File(davonSCWClient.dbPath).parent,
                         deviceSyncEnabled = false,
                     ),

@@ -37,7 +37,7 @@ class ClientTest : BaseInstrumentedTest() {
         val fakeWallet = PrivateKeyBuilder()
         val options =
             ClientOptions(
-                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                 appContext = context,
                 dbEncryptionKey = key,
             )
@@ -73,7 +73,7 @@ class ClientTest : BaseInstrumentedTest() {
                 Client.build(
                     client.publicIdentity,
                     ClientOptions(
-                        api = ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                        api = ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                         dbEncryptionKey = dbEncryptionKey,
                         appContext = InstrumentationRegistry.getInstrumentation().targetContext,
                         dbDirectory = dbDir,
@@ -105,7 +105,7 @@ class ClientTest : BaseInstrumentedTest() {
         val fakeWallet = PrivateKeyBuilder()
         val options =
             ClientOptions(
-                ClientOptions.Api(XMTPEnvironment.LOCAL, false, "Testing/0.0.0"),
+                ClientOptions.Api(XMTPEnvironment.LOCAL, false, "Testing/0.0.0", gatewayHost = TestGateway.LOCAL),
                 appContext = context,
                 dbEncryptionKey = key,
             )
@@ -134,7 +134,7 @@ class ClientTest : BaseInstrumentedTest() {
             runBlocking {
                 Client.canMessage(
                     listOf(alixPublicIdentity, notOnNetworkPublicIdentity, boPublicIdentity),
-                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                 )
             }
 
@@ -157,7 +157,7 @@ class ClientTest : BaseInstrumentedTest() {
             runBlocking {
                 Client.inboxStatesForInboxIds(
                     listOf(fixtures.boClient.inboxId, fixtures.caroClient.inboxId),
-                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                 )
             }
         assertEquals(
@@ -182,7 +182,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = fakeWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -194,7 +194,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = fakeWallet2,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -216,7 +216,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = fakeWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -239,7 +239,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = fakeWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.DEV, true),
+                            ClientOptions.Api(XMTPEnvironment.DEV, true, gatewayHost = TestGateway.DEV),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -262,7 +262,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = fakeWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.PRODUCTION, true),
+                            ClientOptions.Api(XMTPEnvironment.PRODUCTION, true, gatewayHost = TestGateway.PRODUCTION),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -285,7 +285,7 @@ class ClientTest : BaseInstrumentedTest() {
 
         val opts =
             ClientOptions(
-                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                 preAuthenticateToInboxCallback = preAuthenticateToInboxCallback,
                 appContext = context,
                 dbEncryptionKey = key,
@@ -311,7 +311,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = fakeWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -323,7 +323,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = fakeWallet2,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -361,7 +361,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -373,7 +373,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = boWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -400,7 +400,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -413,7 +413,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                             dbDirectory = context.filesDir.absolutePath.toString(),
@@ -427,7 +427,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                             dbDirectory =
@@ -460,7 +460,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -471,7 +471,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                             dbDirectory = context.filesDir.absolutePath.toString(),
@@ -485,7 +485,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                             dbDirectory =
@@ -523,13 +523,17 @@ class ClientTest : BaseInstrumentedTest() {
     @Test
     fun testsCanSeeKeyPackageStatus() {
         val fixtures = runBlocking { createFixtures() }
-        runBlocking { Client.connectToApiBackendExclusive(ClientOptions.Api(XMTPEnvironment.LOCAL, true)) }
+        runBlocking {
+            Client.connectToApiBackendExclusive(
+                ClientOptions.Api(XMTPEnvironment.LOCAL, true, gatewayHost = TestGateway.LOCAL),
+            )
+        }
         val inboxState =
             runBlocking {
                 Client
                     .inboxStatesForInboxIds(
                         listOf(fixtures.alixClient.inboxId),
-                        ClientOptions.Api(XMTPEnvironment.LOCAL, true),
+                        ClientOptions.Api(XMTPEnvironment.LOCAL, true, gatewayHost = TestGateway.LOCAL),
                     ).first()
             }
         val installationIds = inboxState.installations.map { it.installationId }
@@ -537,7 +541,7 @@ class ClientTest : BaseInstrumentedTest() {
             runBlocking {
                 Client.keyPackageStatusesForInstallationIds(
                     installationIds,
-                    ClientOptions.Api(XMTPEnvironment.LOCAL, true),
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, true, gatewayHost = TestGateway.LOCAL),
                 )
             }
         for (installationId: String in keyPackageStatus.keys) {
@@ -586,14 +590,14 @@ class ClientTest : BaseInstrumentedTest() {
     //        val inboxState = runBlocking {
     //            Client.inboxStatesForInboxIds(
     //                listOf("f87420435131ea1b911ad66fbe4b626b107f81955da023d049f8aef6636b8e1b"),
-    //                ClientOptions.Api(XMTPEnvironment.DEV, true)
+    //                ClientOptions.Api(XMTPEnvironment.DEV, true, gatewayHost = TestGateway.DEV)
     //            ).first()
     //        }
     //        val installationIds = inboxState.installations.map { it.installationId }
     //        val keyPackageStatus = runBlocking {
     //            Client.keyPackageStatusesForInstallationIds(
     //                installationIds,
-    //                ClientOptions.Api(XMTPEnvironment.DEV, true)
+    //                ClientOptions.Api(XMTPEnvironment.DEV, true, gatewayHost = TestGateway.DEV)
     //            )
     //        }
     //        for (installationId: String in keyPackageStatus.keys) {
@@ -660,7 +664,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = fixtures.alixAccount,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -792,7 +796,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -812,7 +816,7 @@ class ClientTest : BaseInstrumentedTest() {
                         ),
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = badKey,
                         ),
@@ -829,7 +833,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = badKey,
                         ),
@@ -845,7 +849,7 @@ class ClientTest : BaseInstrumentedTest() {
         val fakeWallet = PrivateKeyBuilder()
         val options =
             ClientOptions(
-                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                 appContext = context,
                 dbEncryptionKey = key,
             )
@@ -883,7 +887,7 @@ class ClientTest : BaseInstrumentedTest() {
 
             val options =
                 ClientOptions(
-                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                     appContext = context,
                     dbEncryptionKey = key,
                 )
@@ -923,7 +927,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -934,7 +938,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                             dbDirectory = context.filesDir.absolutePath.toString(),
@@ -946,7 +950,7 @@ class ClientTest : BaseInstrumentedTest() {
                         account = alixWallet,
                         options =
                             ClientOptions(
-                                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                                ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                                 appContext = context,
                                 dbEncryptionKey = key,
                                 dbDirectory =
@@ -1013,7 +1017,7 @@ class ClientTest : BaseInstrumentedTest() {
                         account = fakeWallet,
                         options =
                             ClientOptions(
-                                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                                ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                                 appContext = context,
                                 dbEncryptionKey = key,
                             ),
@@ -1073,7 +1077,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -1122,7 +1126,7 @@ class ClientTest : BaseInstrumentedTest() {
                         account = wallet,
                         options =
                             ClientOptions(
-                                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                                ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                                 appContext = context,
                                 dbEncryptionKey = encryptionKey,
                                 dbDirectory =
@@ -1146,7 +1150,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = wallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = encryptionKey,
                             dbDirectory =
@@ -1163,7 +1167,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = boWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = SecureRandom().generateSeed(32),
                             dbDirectory = File(context.filesDir, "xmtp_bo").absolutePath,
@@ -1194,7 +1198,7 @@ class ClientTest : BaseInstrumentedTest() {
                 account = wallet,
                 options =
                     ClientOptions(
-                        ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                        ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                         appContext = context,
                         dbEncryptionKey = encryptionKey,
                         dbDirectory = File(context.filesDir, "xmtp_db_11").absolutePath,
@@ -1219,7 +1223,7 @@ class ClientTest : BaseInstrumentedTest() {
                         account = wallet,
                         options =
                             ClientOptions(
-                                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                                ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                                 appContext = context,
                                 dbEncryptionKey = encryptionKey,
                                 dbDirectory =
@@ -1236,7 +1240,7 @@ class ClientTest : BaseInstrumentedTest() {
         val toRevokeId = clients[1].installationId
         runBlocking {
             Client.revokeInstallations(
-                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                 wallet,
                 clients.first().inboxId,
                 listOf(toRevokeId),
@@ -1255,7 +1259,7 @@ class ClientTest : BaseInstrumentedTest() {
             val key = SecureRandom().generateSeed(32)
             val context = InstrumentationRegistry.getInstrumentation().targetContext
             val alixWallet = PrivateKeyBuilder()
-            val apiOptions = ClientOptions.Api(XMTPEnvironment.LOCAL, false)
+            val apiOptions = ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL)
             val alix =
                 Client.create(
                     account = alixWallet,

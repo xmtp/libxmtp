@@ -27,7 +27,7 @@ class ArchiveTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure, gatewayHost: "http://localhost:5052"),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir1
 			)
@@ -73,7 +73,7 @@ class ArchiveTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure, gatewayHost: "http://localhost:5052"),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir2
 			)
@@ -118,7 +118,7 @@ class ArchiveTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure, gatewayHost: "http://localhost:5052"),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir1
 			)
@@ -141,7 +141,7 @@ class ArchiveTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure, gatewayHost: "http://localhost:5052"),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir2
 			)

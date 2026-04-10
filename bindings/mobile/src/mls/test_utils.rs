@@ -147,22 +147,16 @@ impl LocalTester for Tester<PrivateKeySigner, FfiXmtpClient> {
 }
 
 pub async fn connect_to_backend_test() -> Arc<super::XmtpApiClient> {
-    if cfg!(feature = "d14n") {
-        connect_to_backend(
-            GrpcUrls::NODE.to_string(),
-            Some(GrpcUrls::GATEWAY.to_string()),
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .unwrap()
-    } else {
-        connect_to_backend(GrpcUrls::NODE.to_string(), None, None, None, None, None)
-            .await
-            .unwrap()
-    }
+    connect_to_backend(
+        GrpcUrls::NODE.to_string(),
+        Some(GrpcUrls::GATEWAY.to_string()),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap()
 }
 
 async fn create_raw_client<Owner>(builder: &TesterBuilder<Owner>) -> FfiXmtpClient

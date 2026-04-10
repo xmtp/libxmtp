@@ -70,7 +70,7 @@ abstract class BaseInstrumentedTest {
      */
     protected suspend fun createClient(
         account: SigningKey,
-        api: ClientOptions.Api = ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+        api: ClientOptions.Api = ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
         deviceSyncEnabled: Boolean = true,
     ): Client {
         val options = createClientOptions(api, deviceSyncEnabled = deviceSyncEnabled)
@@ -84,7 +84,7 @@ abstract class BaseInstrumentedTest {
      * Returns the 5 standard test clients: alix, bo, caro, davon, eri.
      */
     protected suspend fun createFixtures(
-        api: ClientOptions.Api = ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+        api: ClientOptions.Api = ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
     ): TestFixtures {
         //  Create accounts
         val alixAccount = PrivateKeyBuilder()

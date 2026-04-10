@@ -230,7 +230,7 @@ class HistorySyncTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            ClientOptions.Api(XMTPEnvironment.LOCAL, false, gatewayHost = TestGateway.LOCAL),
                             appContext = context,
                             dbEncryptionKey = dbEncryptionKey,
                             dbDirectory = context.filesDir.absolutePath.toString(),

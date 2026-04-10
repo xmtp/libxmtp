@@ -15,6 +15,8 @@ services:
       - --mls-validation.grpc-address=validation:50051
       - --api.enable-mls
       - --wait-for-db=30s
+      - --api.enable-migration
+      - --api.d14n-cutover-ns=9223372036854775807
       # Disable authn until we have reliable support for generating auth tokens
       # - --api.authn.enable
     ports:
