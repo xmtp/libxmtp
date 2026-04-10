@@ -94,8 +94,14 @@ impl ServiceManager {
         let (gateway, anvil_external_rpc, svcs) = start_d14n(&proxy, dns_ip).await?;
         services.extend(svcs);
 
+        let anvil_host_for_browser = match &config.address_mode {
+            crate::config::AddressMode::Remote(ip) => anvil_external_rpc
+                .to_string()
+                .replace("localhost", &ip.to_string()),
+            _ => anvil_external_rpc.to_string(),
+        };
         let mut otterscan = Otterscan::builder()
-            .anvil_host(anvil_external_rpc.to_string())
+            .anvil_host(anvil_host_for_browser)
             .build();
         otterscan.start(&proxy).await?;
 
