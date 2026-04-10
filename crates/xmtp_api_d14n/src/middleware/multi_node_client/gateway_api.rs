@@ -6,7 +6,7 @@ use futures::StreamExt;
 use std::collections::HashMap;
 use xmtp_api_grpc::{ClientBuilder, GrpcClient};
 use xmtp_common::time::{Duration, Instant};
-use xmtp_proto::api::{Client, Query};
+use xmtp_proto::api::{retry, Client, Query};
 use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig};
 use xmtp_proto::{ApiEndpoint, api::ApiClientError};
 
@@ -15,8 +15,7 @@ pub(super) async fn get_nodes<C: Client>(
     gateway_client: &C,
     template: &ClientBuilder,
 ) -> Result<HashMap<u32, GrpcClient>, ApiClientError> {
-    let response = GetNodes::builder()
-        .build()?
+    let response = retry(GetNodes::builder().build()?)
         .query(gateway_client)
         .await
         .map_err(|e| {
@@ -156,4 +155,46 @@ pub async fn get_fastest_node(
     tracing::info!("chosen node is {} with latency {}ms", node_id, latency);
 
     Ok(client)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use prost::Message;
+    use prost::bytes;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use xmtp_api_grpc::GrpcClient;
+    use xmtp_proto::api::ApiClientError;
+    use xmtp_proto::api::mock::{MockError, MockNetworkClient};
+    use xmtp_proto::xmtp::xmtpv4::payer_api::GetNodesResponse;
+
+    fn encoded_nodes_response() -> bytes::Bytes {
+        let mut nodes = HashMap::new();
+        nodes.insert(1u32, "http://localhost:65535".to_string());
+        bytes::Bytes::from(GetNodesResponse { nodes }.encode_to_vec())
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn retry_get_nodes_recovers_from_transient_failure() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let response = encoded_nodes_response();
+
+        let mut mock = MockNetworkClient::new();
+        mock.expect_request().returning(move |_, _, _| {
+            let n = counter.fetch_add(1, Ordering::SeqCst);
+            if n == 0 {
+                Err(ApiClientError::client(MockError::ARetryableError))
+            } else {
+                Ok(http::Response::new(response.clone()))
+            }
+        });
+
+        let clients = get_nodes(&mock, &GrpcClient::builder())
+            .await
+            .expect("get_nodes should recover from a single transient failure");
+        assert_eq!(clients.len(), 1, "expected one built client");
+        assert!(clients.contains_key(&1), "expected node id 1 in clients");
+    }
 }
