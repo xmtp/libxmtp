@@ -6,7 +6,7 @@ use futures::StreamExt;
 use std::collections::HashMap;
 use xmtp_api_grpc::{ClientBuilder, GrpcClient};
 use xmtp_common::time::{Duration, Instant};
-use xmtp_proto::api::{retry, Client, Query};
+use xmtp_proto::api::{self, Client, Query};
 use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig};
 use xmtp_proto::{ApiEndpoint, api::ApiClientError};
 
@@ -15,7 +15,7 @@ pub(super) async fn get_nodes<C: Client>(
     gateway_client: &C,
     template: &ClientBuilder,
 ) -> Result<HashMap<u32, GrpcClient>, ApiClientError> {
-    let response = retry(GetNodes::builder().build()?)
+    let response = api::retry(GetNodes::builder().build()?)
         .query(gateway_client)
         .await
         .map_err(|e| {
