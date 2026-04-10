@@ -11,6 +11,12 @@
     "workspaceFolder": "/workspaces/libxmtp",
     "remoteUser": "vscode",
     "containerUser": "vscode",
+    // Disable UID remap: `@devcontainers/cli` otherwise rebuilds the image
+    // with `usermod` to match the host's UID but only chowns $HOME, leaving
+    // /nix (baked to UID 1000 at image build) owned by an orphaned UID. On
+    // GitHub Actions runners (host UID 1001) this breaks the nix store.
+    // See https://github.com/xtruder/nix-devcontainer for the same pattern.
+    "updateRemoteUserUID": false,
     "postCreateCommand": "/bin/bash /workspaces/libxmtp/.devcontainer/setup.sh",
     "postStartCommand": "direnv exec . true",
     "customizations": {
