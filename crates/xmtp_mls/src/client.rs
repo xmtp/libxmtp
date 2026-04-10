@@ -1195,7 +1195,7 @@ pub(crate) mod tests {
     use prost::Message;
     use std::time::Duration;
     use xmtp_common::time::now_ns;
-    use xmtp_common::{ExponentialBackoff, NS_IN_SEC, Retry, retry_async, toxiproxy_test};
+    use xmtp_common::{NS_IN_SEC, toxiproxy_test};
     use xmtp_content_types::ContentCodec;
     use xmtp_content_types::text::TextCodec;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -2009,30 +2009,7 @@ pub(crate) mod tests {
             // stream closes after it gets the broken pipe b/c of blackhole & HTTP/2 KeepAlive
             futures_test::assert_stream_done!(stream);
             xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
-
-            // After the blackhole the underlying tonic `Channel` is in a
-            // transient-failure state and reconnects lazily on the next RPC.
-            // The first post-reconnect `stream_conversations` call can race
-            // that reconnect and observe a `Status::Cancelled` /
-            // "connection closed" transport error (see issue #3438). Retry
-            // with a small backoff to give the channel time to recover —
-            // non-transport errors short-circuit immediately via
-            // `RetryableError`, so the test still fails loudly on genuine
-            // failures.
-            let reconnect_retry = Retry::builder()
-                .retries(5)
-                .with_strategy(
-                    ExponentialBackoff::builder()
-                        .duration(std::time::Duration::from_millis(100))
-                        .build(),
-                )
-                .build();
-            let new_stream = retry_async!(
-                reconnect_retry,
-                (async { alix.client.stream_conversations(None, false).await })
-            )
-            .unwrap();
-            futures::pin_mut!(new_stream);
+            let mut new_stream = alix.client.stream_conversations(None, false).await.unwrap();
             let new_res = new_stream.try_next().await;
             assert!(new_res.is_ok());
             assert!(new_res.unwrap().is_some());
