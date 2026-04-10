@@ -1251,10 +1251,9 @@ pub(crate) mod tests {
 
         // A terminal verifier error (malformed input) must remain non-retryable
         // so we don't spin forever on bad data.
-        let non_retryable =
-            super::ClientError::SignatureValidation(SignatureError::VerifierError(
-                VerifierError::MalformedEipUrl,
-            ));
+        let non_retryable = super::ClientError::SignatureValidation(SignatureError::VerifierError(
+            VerifierError::MalformedEipUrl,
+        ));
         assert!(!non_retryable.is_retryable());
     }
 

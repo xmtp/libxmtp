@@ -348,8 +348,8 @@ pub fn to_lower_s(sig_bytes: &[u8]) -> Result<Vec<u8>, SignatureError> {
 
 #[cfg(test)]
 mod tests {
-    use super::to_lower_s;
     use super::SignatureError;
+    use super::to_lower_s;
     use crate::scw_verifier::VerifierError;
     use alloy::signers::k256::ecdsa::Signature as K256Signature;
     use alloy::signers::k256::elliptic_curve::scalar::IsHigh;
@@ -360,9 +360,7 @@ mod tests {
     #[xmtp_common::test]
     fn test_signature_error_verifier_retryable_propagates() {
         // Retryable verifier error (NoVerifier) should make SignatureError retryable.
-        let err = SignatureError::VerifierError(VerifierError::NoVerifier(
-            "eip155:1".to_string(),
-        ));
+        let err = SignatureError::VerifierError(VerifierError::NoVerifier("eip155:1".to_string()));
         assert!(
             err.is_retryable(),
             "SignatureError wrapping a retryable VerifierError must be retryable"
@@ -385,9 +383,7 @@ mod tests {
         assert!(!SignatureError::Invalid.is_retryable());
         assert!(!SignatureError::InvalidPublicKey.is_retryable());
         assert!(!SignatureError::InvalidClientData.is_retryable());
-        assert!(
-            !SignatureError::MalformedLegacyKey("missing field".to_string()).is_retryable(),
-        );
+        assert!(!SignatureError::MalformedLegacyKey("missing field".to_string()).is_retryable(),);
     }
 
     #[xmtp_common::test]
