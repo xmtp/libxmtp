@@ -27,8 +27,8 @@
 }:
 let
   src = ./../..;
-  rust-toolchain = xmtp.mkToolchain [ "x86_64-unknown-linux-musl" ] [ ];
-  rust = xmtp.craneLib.overrideToolchain (p: rust-toolchain);
+  rust-toolchain = p: xmtp.mkToolchain p [ "x86_64-unknown-linux-musl" ] [ ];
+  rust = xmtp.craneLib.overrideToolchain rust-toolchain;
 
   commonArgs = {
     description = "xNet GUI";
