@@ -22,7 +22,6 @@ on:
       - "Create Release Branch"
       # Docs & publishing
       - "Deploy Docs to GitHub Pages"
-      - "iOS Docs"
       - "NPM Publish"
       # Monitoring & utilities
       - "Ignored Tests Tracker"
