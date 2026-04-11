@@ -126,7 +126,12 @@ pub async fn execute_delete() -> Result<()> {
 }
 
 pub async fn execute_add_node() -> Result<NodeInfo> {
-    let node = App::parse()?.add_node(&AddNode { migrator: false }).await?;
+    let node = App::parse()?
+        .add_node(&AddNode {
+            migrator: false,
+            use_standard_port: false,
+        })
+        .await?;
     let config = xnet::Config::load()?;
     Ok(NodeInfo {
         id: *node.id(),
@@ -140,7 +145,12 @@ pub async fn execute_add_node() -> Result<NodeInfo> {
 }
 
 pub async fn execute_add_migrator() -> Result<NodeInfo> {
-    let node = App::parse()?.add_node(&AddNode { migrator: true }).await?;
+    let node = App::parse()?
+        .add_node(&AddNode {
+            migrator: true,
+            use_standard_port: false,
+        })
+        .await?;
     let config = xnet::Config::load()?;
     Ok(NodeInfo {
         id: *node.id(),
