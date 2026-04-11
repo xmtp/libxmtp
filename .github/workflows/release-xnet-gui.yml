@@ -235,7 +235,7 @@ jobs:
       #     ./build/XNet.app/Contents/MacOS/xnet-gui --help || echo "Binary executed (exit code: $?)"
 
       - name: Upload DMG artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: xnet-gui-macos-dmg
           path: |

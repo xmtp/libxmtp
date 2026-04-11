@@ -116,14 +116,14 @@ jobs:
       - name: Find existing devcontainer mismatch comment
         if: steps.sync-check.outputs.in_sync == 'false' && github.event.pull_request.number
         id: find-comment
-        uses: peter-evans/find-comment@v3
+        uses: peter-evans/find-comment@v4
         with:
           issue-number: ${{ github.event.pull_request.number }}
           body-includes: <!-- devcontainer-image-check -->
 
       - name: Post or update devcontainer mismatch comment
         if: steps.sync-check.outputs.in_sync == 'false' && github.event.pull_request.number
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           comment-id: ${{ steps.find-comment.outputs.comment-id }}
           issue-number: ${{ github.event.pull_request.number }}
