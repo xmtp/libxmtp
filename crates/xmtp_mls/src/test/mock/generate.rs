@@ -5,7 +5,10 @@ use xmtp_db::{MemoryStorage, group_message::StoredGroupMessage, sql_key_store::S
 use xmtp_proto::types::Cursor;
 
 use crate::{
-    groups::{mls_sync::GroupMessageProcessingError, summary::ProcessSummary},
+    groups::{
+        mls_sync::GroupMessageProcessingError,
+        summary::{MessageIdentifier, ProcessSummary, SyncSummary},
+    },
     tasks::TaskWorkerChannels,
 };
 
@@ -88,6 +91,45 @@ pub fn generate_errored_summary(error_cursors: &[u64], successful_cursors: &[u64
             new_messages: generate_messages_with_ids(successful_cursors)
                 .iter()
                 .map(Into::into)
+                .collect(),
+            errored: error_cursors
+                .iter()
+                .map(|c| {
+                    (
+                        Cursor::v3_messages(*c),
+                        GroupMessageProcessingError::InvalidPayload,
+                    )
+                })
+                .collect(),
+        },
+        post_commit_errors: vec![],
+        other: None,
+    }
+}
+
+/// Like `generate_errored_summary`, but every success `MessageIdentifier` shares `group_id`
+/// (matches production sync summaries). Random per-message group ids break stream recovery tests.
+pub fn generate_errored_summary_with_group(
+    group_id: &[u8],
+    error_cursors: &[u64],
+    successful_cursors: &[u64],
+) -> SyncSummary {
+    SyncSummary {
+        publish_errors: vec![],
+        process: ProcessSummary {
+            total_messages: HashSet::from_iter(
+                error_cursors
+                    .iter()
+                    .copied()
+                    .chain(successful_cursors.iter().copied())
+                    .map(Cursor::v3_messages),
+            ),
+            new_messages: successful_cursors
+                .iter()
+                .map(|c| {
+                    let m = generate_message(*c, group_id);
+                    MessageIdentifier::from(&m)
+                })
                 .collect(),
             errored: error_cursors
                 .iter()
