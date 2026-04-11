@@ -43,16 +43,36 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
+          # Override two of metadata-action's default labels/annotations that
+          # would otherwise make the pushed manifest digest non-deterministic.
+          # build-push-action auto-propagates these via DOCKER_METADATA_OUTPUT_*
+          # env vars, so they are embedded in the image config AND the OCI
+          # manifest annotations — even though this workflow never explicitly
+          # passes `labels:` / `annotations:` to build-push-action.
+          #
+          # - `created`: default is the wall-clock millisecond when this step
+          #   runs. Pinned to epoch 0 to match SOURCE_DATE_EPOCH below.
+          # - `version`: default is derived from whichever tag rule matched
+          #   (e.g. `pr-123` on a PR, `main` on a push). That means a PR build
+          #   and the subsequent main build of the same commit can never
+          #   produce matching manifests. Pinned to a fixed string so PR→main
+          #   handoff is stable. (github.sha can't be used: the PR event sees
+          #   a virtual merge commit distinct from the eventual push SHA.)
+          labels: |
+            org.opencontainers.image.created=1970-01-01T00:00:00.000Z
+            org.opencontainers.image.version=libxmtp-devcontainer
+          annotations: |
+            manifest:org.opencontainers.image.created=1970-01-01T00:00:00.000Z
+            manifest:org.opencontainers.image.version=libxmtp-devcontainer
 
       - name: Build and push image
         id: push
         uses: docker/build-push-action@v7
         env:
           # Pin the image config timestamp so identical inputs produce an
-          # identical manifest digest. Combined with dropping volatile labels
-          # (metadata-action's default set includes `created` and `revision`)
-          # and disabling provenance, this keeps the pushed digest stable
-          # across rebuilds.
+          # identical manifest digest. Combined with the pinned `created` and
+          # `version` labels above and disabling provenance, this keeps the
+          # pushed digest stable across rebuilds.
           SOURCE_DATE_EPOCH: "0"
         with:
           context: ./.devcontainer
