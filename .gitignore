@@ -197,3 +197,6 @@ docs/plans
 
 # VM Images
 *.qcow2
+
+# Firecrawl
+.firecrawl

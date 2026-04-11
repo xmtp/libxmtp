@@ -10,10 +10,9 @@ use crate::{
     network::{Network, XNET_NETWORK_NAME},
     services::{
         self, CoreDns, Gateway, Grafana, NodeGo, Otterscan, PgAdmin, Prometheus, ReplicationDb,
-        Service, ToxiProxy, Traefik, TraefikConfig, Xmtpd, allocate_xmtpd_port,
-        create_and_start_container,
+        Service, ToxiProxy, Traefik, TraefikConfig, Xmtpd, create_and_start_container,
     },
-    types::XmtpdNode,
+    types::{XmtpdNode, resolve_port},
     xmtpd_cli::XmtpdCli,
 };
 use bollard::{
@@ -59,7 +58,10 @@ impl ServiceManager {
         proxy.start().await?;
 
         // Start Traefik first so we can get its IP for CoreDNS
-        let mut traefik = Traefik::builder().build();
+        let config = Config::load()?;
+        let mut traefik = Traefik::builder()
+            .maybe_http_port(config.traefik_port)
+            .build();
         traefik.start(&proxy).await?;
 
         // Get Traefik's IP address for CoreDNS container-facing DNS
@@ -72,14 +74,14 @@ impl ServiceManager {
         // Create Traefik config manager (loads existing routes from file)
         let traefik_config = TraefikConfig::new(traefik.dynamic_config_path())?;
 
-        // Start monitoring services (Prometheus + Grafana + PgAdmin) in parallel
+        // Start monitoring services (Prometheus + Grafana) in parallel.
+        // PgAdmin is started AFTER xmtpd nodes — see below.
         let mut prometheus = Prometheus::builder().build();
         let mut grafana = Grafana::builder().build();
-        let mut pgadmin = PgAdmin::builder().build();
+        let pgadmin = PgAdmin::builder().build();
         let launch = vec![
             prometheus.start(&proxy).boxed(),
             grafana.start(&proxy).boxed(),
-            pgadmin.start(&proxy).boxed(),
         ];
         futures::future::try_join_all(launch).await?;
 
@@ -91,8 +93,14 @@ impl ServiceManager {
         let (gateway, anvil_external_rpc, svcs) = start_d14n(&proxy, dns_ip).await?;
         services.extend(svcs);
 
+        let anvil_host_for_browser = match &config.address_mode {
+            crate::config::AddressMode::Remote(ip) => anvil_external_rpc
+                .to_string()
+                .replace("localhost", &ip.to_string()),
+            _ => anvil_external_rpc.to_string(),
+        };
         let mut otterscan = Otterscan::builder()
-            .anvil_host(anvil_external_rpc.to_string())
+            .anvil_host(anvil_host_for_browser)
             .build();
         otterscan.start(&proxy).await?;
 
@@ -124,6 +132,7 @@ impl ServiceManager {
             migrator,
             name,
             enable,
+            use_standard_port,
         } in config.xmtpd_nodes
         {
             id += XmtpdConst::NODE_ID_INCREMENT;
@@ -136,11 +145,7 @@ impl ServiceManager {
                 continue;
             }
             let node = XmtpdNode::builder();
-            let node = if let Some(p) = port {
-                node.port(p)
-            } else {
-                node.port(allocate_xmtpd_port()?)
-            };
+            let node = node.port(resolve_port(use_standard_port, port)?);
             let node = if let Some(n) = name {
                 node.name(n)
             } else {
@@ -165,6 +170,11 @@ impl ServiceManager {
                 this.add_xmtpd(node).await?;
             }
         }
+
+        // Start PgAdmin AFTER xmtpd nodes so it can discover their
+        // ReplicationDb containers via Docker labels (xnet.pgadmin=true).
+        // Dependency chain: ReplicationDb (labels) → PgAdmin (scans labels)
+        this.pgadmin.start(&this.proxy).await?;
 
         Ok(this)
     }
@@ -236,8 +246,10 @@ impl ServiceManager {
         // Update Prometheus scrape targets with the new node
         self.prometheus.update_targets(&self.nodes)?;
 
-        // Update PgAdmin servers.json with the new node's replication DB
-        self.pgadmin.update_servers(&self.nodes)?;
+        // Rescan Docker labels to pick up the new node's ReplicationDb.
+        // PgAdmin discovers databases via xnet.pgadmin=true container labels,
+        // so it doesn't need to know about Xmtpd directly.
+        self.pgadmin.discover_databases().await?;
 
         Ok(())
     }

@@ -32,6 +32,19 @@
               };
             }
           )
+          (final: prev: {
+            #atf = prev.atf.overrideAttrs (old: {
+            #  configureFlags = (old.configureFlags or [ ]) ++ [
+            #    "kyua_cv_getopt_plus=yes"
+            #  ];
+            #});
+            # # Override harfbuzz to disable tests - test-coretext fails with SIGABRT
+            # # This fixes iOS/Android builds that transitively depend on harfbuzz
+            # harfbuzz = prev.harfbuzz.overrideAttrs (old: {
+            #   doCheck = false;
+            #   mesonFlags = (old.mesonFlags or [ ]) ++ [ "-Dtests=disabled" ];
+            # });
+          })
         ];
         config = {
           android_sdk.accept_license = true;

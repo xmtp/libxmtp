@@ -566,6 +566,7 @@ __metadata:
     "@types/node": "npm:^25.0.0"
     "@types/semver": "npm:^7.5.0"
     "@types/yargs": "npm:^17.0.35"
+    jsonc-parser: "npm:^3.3.1"
     prettier: "npm:^3.8.1"
     semver: "npm:^7.7.0"
     smol-toml: "npm:^1.6.0"
@@ -960,6 +961,13 @@ __metadata:
   version: 3.1.1
   resolution: "isexe@npm:3.1.1"
   checksum: 10c0/9ec257654093443eb0a528a9c8cbba9c0ca7616ccb40abd6dde7202734d96bb86e4ac0d764f0f8cd965856aacbff2f4ce23e730dc19dfb41e3b0d865ca6fdcc7
+  languageName: node
+  linkType: hard
+
+"jsonc-parser@npm:^3.3.1":
+  version: 3.3.1
+  resolution: "jsonc-parser@npm:3.3.1"
+  checksum: 10c0/269c3ae0a0e4f907a914bf334306c384aabb9929bd8c99f909275ebd5c2d3bc70b9bcd119ad794f339dec9f24b6a4ee9cd5a8ab2e6435e730ad4075388fc2ab6
   languageName: node
   linkType: hard
 

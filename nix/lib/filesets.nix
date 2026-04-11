@@ -65,7 +65,6 @@ let
     apps
   ]);
   binaries = unions (flatten [
-    (src + /bindings/mobile/Makefile)
     (commonCargoSources (src + /apps/xnet/cli))
     (commonCargoSources (src + /apps/xnet/gui))
     (commonCargoSources (src + /apps/android/xmtpv3_example))

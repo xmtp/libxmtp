@@ -1,31 +1,49 @@
 //! PgAdmin 4 web UI for browsing PostgreSQL databases.
 //!
 //! Runs the `dpage/pgadmin4` Docker container with a pre-configured `servers.json`
-//! that lists all known databases on the xnet network. Uses direct port binding
-//! (no ToxiProxy).
+//! that lists all known databases on the xnet network.
+//!
+//! ## Database Discovery
+//!
+//! PgAdmin discovers databases in two ways:
+//! - **Static databases**: `xnet-db` (V3) and `xnet-mlsdb` (MLS) are always included.
+//! - **Dynamic databases**: Any Docker container with the label `xnet.pgadmin=true`
+//!   is automatically added. The container must also have labels:
+//!   - `xnet.pgadmin.name` — display name in PgAdmin UI
+//!   - `xnet.pgadmin.host` — Docker network hostname
+//!   - `xnet.pgadmin.port` — database port
+//!
+//! ## Dependency Chain
+//!
+//! PgAdmin must start AFTER any services whose databases should appear at startup.
+//! Currently this means xmtpd nodes (which create labeled ReplicationDb containers).
+//! See `ServiceManager::start()` for the ordering.
+//! For databases added at runtime, call `discover_databases()` to rescan.
 
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
 use async_trait::async_trait;
+use bollard::Docker;
 use bollard::models::{ContainerCreateBody, HostConfig, PortBinding};
-use bollard::query_parameters::CreateContainerOptionsBuilder;
+use bollard::query_parameters::{CreateContainerOptionsBuilder, ListContainersOptionsBuilder};
 use bon::Builder;
 use color_eyre::eyre::Result;
+use serde::Serialize;
 use url::Url;
 
 use crate::{
-    constants::{
-        MlsDb as MlsDbConst, PgAdmin as PgAdminConst, ReplicationDb as ReplicationDbConst,
-        V3Db as V3DbConst,
-    },
+    constants::{MlsDb as MlsDbConst, PgAdmin as PgAdminConst, V3Db as V3DbConst},
     network::XNET_NETWORK_NAME,
-    services::{ManagedContainer, Service, ToxiProxy, Xmtpd},
+    services::{ManagedContainer, Service, ToxiProxy},
 };
 
 /// Host directory for PgAdmin configuration files.
 const PGADMIN_DIR: &str = "/tmp/xnet/pgadmin";
+
+/// Docker label that marks a container as a PgAdmin-discoverable database.
+const PGADMIN_LABEL: &str = "xnet.pgadmin";
 
 /// Manages a PgAdmin 4 Docker container.
 #[derive(Builder)]
@@ -47,13 +65,16 @@ pub struct PgAdmin {
 impl PgAdmin {
     /// Start the PgAdmin container.
     ///
-    /// Writes a `servers.json` with the static databases, then starts
-    /// PgAdmin with direct port binding (5600:80).
+    /// Scans Docker for labeled database containers and writes `servers.json`,
+    /// then starts PgAdmin with direct port binding (5600:80).
+    ///
+    /// **Dependency:** Must be called AFTER xmtpd nodes have started, so their
+    /// ReplicationDb containers (with `xnet.pgadmin=true` labels) exist to scan.
     pub async fn start(&mut self, _toxiproxy: &ToxiProxy) -> Result<()> {
         fs::create_dir_all(PGADMIN_DIR)?;
 
-        // Write initial servers.json with static databases
-        self.write_servers(&[])?;
+        // Discover labeled database containers and write servers.json
+        self.discover_databases().await?;
 
         let options = CreateContainerOptionsBuilder::default().name(PgAdminConst::CONTAINER_NAME);
 
@@ -103,76 +124,106 @@ impl PgAdmin {
             .await
     }
 
-    /// Regenerate `servers.json` with static DBs plus any xmtpd replication DBs.
+    /// Discover databases by scanning Docker for containers with `xnet.pgadmin=true`.
     ///
-    /// PgAdmin reads this file at startup. If the container is already running,
-    /// changes take effect on the next restart.
-    pub fn update_servers(&self, nodes: &[Xmtpd]) -> Result<()> {
-        self.write_servers(nodes)
+    /// Regenerates `servers.json` with static databases plus any discovered containers.
+    /// Call this after adding new xmtpd nodes at runtime.
+    pub async fn discover_databases(&self) -> Result<()> {
+        let docker = Docker::connect_with_socket_defaults()?;
+
+        // Query Docker for containers on the xnet network with the pgadmin label
+        let mut filters = HashMap::new();
+        filters.insert("label".to_string(), vec![format!("{}=true", PGADMIN_LABEL)]);
+        filters.insert("network".to_string(), vec![XNET_NETWORK_NAME.to_string()]);
+
+        let options = ListContainersOptionsBuilder::default()
+            .filters(&filters)
+            .build();
+        let containers = docker.list_containers(Some(options)).await?;
+
+        // Extract database entries from container labels
+        let mut discovered = Vec::new();
+        for container in &containers {
+            let labels = match &container.labels {
+                Some(l) => l,
+                None => continue,
+            };
+
+            let name = match labels.get("xnet.pgadmin.name") {
+                Some(n) => n.clone(),
+                None => continue,
+            };
+            let host = match labels.get("xnet.pgadmin.host") {
+                Some(h) => h.clone(),
+                None => continue,
+            };
+            let port: u16 = match labels.get("xnet.pgadmin.port") {
+                Some(p) => p.parse().unwrap_or(5432),
+                None => 5432,
+            };
+
+            discovered.push(DiscoveredDb { name, host, port });
+        }
+
+        self.write_servers(&discovered)?;
+        Ok(())
     }
 
-    /// Write the servers.json file.
-    fn write_servers(&self, nodes: &[Xmtpd]) -> Result<()> {
+    /// Write the servers.json file with static databases and discovered databases.
+    fn write_servers(&self, discovered: &[DiscoveredDb]) -> Result<()> {
         let servers_path = Path::new(PGADMIN_DIR).join("servers.json");
 
         let mut server_id = 0u32;
-        let mut entries = Vec::new();
+        let mut servers = HashMap::new();
 
-        // Static databases
+        // Static databases (always present)
         server_id += 1;
-        entries.push(format!(
-            r#"    "{}": {{
-      "Name": "xnet-db (V3)",
-      "Group": "XNET",
-      "Host": "{}",
-      "Port": {},
-      "MaintenanceDB": "postgres",
-      "Username": "postgres",
-      "SSLMode": "prefer"
-    }}"#,
-            server_id,
-            V3DbConst::CONTAINER_NAME,
-            5432
-        ));
+        servers.insert(
+            server_id.to_string(),
+            PgAdminServer {
+                name: "xnet-db (V3)".to_string(),
+                group: "XNET".to_string(),
+                host: V3DbConst::CONTAINER_NAME.to_string(),
+                port: 5432,
+                maintenance_db: "postgres".to_string(),
+                username: "postgres".to_string(),
+                ssl_mode: "prefer".to_string(),
+            },
+        );
 
         server_id += 1;
-        entries.push(format!(
-            r#"    "{}": {{
-      "Name": "xnet-mlsdb (MLS)",
-      "Group": "XNET",
-      "Host": "{}",
-      "Port": {},
-      "MaintenanceDB": "postgres",
-      "Username": "postgres",
-      "SSLMode": "prefer"
-    }}"#,
-            server_id,
-            MlsDbConst::CONTAINER_NAME,
-            5432
-        ));
+        servers.insert(
+            server_id.to_string(),
+            PgAdminServer {
+                name: "xnet-mlsdb (MLS)".to_string(),
+                group: "XNET".to_string(),
+                host: MlsDbConst::CONTAINER_NAME.to_string(),
+                port: 5432,
+                maintenance_db: "postgres".to_string(),
+                username: "postgres".to_string(),
+                ssl_mode: "disable".to_string(),
+            },
+        );
 
-        // Dynamic replication databases (one per xmtpd node)
-        for node in nodes {
+        // Discovered databases (from Docker labels)
+        for db in discovered {
             server_id += 1;
-            let db_name = format!(
-                "xmtpd-db-{}",
-                node.container_name().trim_start_matches("xnet-")
+            servers.insert(
+                server_id.to_string(),
+                PgAdminServer {
+                    name: db.name.clone(),
+                    group: "XNET".to_string(),
+                    host: db.host.clone(),
+                    port: db.port,
+                    maintenance_db: "postgres".to_string(),
+                    username: "postgres".to_string(),
+                    ssl_mode: "disable".to_string(),
+                },
             );
-            entries.push(format!(
-                r#"    "{}": {{
-      "Name": "{} (Replication)",
-      "Group": "XNET",
-      "Host": "{}",
-      "Port": {},
-      "MaintenanceDB": "postgres",
-      "Username": "postgres",
-      "SSLMode": "disable"
-    }}"#,
-                server_id, db_name, db_name, 5432
-            ));
         }
 
-        let json = format!("{{\n  \"Servers\": {{\n{}\n  }}\n}}", entries.join(",\n"));
+        let wrapper = PgAdminServersFile { servers };
+        let json = serde_json::to_string_pretty(&wrapper)?;
         fs::write(&servers_path, json)?;
 
         Ok(())
@@ -197,6 +248,42 @@ impl PgAdmin {
     pub fn is_running(&self) -> bool {
         self.container.is_running()
     }
+}
+
+/// A database discovered from Docker container labels.
+struct DiscoveredDb {
+    /// Display name for PgAdmin UI (from `xnet.pgadmin.name` label)
+    name: String,
+    /// Docker network hostname (from `xnet.pgadmin.host` label)
+    host: String,
+    /// Database port (from `xnet.pgadmin.port` label)
+    port: u16,
+}
+
+/// Top-level structure for PgAdmin's `servers.json` file.
+#[derive(Serialize)]
+struct PgAdminServersFile {
+    #[serde(rename = "Servers")]
+    servers: HashMap<String, PgAdminServer>,
+}
+
+/// A single server entry in PgAdmin's `servers.json`.
+#[derive(Serialize)]
+struct PgAdminServer {
+    #[serde(rename = "Name")]
+    name: String,
+    #[serde(rename = "Group")]
+    group: String,
+    #[serde(rename = "Host")]
+    host: String,
+    #[serde(rename = "Port")]
+    port: u16,
+    #[serde(rename = "MaintenanceDB")]
+    maintenance_db: String,
+    #[serde(rename = "Username")]
+    username: String,
+    #[serde(rename = "SSLMode")]
+    ssl_mode: String,
 }
 
 #[async_trait]

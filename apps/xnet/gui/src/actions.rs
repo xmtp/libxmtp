@@ -43,6 +43,10 @@ pub async fn start_service_poller() -> Result<(mpsc::Receiver<Vec<ServiceInfo>>,
     let (tx, rx) = mpsc::channel(4);
     let client = make_toxi_client()?;
 
+    let host = match xnet::Config::load_unchecked().address_mode {
+        xnet::config::AddressMode::Remote(ip) => ip.to_string(),
+        _ => "localhost".to_string(),
+    };
     let handle = tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -59,7 +63,7 @@ pub async fn start_service_poller() -> Result<(mpsc::Receiver<Vec<ServiceInfo>>,
                             .rsplit(':')
                             .next()
                             .and_then(|p| p.parse::<u16>().ok());
-                        let url = port.map(|p| format!("http://localhost:{}", p));
+                        let url = port.map(|p| format!("http://{}:{}", host, p));
                         let status = if proxy.proxy_pack.enabled {
                             "running"
                         } else {
@@ -77,22 +81,22 @@ pub async fn start_service_poller() -> Result<(mpsc::Receiver<Vec<ServiceInfo>>,
                 services.push(ServiceInfo {
                     name: "grafana".into(),
                     status: "running",
-                    external_url: Some("http://localhost:3000".into()),
+                    external_url: Some(format!("http://{}:3000", host)),
                 });
                 services.push(ServiceInfo {
                     name: "otterscan".into(),
                     status: "running",
-                    external_url: Some("http://localhost:5100".into()),
+                    external_url: Some(format!("http://{}:5100", host)),
                 });
                 services.push(ServiceInfo {
                     name: "prometheus".into(),
                     status: "running",
-                    external_url: Some("http://localhost:9090".into()),
+                    external_url: Some(format!("http://{}:9090", host)),
                 });
                 services.push(ServiceInfo {
                     name: "traefik".into(),
                     status: "running",
-                    external_url: Some("http://localhost:8080".into()),
+                    external_url: Some(format!("http://{}:8080", host)),
                 });
                 if tx.send(services).await.is_err() {
                     break;

@@ -4,7 +4,7 @@ use prost::Message;
 use sha2::{Digest as _, Sha512};
 use std::array::TryFromSliceError;
 use thiserror::Error;
-use xmtp_common::ErrorCode;
+use xmtp_common::{ErrorCode, RetryableError};
 use xmtp_cryptography::{
     CredentialSign, CredentialVerify, SignerError, SigningContextProvider,
     XmtpInstallationCredential,
@@ -89,6 +89,19 @@ pub enum SignatureError {
     /// Ethereum signature parsing failed. Not retryable.
     #[error(transparent)]
     Signature(#[from] alloy::primitives::SignatureError),
+}
+
+impl RetryableError for SignatureError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            // Smart contract wallet verification goes through an RPC provider;
+            // transient provider/IO failures must surface as retryable so the
+            // welcome sync path does not permanently advance the cursor past
+            // welcomes involving SCW users. See xmtp/libxmtp#3394.
+            SignatureError::VerifierError(e) => e.is_retryable(),
+            _ => false,
+        }
+    }
 }
 
 /// Xmtp Installation Credential for Specialized for XMTP Identity
@@ -335,11 +348,43 @@ pub fn to_lower_s(sig_bytes: &[u8]) -> Result<Vec<u8>, SignatureError> {
 
 #[cfg(test)]
 mod tests {
+    use super::SignatureError;
     use super::to_lower_s;
+    use crate::scw_verifier::VerifierError;
     use alloy::signers::k256::ecdsa::Signature as K256Signature;
     use alloy::signers::k256::elliptic_curve::scalar::IsHigh;
     use alloy::signers::{SignerSync, local::LocalSigner};
     use wasm_bindgen_test::wasm_bindgen_test;
+    use xmtp_common::RetryableError;
+
+    #[xmtp_common::test]
+    fn test_signature_error_verifier_retryable_propagates() {
+        // Retryable verifier error (NoVerifier) should make SignatureError retryable.
+        let err = SignatureError::VerifierError(VerifierError::NoVerifier("eip155:1".to_string()));
+        assert!(
+            err.is_retryable(),
+            "SignatureError wrapping a retryable VerifierError must be retryable"
+        );
+    }
+
+    #[xmtp_common::test]
+    fn test_signature_error_verifier_non_retryable_propagates() {
+        // Non-retryable verifier error (MalformedEipUrl) should stay non-retryable.
+        let err = SignatureError::VerifierError(VerifierError::MalformedEipUrl);
+        assert!(
+            !err.is_retryable(),
+            "SignatureError wrapping a non-retryable VerifierError must not be retryable"
+        );
+    }
+
+    #[xmtp_common::test]
+    fn test_signature_error_non_verifier_variants_not_retryable() {
+        // Terminal crypto/parse failures are never retryable.
+        assert!(!SignatureError::Invalid.is_retryable());
+        assert!(!SignatureError::InvalidPublicKey.is_retryable());
+        assert!(!SignatureError::InvalidClientData.is_retryable());
+        assert!(!SignatureError::MalformedLegacyKey("missing field".to_string()).is_retryable(),);
+    }
 
     #[xmtp_common::test]
     fn test_to_lower_s() {

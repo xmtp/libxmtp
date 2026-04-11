@@ -1,27 +1,17 @@
 # iOS cross-compilation package derivation.
 # Builds static and dynamic libraries for 4 targets + Swift bindings, cacheable in Cachix.
+# Assembles xcframeworks (static + dynamic) from built targets.
 # Uses shared config from nix/lib/ios-env.nix and nix/lib/mobile-common.nix.
 #
-# This file produces 6 derivations:
-#   1-4. Per-target static+dynamic libraries (impure — need Xcode SDK):
-#        xmtpv3-{x86_64-apple-darwin,aarch64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim}
-#   5.   Swift bindings (impure — needs Xcode SDK for native host build):
-#        xmtpv3-swift-bindings (runs uniffi-bindgen, outputs .swift + .h + .modulemap)
-#   6.   Aggregate (pure — just symlinks):
-#        xmtpv3-ios-libs (combines all outputs into a single derivation)
+# Key derivations:
+#   - Per-target static+dynamic libraries (impure — need Xcode SDK)
+#   - Swift bindings (impure — runs uniffi-bindgen)
+#   - Aggregate ios-libs (pure — symlinks to all targets)
+#   - Static xcframework assembly (impure — needs Xcode for lipo + xcodebuild)
+#   - Dynamic xcframework assembly (impure — needs Xcode for .framework wrapping)
+#   - Release aggregate (pure — zip-ready directory layout)
+#   - Dev aggregate (pure — bare xcframeworks for Package.swift detection)
 #
-# All impure derivations use __noChroot = true to access the system Xcode SDK.
-# The aggregate derivation is pure since it only creates symlinks to Nix store paths.
-#
-# --- Why xcframework assembly stays in the Makefile ---
-# It's technically feasible to move lipo + xcodebuild -create-xcframework into Nix
-# (lipo is in the devShell, and __noChroot makes xcodebuild accessible). However:
-#   1. Negligible caching benefit — lipo + xcodebuild takes ~5s vs 30-60 min compilation.
-#   2. xcframework invalidates whenever any .a changes — so it's a cache miss exactly
-#      when the static libs are also cache misses (the only scenario where caching matters).
-#   3. Clean separation — Nix does expensive compilation/caching, Make does fast assembly.
-#   4. `make local` would break — devs who don't use nix build depend on the Makefile flow.
-#   5. Manually building xcframework (without xcodebuild) would be fragile.
 {
   lib,
   xmtp,
@@ -63,30 +53,36 @@ let
   # IMPROVEMENT: buildDepsOnly could include an Xcode existence check in its
   # buildPhaseCargoCommand to provide a clearer error message if Xcode is missing,
   # rather than failing deep in the cc-rs build with cryptic SDK path errors.
-  buildTarget =
+  # Per-target dep cache — rebuilds only when Cargo.lock, Cargo.toml, or build.rs change.
+  # Keyed by target triple. Impure (__noChroot) because build scripts need Xcode SDK.
+  # Shared between buildTarget and swiftBindings (for aarch64-apple-darwin).
+  mkDepsForTarget =
     target:
     let
       envSetup = iosEnv.envSetup target;
+    in
+    rust.buildDepsOnly (
+      commonArgs
+      // {
+        pname = "xmtpv3-deps-${target}";
+        CARGO_BUILD_TARGET = target;
+        __noChroot = true;
+        cargoExtraArgs = "--target ${target} -p xmtpv3";
+        # envSetup is inlined in buildPhaseCargoCommand because crane's buildDepsOnly
+        # strips preBuild hooks (it needs full control of the build phase to replace
+        # source files with dummies). envSetup dynamically resolves the Xcode path
+        # via xcode-select and sets DEVELOPER_DIR, SDKROOT, CC/CXX, and bindgen args.
+        buildPhaseCargoCommand = ''
+          ${envSetup}
+          cargo build --locked --release --target ${target} -p xmtpv3
+        '';
+      }
+    );
 
-      # Phase 1: Dep caching — rebuilds when Cargo.lock, Cargo.toml, or build.rs change.
-      cargoArtifacts = rust.buildDepsOnly (
-        commonArgs
-        // {
-          pname = "xmtpv3-deps-${target}";
-          CARGO_BUILD_TARGET = target;
-          # Impure: needs Xcode SDK for bindgen during dep compilation
-          __noChroot = true;
-          cargoExtraArgs = "--target ${target} -p xmtpv3";
-          # envSetup is inlined in buildPhaseCargoCommand because crane's buildDepsOnly
-          # strips preBuild hooks (it needs full control of the build phase to replace
-          # source files with dummies). envSetup dynamically resolves the Xcode path
-          # via xcode-select and sets DEVELOPER_DIR, SDKROOT, CC/CXX, and bindgen args.
-          buildPhaseCargoCommand = ''
-            ${envSetup}
-            cargo build --locked --release --target ${target} -p xmtpv3
-          '';
-        }
-      );
+  buildTarget =
+    target:
+    let
+      cargoArtifacts = mkDepsForTarget target;
     in
     # Phase 2: Build project source using cached dep artifacts.
     rust.buildPackage (
@@ -127,7 +123,7 @@ let
       __noChroot = true;
       src = bindingsFileset;
       inherit version;
-      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false null;
+      cargoArtifacts = mkDepsForTarget "aarch64-apple-darwin";
       cargoExtraArgs = "-p xmtpv3";
       CARGO_BUILD_TARGET = "aarch64-apple-darwin";
       buildPhaseCargoCommand = ''
@@ -187,9 +183,316 @@ let
       aggregate = selectedAggregate;
     };
 
+  # Classify targets into platform groups for xcframework assembly.
+  # Each non-empty group produces one platform slice in the xcframework.
+  # Currently the only device target is aarch64-apple-ios; if more are added
+  # they would need lipo like sim/macOS groups.
+  classifyTargets =
+    targetList:
+    let
+      device = builtins.filter (t: t == "aarch64-apple-ios") targetList;
+      sim = builtins.filter (t: lib.hasSuffix "-ios-sim" t) targetList;
+      mac = builtins.filter (t: lib.hasSuffix "-darwin" t) targetList;
+    in
+    {
+      deviceTargets = device;
+      simTargets = sim;
+      macTargets = mac;
+      expectedSlices =
+        (if device != [ ] then 1 else 0) + (if sim != [ ] then 1 else 0) + (if mac != [ ] then 1 else 0);
+    };
+
+  # Shell preamble for xcframework derivations: resolves Xcode and adds
+  # toolchain binaries (lipo, otool, install_name_tool) and /usr/bin (codesign) to PATH.
+  xcframeworkEnvSetup = ''
+    ${iosEnv.envSetup "aarch64-apple-darwin"}
+    export PATH="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin:/usr/bin:$PATH"
+  '';
+
+  # Assemble a static xcframework from per-target .a files.
+  # Takes the target list, built target derivations, and swift bindings.
+  # Produces $out/LibXMTPSwiftFFI.xcframework/
+  mkStaticXcframework =
+    targetList: selectedTargets: swiftBindings:
+    let
+      inherit (classifyTargets targetList)
+        deviceTargets
+        simTargets
+        macTargets
+        expectedSlices
+        ;
+      headerDir = "${swiftBindings}/swift/include/libxmtp";
+    in
+    stdenv.mkDerivation {
+      pname = "xmtpv3-static-xcframework";
+      inherit version;
+      __noChroot = true;
+      dontUnpack = true;
+      dontFixup = true;
+      installPhase = ''
+        ${xcframeworkEnvSetup}
+        set -euo pipefail
+
+        echo "=== Building static xcframework ==="
+
+        # lipo sim .a files into fat lib
+        ${lib.optionalString (builtins.length simTargets > 0) ''
+          mkdir -p $TMPDIR/lipo_sim
+          lipo -create \
+            ${lib.concatMapStringsSep " " (t: "${selectedTargets.${t}}/${t}/libxmtpv3.a") simTargets} \
+            -output $TMPDIR/lipo_sim/libxmtpv3.a
+        ''}
+
+        # lipo macOS .a files into fat lib
+        ${lib.optionalString (builtins.length macTargets > 0) ''
+          mkdir -p $TMPDIR/lipo_macos
+          lipo -create \
+            ${lib.concatMapStringsSep " " (t: "${selectedTargets.${t}}/${t}/libxmtpv3.a") macTargets} \
+            -output $TMPDIR/lipo_macos/libxmtpv3.a
+        ''}
+
+        # Build xcodebuild args
+        XCF_ARGS=""
+        ${lib.optionalString (deviceTargets != [ ]) ''
+          XCF_ARGS="$XCF_ARGS -library ${
+            selectedTargets.${"aarch64-apple-ios"}
+          }/aarch64-apple-ios/libxmtpv3.a -headers ${headerDir}"
+        ''}
+        ${lib.optionalString (simTargets != [ ]) ''
+          XCF_ARGS="$XCF_ARGS -library $TMPDIR/lipo_sim/libxmtpv3.a -headers ${headerDir}"
+        ''}
+        ${lib.optionalString (macTargets != [ ]) ''
+          XCF_ARGS="$XCF_ARGS -library $TMPDIR/lipo_macos/libxmtpv3.a -headers ${headerDir}"
+        ''}
+
+        mkdir -p $out
+        xcodebuild -create-xcframework \
+          $XCF_ARGS \
+          -output $out/LibXMTPSwiftFFI.xcframework
+
+        # === Validation ===
+        echo "Validating static xcframework..."
+        FOUND=0
+        for slice in $out/LibXMTPSwiftFFI.xcframework/*/; do
+          [ -d "$slice/Headers" ] || continue
+          FOUND=$((FOUND + 1))
+          test -f "$slice/Headers/xmtpv3FFI.h" || { echo "FAIL: Missing xmtpv3FFI.h in $slice"; exit 1; }
+          test -f "$slice/Headers/module.modulemap" || { echo "FAIL: Missing modulemap in $slice"; exit 1; }
+          head -1 "$slice/Headers/module.modulemap" | grep -q "module xmtpv3FFI" || \
+            { echo "FAIL: Bad modulemap in $slice"; exit 1; }
+          echo "  static OK: $(basename $slice)"
+        done
+        [ "$FOUND" -ge ${toString expectedSlices} ] || \
+          { echo "FAIL: Expected >= ${toString expectedSlices} static slices, found $FOUND"; exit 1; }
+        echo "Static xcframework validation passed ($FOUND slices)"
+
+        chmod -R u+w $out
+      '';
+    };
+
+  # Assemble a dynamic xcframework from per-target .dylib files.
+  # Takes the target list, built target derivations, and swift bindings.
+  # Produces $out/LibXMTPSwiftFFIDynamic.xcframework/
+  mkDynamicXcframework =
+    targetList: selectedTargets: swiftBindings:
+    let
+      inherit (classifyTargets targetList)
+        deviceTargets
+        simTargets
+        macTargets
+        expectedSlices
+        ;
+      headerDir = "${swiftBindings}/swift/include/libxmtp";
+
+      # Shell snippet to wrap a dylib in a .framework bundle.
+      # minOSVersion is required by App Store validation for embedded frameworks.
+      mkFrameworkBundle = name: dylibPath: minOSVersion: ''
+        echo "Building framework bundle: ${name}"
+        mkdir -p $TMPDIR/${name}/xmtpv3FFI.framework/Headers
+        mkdir -p $TMPDIR/${name}/xmtpv3FFI.framework/Modules
+        cp ${dylibPath} $TMPDIR/${name}/xmtpv3FFI.framework/xmtpv3FFI
+        install_name_tool -id @rpath/xmtpv3FFI.framework/xmtpv3FFI \
+          $TMPDIR/${name}/xmtpv3FFI.framework/xmtpv3FFI
+        cp ${headerDir}/*.h $TMPDIR/${name}/xmtpv3FFI.framework/Headers/
+        sed 's/^module /framework module /' \
+          ${headerDir}/module.modulemap \
+          > $TMPDIR/${name}/xmtpv3FFI.framework/Modules/module.modulemap
+        /usr/libexec/PlistBuddy \
+          -c "Add :CFBundleExecutable string xmtpv3FFI" \
+          -c "Add :CFBundleIdentifier string org.xmtp.xmtpv3FFI" \
+          -c "Add :CFBundleInfoDictionaryVersion string 6.0" \
+          -c "Add :CFBundleName string xmtpv3FFI" \
+          -c "Add :CFBundlePackageType string FMWK" \
+          -c "Add :CFBundleVersion string 1" \
+          -c "Add :CFBundleShortVersionString string 1.0" \
+          -c "Add :MinimumOSVersion string ${minOSVersion}" \
+          $TMPDIR/${name}/xmtpv3FFI.framework/Info.plist
+        codesign --force --sign - $TMPDIR/${name}/xmtpv3FFI.framework
+      '';
+    in
+    stdenv.mkDerivation {
+      pname = "xmtpv3-dynamic-xcframework";
+      inherit version;
+      __noChroot = true;
+      dontUnpack = true;
+      dontFixup = true;
+      installPhase = ''
+        ${xcframeworkEnvSetup}
+        set -euo pipefail
+
+        echo "=== Building dynamic xcframework ==="
+
+        # lipo sim .dylib files into fat dylib
+        ${lib.optionalString (builtins.length simTargets > 0) ''
+          mkdir -p $TMPDIR/lipo_sim
+          lipo -create \
+            ${lib.concatMapStringsSep " " (t: "${selectedTargets.${t}}/${t}/libxmtpv3.dylib") simTargets} \
+            -output $TMPDIR/lipo_sim/libxmtpv3.dylib
+        ''}
+
+        # lipo macOS .dylib files into fat dylib
+        ${lib.optionalString (builtins.length macTargets > 0) ''
+          mkdir -p $TMPDIR/lipo_macos
+          lipo -create \
+            ${lib.concatMapStringsSep " " (t: "${selectedTargets.${t}}/${t}/libxmtpv3.dylib") macTargets} \
+            -output $TMPDIR/lipo_macos/libxmtpv3.dylib
+        ''}
+
+        # Build .framework bundles per platform
+        ${lib.optionalString (deviceTargets != [ ]) (
+          mkFrameworkBundle "fw_ios" "${
+            selectedTargets.${"aarch64-apple-ios"}
+          }/aarch64-apple-ios/libxmtpv3.dylib" "14.0"
+        )}
+        ${lib.optionalString (simTargets != [ ]) (
+          mkFrameworkBundle "fw_sim" "$TMPDIR/lipo_sim/libxmtpv3.dylib" "14.0"
+        )}
+        ${lib.optionalString (macTargets != [ ]) (
+          mkFrameworkBundle "fw_mac" "$TMPDIR/lipo_macos/libxmtpv3.dylib" "11.0"
+        )}
+
+        # Build xcodebuild args
+        XCF_ARGS=""
+        ${lib.optionalString (deviceTargets != [ ]) ''
+          XCF_ARGS="$XCF_ARGS -framework $TMPDIR/fw_ios/xmtpv3FFI.framework"
+        ''}
+        ${lib.optionalString (simTargets != [ ]) ''
+          XCF_ARGS="$XCF_ARGS -framework $TMPDIR/fw_sim/xmtpv3FFI.framework"
+        ''}
+        ${lib.optionalString (macTargets != [ ]) ''
+          XCF_ARGS="$XCF_ARGS -framework $TMPDIR/fw_mac/xmtpv3FFI.framework"
+        ''}
+
+        mkdir -p $out
+        xcodebuild -create-xcframework \
+          $XCF_ARGS \
+          -output $out/LibXMTPSwiftFFIDynamic.xcframework
+
+        # === Validation ===
+        echo "Validating dynamic xcframework..."
+        FOUND=0
+        for fw in $out/LibXMTPSwiftFFIDynamic.xcframework/*/xmtpv3FFI.framework; do
+          test -d "$fw" || continue
+          FOUND=$((FOUND + 1))
+          test -f "$fw/xmtpv3FFI" || { echo "FAIL: Missing binary in $fw"; exit 1; }
+          test -f "$fw/Info.plist" || { echo "FAIL: Missing Info.plist in $fw"; exit 1; }
+          test -d "$fw/Headers" || { echo "FAIL: Missing Headers in $fw"; exit 1; }
+          test -f "$fw/Headers/xmtpv3FFI.h" || { echo "FAIL: Missing xmtpv3FFI.h in $fw"; exit 1; }
+          test -f "$fw/Modules/module.modulemap" || { echo "FAIL: Missing modulemap in $fw"; exit 1; }
+          head -1 "$fw/Modules/module.modulemap" | grep -q "^framework module xmtpv3FFI" || \
+            { echo "FAIL: modulemap missing 'framework module' prefix in $fw"; exit 1; }
+          INSTALL_NAME=$(otool -D "$fw/xmtpv3FFI" | tail -1)
+          echo "$INSTALL_NAME" | grep -q "@rpath/xmtpv3FFI.framework/xmtpv3FFI" || \
+            { echo "FAIL: Bad install name '$INSTALL_NAME' in $fw"; exit 1; }
+          echo "  dynamic OK: $(basename $(dirname $fw))"
+        done
+        [ "$FOUND" -ge ${toString expectedSlices} ] || \
+          { echo "FAIL: Expected >= ${toString expectedSlices} dynamic slices, found $FOUND"; exit 1; }
+        echo "Dynamic xcframework validation passed ($FOUND slices)"
+
+        chmod -R u+w $out
+      '';
+    };
+
+  # Aggregate for release: zip-ready directories with xcframeworks + Sources + LICENSE.
+  mkRelease =
+    {
+      static,
+      dynamic,
+      swiftBindings,
+      licenseFile,
+    }:
+    stdenv.mkDerivation {
+      pname = "xmtpv3-ios-xcframeworks";
+      inherit version;
+      dontUnpack = true;
+      installPhase = ''
+        # Static zip contents
+        mkdir -p $out/LibXMTPSwiftFFI/Sources/LibXMTP
+        cp -r ${static}/LibXMTPSwiftFFI.xcframework $out/LibXMTPSwiftFFI/
+        cp ${swiftBindings}/swift/xmtpv3.swift $out/LibXMTPSwiftFFI/Sources/LibXMTP/
+        cp ${licenseFile} $out/LibXMTPSwiftFFI/LICENSE
+
+        # Dynamic zip contents
+        mkdir -p $out/LibXMTPSwiftFFIDynamic/Sources/LibXMTP
+        cp -r ${dynamic}/LibXMTPSwiftFFIDynamic.xcframework $out/LibXMTPSwiftFFIDynamic/
+        cp ${swiftBindings}/swift/xmtpv3.swift $out/LibXMTPSwiftFFIDynamic/Sources/LibXMTP/
+        cp ${licenseFile} $out/LibXMTPSwiftFFIDynamic/LICENSE
+
+        chmod -R u+w $out
+      '';
+    };
+
+  # Aggregate for dev: bare xcframeworks at paths Package.swift expects.
+  mkDev =
+    {
+      static,
+      dynamic ? null,
+      swiftBindings,
+    }:
+    stdenv.mkDerivation {
+      pname = "xmtpv3-ios-xcframeworks-dev";
+      inherit version;
+      dontUnpack = true;
+      installPhase = ''
+        mkdir -p $out
+        cp -r ${static}/LibXMTPSwiftFFI.xcframework $out/
+        ${lib.optionalString (dynamic != null) ''
+          cp -r ${dynamic}/LibXMTPSwiftFFIDynamic.xcframework $out/
+        ''}
+        # Include generated Swift bindings for dev script to copy to SDK source tree
+        cp ${swiftBindings}/swift/xmtpv3.swift $out/xmtpv3.swift
+        chmod -R u+w $out
+      '';
+    };
+
 in
 {
   inherit swiftBindings mkIos;
   # Default: all targets (for backward compat)
   inherit (mkIos iosEnv.iosTargets) targets aggregate;
+  # Release: zip-ready directories for CI
+  release =
+    let
+      ios = mkIos iosEnv.iosTargets;
+    in
+    mkRelease {
+      static = mkStaticXcframework iosEnv.iosTargets ios.targets swiftBindings;
+      dynamic = mkDynamicXcframework iosEnv.iosTargets ios.targets swiftBindings;
+      inherit swiftBindings;
+      licenseFile = ../../LICENSE;
+    };
+  # Dev fast: simulator + macOS only, static only
+  devFast =
+    let
+      fastTargets = [
+        "aarch64-apple-darwin"
+        "aarch64-apple-ios-sim"
+      ];
+      ios = mkIos fastTargets;
+    in
+    mkDev {
+      static = mkStaticXcframework fastTargets ios.targets swiftBindings;
+      inherit swiftBindings;
+    };
 }

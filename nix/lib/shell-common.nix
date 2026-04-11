@@ -3,12 +3,8 @@
 {
   lib,
   stdenv,
-  pkg-config,
   openssl,
-  sqlite,
-  zstd,
   zlib,
-  fontconfig,
   llvmPackages,
   wasm-bindgen-cli,
   wasm-pack,
@@ -29,7 +25,6 @@
   nixfmt,
   lldb,
   vscode-extensions,
-  gnuplot,
   flamegraph,
   cargo-flamegraph,
   inferno,
@@ -83,9 +78,6 @@ in
     hardeningDisable = [
       "zerocallusedregs"
       "stackprotector"
-    ];
-    nativeBuildInputs = xmtp.base.commonArgs.nativeBuildInputs ++ [
-      fontconfig
     ];
     LD_LIBRARY_PATH = lib.makeLibraryPath [
       openssl
@@ -152,7 +144,6 @@ in
   debugTools = [
     lldb
     vscode-extensions.vadimcn.vscode-lldb
-    gnuplot
     flamegraph
     cargo-flamegraph
     inferno

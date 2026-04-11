@@ -1,0 +1,146 @@
+name: Test Devcontainer
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: xmtp/libxmtp-devcontainer
+
+jobs:
+  build-push-test:
+    name: Build, push, and smoke-test devcontainer image
+    runs-on: ubuntu-latest
+    # Generous cap: cold flake evaluation pulls rust toolchains and every
+    # devShell dep from xmtp.cachix.org on every run, since the in-container
+    # nix store is ephemeral.
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+
+      - name: Build and push image
+        id: push
+        uses: docker/build-push-action@v7
+        env:
+          # Pin the image config timestamp so identical inputs produce an
+          # identical manifest digest. Combined with dropping volatile labels
+          # (metadata-action's default set includes `created` and `revision`)
+          # and disabling provenance, this keeps the pushed digest stable
+          # across rebuilds.
+          SOURCE_DATE_EPOCH: "0"
+        with:
+          context: ./.devcontainer
+          file: ./.devcontainer/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+
+      - uses: ./.github/actions/setup-release-tools
+
+      - name: Pin devcontainer.json to the freshly pushed image
+        # Rewrite the checked-out devcontainer.json to reference the exact
+        # digest we just pushed, so `devcontainer up` pulls and exercises the
+        # image produced by *this* run — not whatever digest is currently
+        # committed on the branch.
+        env:
+          DEVCONTAINER_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
+        run: xmtp-release set-devcontainer-image --image "$DEVCONTAINER_IMAGE"
+
+      - name: Install devcontainer CLI
+        run: npm install -g @devcontainers/cli
+
+      - name: Launch devcontainer
+        # `devcontainer up` pulls the pinned image, starts the container, and
+        # runs postCreateCommand (.devcontainer/setup.sh) + postStartCommand
+        # (`direnv exec . true`). The postStartCommand triggers `use flake .`
+        # via direnv, which forces a full evaluation of the default devShell.
+        # A clean exit here already validates that nix is functional, the
+        # flake evaluates, and every devShell input resolves.
+        run: devcontainer up --workspace-folder .
+
+      - name: Verify nix is on PATH
+        run: devcontainer exec --workspace-folder . -- nix --version
+
+      - name: Verify direnv is on PATH
+        run: devcontainer exec --workspace-folder . -- direnv --version
+
+      - name: Verify devShell provides just
+        run: devcontainer exec --workspace-folder . -- direnv exec . just --version
+
+      - name: Verify devShell provides cargo
+        run: devcontainer exec --workspace-folder . -- direnv exec . cargo --version
+
+      - name: Check if committed devcontainer.json is in sync with the built image
+        id: sync-check
+        run: |
+          if git diff --quiet -- .devcontainer/devcontainer.json; then
+            echo "devcontainer.json is in sync with the built image ✓"
+            echo "in_sync=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "in_sync=false" >> "$GITHUB_OUTPUT"
+            echo "::error::devcontainer.json is out of sync with the built image."
+            echo "Expected image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}"
+            echo ""
+            echo "Diff:"
+            git --no-pager diff -- .devcontainer/devcontainer.json
+          fi
+
+      - name: Find existing devcontainer mismatch comment
+        if: steps.sync-check.outputs.in_sync == 'false' && github.event.pull_request.number
+        id: find-comment
+        uses: peter-evans/find-comment@v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-includes: <!-- devcontainer-image-check -->
+
+      - name: Post or update devcontainer mismatch comment
+        if: steps.sync-check.outputs.in_sync == 'false' && github.event.pull_request.number
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          edit-mode: replace
+          body: |
+            <!-- devcontainer-image-check -->
+
+            The devcontainer image built from this PR does not match the pinned digest in `.devcontainer/devcontainer.json`.
+
+            Please update it by running this from the repo root, then commit the change:
+
+            ```sh
+            ( cd dev/release-tools && yarn cli set-devcontainer-image --image '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}' )
+            ```
+
+            [Failing run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+      - name: Fail if devcontainer.json is out of sync
+        if: steps.sync-check.outputs.in_sync == 'false'
+        run: exit 1

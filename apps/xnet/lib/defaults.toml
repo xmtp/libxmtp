@@ -4,6 +4,7 @@
 use_standard_ports = true
 toxiproxy_port = 8474
 paused = false
+# traefik_port = 80
 
 [migration]
 enable = false

@@ -16,6 +16,8 @@ use color_eyre::eyre::Result;
 use url::Url;
 
 use crate::{
+    Config,
+    config::AddressMode,
     constants::{Anvil as AnvilConst, Otterscan as OtterscanConst},
     network::XNET_NETWORK_NAME,
     services::{ManagedContainer, Service, ToxiProxy},
@@ -103,9 +105,15 @@ impl Otterscan {
     }
 
     /// URL for external access (direct port binding).
+    /// Uses the remote IP when address_mode is Remote, otherwise localhost.
     pub fn external_url(&self) -> Url {
+        let host = match Config::load_unchecked().address_mode {
+            AddressMode::Remote(ip) => ip.to_string(),
+            _ => "localhost".to_string(),
+        };
         Url::parse(&format!(
-            "http://localhost:{}",
+            "http://{}:{}",
+            host,
             OtterscanConst::EXTERNAL_PORT
         ))
         .expect("valid URL")
