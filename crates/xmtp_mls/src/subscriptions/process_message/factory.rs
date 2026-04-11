@@ -195,7 +195,7 @@ where
             .new_messages
             .iter()
             .filter(|m| m.group_id == msg.group_id)
-            .filter(|m| !primary_id.is_some_and(|p| p.cursor == m.cursor))
+            .filter(|m| primary_id.is_none_or(|p| p.cursor != m.cursor))
             .collect();
         candidates.sort_by_key(|m| m.cursor);
 
