@@ -165,6 +165,7 @@ impl Traefik {
             host_config: Some(HostConfig {
                 network_mode: Some(XNET_NETWORK_NAME.to_string()),
                 port_bindings: Some(port_bindings),
+                extra_hosts: Some(vec!["host.docker.internal:host-gateway".to_string()]),
                 mounts: Some(vec![
                     Mount {
                         target: Some("/etc/traefik/traefik.yml".to_string()),
