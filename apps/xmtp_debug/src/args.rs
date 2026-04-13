@@ -281,8 +281,8 @@ pub enum LogFormat {
 #[derive(Args, Debug)]
 pub struct LogOptions {
     /// Stdout log format: "text" (default, colored in terminals) or "json" (for Docker/Datadog).
-    /// Can also be set via LOG_FORMAT env var.
-    #[arg(long, env = "LOG_FORMAT", default_value = "text")]
+    /// Can also be set via XDBG_LOG_FORMAT env var.
+    #[arg(long, env = "XDBG_LOG_FORMAT", default_value = "text")]
     pub log_format: LogFormat,
     /// Output libxmtp logs into file with a structured, ndJSON format
     #[arg(long)]

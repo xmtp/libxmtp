@@ -78,25 +78,19 @@ impl Logger {
         let use_json_stdout = matches!(log_format, LogFormat::Json);
 
         let subscriber = subscriber
-            .with(if use_json_stdout {
-                Some(
-                    tracing_subscriber::fmt::layer()
-                        .json()
-                        .with_filter(app_filter()),
-                )
-            } else {
-                None
-            })
-            .with(if !use_json_stdout {
-                Some(human_layer(
+            .with(use_json_stdout.then(|| {
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_filter(app_filter())
+            }))
+            .with((!use_json_stdout).then(|| {
+                human_layer(
                     app_filter(),
                     true,
                     std::io::stdout,
                     std::io::stdout().is_terminal(),
-                ))
-            } else {
-                None
-            })
+                )
+            }))
             .with(json.then(|| {
                 let mut json = log_file_name.clone();
                 json.set_extension("json");
