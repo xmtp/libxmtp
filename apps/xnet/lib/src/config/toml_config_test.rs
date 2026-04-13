@@ -136,6 +136,56 @@ priority = 100
 }
 
 #[test]
+fn remote_ip_and_domain_mutually_exclusive() {
+    let ip: std::net::IpAddr = "10.0.0.1".parse().unwrap();
+    let err = crate::config::loadable::validate_remote_config(Some(ip), Some("xmtp.run".to_string()))
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("mutually exclusive"),
+        "expected mutual exclusion error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn remote_ip_only_is_valid() {
+    let ip: std::net::IpAddr = "10.0.0.1".parse().unwrap();
+    crate::config::loadable::validate_remote_config(Some(ip), None).unwrap();
+}
+
+#[test]
+fn remote_domain_only_is_valid() {
+    crate::config::loadable::validate_remote_config(None, Some("xmtp.run".to_string())).unwrap();
+}
+
+#[test]
+fn neither_remote_is_valid() {
+    crate::config::loadable::validate_remote_config(None, None).unwrap();
+}
+
+#[test]
+fn remote_domain_rejects_empty() {
+    let err = crate::config::loadable::validate_remote_config(None, Some("".to_string()))
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("empty"),
+        "expected empty domain error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn remote_domain_rejects_leading_dot() {
+    let err = crate::config::loadable::validate_remote_config(None, Some(".xmtp.run".to_string()))
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("must not start or end with '.'"),
+        "expected leading dot error, got: {}",
+        err
+    );
+}
+
+#[test]
 fn extra_traefik_routes_parses_multiple_routes() {
     let toml_str = r#"
 [[extra_traefik_routes]]

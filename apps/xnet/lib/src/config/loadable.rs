@@ -116,6 +116,28 @@ pub struct Config {
     pub extra_traefik_routes: Vec<ExtraTraefikRoute>,
 }
 
+/// Validate that `remote_ip` and `remote_domain` are not both set,
+/// and that `remote_domain` is well-formed if provided.
+pub fn validate_remote_config(
+    remote_ip: Option<std::net::IpAddr>,
+    remote_domain: Option<String>,
+) -> Result<()> {
+    if remote_ip.is_some() && remote_domain.is_some() {
+        color_eyre::eyre::bail!(
+            "`remote_ip` and `remote_domain` are mutually exclusive — set one or neither"
+        );
+    }
+    if let Some(ref domain) = remote_domain {
+        if domain.is_empty() {
+            color_eyre::eyre::bail!("`remote_domain` must not be empty");
+        }
+        if domain.starts_with('.') || domain.ends_with('.') {
+            color_eyre::eyre::bail!("`remote_domain` must not start or end with '.'");
+        }
+    }
+    Ok(())
+}
+
 impl Config {
     /// Load config from TOML file (if found) merged with defaults.
     ///
@@ -129,27 +151,27 @@ impl Config {
             let app = App::parse()?;
             let toml = Self::load_toml(&app.args)?;
             let signers = Self::load_signers();
-            // Resolve address mode: XNET_REMOTE_IP env > --remote CLI flag > TOML remote_ip > Local
-            let address_mode = if let Ok(env_ip) = std::env::var("XNET_REMOTE_IP") {
-                match env_ip.parse::<std::net::IpAddr>() {
-                    Ok(ip) => {
-                        tracing::info!("Remote mode from env XNET_REMOTE_IP: {}", ip);
-                        AddressMode::RemoteIp(ip)
-                    }
-                    Err(_) => {
-                        tracing::error!(
-                            "XNET_REMOTE_IP is not a valid IP: '{}', falling back to local mode",
-                            env_ip
-                        );
-                        AddressMode::Local
-                    }
-                }
-            } else if let Some(ip) = app.args.remote {
-                tracing::info!("Remote mode from --remote flag: {}", ip);
+            // Resolve address mode: env > CLI > TOML, with mutual exclusion validation
+            let effective_remote_ip = std::env::var("XNET_REMOTE_IP")
+                .ok()
+                .and_then(|s| s.parse::<std::net::IpAddr>().ok())
+                .or(app.args.remote)
+                .or(toml.xnet.remote_ip);
+
+            let effective_remote_domain = std::env::var("XNET_REMOTE_DOMAIN")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .or(app.args.remote_domain.clone())
+                .or(toml.xnet.remote_domain.clone());
+
+            validate_remote_config(effective_remote_ip, effective_remote_domain.clone())?;
+
+            let address_mode = if let Some(ip) = effective_remote_ip {
+                tracing::info!("Remote IP mode: {}", ip);
                 AddressMode::RemoteIp(ip)
-            } else if let Some(ip) = toml.xnet.remote_ip {
-                tracing::info!("Remote mode from TOML remote_ip: {}", ip);
-                AddressMode::RemoteIp(ip)
+            } else if let Some(domain) = effective_remote_domain {
+                tracing::info!("Remote domain mode: {}", domain);
+                AddressMode::RemoteDomain(domain)
             } else {
                 AddressMode::Local
             };
