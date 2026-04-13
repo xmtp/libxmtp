@@ -109,16 +109,14 @@ impl TraefikConfig {
                 .strip_prefix("Host(`")
                 .and_then(|s| s.strip_suffix("`)"))
             {
-                // Get port from corresponding service
+                // Get port from corresponding service (only auto-generated routes
+                // use the h2c://xnet-toxiproxy:{port} URL pattern)
                 if let Some(service) = config.http.services.get(&router.service)
                     && let Some(server) = service.load_balancer.servers.first()
+                    && let Some(port_str) = server.url.strip_prefix("h2c://xnet-toxiproxy:")
+                    && let Ok(port) = port_str.parse()
                 {
-                    // Parse "http://toxiproxy:8150" -> 8150
-                    if let Some((_, port_str)) = server.url.rsplit_once(':')
-                        && let Ok(port) = port_str.parse()
-                    {
-                        routes.insert(hostname.to_string(), port);
-                    }
+                    routes.insert(hostname.to_string(), port);
                 }
             }
         }
@@ -331,7 +329,7 @@ impl TraefikConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::toml_config::ExtraTraefikRoute;
+    use crate::config::ExtraTraefikRoute;
     use tempfile::NamedTempFile;
 
     fn temp_config() -> (TraefikConfig, NamedTempFile) {
