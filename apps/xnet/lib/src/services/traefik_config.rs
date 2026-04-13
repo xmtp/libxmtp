@@ -13,7 +13,7 @@ use std::{
 use color_eyre::eyre::{Result, eyre};
 use serde::{Deserialize, Serialize};
 
-use crate::config::toml_config::ExtraTraefikRoute;
+use crate::config::ExtraTraefikRoute;
 
 /// Traefik dynamic configuration manager.
 ///
