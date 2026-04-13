@@ -8,22 +8,26 @@ const REMOTE_DOMAIN: &str = "sslip.io";
 pub enum AddressMode {
     /// Local mode: hostnames like `{name}.xmtpd.local`
     Local,
-    /// Remote mode: hostnames like `{name}.{ip-dashed}.sslip.io`
-    Remote(IpAddr),
+    /// Remote IP mode: hostnames like `{name}.{ip-dashed}.sslip.io`
+    RemoteIp(IpAddr),
+    /// Remote domain mode: hostnames like `{name}.{domain}`
+    RemoteDomain(String),
 }
 
 impl AddressMode {
     /// Build a hostname for the given service name.
     ///
-    /// - Local:  `{name}.xmtpd.local`
-    /// - Remote: `{name}.{ip}.sslip.io` (dots and colons replaced by dashes)
+    /// - Local:        `{name}.xmtpd.local`
+    /// - RemoteIp:     `{name}.{ip}.sslip.io` (dots and colons replaced by dashes)
+    /// - RemoteDomain: `{name}.{domain}`
     pub fn hostname(&self, name: &str) -> String {
         match self {
             Self::Local => format!("{name}.{LOCAL_DOMAIN}"),
-            Self::Remote(ip) => {
+            Self::RemoteIp(ip) => {
                 let ip_dashed = ip.to_string().replace(['.', ':'], "-");
                 format!("{name}.{ip_dashed}.{REMOTE_DOMAIN}")
             }
+            Self::RemoteDomain(domain) => format!("{name}.{domain}"),
         }
     }
 
@@ -31,12 +35,13 @@ impl AddressMode {
     pub fn dns_domain(&self) -> &str {
         match self {
             Self::Local => LOCAL_DOMAIN,
-            Self::Remote(_) => REMOTE_DOMAIN,
+            Self::RemoteIp(_) => REMOTE_DOMAIN,
+            Self::RemoteDomain(domain) => domain,
         }
     }
 
     pub fn is_remote(&self) -> bool {
-        matches!(self, Self::Remote(_))
+        matches!(self, Self::RemoteIp(_) | Self::RemoteDomain(_))
     }
 }
 
@@ -60,7 +65,7 @@ mod tests {
     #[test]
     fn remote_hostname_ipv4() {
         let ip: IpAddr = "203.0.113.42".parse().unwrap();
-        let mode = AddressMode::Remote(ip);
+        let mode = AddressMode::RemoteIp(ip);
         assert_eq!(mode.hostname("node100"), "node100.203-0-113-42.sslip.io");
         assert_eq!(mode.hostname("xnet-200"), "xnet-200.203-0-113-42.sslip.io");
     }
@@ -68,7 +73,7 @@ mod tests {
     #[test]
     fn remote_hostname_ipv6() {
         let ip: IpAddr = "2001:db8::1".parse().unwrap();
-        let mode = AddressMode::Remote(ip);
+        let mode = AddressMode::RemoteIp(ip);
         // IpAddr displays 2001:db8::1, colons become dashes
         assert_eq!(mode.hostname("node100"), "node100.2001-db8--1.sslip.io");
     }
@@ -77,18 +82,37 @@ mod tests {
     fn dns_domain() {
         assert_eq!(AddressMode::Local.dns_domain(), "xmtpd.local");
         let ip: IpAddr = "10.0.0.1".parse().unwrap();
-        assert_eq!(AddressMode::Remote(ip).dns_domain(), "sslip.io");
+        assert_eq!(AddressMode::RemoteIp(ip).dns_domain(), "sslip.io");
     }
 
     #[test]
     fn is_remote() {
         assert!(!AddressMode::Local.is_remote());
         let ip: IpAddr = "10.0.0.1".parse().unwrap();
-        assert!(AddressMode::Remote(ip).is_remote());
+        assert!(AddressMode::RemoteIp(ip).is_remote());
     }
 
     #[test]
     fn default_is_local() {
         assert_eq!(AddressMode::default(), AddressMode::Local);
+    }
+
+    #[test]
+    fn remote_domain_hostname() {
+        let mode = AddressMode::RemoteDomain("xmtp.run".to_string());
+        assert_eq!(mode.hostname("node100"), "node100.xmtp.run");
+        assert_eq!(mode.hostname("xnet-200"), "xnet-200.xmtp.run");
+    }
+
+    #[test]
+    fn remote_domain_dns_domain() {
+        let mode = AddressMode::RemoteDomain("xmtp.run".to_string());
+        assert_eq!(mode.dns_domain(), "xmtp.run");
+    }
+
+    #[test]
+    fn remote_domain_is_remote() {
+        let mode = AddressMode::RemoteDomain("xmtp.run".to_string());
+        assert!(mode.is_remote());
     }
 }
