@@ -109,3 +109,49 @@ fn validation_allows_zero_standard_port_nodes() {
     ];
     assert!(validate_node_toml(&nodes).is_ok());
 }
+
+#[test]
+fn extra_traefik_routes_defaults_to_empty() {
+    let toml_str = "[xnet]\n";
+    let config: TomlConfig = toml::from_str(toml_str).unwrap();
+    assert!(config.extra_traefik_routes.is_empty());
+}
+
+#[test]
+fn extra_traefik_routes_parses_single_route() {
+    let toml_str = r#"
+[[extra_traefik_routes]]
+name = "status-page"
+rule = "Host(`migrate.xmtp.run`)"
+url = "http://127.0.0.1:8899"
+priority = 100
+"#;
+    let config: TomlConfig = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.extra_traefik_routes.len(), 1);
+    let route = &config.extra_traefik_routes[0];
+    assert_eq!(route.name, "status-page");
+    assert_eq!(route.rule, "Host(`migrate.xmtp.run`)");
+    assert_eq!(route.url, "http://127.0.0.1:8899");
+    assert_eq!(route.priority, Some(100));
+}
+
+#[test]
+fn extra_traefik_routes_parses_multiple_routes() {
+    let toml_str = r#"
+[[extra_traefik_routes]]
+name = "status-page"
+rule = "Host(`migrate.xmtp.run`)"
+url = "http://127.0.0.1:8899"
+priority = 100
+
+[[extra_traefik_routes]]
+name = "another-service"
+rule = "Host(`other.example.com`)"
+url = "http://127.0.0.1:9999"
+"#;
+    let config: TomlConfig = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.extra_traefik_routes.len(), 2);
+    assert_eq!(config.extra_traefik_routes[0].name, "status-page");
+    assert_eq!(config.extra_traefik_routes[1].name, "another-service");
+    assert_eq!(config.extra_traefik_routes[1].priority, None);
+}

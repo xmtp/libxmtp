@@ -17,6 +17,8 @@ pub(crate) struct TomlConfig {
     pub prometheus: ImageConfig,
     pub grafana: ImageConfig,
     pub traefik: TraefikToml,
+    #[serde(default)]
+    pub extra_traefik_routes: Vec<ExtraTraefikRoute>,
 }
 
 /// Reusable image+version pair for any Docker service
@@ -106,4 +108,12 @@ pub struct V3Toml {
     #[serde(flatten)]
     pub image: ImageConfig,
     pub port: Option<u16>,
+}
+
+#[derive(Deserialize, Default, Debug, Clone)]
+pub struct ExtraTraefikRoute {
+    pub name: String,
+    pub rule: String,
+    pub url: String,
+    pub priority: Option<i32>,
 }
