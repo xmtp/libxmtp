@@ -61,23 +61,16 @@ let
     let
       envSetup = iosEnv.envSetup target;
     in
-    rust.buildDepsOnly (
-      commonArgs
-      // {
-        pname = "xmtpv3-deps-${target}";
-        CARGO_BUILD_TARGET = target;
-        __noChroot = true;
-        cargoExtraArgs = "--target ${target} -p xmtpv3";
-        # envSetup is inlined in buildPhaseCargoCommand because crane's buildDepsOnly
-        # strips preBuild hooks (it needs full control of the build phase to replace
-        # source files with dummies). envSetup dynamically resolves the Xcode path
-        # via xcode-select and sets DEVELOPER_DIR, SDKROOT, CC/CXX, and bindgen args.
-        buildPhaseCargoCommand = ''
-          ${envSetup}
-          cargo build --locked --release --target ${target} -p xmtpv3
-        '';
-      }
-    );
+    xmtp.base.mkCargoArtifacts rust false {
+      pname = "xmtpv3-deps-${target}";
+      CARGO_BUILD_TARGET = target;
+      __noChroot = true;
+      cargoExtraArgs = "--target ${target} -p xmtpv3";
+      buildPhaseCargoCommand = ''
+        ${envSetup}
+        cargo build --locked --release --target ${target} -p xmtpv3
+      '';
+    };
 
   buildTarget =
     target:

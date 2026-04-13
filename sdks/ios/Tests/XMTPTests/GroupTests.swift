@@ -1177,10 +1177,10 @@ class GroupTests: XCTestCase {
 		try fixtures.cleanUpDatabases()
 	}
 
-	// Formerly testCanSyncManyGroupsInUnderASecond; the hard <1s budget was
-	// not robust to CI runner variance (see issue #3448). The 10s ceiling
-	// still catches order-of-magnitude regressions while tolerating a
-	// loaded macOS runner; strict perf targets belong in dev/bench.
+	/// Formerly testCanSyncManyGroupsInUnderASecond; the hard <1s budget was
+	/// not robust to CI runner variance (see issue #3448). The 10s ceiling
+	/// still catches order-of-magnitude regressions while tolerating a
+	/// loaded macOS runner; strict perf targets belong in dev/bench.
 	func testCanSyncManyGroupsQuickly() async throws {
 		let fixtures = try await fixtures()
 		var groups: [Group] = []
@@ -1238,8 +1238,8 @@ class GroupTests: XCTestCase {
 		try fixtures.cleanUpDatabases()
 	}
 
-	// Formerly testCanListManyMembersInParallelInUnderASecond; the hard
-	// <1s budget was not robust to CI runner variance (see issue #3448).
+	/// Formerly testCanListManyMembersInParallelInUnderASecond; the hard
+	/// <1s budget was not robust to CI runner variance (see issue #3448).
 	func testCanListManyMembersInParallelQuickly() async throws {
 		let fixtures = try await fixtures()
 		var groups: [Group] = []
