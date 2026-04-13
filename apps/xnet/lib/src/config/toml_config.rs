@@ -38,6 +38,8 @@ pub struct XnetToml {
     /// Public IP for remote addressing mode (sslip.io).
     /// Equivalent to the --remote CLI flag.
     pub remote_ip: Option<std::net::IpAddr>,
+    /// Custom domain for remote addressing mode. Mutually exclusive with remote_ip.
+    pub remote_domain: Option<String>,
     /// Enable the V3 stack (Validation, V3Db, MlsDb, History, NodeGo)
     pub enable_v3: bool,
     /// Enable the D14n stack (Redis, Gateway, XMTPD nodes)
@@ -52,6 +54,7 @@ impl Default for XnetToml {
             use_standard_ports: true,
             paused: false,
             remote_ip: None,
+            remote_domain: None,
             enable_v3: true,
             enable_d14n: true,
             enable_monitoring: true,

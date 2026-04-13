@@ -20,6 +20,11 @@ pub struct AppArgs {
     /// Hostnames become {name}.{ip-dashed}.sslip.io instead of {name}.xmtpd.local.
     #[arg(long)]
     pub remote: Option<IpAddr>,
+    /// Enable remote addressing mode with a custom domain.
+    /// Hostnames become {name}.{domain} instead of {name}.xmtpd.local.
+    /// Mutually exclusive with --remote.
+    #[arg(long)]
+    pub remote_domain: Option<String>,
 }
 
 #[derive(Subcommand, Clone, Debug)]
