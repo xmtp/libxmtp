@@ -82,6 +82,9 @@ impl ServiceManager {
         coredns.start(&proxy).await?;
 
         let traefik_config = TraefikConfig::new(traefik.dynamic_config_path())?;
+        if !config.extra_traefik_routes.is_empty() {
+            traefik_config.set_extra_routes(config.extra_traefik_routes.clone())?;
+        }
 
         // Phase 2: Monitoring — Prometheus + Grafana (conditional)
         // PgAdmin is started AFTER xmtpd nodes so it can discover their

@@ -202,7 +202,10 @@ impl TraefikConfig {
             *extra = routes;
         }
         self.write()?;
-        info!("Set {} extra Traefik route(s)", self.extra_routes.lock().unwrap().len());
+        info!(
+            "Set {} extra Traefik route(s)",
+            self.extra_routes.lock().unwrap().len()
+        );
         Ok(())
     }
 
@@ -362,13 +365,24 @@ mod tests {
         let contents = fs::read_to_string(file.path()).unwrap();
         let parsed: TraefikDynamicConfig = serde_yaml::from_str(&contents).unwrap();
 
-        let router = parsed.http.routers.get("status-page").expect("router missing");
+        let router = parsed
+            .http
+            .routers
+            .get("status-page")
+            .expect("router missing");
         assert_eq!(router.rule, "Host(`migrate.xmtp.run`)");
         assert_eq!(router.service, "status-page");
         assert_eq!(router.priority, Some(100));
 
-        let service = parsed.http.services.get("status-page").expect("service missing");
-        assert_eq!(service.load_balancer.servers[0].url, "http://127.0.0.1:8899");
+        let service = parsed
+            .http
+            .services
+            .get("status-page")
+            .expect("service missing");
+        assert_eq!(
+            service.load_balancer.servers[0].url,
+            "http://127.0.0.1:8899"
+        );
         assert_eq!(service.load_balancer.pass_host_header, Some(true));
     }
 
