@@ -46,8 +46,8 @@ let package = Package(
             : .binaryTarget(
                 name: "LibXMTPSwiftFFI",
                 url:
-                    "https://github.com/xmtp/libxmtp/releases/download/libxmtp-ios-6ecd439/LibXMTPSwiftFFI.zip",
-                checksum: "83fd6cc53d37736392ebb904b699c3f6db65af2fb81b39f4b0f87e1ba4f982c1"
+                    "https://github.com/xmtp/libxmtp/releases/download/libxmtp-ios-88ddfad/LibXMTPSwiftFFI.zip",
+                checksum: "581c37de997498d32eb1eeb5f62297b381787e4857ba80cc99907dfaba8bf878"
             ),
         useLocalBinary
             ? .binaryTarget(
@@ -57,8 +57,8 @@ let package = Package(
             : .binaryTarget(
                 name: "LibXMTPSwiftFFIDynamic",
                 url:
-                    "https://github.com/xmtp/libxmtp/releases/download/libxmtp-ios-6ecd439/LibXMTPSwiftFFIDynamic.zip",
-                checksum: "5e2e821401744f54db0d84fbad2ebae4f0ded91f01824a45b4b643913a900b01"
+                    "https://github.com/xmtp/libxmtp/releases/download/libxmtp-ios-88ddfad/LibXMTPSwiftFFIDynamic.zip",
+                checksum: "f0ea01352b579241efacd3c38e93130ff2b21f4a908fc56faee4f3c5b7d25d62"
             ),
         .target(
             name: "XMTPiOS",
