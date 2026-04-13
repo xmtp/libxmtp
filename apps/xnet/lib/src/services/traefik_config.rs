@@ -13,6 +13,8 @@ use std::{
 use color_eyre::eyre::{Result, eyre};
 use serde::{Deserialize, Serialize};
 
+use crate::config::toml_config::ExtraTraefikRoute;
+
 /// Traefik dynamic configuration manager.
 ///
 /// This struct manages the dynamic.yml file that Traefik watches.
@@ -23,6 +25,8 @@ pub struct TraefikConfig {
     config_path: PathBuf,
     /// Hostname -> ToxiProxy port mapping (thread-safe)
     routes: Arc<Mutex<HashMap<String, u16>>>,
+    /// User-defined extra routes (from TOML config, stored in memory only)
+    extra_routes: Arc<Mutex<Vec<ExtraTraefikRoute>>>,
 }
 
 /// Traefik dynamic configuration structure (for YAML serialization)
@@ -146,6 +150,7 @@ impl TraefikConfig {
         Ok(Self {
             config_path,
             routes: Arc::new(Mutex::new(routes)),
+            extra_routes: Arc::new(Mutex::new(Vec::new())),
         })
     }
 
@@ -187,11 +192,26 @@ impl TraefikConfig {
         self.routes.lock().unwrap().clone()
     }
 
+    /// Set user-defined extra routes from TOML config.
+    ///
+    /// Extra routes are stored in memory only (not round-tripped through YAML)
+    /// and merged into dynamic.yml on every write() call.
+    pub fn set_extra_routes(&self, routes: Vec<ExtraTraefikRoute>) -> Result<()> {
+        {
+            let mut extra = self.extra_routes.lock().unwrap();
+            *extra = routes;
+        }
+        self.write()?;
+        info!("Set {} extra Traefik route(s)", self.extra_routes.lock().unwrap().len());
+        Ok(())
+    }
+
     /// Write the current configuration to the dynamic.yml file.
     ///
     /// Traefik will automatically detect and reload the changes.
     fn write(&self) -> Result<()> {
         let routes = self.routes.lock().unwrap();
+        let extra = self.extra_routes.lock().unwrap();
 
         let mut routers = HashMap::new();
         let mut services = HashMap::new();
@@ -223,6 +243,31 @@ impl TraefikConfig {
             );
         }
 
+        // Extra routes (user-defined, may use any URL/rule)
+        for route in extra.iter() {
+            routers.insert(
+                route.name.clone(),
+                Router {
+                    rule: route.rule.clone(),
+                    service: route.name.clone(),
+                    priority: route.priority,
+                },
+            );
+
+            services.insert(
+                route.name.clone(),
+                TraefikService {
+                    load_balancer: LoadBalancer {
+                        servers: vec![Server {
+                            url: route.url.clone(),
+                        }],
+                        servers_transport: None,
+                        pass_host_header: Some(true),
+                    },
+                },
+            );
+        }
+
         let config = TraefikDynamicConfig {
             http: HttpConfig {
                 routers,
@@ -235,8 +280,10 @@ impl TraefikConfig {
         fs::write(&self.config_path, yaml)?;
 
         debug!(
-            "Wrote Traefik config with {} routes to {}",
+            "Wrote Traefik config with {} routes ({} auto + {} extra) to {}",
+            routes.len() + extra.len(),
             routes.len(),
+            extra.len(),
             self.config_path.display()
         );
 
@@ -275,5 +322,144 @@ impl TraefikConfig {
         }
 
         entries.join("\n")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::toml_config::ExtraTraefikRoute;
+    use tempfile::NamedTempFile;
+
+    fn temp_config() -> (TraefikConfig, NamedTempFile) {
+        let file = NamedTempFile::new().unwrap();
+        let config = TraefikConfig::new(file.path()).unwrap();
+        (config, file)
+    }
+
+    #[test]
+    fn write_with_no_routes_produces_empty_config() {
+        let (config, file) = temp_config();
+        config.write().unwrap();
+        let contents = fs::read_to_string(file.path()).unwrap();
+        let parsed: TraefikDynamicConfig = serde_yaml::from_str(&contents).unwrap();
+        assert!(parsed.http.routers.is_empty());
+        assert!(parsed.http.services.is_empty());
+    }
+
+    #[test]
+    fn extra_routes_appear_in_dynamic_yaml() {
+        let (config, file) = temp_config();
+        config
+            .set_extra_routes(vec![ExtraTraefikRoute {
+                name: "status-page".to_string(),
+                rule: "Host(`migrate.xmtp.run`)".to_string(),
+                url: "http://127.0.0.1:8899".to_string(),
+                priority: Some(100),
+            }])
+            .unwrap();
+
+        let contents = fs::read_to_string(file.path()).unwrap();
+        let parsed: TraefikDynamicConfig = serde_yaml::from_str(&contents).unwrap();
+
+        let router = parsed.http.routers.get("status-page").expect("router missing");
+        assert_eq!(router.rule, "Host(`migrate.xmtp.run`)");
+        assert_eq!(router.service, "status-page");
+        assert_eq!(router.priority, Some(100));
+
+        let service = parsed.http.services.get("status-page").expect("service missing");
+        assert_eq!(service.load_balancer.servers[0].url, "http://127.0.0.1:8899");
+        assert_eq!(service.load_balancer.pass_host_header, Some(true));
+    }
+
+    #[test]
+    fn extra_routes_without_priority_omit_priority_field() {
+        let (config, file) = temp_config();
+        config
+            .set_extra_routes(vec![ExtraTraefikRoute {
+                name: "no-priority".to_string(),
+                rule: "Host(`example.com`)".to_string(),
+                url: "http://127.0.0.1:9999".to_string(),
+                priority: None,
+            }])
+            .unwrap();
+
+        let contents = fs::read_to_string(file.path()).unwrap();
+        let parsed: TraefikDynamicConfig = serde_yaml::from_str(&contents).unwrap();
+        let router = parsed.http.routers.get("no-priority").unwrap();
+        assert_eq!(router.priority, None);
+    }
+
+    #[test]
+    fn extra_routes_merge_with_auto_routes() {
+        let (config, file) = temp_config();
+        config.add_route("node100.xmtpd.local", 8150).unwrap();
+        config
+            .set_extra_routes(vec![ExtraTraefikRoute {
+                name: "status-page".to_string(),
+                rule: "Host(`migrate.xmtp.run`)".to_string(),
+                url: "http://127.0.0.1:8899".to_string(),
+                priority: Some(100),
+            }])
+            .unwrap();
+
+        let contents = fs::read_to_string(file.path()).unwrap();
+        let parsed: TraefikDynamicConfig = serde_yaml::from_str(&contents).unwrap();
+
+        // Auto-generated route present
+        assert!(parsed.http.routers.contains_key("node100_xmtpd_local"));
+        assert!(parsed.http.services.contains_key("node100_xmtpd_local"));
+
+        // Extra route present
+        assert!(parsed.http.routers.contains_key("status-page"));
+        assert!(parsed.http.services.contains_key("status-page"));
+
+        // Total: 2 routes
+        assert_eq!(parsed.http.routers.len(), 2);
+        assert_eq!(parsed.http.services.len(), 2);
+    }
+
+    #[test]
+    fn extra_routes_not_lost_after_add_route() {
+        let (config, file) = temp_config();
+        config
+            .set_extra_routes(vec![ExtraTraefikRoute {
+                name: "status-page".to_string(),
+                rule: "Host(`migrate.xmtp.run`)".to_string(),
+                url: "http://127.0.0.1:8899".to_string(),
+                priority: None,
+            }])
+            .unwrap();
+
+        // Adding a regular route should not lose extra routes
+        config.add_route("node200.xmtpd.local", 8151).unwrap();
+
+        let contents = fs::read_to_string(file.path()).unwrap();
+        let parsed: TraefikDynamicConfig = serde_yaml::from_str(&contents).unwrap();
+        assert!(parsed.http.routers.contains_key("status-page"));
+        assert!(parsed.http.routers.contains_key("node200_xmtpd_local"));
+    }
+
+    #[test]
+    fn load_from_file_ignores_extra_routes_in_yaml() {
+        let (config, file) = temp_config();
+        // Write an extra route
+        config
+            .set_extra_routes(vec![ExtraTraefikRoute {
+                name: "status-page".to_string(),
+                rule: "Host(`migrate.xmtp.run`)".to_string(),
+                url: "http://127.0.0.1:8899".to_string(),
+                priority: Some(100),
+            }])
+            .unwrap();
+
+        // Re-load from file — extra routes should NOT be recovered
+        // (they are memory-only, sourced from TOML config)
+        let config2 = TraefikConfig::new(file.path()).unwrap();
+        assert!(config2.routes().is_empty());
+
+        // Extra routes Vec should be empty on fresh load
+        let extra = config2.extra_routes.lock().unwrap();
+        assert!(extra.is_empty());
     }
 }
