@@ -32,19 +32,30 @@
               };
             }
           )
-          (final: prev: {
-            #atf = prev.atf.overrideAttrs (old: {
-            #  configureFlags = (old.configureFlags or [ ]) ++ [
-            #    "kyua_cv_getopt_plus=yes"
-            #  ];
-            #});
-            # # Override harfbuzz to disable tests - test-coretext fails with SIGABRT
-            # # This fixes iOS/Android builds that transitively depend on harfbuzz
-            # harfbuzz = prev.harfbuzz.overrideAttrs (old: {
-            #   doCheck = false;
-            #   mesonFlags = (old.mesonFlags or [ ]) ++ [ "-Dtests=disabled" ];
-            # });
-          })
+          # atf 0.23's configure.ac (m4/module-application.m4) uses AC_RUN_IFELSE
+          # to check whether getopt(3) accepts a leading '+' for POSIX behavior
+          # (cache var kyua_cv_getopt_plus). AC_RUN_IFELSE cannot execute the
+          # compiled test binary during cross-compilation, aborting with:
+          #   "configure: error: cannot run test program while cross compiling"
+          #
+          # This breaks the aarch64-apple-darwin cross-build chain:
+          #   atf → libiconv → apple-sdk-14.4 → bindings-node-js-napi-*
+          # See https://github.com/xmtp/libxmtp/issues/3470.
+          #
+          # All target platforms in this flake (Darwin, glibc Linux, musl Linux)
+          # have a getopt that honours '+', so pre-seeding yes is safe.
+          # Gated on cross-compilation so native builds keep pulling from
+          # cache.nixos.org unchanged.
+          (
+            final: prev:
+            prev.lib.optionalAttrs (prev.stdenv.buildPlatform != prev.stdenv.hostPlatform) {
+              atf = prev.atf.overrideAttrs (old: {
+                configureFlags = (old.configureFlags or [ ]) ++ [
+                  "kyua_cv_getopt_plus=yes"
+                ];
+              });
+            }
+          )
           # tcl 8.6.16 (pinned via nixpkgs 09061f74...) has multiple
           # cross-compile bugs when targeting *-unknown-linux-musl, and the
           # Hydra build farm only caches the x86_64-linux build host (not
