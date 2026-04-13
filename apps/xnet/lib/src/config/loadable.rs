@@ -13,7 +13,7 @@ use crate::config::AppArgs;
 use crate::constants::{ToxiProxy as ToxiProxyConst, Xmtpd as XmtpdConst};
 
 use super::AddressMode;
-use super::toml_config::{ImageConfig, MigrationConfig, NodeToml, TomlConfig};
+use super::toml_config::{ExtraTraefikRoute, ImageConfig, MigrationConfig, NodeToml, TomlConfig};
 
 static CONF: OnceLock<Config> = OnceLock::new();
 
@@ -111,6 +111,9 @@ pub struct Config {
     /// Addressing mode (local or remote/sslip.io)
     #[builder(default)]
     pub address_mode: AddressMode,
+    /// Extra Traefik routes from TOML config
+    #[builder(default)]
+    pub extra_traefik_routes: Vec<ExtraTraefikRoute>,
 }
 
 impl Config {
@@ -176,6 +179,7 @@ impl Config {
                 .prometheus(toml.prometheus)
                 .grafana(toml.grafana)
                 .address_mode(address_mode)
+                .extra_traefik_routes(toml.extra_traefik_routes)
                 .build();
 
             // Allow XNET_CUTOVER_TIMESTAMP env var to override the TOML migration_timestamp
