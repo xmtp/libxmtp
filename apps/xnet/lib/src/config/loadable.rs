@@ -12,9 +12,35 @@ use crate::app::App;
 use crate::config::AppArgs;
 use crate::constants::{ToxiProxy as ToxiProxyConst, Xmtpd as XmtpdConst};
 
+use super::AddressMode;
 use super::toml_config::{ImageConfig, MigrationConfig, NodeToml, TomlConfig};
 
 static CONF: OnceLock<Config> = OnceLock::new();
+
+/// Validate the node slice from TOML configuration.
+///
+/// Rules:
+/// - At most one node may have `use_standard_port = true`
+/// - A node cannot have both `use_standard_port = true` and an explicit `port`
+pub fn validate_node_toml(nodes: &[NodeToml]) -> Result<()> {
+    let standard_port_count = nodes.iter().filter(|n| n.use_standard_port).count();
+    if standard_port_count > 1 {
+        color_eyre::eyre::bail!(
+            "at most one node may have `use_standard_port = true`, found {}",
+            standard_port_count
+        );
+    }
+    for node in nodes {
+        if node.use_standard_port && node.port.is_some() {
+            let name = node.name.as_deref().unwrap_or("<unnamed>");
+            color_eyre::eyre::bail!(
+                "node '{}': cannot set both `use_standard_port = true` and an explicit `port`",
+                name
+            );
+        }
+    }
+    Ok(())
+}
 
 #[derive(Builder, Debug, Clone)]
 #[builder(on(String, into), derive(Debug))]
@@ -22,6 +48,9 @@ pub struct Config {
     /// use the same ports as in docker-compose.yml
     #[builder(default = true)]
     pub use_standard_ports: bool,
+    /// Pause broadcaster contracts on startup
+    #[builder(default)]
+    pub paused: bool,
     /// Ethereum Signers for XMTPD
     pub signers: [PrivateKeySigner; 100],
     /// Migration configuration
@@ -45,6 +74,8 @@ pub struct Config {
     pub toxiproxy: ImageConfig,
     /// ToxiProxy port override
     pub toxiproxy_port: Option<u16>,
+    /// Traefik HTTP host port override
+    pub traefik_port: Option<u16>,
     /// Gateway image overrides
     #[builder(default)]
     pub gateway: ImageConfig,
@@ -63,6 +94,9 @@ pub struct Config {
     /// Grafana image overrides
     #[builder(default)]
     pub grafana: ImageConfig,
+    /// Addressing mode (local or remote/sslip.io)
+    #[builder(default)]
+    pub address_mode: AddressMode,
 }
 
 impl Config {
@@ -78,8 +112,34 @@ impl Config {
             let app = App::parse()?;
             let toml = Self::load_toml(&app.args)?;
             let signers = Self::load_signers();
+            // Resolve address mode: XNET_REMOTE_IP env > --remote CLI flag > TOML remote_ip > Local
+            let address_mode = if let Ok(env_ip) = std::env::var("XNET_REMOTE_IP") {
+                match env_ip.parse::<std::net::IpAddr>() {
+                    Ok(ip) => {
+                        tracing::info!("Remote mode from env XNET_REMOTE_IP: {}", ip);
+                        AddressMode::Remote(ip)
+                    }
+                    Err(_) => {
+                        tracing::error!(
+                            "XNET_REMOTE_IP is not a valid IP: '{}', falling back to local mode",
+                            env_ip
+                        );
+                        AddressMode::Local
+                    }
+                }
+            } else if let Some(ip) = app.args.remote {
+                tracing::info!("Remote mode from --remote flag: {}", ip);
+                AddressMode::Remote(ip)
+            } else if let Some(ip) = toml.xnet.remote_ip {
+                tracing::info!("Remote mode from TOML remote_ip: {}", ip);
+                AddressMode::Remote(ip)
+            } else {
+                AddressMode::Local
+            };
+
             let mut c = Config::builder()
                 .use_standard_ports(toml.xnet.use_standard_ports)
+                .paused(toml.xnet.paused)
                 .signers(signers)
                 .migration(toml.migration)
                 .xmtpd(toml.xmtpd.image)
@@ -93,8 +153,10 @@ impl Config {
                 .history(toml.history)
                 .toxiproxy(toml.toxiproxy)
                 .maybe_toxiproxy_port(toml.xnet.toxiproxy_port)
+                .maybe_traefik_port(toml.xnet.traefik_port)
                 .prometheus(toml.prometheus)
                 .grafana(toml.grafana)
+                .address_mode(address_mode)
                 .build();
 
             // Allow XNET_CUTOVER_TIMESTAMP env var to override the TOML migration_timestamp
@@ -116,6 +178,9 @@ impl Config {
                     }
                 }
             }
+
+            // Validate node configuration
+            validate_node_toml(&c.xmtpd_nodes)?;
 
             CONF.set(c)
                 .map_err(|_| eyre!("Config already initialized"))?;

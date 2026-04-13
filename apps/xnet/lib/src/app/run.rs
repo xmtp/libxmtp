@@ -48,9 +48,11 @@ impl App {
         Self::new(args.clone())
     }
 
-    pub async fn up(&self, paused: bool) -> Result<()> {
+    pub async fn up(&self, cli_paused: bool) -> Result<()> {
         let network = Network::new().await?;
         let mgr = ServiceManager::start().await?;
+        let config = Config::load()?;
+        let paused = cli_paused || config.paused;
         if paused {
             crate::contracts::set_broadcasters_paused(
                 mgr.anvil_rpc_url().as_str(),
@@ -110,13 +112,36 @@ impl App {
             .await?;
         }
 
+        if add.use_standard_port {
+            // Check all registered ToxiProxy proxies, not just mgr.nodes() which
+            // only contains nodes started in the current session. Nodes whose proxy
+            // already existed at startup are skipped by ServiceManager::start() and
+            // never added to self.nodes, so we must query ToxiProxy directly.
+            let standard_port = crate::constants::Xmtpd::GRPC_PORT;
+            let existing_proxies = mgr.proxy.list_proxies().await?;
+            for proxy in existing_proxies.values() {
+                let listen = &proxy.proxy_pack.listen;
+                let port: u16 = listen
+                    .rsplit(':')
+                    .next()
+                    .and_then(|p| p.parse().ok())
+                    .unwrap_or(0);
+                if port == standard_port {
+                    return Err(eyre!(
+                        "cannot add node with --use-standard-port: port {} is already in use by an existing proxy",
+                        standard_port
+                    ));
+                }
+            }
+        }
+
         let cli = XmtpdCli::builder().toxiproxy(mgr.proxy.clone());
         let mut output = self.cli_output.lock().await;
         let gateway = mgr
             .gateway
             .external_url()
             .ok_or_eyre("no url for gateway")?;
-        let mut xmtpd = XmtpdNode::new(gateway.as_str()).await?;
+        let mut xmtpd = XmtpdNode::new(gateway.as_str(), add.use_standard_port).await?;
         cli.clone()
             .build()
             .register(&mgr, &mut *output, &xmtpd)
@@ -263,12 +288,16 @@ impl App {
                 mgr.reload_node_go(cutover_ns).await?;
             }
             crate::config::Commands::Addresses => self.addresses().await?,
-            crate::config::Commands::Cutover => {
-                let mgr = ServiceManager::start().await?;
-                let url = mgr
-                    .node_go
-                    .external_grpc_url()
-                    .ok_or_eyre("node-go not running")?;
+            crate::config::Commands::Cutover(cutover) => {
+                let url = match &cutover.grpc_url {
+                    Some(u) => u.clone(),
+                    None => {
+                        let mgr = ServiceManager::start().await?;
+                        mgr.node_go.external_grpc_url().ok_or_eyre(
+                            "node-go has no external gRPC URL (ToxiProxy port not configured)",
+                        )?
+                    }
+                };
                 let client = xmtp_api_grpc::GrpcClient::create(url).map_err(|e| eyre!("{}", e))?;
                 let response: FetchD14nCutoverResponse = FetchD14nCutover
                     .query(&client)
@@ -276,16 +305,20 @@ impl App {
                     .map_err(|e| eyre!("{}", e))?;
                 let ts_ns = response.timestamp_ns;
                 let secs = (ts_ns / 1_000_000_000) as i64;
-                let nanos = (ts_ns % 1_000_000_000) as u32;
-                let dt: DateTime<Local> = Local
-                    .timestamp_opt(secs, nanos)
-                    .single()
-                    .ok_or_eyre("invalid timestamp")?;
-                println!(
-                    "d14n cutover: {} ({} ns)",
-                    dt.format("%Y-%m-%d %H:%M:%S %Z"),
-                    ts_ns
-                );
+                if cutover.unix {
+                    println!("{}", secs);
+                } else {
+                    let nanos = (ts_ns % 1_000_000_000) as u32;
+                    let dt: DateTime<Local> = Local
+                        .timestamp_opt(secs, nanos)
+                        .single()
+                        .ok_or_eyre("invalid timestamp")?;
+                    println!(
+                        "d14n cutover: {} ({} ns)",
+                        dt.format("%Y-%m-%d %H:%M:%S %Z"),
+                        ts_ns
+                    );
+                }
             }
         }
         Ok(())

@@ -210,6 +210,10 @@ impl xmtp_common::RetryableError for ClientError {
             ClientError::Api(api_error) => retryable!(api_error),
             ClientError::Storage(storage_error) => retryable!(storage_error),
             ClientError::Db(db) => retryable!(db),
+            // SCW verification errors carry retryability through SignatureError;
+            // transient RPC provider failures must not advance the welcome cursor.
+            // See xmtp/libxmtp#3394.
+            ClientError::SignatureValidation(e) => retryable!(e),
             ClientError::Generic(err) => err.contains("database is locked"),
             ClientError::EnvelopesNotYetVisible { .. } => true,
             _ => false,
@@ -1229,6 +1233,28 @@ pub(crate) mod tests {
         let members = group.members().await.unwrap();
         // The three installations should count as two members
         assert_eq!(members.len(), 2);
+    }
+
+    #[xmtp_common::test]
+    fn test_client_error_signature_validation_retryability_propagates() {
+        use xmtp_common::RetryableError;
+        use xmtp_id::associations::signature::SignatureError;
+        use xmtp_id::scw_verifier::VerifierError;
+
+        // A retryable verifier error (transient RPC failure) must surface as
+        // retryable at the ClientError layer so the welcome sync path does not
+        // advance the cursor past welcomes involving SCW users. See xmtp/libxmtp#3394.
+        let retryable = super::ClientError::SignatureValidation(SignatureError::VerifierError(
+            VerifierError::NoVerifier("eip155:1".to_string()),
+        ));
+        assert!(retryable.is_retryable());
+
+        // A terminal verifier error (malformed input) must remain non-retryable
+        // so we don't spin forever on bad data.
+        let non_retryable = super::ClientError::SignatureValidation(SignatureError::VerifierError(
+            VerifierError::MalformedEipUrl,
+        ));
+        assert!(!non_retryable.is_retryable());
     }
 
     #[xmtp_common::test]

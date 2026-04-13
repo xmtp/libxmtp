@@ -505,6 +505,22 @@ fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterFloat: FfiConverterPrimitive {
+    typealias FfiType = Float
+    typealias SwiftType = Float
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Float {
+        return try lift(readFloat(&buf))
+    }
+
+    public static func write(_ value: Float, into buf: inout [UInt8]) {
+        writeFloat(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
     typealias FfiType = Double
     typealias SwiftType = Double
@@ -5111,7 +5127,7 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
     
     func message(messageId: Data) throws  -> FfiMessage
     
-    func registerIdentity(signatureRequest: FfiSignatureRequest) async throws 
+    func registerIdentity(signatureRequest: FfiSignatureRequest, visibilityConfirmationOptions: FfiVisibilityConfirmationOptions?) async throws 
     
     func releaseDbConnection() throws 
     
@@ -5153,6 +5169,14 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
      * Only works for verifying libXmtp public context signatures.
      */
     func verifySignedWithPublicKey(signatureText: String, signatureBytes: Data, publicKey: Data) throws 
+    
+    /**
+     * Wait until this client's registration is visible on the network.
+     *
+     * `options` controls the quorum, timeout, and polling interval.
+     * Pass `None` to use the defaults (50% quorum, 30s timeout, 500ms interval).
+     */
+    func waitForRegistrationVisible(options: FfiVisibilityConfirmationOptions?) async throws 
     
     /**
      * Load the metadata for an archive to see what it contains.
@@ -5592,13 +5616,13 @@ open func message(messageId: Data)throws  -> FfiMessage  {
 })
 }
     
-open func registerIdentity(signatureRequest: FfiSignatureRequest)async throws   {
+open func registerIdentity(signatureRequest: FfiSignatureRequest, visibilityConfirmationOptions: FfiVisibilityConfirmationOptions?)async throws   {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_ffixmtpclient_register_identity(
                     self.uniffiCloneHandle(),
-                    FfiConverterTypeFfiSignatureRequest_lower(signatureRequest)
+                    FfiConverterTypeFfiSignatureRequest_lower(signatureRequest),FfiConverterOptionTypeFfiVisibilityConfirmationOptions.lower(visibilityConfirmationOptions)
                 )
             },
             pollFunc: ffi_xmtpv3_rust_future_poll_void,
@@ -5756,6 +5780,29 @@ open func verifySignedWithPublicKey(signatureText: String, signatureBytes: Data,
         FfiConverterData.lower(publicKey),$0
     )
 }
+}
+    
+    /**
+     * Wait until this client's registration is visible on the network.
+     *
+     * `options` controls the quorum, timeout, and polling interval.
+     * Pass `None` to use the defaults (50% quorum, 30s timeout, 500ms interval).
+     */
+open func waitForRegistrationVisible(options: FfiVisibilityConfirmationOptions?)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_method_ffixmtpclient_wait_for_registration_visible(
+                    self.uniffiCloneHandle(),
+                    FfiConverterOptionTypeFfiVisibilityConfirmationOptions.lower(options)
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_void,
+            completeFunc: ffi_xmtpv3_rust_future_complete_void,
+            freeFunc: ffi_xmtpv3_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
 }
     
     /**
@@ -9428,6 +9475,89 @@ public func FfiConverterTypeFfiUpdateGroupMembershipResult_lower(_ value: FfiUpd
 }
 
 
+/**
+ * Options for `wait_for_registration_visible`.
+ *
+ * All fields are optional. Omitted fields use their default values:
+ * - `quorum_percentage` / `quorum_absolute`: 1 node (`quorum_absolute` takes precedence if both are provided)
+ * - `timeout_ms`: 30 000 ms
+ */
+public struct FfiVisibilityConfirmationOptions: Equatable, Hashable {
+    /**
+     * Fraction of nodes that must confirm (e.g. 0.5 = 50 %).
+     */
+    public var quorumPercentage: Float?
+    /**
+     * Exact number of nodes that must confirm. Takes precedence over `quorum_percentage`.
+     */
+    public var quorumAbsolute: UInt64?
+    /**
+     * How long to wait in total before returning an error (milliseconds).
+     */
+    public var timeoutMs: UInt64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Fraction of nodes that must confirm (e.g. 0.5 = 50 %).
+         */quorumPercentage: Float?, 
+        /**
+         * Exact number of nodes that must confirm. Takes precedence over `quorum_percentage`.
+         */quorumAbsolute: UInt64?, 
+        /**
+         * How long to wait in total before returning an error (milliseconds).
+         */timeoutMs: UInt64?) {
+        self.quorumPercentage = quorumPercentage
+        self.quorumAbsolute = quorumAbsolute
+        self.timeoutMs = timeoutMs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiVisibilityConfirmationOptions: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiVisibilityConfirmationOptions: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiVisibilityConfirmationOptions {
+        return
+            try FfiVisibilityConfirmationOptions(
+                quorumPercentage: FfiConverterOptionFloat.read(from: &buf), 
+                quorumAbsolute: FfiConverterOptionUInt64.read(from: &buf), 
+                timeoutMs: FfiConverterOptionUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiVisibilityConfirmationOptions, into buf: inout [UInt8]) {
+        FfiConverterOptionFloat.write(value.quorumPercentage, into: &buf)
+        FfiConverterOptionUInt64.write(value.quorumAbsolute, into: &buf)
+        FfiConverterOptionUInt64.write(value.timeoutMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiVisibilityConfirmationOptions_lift(_ buf: RustBuffer) throws -> FfiVisibilityConfirmationOptions {
+    return try FfiConverterTypeFfiVisibilityConfirmationOptions.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiVisibilityConfirmationOptions_lower(_ value: FfiVisibilityConfirmationOptions) -> RustBuffer {
+    return FfiConverterTypeFfiVisibilityConfirmationOptions.lower(value)
+}
+
+
 public struct FfiWalletCall: Equatable, Hashable {
     public var to: String?
     public var data: String?
@@ -12950,6 +13080,30 @@ fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionFloat: FfiConverterRustBuffer {
+    typealias SwiftType = Float?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterFloat.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterFloat.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionBool: FfiConverterRustBuffer {
     typealias SwiftType = Bool?
 
@@ -13326,6 +13480,30 @@ fileprivate struct FfiConverterOptionTypeFfiTransactionMetadata: FfiConverterRus
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeFfiTransactionMetadata.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeFfiVisibilityConfirmationOptions: FfiConverterRustBuffer {
+    typealias SwiftType = FfiVisibilityConfirmationOptions?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFfiVisibilityConfirmationOptions.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFfiVisibilityConfirmationOptions.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -15748,7 +15926,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_message() != 59175) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_register_identity() != 34353) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_register_identity() != 8956) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_release_db_connection() != 19003) {
@@ -15779,6 +15957,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_verify_signed_with_public_key() != 21052) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_wait_for_registration_visible() != 43822) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_archive_metadata() != 24491) {

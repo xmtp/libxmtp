@@ -83,6 +83,10 @@ pub struct Traefik {
     #[builder(default = "/tmp/xnet/traefik/dynamic.yml".to_string())]
     dynamic_config_path: String,
 
+    /// The host port for HTTP traffic (default: 80)
+    #[builder(default = TraefikConst::HTTP_PORT)]
+    http_port: u16,
+
     /// Managed container state
     #[builder(default = ManagedContainer::new())]
     container: ManagedContainer,
@@ -119,22 +123,26 @@ impl Traefik {
 
         // Map host ports - expose 80 and 443 for HTTP/gRPC traffic
         let port_bindings = hash_map! {
-            "80/tcp".to_string() => expose(TraefikConst::HTTP_PORT),
+            "80/tcp".to_string() => expose(self.http_port),
             "443/tcp".to_string() => expose(443),
             "8080/tcp".to_string() => expose_127(TraefikConst::DASHBOARD_PORT),
         };
 
         // Pre-allocate all possible XMTPD node hostnames + gateway
         // Node IDs increment by XmtpdConst::NODE_ID_INCREMENT (100), so: node100, node200, node300, ...
+        let xnet_config = Config::load()?;
         let mut aliases = vec![TraefikConst::CONTAINER_NAME.to_string()];
         for i in 1..=MAX_XMTPD_NODES {
             let node_id = i * XmtpdConst::NODE_ID_INCREMENT as usize;
-            aliases.push(format!("node{}.xmtpd.local", node_id));
+            aliases.push(
+                xnet_config
+                    .address_mode
+                    .hostname(&format!("node{}", node_id)),
+            );
         }
-        let xnet_config = Config::load()?;
-        for NodeToml { name, .. } in xnet_config.xmtpd_nodes {
+        for NodeToml { name, .. } in &xnet_config.xmtpd_nodes {
             if let Some(n) = name {
-                aliases.push(format!("{}.xmtpd.local", n));
+                aliases.push(xnet_config.address_mode.hostname(n));
             }
         }
 
@@ -204,7 +212,7 @@ impl Traefik {
 
     /// Get the Traefik HTTP endpoint.
     pub fn http_url(&self) -> Url {
-        Url::parse(&format!("http://localhost:{}", TraefikConst::HTTP_PORT)).expect("valid URL")
+        Url::parse(&format!("http://localhost:{}", self.http_port)).expect("valid URL")
     }
 
     /// Get the Traefik dashboard URL.
@@ -256,11 +264,11 @@ impl Service for Traefik {
     }
 
     fn port(&self) -> u16 {
-        TraefikConst::HTTP_PORT
+        self.http_port
     }
 
     // Traefik doesn't use ToxiProxy (it's the entry point)
     async fn register(&mut self, _toxiproxy: &ToxiProxy, _: Option<u16>) -> Result<u16> {
-        Ok(TraefikConst::HTTP_PORT)
+        Ok(self.http_port)
     }
 }

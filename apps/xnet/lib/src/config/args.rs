@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
@@ -15,6 +16,10 @@ pub struct AppArgs {
     /// Path to a TOML configuration to use for xnet
     #[arg(long, short)]
     pub config: Option<PathBuf>,
+    /// Enable remote addressing mode with sslip.io.
+    /// Hostnames become {name}.{ip-dashed}.sslip.io instead of {name}.xmtpd.local.
+    #[arg(long)]
+    pub remote: Option<IpAddr>,
 }
 
 #[derive(Subcommand, Clone, Debug)]
@@ -33,8 +38,9 @@ pub enum Commands {
     Info(Info),
     /// Set a migration time
     Migrate(Migrate),
-    /// Query the current d14n cutover timestamp from node-go
-    Cutover,
+    /// Query the current d14n cutover timestamp from node-go.
+    /// Pass --grpc-url to bypass ServiceManager and query a node directly without Docker.
+    Cutover(Cutover),
     /// Display the public Ethereum addresses of registered xmtpd nodes
     Addresses,
 }
@@ -56,6 +62,9 @@ pub struct AddNode {
     /// make this node a migrator node
     #[arg(long, short)]
     pub migrator: bool,
+    /// assign this node the standard XMTPD gRPC port (5050) instead of an allocated port
+    #[arg(long)]
+    pub use_standard_port: bool,
 }
 
 #[derive(Args, Debug, Copy, Clone)]
@@ -92,6 +101,17 @@ impl Migrate {
             }
         }
     }
+}
+
+#[derive(Args, Debug, Clone)]
+// url::Url is not Copy, so Copy cannot be derived
+pub struct Cutover {
+    /// gRPC URL of the xmtp-node-go instance to query (e.g. http://localhost:5050).
+    #[arg(long)]
+    pub grpc_url: Option<url::Url>,
+    /// Print cutover time as a UNIX timestamp (seconds since epoch)
+    #[arg(long)]
+    pub unix: bool,
 }
 
 /// specify the log output

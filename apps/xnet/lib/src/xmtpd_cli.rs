@@ -81,7 +81,10 @@ impl XmtpdCli {
             "register".to_string(),
             format!("--owner-address={addr}"),
             format!("--signing-key-pub=0x{pubkey}"),
-            format!("--http-address=http://{}.xmtpd.local", node.name()),
+            format!(
+                "--http-address=http://{}",
+                Config::load_unchecked().address_mode.hostname(&node.name())
+            ),
         ];
         self.run(cmd, None, w).await?;
         Ok(())

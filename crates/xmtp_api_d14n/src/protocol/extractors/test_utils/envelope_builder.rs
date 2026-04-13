@@ -5,6 +5,7 @@ use openmls::test_utils::frankenstein::FrankenMlsMessageBody;
 use prost::Message;
 use xmtp_common::{FakeMlsApplicationMessage, FakeMlsCommitMessage, Generate};
 use xmtp_cryptography::XmtpInstallationCredential;
+use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 use xmtp_proto::xmtp::mls::api::v1::{
     GroupMessageInput, UploadKeyPackageRequest, WelcomeMessageInput, group_message_input,
@@ -30,6 +31,7 @@ pub struct TestEnvelopeBuilder {
     expiry_unixtime: u64,
     target_topic: Vec<u8>,
     payload: Option<Payload>,
+    client_envelope: Option<ClientEnvelope>,
 }
 
 impl TestEnvelopeBuilder {
@@ -52,12 +54,29 @@ impl TestEnvelopeBuilder {
         self
     }
 
+    pub fn with_cursor(mut self, cursor: Cursor) -> Self {
+        self.originator_node_id = cursor.originator_id;
+        self.originator_sequence_id = cursor.sequence_id;
+        self.target_originator = cursor.originator_id;
+        self
+    }
+
+    pub fn with_client_envelope(mut self, client_envelope: ClientEnvelope) -> Self {
+        self.client_envelope = Some(client_envelope);
+        self
+    }
+
     pub fn with_application_message(self, group_id: Vec<u8>) -> Self {
         let mut msg = FakeMlsApplicationMessage::generate();
         if let FrankenMlsMessageBody::PublicMessage(ref mut m) = msg.inner.body {
             m.content.group_id = group_id.into();
         }
-        self.with_group_message_custom(MlsMessageOut::from(msg).to_bytes().unwrap(), vec![])
+        self.with_group_message_custom(
+            MlsMessageOut::from(msg)
+                .to_bytes()
+                .expect("test application message should serialize"),
+            vec![],
+        )
     }
 
     #[allow(unused)]
@@ -66,7 +85,12 @@ impl TestEnvelopeBuilder {
         if let FrankenMlsMessageBody::PrivateMessage(ref mut m) = msg.inner.body {
             m.group_id = group_id.into();
         }
-        self.with_group_message_custom(MlsMessageOut::from(msg).to_bytes().unwrap(), vec![])
+        self.with_group_message_custom(
+            MlsMessageOut::from(msg)
+                .to_bytes()
+                .expect("test commit message should serialize"),
+            vec![],
+        )
     }
 
     pub fn with_group_message_custom(mut self, data: Vec<u8>, sender_hmac: Vec<u8>) -> Self {
@@ -140,8 +164,12 @@ impl TestEnvelopeBuilder {
                 &installation,
                 credential,
             )
-            .unwrap();
-        self.with_key_package_custom(kp.key_package().tls_serialize_detached().unwrap())
+            .expect("test key package should build");
+        self.with_key_package_custom(
+            kp.key_package()
+                .tls_serialize_detached()
+                .expect("test key package should serialize"),
+        )
     }
 
     pub fn with_key_package_custom(mut self, key_package_data: Vec<u8>) -> Self {
@@ -185,20 +213,21 @@ impl TestEnvelopeBuilder {
     }
 
     pub fn build(self) -> OriginatorEnvelope {
+        let client_envelope = self.client_envelope.unwrap_or(ClientEnvelope {
+            aad: Some(AuthenticatedData {
+                target_topic: self.target_topic,
+                depends_on: None,
+            }),
+            payload: self.payload,
+        });
+
         OriginatorEnvelope {
             unsigned_originator_envelope: UnsignedOriginatorEnvelope {
                 originator_node_id: self.originator_node_id,
                 originator_sequence_id: self.originator_sequence_id,
                 originator_ns: self.originator_ns,
                 payer_envelope_bytes: PayerEnvelope {
-                    unsigned_client_envelope: ClientEnvelope {
-                        aad: Some(AuthenticatedData {
-                            target_topic: self.target_topic,
-                            depends_on: None,
-                        }),
-                        payload: self.payload,
-                    }
-                    .encode_to_vec(),
+                    unsigned_client_envelope: client_envelope.encode_to_vec(),
                     payer_signature: None,
                     target_originator: self.target_originator,
                     message_retention_days: self.message_retention_days,

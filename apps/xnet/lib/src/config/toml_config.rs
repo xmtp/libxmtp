@@ -31,6 +31,13 @@ pub struct ImageConfig {
 pub struct XnetToml {
     pub use_standard_ports: bool,
     pub toxiproxy_port: Option<u16>,
+    /// Override the Traefik HTTP host port (default: 80)
+    pub traefik_port: Option<u16>,
+    /// Pause broadcaster contracts on startup (same as `--paused` CLI flag)
+    pub paused: bool,
+    /// Public IP for remote addressing mode (sslip.io).
+    /// Equivalent to the --remote CLI flag.
+    pub remote_ip: Option<std::net::IpAddr>,
 }
 
 impl Default for XnetToml {
@@ -38,6 +45,9 @@ impl Default for XnetToml {
         Self {
             use_standard_ports: true,
             toxiproxy_port: Default::default(),
+            traefik_port: None,
+            paused: false,
+            remote_ip: None,
         }
     }
 }
@@ -65,6 +75,7 @@ pub struct NodeToml {
     pub name: Option<String>,
     pub port: Option<u16>,
     pub migrator: bool,
+    pub use_standard_port: bool,
 }
 
 #[derive(Deserialize, Default, Debug)]

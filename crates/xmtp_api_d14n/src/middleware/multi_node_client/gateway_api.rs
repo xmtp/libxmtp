@@ -6,7 +6,7 @@ use futures::StreamExt;
 use std::collections::HashMap;
 use xmtp_api_grpc::{ClientBuilder, GrpcClient};
 use xmtp_common::time::{Duration, Instant};
-use xmtp_proto::api::{Client, Query};
+use xmtp_proto::api::{self, Client, Query};
 use xmtp_proto::prelude::{ApiBuilder, NetConnectConfig};
 use xmtp_proto::{ApiEndpoint, api::ApiClientError};
 
@@ -15,8 +15,7 @@ pub(super) async fn get_nodes<C: Client>(
     gateway_client: &C,
     template: &ClientBuilder,
 ) -> Result<HashMap<u32, GrpcClient>, ApiClientError> {
-    let response = GetNodes::builder()
-        .build()?
+    let response = api::retry(GetNodes::builder().build()?)
         .query(gateway_client)
         .await
         .map_err(|e| {
@@ -156,4 +155,81 @@ pub async fn get_fastest_node(
     tracing::info!("chosen node is {} with latency {}ms", node_id, latency);
 
     Ok(client)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use prost::Message;
+    use prost::bytes::Bytes;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use xmtp_api_grpc::GrpcClient;
+    use xmtp_proto::api::ApiClientError;
+    use xmtp_proto::api::mock::{MockError, MockNetworkClient};
+    use xmtp_proto::xmtp::xmtpv4::payer_api::GetNodesResponse;
+
+    fn encoded_nodes_response() -> Bytes {
+        let mut nodes = HashMap::new();
+        nodes.insert(1u32, "http://localhost:65535".to_string());
+        Bytes::from(GetNodesResponse { nodes }.encode_to_vec())
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn retry_get_nodes_recovers_from_transient_failure() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let response = encoded_nodes_response();
+
+        let mut mock = MockNetworkClient::new();
+        mock.expect_request().returning(move |_, _, _| {
+            let n = counter.fetch_add(1, Ordering::SeqCst);
+            if n == 0 {
+                Err(ApiClientError::client(MockError::ARetryableError))
+            } else {
+                Ok(http::Response::new(response.clone()))
+            }
+        });
+
+        let clients = get_nodes(&mock, &GrpcClient::builder())
+            .await
+            .expect("get_nodes should recover from a single transient failure");
+        assert_eq!(clients.len(), 1, "expected one built client");
+        assert!(clients.contains_key(&1), "expected node id 1 in clients");
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn retry_get_nodes_exhausts_budget_on_repeated_transient_failure() {
+        let mut mock = MockNetworkClient::new();
+        mock.expect_request()
+            .returning(|_, _, _| Err(ApiClientError::client(MockError::ARetryableError)));
+
+        let err = get_nodes(&mock, &GrpcClient::builder())
+            .await
+            .expect_err("get_nodes should give up after exhausting the retry budget");
+
+        // The gRPC path is attached by the query layer before get_nodes can re-tag it,
+        // so the error contains the gRPC path rather than the ApiEndpoint display name.
+        let expected_tag = "/xmtp.xmtpv4.payer_api.PayerApi/GetNodes";
+        let err_string = err.to_string();
+        assert!(
+            err_string.contains(expected_tag),
+            "expected endpoint tag {:?} in error, got: {}",
+            expected_tag,
+            err_string,
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn retry_get_nodes_fails_fast_on_non_retryable_error() {
+        let mut mock = MockNetworkClient::new();
+        mock.expect_request()
+            .times(1)
+            .returning(|_, _, _| Err(ApiClientError::client(MockError::ANonRetryableError)));
+
+        let err = get_nodes(&mock, &GrpcClient::builder())
+            .await
+            .expect_err("get_nodes should not retry non-retryable errors");
+        let _ = err; // assertion is enforced by mockall's `.times(1)` on Drop
+    }
 }

@@ -8,6 +8,7 @@ import * as updateSpmChecksum from "./commands/update-spm-checksum";
 import * as createReleaseBranch from "./commands/create-release-branch";
 import * as classifyNotes from "./commands/classify-notes";
 import * as tagRelease from "./commands/tag-release";
+import * as setDevcontainerImage from "./commands/set-devcontainer-image";
 import { getRepoRoot } from "./lib/git";
 
 yargs(hideBin(process.argv))
@@ -24,6 +25,7 @@ yargs(hideBin(process.argv))
   .command(createReleaseBranch)
   .command(classifyNotes)
   .command(tagRelease)
+  .command(setDevcontainerImage)
   .demandCommand(1, "You must specify a command")
   .version(false)
   .strict()

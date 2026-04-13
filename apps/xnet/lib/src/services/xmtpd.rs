@@ -251,7 +251,7 @@ impl Xmtpd {
 
     /// Get the hostname for this XMTPD node (for unified addressing).
     pub fn hostname(&self) -> String {
-        format!("{}.xmtpd.local", self.name())
+        Config::load_unchecked().address_mode.hostname(&self.name())
     }
 
     /// Internal URL for use within the docker network.

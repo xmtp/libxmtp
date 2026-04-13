@@ -1,4 +1,4 @@
-export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
+export NIX_DEVSHELL := env("NIX_DEVSHELL", "ios")
 
 set shell := ["../../dev/nix-shell"]
 

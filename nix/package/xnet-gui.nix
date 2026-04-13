@@ -27,9 +27,8 @@
 }:
 let
   src = ./../..;
-  rust-toolchain = xmtp.mkToolchain [ "x86_64-unknown-linux-musl" ] [ ];
-  rust = xmtp.craneLib.overrideToolchain (p: rust-toolchain);
-
+  rust-toolchain = p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ ];
+  rust = xmtp.craneLib.overrideToolchain rust-toolchain;
   commonArgs = {
     description = "xNet GUI";
     src = xnetFileset (src + /apps/xnet/gui);
@@ -83,7 +82,7 @@ let
     dontPatchELF = true;
   };
 
-  cargoArtifacts = rust.buildDepsOnly commonArgs;
+  cargoArtifacts = xmtp.base.mkCargoArtifacts rust false null;
   bin = rust.buildPackage (commonArgs // { inherit cargoArtifacts; });
   devShell = mkShell {
     inputsFrom = [ bin ];

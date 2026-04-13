@@ -151,6 +151,7 @@ XNet can be configured via a `xnet.toml` file. Below are the default values:
 [xnet]
 use_standard_ports = true
 toxiproxy_port = 8474
+paused = false
 
 [migration]
 enable = false

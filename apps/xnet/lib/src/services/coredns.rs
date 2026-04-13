@@ -17,18 +17,27 @@ use std::{collections::hash_map, fs};
 use url::Url;
 
 use crate::{
+    Config,
+    config::AddressMode,
     constants::CoreDns as CoreDnsConst,
     network::XNET_NETWORK_NAME,
     services::{ManagedContainer, Service, ToxiProxy, expose, expose_udp},
 };
 
 /// Generate CoreDNS Corefile configuration.
-/// Two server blocks:
-/// - Port 5354: For host machine, resolves *.xmtpd.local to 127.0.0.1
-/// - Port 53: For containers, resolves *.xmtpd.local to Traefik's IP
-fn generate_corefile(traefik_ip: &str) -> String {
-    format!(
-        r#"# Host-facing DNS (port 5354)
+///
+/// In local mode, two server blocks:
+/// - Port 5354: Resolves *.xmtpd.local → 127.0.0.1 for host machine access
+/// - Port 53: Resolves *.xmtpd.local → Traefik IP for container-to-container access
+///
+/// In remote mode, sslip.io handles external DNS, so:
+/// - Port 5354: Just forwards (no template needed)
+/// - Port 53: Resolves *.{ip-dashed}.sslip.io → Traefik IP for container-to-container access
+fn generate_corefile(traefik_ip: &str, address_mode: &AddressMode) -> String {
+    match address_mode {
+        AddressMode::Local => {
+            format!(
+                r#"# Host-facing DNS (port 5354)
 # Resolves *.xmtpd.local to 127.0.0.1 for host machine access via Traefik on localhost
 .:5354 {{
     log
@@ -58,7 +67,39 @@ fn generate_corefile(traefik_ip: &str) -> String {
     cache 30
 }}
 "#
-    )
+            )
+        }
+        AddressMode::Remote(ip) => {
+            let ip_dashed = ip.to_string().replace(['.', ':'], "-");
+            format!(
+                r#"# Host-facing DNS (port 5354) - remote mode, just forward
+.:5354 {{
+    log
+    errors
+
+    forward . /etc/resolv.conf
+    cache 30
+}}
+
+# Container-facing DNS (port 53)
+# Resolves *.{ip_dashed}.sslip.io to Traefik for container-to-container routing
+.:53 {{
+    log
+    errors
+
+    template IN A {ip_dashed}.sslip.io {{
+        answer "{{{{ .Name }}}} 60 IN A {traefik_ip}"
+    }}
+
+    # Forward everything else to Docker's internal DNS
+    forward . 127.0.0.11
+
+    cache 30
+}}
+"#
+            )
+        }
+    }
 }
 
 /// Manages a CoreDNS Docker container for local DNS resolution.
@@ -95,7 +136,8 @@ impl CoreDns {
         if let Some(parent) = std::path::Path::new(&self.corefile_path).parent() {
             fs::create_dir_all(parent)?;
         }
-        let corefile = generate_corefile(&self.traefik_ip);
+        let config = Config::load()?;
+        let corefile = generate_corefile(&self.traefik_ip, &config.address_mode);
         fs::write(&self.corefile_path, &corefile)?;
         info!(
             "Created Corefile at {} (traefik_ip={})",
