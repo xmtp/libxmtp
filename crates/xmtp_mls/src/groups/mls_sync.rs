@@ -85,7 +85,10 @@ use xmtp_configuration::{
     SYNC_BACKOFF_TOTAL_WAIT_MAX_SECS, SYNC_BACKOFF_WAIT_MS, SYNC_JITTER_MS,
     SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
-use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
+use xmtp_content_types::{
+    CodecError, ContentCodec, encoded_content_to_bytes, group_updated::GroupUpdatedCodec,
+    leave_request::LeaveRequestCodec,
+};
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::{
     Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
@@ -107,7 +110,7 @@ use xmtp_db::{
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_mls_common::group_metadata::extract_group_metadata;
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
-use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
+use xmtp_proto::xmtp::mls::message_contents::content_types::{DeleteMessage, LeaveRequest};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         GroupMessageInput, WelcomeMessageInput, WelcomeMetadata,
@@ -3298,6 +3301,27 @@ where
             .queue(self)?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
+
+        // After adding new installations (which creates a new epoch), if this inbox
+        // has a pending self-removal, re-send the LeaveRequest. Newly-added
+        // installations joined in a later epoch and cannot decrypt the original
+        // LeaveRequest, so this ensures they can process it and set PendingRemove.
+        if self.is_in_pending_remove(self.context.inbox_id())? {
+            debug!(
+                inbox_id = self.context.inbox_id(),
+                group_id = hex::encode(&self.group_id),
+                "Re-sending LeaveRequest after adding installations for pending self-removal"
+            );
+            let content = LeaveRequestCodec::encode(LeaveRequest {
+                authenticated_note: None,
+            })?;
+            let message_bytes = encoded_content_to_bytes(content);
+            self.prepare_message(&message_bytes, Default::default(), |now| {
+                Self::into_envelope(&message_bytes, now)
+            })?;
+            self.sync_until_last_intent_resolved().await?;
+        }
+
         Ok(())
     }
 
