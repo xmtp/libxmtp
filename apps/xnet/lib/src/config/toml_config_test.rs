@@ -186,6 +186,18 @@ fn remote_domain_rejects_leading_dot() {
 }
 
 #[test]
+fn remote_domain_rejects_trailing_dot() {
+    let err =
+        crate::config::loadable::validate_remote_config(None, Some("xmtp.run.".to_string()))
+            .unwrap_err();
+    assert!(
+        err.to_string().contains("must not start or end with '.'"),
+        "expected trailing dot error, got: {}",
+        err
+    );
+}
+
+#[test]
 fn extra_traefik_routes_parses_multiple_routes() {
     let toml_str = r#"
 [[extra_traefik_routes]]
