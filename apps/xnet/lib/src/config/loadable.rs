@@ -134,7 +134,7 @@ impl Config {
                 match env_ip.parse::<std::net::IpAddr>() {
                     Ok(ip) => {
                         tracing::info!("Remote mode from env XNET_REMOTE_IP: {}", ip);
-                        AddressMode::Remote(ip)
+                        AddressMode::RemoteIp(ip)
                     }
                     Err(_) => {
                         tracing::error!(
@@ -146,10 +146,10 @@ impl Config {
                 }
             } else if let Some(ip) = app.args.remote {
                 tracing::info!("Remote mode from --remote flag: {}", ip);
-                AddressMode::Remote(ip)
+                AddressMode::RemoteIp(ip)
             } else if let Some(ip) = toml.xnet.remote_ip {
                 tracing::info!("Remote mode from TOML remote_ip: {}", ip);
-                AddressMode::Remote(ip)
+                AddressMode::RemoteIp(ip)
             } else {
                 AddressMode::Local
             };

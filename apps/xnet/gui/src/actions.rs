@@ -45,7 +45,7 @@ pub async fn start_service_poller() -> Result<(mpsc::Receiver<Vec<ServiceInfo>>,
 
     let config = xnet::Config::load_unchecked();
     let host = match &config.address_mode {
-        xnet::config::AddressMode::Remote(ip) => ip.to_string(),
+        xnet::config::AddressMode::RemoteIp(ip) => ip.to_string(),
         _ => "localhost".to_string(),
     };
     let enable_monitoring = config.enable_monitoring;

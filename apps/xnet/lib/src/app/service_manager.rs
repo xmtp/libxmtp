@@ -140,7 +140,7 @@ impl ServiceManager {
         let otterscan = if config.enable_monitoring && need_shared {
             let anvil_rpc = anvil_rpc_url.as_ref().unwrap();
             let anvil_host_for_browser = match &config.address_mode {
-                crate::config::AddressMode::Remote(ip) => {
+                crate::config::AddressMode::RemoteIp(ip) => {
                     anvil_rpc.to_string().replace("localhost", &ip.to_string())
                 }
                 _ => anvil_rpc.to_string(),

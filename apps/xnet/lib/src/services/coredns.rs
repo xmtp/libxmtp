@@ -69,7 +69,7 @@ fn generate_corefile(traefik_ip: &str, address_mode: &AddressMode) -> String {
 "#
             )
         }
-        AddressMode::Remote(ip) => {
+        AddressMode::RemoteIp(ip) => {
             let ip_dashed = ip.to_string().replace(['.', ':'], "-");
             format!(
                 r#"# Host-facing DNS (port 5354) - remote mode, just forward

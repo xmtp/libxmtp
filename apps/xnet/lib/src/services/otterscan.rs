@@ -108,7 +108,7 @@ impl Otterscan {
     /// Uses the remote IP when address_mode is Remote, otherwise localhost.
     pub fn external_url(&self) -> Url {
         let host = match Config::load_unchecked().address_mode {
-            AddressMode::Remote(ip) => ip.to_string(),
+            AddressMode::RemoteIp(ip) => ip.to_string(),
             _ => "localhost".to_string(),
         };
         Url::parse(&format!(
