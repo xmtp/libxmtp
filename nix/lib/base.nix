@@ -53,8 +53,7 @@ let
       zstd
       openssl
       sqlite
-    ]
-    ++ lib.optionals stdenv.hostPlatform.isDarwin [ darwin.libiconv ];
+    ];
 
     doCheck = false;
     # Disable zerocallusedregs hardening which can cause issues with cross-compilation.
