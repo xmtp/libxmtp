@@ -99,6 +99,35 @@ fn generate_corefile(traefik_ip: &str, address_mode: &AddressMode) -> String {
 "#
             )
         }
+        AddressMode::RemoteDomain(domain) => {
+            format!(
+                r#"# Host-facing DNS (port 5354) - remote domain mode, just forward
+.:5354 {{
+    log
+    errors
+
+    forward . /etc/resolv.conf
+    cache 30
+}}
+
+# Container-facing DNS (port 53)
+# Resolves *.{domain} to Traefik for container-to-container routing
+.:53 {{
+    log
+    errors
+
+    template IN A {domain} {{
+        answer "{{{{ .Name }}}} 60 IN A {traefik_ip}"
+    }}
+
+    # Forward everything else to Docker's internal DNS
+    forward . 127.0.0.11
+
+    cache 30
+}}
+"#
+            )
+        }
     }
 }
 
