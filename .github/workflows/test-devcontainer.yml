@@ -4,7 +4,7 @@ on:
   workflow_call:
 
 permissions:
-  contents: write
+  contents: read
   packages: write
   pull-requests: write
 
@@ -133,22 +133,8 @@ jobs:
             git --no-pager diff -- .devcontainer/devcontainer.json
           fi
 
-      - name: Auto-push updated devcontainer.json on PR branches
-        id: auto-push
-        if: steps.sync-check.outputs.in_sync == 'false' && github.head_ref
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .devcontainer/devcontainer.json
-          git commit -m "fix(devcontainer): pin image digest
-
-          Auto-updated by CI after devcontainer image rebuild.
-          Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}"
-          git push origin HEAD:refs/heads/${{ github.head_ref }}
-          echo "pushed=true" >> "$GITHUB_OUTPUT"
-
       - name: Find existing devcontainer mismatch comment
-        if: steps.sync-check.outputs.in_sync == 'false' && github.event.pull_request.number && steps.auto-push.outputs.pushed != 'true'
+        if: steps.sync-check.outputs.in_sync == 'false' && github.event.pull_request.number
         id: find-comment
         uses: peter-evans/find-comment@v3
         with:
@@ -156,7 +142,7 @@ jobs:
           body-includes: <!-- devcontainer-image-check -->
 
       - name: Post or update devcontainer mismatch comment
-        if: steps.sync-check.outputs.in_sync == 'false' && github.event.pull_request.number && steps.auto-push.outputs.pushed != 'true'
+        if: steps.sync-check.outputs.in_sync == 'false' && github.event.pull_request.number
         uses: peter-evans/create-or-update-comment@v4
         with:
           comment-id: ${{ steps.find-comment.outputs.comment-id }}
@@ -176,5 +162,5 @@ jobs:
             [Failing run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
       - name: Fail if devcontainer.json is out of sync
-        if: steps.sync-check.outputs.in_sync == 'false' && steps.auto-push.outputs.pushed != 'true'
+        if: steps.sync-check.outputs.in_sync == 'false'
         run: exit 1
