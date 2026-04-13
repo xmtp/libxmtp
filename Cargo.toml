@@ -33,7 +33,7 @@ edition = "2024"
 
 [workspace.dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
-alloy = { version = "1.3", default-features = false }
+alloy = { version = "2", default-features = false }
 anyhow = "1.0"
 arc-swap = "1.7"
 async-compression = { default-features = false, version = "0.4", features = [
@@ -52,7 +52,7 @@ console_error_panic_hook = "0.1"
 const_format = "0.2"
 const_panic = "0.2"
 criterion = { version = "0.8.2", features = ["html_reports", "async_tokio"] }
-ctor = "0.6"
+ctor = "0.10"
 derive_builder = "0.20"
 diesel = { version = "2.3", default-features = false }
 diesel_migrations = { version = "2.2", default-features = false }
@@ -65,7 +65,7 @@ futures-test = { version = "0.3" }
 futures-timer = { version = "3.0", features = ["wasm-bindgen"] }
 futures-util = { version = "0.3", default-features = false, features = ["io"] }
 getrandom = { version = "0.4", default-features = false }
-gloo-timers = "0.3"
+gloo-timers = "0.4"
 hex = { package = "const-hex", version = "1.14" }
 hkdf = "0.12.3"
 hpke-rs = { version = "0.6", features = ["hazmat", "serialization", "libcrux"] }

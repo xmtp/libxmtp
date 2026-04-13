@@ -7,11 +7,7 @@
   };
 
   inputs = {
-    # pinned to last succeeding ref for harfbuzz,
-    # required by google-chrome on darwin
-    # https://hydra.nixos.org/build/324477496
-    # hydra-check --arch aarch64-darwin harfbuzz --channel unstable --eval
-    nixpkgs.url = "github:NixOS/nixpkgs/09061f748ee21f68a089cd5d91ec1859cd93d0be";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     fenix = {
       url = "github:nix-community/fenix";
       inputs = {
@@ -27,7 +23,7 @@
     };
     rust-flake.url = "github:juspay/rust-flake";
     rust-manifest = {
-      url = "https://static.rust-lang.org/dist/channel-rust-1.94.0.toml";
+      url = "https://static.rust-lang.org/dist/channel-rust-1.94.1.toml";
       flake = false;
     };
     treefmt-nix.url = "github:numtide/treefmt-nix";

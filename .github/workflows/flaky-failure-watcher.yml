@@ -157,6 +157,7 @@ jobs:
 
             ## Important
 
+            - **Ignore transient infrastructure failures.** If the failure appears to be caused by external infrastructure being down or degraded (e.g., GitHub outages, Docker registry timeouts, runner provisioning failures, network connectivity issues, rate limiting from external services, package registry unavailability), do NOT create an issue. These are transient and resolve on their own. Only create an issue for an infrastructure problem if existing open issues or comments show that the same infrastructure failure has been recurring for more than 24 hours.
             - Do NOT create duplicate issues. If in doubt, err on the side of commenting on an existing issue.
             - Keep error excerpts concise — include the most relevant 20-50 lines, not entire logs.
             - Always use code blocks for error output and stack traces.

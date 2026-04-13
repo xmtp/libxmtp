@@ -34,14 +34,6 @@ let
     ];
   };
 
-  # Compose Android packages for builds (minimal - no emulator)
-  composeBuildPackages = androidenv.composeAndroidPackages {
-    platformVersions = sdkConfig.platforms;
-    platformToolsVersion = sdkConfig.platformTools;
-    buildToolsVersions = sdkConfig.buildTools;
-    includeNDK = true;
-  };
-
   # Emulator configuration — used by both composeDevPackages and run-test-emulator
   # Version >= 35.3.11 required: earlier versions lack arch metadata in nixpkgs'
   # repo.json, so aarch64-darwin gets an x86_64 binary that can't run arm64 guests.
@@ -169,7 +161,6 @@ in
     androidTargets
     sdkConfig
     emulatorConfig
-    composeBuildPackages
     composeDevPackages
     devComposition
     devPaths

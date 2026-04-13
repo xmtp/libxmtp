@@ -13,4 +13,4 @@ WORKSPACE_PATH="$(dirname "$WORKSPACE_MANIFEST")"
 
 export GEN_PROTOS=1
 echo "$REV" > "$WORKSPACE_PATH"/crates/xmtp_proto/proto_version
-cargo build -p xmtp_proto
+cargo build -p xmtp_proto --features grpc_server_impls

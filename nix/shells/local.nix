@@ -100,6 +100,9 @@ mkShell (
         jdk17
         kotlin-language-server
 
+        # Swift
+        swiftformat
+
         # Misc dev
         mktemp
         diesel-cli
@@ -120,7 +123,6 @@ mkShell (
       # Darwin-specific
       ++ lib.optionals isDarwin [
         darwin.cctools
-        swiftformat
         swiftlint
       ];
 

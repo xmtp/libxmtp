@@ -50,6 +50,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          with-warpbuild-cache: "false"
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "26"
@@ -60,7 +61,6 @@ jobs:
           XMTP_NODE_ADDRESS: ${{ needs.deploy-backend.outputs.node_url }}
           XMTP_HISTORY_SERVER_ADDRESS: ${{ needs.deploy-backend.outputs.history_url }}
         run: just ios test
-
   cleanup:
     runs-on: ubuntu-latest
     needs: [deploy-backend, tests]

@@ -45,6 +45,9 @@ runs:
     - name: Setup sccache
       if: ${{ inputs.sccache == 'true' }}
       uses: mozilla-actions/sccache-action@v0.0.9
+    - name: Install nix-fast-build
+      run: nix profile add github:Mic92/nix-fast-build
+      shell: bash
     - name: Configure sccache env
       if: ${{ inputs.sccache == 'true' }}
       run: |

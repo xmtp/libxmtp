@@ -134,10 +134,17 @@ where
 
     async fn run_internal(&mut self) -> Result<(), DeviceSyncError> {
         while let Ok(event) = self.receiver.recv().await {
-            tracing::info!(
-                "[{}] New event: {event:?}",
-                self.client.context.installation_id()
-            );
+            if matches!(event, SyncWorkerEvent::Tick) {
+                tracing::debug!(
+                    "[{}] New event: {event:?}",
+                    self.client.context.installation_id()
+                );
+            } else {
+                tracing::info!(
+                    "[{}] New event: {event:?}",
+                    self.client.context.installation_id()
+                );
+            }
 
             match event {
                 SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
