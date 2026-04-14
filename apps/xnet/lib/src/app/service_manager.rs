@@ -1,19 +1,16 @@
 //! Stateful service manager
 //! network is hardcoded to XNET_NETWORK_NAME
 use std::collections::HashMap;
-use std::io::stdout;
 
 use crate::{
     Config,
-    config::NodeToml,
-    constants::Xmtpd as XmtpdConst,
     network::{Network, XNET_NETWORK_NAME},
+    node_provisioner::NodeProvisioner,
     services::{
         self, CoreDns, Gateway, Grafana, NodeGo, Otterscan, PgAdmin, Prometheus, ReplicationDb,
         Service, ToxiProxy, Traefik, TraefikConfig, Xmtpd, create_and_start_container,
     },
-    types::{XmtpdNode, resolve_port},
-    xmtpd_cli::XmtpdCli,
+    types::XmtpdNode,
 };
 use bollard::{
     Docker,
@@ -175,51 +172,27 @@ impl ServiceManager {
         // Phase 7: XMTPD nodes from config (requires D14n)
         if config.enable_d14n {
             let existing_proxies = this.proxy.list_proxies().await?;
-            let cli = XmtpdCli::builder().toxiproxy(this.proxy.clone());
-            let mut output = stdout();
-            let mut id = 0;
-            for NodeToml {
-                port,
-                migrator,
-                name,
-                enable,
-                use_standard_port,
-            } in config.xmtpd_nodes
-            {
-                id += XmtpdConst::NODE_ID_INCREMENT;
-                let node_name = name.as_ref().unwrap_or(&format!("xnet-{}", id)).to_string();
-                if existing_proxies.contains_key(&node_name) {
-                    info!("node {} already has proxy registered, skipping", node_name);
+            for node_toml in &config.xmtpd_nodes {
+                if !node_toml.enable {
                     continue;
                 }
-                if !enable {
-                    continue;
+                // Skip nodes whose proxy already exists (already provisioned in a previous run).
+                // Only applies to named nodes — unnamed nodes get their name from the gateway ID.
+                if let Some(ref name) = node_toml.name {
+                    if existing_proxies.contains_key(name) {
+                        info!("node {} already has proxy registered, skipping", name);
+                        continue;
+                    }
                 }
-                let node = XmtpdNode::builder();
-                let node = node.port(resolve_port(use_standard_port, port)?);
-                let node = if let Some(n) = name {
-                    node.name(n)
-                } else {
-                    node.name(format!("xnet-{}", id))
-                };
-                let node = node.node_id(id);
-                let num_ids = id / XmtpdConst::NODE_ID_INCREMENT;
-                let base_idx = num_ids as usize * 3 + 1;
-                let mut node = node
-                    .signer(config.signers[base_idx].clone())
-                    .payer(config.signers[base_idx + 1].clone())
-                    .migration_payer(config.signers[base_idx + 2].clone())
-                    .build();
-                cli.clone()
+
+                NodeProvisioner::builder()
+                    .migrator(node_toml.migrator)
+                    .use_standard_port(node_toml.use_standard_port)
+                    .maybe_name(node_toml.name.clone())
+                    .maybe_port(node_toml.port)
                     .build()
-                    .register(&this, &mut output, &node)
+                    .provision(&mut this)
                     .await?;
-                cli.clone().build().enable(&mut node, &mut output).await?;
-                if migrator {
-                    this.add_xmtpd_with_migrator(node).await?;
-                } else {
-                    this.add_xmtpd(node).await?;
-                }
             }
         }
 
