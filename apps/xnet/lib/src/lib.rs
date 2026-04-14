@@ -13,6 +13,7 @@ pub mod dns_setup;
 pub mod network;
 pub mod services;
 pub mod types;
+pub mod node_provisioner;
 pub mod wallet_funding;
 pub mod xmtpd_cli;
 
