@@ -14,6 +14,7 @@
 use prometheus::{CounterVec, Encoder, GaugeVec, Opts, Registry, TextEncoder};
 use reqwest::Client;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // ---------------------------------------------------------------------------
@@ -22,6 +23,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 static METRICS: OnceLock<Metrics> = OnceLock::new();
 static PUSHGATEWAY_URL: OnceLock<String> = OnceLock::new();
+/// Controls whether `csv_metric` emits to stdout. Toggled by the `--metrics`
+/// CLI flag (see `set_csv_metrics_enabled` / `init_metrics`). Off by default
+/// so developer CLI invocations are clean.
+static CSV_METRICS_ENABLED: AtomicBool = AtomicBool::new(false);
 
 // ---------------------------------------------------------------------------
 // Metrics struct
@@ -251,10 +256,13 @@ impl Metrics {
 
 /// Initialise the metrics subsystem.
 ///
-/// Reads `PUSHGATEWAY_URL` from the environment.  If the variable is absent the
-/// subsystem stays uninitialised and all subsequent `record_*` / `push_metrics`
-/// calls are silent no-ops — safe for developer CLI usage.
-pub fn init_metrics() {
+/// `csv_enabled` controls CSV stdout output (`--metrics` CLI flag).
+/// Prometheus PushGateway is still activated independently by the
+/// `PUSHGATEWAY_URL` env var.  Without either, the whole subsystem is a
+/// silent no-op — safe for developer CLI usage.
+pub fn init_metrics(csv_enabled: bool) {
+    set_csv_metrics_enabled(csv_enabled);
+
     if let Ok(url) = std::env::var("PUSHGATEWAY_URL") {
         PUSHGATEWAY_URL.get_or_init(|| url);
         METRICS.get_or_init(Metrics::new);
@@ -263,6 +271,17 @@ pub fn init_metrics() {
             "metrics subsystem initialised"
         );
     }
+}
+
+/// Enable or disable CSV stdout emission from `csv_metric`.  Idempotent;
+/// last call wins.
+pub fn set_csv_metrics_enabled(enabled: bool) {
+    CSV_METRICS_ENABLED.store(enabled, Ordering::SeqCst);
+}
+
+/// Whether `csv_metric` will emit to stdout right now.
+pub fn csv_metrics_enabled() -> bool {
+    CSV_METRICS_ENABLED.load(Ordering::Relaxed)
 }
 
 /// Record an operation latency (seconds).  No-op when metrics are inactive.
@@ -403,6 +422,9 @@ pub async fn record_phase_metric(operation: &str, secs: f64, phase: &str, job: &
 /// This output is distinct from structured logs and can be filtered with
 /// standard Unix tools or piped into a metrics aggregation pipeline.
 pub fn csv_metric(kind: &str, name: &str, value: f64, labels: &[(&str, &str)]) {
+    if !csv_metrics_enabled() {
+        return;
+    }
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -417,4 +439,28 @@ pub fn csv_metric(kind: &str, name: &str, value: f64, labels: &[(&str, &str)]) {
             .join(";")
     };
     println!("{},{},{:.6},{},{}", kind, name, value, ts, labels_str);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{csv_metrics_enabled, set_csv_metrics_enabled};
+
+    #[test]
+    fn csv_metrics_toggle_roundtrip() {
+        // Save prior state so the test is hermetic w.r.t. other tests in
+        // the same process.
+        let prior = csv_metrics_enabled();
+
+        set_csv_metrics_enabled(false);
+        assert!(!csv_metrics_enabled(), "disabled after explicit false");
+
+        set_csv_metrics_enabled(true);
+        assert!(csv_metrics_enabled(), "enabled after explicit true");
+
+        set_csv_metrics_enabled(false);
+        assert!(!csv_metrics_enabled(), "disabled after toggling back");
+
+        // Restore prior state.
+        set_csv_metrics_enabled(prior);
+    }
 }

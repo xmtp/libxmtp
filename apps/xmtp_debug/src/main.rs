@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
     let opts = args::AppOpts::parse();
     let mut logger = logger::Logger::from(&opts.log);
     logger.init()?;
-    metrics::init_metrics();
+    metrics::init_metrics(opts.metrics);
 
     if opts.version {
         info!("Version: {0}", get_version());
