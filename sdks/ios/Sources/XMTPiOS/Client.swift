@@ -94,6 +94,16 @@ public struct VisibilityConfirmationOptions {
 	}
 }
 
+public struct DbPoolOptions {
+	public var maxPoolSize: UInt32?
+	public var minPoolSize: UInt32?
+
+	public init(maxPoolSize: UInt32? = nil, minPoolSize: UInt32? = nil) {
+		self.maxPoolSize = maxPoolSize
+		self.minPoolSize = minPoolSize
+	}
+}
+
 /// Specify configuration options for creating a ``Client``.
 public struct ClientOptions {
 	/// Specify network options
@@ -134,6 +144,7 @@ public struct ClientOptions {
 	public var debugEventsEnabled: Bool
 	public var forkRecoveryOptions: ForkRecoveryOptions?
 	public var waitForRegistrationVisible: VisibilityConfirmationOptions?
+	public var dbPoolOptions: DbPoolOptions?
 
 	public init(
 		api: Api = Api(),
@@ -144,7 +155,8 @@ public struct ClientOptions {
 		deviceSyncEnabled: Bool = true,
 		debugEventsEnabled: Bool = false,
 		forkRecoveryOptions: ForkRecoveryOptions? = nil,
-		waitForRegistrationVisible: VisibilityConfirmationOptions? = nil
+		waitForRegistrationVisible: VisibilityConfirmationOptions? = nil,
+		dbPoolOptions: DbPoolOptions? = nil
 	) {
 		self.api = api
 		self.codecs = codecs
@@ -155,6 +167,7 @@ public struct ClientOptions {
 		self.debugEventsEnabled = debugEventsEnabled
 		self.forkRecoveryOptions = forkRecoveryOptions
 		self.waitForRegistrationVisible = waitForRegistrationVisible
+		self.dbPoolOptions = dbPoolOptions
 	}
 }
 
@@ -415,7 +428,12 @@ public final class Client {
 		let ffiClient = try await createClient(
 			api: connectToApiBackend(api: options.api),
 			syncApi: connectToSyncApiBackend(api: options.api),
-			db: DbOptions(db: dbURL, encryptionKey: options.dbEncryptionKey, maxDbPoolSize: nil, minDbPoolSize: nil),
+			db: DbOptions(
+				db: dbURL,
+				encryptionKey: options.dbEncryptionKey,
+				maxDbPoolSize: options.dbPoolOptions?.maxPoolSize,
+				minDbPoolSize: options.dbPoolOptions?.minPoolSize
+			),
 			inboxId: inboxId,
 			accountIdentifier: accountIdentifier.ffiPrivate,
 			nonce: 0,
