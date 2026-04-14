@@ -4,7 +4,7 @@ nix build .#xnet-cli
 nix build .#xdbg
 
 
-XDBG="nix run .#xdbg -- --metrics"
+XDBG="nix run .#xdbg --"
 XNET="nix run .#xnet-cli --"
 
 $XNET delete
