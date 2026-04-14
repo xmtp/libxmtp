@@ -83,12 +83,43 @@ rust.napiBuild (
     nativeBuildInputs = commonArgs.nativeBuildInputs ++ [
       darwin.autoSignDarwinBinariesHook
     ];
+    # Rewrite /nix/store dylib references to macOS system paths so the .node
+    # file loads on hosts without Nix. We iterate `otool -L` output rather
+    # than using a fixed `install_name_tool -change` against
+    # `${darwin.libiconv}`, because nixpkgs drift (we follow nixos-unstable,
+    # unpinned since #3482) or cross-compile splicing can make a hardcoded
+    # path match silently a no-op. See
+    # https://github.com/xmtp/libxmtp/issues/3479.
     postFixup = ''
       NODE_LIB=$(echo $out/dist/bindings_node.*.node)
 
-      # Fix the dylib's own install name (LC_ID_DYLIB) — it embeds the ephemeral Nix build path
+      # Fix the dylib's own install name (LC_ID_DYLIB) — it embeds the
+      # ephemeral Nix build path.
       install_name_tool -id "@loader_path/$(basename $NODE_LIB)" "$NODE_LIB"
-      install_name_tool -change "${darwin.libiconv}/lib/libiconv.2.dylib" "/usr/lib/libiconv.2.dylib" "$NODE_LIB"
+
+      # Rewrite every /nix/store libiconv reference to the system libiconv,
+      # which macOS resolves via the dyld shared cache. Narrow the rewrite
+      # to libiconv (the only known Nix-provided dep with a /usr/lib
+      # counterpart) rather than blanket-replacing all /nix/store paths;
+      # any remaining /nix/store reference is caught by the assert below.
+      otool -L "$NODE_LIB" \
+        | awk '$1 ~ /^\/nix\/store\// && $1 ~ /\/libiconv\.[0-9.]+\.dylib$/ { print $1 }' \
+        | while read -r nixlib; do
+          install_name_tool -change "$nixlib" "/usr/lib/$(basename "$nixlib")" "$NODE_LIB"
+        done
+
+      # install_name_tool invalidates the ad-hoc signature applied by
+      # autoSignDarwinBinariesHook, so re-sign after modification.
+      codesign --force --sign - "$NODE_LIB"
+
+      # Fail loudly if any /nix/store reference remains. Catches new deps
+      # leaking Nix paths at build time rather than at consumer-report time.
+      remaining=$(otool -L "$NODE_LIB" | awk '$1 ~ /^\/nix\/store\// { print $1 }')
+      if [ -n "$remaining" ]; then
+        echo "error: $NODE_LIB still references /nix/store after postFixup:" >&2
+        echo "$remaining" >&2
+        exit 1
+      fi
     '';
   }
 )
