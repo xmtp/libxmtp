@@ -267,9 +267,23 @@ impl std::fmt::Display for EntityKind {
     }
 }
 
+/// Log format for stdout output
+#[derive(ValueEnum, Debug, Clone, Default)]
+pub enum LogFormat {
+    /// Human-readable, colored in terminals
+    #[default]
+    Text,
+    /// Structured JSON (for Docker/Datadog)
+    Json,
+}
+
 /// specify the log output
 #[derive(Args, Debug)]
 pub struct LogOptions {
+    /// Stdout log format: "text" (default, colored in terminals) or "json" (for Docker/Datadog).
+    /// Can also be set via XDBG_LOG_FORMAT env var.
+    #[arg(long, env = "XDBG_LOG_FORMAT", default_value = "text")]
+    pub log_format: LogFormat,
     /// Output libxmtp logs into file with a structured, ndJSON format
     #[arg(long)]
     pub json: bool,

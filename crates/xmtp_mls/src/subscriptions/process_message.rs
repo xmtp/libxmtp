@@ -178,7 +178,9 @@ mod tests {
             .expect_last_cursor()
             .times(1)
             .returning(move |_| Ok(Cursor::new(50, oid).into()));
-        mock_db.expect_msg().times(1).returning(|_, _| Ok(None));
+        // `lookup_stored_from_sync` may probe other successful cursors in the batch after the
+        // primary lookup returns `None`.
+        mock_db.expect_msg().times(1..).returning(|_, _| Ok(None));
         mock_syncer
             .expect_process()
             .times(1)
@@ -199,6 +201,69 @@ mod tests {
             processed.unwrap().next_message,
             Cursor::v3_messages(expected)
         );
+    }
+
+    /// Regression test for missed stream messages after a valid error.
+    ///
+    /// Scenario: stream delivers envelope at cursor 10. Recovery sync produces
+    /// `new_messages=[11]` and `errored={10, 12}`, so `last_errored() == 12`.
+    /// Without the fallback in `lookup_stored_from_sync`, `process` returns
+    /// `next_message = 12` and the subscriber never sees cursor 11 — the stream's
+    /// per-group `has_seen` check drops envelope 11 when it later arrives.
+    ///
+    /// Commenting out the fallback loop in `lookup_stored_from_sync` will make
+    /// this test fail: `processed.message` becomes `None` and `next_message` becomes 12.
+    #[xmtp_common::test]
+    pub async fn test_process_surfaces_decrypt_between_failed_cursors() {
+        use xmtp_common::Generate as _;
+        use xmtp_proto::types::GroupId;
+
+        use crate::test::mock::{generate_errored_summary_with_group, generate_stored_msg};
+
+        let gid = GroupId::generate();
+        let stream_msg = generate_message(10, gid.as_ref());
+        let oid = stream_msg.originator_id();
+        let stored_11 = generate_stored_msg(Cursor::new(11, oid), gid.to_vec());
+
+        let mut mock_syncer = MockSync::new();
+        let mut mock_db = MockGroupDatabase::new();
+
+        // last_cursor < 10 so `needs_to_sync` triggers recovery.
+        mock_db
+            .expect_last_cursor()
+            .times(1)
+            .returning(move |_| Ok(Cursor::new(5, oid).into()));
+
+        // Primary probe (id = None for cursor 10) misses; fallback probe for cursor 11 hits.
+        let stored_for_mock = stored_11.clone();
+        mock_db
+            .expect_msg()
+            .times(1..=2)
+            .returning(move |id, _| match id {
+                None => Ok(None),
+                Some(i) if i.cursor.sequence_id == 11 => Ok(Some(stored_for_mock.clone())),
+                Some(other) => panic!("unexpected probe for cursor {:?}", other.cursor),
+            });
+
+        mock_syncer.expect_process().times(1).returning(|_| {
+            Err(SubscribeError::ReceiveGroup(Box::new(
+                GroupMessageProcessingError::InvalidPayload,
+            )))
+        });
+        let group_bytes = gid.to_vec();
+        mock_syncer.expect_recover().times(1).returning(move |_| {
+            generate_errored_summary_with_group(&group_bytes, &[10, 12], &[11])
+        });
+
+        let processed = MessageProcessor::new(mock_syncer, mock_db)
+            .process(stream_msg.clone())
+            .await
+            .unwrap();
+
+        // Without the fallback: message would be None and next_message would be 12.
+        assert!(processed.message.is_some());
+        assert_eq!(processed.next_message, Cursor::new(11, oid));
+        assert_eq!(processed.tried_to_process, stream_msg.cursor);
     }
 
     #[rstest]
