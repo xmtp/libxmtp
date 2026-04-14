@@ -3,13 +3,7 @@ source "$(dirname "$0")/.setup"
 
 SWIFT_OUT="${ROOT}/bindings/mobile/build/swift"
 
-# --- Fix 3: preflight sanity check on the nix binary cache ---
-# If xmtp.cachix.org is not configured as a substituter, nix will rebuild
-# every Rust dependency from source, which on macOS reliably trips over
-# the aws-lc-sys / cc-wrapper triple-mismatch bug ("--target
-# arm64-apple-macosx != arm64-apple-darwin"). Bail early with an
-# actionable message instead of letting people stare at a cryptic
-# linker error for an hour.
+# --- Preflight sanity check on the nix binary cache ---
 if ! nix config show substituters 2>/dev/null | grep -q "xmtp.cachix.org"; then
     echo "⚠️  xmtp.cachix.org is not in your nix substituters."
     echo "    Without it, nix will rebuild every dependency from source,"
@@ -32,15 +26,7 @@ if [[ "${1:-}" == "--release" ]]; then
         "${ROOT}/sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift"
 else
     echo "Building iOS xcframeworks (simulator + macOS only)..."
-    # --- Fix 1: materialize the xcframework instead of symlinking ---
-    # Previously this script did `nix build --out-link $SWIFT_OUT`, which
-    # made build/swift a symlink directly into /nix/store. That works for
-    # `swift test` but causes Xcode to cache a stale xcframework in its
-    # DerivedData SPM artifact store — after a uniffi regen, you end up
-    # with "Cannot convert UInt64 to UnsafeMutableRawPointer" errors at
-    # every FFI call site. Copying the xcframework into build/swift as
-    # a real directory (like the --release branch already does) gives
-    # Xcode a stable path to stat and keeps it in sync with nix rebuilds.
+    # Materialize the xcframework instead of symlinking ---
     rm -rf "$SWIFT_OUT"
     nix build "${ROOT}#ios-xcframeworks-fast" \
         --out-link "${ROOT}/bindings/mobile/build/nix-fast"
@@ -52,14 +38,7 @@ else
     cp -f "$SWIFT_OUT/xmtpv3.swift" "${ROOT}/sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift"
 fi
 
-# --- Fix 2: invalidate Xcode's staged binary-target cache ---
-# Xcode stages .binaryTarget artifacts into DerivedData at package
-# resolve time and does NOT re-stage when the source file underneath
-# changes. After we've rebuilt the xcframework, walk every DerivedData
-# workspace and delete only the libxmtp-specific staged artifacts so
-# Xcode re-stages against the fresh xcframework on its next resolve.
-# Everything else in DerivedData (compiled modules, indexes, other
-# packages' artifacts) is left untouched.
+# Invalidate Xcode's staged binary-target cache ---
 DERIVED_DATA="$HOME/Library/Developer/Xcode/DerivedData"
 if [[ -d "$DERIVED_DATA" ]]; then
     shopt -s nullglob
