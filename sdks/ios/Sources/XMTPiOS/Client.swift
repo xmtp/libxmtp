@@ -8,7 +8,6 @@ public enum ClientError: Error, CustomStringConvertible, LocalizedError {
 	case creationError(String)
 	case missingInboxId
 	case invalidInboxId(String)
-	case clientDeallocated
 
 	public var description: String {
 		switch self {
@@ -18,8 +17,6 @@ public enum ClientError: Error, CustomStringConvertible, LocalizedError {
 			"ClientError.missingInboxId"
 		case let .invalidInboxId(inboxId):
 			"Invalid inboxId: \(inboxId). Inbox IDs cannot start with '0x'."
-		case .clientDeallocated:
-			"ClientError.clientDeallocated: The Client has been deallocated."
 		}
 	}
 
@@ -204,7 +201,8 @@ public final class Client {
 	private static let apiCache = ApiClientCache()
 
 	public lazy var conversations: Conversations = .init(
-		client: self, ffiConversations: ffiClient.conversations(),
+		clientInboxId: inboxID,
+		ffiConversations: ffiClient.conversations(),
 		ffiClient: ffiClient
 	)
 

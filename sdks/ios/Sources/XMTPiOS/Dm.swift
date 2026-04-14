@@ -4,7 +4,9 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	var ffiConversation: FfiConversation
 	var ffiLastMessage: FfiMessage?
 	var ffiCommitLogForkStatus: Bool?
-	var client: Client
+	/// InboxId of the owning Client. Captured at construction time so Dm
+	/// does not need to hold a reference to Client itself.
+	public var clientInboxId: InboxId
 	let streamHolder = StreamHolder()
 
 	public enum ConversationError: Error, CustomStringConvertible, LocalizedError {
@@ -59,7 +61,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	}
 
 	public func isCreator() async throws -> Bool {
-		try await metadata().creatorInboxId() == client.inboxID
+		try await metadata().creatorInboxId() == clientInboxId
 	}
 
 	public func isActive() throws -> Bool {
