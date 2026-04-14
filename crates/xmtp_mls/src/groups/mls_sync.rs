@@ -912,6 +912,15 @@ where
                     next_intent_state: IntentState::Error,
                 })?;
 
+            self.maybe_resend_leave_request_for_new_installations(
+                &validated_commit.added_installation_inbox_ids,
+                storage,
+            )
+            .map_err(|err| IntentResolutionError {
+                processing_error: err,
+                next_intent_state: IntentState::Error,
+            })?;
+
             // Clean up pending_remove list for removed members
             self.clean_pending_remove_list(storage, &validated_commit.removed_inboxes);
 
@@ -1360,6 +1369,11 @@ where
                     validated_commit.clone(),
                     envelope_timestamp_ns as u64,
                     *cursor,
+                    storage,
+                )?;
+
+                self.maybe_resend_leave_request_for_new_installations(
+                    &validated_commit.added_installation_inbox_ids,
                     storage,
                 )?;
 
@@ -2372,16 +2386,6 @@ where
         cursor: Cursor,
         storage: &impl XmtpMlsStorageProvider,
     ) -> Result<Option<(StoredGroupMessage, GroupUpdated)>, GroupMessageProcessingError> {
-        // Run this check before the `is_empty()` early-return: an installation-only
-        // commit (e.g. `add_missing_installations` for a same-inbox device) has no
-        // added/removed inboxes or metadata changes, so it would be treated as empty
-        // here — but we still need to re-send the LeaveRequest for new installations
-        // of the current inbox.
-        self.maybe_resend_leave_request_for_new_installations(
-            &validated_commit.added_installation_inbox_ids,
-            storage,
-        )?;
-
         if validated_commit.is_empty() {
             return Ok(None);
         }
