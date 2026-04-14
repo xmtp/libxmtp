@@ -30,29 +30,32 @@ log "WORKSPACE='${WORKSPACE:-<unset>}' -> backend='${BACKEND}'"
 : "${XDBG_V4_NODE_URL:=https://grpc.testnet.xmtp.network:443}"
 log "V4 node URL (migration): ${XDBG_V4_NODE_URL}"
 
+# --metrics is required here: the monitor consumes xdbg's CSV stdout lines
+# (latency_seconds,…, throughput_events,…) via the container log pipeline.
+# Prometheus PushGateway is activated independently by PUSHGATEWAY_URL.
 while true; do
   log "Reset environment.."
-  XDBG_LOOP_PAUSE=0 xdbg -d -b "${BACKEND}" --perf --clear \
+  XDBG_LOOP_PAUSE=0 xdbg --metrics -d -b "${BACKEND}" --perf --clear \
     || log "WARNING: --clear failed; proceeding with existing state"
-  XDBG_LOOP_PAUSE=0 xdbg -d -b "${BACKEND}" --perf generate --entity identity --amount 5 --concurrency 1 \
+  XDBG_LOOP_PAUSE=0 xdbg --metrics -d -b "${BACKEND}" --perf generate --entity identity --amount 5 --concurrency 1 \
     || log "WARNING: identity generation failed"
-  XDBG_LOOP_PAUSE=0 xdbg -d -b "${BACKEND}" --perf generate --entity group --amount 1 --concurrency 1 --invite 1 \
+  XDBG_LOOP_PAUSE=0 xdbg --metrics -d -b "${BACKEND}" --perf generate --entity group --amount 1 --concurrency 1 --invite 1 \
     || log "WARNING: group generation failed"
   log "Reset complete, starting tests"
 
   for x in {1..10}; do
     log "Identities..."
-    XDBG_LOOP_PAUSE=0 xdbg -d -b "${BACKEND}" --perf generate --entity identity --amount 1 --concurrency 1 \
+    XDBG_LOOP_PAUSE=0 xdbg --metrics -d -b "${BACKEND}" --perf generate --entity identity --amount 1 --concurrency 1 \
       || log "WARNING: identity step $x failed"
     log "Sleeping 20s..."
     sleep 20
     log "Groups..."
-    XDBG_LOOP_PAUSE=0 xdbg -d -b "${BACKEND}" --perf generate --entity group --amount 1 --concurrency 1 --invite 1 \
+    XDBG_LOOP_PAUSE=0 xdbg --metrics -d -b "${BACKEND}" --perf generate --entity group --amount 1 --concurrency 1 --invite 1 \
       || log "WARNING: group step $x failed"
     log "Sleeping 20s..."
     sleep 20
     log "Messages..."
-    XDBG_LOOP_PAUSE=0 xdbg -d -b "${BACKEND}" --perf generate --entity message --amount 1 --concurrency 1 \
+    XDBG_LOOP_PAUSE=0 xdbg --metrics -d -b "${BACKEND}" --perf generate --entity message --amount 1 --concurrency 1 \
       || log "WARNING: message step $x failed"
     log "Running health checks..."
     bash "$(dirname "$0")/web-healthcheck.sh" || log "WARNING: health check failed"
@@ -61,7 +64,7 @@ while true; do
     # Omits -d and --perf (D14N mode) since this writes to V3.
     # Uses -b production regardless of WORKSPACE.
     log "Migration latency test..."
-    XDBG_LOOP_PAUSE=0 xdbg -b production test migration-latency \
+    XDBG_LOOP_PAUSE=0 xdbg --metrics -b production test migration-latency \
       --v4-node-url "${XDBG_V4_NODE_URL}" \
       --migration-timeout "${XDBG_MIGRATION_TIMEOUT}" \
       --iterations 1 \
@@ -69,7 +72,7 @@ while true; do
 
     # Content parity test: write structured payloads to V3, diff on V4.
     log "Content parity test..."
-    XDBG_LOOP_PAUSE=0 xdbg -b production test content-parity \
+    XDBG_LOOP_PAUSE=0 xdbg --metrics -b production test content-parity \
       --v4-node-url "${XDBG_V4_NODE_URL}" \
       --migration-timeout "${XDBG_MIGRATION_TIMEOUT}" \
       --parity-messages "${XDBG_PARITY_MESSAGES:-5}" \
@@ -78,7 +81,7 @@ while true; do
 
     # Wallet continuity test: verify same wallet → same inbox_id on V4.
     log "Wallet continuity test..."
-    XDBG_LOOP_PAUSE=0 xdbg -b production test wallet-continuity \
+    XDBG_LOOP_PAUSE=0 xdbg --metrics -b production test wallet-continuity \
       --v4-node-url "${XDBG_V4_NODE_URL}" \
       --migration-timeout "${XDBG_MIGRATION_TIMEOUT}" \
       --continuity-messages "${XDBG_CONTINUITY_MESSAGES}" \

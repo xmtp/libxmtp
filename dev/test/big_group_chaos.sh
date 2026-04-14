@@ -20,11 +20,11 @@ INBOX_ID=$1
 NETWORK=${2-"dev"}
 EXPORT=$(mktemp)
 TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | jq -r '.target_directory')"
-CMD="${TARGET_DIR}/release/xdbg -b $NETWORK"
+CMD="${TARGET_DIR}/release/xdbg --metrics -b $NETWORK"
 
 cargo build --release --bin xdbg
 echo "writing groups to $EXPORT"
-"${TARGET_DIR}"/release/xdbg --clear
+"${TARGET_DIR}"/release/xdbg --metrics --clear
 $CMD --clear
 $CMD generate --entity identity --amount 250
 $CMD generate --entity group --amount 1 --invite 10
