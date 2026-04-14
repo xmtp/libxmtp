@@ -2291,6 +2291,80 @@ where
         Ok(updated)
     }
 
+    /// When a commit adds new installations of the current inbox while this inbox is
+    /// in a pending self-removal state, re-send the LeaveRequest so the newly-added
+    /// installations (which joined in a later MLS epoch) can decrypt it and mirror the
+    /// PendingRemove state. Without this, the original LeaveRequest is encrypted for an
+    /// earlier epoch and is invisible to the new installations.
+    ///
+    /// Runs within the same transaction as commit processing, so the queued intent is
+    /// rolled back if the commit fails to apply.
+    fn maybe_resend_leave_request_for_new_installations(
+        &self,
+        added_installation_inbox_ids: &HashSet<String>,
+        storage: &impl XmtpMlsStorageProvider,
+    ) -> Result<(), GroupMessageProcessingError> {
+        let own_inbox_id = self.context.inbox_id();
+        if !added_installation_inbox_ids.contains(own_inbox_id) {
+            return Ok(());
+        }
+
+        let db = storage.db();
+        if !db.get_user_pending_remove_status(self.group_id.as_slice(), own_inbox_id)? {
+            return Ok(());
+        }
+
+        debug!(
+            inbox_id = own_inbox_id,
+            group_id = hex::encode(&self.group_id),
+            "Re-sending LeaveRequest after new installations for this inbox were added while in pending self-removal"
+        );
+
+        let encoded_content = LeaveRequestCodec::encode(LeaveRequest {
+            authenticated_note: None,
+        })?;
+        let message_bytes = encoded_content_to_bytes(encoded_content);
+
+        let now = now_ns();
+        let queryable_content_fields = Self::extract_queryable_content_fields(&message_bytes);
+        let message_id = calculate_message_id(&self.group_id, &message_bytes, &now.to_string());
+        let stored_message = StoredGroupMessage {
+            id: message_id,
+            group_id: self.group_id.clone(),
+            decrypted_message_bytes: message_bytes.clone(),
+            sent_at_ns: now,
+            kind: GroupMessageKind::Application,
+            sender_installation_id: self.context.installation_id().into(),
+            sender_inbox_id: own_inbox_id.to_string(),
+            delivery_status: DeliveryStatus::Unpublished,
+            content_type: queryable_content_fields.content_type,
+            version_major: queryable_content_fields.version_major,
+            version_minor: queryable_content_fields.version_minor,
+            authority_id: queryable_content_fields.authority_id,
+            reference_id: queryable_content_fields.reference_id,
+            sequence_id: 0,
+            originator_id: 0,
+            expire_at_ns: None,
+            inserted_at_ns: 0,
+            should_push: false,
+        };
+        stored_message.store(&db)?;
+
+        let plain_envelope = Self::into_envelope(&message_bytes, now);
+        let mut encoded_envelope = vec![];
+        plain_envelope.encode(&mut encoded_envelope)?;
+
+        let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
+        db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::SendMessage,
+            self.group_id.clone(),
+            intent_data,
+            false,
+        ))?;
+
+        Ok(())
+    }
+
     fn save_transcript_message(
         &self,
         validated_commit: ValidatedCommit,
@@ -2298,6 +2372,16 @@ where
         cursor: Cursor,
         storage: &impl XmtpMlsStorageProvider,
     ) -> Result<Option<(StoredGroupMessage, GroupUpdated)>, GroupMessageProcessingError> {
+        // Run this check before the `is_empty()` early-return: an installation-only
+        // commit (e.g. `add_missing_installations` for a same-inbox device) has no
+        // added/removed inboxes or metadata changes, so it would be treated as empty
+        // here — but we still need to re-send the LeaveRequest for new installations
+        // of the current inbox.
+        self.maybe_resend_leave_request_for_new_installations(
+            &validated_commit.added_installation_inbox_ids,
+            storage,
+        )?;
+
         if validated_commit.is_empty() {
             return Ok(None);
         }
@@ -3301,27 +3385,6 @@ where
             .queue(self)?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
-
-        // After adding new installations (which creates a new epoch), if this inbox
-        // has a pending self-removal, re-send the LeaveRequest. Newly-added
-        // installations joined in a later epoch and cannot decrypt the original
-        // LeaveRequest, so this ensures they can process it and set PendingRemove.
-        if self.is_in_pending_remove(self.context.inbox_id())? {
-            debug!(
-                inbox_id = self.context.inbox_id(),
-                group_id = hex::encode(&self.group_id),
-                "Re-sending LeaveRequest after adding installations for pending self-removal"
-            );
-            let content = LeaveRequestCodec::encode(LeaveRequest {
-                authenticated_note: None,
-            })?;
-            let message_bytes = encoded_content_to_bytes(content);
-            self.prepare_message(&message_bytes, Default::default(), |now| {
-                Self::into_envelope(&message_bytes, now)
-            })?;
-            self.sync_until_last_intent_resolved().await?;
-        }
-
         Ok(())
     }
 
