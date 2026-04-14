@@ -8,6 +8,7 @@ set -uo pipefail
 : "${XDBG_V4_NODE_URL:=}"      # V4/D14N node URL for migration latency test
 : "${XDBG_MIGRATION_TIMEOUT:=120}" # timeout for migration latency polling
 : "${XDBG_CONTINUITY_MESSAGES:=5}" # messages per wallet continuity iteration
+: "${XDBG_SKIP_MIGRATION_TESTS:=false}" # set "true" to skip migration tests
 
 function log {
     echo "[$(date '+%F %T')] $*"
@@ -22,6 +23,7 @@ case "${WORKSPACE}" in
     ""|*) BACKEND="local" ;;
 esac
 log "WORKSPACE='${WORKSPACE:-<unset>}' -> backend='${BACKEND}'"
+log "XDBG_SKIP_MIGRATION_TESTS='${XDBG_SKIP_MIGRATION_TESTS}'"
 
 # Migration test: always writes to V3 production and reads from V4 testnet,
 # because the only migrator path is V3 production → V4 testnet.
@@ -57,33 +59,40 @@ while true; do
     log "Running health checks..."
     bash "$(dirname "$0")/web-healthcheck.sh" || log "WARNING: health check failed"
 
-    # Migration latency test: always V3 production → V4 testnet (the only migration path).
-    # Omits -d and --perf (D14N mode) since this writes to V3.
-    # Uses -b production regardless of WORKSPACE.
-    log "Migration latency test..."
-    XDBG_LOOP_PAUSE=0 xdbg -b production test migration-latency \
-      --v4-node-url "${XDBG_V4_NODE_URL}" \
-      --migration-timeout "${XDBG_MIGRATION_TIMEOUT}" \
-      --iterations 1 \
-      || log "WARNING: migration latency test $x failed"
+    # Migration tests: V3 production → V4 testnet (the only migration path).
+    # Skipped when XDBG_SKIP_MIGRATION_TESTS=true (e.g. testnet where
+    # the migrator is not running).
+    if [ "${XDBG_SKIP_MIGRATION_TESTS}" = "true" ]; then
+      log "Skipping migration tests (XDBG_SKIP_MIGRATION_TESTS=true)"
+    else
+      # Migration latency test: always V3 production → V4 testnet.
+      # Omits -d and --perf (D14N mode) since this writes to V3.
+      # Uses -b production regardless of WORKSPACE.
+      log "Migration latency test..."
+      XDBG_LOOP_PAUSE=0 xdbg -b production test migration-latency \
+        --v4-node-url "${XDBG_V4_NODE_URL}" \
+        --migration-timeout "${XDBG_MIGRATION_TIMEOUT}" \
+        --iterations 1 \
+        || log "WARNING: migration latency test $x failed"
 
-    # Content parity test: write structured payloads to V3, diff on V4.
-    log "Content parity test..."
-    XDBG_LOOP_PAUSE=0 xdbg -b production test content-parity \
-      --v4-node-url "${XDBG_V4_NODE_URL}" \
-      --migration-timeout "${XDBG_MIGRATION_TIMEOUT}" \
-      --parity-messages "${XDBG_PARITY_MESSAGES:-5}" \
-      --iterations 1 \
-      || log "WARNING: content parity test $x failed"
+      # Content parity test: write structured payloads to V3, diff on V4.
+      log "Content parity test..."
+      XDBG_LOOP_PAUSE=0 xdbg -b production test content-parity \
+        --v4-node-url "${XDBG_V4_NODE_URL}" \
+        --migration-timeout "${XDBG_MIGRATION_TIMEOUT}" \
+        --parity-messages "${XDBG_PARITY_MESSAGES:-5}" \
+        --iterations 1 \
+        || log "WARNING: content parity test $x failed"
 
-    # Wallet continuity test: verify same wallet → same inbox_id on V4.
-    log "Wallet continuity test..."
-    XDBG_LOOP_PAUSE=0 xdbg -b production test wallet-continuity \
-      --v4-node-url "${XDBG_V4_NODE_URL}" \
-      --migration-timeout "${XDBG_MIGRATION_TIMEOUT}" \
-      --continuity-messages "${XDBG_CONTINUITY_MESSAGES}" \
-      --iterations 1 \
-      || log "WARNING: wallet continuity test $x failed"
+      # Wallet continuity test: verify same wallet → same inbox_id on V4.
+      log "Wallet continuity test..."
+      XDBG_LOOP_PAUSE=0 xdbg -b production test wallet-continuity \
+        --v4-node-url "${XDBG_V4_NODE_URL}" \
+        --migration-timeout "${XDBG_MIGRATION_TIMEOUT}" \
+        --continuity-messages "${XDBG_CONTINUITY_MESSAGES}" \
+        --iterations 1 \
+        || log "WARNING: wallet continuity test $x failed"
+    fi
 
     log "Sleeping ${XDBG_LOOP_PAUSE} seconds..."
     sleep "${XDBG_LOOP_PAUSE}"
