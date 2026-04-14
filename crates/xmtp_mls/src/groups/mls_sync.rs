@@ -2313,6 +2313,11 @@ where
     ///
     /// Runs within the same transaction as commit processing, so the queued intent is
     /// rolled back if the commit fails to apply.
+    ///
+    /// Only queues the SendMessage intent — no optimistic StoredGroupMessage is created
+    /// because this is an internal re-send (not user-initiated) and the sender already
+    /// has the original LeaveRequest in their local history. Newly-added installations
+    /// will store the re-sent message when they receive it via the external-message path.
     fn maybe_resend_leave_request_for_new_installations(
         &self,
         added_installation_inbox_ids: &HashSet<String>,
@@ -2339,32 +2344,7 @@ where
         })?;
         let message_bytes = encoded_content_to_bytes(encoded_content);
 
-        let now = now_ns();
-        let queryable_content_fields = Self::extract_queryable_content_fields(&message_bytes);
-        let message_id = calculate_message_id(&self.group_id, &message_bytes, &now.to_string());
-        let stored_message = StoredGroupMessage {
-            id: message_id,
-            group_id: self.group_id.clone(),
-            decrypted_message_bytes: message_bytes.clone(),
-            sent_at_ns: now,
-            kind: GroupMessageKind::Application,
-            sender_installation_id: self.context.installation_id().into(),
-            sender_inbox_id: own_inbox_id.to_string(),
-            delivery_status: DeliveryStatus::Unpublished,
-            content_type: queryable_content_fields.content_type,
-            version_major: queryable_content_fields.version_major,
-            version_minor: queryable_content_fields.version_minor,
-            authority_id: queryable_content_fields.authority_id,
-            reference_id: queryable_content_fields.reference_id,
-            sequence_id: 0,
-            originator_id: 0,
-            expire_at_ns: None,
-            inserted_at_ns: 0,
-            should_push: false,
-        };
-        stored_message.store(&db)?;
-
-        let plain_envelope = Self::into_envelope(&message_bytes, now);
+        let plain_envelope = Self::into_envelope(&message_bytes, now_ns());
         let mut encoded_envelope = vec![];
         plain_envelope.encode(&mut encoded_envelope)?;
 
