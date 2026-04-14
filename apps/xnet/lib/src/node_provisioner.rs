@@ -144,9 +144,7 @@ impl NodeProvisioner {
             .build();
 
         // 7. Register and enable on-chain
-        let cli = XmtpdCli::builder()
-            .toxiproxy(mgr.proxy.clone())
-            .build();
+        let cli = XmtpdCli::builder().toxiproxy(mgr.proxy.clone()).build();
         cli.register(mgr, std::io::stdout(), &node).await?;
         cli.enable(&mut node, std::io::stdout()).await?;
         info!(node_id, "node registered and enabled on-chain");

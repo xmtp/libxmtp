@@ -178,11 +178,11 @@ impl ServiceManager {
                 }
                 // Skip nodes whose proxy already exists (already provisioned in a previous run).
                 // Only applies to named nodes — unnamed nodes get their name from the gateway ID.
-                if let Some(ref name) = node_toml.name {
-                    if existing_proxies.contains_key(name) {
-                        info!("node {} already has proxy registered, skipping", name);
-                        continue;
-                    }
+                if let Some(ref name) = node_toml.name
+                    && existing_proxies.contains_key(name)
+                {
+                    info!("node {} already has proxy registered, skipping", name);
+                    continue;
                 }
 
                 NodeProvisioner::builder()
