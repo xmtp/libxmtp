@@ -346,6 +346,10 @@ class ConversationTests: XCTestCase {
 					_ = try await alixGroup.send(content: message)
 					_ = try await alixGroup2.send(content: message)
 					print("Alix sent: \(message)")
+					// 50ms yield between sends so a single sender's MLS
+					// ratchet doesn't outrun OpenMLS's 5-generation
+					// out-of-order tolerance under concurrent load (#3512).
+					try await Task.sleep(nanoseconds: 50_000_000)
 				}
 			}
 
@@ -356,6 +360,7 @@ class ConversationTests: XCTestCase {
 					_ = try await boGroup.send(content: message)
 					_ = try await boGroup2.send(content: message)
 					print("Bo sent: \(message)")
+					try await Task.sleep(nanoseconds: 50_000_000) // #3512
 				}
 			}
 
@@ -369,6 +374,7 @@ class ConversationTests: XCTestCase {
 						)
 					_ = try await group.send(content: spamMessage)
 					print("Davon spam: \(spamMessage)")
+					try await Task.sleep(nanoseconds: 50_000_000) // #3512
 				}
 			}
 
@@ -379,6 +385,7 @@ class ConversationTests: XCTestCase {
 					_ = try await caroGroup.send(content: message)
 					_ = try await caroGroup2.send(content: message)
 					print("Caro sent: \(message)")
+					try await Task.sleep(nanoseconds: 50_000_000) // #3512
 				}
 			}
 		}
