@@ -1,4 +1,5 @@
 //! Logger for the CLI
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use clap_verbosity_flag::{InfoLevel, Verbosity};
@@ -14,10 +15,11 @@ use tracing_subscriber::{
     registry::LookupSpan,
 };
 
-use crate::args::LogOptions;
+use crate::args::{LogFormat, LogOptions};
 
 #[derive(Default)]
 pub struct Logger {
+    log_format: LogFormat,
     json: bool,
     show_fields: bool,
     human: bool,
@@ -28,8 +30,8 @@ pub struct Logger {
 
 impl<'a> From<&'a LogOptions> for Logger {
     fn from(options: &'a LogOptions) -> Self {
-        // let pretty = !(options.json || options.logfmt);
         Self {
+            log_format: options.log_format.clone(),
             json: options.json,
             logfmt: options.logfmt,
             show_fields: options.show_fields,
@@ -43,6 +45,7 @@ impl<'a> From<&'a LogOptions> for Logger {
 impl Logger {
     pub fn init(&mut self) -> eyre::Result<()> {
         let Logger {
+            ref log_format,
             show_fields,
             json,
             human,
@@ -55,11 +58,13 @@ impl Logger {
 
         // prefer `RUST_LOG` variable if set
         // otherwise passed-in level filter
-        let app_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-            EnvFilter::builder()
-                .parse(format!("xdbg={verbosity}"))
-                .expect("filter is static")
-        });
+        let app_filter = || {
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                EnvFilter::builder()
+                    .parse(format!("xdbg={verbosity}"))
+                    .expect("filter is static")
+            })
+        };
         let file_filter = || {
             EnvFilter::builder().parse(
                 "xmtp_api_d14n=DEBUG,xmtp_api=DEBUG,xmtp_mls=DEBUG,xmtp_id=DEBUG,xmtp_cryptography=DEBUG,xmtp_api_grpc=DEBUG,xdbg=ERROR",
@@ -69,9 +74,23 @@ impl Logger {
         let now = chrono::Local::now();
         let log_file_name = PathBuf::from(format!("./{}-xdbg", now));
 
+        // Stdout layer: JSON for containers, human-readable with TTY-gated ANSI for terminals
+        let use_json_stdout = matches!(log_format, LogFormat::Json);
+
         let subscriber = subscriber
-            // default, always-on layer
-            .with(human_layer(app_filter, true, std::io::stdout))
+            .with(use_json_stdout.then(|| {
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_filter(app_filter())
+            }))
+            .with((!use_json_stdout).then(|| {
+                human_layer(
+                    app_filter(),
+                    true,
+                    std::io::stdout,
+                    std::io::stdout().is_terminal(),
+                )
+            }))
             .with(json.then(|| {
                 let mut json = log_file_name.clone();
                 json.set_extension("json");
@@ -90,7 +109,7 @@ impl Logger {
                 let file = std::fs::File::create_new(human).unwrap();
                 let (appender, guard) = tracing_appender::non_blocking(file);
                 guards.push(guard);
-                human_layer(file_filter(), show_fields, appender)
+                human_layer(file_filter(), show_fields, appender, false)
             }))
             .with(logfmt.then(|| {
                 let mut logfmt = log_file_name.clone();
@@ -109,13 +128,14 @@ impl Logger {
     }
 }
 
-fn human_layer<S, W>(filter: EnvFilter, show_fields: bool, writer: W) -> impl Layer<S>
+fn human_layer<S, W>(filter: EnvFilter, show_fields: bool, writer: W, ansi: bool) -> impl Layer<S>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
     W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
 {
     let layer = tracing_subscriber::fmt::layer()
         .without_time()
+        .with_ansi(ansi)
         .map_event_format(|_| PrettyTarget)
         .fmt_fields({
             let fun = format::debug_fn(move |writer, field, value| {

@@ -86,9 +86,20 @@ rust.napiBuild (
     postFixup = ''
       NODE_LIB=$(echo $out/dist/bindings_node.*.node)
 
-      # Fix the dylib's own install name (LC_ID_DYLIB) — it embeds the ephemeral Nix build path
+      # Replace /nix/store paths (the dylib's own id and its libiconv dep)
+      # with macOS system paths so the .node loads on hosts without Nix.
       install_name_tool -id "@loader_path/$(basename $NODE_LIB)" "$NODE_LIB"
       install_name_tool -change "${darwin.libiconv}/lib/libiconv.2.dylib" "/usr/lib/libiconv.2.dylib" "$NODE_LIB"
+
+      # Assert no /nix/store references remain — guards against silent
+      # no-ops in the rewrites above and catches the 1.10.0 regression.
+      # See https://github.com/xmtp/libxmtp/issues/3479.
+      remaining=$(otool -L "$NODE_LIB" | awk '$1 ~ /^\/nix\/store\// { print $1 }')
+      if [ -n "$remaining" ]; then
+        echo "error: $NODE_LIB still references /nix/store after postFixup:" >&2
+        echo "$remaining" >&2
+        exit 1
+      fi
     '';
   }
 )
