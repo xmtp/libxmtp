@@ -83,13 +83,6 @@ rust.napiBuild (
     nativeBuildInputs = commonArgs.nativeBuildInputs ++ [
       darwin.autoSignDarwinBinariesHook
     ];
-    # Rewrite /nix/store dylib references to macOS system paths so the .node
-    # file loads on hosts without Nix. We iterate `otool -L` output rather
-    # than using a fixed `install_name_tool -change` against
-    # `${darwin.libiconv}`, because nixpkgs drift (we follow nixos-unstable,
-    # unpinned since #3482) or cross-compile splicing can make a hardcoded
-    # path match silently a no-op. See
-    # https://github.com/xmtp/libxmtp/issues/3479.
     postFixup = ''
       NODE_LIB=$(echo $out/dist/bindings_node.*.node)
 
@@ -97,25 +90,16 @@ rust.napiBuild (
       # ephemeral Nix build path.
       install_name_tool -id "@loader_path/$(basename $NODE_LIB)" "$NODE_LIB"
 
-      # Rewrite every /nix/store libiconv reference to the system libiconv,
-      # which macOS resolves via the dyld shared cache. Narrow the rewrite
-      # to libiconv (the only known Nix-provided dep with a /usr/lib
-      # counterpart) rather than blanket-replacing all /nix/store paths;
-      # any remaining /nix/store reference is caught by the assert below.
-      otool -L "$NODE_LIB" \
-        | awk '$1 ~ /^\/nix\/store\// && $1 ~ /\/libiconv\.[0-9.]+\.dylib$/ { print $1 }' \
-        | while read -r nixlib; do
-          install_name_tool -change "$nixlib" "/usr/lib/$(basename "$nixlib")" "$NODE_LIB"
-        done
+      # Rewrite the Nix-store libiconv reference to the system libiconv,
+      # which macOS resolves via the dyld shared cache so the .node file
+      # loads on hosts without Nix.
+      install_name_tool -change "${darwin.libiconv}/lib/libiconv.2.dylib" "/usr/lib/libiconv.2.dylib" "$NODE_LIB"
 
-      # Note: install_name_tool invalidates the ad-hoc signature, but
-      # autoSignDarwinBinariesHook runs its signing function via
-      # postFixupHooks *after* this postFixup block, and signIfRequired
-      # explicitly handles the install_name_tool-invalidated case. No
-      # explicit codesign call is needed here.
-
-      # Fail loudly if any /nix/store reference remains. Catches new deps
-      # leaking Nix paths at build time rather than at consumer-report time.
+      # Assert no /nix/store references remain. This would have caught
+      # https://github.com/xmtp/libxmtp/issues/3479 at build time (1.10.0
+      # shipped from a commit that had no install_name_tool rewrite at
+      # all); it also guards against any future silent no-op — e.g. if a
+      # new dynamic dep is introduced that isn't handled above.
       remaining=$(otool -L "$NODE_LIB" | awk '$1 ~ /^\/nix\/store\// { print $1 }')
       if [ -n "$remaining" ]; then
         echo "error: $NODE_LIB still references /nix/store after postFixup:" >&2
