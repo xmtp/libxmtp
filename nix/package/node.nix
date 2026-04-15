@@ -95,11 +95,9 @@ rust.napiBuild (
       # loads on hosts without Nix.
       install_name_tool -change "${darwin.libiconv}/lib/libiconv.2.dylib" "/usr/lib/libiconv.2.dylib" "$NODE_LIB"
 
-      # Assert no /nix/store references remain. This would have caught
-      # https://github.com/xmtp/libxmtp/issues/3479 at build time (1.10.0
-      # shipped from a commit that had no install_name_tool rewrite at
-      # all); it also guards against any future silent no-op — e.g. if a
-      # new dynamic dep is introduced that isn't handled above.
+      # Assert no /nix/store references remain — guards against silent
+      # no-ops in the rewrites above and catches the 1.10.0 regression.
+      # See https://github.com/xmtp/libxmtp/issues/3479.
       remaining=$(otool -L "$NODE_LIB" | awk '$1 ~ /^\/nix\/store\// { print $1 }')
       if [ -n "$remaining" ]; then
         echo "error: $NODE_LIB still references /nix/store after postFixup:" >&2
