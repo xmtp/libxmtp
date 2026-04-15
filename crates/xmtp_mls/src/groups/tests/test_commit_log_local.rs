@@ -193,6 +193,11 @@ async fn test_welcome_commit_log() {
     );
 }
 
+// Toxiproxy's `node-go` proxy speaks raw gRPC (localhost:6010 → node:5556).
+// WASM tests use the browser's `fetch`, which can only talk gRPC-Web — the
+// other toxiproxy test (`test_network`) sidesteps this by gating its entire
+// module on `cfg(not(target_arch = "wasm32"))`. We do the same per-test.
+#[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_retriable_error() {
     toxiproxy_test(async || {
