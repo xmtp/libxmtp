@@ -15,6 +15,18 @@ pub const MAX_GROUP_SYNC_RETRIES: usize = 3;
 
 pub const MAX_INTENT_PUBLISH_ATTEMPTS: usize = 3;
 
+/// Fail-safe cap on publish attempts for *retriable* errors.
+///
+/// Retriable publish failures (e.g. a client that is temporarily offline)
+/// use a separate budget from content-level failures so that a normal
+/// outage cannot poison a perfectly good intent. The generous cap here
+/// exists as defense-in-depth against errors that the API layer marks
+/// retriable but which would never actually recover — for example, a
+/// malformed payload that the server persistently rejects with a
+/// retriable gRPC status. In that case the intent will still eventually
+/// be poisoned rather than retried forever.
+pub const MAX_INTENT_RETRIABLE_PUBLISH_ATTEMPTS: usize = 30;
+
 pub const GROUP_KEY_ROTATION_INTERVAL_NS: i64 = NS_IN_30_DAYS;
 
 pub const KEY_PACKAGE_QUEUE_INTERVAL_NS: i64 = 5 * NS_IN_SEC; // 5 secs

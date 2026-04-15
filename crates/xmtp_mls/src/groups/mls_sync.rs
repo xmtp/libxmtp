@@ -81,9 +81,9 @@ use xmtp_common::{
 };
 use xmtp_configuration::{
     GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_GROUP_SYNC_RETRIES,
-    MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS, PROPOSAL_SUPPORT_EXTENSION_ID,
-    SYNC_BACKOFF_TOTAL_WAIT_MAX_SECS, SYNC_BACKOFF_WAIT_MS, SYNC_JITTER_MS,
-    SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
+    MAX_INTENT_PUBLISH_ATTEMPTS, MAX_INTENT_RETRIABLE_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
+    PROPOSAL_SUPPORT_EXTENSION_ID, SYNC_BACKOFF_TOTAL_WAIT_MAX_SECS, SYNC_BACKOFF_WAIT_MS,
+    SYNC_JITTER_MS, SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
@@ -3902,35 +3902,47 @@ fn handle_published_intent_send_failure<Db: QueryGroupIntent>(
     intent: &StoredGroupIntent,
     is_retryable: bool,
 ) -> Result<(), GroupError> {
-    if is_retryable {
-        // Retriable failures (e.g. transient transport errors while the client
-        // is offline) must not consume the MAX_INTENT_PUBLISH_ATTEMPTS budget
-        // that exists to guard against content-level failures. Reset the
-        // intent back to ToPublish without bumping publish_attempts so the
-        // next sync — after connectivity returns — can re-encrypt and
-        // retry at the current epoch.
-        tracing::warn!(
-            intent.id,
-            intent.kind = %intent.kind,
-            "retriable publish failure for intent {}, resetting to ToPublish without incrementing publish_attempts",
-            intent.id
-        );
-        db.set_group_intent_to_publish(intent.id)?;
-        return Ok(());
-    }
+    // Always bump publish_attempts so a truly permanent failure — even one
+    // the API layer currently classifies as retriable — cannot loop forever.
+    db.increment_intent_publish_attempt_count(intent.id)?;
+    let next_attempts = (intent.publish_attempts + 1) as usize;
 
-    if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
+    // Non-retriable failures keep the tight MAX_INTENT_PUBLISH_ATTEMPTS cap
+    // (guards against content-level failures). Retriable failures get a much
+    // higher cap so a normal offline window can recover; the cap exists as
+    // defense-in-depth against errors that the API layer marks retriable
+    // but which would never actually succeed (e.g. a malformed payload the
+    // server persistently rejects with a retriable gRPC status).
+    let cap = if is_retryable {
+        MAX_INTENT_RETRIABLE_PUBLISH_ATTEMPTS
+    } else {
+        MAX_INTENT_PUBLISH_ATTEMPTS
+    };
+
+    if next_attempts >= cap {
         tracing::error!(
             intent.id,
             intent.kind = %intent.kind,
+            is_retryable,
+            attempts = next_attempts,
+            cap,
             "intent {} has reached max publish attempts",
             intent.id
         );
         let id = utils::id::calculate_message_id_for_intent(intent)?;
         db.set_group_intent_error_and_fail_msg(intent, id)?;
     } else {
+        if is_retryable {
+            tracing::warn!(
+                intent.id,
+                intent.kind = %intent.kind,
+                attempts = next_attempts,
+                cap,
+                "retriable publish failure for intent {}, resetting to ToPublish",
+                intent.id
+            );
+        }
         // Reset so the next retry re-encrypts at the current epoch.
-        db.increment_intent_publish_attempt_count(intent.id)?;
         db.set_group_intent_to_publish(intent.id)?;
     }
 
@@ -4054,7 +4066,9 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn retriable_send_failures_revert_to_to_publish_without_incrementing_attempts() {
+    fn retriable_send_failures_revert_to_to_publish_under_the_retriable_cap() {
+        // Well below MAX_INTENT_RETRIABLE_PUBLISH_ATTEMPTS: resets to
+        // ToPublish and does not mark the intent as errored.
         let intent = StoredGroupIntent {
             id: 99,
             kind: IntentKind::SendMessage,
@@ -4072,15 +4086,72 @@ pub(crate) mod tests {
         };
 
         let mut db = MockDbQuery::new();
-        // Retriable failures must not bump the publish-attempt counter or
-        // mark the intent as errored — they only reset state to ToPublish.
-        db.expect_increment_intent_publish_attempt_count().times(0);
+        db.expect_increment_intent_publish_attempt_count()
+            .with(eq(intent.id))
+            .times(1)
+            .returning(|_| Ok(()));
         db.expect_set_group_intent_error_and_fail_msg().times(0);
         db.expect_set_group_intent_to_publish()
             .with(eq(intent.id))
             .times(1)
             .returning(|_| Ok(()));
 
+        let result = handle_published_intent_send_failure(&db, &intent, true);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn retriable_send_failures_over_their_cap_still_poison_the_intent() {
+        // Above MAX_INTENT_PUBLISH_ATTEMPTS (non-retriable cap) but just
+        // below MAX_INTENT_RETRIABLE_PUBLISH_ATTEMPTS: should NOT error yet
+        // when the failure is retriable — defense-in-depth is scoped to the
+        // retriable cap, not the tight non-retriable one.
+        let mut intent = StoredGroupIntent {
+            id: 101,
+            kind: IntentKind::SendMessage,
+            group_id: xmtp_common::rand_vec::<16>(),
+            data: Vec::new(),
+            state: IntentState::Published,
+            payload_hash: Some(xmtp_common::rand_vec::<32>()),
+            post_commit_data: None,
+            publish_attempts: (MAX_INTENT_PUBLISH_ATTEMPTS as i32) + 2,
+            staged_commit: None,
+            published_in_epoch: Some(7),
+            should_push: false,
+            sequence_id: None,
+            originator_id: None,
+        };
+        {
+            let mut db = MockDbQuery::new();
+            db.expect_increment_intent_publish_attempt_count()
+                .with(eq(intent.id))
+                .times(1)
+                .returning(|_| Ok(()));
+            db.expect_set_group_intent_error_and_fail_msg().times(0);
+            db.expect_set_group_intent_to_publish()
+                .with(eq(intent.id))
+                .times(1)
+                .returning(|_| Ok(()));
+            let result = handle_published_intent_send_failure(&db, &intent, true);
+            assert!(result.is_ok());
+        }
+
+        // At the retriable cap — 1: should poison the intent on this next
+        // increment (which lands it at the cap), protecting against a
+        // retriable-classified permanent rejection looping forever.
+        // Use IntentKind::KeyUpdate so `calculate_message_id_for_intent`
+        // short-circuits to Ok(None) instead of parsing intent.data.
+        intent.kind = IntentKind::KeyUpdate;
+        intent.publish_attempts = (MAX_INTENT_RETRIABLE_PUBLISH_ATTEMPTS as i32) - 1;
+        let mut db = MockDbQuery::new();
+        db.expect_increment_intent_publish_attempt_count()
+            .with(eq(intent.id))
+            .times(1)
+            .returning(|_| Ok(()));
+        db.expect_set_group_intent_to_publish().times(0);
+        db.expect_set_group_intent_error_and_fail_msg()
+            .times(1)
+            .returning(|_, _| Ok(()));
         let result = handle_published_intent_send_failure(&db, &intent, true);
         assert!(result.is_ok());
     }
