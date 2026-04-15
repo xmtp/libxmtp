@@ -679,9 +679,8 @@ class ConversationTests: XCTestCase {
 		// otherwise flake this assertion. See issue #3502.
 		let groupMessages = try await group.messages()
 		let dmMessages = try await dm.messages()
-		let maxObservedSentAtNs =
-			(groupMessages.map(\.sentAtNs) + dmMessages.map(\.sentAtNs))
-			.max() ?? 0
+		let allSentAtNs = groupMessages.map(\.sentAtNs) + dmMessages.map(\.sentAtNs)
+		let maxObservedSentAtNs = allSentAtNs.max() ?? 0
 		let futureCutoffNs = maxObservedSentAtNs + 1_000_000_000 // +1s buffer
 		let futureGroupCount = try group.countMessages(afterNs: futureCutoffNs)
 		let futureDmCount = try dm.countMessages(afterNs: futureCutoffNs)
