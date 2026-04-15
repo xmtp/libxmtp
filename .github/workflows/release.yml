@@ -34,6 +34,11 @@ on:
         required: false
         type: boolean
         default: false
+      jvm:
+        description: "Release JVM SDK"
+        required: false
+        type: boolean
+        default: false
       wasm:
         description: "Release WASM Bindings"
         required: false
@@ -98,6 +103,16 @@ jobs:
       ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
+  release-jvm:
+    needs: [validate]
+    if: inputs.jvm
+    uses: ./.github/workflows/release-jvm.yml
+    with:
+      release-type: ${{ inputs.release-type }}
+      rc-number: ${{ inputs.rc-number }}
+      ref: ${{ inputs.ref || github.ref }}
+    secrets: inherit
+
   release-node:
     needs: [validate]
     if: inputs.node
@@ -120,7 +135,7 @@ jobs:
 
   merge-pr:
     if: inputs.release-type == 'final' && !inputs.no-merge && !cancelled() && !contains(needs.*.result, 'failure')
-    needs: [release-ios, release-android, release-node, release-wasm]
+    needs: [release-ios, release-android, release-jvm, release-node, release-wasm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -143,7 +158,7 @@ jobs:
           gh pr merge "$PR_NUMBER" --merge --delete-branch
 
   notify:
-    needs: [release-ios, release-android, release-node, release-wasm, merge-pr]
+    needs: [release-ios, release-android, release-jvm, release-node, release-wasm, merge-pr]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -154,6 +169,8 @@ jobs:
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
           ANDROID_RESULT: ${{ needs.release-android.result }}
           ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
+          JVM_RESULT: ${{ needs.release-jvm.result }}
+          JVM_VERSION: ${{ needs.release-jvm.outputs.version }}
           NODE_RESULT: ${{ needs.release-node.result }}
           NODE_VERSION: ${{ needs.release-node.outputs.version }}
           WASM_RESULT: ${{ needs.release-wasm.result }}
@@ -166,6 +183,9 @@ jobs:
           fi
           if [ -n "$ANDROID_VERSION" ] || [ "$ANDROID_RESULT" != "skipped" ]; then
             MSG="$MSG Android ${ANDROID_VERSION:-failed} (${ANDROID_RESULT})"
+          fi
+          if [ -n "$JVM_VERSION" ] || [ "$JVM_RESULT" != "skipped" ]; then
+            MSG="$MSG JVM ${JVM_VERSION:-failed} (${JVM_RESULT})"
           fi
           if [ -n "$NODE_VERSION" ] || [ "$NODE_RESULT" != "skipped" ]; then
             MSG="$MSG Node ${NODE_VERSION:-failed} (${NODE_RESULT})"

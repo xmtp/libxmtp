@@ -2,6 +2,10 @@
 .direnv/
 .build/
 
+# JVM native libraries (built by dev/jvm-native)
+xmtp-native/src/main/resources/darwin-*/
+xmtp-native/src/main/resources/linux-*/
+
 # Used for test:
 library/abcdefg
 

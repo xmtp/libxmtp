@@ -1,0 +1,21 @@
+#!/bin/bash
+# Build JVM native library for the current host platform
+source "$(dirname "$0")/.setup"
+
+# --release is accepted for consistency with dev/bindings but both modes
+# build the same jvm-native-fast package (single host platform).
+PACKAGE="jvm-native-fast"
+if [[ "${1:-}" == "--release" ]]; then
+    echo "Building JVM native library (release)..."
+else
+    echo "Building JVM native library (host target only)..."
+fi
+
+nix build "${ROOT}#${PACKAGE}" --out-link "${SDK_ROOT}/.build/jvm-native"
+
+# Copy into the xmtp-native module's resources
+mkdir -p "${SDK_ROOT}/xmtp-native/src/main/resources"
+cp -rL "${SDK_ROOT}/.build/jvm-native/"* "${SDK_ROOT}/xmtp-native/src/main/resources/"
+
+echo "JVM native library built:"
+ls -la "${SDK_ROOT}/xmtp-native/src/main/resources/"*/

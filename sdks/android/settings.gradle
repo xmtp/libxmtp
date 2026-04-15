@@ -16,4 +16,5 @@ dependencyResolutionManagement {
 rootProject.name = "xmtp-android"
 include ':jvm'
 include ':android'
+include ':xmtp-native'
 include ':example'

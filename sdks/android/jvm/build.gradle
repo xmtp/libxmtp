@@ -38,6 +38,8 @@ dependencies {
     api 'com.google.protobuf:protobuf-kotlin-lite:3.22.3'
     api 'org.xmtp:proto-kotlin:3.88.0'
 
+    runtimeOnly project(':xmtp-native')
+
     testImplementation 'junit:junit:4.13.2'
 }
 
@@ -50,6 +52,13 @@ afterEvaluate {
                 version = rootProject.version
 
                 from components.java
+
+                // Exclude xmtp-native from published POM — it's a local development
+                // convenience. JVM consumers add it explicitly; Android doesn't need it.
+                pom.withXml {
+                    def deps = asNode().dependencies.dependency
+                    deps.findAll { it.artifactId.text() == 'xmtp-native' }.each { it.parent().remove(it) }
+                }
 
                 pom {
                     name = "XMTP Kotlin"
