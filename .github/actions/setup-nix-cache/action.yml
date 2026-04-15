@@ -95,14 +95,9 @@ runs:
           sudo systemctl start nix-daemon.socket nix-daemon.service
           DAEMON_WAIT_MAX=30
         fi
-        # Wait for the daemon to accept client connections before returning.
-        # launchctl kickstart / systemctl start return before the daemon is
-        # listening, so a subsequent step (e.g. cachix-action running
-        # `nix-env`) can race the daemon, fall back to single-user mode, and
-        # fail on `/nix/var/nix/db/big-lock: Permission denied` (the DB is
-        # now root-owned again). Probe as the runner user via the real
-        # daemon protocol — that matches the permission context the next
-        # step will use.
+        # Wait for the daemon to accept connections before returning; otherwise
+        # the next step can race it, fall back to single-user mode, and fail on
+        # `/nix/var/nix/db/big-lock: Permission denied`.
         echo "Waiting up to ${DAEMON_WAIT_MAX}s for Nix daemon to become ready..."
         for i in $(seq 1 "$DAEMON_WAIT_MAX"); do
           if nix store ping --store daemon >/dev/null 2>&1; then
