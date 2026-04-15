@@ -422,12 +422,16 @@ class DmTests: XCTestCase {
 		XCTAssertEqual(boGroupMessagesPersist, 5) // memberAdd settings 1, settings 2, boMessage, alixMessage
 		XCTAssertEqual(alixGroupMessagesPersist, 5) // memberAdd settings 1, settings 2, boMessage, alixMessage
 
-		// Re-enable disappearing messages
+		// Re-enable disappearing messages.
+		// Retention is 5s (long enough that the count==9 assertion below
+		// wins the race with the 1s-interval disappearing_messages worker
+		// even on slow CI runners — see issue #3505, same root cause as
+		// the Phase 1 fix in #3448/#3451).
 		let boDmMessages = try await boDm.messages()
 		let updatedSettings = try DisappearingMessageSettings(
 			disappearStartingAtNs: XCTUnwrap(boDmMessages.first?.sentAtNs)
-				+ 1_000_000_000, // 1s from now
-			retentionDurationInNs: 1_000_000_000 // 2s duration
+				+ 1_000_000_000, // disappearStartingAtNs offset; does not gate deletion
+			retentionDurationInNs: 5_000_000_000 // 5s duration
 		)
 		try await boDm.updateDisappearingMessageSettings(updatedSettings)
 		try await boDm.sync()
@@ -458,7 +462,8 @@ class DmTests: XCTestCase {
 		XCTAssertEqual(boGroupMessagesAfterNewSend, 9)
 		XCTAssertEqual(alixGroupMessagesAfterNewSend, 9)
 
-		try await Task.sleep(nanoseconds: 6_000_000_000) // Sleep for 6 seconds to let messages disappear
+		// Sleep longer than retention (5s) + worker interval (1s) + buffer — see issue #3505.
+		try await Task.sleep(nanoseconds: 8_000_000_000) // Sleep for 8 seconds to let messages disappear
 
 		let boGroupMessagesFinal = try await boDm.messages().count
 		let alixGroupMessagesFinal = try await alixDm?.messages().count
