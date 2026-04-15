@@ -89,17 +89,7 @@ rust.napiBuild (
       # Replace /nix/store paths (the dylib's own id and its libiconv dep)
       # with macOS system paths so the .node loads on hosts without Nix.
       install_name_tool -id "@loader_path/$(basename $NODE_LIB)" "$NODE_LIB"
-
-      # Discover the actually-embedded libiconv store path from otool -L
-      # rather than trusting ${darwin.libiconv} to match the store hash the
-      # linker recorded — nixpkgs drift / cross-compile splicing can make the
-      # two diverge, at which point a hardcoded -change is a silent no-op.
-      # NR > 1 skips otool -L's header line (which is the file's own path).
-      otool -L "$NODE_LIB" \
-        | awk 'NR > 1 && $1 ~ /^\/nix\/store\/.*\/libiconv\.[0-9]+\.dylib$/ { print $1 }' \
-        | while read -r old; do
-            install_name_tool -change "$old" "/usr/lib/$(basename "$old")" "$NODE_LIB"
-          done
+      install_name_tool -change "${darwin.libiconv}/lib/libiconv.2.dylib" "/usr/lib/libiconv.2.dylib" "$NODE_LIB"
 
       # install_name_tool invalidates the ad-hoc signature applied by
       # darwin.autoSignDarwinBinariesHook; re-sign so the .node loads under
