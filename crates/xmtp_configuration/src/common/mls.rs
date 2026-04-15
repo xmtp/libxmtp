@@ -19,13 +19,14 @@ pub const MAX_INTENT_PUBLISH_ATTEMPTS: usize = 3;
 ///
 /// Retriable publish failures (e.g. a client that is temporarily offline)
 /// use a separate budget from content-level failures so that a normal
-/// outage cannot poison a perfectly good intent. The generous cap here
-/// exists as defense-in-depth against errors that the API layer marks
-/// retriable but which would never actually recover — for example, a
-/// malformed payload that the server persistently rejects with a
-/// retriable gRPC status. In that case the intent will still eventually
-/// be poisoned rather than retried forever.
-pub const MAX_INTENT_RETRIABLE_PUBLISH_ATTEMPTS: usize = 30;
+/// outage cannot poison a perfectly good intent. The cap here exists as
+/// defense-in-depth against errors that the API layer marks retriable but
+/// which would never actually recover — for example, a malformed payload
+/// that the server persistently rejects with a retriable gRPC status. In
+/// that case the intent will eventually be poisoned rather than retried
+/// forever, but the larger budget tolerates a real offline window before
+/// the app surfaces a hard failure to the user.
+pub const MAX_INTENT_RETRIABLE_PUBLISH_ATTEMPTS: usize = 12;
 
 pub const GROUP_KEY_ROTATION_INTERVAL_NS: i64 = NS_IN_30_DAYS;
 

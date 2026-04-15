@@ -2470,11 +2470,22 @@ where
 
                 match result {
                     Err(err) => {
-                        tracing::error!(error = %err, "error getting publish intent data {:?}", err);
-                        if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
+                        // `get_publish_intent_data` performs MLS encryption *and*
+                        // (for `UpdateGroupMembership`) network calls to fetch
+                        // identity updates and key packages — so its errors can
+                        // legitimately be retriable. Mirror the send-failure
+                        // path's two-cap policy here so a transient network
+                        // outage during data preparation can't poison an intent
+                        // in just three retries.
+                        let is_retryable = err.is_retryable();
+                        tracing::error!(error = %err, is_retryable, "error getting publish intent data {:?}", err);
+                        let cap = cap_for_publish_attempts(is_retryable);
+                        if (intent.publish_attempts + 1) as usize >= cap {
                             tracing::error!(
                                 intent.id,
                                 intent.kind = %intent.kind,
+                                is_retryable,
+                                cap,
                                 inbox_id = self.context.inbox_id(),
                                 installation_id = %self.context.installation_id(),group_id = hex::encode(&self.group_id),
                                 "intent {} has reached max publish attempts", intent.id);
@@ -3897,6 +3908,21 @@ pub(crate) fn decode_staged_commit(
     Ok(xmtp_db::db_deserialize(data)?)
 }
 
+/// Returns the maximum number of publish attempts allowed before an intent is
+/// poisoned. Non-retriable failures keep the tight `MAX_INTENT_PUBLISH_ATTEMPTS`
+/// cap (guards against content-level failures). Retriable failures get a much
+/// higher cap so a normal offline window can recover; the cap exists as
+/// defense-in-depth against errors that the API layer marks retriable but
+/// which would never actually succeed (e.g. a malformed payload the server
+/// persistently rejects with a retriable gRPC status).
+fn cap_for_publish_attempts(is_retryable: bool) -> usize {
+    if is_retryable {
+        MAX_INTENT_RETRIABLE_PUBLISH_ATTEMPTS
+    } else {
+        MAX_INTENT_PUBLISH_ATTEMPTS
+    }
+}
+
 fn handle_published_intent_send_failure<Db: QueryGroupIntent>(
     db: &Db,
     intent: &StoredGroupIntent,
@@ -3906,18 +3932,7 @@ fn handle_published_intent_send_failure<Db: QueryGroupIntent>(
     // the API layer currently classifies as retriable — cannot loop forever.
     db.increment_intent_publish_attempt_count(intent.id)?;
     let next_attempts = (intent.publish_attempts + 1) as usize;
-
-    // Non-retriable failures keep the tight MAX_INTENT_PUBLISH_ATTEMPTS cap
-    // (guards against content-level failures). Retriable failures get a much
-    // higher cap so a normal offline window can recover; the cap exists as
-    // defense-in-depth against errors that the API layer marks retriable
-    // but which would never actually succeed (e.g. a malformed payload the
-    // server persistently rejects with a retriable gRPC status).
-    let cap = if is_retryable {
-        MAX_INTENT_RETRIABLE_PUBLISH_ATTEMPTS
-    } else {
-        MAX_INTENT_PUBLISH_ATTEMPTS
-    };
+    let cap = cap_for_publish_attempts(is_retryable);
 
     if next_attempts >= cap {
         tracing::error!(
