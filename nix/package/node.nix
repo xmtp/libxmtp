@@ -89,10 +89,23 @@ rust.napiBuild (
     postFixup = ''
       NODE_LIB=$(echo $out/dist/bindings_node.*.node)
 
-      # Replace /nix/store paths (the dylib's own id and its libiconv dep)
-      # with macOS system paths so the .node loads on hosts without Nix.
+      # Rewrite the dylib's own install name (LC_ID_DYLIB) so consumers
+      # resolve it relative to the .node file, not the Nix build path.
       install_name_tool -id "@loader_path/$(basename $NODE_LIB)" "$NODE_LIB"
-      install_name_tool -change "${darwin.libiconv}/lib/libiconv.2.dylib" "/usr/lib/libiconv.2.dylib" "$NODE_LIB"
+
+      # Rewrite every /nix/store/.../libiconv.<ver>.dylib load reference
+      # to the macOS system copy. Using otool -L output as the source of
+      # truth is drift-proof — we rewrite whatever the linker actually
+      # recorded, not whatever Nix evaluation resolves darwin.libiconv to.
+      # Cross-compile splicing in mkCrossPkgs was causing the two to
+      # diverge, silently defeating a hardcoded `install_name_tool -change`.
+      # See https://github.com/xmtp/libxmtp/issues/3516.
+      # NR > 1 skips otool -L's header line (the file's own id).
+      otool -L "$NODE_LIB" \
+        | awk 'NR > 1 && $1 ~ /^\/nix\/store\/.*\/libiconv(\.[0-9]+)*\.dylib$/ { print $1 }' \
+        | while read -r old; do
+          install_name_tool -change "$old" "/usr/lib/$(basename "$old")" "$NODE_LIB"
+        done
 
       # install_name_tool invalidates the ad-hoc signature applied by
       # darwin.autoSignDarwinBinariesHook; re-sign so the .node loads under
