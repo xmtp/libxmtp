@@ -86,13 +86,9 @@ rust.napiBuild (
     postFixup = ''
       NODE_LIB=$(echo $out/dist/bindings_node.*.node)
 
-      # Fix the dylib's own install name (LC_ID_DYLIB) — it embeds the
-      # ephemeral Nix build path.
+      # Replace /nix/store paths (the dylib's own id and its libiconv dep)
+      # with macOS system paths so the .node loads on hosts without Nix.
       install_name_tool -id "@loader_path/$(basename $NODE_LIB)" "$NODE_LIB"
-
-      # Rewrite the Nix-store libiconv reference to the system libiconv,
-      # which macOS resolves via the dyld shared cache so the .node file
-      # loads on hosts without Nix.
       install_name_tool -change "${darwin.libiconv}/lib/libiconv.2.dylib" "/usr/lib/libiconv.2.dylib" "$NODE_LIB"
 
       # Assert no /nix/store references remain — guards against silent
