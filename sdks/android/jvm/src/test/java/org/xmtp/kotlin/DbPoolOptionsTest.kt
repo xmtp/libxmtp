@@ -1,4 +1,4 @@
-package org.xmtp.android.library
+package org.xmtp.kotlin
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
