@@ -80,12 +80,7 @@ rust.napiBuild (
     '';
   }
   // lib.optionalAttrs stdenv.hostPlatform.isDarwin {
-    # stdenv-darwin's fixupPhase invokes `codesign` *before* postFixup runs.
-    # darwin.autoSignDarwinBinariesHook's transitive sigtool propagation is
-    # unreliable on native aarch64-darwin, causing `codesign: command not
-    # found` (exit 127) at setup.sh line 277. Adding darwin.sigtool directly
-    # to nativeBuildInputs puts the sigtool-provided `codesign` symlink on
-    # PATH for both stdenv's fixup hooks and the postFixup re-sign below.
+    # sigtool provides `codesign` on PATH for the postFixup re-sign.
     # See https://github.com/xmtp/libxmtp/issues/3513.
     nativeBuildInputs = commonArgs.nativeBuildInputs ++ [
       darwin.autoSignDarwinBinariesHook
