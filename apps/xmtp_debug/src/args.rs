@@ -30,6 +30,10 @@ pub struct AppOpts {
     /// Runs at the end of execution, so operations will still be carried out
     #[arg(long)]
     pub clear: bool,
+    /// Emit CSV metric lines (latency_seconds, throughput_events, event)
+    /// to stdout. Off by default for clean CLI output.
+    #[arg(long)]
+    pub metrics: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -673,5 +677,26 @@ mod tests {
             "http://custom:5052/",
             "explicit --xmtpd-gateway-url should override perf gateway"
         );
+    }
+
+    #[test]
+    fn metrics_flag_defaults_false() {
+        let opts = AppOpts::try_parse_from(["xdbg"]).expect("parses with no args");
+        assert!(!opts.metrics, "--metrics should default to false");
+    }
+
+    #[test]
+    fn metrics_flag_parses_when_present() {
+        let opts = AppOpts::try_parse_from(["xdbg", "--metrics"]).expect("parses with --metrics");
+        assert!(opts.metrics, "--metrics should set opts.metrics to true");
+    }
+
+    #[test]
+    fn metrics_flag_coexists_with_enable_migration_short_flag() {
+        // -m is --enable-migration on BackendOpts; --metrics must not collide.
+        let opts = AppOpts::try_parse_from(["xdbg", "--metrics", "-m"])
+            .expect("--metrics and -m should coexist");
+        assert!(opts.metrics);
+        assert!(opts.backend.enable_migration);
     }
 }
