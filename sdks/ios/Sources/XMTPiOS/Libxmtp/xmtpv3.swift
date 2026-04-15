@@ -707,9 +707,8 @@ fileprivate struct UniffiCallbackInterfaceFfiAuthCallback {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceFfiAuthCallback] = [UniffiVTableCallbackInterfaceFfiAuthCallback(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFfiAuthCallback = UniffiVTableCallbackInterfaceFfiAuthCallback(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeFfiAuthCallback.handleMap.remove(handle: uniffiHandle)
@@ -765,11 +764,19 @@ fileprivate struct UniffiCallbackInterfaceFfiAuthCallback {
                 droppedCallback: uniffiOutDroppedCallback
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFfiAuthCallback> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFfiAuthCallback>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitFfiAuthCallback() {
-    uniffi_xmtpv3_fn_init_callback_vtable_ffiauthcallback(UniffiCallbackInterfaceFfiAuthCallback.vtable)
+    uniffi_xmtpv3_fn_init_callback_vtable_ffiauthcallback(UniffiCallbackInterfaceFfiAuthCallback.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -1071,9 +1078,8 @@ fileprivate struct UniffiCallbackInterfaceFfiConsentCallback {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceFfiConsentCallback] = [UniffiVTableCallbackInterfaceFfiConsentCallback(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFfiConsentCallback = UniffiVTableCallbackInterfaceFfiConsentCallback(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeFfiConsentCallback.handleMap.remove(handle: uniffiHandle)
@@ -1158,11 +1164,19 @@ fileprivate struct UniffiCallbackInterfaceFfiConsentCallback {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFfiConsentCallback> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFfiConsentCallback>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitFfiConsentCallback() {
-    uniffi_xmtpv3_fn_init_callback_vtable_fficonsentcallback(UniffiCallbackInterfaceFfiConsentCallback.vtable)
+    uniffi_xmtpv3_fn_init_callback_vtable_fficonsentcallback(UniffiCallbackInterfaceFfiConsentCallback.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -2293,9 +2307,8 @@ fileprivate struct UniffiCallbackInterfaceFfiConversationCallback {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceFfiConversationCallback] = [UniffiVTableCallbackInterfaceFfiConversationCallback(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFfiConversationCallback = UniffiVTableCallbackInterfaceFfiConversationCallback(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeFfiConversationCallback.handleMap.remove(handle: uniffiHandle)
@@ -2380,11 +2393,19 @@ fileprivate struct UniffiCallbackInterfaceFfiConversationCallback {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFfiConversationCallback> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFfiConversationCallback>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitFfiConversationCallback() {
-    uniffi_xmtpv3_fn_init_callback_vtable_fficonversationcallback(UniffiCallbackInterfaceFfiConversationCallback.vtable)
+    uniffi_xmtpv3_fn_init_callback_vtable_fficonversationcallback(UniffiCallbackInterfaceFfiConversationCallback.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -3707,9 +3728,8 @@ fileprivate struct UniffiCallbackInterfaceFfiInboxOwner {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceFfiInboxOwner] = [UniffiVTableCallbackInterfaceFfiInboxOwner(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFfiInboxOwner = UniffiVTableCallbackInterfaceFfiInboxOwner(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeFfiInboxOwner.handleMap.remove(handle: uniffiHandle)
@@ -3772,11 +3792,19 @@ fileprivate struct UniffiCallbackInterfaceFfiInboxOwner {
                 lowerError: FfiConverterTypeSigningError_lower
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFfiInboxOwner> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFfiInboxOwner>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitFfiInboxOwner() {
-    uniffi_xmtpv3_fn_init_callback_vtable_ffiinboxowner(UniffiCallbackInterfaceFfiInboxOwner.vtable)
+    uniffi_xmtpv3_fn_init_callback_vtable_ffiinboxowner(UniffiCallbackInterfaceFfiInboxOwner.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -3936,9 +3964,8 @@ fileprivate struct UniffiCallbackInterfaceFfiMessageCallback {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceFfiMessageCallback] = [UniffiVTableCallbackInterfaceFfiMessageCallback(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFfiMessageCallback = UniffiVTableCallbackInterfaceFfiMessageCallback(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeFfiMessageCallback.handleMap.remove(handle: uniffiHandle)
@@ -4023,11 +4050,19 @@ fileprivate struct UniffiCallbackInterfaceFfiMessageCallback {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFfiMessageCallback> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFfiMessageCallback>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitFfiMessageCallback() {
-    uniffi_xmtpv3_fn_init_callback_vtable_ffimessagecallback(UniffiCallbackInterfaceFfiMessageCallback.vtable)
+    uniffi_xmtpv3_fn_init_callback_vtable_ffimessagecallback(UniffiCallbackInterfaceFfiMessageCallback.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -4168,9 +4203,8 @@ fileprivate struct UniffiCallbackInterfaceFfiMessageDeletionCallback {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceFfiMessageDeletionCallback] = [UniffiVTableCallbackInterfaceFfiMessageDeletionCallback(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFfiMessageDeletionCallback = UniffiVTableCallbackInterfaceFfiMessageDeletionCallback(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeFfiMessageDeletionCallback.handleMap.remove(handle: uniffiHandle)
@@ -4209,11 +4243,19 @@ fileprivate struct UniffiCallbackInterfaceFfiMessageDeletionCallback {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFfiMessageDeletionCallback> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFfiMessageDeletionCallback>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitFfiMessageDeletionCallback() {
-    uniffi_xmtpv3_fn_init_callback_vtable_ffimessagedeletioncallback(UniffiCallbackInterfaceFfiMessageDeletionCallback.vtable)
+    uniffi_xmtpv3_fn_init_callback_vtable_ffimessagedeletioncallback(UniffiCallbackInterfaceFfiMessageDeletionCallback.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -4373,9 +4415,8 @@ fileprivate struct UniffiCallbackInterfaceFfiPreferenceCallback {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceFfiPreferenceCallback] = [UniffiVTableCallbackInterfaceFfiPreferenceCallback(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFfiPreferenceCallback = UniffiVTableCallbackInterfaceFfiPreferenceCallback(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeFfiPreferenceCallback.handleMap.remove(handle: uniffiHandle)
@@ -4460,11 +4501,19 @@ fileprivate struct UniffiCallbackInterfaceFfiPreferenceCallback {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFfiPreferenceCallback> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFfiPreferenceCallback>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitFfiPreferenceCallback() {
-    uniffi_xmtpv3_fn_init_callback_vtable_ffipreferencecallback(UniffiCallbackInterfaceFfiPreferenceCallback.vtable)
+    uniffi_xmtpv3_fn_init_callback_vtable_ffipreferencecallback(UniffiCallbackInterfaceFfiPreferenceCallback.vtablePtr)
 }
 
 #if swift(>=5.8)

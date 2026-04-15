@@ -37,7 +37,9 @@ public struct Group: Identifiable, Equatable, Hashable {
 	var ffiGroup: FfiConversation
 	var ffiLastMessage: FfiMessage?
 	var ffiCommitLogForkStatus: Bool?
-	var client: Client
+	/// InboxId of the owning Client. Captured at construction time so Group
+	/// does not need to hold a reference to Client itself.
+	public var clientInboxId: InboxId
 	let streamHolder = StreamHolder()
 
 	public var id: String {
@@ -85,7 +87,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 
 	public func isCreator() async throws -> Bool {
-		try await metadata().creatorInboxId() == client.inboxID
+		try await metadata().creatorInboxId() == clientInboxId
 	}
 
 	public func isAdmin(inboxId: InboxId) throws -> Bool {
@@ -151,7 +153,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public var peerInboxIds: [InboxId] {
 		get async throws {
 			var ids = try await members.map(\.inboxId)
-			if let index = ids.firstIndex(of: client.inboxID) {
+			if let index = ids.firstIndex(of: clientInboxId) {
 				ids.remove(at: index)
 			}
 			return ids

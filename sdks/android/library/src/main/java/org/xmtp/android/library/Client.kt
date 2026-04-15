@@ -56,8 +56,7 @@ data class ClientOptions(
     val dbDirectory: String? = null,
     val deviceSyncEnabled: Boolean = true,
     val forkRecoveryOptions: ForkRecoveryOptions? = null,
-    val maxDbPoolSize: UInt? = null,
-    val minDbPoolSize: UInt? = null,
+    val dbPoolOptions: DbPoolOptions? = null,
     val waitForRegistrationVisible: VisibilityConfirmationOptions? = null,
 ) {
     data class Api(
@@ -110,6 +109,11 @@ data class VisibilityConfirmationOptions(
             timeoutMs = this.timeoutMs,
         )
 }
+
+data class DbPoolOptions(
+    val maxPoolSize: UInt? = null,
+    val minPoolSize: UInt? = null,
+)
 
 typealias InboxId = String
 
@@ -533,8 +537,8 @@ class Client(
                             DbOptions(
                                 db = dbPath,
                                 encryptionKey = options.dbEncryptionKey,
-                                maxDbPoolSize = options.maxDbPoolSize,
-                                minDbPoolSize = options.minDbPoolSize,
+                                maxDbPoolSize = options.dbPoolOptions?.maxPoolSize,
+                                minDbPoolSize = options.dbPoolOptions?.minPoolSize,
                             ),
                         accountIdentifier = publicIdentity.ffiPrivate,
                         inboxId = inboxId,

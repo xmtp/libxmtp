@@ -22,6 +22,7 @@ jobs:
       ios: ${{ steps.filter.outputs.ios }}
       android: ${{ steps.filter.outputs.android }}
       bindings-check: ${{ steps.filter.outputs.bindings-check }}
+      devcontainer: ${{ steps.filter.outputs.devcontainer }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -83,6 +84,9 @@ jobs:
               - 'rust-toolchain.toml'
               - '.cargo/**'
               - '.github/workflows/test-bindings*'
+            devcontainer:
+              - '.devcontainer/**'
+              - '.github/workflows/test-devcontainer*'
 
   test-workspace:
     needs: detect-changes
@@ -125,6 +129,21 @@ jobs:
     uses: ./.github/workflows/test-bindings-check.yml
     secrets: inherit
 
+  test-devcontainer:
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.devcontainer == 'true' &&
+      (
+        github.event_name != 'pull_request' ||
+        github.event.pull_request.head.repo.full_name == github.repository
+      )
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+    uses: ./.github/workflows/test-devcontainer.yml
+    secrets: inherit
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -136,6 +155,7 @@ jobs:
       # - test-ios TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       # - test-android TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       - test-bindings-check
+      - test-devcontainer
     steps:
       - run: |
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || \

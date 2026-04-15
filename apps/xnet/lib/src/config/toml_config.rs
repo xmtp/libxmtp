@@ -75,6 +75,7 @@ pub struct NodeToml {
     pub name: Option<String>,
     pub port: Option<u16>,
     pub migrator: bool,
+    pub use_standard_port: bool,
 }
 
 #[derive(Deserialize, Default, Debug)]

@@ -170,6 +170,43 @@ where
     S: Sync,
     D: GroupDatabase,
 {
+    /// Load the stored row to surface on the stream after a sync round.
+    ///
+    /// Primary lookup is by the streamed envelope's cursor. If that row is absent
+    /// (the envelope errored) but other cursors in the same sync batch succeeded
+    /// for this group, fall back to the earliest successful cursor. Without this
+    /// fallback, `process` would advance `next_message` to
+    /// `ProcessSummary::last_errored`, which can sit after a successful cursor and
+    /// cause the stream to silently drop the valid message in between.
+    fn lookup_stored_from_sync(
+        &self,
+        summary: &SyncSummary,
+        msg: &xmtp_proto::types::GroupMessage,
+    ) -> Result<Option<(StoredGroupMessage, Cursor)>, SubscribeError> {
+        let primary_id = summary.new_message_by_id(msg.cursor);
+        if let Some(stored) = self.group_db.msg(primary_id, msg)? {
+            let delivered = primary_id.map(|id| id.cursor).unwrap_or(msg.cursor);
+            return Ok(Some((stored, delivered)));
+        }
+
+        // Fallback: same group, ascending cursor; skip the primary id we already looked up above.
+        let mut candidates: Vec<&MessageIdentifier> = summary
+            .process
+            .new_messages
+            .iter()
+            .filter(|m| m.group_id == msg.group_id)
+            .filter(|m| primary_id.is_none_or(|p| p.cursor != m.cursor))
+            .collect();
+        candidates.sort_by_key(|m| m.cursor);
+
+        for id in candidates {
+            if let Some(stored) = self.group_db.msg(Some(id), msg)? {
+                return Ok(Some((stored, id.cursor)));
+            }
+        }
+        Ok(None)
+    }
+
     /// Processes a group message received from a stream.
     ///
     /// This is the main entry point for the future. It handles the complete lifecycle
@@ -212,14 +249,10 @@ where
             SyncSummary::single(MessageIdentifierBuilder::from(&msg).build()?)
         };
 
-        let new_message = self
-            .group_db
-            .msg(summary.new_message_by_id(msg.cursor), &msg)?;
-
-        if let Some(new_msg) = new_message {
+        if let Some((new_msg, delivered_cursor)) = self.lookup_stored_from_sync(&summary, &msg)? {
             Ok(ProcessedMessage {
                 message: Some(new_msg.clone()),
-                next_message: msg.cursor,
+                next_message: delivered_cursor,
                 group_id: new_msg.group_id.clone(),
                 tried_to_process: msg.cursor,
             })

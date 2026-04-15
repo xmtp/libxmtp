@@ -272,7 +272,13 @@ class ConversationTests: XCTestCase {
 	}
 
 	func testStreamsAndMessages() async throws {
-		var messages: [String] = []
+		let transcript = TestTranscript()
+		let expectation = XCTestExpectation(
+			description: "caro received 90 streamed messages"
+		)
+		expectation.expectedFulfillmentCount = 90
+		expectation.assertForOverFulfill = false
+
 		let fixtures = try await fixtures()
 
 		let alixGroup = try await fixtures.alixClient.conversations.newGroup(
@@ -311,14 +317,18 @@ class ConversationTests: XCTestCase {
 		// Start listening for messages
 		let caroTask = Task {
 			print("Caro is listening...")
+			var received = 0
 			do {
 				for try await message in await fixtures.caroClient.conversations
 					.streamAllMessages()
 				{
-					try messages.append(message.body)
-					try print("Caro received: \(message.body)")
+					let body = try message.body
+					await transcript.add(body)
+					print("Caro received: \(body)")
+					received += 1
+					expectation.fulfill()
 
-					if messages.count >= 90 { break }
+					if received >= 90 { break }
 				}
 			} catch {
 				print("Error while streaming messages: \(error)")
@@ -373,13 +383,15 @@ class ConversationTests: XCTestCase {
 			}
 		}
 
-		// Wait a bit to ensure all messages are processed
-		try await Task.sleep(nanoseconds: 5_000_000_000) // 2 seconds delay
+		// Wait for all 90 messages to arrive (event-driven, with a generous
+		// ceiling so a real streaming regression fails fast instead of
+		// masquerading as a flake).
+		await fulfillment(of: [expectation], timeout: 30)
 
 		caroTask.cancel()
 
-		// This test seems to fail with some random number between 87, 88, or 89, even with increased delay
-		XCTAssertEqual(messages.count, 90)
+		let finalCount = await transcript.messages.count
+		XCTAssertEqual(finalCount, 90)
 		let caroMessagesCount = try await caroGroup.messages().count
 		XCTAssertEqual(caroMessagesCount, 41)
 

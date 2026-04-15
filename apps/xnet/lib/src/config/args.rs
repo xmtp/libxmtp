@@ -62,6 +62,9 @@ pub struct AddNode {
     /// make this node a migrator node
     #[arg(long, short)]
     pub migrator: bool,
+    /// assign this node the standard XMTPD gRPC port (5050) instead of an allocated port
+    #[arg(long)]
+    pub use_standard_port: bool,
 }
 
 #[derive(Args, Debug, Copy, Clone)]
