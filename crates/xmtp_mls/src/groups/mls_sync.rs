@@ -2546,16 +2546,18 @@ where
                                 );
                             }
                             (kind, Err(err)) => {
+                                let is_retryable = err.is_retryable();
                                 log_event!(
                                     Event::GroupSyncPublishFailed,
                                     self.context.installation_id(),
                                     group_id = intent.group_id,
                                     intent_id = intent.id,
                                     intent_kind = ?kind,
+                                    is_retryable,
                                     err = ?err
                                 );
 
-                                handle_published_intent_send_failure(&db, &intent)?;
+                                handle_published_intent_send_failure(&db, &intent, is_retryable)?;
                                 return Err(err)?;
                             }
                             (kind, Ok(_)) => {
@@ -3898,7 +3900,25 @@ pub(crate) fn decode_staged_commit(
 fn handle_published_intent_send_failure<Db: QueryGroupIntent>(
     db: &Db,
     intent: &StoredGroupIntent,
+    is_retryable: bool,
 ) -> Result<(), GroupError> {
+    if is_retryable {
+        // Retriable failures (e.g. transient transport errors while the client
+        // is offline) must not consume the MAX_INTENT_PUBLISH_ATTEMPTS budget
+        // that exists to guard against content-level failures. Reset the
+        // intent back to ToPublish without bumping publish_attempts so the
+        // next sync — after connectivity returns — can re-encrypt and
+        // retry at the current epoch.
+        tracing::warn!(
+            intent.id,
+            intent.kind = %intent.kind,
+            "retriable publish failure for intent {}, resetting to ToPublish without incrementing publish_attempts",
+            intent.id
+        );
+        db.set_group_intent_to_publish(intent.id)?;
+        return Ok(());
+    }
+
     if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
         tracing::error!(
             intent.id,
@@ -4029,7 +4049,39 @@ pub(crate) mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        let result = handle_published_intent_send_failure(&db, &intent);
+        let result = handle_published_intent_send_failure(&db, &intent, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn retriable_send_failures_revert_to_to_publish_without_incrementing_attempts() {
+        let intent = StoredGroupIntent {
+            id: 99,
+            kind: IntentKind::SendMessage,
+            group_id: xmtp_common::rand_vec::<16>(),
+            data: Vec::new(),
+            state: IntentState::Published,
+            payload_hash: Some(xmtp_common::rand_vec::<32>()),
+            post_commit_data: None,
+            publish_attempts: 0,
+            staged_commit: None,
+            published_in_epoch: Some(7),
+            should_push: false,
+            sequence_id: None,
+            originator_id: None,
+        };
+
+        let mut db = MockDbQuery::new();
+        // Retriable failures must not bump the publish-attempt counter or
+        // mark the intent as errored — they only reset state to ToPublish.
+        db.expect_increment_intent_publish_attempt_count().times(0);
+        db.expect_set_group_intent_error_and_fail_msg().times(0);
+        db.expect_set_group_intent_to_publish()
+            .with(eq(intent.id))
+            .times(1)
+            .returning(|_| Ok(()));
+
+        let result = handle_published_intent_send_failure(&db, &intent, true);
         assert!(result.is_ok());
     }
 
