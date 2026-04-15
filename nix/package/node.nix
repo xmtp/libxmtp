@@ -108,9 +108,11 @@ rust.napiBuild (
           install_name_tool -change "$nixlib" "/usr/lib/$(basename "$nixlib")" "$NODE_LIB"
         done
 
-      # install_name_tool invalidates the ad-hoc signature applied by
-      # autoSignDarwinBinariesHook, so re-sign after modification.
-      codesign --force --sign - "$NODE_LIB"
+      # Note: install_name_tool invalidates the ad-hoc signature, but
+      # autoSignDarwinBinariesHook runs its signing function via
+      # postFixupHooks *after* this postFixup block, and signIfRequired
+      # explicitly handles the install_name_tool-invalidated case. No
+      # explicit codesign call is needed here.
 
       # Fail loudly if any /nix/store reference remains. Catches new deps
       # leaking Nix paths at build time rather than at consumer-report time.
