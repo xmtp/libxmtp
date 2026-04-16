@@ -19,7 +19,7 @@ permissions:
 jobs:
   build-dmg:
     name: Build macOS DMG
-    runs-on: macos-latest
+    runs-on: warp-macos-latest-arm64-6x
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
