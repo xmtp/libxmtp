@@ -1,6 +1,6 @@
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt, future, stream as future_stream};
 use process_welcome::ProcessWelcomeFuture;
-use std::{collections::HashSet, sync::Arc};
+use std::sync::{Arc, Mutex};
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 use xmtp_api_d14n::protocol::{EnvelopeError, V3WelcomeMessageExtractor, WelcomeMessageExtractor};
@@ -13,7 +13,9 @@ use xmtp_proto::api_client::XmtpMlsStreams;
 
 use process_welcome::ProcessWelcomeResult;
 use stream_all::StreamAllMessages;
-use stream_conversations::{StreamConversations, WelcomeOrGroup};
+use stream_conversations::{
+    BoundedCursorSet, MAX_KNOWN_WELCOME_IDS, StreamConversations, WelcomeOrGroup,
+};
 
 pub(crate) mod d14n_compat;
 pub mod process_message;
@@ -290,7 +292,10 @@ where
         envelope_bytes: Vec<u8>,
     ) -> Result<Vec<MlsGroup<Context>>> {
         let conn = self.context.db();
-        let mut known_welcomes = HashSet::from_iter(conn.group_cursors()?.into_iter());
+        let known_welcomes = Arc::new(Mutex::new(BoundedCursorSet::from_iter_with_cap(
+            conn.group_cursors()?.into_iter(),
+            MAX_KNOWN_WELCOME_IDS,
+        )));
         let welcome = decode_welcome_message(envelope_bytes.as_slice())?;
         let welcomes: Vec<_> = match welcome {
             V3OrD14n::D14n(envelope) => {
@@ -319,7 +324,7 @@ where
         for welcome in welcomes {
             let welcome_id = welcome.cursor;
             let future = ProcessWelcomeFuture::new(
-                known_welcomes.clone(),
+                Arc::clone(&known_welcomes),
                 self.context.clone(),
                 WelcomeOrGroup::Welcome(welcome),
                 None,
@@ -329,15 +334,24 @@ where
 
             match future.process().await? {
                 ProcessWelcomeResult::New { group, .. } => {
-                    known_welcomes.insert(welcome_id);
+                    known_welcomes
+                        .lock()
+                        .expect("known_welcomes mutex poisoned")
+                        .insert(welcome_id);
                     out.push(group)
                 }
                 ProcessWelcomeResult::NewStored { group, .. } => {
-                    known_welcomes.insert(welcome_id);
+                    known_welcomes
+                        .lock()
+                        .expect("known_welcomes mutex poisoned")
+                        .insert(welcome_id);
                     out.push(group)
                 }
                 ProcessWelcomeResult::IgnoreId { .. } | ProcessWelcomeResult::Ignore => {
-                    known_welcomes.insert(welcome_id);
+                    known_welcomes
+                        .lock()
+                        .expect("known_welcomes mutex poisoned")
+                        .insert(welcome_id);
                     return Err(
                         stream_conversations::ConversationStreamError::InvalidConversationType
                             .into(),
