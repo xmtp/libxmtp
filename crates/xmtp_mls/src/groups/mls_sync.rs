@@ -85,7 +85,10 @@ use xmtp_configuration::{
     SYNC_BACKOFF_TOTAL_WAIT_MAX_SECS, SYNC_BACKOFF_WAIT_MS, SYNC_JITTER_MS,
     SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
 };
-use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
+use xmtp_content_types::{
+    CodecError, ContentCodec, encoded_content_to_bytes, group_updated::GroupUpdatedCodec,
+    leave_request::LeaveRequestCodec,
+};
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::{
     Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
@@ -107,7 +110,7 @@ use xmtp_db::{
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_mls_common::group_metadata::extract_group_metadata;
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
-use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
+use xmtp_proto::xmtp::mls::message_contents::content_types::{DeleteMessage, LeaveRequest};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         GroupMessageInput, WelcomeMessageInput, WelcomeMetadata,
@@ -909,6 +912,15 @@ where
                     next_intent_state: IntentState::Error,
                 })?;
 
+            self.maybe_resend_leave_request_for_new_installations(
+                &validated_commit.added_installation_inbox_ids,
+                storage,
+            )
+            .map_err(|err| IntentResolutionError {
+                processing_error: err,
+                next_intent_state: IntentState::Error,
+            })?;
+
             // Clean up pending_remove list for removed members
             self.clean_pending_remove_list(storage, &validated_commit.removed_inboxes);
 
@@ -1357,6 +1369,11 @@ where
                     validated_commit.clone(),
                     envelope_timestamp_ns as u64,
                     *cursor,
+                    storage,
+                )?;
+
+                self.maybe_resend_leave_request_for_new_installations(
+                    &validated_commit.added_installation_inbox_ids,
                     storage,
                 )?;
 
@@ -2286,6 +2303,60 @@ where
             tracing::debug!("no cursor update required");
         }
         Ok(updated)
+    }
+
+    /// When a commit adds new installations of the current inbox while this inbox is
+    /// in a pending self-removal state, re-send the LeaveRequest so the newly-added
+    /// installations (which joined in a later MLS epoch) can decrypt it and mirror the
+    /// PendingRemove state. Without this, the original LeaveRequest is encrypted for an
+    /// earlier epoch and is invisible to the new installations.
+    ///
+    /// Runs within the same transaction as commit processing, so the queued intent is
+    /// rolled back if the commit fails to apply.
+    ///
+    /// Only queues the SendMessage intent — no optimistic StoredGroupMessage is created
+    /// because this is an internal re-send (not user-initiated) and the sender already
+    /// has the original LeaveRequest in their local history. Newly-added installations
+    /// will store the re-sent message when they receive it via the external-message path.
+    fn maybe_resend_leave_request_for_new_installations(
+        &self,
+        added_installation_inbox_ids: &HashSet<String>,
+        storage: &impl XmtpMlsStorageProvider,
+    ) -> Result<(), GroupMessageProcessingError> {
+        let own_inbox_id = self.context.inbox_id();
+        if !added_installation_inbox_ids.contains(own_inbox_id) {
+            return Ok(());
+        }
+
+        let db = storage.db();
+        if !db.get_user_pending_remove_status(self.group_id.as_slice(), own_inbox_id)? {
+            return Ok(());
+        }
+
+        debug!(
+            inbox_id = own_inbox_id,
+            group_id = hex::encode(&self.group_id),
+            "Re-sending LeaveRequest after new installations for this inbox were added while in pending self-removal"
+        );
+
+        let encoded_content = LeaveRequestCodec::encode(LeaveRequest {
+            authenticated_note: None,
+        })?;
+        let message_bytes = encoded_content_to_bytes(encoded_content);
+
+        let plain_envelope = Self::into_envelope(&message_bytes, now_ns());
+        let mut encoded_envelope = vec![];
+        plain_envelope.encode(&mut encoded_envelope)?;
+
+        let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
+        db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
+            IntentKind::SendMessage,
+            self.group_id.clone(),
+            intent_data,
+            false,
+        ))?;
+
+        Ok(())
     }
 
     fn save_transcript_message(

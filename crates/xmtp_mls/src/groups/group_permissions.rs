@@ -1480,6 +1480,7 @@ pub(crate) mod tests {
                 .map(build_membership_change)
                 .unwrap_or_default(),
             readded_installations: HashSet::new(),
+            added_installation_inbox_ids: HashSet::new(),
             metadata_validation_info: MutableMetadataValidationInfo {
                 metadata_field_changes: field_changes,
                 ..Default::default()

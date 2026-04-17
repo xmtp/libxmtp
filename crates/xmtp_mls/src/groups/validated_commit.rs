@@ -309,6 +309,10 @@ pub struct ValidatedCommit {
     pub added_inboxes: Vec<Inbox>,
     pub removed_inboxes: Vec<Inbox>,
     pub readded_installations: HashSet<Vec<u8>>,
+    /// Inbox ids that had at least one installation added in this commit.
+    /// Unlike `added_inboxes`, this also includes inboxes that were already
+    /// members of the group — so new installations of an existing inbox show up here.
+    pub added_installation_inbox_ids: HashSet<String>,
     pub metadata_validation_info: MutableMetadataValidationInfo,
     pub installations_changed: bool,
     pub permissions_changed: bool,
@@ -480,12 +484,16 @@ impl ValidatedCommit {
             }
         }
 
+        let added_installation_inbox_ids: HashSet<String> =
+            added_inbox_proposers.keys().cloned().collect();
+
         let verified_commit = Self {
             actor,
             proposers,
             added_inboxes,
             removed_inboxes,
             readded_installations,
+            added_installation_inbox_ids,
             metadata_validation_info,
             installations_changed,
             permissions_changed,

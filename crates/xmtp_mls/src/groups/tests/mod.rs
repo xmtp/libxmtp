@@ -1655,7 +1655,6 @@ async fn test_self_removal_with_multiple_initial_installations() {
 }
 
 #[xmtp_common::test(flavor = "current_thread")]
-#[ignore] // fix after consent sync
 async fn test_self_removal_with_late_installation() {
     tester!(amal);
     tester!(bola_i1);
