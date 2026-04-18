@@ -1731,13 +1731,36 @@ where
         let edit_record = StoredMessageEdit::new(
             message.id.clone(),
             message.group_id.clone(),
-            edited_message_id,
+            edited_message_id.clone(),
             message.sender_inbox_id.clone(),
             edited_content_bytes,
         );
 
         let db = storage.db();
         edit_record.store(&db)?;
+
+        // Emit MessageEdited event with the original (now-edited) message, mirroring
+        // how process_delete_message fires MessageDeleted. If the original is not
+        // yet in the DB (out-of-order), the event is skipped — enrichment + the
+        // sender's own round-trip still cover the UI update.
+        if let Some(original_msg) = db.get_group_message(&edited_message_id)? {
+            match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
+                Ok(decoded_message) => {
+                    let _ = self.context.local_events().send(
+                        crate::subscriptions::LocalEvents::MessageEdited(Box::new(
+                            decoded_message,
+                        )),
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        message_id = hex::encode(&edited_message_id),
+                        error = ?e,
+                        "Failed to decode edited message for edit event"
+                    );
+                }
+            }
+        }
 
         Ok(())
     }

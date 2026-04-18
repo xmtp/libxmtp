@@ -591,3 +591,61 @@ async fn test_edit_message_filtered_from_lists() {
         "EditMessage should be filtered out"
     );
 }
+
+/// Task 20: a recipient watching `stream_message_edits` receives the original
+/// (now-edited) message when another member edits + publishes.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_stream_message_edits_from_other_client() {
+    use crate::utils::FullXmtpClient;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::Notify;
+    use xmtp_common::StreamHandle;
+
+    tester!(alix);
+    tester!(bo);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = &bo_groups[0];
+
+    let text = TextCodec::encode("original".to_string())?;
+    let msg_bytes = xmtp_content_types::encoded_content_to_bytes(text);
+    let message_id = alix_group
+        .send_message(&msg_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.publish_messages().await?;
+    bo_group.sync().await?;
+
+    let received: Arc<Mutex<Option<crate::messages::decoded_message::DecodedMessage>>> =
+        Arc::new(Mutex::new(None));
+    let notify = Arc::new(Notify::new());
+    let received_clone = received.clone();
+    let notify_clone = notify.clone();
+
+    let mut handle = FullXmtpClient::stream_message_edits_with_callback(
+        Arc::new(bo.client.clone()),
+        move |msg| {
+            if let Ok(message) = msg {
+                *received_clone.lock() = Some(message);
+                notify_clone.notify_one();
+            }
+        },
+    );
+    handle.wait_for_ready().await;
+
+    let edited = TextCodec::encode("edited".to_string())?;
+    alix_group.edit_message(message_id.clone(), edited)?;
+    alix_group.publish_messages().await?;
+    bo_group.sync().await?;
+
+    xmtp_common::time::timeout(Duration::from_secs(5), notify.notified())
+        .await
+        .expect("Edit stream should fire within 5s");
+
+    let received = received.lock();
+    assert!(received.is_some(), "Edit event should be received");
+    let received_msg = received.as_ref().unwrap();
+    assert_eq!(received_msg.metadata.id, message_id);
+}
