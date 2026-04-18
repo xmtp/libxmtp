@@ -3,7 +3,7 @@ use crate::groups::error::EditMessageError;
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::tester;
 use xmtp_content_types::{ContentCodec, text::TextCodec};
-use xmtp_db::group_message::{ContentType, GroupMessageKind, MsgQueryArgs};
+use xmtp_db::group_message::{ContentType, GroupMessageKind, MsgQueryArgs, QueryGroupMessage};
 use xmtp_db::message_edit::QueryMessageEdit;
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -99,4 +99,120 @@ async fn test_admin_cannot_edit_others_message() {
         result,
         Err(GroupError::EditMessage(EditMessageError::NotAuthorized))
     ));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_cannot_edit_transcript_messages() {
+    tester!(alix);
+    tester!(bo);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+
+    let messages = alix_group.find_messages(&MsgQueryArgs {
+        kind: Some(GroupMessageKind::MembershipChange),
+        ..Default::default()
+    })?;
+    assert!(!messages.is_empty());
+
+    let edited = TextCodec::encode("nope".to_string())?;
+    let result = alix_group.edit_message(messages[0].id.clone(), edited);
+
+    assert!(matches!(
+        result,
+        Err(GroupError::EditMessage(EditMessageError::NonEditableMessage))
+    ));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_cannot_edit_edit_message() {
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    let text = TextCodec::encode("original".to_string())?;
+    let msg_bytes = xmtp_content_types::encoded_content_to_bytes(text);
+    let message_id = alix_group
+        .send_message(&msg_bytes, SendMessageOpts::default())
+        .await?;
+
+    let edited = TextCodec::encode("v2".to_string())?;
+    let edit_message_id = alix_group.edit_message(message_id, edited)?;
+
+    let edited_again = TextCodec::encode("v3".to_string())?;
+    let result = alix_group.edit_message(edit_message_id, edited_again);
+
+    assert!(matches!(
+        result,
+        Err(GroupError::EditMessage(EditMessageError::NonEditableMessage))
+    ));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_cannot_edit_deleted_message() {
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    let text = TextCodec::encode("soon deleted".to_string())?;
+    let msg_bytes = xmtp_content_types::encoded_content_to_bytes(text);
+    let message_id = alix_group
+        .send_message(&msg_bytes, SendMessageOpts::default())
+        .await?;
+
+    alix_group.delete_message(message_id.clone())?;
+    alix_group.publish_messages().await?;
+
+    let edited = TextCodec::encode("too late".to_string())?;
+    let result = alix_group.edit_message(message_id, edited);
+
+    assert!(matches!(
+        result,
+        Err(GroupError::EditMessage(EditMessageError::MessageDeleted))
+    ));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_cannot_edit_message_from_different_group() {
+    tester!(alix);
+    tester!(bo);
+    let group1 = alix.create_group(None, None)?;
+    let group2 = alix.create_group(None, None)?;
+    group1.add_members(&[bo.inbox_id()]).await?;
+    group2.add_members(&[bo.inbox_id()]).await?;
+
+    let text = TextCodec::encode("in group1".to_string())?;
+    let msg_bytes = xmtp_content_types::encoded_content_to_bytes(text);
+    let message_id = group1
+        .send_message(&msg_bytes, SendMessageOpts::default())
+        .await?;
+
+    let edited = TextCodec::encode("from group2".to_string())?;
+    let result = group2.edit_message(message_id, edited);
+
+    assert!(matches!(
+        result,
+        Err(GroupError::EditMessage(EditMessageError::NotAuthorized))
+    ));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_multiple_edits_latest_wins() {
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    let text = TextCodec::encode("v1".to_string())?;
+    let msg_bytes = xmtp_content_types::encoded_content_to_bytes(text);
+    let message_id = alix_group
+        .send_message(&msg_bytes, SendMessageOpts::default())
+        .await?;
+
+    let v2 = TextCodec::encode("v2".to_string())?;
+    alix_group.edit_message(message_id.clone(), v2)?;
+
+    let v3 = TextCodec::encode("v3".to_string())?;
+    alix_group.edit_message(message_id.clone(), v3)?;
+
+    let conn = alix.context.db();
+    let latest = conn.get_latest_edit_by_message_id(&message_id)?.unwrap();
+    let content = xmtp_content_types::bytes_to_encoded_content(latest.edited_content_bytes);
+    let decoded_text = TextCodec::decode(content)?;
+    assert_eq!(decoded_text, "v3");
 }
