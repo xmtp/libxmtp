@@ -24,9 +24,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use xmtp_common::{NS_IN_DAY, time::now_ns};
 use xmtp_content_types::{
-    actions, attachment, delete_message, group_updated, intent, leave_request, markdown,
-    membership_change, multi_remote_attachment, reaction, read_receipt, remote_attachment, reply,
-    text, transaction_reference, wallet_send_calls,
+    actions, attachment, delete_message, edit_message, group_updated, intent, leave_request,
+    markdown, membership_change, multi_remote_attachment, reaction, read_receipt,
+    remote_attachment, reply, text, transaction_reference, wallet_send_calls,
 };
 use xmtp_proto::types::Cursor;
 
@@ -227,6 +227,7 @@ pub enum ContentType {
     Intent = 14,
     MultiRemoteAttachment = 15,
     DeleteMessage = 16,
+    EditMessage = 17,
 }
 
 impl ContentType {
@@ -249,6 +250,7 @@ impl ContentType {
             ContentType::Intent,
             ContentType::MultiRemoteAttachment,
             ContentType::DeleteMessage,
+            ContentType::EditMessage,
         ]
     }
 }
@@ -264,6 +266,7 @@ impl Deletable for ContentType {
             | ContentType::Actions
             | ContentType::Intent
             | ContentType::DeleteMessage
+            | ContentType::EditMessage
             // Unknown content types default to non-deletable for safety
             |ContentType::Unknown => false,
 
@@ -276,6 +279,27 @@ impl Deletable for ContentType {
             | ContentType::MultiRemoteAttachment
             | ContentType::WalletSendCalls => true,
         }
+    }
+}
+
+/// Trait for determining if a message can be edited by users.
+pub trait Editable {
+    /// Returns whether this message can be edited by users.
+    fn is_editable(&self) -> bool;
+}
+
+impl Editable for GroupMessageKind {
+    fn is_editable(&self) -> bool {
+        matches!(self, GroupMessageKind::Application)
+    }
+}
+
+impl Editable for ContentType {
+    fn is_editable(&self) -> bool {
+        matches!(
+            self,
+            ContentType::Text | ContentType::Markdown | ContentType::Reply
+        )
     }
 }
 
@@ -301,6 +325,7 @@ impl std::fmt::Display for ContentType {
                 multi_remote_attachment::MultiRemoteAttachmentCodec::TYPE_ID
             }
             Self::DeleteMessage => delete_message::DeleteMessageCodec::TYPE_ID,
+            Self::EditMessage => edit_message::EditMessageCodec::TYPE_ID,
         };
 
         write!(f, "{}", as_string)
@@ -328,6 +353,7 @@ impl From<String> for ContentType {
                 Self::MultiRemoteAttachment
             }
             delete_message::DeleteMessageCodec::TYPE_ID => Self::DeleteMessage,
+            edit_message::EditMessageCodec::TYPE_ID => Self::EditMessage,
             _ => Self::Unknown,
         }
     }
@@ -366,6 +392,7 @@ where
             14 => Ok(ContentType::Intent),
             15 => Ok(ContentType::MultiRemoteAttachment),
             16 => Ok(ContentType::DeleteMessage),
+            17 => Ok(ContentType::EditMessage),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

@@ -67,6 +67,7 @@ use xmtp_configuration::{
     WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
 use xmtp_content_types::delete_message::DeleteMessageCodec;
+use xmtp_content_types::edit_message::EditMessageCodec;
 use xmtp_content_types::leave_request::LeaveRequestCodec;
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
 use xmtp_content_types::{
@@ -74,8 +75,9 @@ use xmtp_content_types::{
     reply::ReplyCodec,
 };
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
-use xmtp_db::group_message::Deletable;
+use xmtp_db::group_message::{Deletable, Editable};
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
+use xmtp_db::message_edit::StoredMessageEdit;
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
@@ -105,7 +107,9 @@ use xmtp_mls_common::{
         GroupMutableMetadata, GroupMutableMetadataError, MessageDisappearingSettings, MetadataField,
     },
 };
-use xmtp_proto::xmtp::mls::message_contents::content_types::{DeleteMessage, LeaveRequest};
+use xmtp_proto::xmtp::mls::message_contents::content_types::{
+    DeleteMessage, EditMessage, LeaveRequest,
+};
 use xmtp_proto::{
     types::Cursor,
     xmtp::mls::message_contents::{
@@ -251,6 +255,11 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
                 DeleteMessage::decode(content.content.as_slice())
                     .ok()
                     .and_then(|delete_msg| hex::decode(delete_msg.message_id).ok())
+            }
+            (EditMessageCodec::TYPE_ID, EditMessageCodec::MAJOR_VERSION) => {
+                EditMessage::decode(content.content.as_slice())
+                    .ok()
+                    .and_then(|edit_msg| hex::decode(edit_msg.message_id).ok())
             }
             _ => None,
         };
@@ -1032,6 +1041,89 @@ where
         deletion.store(&conn)?;
 
         Ok(deletion_message_id)
+    }
+
+    /// Edit a message by its ID. Returns the ID of the edit message.
+    ///
+    /// Only the original sender can edit a message. Admin override is intentionally
+    /// not supported: edits rewrite authored content, so they must remain authored
+    /// by the original sender. An already-deleted message cannot be edited.
+    ///
+    /// # Wire Protocol
+    /// The `EditMessage` protobuf encodes `message_id` as a hex-encoded string for wire
+    /// transmission, while the database stores message IDs as raw bytes. This function
+    /// accepts raw bytes and hex-encodes them for the wire protocol. The full
+    /// replacement `EncodedContent` is embedded in the `EditMessage` payload.
+    ///
+    /// # Arguments
+    /// * `message_id` - The message ID as bytes
+    /// * `edited_content` - The replacement `EncodedContent`
+    ///
+    /// # Returns
+    /// The ID of the edit message (the row in `group_messages` for the `EditMessage`
+    /// payload).
+    pub fn edit_message(
+        &self,
+        message_id: Vec<u8>,
+        edited_content: EncodedContent,
+    ) -> Result<Vec<u8>, GroupError> {
+        use error::EditMessageError;
+
+        let conn = self.context.db();
+
+        // Load the original message.
+        let original_msg = conn
+            .get_group_message(&message_id)?
+            .ok_or_else(|| EditMessageError::MessageNotFound(hex::encode(&message_id)))?;
+
+        // Validate the message belongs to this group (prevent cross-group edits).
+        if original_msg.group_id != self.group_id {
+            return Err(EditMessageError::NotAuthorized.into());
+        }
+
+        // Cannot edit a deleted message. This check runs before the authorization
+        // check because a deleted message is an immutable gravestone regardless of
+        // who asks.
+        if conn.is_message_deleted(&message_id)? {
+            return Err(EditMessageError::MessageDeleted.into());
+        }
+
+        // Only the original sender can edit. No admin override.
+        let sender_inbox_id = self.context.inbox_id();
+        if original_msg.sender_inbox_id != sender_inbox_id {
+            return Err(EditMessageError::NotAuthorized.into());
+        }
+
+        if !original_msg.kind.is_editable() || !original_msg.content_type.is_editable() {
+            return Err(EditMessageError::NonEditableMessage.into());
+        }
+
+        // Keep a copy of the edited content for local storage — the proto takes
+        // ownership of the original.
+        let edited_content_for_storage = edited_content.clone();
+
+        let edit_msg = EditMessage {
+            message_id: hex::encode(&message_id),
+            edited_content: Some(edited_content),
+        };
+
+        let encoded_edit = EditMessageCodec::encode(edit_msg)?;
+        let mut buf = Vec::new();
+        encoded_edit.encode(&mut buf)?;
+
+        let edit_message_id = self.send_message_optimistic(&buf, SendMessageOpts::default())?;
+
+        let edit_record = StoredMessageEdit::new(
+            edit_message_id.clone(),
+            self.group_id.clone(),
+            message_id,
+            sender_inbox_id.to_string(),
+            encoded_content_to_bytes(edited_content_for_storage),
+        );
+
+        edit_record.store(&conn)?;
+
+        Ok(edit_message_id)
     }
 
     /// Helper function to extract queryable content fields from a message
