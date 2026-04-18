@@ -12,6 +12,8 @@
   zlib,
   pkgsBuildHost,
   perl,
+  apple-sdk ? null,
+  libiconv,
 }:
 let
   # Narrow fileset for buildDepsOnly — only Cargo.toml, Cargo.lock, build.rs,
@@ -39,21 +41,21 @@ let
   # Platform-specific args (like ANDROID_HOME or __noChroot) are added by each derivation.
   commonArgs = {
     src = depsFileset;
-    # strictDeps=true breaks darwin build with ring
-    strictDeps = if stdenv.buildPlatform.isDarwin then false else true;
+    strictDeps = true;
     # these inputs do not get cross compiled
     nativeBuildInputs = [
       pkg-config
       perl
       zlib
     ]
-    ++ lib.optionals stdenv.buildPlatform.isDarwin [ darwin.libiconv ];
-    # these inputs do get cross compiled
+    ++ lib.optionals stdenv.buildPlatform.isDarwin [ libiconv ];
+
     buildInputs = [
       zstd
       openssl
       sqlcipher
-    ];
+    ]
+    ++ lib.optionals stdenv.buildPlatform.isDarwin [ libiconv ];
 
     doCheck = false;
     # Disable zerocallusedregs hardening which can cause issues with cross-compilation.
@@ -70,15 +72,12 @@ let
     "AWS_LC_SYS_TARGET_CC_${buildPlatformSuffix}" = "cc";
     "AWS_LC_SYS_TARGET_CXX_${buildPlatformSuffix}" = "c++";
 
-    # Tell openssl-sys to use the pre-built nixpkgs openssl instead of
-    # vendoring its own. Without this, openssl-sys falls back to building
-    # OpenSSL from source via openssl-src, which calls `xcrun` to find a
-    # compiler and fails in cross-compilation environments.
+    # Use nixpkgs' pre-built openssl instead of letting openssl-sys vendor and build from source
+    # (which calls xcrun for the SDK and fails in cross sandboxes).
     OPENSSL_NO_VENDOR = "1";
     OPENSSL_DIR = "${openssl.dev}";
     OPENSSL_LIB_DIR = "${openssl.out}/lib";
     OPENSSL_INCLUDE_DIR = "${openssl.dev}/include";
-
   };
 
   # Make cargo artifacts for a derivation building rust code

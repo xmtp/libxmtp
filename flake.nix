@@ -7,8 +7,11 @@
   };
 
   inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     # nixpkgs.url = "github:insipx/nixpkgs/insipx/ios-build";
-    nixpkgs.url = "git+file:///Users/insipx/code/nixpkgs";
+    # nixpkgs.url = "git+file:///Users/insipx/code/nixpkgs";
+    # nixpkgs.url = "git+file:///home/insipx/code/nixpkgs";
+    # nixpkgs.url = "git+file:///workspace/nixpkgs?ref=insipx/ios-build";
     fenix = {
       url = "github:nix-community/fenix";
       inputs = {
