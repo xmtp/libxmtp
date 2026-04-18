@@ -57,3 +57,32 @@ async fn test_edit_message_authorization_failure() {
         Err(GroupError::EditMessage(EditMessageError::NotAuthorized))
     ));
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_admin_cannot_edit_others_message() {
+    // Alix is group creator / super admin; Bo is a regular member.
+    tester!(alix);
+    tester!(bo);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = &bo_groups[0];
+
+    // Bo sends a message.
+    let text = TextCodec::encode("Bo's message".to_string())?;
+    let msg_bytes = xmtp_content_types::encoded_content_to_bytes(text);
+    let message_id = bo_group
+        .send_message(&msg_bytes, SendMessageOpts::default())
+        .await?;
+
+    alix_group.sync().await?;
+
+    // Admin Alix attempts to edit Bo's message — must fail per XIP-77.
+    let edited = TextCodec::encode("Alix tries admin edit".to_string())?;
+    let result = alix_group.edit_message(message_id, edited);
+
+    assert!(matches!(
+        result,
+        Err(GroupError::EditMessage(EditMessageError::NotAuthorized))
+    ));
+}
