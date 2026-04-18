@@ -8,6 +8,12 @@
       ...
     }:
     let
+      iosCommon = {
+        darwinSdkVersion = "26";
+        darwinMinVersion = "16";
+        xcodeVer = "26.3";
+        useiOSPrebuilt = true; # source path — route through apple-sdk / propagate-inputs
+      };
       # Single source of truth: ABI name → target config
       iosTargets = {
         "aarch64-darwin" = {
@@ -18,16 +24,12 @@
         };
         "iphone64" = {
           config = "arm64-apple-ios";
-          darwinSdkVersion = "26.3";
-          darwinMinVersion = "16";
-          xcodeVer = "26.3";
-        };
+        }
+        // iosCommon;
         "iphone64-simulator" = {
           config = "aarch64-apple-ios-simulator";
-          darwinSdkVersion = "26";
-          darwinMinVersion = "16";
-          xcodeVer = "26.3";
-        };
+        }
+        // iosCommon;
         # "aarch64-ios-macabi" = {
         #   config = "arm64-apple-darwin";
         #   rust.rustcTarget = "aarch64-apple-ios-macabi";
@@ -58,40 +60,38 @@
         else
           throw "Unsupported host architecture for ios-libs-fast";
 
-      fastDylib = iosDylibs.${fastAbi};
+      # Build an xcframework-ready linkFarm from the given ABIs.
+      mkLibs =
+        name: abis:
+        pkgs.linkFarm name (
+          lib.concatMap (abi: [
+            {
+              name = "${abi}/libxmtpv3.a";
+              path = "${iosDylibs.${abi}}/libxmtpv3.a";
+            }
+            {
+              name = "${abi}/libxmtpv3.dylib";
+              path = "${iosDylibs.${abi}}/libxmtpv3.dylib";
+            }
+          ]) abis
+          ++ [
+            {
+              name = "swift/xmtpv3.swift";
+              path = "${swift-bindings}/swift/xmtpv3.swift";
+            }
+            {
+              name = "swift/include";
+              path = "${swift-bindings}/swift/include";
+            }
+            {
+              name = "libxmtp-version.txt";
+              path = "${swift-bindings}/libxmtp-version.txt";
+            }
+          ]
+        );
 
-      ios-libs-fast = pkgs.linkFarm "xmtpv3-ios-fast" [
-        {
-          name = "jniLibs/${fastAbi}/libuniffi_xmtpv3.so";
-          path = "${fastDylib}/libuniffi_xmtpv3.so";
-        }
-        {
-          name = "java/uniffi/xmtpv3/xmtpv3.kt";
-          path = "${swift-bindings}/kotlin/uniffi/xmtpv3/xmtpv3.kt";
-        }
-        {
-          name = "libxmtp-version.txt";
-          path = "${swift-bindings}/libxmtp-version.txt";
-        }
-      ];
-
-      # Aggregate all targets + Swift bindings into a Gradle-ready layout
-      ios-libs = pkgs.linkFarm "xmtpv3-ios" (
-        lib.mapAttrsToList (abi: dylib: {
-          name = "jniLibs/${abi}/libuniffi_xmtpv3.so";
-          path = "${dylib}/libuniffi_xmtpv3.so";
-        }) iosDylibs
-        ++ [
-          {
-            name = "java/uniffi/xmtpv3/xmtpv3.kt";
-            path = "${swift-bindings}/kotlin/uniffi/xmtpv3/xmtpv3.kt";
-          }
-          {
-            name = "libxmtp-version.txt";
-            path = "${swift-bindings}/libxmtp-version.txt";
-          }
-        ]
-      );
+      ios-libs-fast = mkLibs "xmtpv3-ios-fast" [ fastAbi ];
+      ios-libs = mkLibs "xmtpv3-ios" (lib.attrNames iosDylibs);
     in
     {
       packages = {
