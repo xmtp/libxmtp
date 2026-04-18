@@ -59,6 +59,20 @@ async fn test_edit_message_authorization_failure() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn test_edit_nonexistent_message() {
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    let edited = TextCodec::encode("nope".to_string())?;
+    let result = alix_group.edit_message(vec![1, 2, 3, 4, 5], edited);
+
+    assert!(matches!(
+        result,
+        Err(GroupError::EditMessage(EditMessageError::MessageNotFound(_)))
+    ));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_admin_cannot_edit_others_message() {
     // Alix is group creator / super admin; Bo is a regular member.
     tester!(alix);
