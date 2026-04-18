@@ -250,3 +250,52 @@ async fn test_multiple_edits_latest_wins() {
     let decoded_text = TextCodec::decode(content)?;
     assert_eq!(decoded_text, "v3");
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_enrichment_preserves_reactions_after_edit() {
+    use xmtp_content_types::reaction::ReactionCodec;
+    use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
+
+    tester!(alix);
+    tester!(bo);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = &bo_groups[0];
+
+    let text = TextCodec::encode("react to me".to_string())?;
+    let msg_bytes = xmtp_content_types::encoded_content_to_bytes(text);
+    let message_id = alix_group
+        .send_message(&msg_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.publish_messages().await?;
+    bo_group.sync().await?;
+
+    let reaction = ReactionV2 {
+        reference: hex::encode(&message_id),
+        reference_inbox_id: bo.inbox_id().to_string(),
+        action: 1, // ReactionAction::Added
+        content: "👍".to_string(),
+        schema: 1, // ReactionSchema::Unicode
+    };
+    let reaction_bytes =
+        xmtp_content_types::encoded_content_to_bytes(ReactionCodec::encode(reaction)?);
+    bo_group
+        .send_message(&reaction_bytes, SendMessageOpts::default())
+        .await?;
+    bo_group.publish_messages().await?;
+    alix_group.sync().await?;
+
+    let edited = TextCodec::encode("edited with reaction".to_string())?;
+    alix_group.edit_message(message_id.clone(), edited)?;
+    alix_group.publish_messages().await?;
+    alix_group.sync().await?;
+
+    let enriched = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let msg = enriched.iter().find(|m| m.metadata.id == message_id).unwrap();
+
+    assert!(
+        !msg.reactions.is_empty(),
+        "Reactions must be preserved after edit"
+    );
+}
