@@ -978,6 +978,7 @@ where
             })?;
         self.process_own_leave_request_message(mls_group, storage, &id);
         self.process_own_delete_message(storage, &id);
+        self.process_own_edit_message(storage, &id);
         Ok(Some(id))
     }
 
@@ -1288,6 +1289,10 @@ where
                             self.process_delete_message(mls_group, storage, &message)?;
                         }
 
+                        if message.content_type == ContentType::EditMessage {
+                            self.process_edit_message(mls_group, storage, &message)?;
+                        }
+
                         Ok::<_, GroupMessageProcessingError>(())
                     }
                     Some(Content::V2(V2 { .. })) => {
@@ -1460,6 +1465,55 @@ where
         }
     }
 
+    pub(crate) fn process_own_edit_message(
+        &self,
+        storage: &impl XmtpMlsStorageProvider,
+        edit_message_id: &[u8],
+    ) {
+        use xmtp_db::message_edit::QueryMessageEdit;
+
+        let db = storage.db();
+
+        let Ok(Some(message)) = db.get_group_message(edit_message_id) else {
+            return;
+        };
+
+        if message.content_type != ContentType::EditMessage {
+            return;
+        }
+
+        let Ok(Some(edit)) = db.get_message_edit(edit_message_id) else {
+            tracing::warn!(
+                message_id = hex::encode(edit_message_id),
+                "Edit record not found for own edit message"
+            );
+            return;
+        };
+
+        let Ok(Some(original_msg)) = db.get_group_message(&edit.edited_message_id) else {
+            tracing::debug!(
+                edited_message_id = hex::encode(&edit.edited_message_id),
+                "Original message not found for edit event (may be out-of-order)"
+            );
+            return;
+        };
+
+        match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
+            Ok(decoded_message) => {
+                let _ = self.context.local_events().send(
+                    crate::subscriptions::LocalEvents::MessageEdited(Box::new(decoded_message)),
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    message_id = hex::encode(&edit.edited_message_id),
+                    error = ?e,
+                    "Failed to decode edited message for edit event"
+                );
+            }
+        }
+    }
+
     fn process_leave_request_message(
         &self,
         mls_group: &OpenMlsGroup,
@@ -1615,6 +1669,75 @@ where
             is_super_admin_deletion,
             out_of_order
         );
+
+        Ok(())
+    }
+
+    /// Process an incoming EditMessage from the network.
+    ///
+    /// Returns `Ok(())` for invalid edits to avoid disrupting sync — only DB errors bubble up.
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) fn process_edit_message(
+        &self,
+        _mls_group: &OpenMlsGroup,
+        storage: &impl XmtpMlsStorageProvider,
+        message: &StoredGroupMessage,
+    ) -> Result<(), GroupMessageProcessingError> {
+        use xmtp_content_types::edit_message::EditMessageCodec;
+        use xmtp_db::Store;
+        use xmtp_db::message_edit::StoredMessageEdit;
+
+        let encoded_content =
+            match EncodedContent::decode(message.decrypted_message_bytes.as_slice()) {
+                Ok(content) => content,
+                Err(err) => {
+                    tracing::warn!(
+                        error = ?err,
+                        "Failed to decode EncodedContent for edit message, skipping"
+                    );
+                    return Ok(());
+                }
+            };
+
+        let edit_msg = match EditMessageCodec::decode(encoded_content) {
+            Ok(msg) => msg,
+            Err(err) => {
+                tracing::warn!(error = ?err, "Failed to decode EditMessage, skipping");
+                return Ok(());
+            }
+        };
+
+        let edited_message_id = match hex::decode(&edit_msg.message_id) {
+            Ok(id) => id,
+            Err(_) => {
+                tracing::warn!(
+                    "Invalid hex message_id in EditMessage: {}",
+                    edit_msg.message_id
+                );
+                return Ok(());
+            }
+        };
+
+        let edited_content = match edit_msg.edited_content {
+            Some(content) => content,
+            None => {
+                tracing::warn!("EditMessage has no edited_content, skipping");
+                return Ok(());
+            }
+        };
+
+        let edited_content_bytes = xmtp_content_types::encoded_content_to_bytes(edited_content);
+
+        let edit_record = StoredMessageEdit::new(
+            message.id.clone(),
+            message.group_id.clone(),
+            edited_message_id,
+            message.sender_inbox_id.clone(),
+            edited_content_bytes,
+        );
+
+        let db = storage.db();
+        edit_record.store(&db)?;
 
         Ok(())
     }

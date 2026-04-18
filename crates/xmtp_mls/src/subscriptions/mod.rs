@@ -65,6 +65,8 @@ pub enum LocalEvents {
     PreferencesChanged(Vec<PreferenceUpdate>),
     // a message was deleted (contains the decoded message that was deleted)
     MessageDeleted(Box<DecodedMessage>),
+    // a message was edited (contains the decoded message that was edited)
+    MessageEdited(Box<DecodedMessage>),
 }
 
 #[derive(Clone)]
