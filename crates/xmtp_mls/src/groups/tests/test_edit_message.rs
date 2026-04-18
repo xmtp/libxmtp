@@ -326,3 +326,35 @@ async fn test_enrichment_edit_then_delete() {
         crate::messages::decoded_message::MessageBody::DeletedMessage { .. }
     ));
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_out_of_order_edit() {
+    tester!(alix);
+    tester!(bo);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = &bo_groups[0];
+
+    let text = TextCodec::encode("original".to_string())?;
+    let msg_bytes = xmtp_content_types::encoded_content_to_bytes(text);
+    let message_id = alix_group
+        .send_message(&msg_bytes, SendMessageOpts::default())
+        .await?;
+
+    let edited = TextCodec::encode("edited".to_string())?;
+    alix_group.edit_message(message_id.clone(), edited)?;
+    alix_group.publish_messages().await?;
+
+    bo_group.sync().await?;
+
+    let enriched = bo_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let msg = enriched.iter().find(|m| m.metadata.id == message_id).unwrap();
+
+    match &msg.content {
+        crate::messages::decoded_message::MessageBody::Text(t) => {
+            assert_eq!(t.content, "edited");
+        }
+        other => panic!("Expected edited Text body, got {:?}", other),
+    }
+}
