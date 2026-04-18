@@ -358,3 +358,158 @@ async fn test_out_of_order_edit() {
         other => panic!("Expected edited Text body, got {:?}", other),
     }
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_true_out_of_order_edit() {
+    use xmtp_db::Store;
+    use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
+    use xmtp_db::message_edit::StoredMessageEdit;
+
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+    let conn = alix.context.db();
+
+    let original_msg_id = vec![10, 20, 30];
+    let edit_msg_id = vec![40, 50, 60];
+
+    // Store the EditMessage envelope in group_messages first (FK target for the
+    // edit record), even though the target message hasn't arrived yet.
+    let edit_gm = StoredGroupMessage {
+        id: edit_msg_id.clone(),
+        group_id: alix_group.group_id.clone(),
+        decrypted_message_bytes: vec![],
+        sent_at_ns: xmtp_common::time::now_ns(),
+        kind: GroupMessageKind::Application,
+        sender_installation_id: vec![],
+        sender_inbox_id: alix.inbox_id().to_string(),
+        delivery_status: DeliveryStatus::Published,
+        content_type: ContentType::EditMessage,
+        version_major: 1,
+        version_minor: 0,
+        authority_id: "xmtp.org".to_string(),
+        reference_id: Some(original_msg_id.clone()),
+        originator_id: 0,
+        sequence_id: 100,
+        inserted_at_ns: 0,
+        expire_at_ns: None,
+        should_push: false,
+    };
+    edit_gm.store(&conn)?;
+
+    // Store the edit record before the original message exists.
+    let edited_text = TextCodec::encode("edited content".to_string())?;
+    let edit_record = StoredMessageEdit::new(
+        edit_msg_id,
+        alix_group.group_id.clone(),
+        original_msg_id.clone(),
+        alix.inbox_id().to_string(),
+        xmtp_content_types::encoded_content_to_bytes(edited_text),
+    );
+    edit_record.store(&conn)?;
+
+    // Now the original message arrives.
+    let original_text = TextCodec::encode("original content".to_string())?;
+    let original_gm = StoredGroupMessage {
+        id: original_msg_id.clone(),
+        group_id: alix_group.group_id.clone(),
+        decrypted_message_bytes: xmtp_content_types::encoded_content_to_bytes(original_text),
+        sent_at_ns: xmtp_common::time::now_ns() - 1000,
+        kind: GroupMessageKind::Application,
+        sender_installation_id: vec![],
+        sender_inbox_id: alix.inbox_id().to_string(),
+        delivery_status: DeliveryStatus::Published,
+        content_type: ContentType::Text,
+        version_major: 1,
+        version_minor: 0,
+        authority_id: "xmtp.org".to_string(),
+        reference_id: None,
+        originator_id: 0,
+        sequence_id: 99,
+        inserted_at_ns: 0,
+        expire_at_ns: None,
+        should_push: false,
+    };
+    original_gm.store(&conn)?;
+
+    let enriched = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let msg = enriched
+        .iter()
+        .find(|m| m.metadata.id == original_msg_id)
+        .unwrap();
+
+    match &msg.content {
+        crate::messages::decoded_message::MessageBody::Text(t) => {
+            assert_eq!(t.content, "edited content");
+        }
+        other => panic!("Expected edited Text body, got {:?}", other),
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_out_of_order_unauthorized_edit_rejected() {
+    use xmtp_db::Store;
+    use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
+    use xmtp_db::message_edit::StoredMessageEdit;
+
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    let text = TextCodec::encode("Alix's message".to_string())?;
+    let msg_bytes = xmtp_content_types::encoded_content_to_bytes(text);
+    let message_id = alix_group
+        .send_message(&msg_bytes, SendMessageOpts::default())
+        .await?;
+
+    let conn = alix.context.db();
+
+    // Simulate a malicious actor inserting a fraudulent edit from "fake_inbox".
+    let fake_edit_id = vec![99, 99, 99];
+    let fake_msg = StoredGroupMessage {
+        id: fake_edit_id.clone(),
+        group_id: alix_group.group_id.clone(),
+        decrypted_message_bytes: vec![],
+        sent_at_ns: xmtp_common::time::now_ns(),
+        kind: GroupMessageKind::Application,
+        sender_installation_id: vec![],
+        sender_inbox_id: "fake_inbox".to_string(),
+        delivery_status: DeliveryStatus::Published,
+        content_type: ContentType::EditMessage,
+        version_major: 1,
+        version_minor: 0,
+        authority_id: "xmtp.org".to_string(),
+        reference_id: Some(message_id.clone()),
+        originator_id: 0,
+        sequence_id: 999,
+        inserted_at_ns: 0,
+        expire_at_ns: None,
+        should_push: false,
+    };
+    fake_msg.store(&conn)?;
+
+    let fake_content = TextCodec::encode("hacked".to_string())?;
+    let fake_edit = StoredMessageEdit::new(
+        fake_edit_id,
+        alix_group.group_id.clone(),
+        message_id.clone(),
+        "fake_inbox".to_string(),
+        xmtp_content_types::encoded_content_to_bytes(fake_content),
+    );
+    fake_edit.store(&conn)?;
+
+    // Enrichment must reject the unauthorized edit and show the original content.
+    let enriched = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let msg = enriched
+        .iter()
+        .find(|m| m.metadata.id == message_id)
+        .unwrap();
+
+    match &msg.content {
+        crate::messages::decoded_message::MessageBody::Text(t) => {
+            assert_eq!(
+                t.content, "Alix's message",
+                "Unauthorized edit must be rejected"
+            );
+        }
+        other => panic!("Expected original Text body, got {:?}", other),
+    }
+}
