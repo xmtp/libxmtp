@@ -1,4 +1,5 @@
 use crate::content_types::decoded_message_content::DecodedMessageContent;
+use crate::content_types::edited_message::EditedMessage;
 use crate::messages::encoded_content::ContentTypeId;
 use crate::messages::{DeliveryStatus, GroupMessageKind};
 use napi::Error;
@@ -21,6 +22,7 @@ pub struct DecodedMessage {
   pub delivery_status: DeliveryStatus,
   pub num_replies: i64,
   expires_at_ns: Option<BigInt>,
+  edited: Option<EditedMessage>,
 }
 
 #[napi]
@@ -54,6 +56,11 @@ impl DecodedMessage {
   pub fn content(&self) -> Result<DecodedMessageContent> {
     self.inner.content.clone().try_into()
   }
+
+  #[napi(getter)]
+  pub fn edited(&self) -> Option<EditedMessage> {
+    self.edited.clone()
+  }
 }
 
 impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
@@ -72,6 +79,7 @@ impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
       delivery_status: msg.metadata.delivery_status.into(),
       num_replies: msg.num_replies as i64,
       expires_at_ns: msg.metadata.expires_at_ns.map(BigInt::from),
+      edited: msg.edited.clone().map(Into::into),
       inner: Box::new(msg),
     })
   }
