@@ -3,7 +3,7 @@ use crate::groups::error::EditMessageError;
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::tester;
 use xmtp_content_types::{ContentCodec, text::TextCodec};
-use xmtp_db::group_message::{ContentType, GroupMessageKind, MsgQueryArgs, QueryGroupMessage};
+use xmtp_db::group_message::{ContentType, GroupMessageKind, MsgQueryArgs};
 use xmtp_db::message_edit::QueryMessageEdit;
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -68,7 +68,9 @@ async fn test_edit_nonexistent_message() {
 
     assert!(matches!(
         result,
-        Err(GroupError::EditMessage(EditMessageError::MessageNotFound(_)))
+        Err(GroupError::EditMessage(EditMessageError::MessageNotFound(
+            _
+        )))
     ));
 }
 
@@ -119,7 +121,9 @@ async fn test_cannot_edit_transcript_messages() {
 
     assert!(matches!(
         result,
-        Err(GroupError::EditMessage(EditMessageError::NonEditableMessage))
+        Err(GroupError::EditMessage(
+            EditMessageError::NonEditableMessage
+        ))
     ));
 }
 
@@ -142,7 +146,9 @@ async fn test_cannot_edit_edit_message() {
 
     assert!(matches!(
         result,
-        Err(GroupError::EditMessage(EditMessageError::NonEditableMessage))
+        Err(GroupError::EditMessage(
+            EditMessageError::NonEditableMessage
+        ))
     ));
 }
 
@@ -210,7 +216,10 @@ async fn test_enrichment_shows_edited_content() {
     alix_group.sync().await?;
 
     let enriched = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
-    let msg = enriched.iter().find(|m| m.metadata.id == message_id).unwrap();
+    let msg = enriched
+        .iter()
+        .find(|m| m.metadata.id == message_id)
+        .unwrap();
 
     // Content should be the edited version
     match &msg.content {
@@ -292,7 +301,10 @@ async fn test_enrichment_preserves_reactions_after_edit() {
     alix_group.sync().await?;
 
     let enriched = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
-    let msg = enriched.iter().find(|m| m.metadata.id == message_id).unwrap();
+    let msg = enriched
+        .iter()
+        .find(|m| m.metadata.id == message_id)
+        .unwrap();
 
     assert!(
         !msg.reactions.is_empty(),
@@ -319,7 +331,10 @@ async fn test_enrichment_edit_then_delete() {
     alix_group.sync().await?;
 
     let enriched = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
-    let msg = enriched.iter().find(|m| m.metadata.id == message_id).unwrap();
+    let msg = enriched
+        .iter()
+        .find(|m| m.metadata.id == message_id)
+        .unwrap();
 
     assert!(matches!(
         msg.content,
@@ -349,7 +364,10 @@ async fn test_out_of_order_edit() {
     bo_group.sync().await?;
 
     let enriched = bo_group.find_enriched_messages(&MsgQueryArgs::default())?;
-    let msg = enriched.iter().find(|m| m.metadata.id == message_id).unwrap();
+    let msg = enriched
+        .iter()
+        .find(|m| m.metadata.id == message_id)
+        .unwrap();
 
     match &msg.content {
         crate::messages::decoded_message::MessageBody::Text(t) => {
@@ -520,9 +538,7 @@ async fn test_edit_database_queries() {
     let alix_group = alix.create_group(None, None)?;
 
     let mk = |s: &str| {
-        xmtp_content_types::encoded_content_to_bytes(
-            TextCodec::encode(s.to_string()).unwrap(),
-        )
+        xmtp_content_types::encoded_content_to_bytes(TextCodec::encode(s.to_string()).unwrap())
     };
 
     let msg1 = alix_group
@@ -535,14 +551,9 @@ async fn test_edit_database_queries() {
         .send_message(&mk("three"), SendMessageOpts::default())
         .await?;
 
-    let edit1_id = alix_group.edit_message(
-        msg1.clone(),
-        TextCodec::encode("one edited".to_string())?,
-    )?;
-    alix_group.edit_message(
-        msg3.clone(),
-        TextCodec::encode("three edited".to_string())?,
-    )?;
+    let edit1_id =
+        alix_group.edit_message(msg1.clone(), TextCodec::encode("one edited".to_string())?)?;
+    alix_group.edit_message(msg3.clone(), TextCodec::encode("three edited".to_string())?)?;
 
     let conn = alix.context.db();
 
@@ -551,11 +562,8 @@ async fn test_edit_database_queries() {
     assert_eq!(edit.edited_message_id, msg1);
 
     // Batch query for latest per target
-    let edits = conn.get_latest_edits_for_messages(vec![
-        msg1.clone(),
-        msg2.clone(),
-        msg3.clone(),
-    ])?;
+    let edits =
+        conn.get_latest_edits_for_messages(vec![msg1.clone(), msg2.clone(), msg3.clone()])?;
     assert_eq!(edits.len(), 2);
 
     // Boolean check
@@ -587,7 +595,9 @@ async fn test_edit_message_filtered_from_lists() {
     })?;
 
     assert!(
-        !messages.iter().any(|m| m.content_type == ContentType::EditMessage),
+        !messages
+            .iter()
+            .any(|m| m.content_type == ContentType::EditMessage),
         "EditMessage should be filtered out"
     );
 }

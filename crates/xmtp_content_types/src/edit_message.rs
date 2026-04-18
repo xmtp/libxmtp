@@ -55,8 +55,8 @@ impl ContentCodec<EditMessage> for EditMessageCodec {
 pub(crate) mod tests {
     use super::*;
     use std::collections::HashMap;
-    use xmtp_proto::xmtp::mls::message_contents::EncodedContent as ProtoEncodedContent;
     use xmtp_proto::xmtp::mls::message_contents::ContentTypeId;
+    use xmtp_proto::xmtp::mls::message_contents::EncodedContent as ProtoEncodedContent;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]

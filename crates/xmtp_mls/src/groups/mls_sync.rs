@@ -1747,9 +1747,7 @@ where
             match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
                 Ok(decoded_message) => {
                     let _ = self.context.local_events().send(
-                        crate::subscriptions::LocalEvents::MessageEdited(Box::new(
-                            decoded_message,
-                        )),
+                        crate::subscriptions::LocalEvents::MessageEdited(Box::new(decoded_message)),
                     );
                 }
                 Err(e) => {
