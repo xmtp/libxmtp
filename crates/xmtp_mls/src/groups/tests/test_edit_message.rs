@@ -513,3 +513,57 @@ async fn test_out_of_order_unauthorized_edit_rejected() {
         other => panic!("Expected original Text body, got {:?}", other),
     }
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_edit_database_queries() {
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    let mk = |s: &str| {
+        xmtp_content_types::encoded_content_to_bytes(
+            TextCodec::encode(s.to_string()).unwrap(),
+        )
+    };
+
+    let msg1 = alix_group
+        .send_message(&mk("one"), SendMessageOpts::default())
+        .await?;
+    let msg2 = alix_group
+        .send_message(&mk("two"), SendMessageOpts::default())
+        .await?;
+    let msg3 = alix_group
+        .send_message(&mk("three"), SendMessageOpts::default())
+        .await?;
+
+    let edit1_id = alix_group.edit_message(
+        msg1.clone(),
+        TextCodec::encode("one edited".to_string())?,
+    )?;
+    alix_group.edit_message(
+        msg3.clone(),
+        TextCodec::encode("three edited".to_string())?,
+    )?;
+
+    let conn = alix.context.db();
+
+    // Lookup by edit's own ID
+    let edit = conn.get_message_edit(&edit1_id)?.unwrap();
+    assert_eq!(edit.edited_message_id, msg1);
+
+    // Batch query for latest per target
+    let edits = conn.get_latest_edits_for_messages(vec![
+        msg1.clone(),
+        msg2.clone(),
+        msg3.clone(),
+    ])?;
+    assert_eq!(edits.len(), 2);
+
+    // Boolean check
+    assert!(conn.is_message_edited(&msg1)?);
+    assert!(!conn.is_message_edited(&msg2)?);
+    assert!(conn.is_message_edited(&msg3)?);
+
+    // Group-scoped query
+    let group_edits = conn.get_group_edits(&alix_group.group_id)?;
+    assert_eq!(group_edits.len(), 2);
+}

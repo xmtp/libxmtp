@@ -197,8 +197,12 @@ impl<C: ConnectionExt> QueryMessageEdit for DbConnection<C> {
 
     fn get_group_edits(
         &self,
-        _group_id: &[u8],
+        group_id: &[u8],
     ) -> Result<Vec<StoredMessageEdit>, crate::ConnectionError> {
-        unimplemented!("get_group_edits is implemented in a later task")
+        self.raw_query_read(|conn| {
+            dsl::message_edits
+                .filter(dsl::group_id.eq(group_id))
+                .load(conn)
+        })
     }
 }
