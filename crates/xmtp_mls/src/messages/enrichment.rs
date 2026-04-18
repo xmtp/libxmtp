@@ -1,4 +1,4 @@
-use crate::messages::decoded_message::{DecodedMessage, DeletedBy, MessageBody};
+use crate::messages::decoded_message::{DecodedMessage, DeletedBy, EditedBy, MessageBody};
 use hex::ToHexExt;
 use std::collections::HashMap;
 use thiserror::Error;
@@ -8,6 +8,7 @@ use xmtp_db::group_message::{
     ContentType as DbContentType, Deletable, RelationCounts, RelationQuery, StoredGroupMessage,
 };
 use xmtp_db::message_deletion::StoredMessageDeletion;
+use xmtp_db::message_edit::StoredMessageEdit;
 use xmtp_proto::xmtp::mls::message_contents::ContentTypeId;
 
 /// Content type ID for deleted message placeholders shown in enriched message lists
@@ -53,6 +54,8 @@ type ReactionMap = HashMap<Vec<u8>, Vec<DecodedMessage>>;
 type ReferencedMessageMap = HashMap<Vec<u8>, (StoredGroupMessage, DecodedMessage)>;
 // Mapping of deletions, keyed by the ID of the deleted message
 type DeletionMap = HashMap<Vec<u8>, StoredMessageDeletion>;
+// Mapping of latest edits, keyed by the ID of the edited (target) message
+type EditMap = HashMap<Vec<u8>, StoredMessageEdit>;
 
 /// Validates if a deletion should be applied. Checks group membership and authorization.
 pub(crate) fn is_deletion_valid(
@@ -74,6 +77,25 @@ pub(crate) fn is_deletion_valid(
 
     let is_sender = deletion.deleted_by_inbox_id == message.sender_inbox_id;
     is_sender || deletion.is_super_admin_deletion
+}
+
+/// Validates if an edit should be applied. Checks group membership and authorization.
+pub(crate) fn is_edit_valid(
+    edit: &StoredMessageEdit,
+    message: &StoredGroupMessage,
+    group_id: &[u8],
+) -> bool {
+    use xmtp_db::group_message::Editable;
+    if edit.edited_message_id != message.id {
+        return false;
+    }
+    if edit.group_id != group_id || message.group_id != group_id {
+        return false;
+    }
+    if !message.kind.is_editable() || !message.content_type.is_editable() {
+        return false;
+    }
+    edit.edited_by_inbox_id == message.sender_inbox_id
 }
 
 pub fn enrich_messages(
@@ -125,6 +147,32 @@ pub fn enrich_messages(
                     .get(&decoded.metadata.id)
                     .cloned()
                     .unwrap_or(0);
+
+                // Apply the latest valid edit (if any) to the decoded content.
+                // Reactions and reply counts are preserved — edits change the text,
+                // not the conversational graph around it.
+                if let Some(edit) = relations
+                    .edits
+                    .get(&decoded.metadata.id)
+                    .filter(|edit| is_edit_valid(edit, &stored_message, group_id))
+                {
+                    let edited_encoded = xmtp_content_types::bytes_to_encoded_content(
+                        edit.edited_content_bytes.clone(),
+                    );
+                    match MessageBody::try_from(edited_encoded.clone()) {
+                        Ok(body) => {
+                            decoded.content = body;
+                            decoded.edited = Some(EditedBy::Sender);
+                        }
+                        Err(err) => {
+                            tracing::warn!(
+                                "Failed to decode edited content for message {}: {:?}",
+                                decoded.metadata.id.encode_hex(),
+                                err
+                            );
+                        }
+                    }
+                }
 
                 // Handle Reply messages - populate in_reply_to field
                 if let MessageBody::Reply(mut reply_body) = decoded.content {
@@ -180,6 +228,7 @@ fn get_relations(
             referenced_messages: HashMap::new(),
             reply_counts: HashMap::new(),
             deletions: HashMap::new(),
+            edits: HashMap::new(),
         });
     }
 
@@ -203,13 +252,15 @@ fn get_relations(
     // the deletion state in the reply chain.
     let mut all_ids: Vec<Vec<u8>> = message_ids.iter().map(|id| id.to_vec()).collect();
     all_ids.extend(reference_ids.iter().map(|id| id.to_vec()));
-    let deletions = conn.get_deletions_for_messages(all_ids)?;
+    let deletions = conn.get_deletions_for_messages(all_ids.clone())?;
+    let edits = conn.get_latest_edits_for_messages(all_ids)?;
 
     Ok(GetRelationsResults {
         reactions: get_reactions(reactions),
         referenced_messages: get_referenced_messages(referenced_messages),
         reply_counts,
         deletions: get_deletions(deletions),
+        edits: get_edits(edits),
     })
 }
 
@@ -218,6 +269,7 @@ struct GetRelationsResults {
     referenced_messages: ReferencedMessageMap,
     reply_counts: RelationCounts,
     deletions: DeletionMap,
+    edits: EditMap,
 }
 
 fn get_referenced_messages(messages: HashMap<Vec<u8>, StoredGroupMessage>) -> ReferencedMessageMap {
@@ -265,5 +317,12 @@ fn get_deletions(deletions: Vec<StoredMessageDeletion>) -> DeletionMap {
     deletions
         .into_iter()
         .map(|deletion| (deletion.deleted_message_id.clone(), deletion))
+        .collect()
+}
+
+fn get_edits(edits: Vec<StoredMessageEdit>) -> EditMap {
+    edits
+        .into_iter()
+        .map(|edit| (edit.edited_message_id.clone(), edit))
         .collect()
 }

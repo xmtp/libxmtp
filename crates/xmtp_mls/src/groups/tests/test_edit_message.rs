@@ -194,6 +194,40 @@ async fn test_cannot_edit_message_from_different_group() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn test_enrichment_shows_edited_content() {
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    let text = TextCodec::encode("before edit".to_string())?;
+    let msg_bytes = xmtp_content_types::encoded_content_to_bytes(text);
+    let message_id = alix_group
+        .send_message(&msg_bytes, SendMessageOpts::default())
+        .await?;
+
+    let edited = TextCodec::encode("after edit".to_string())?;
+    alix_group.edit_message(message_id.clone(), edited)?;
+    alix_group.publish_messages().await?;
+    alix_group.sync().await?;
+
+    let enriched = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let msg = enriched.iter().find(|m| m.metadata.id == message_id).unwrap();
+
+    // Content should be the edited version
+    match &msg.content {
+        crate::messages::decoded_message::MessageBody::Text(t) => {
+            assert_eq!(t.content, "after edit");
+        }
+        other => panic!("Expected Text body with edited content, got {:?}", other),
+    }
+
+    // edited field should be set so consumers can show "(edited)"
+    assert_eq!(
+        msg.edited,
+        Some(crate::messages::decoded_message::EditedBy::Sender)
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_multiple_edits_latest_wins() {
     tester!(alix);
     let alix_group = alix.create_group(None, None)?;

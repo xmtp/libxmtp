@@ -81,7 +81,8 @@ pub trait QueryMessageEdit {
     fn is_message_edited(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError>;
 
     /// Return the latest edit for each of the provided target message IDs.
-    /// Stubbed for a future task — not implemented in this tracer-bullet slice.
+    /// At most one edit per target message; the latest is selected by
+    /// `edited_at_ns` descending, with ties broken by `id` ascending.
     fn get_latest_edits_for_messages(
         &self,
         message_ids: Vec<Vec<u8>>,
@@ -169,9 +170,29 @@ impl<C: ConnectionExt> QueryMessageEdit for DbConnection<C> {
 
     fn get_latest_edits_for_messages(
         &self,
-        _message_ids: Vec<Vec<u8>>,
+        message_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<StoredMessageEdit>, crate::ConnectionError> {
-        unimplemented!("get_latest_edits_for_messages is implemented in a later task")
+        if message_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        self.raw_query_read(|conn| {
+            // Pull all edits for the target IDs, then dedupe in Rust keeping the
+            // greatest (edited_at_ns, reverse id) per edited_message_id.
+            let mut all: Vec<StoredMessageEdit> = dsl::message_edits
+                .filter(dsl::edited_message_id.eq_any(&message_ids))
+                .load(conn)?;
+            all.sort_by(|a, b| {
+                a.edited_at_ns
+                    .cmp(&b.edited_at_ns)
+                    .then_with(|| b.id.cmp(&a.id))
+            });
+            let mut by_target: std::collections::HashMap<Vec<u8>, StoredMessageEdit> =
+                std::collections::HashMap::new();
+            for edit in all.into_iter() {
+                by_target.insert(edit.edited_message_id.clone(), edit);
+            }
+            Ok(by_target.into_values().collect())
+        })
     }
 
     fn get_group_edits(
