@@ -567,3 +567,27 @@ async fn test_edit_database_queries() {
     let group_edits = conn.get_group_edits(&alix_group.group_id)?;
     assert_eq!(group_edits.len(), 2);
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_edit_message_filtered_from_lists() {
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    let text = TextCodec::encode("original".to_string())?;
+    let msg_bytes = xmtp_content_types::encoded_content_to_bytes(text);
+    let message_id = alix_group
+        .send_message(&msg_bytes, SendMessageOpts::default())
+        .await?;
+
+    alix_group.edit_message(message_id, TextCodec::encode("edited".to_string())?)?;
+
+    let messages = alix_group.find_messages(&MsgQueryArgs {
+        exclude_content_types: Some(vec![ContentType::EditMessage]),
+        ..Default::default()
+    })?;
+
+    assert!(
+        !messages.iter().any(|m| m.content_type == ContentType::EditMessage),
+        "EditMessage should be filtered out"
+    );
+}
