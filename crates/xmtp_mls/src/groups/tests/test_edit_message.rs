@@ -299,3 +299,30 @@ async fn test_enrichment_preserves_reactions_after_edit() {
         "Reactions must be preserved after edit"
     );
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_enrichment_edit_then_delete() {
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    let text = TextCodec::encode("original".to_string())?;
+    let msg_bytes = xmtp_content_types::encoded_content_to_bytes(text);
+    let message_id = alix_group
+        .send_message(&msg_bytes, SendMessageOpts::default())
+        .await?;
+
+    let edited = TextCodec::encode("edited".to_string())?;
+    alix_group.edit_message(message_id.clone(), edited)?;
+
+    alix_group.delete_message(message_id.clone())?;
+    alix_group.publish_messages().await?;
+    alix_group.sync().await?;
+
+    let enriched = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let msg = enriched.iter().find(|m| m.metadata.id == message_id).unwrap();
+
+    assert!(matches!(
+        msg.content,
+        crate::messages::decoded_message::MessageBody::DeletedMessage { .. }
+    ));
+}
