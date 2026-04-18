@@ -649,3 +649,53 @@ async fn test_stream_message_edits_from_other_client() {
     let received_msg = received.as_ref().unwrap();
     assert_eq!(received_msg.metadata.id, message_id);
 }
+
+/// Task 21: a sender watching `stream_message_edits` receives their own edit
+/// after publish + sync completes the local round-trip.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_stream_message_edits_fires_for_self_after_publish() {
+    use crate::utils::FullXmtpClient;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::Notify;
+    use xmtp_common::StreamHandle;
+
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    let text = TextCodec::encode("original".to_string())?;
+    let msg_bytes = xmtp_content_types::encoded_content_to_bytes(text);
+    let message_id = alix_group
+        .send_message(&msg_bytes, SendMessageOpts::default())
+        .await?;
+
+    let received: Arc<Mutex<Option<crate::messages::decoded_message::DecodedMessage>>> =
+        Arc::new(Mutex::new(None));
+    let notify = Arc::new(Notify::new());
+    let received_clone = received.clone();
+    let notify_clone = notify.clone();
+
+    let mut handle = FullXmtpClient::stream_message_edits_with_callback(
+        Arc::new(alix.client.clone()),
+        move |msg| {
+            if let Ok(message) = msg {
+                *received_clone.lock() = Some(message);
+                notify_clone.notify_one();
+            }
+        },
+    );
+    handle.wait_for_ready().await;
+
+    let edited = TextCodec::encode("self-edited".to_string())?;
+    alix_group.edit_message(message_id.clone(), edited)?;
+    alix_group.publish_messages().await?;
+    alix_group.sync().await?;
+
+    xmtp_common::time::timeout(Duration::from_secs(5), notify.notified())
+        .await
+        .expect("Self-edit stream should fire within 5s");
+
+    let received_msg = received.lock().clone().unwrap();
+    assert_eq!(received_msg.metadata.id, message_id);
+}
