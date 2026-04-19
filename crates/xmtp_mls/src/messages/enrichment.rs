@@ -188,6 +188,9 @@ pub fn enrich_messages(
                                 .get(id)
                                 .map(|(_, decoded)| decoded.clone());
 
+                            // Deletion takes precedence over edit, mirroring the main-list
+                            // enrichment path — a deleted target should render as a
+                            // gravestone in the reply preview too.
                             if let Some(msg) = in_reply_to.as_mut()
                                 && let Some(deletion) = relations.deletions.get(id)
                                 && let Some((stored_msg, _)) = relations.referenced_messages.get(id)
@@ -204,6 +207,32 @@ pub fn enrich_messages(
                                 };
                                 msg.reactions = Vec::new();
                                 msg.num_replies = 0;
+                            } else if let Some(msg) = in_reply_to.as_mut()
+                                && let Some(edit) = relations.edits.get(id)
+                                && let Some((stored_msg, _)) = relations.referenced_messages.get(id)
+                                && is_edit_valid(edit, stored_msg, group_id)
+                            {
+                                // Apply the latest valid edit to the in_reply_to preview so
+                                // it stays in sync with how the edited message renders in
+                                // the main list.
+                                match EncodedContent::decode(edit.edited_content_bytes.as_slice())
+                                    .map_err(|e| format!("EncodedContent decode: {e}"))
+                                    .and_then(|c| {
+                                        MessageBody::try_from(c)
+                                            .map_err(|e| format!("MessageBody: {e}"))
+                                    }) {
+                                    Ok(body) => {
+                                        msg.content = body;
+                                        msg.edited = Some(EditedBy::Sender);
+                                    }
+                                    Err(err) => {
+                                        tracing::warn!(
+                                            "Failed to decode edited content for in_reply_to {}: {}",
+                                            msg.metadata.id.encode_hex(),
+                                            err
+                                        );
+                                    }
+                                }
                             }
                             reply_body.in_reply_to = in_reply_to.map(Box::new);
                         });

@@ -1181,3 +1181,78 @@ async fn test_sync_rejects_edit_of_deleted_message_over_wire() {
         crate::messages::decoded_message::MessageBody::DeletedMessage { .. }
     ));
 }
+
+/// If a message is edited after someone replies to it, the reply's
+/// `in_reply_to` preview must reflect the edited content — not the original.
+/// Mirrors the deletion handling already applied to `in_reply_to`.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_enrichment_in_reply_to_reflects_target_edit() {
+    use xmtp_content_types::reply::{Reply, ReplyCodec};
+
+    tester!(alix);
+    tester!(bo);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = &bo_groups[0];
+
+    // Alix sends the target.
+    let target_text = TextCodec::encode("original target".to_string())?;
+    let target_bytes = xmtp_content_types::encoded_content_to_bytes(target_text);
+    let target_id = alix_group
+        .send_message(&target_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.publish_messages().await?;
+    bo_group.sync().await?;
+
+    // Bo replies to the target.
+    let reply = Reply {
+        reference: hex::encode(&target_id),
+        reference_inbox_id: Some(alix.inbox_id().to_string()),
+        content: TextCodec::encode("nice point".to_string())?,
+    };
+    let reply_bytes = xmtp_content_types::encoded_content_to_bytes(ReplyCodec::encode(reply)?);
+    let reply_id = bo_group
+        .send_message(&reply_bytes, SendMessageOpts::default())
+        .await?;
+    bo_group.publish_messages().await?;
+    alix_group.sync().await?;
+
+    // Alix edits the target.
+    let edited = TextCodec::encode("edited target".to_string())?;
+    alix_group.edit_message(target_id.clone(), edited)?;
+    alix_group.publish_messages().await?;
+    alix_group.sync().await?;
+    bo_group.sync().await?;
+
+    // From either side, Bo's reply's in_reply_to must show the edited text.
+    for (label, group) in [("alix", &alix_group), ("bo", bo_group)] {
+        let enriched = group.find_enriched_messages(&MsgQueryArgs::default())?;
+        let reply_msg = enriched
+            .iter()
+            .find(|m| m.metadata.id == reply_id)
+            .unwrap_or_else(|| panic!("{label}: expected reply in enriched list"));
+        let reply_body = match &reply_msg.content {
+            crate::messages::decoded_message::MessageBody::Reply(r) => r,
+            other => panic!("{label}: expected Reply body, got {:?}", other),
+        };
+        let in_reply_to = reply_body
+            .in_reply_to
+            .as_ref()
+            .unwrap_or_else(|| panic!("{label}: in_reply_to must be populated"));
+        match &in_reply_to.content {
+            crate::messages::decoded_message::MessageBody::Text(t) => {
+                assert_eq!(
+                    t.content, "edited target",
+                    "{label}: in_reply_to should mirror the main-list enrichment"
+                );
+            }
+            other => panic!("{label}: expected Text body in in_reply_to, got {:?}", other),
+        }
+        assert_eq!(
+            in_reply_to.edited,
+            Some(crate::messages::decoded_message::EditedBy::Sender),
+            "{label}: in_reply_to must carry the `edited` marker"
+        );
+    }
+}
