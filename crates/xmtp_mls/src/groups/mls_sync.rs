@@ -1518,6 +1518,26 @@ where
 
         match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
             Ok(mut decoded_message) => {
+                // `try_from` decoded the *original* stored bytes. The streamed
+                // event must carry the post-edit body, not pre-edit text with
+                // just the edited-by flag set. Decode edited_content_bytes and
+                // swap it in. Mirrors the enrichment layer.
+                match EncodedContent::decode(edit.edited_content_bytes.as_slice())
+                    .map_err(|e| format!("EncodedContent decode: {e}"))
+                    .and_then(|c| {
+                        crate::messages::decoded_message::MessageBody::try_from(c)
+                            .map_err(|e| format!("MessageBody: {e}"))
+                    }) {
+                    Ok(body) => decoded_message.content = body,
+                    Err(err) => {
+                        tracing::warn!(
+                            message_id = hex::encode(&edit.edited_message_id),
+                            error = %err,
+                            "Failed to decode edit body for MessageEdited event; skipping"
+                        );
+                        return;
+                    }
+                }
                 decoded_message.edited =
                     Some(crate::messages::decoded_message::EditedBy::Sender);
                 let _ = self.context.local_events().send(
@@ -1881,6 +1901,24 @@ where
         if let Some(original_msg) = db.get_group_message(&edited_message_id)? {
             match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
                 Ok(mut decoded_message) => {
+                    // Swap the event body to the edited content (see
+                    // process_own_edit_message for the rationale).
+                    match EncodedContent::decode(edit_record.edited_content_bytes.as_slice())
+                        .map_err(|e| format!("EncodedContent decode: {e}"))
+                        .and_then(|c| {
+                            crate::messages::decoded_message::MessageBody::try_from(c)
+                                .map_err(|e| format!("MessageBody: {e}"))
+                        }) {
+                        Ok(body) => decoded_message.content = body,
+                        Err(err) => {
+                            tracing::warn!(
+                                message_id = hex::encode(&edited_message_id),
+                                error = %err,
+                                "Failed to decode edit body for MessageEdited event; skipping"
+                            );
+                            return Ok(());
+                        }
+                    }
                     decoded_message.edited =
                         Some(crate::messages::decoded_message::EditedBy::Sender);
                     let _ = self.context.local_events().send(

@@ -665,6 +665,13 @@ async fn test_stream_message_edits_from_other_client() {
         Some(crate::messages::decoded_message::EditedBy::Sender),
         "Stream event must expose `edited` metadata so consumers can display \"(edited)\""
     );
+    match &received_msg.content {
+        crate::messages::decoded_message::MessageBody::Text(t) => assert_eq!(
+            t.content, "edited",
+            "Stream event body must carry the post-edit text, not the original"
+        ),
+        other => panic!("Expected Text body in stream event, got {:?}", other),
+    }
 }
 
 /// Task 21: a sender watching `stream_message_edits` receives their own edit
@@ -720,6 +727,13 @@ async fn test_stream_message_edits_fires_for_self_after_publish() {
         Some(crate::messages::decoded_message::EditedBy::Sender),
         "Self-edit stream must expose `edited` metadata"
     );
+    match &received_msg.content {
+        crate::messages::decoded_message::MessageBody::Text(t) => assert_eq!(
+            t.content, "self-edited",
+            "Self-edit stream event body must carry the post-edit text"
+        ),
+        other => panic!("Expected Text body in stream event, got {:?}", other),
+    }
 }
 
 /// Defense-in-depth at the sync layer: if a non-sender publishes an EditMessage
