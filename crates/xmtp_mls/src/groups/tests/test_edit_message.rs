@@ -422,6 +422,7 @@ async fn test_true_out_of_order_edit() {
         original_msg_id.clone(),
         alix.inbox_id().to_string(),
         xmtp_content_types::encoded_content_to_bytes(edited_text),
+        xmtp_common::time::now_ns(),
     );
     edit_record.store(&conn)?;
 
@@ -511,6 +512,7 @@ async fn test_out_of_order_unauthorized_edit_rejected() {
         message_id.clone(),
         "fake_inbox".to_string(),
         xmtp_content_types::encoded_content_to_bytes(fake_content),
+        xmtp_common::time::now_ns(),
     );
     fake_edit.store(&conn)?;
 
@@ -1037,5 +1039,86 @@ async fn test_latest_edit_tie_breaks_by_smallest_id() {
     assert_eq!(
         batch[0].id, edit_a_id,
         "batch query must match single-lookup tie-break"
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_concurrent_edits_from_two_installations() {
+    // Alix has two installations (e.g., mobile + desktop). Both edit the same
+    // message. Edits must converge: both installations see the latest edit
+    // (by edited_at_ns DESC, id ASC) after sync. This exercises the tie-break
+    // path live rather than via manual DB inserts.
+    tester!(alix_mobile);
+    let alix_desktop = alix_mobile.new_installation().await;
+
+    let alix_group = alix_mobile.create_group(None, None)?;
+
+    let text = TextCodec::encode("v0".to_string())?;
+    let message_id = alix_group
+        .send_message(
+            &xmtp_content_types::encoded_content_to_bytes(text),
+            SendMessageOpts::default(),
+        )
+        .await?;
+    alix_group.publish_messages().await?;
+
+    // Desktop syncs and sees the group + message.
+    let desktop_groups = alix_desktop.sync_welcomes().await?;
+    let desktop_group = &desktop_groups[0];
+    desktop_group.sync().await?;
+
+    // Both installations edit concurrently.
+    let mobile_edit = TextCodec::encode("from mobile".to_string())?;
+    alix_group.edit_message(message_id.clone(), mobile_edit)?;
+    let desktop_edit = TextCodec::encode("from desktop".to_string())?;
+    desktop_group.edit_message(message_id.clone(), desktop_edit)?;
+
+    alix_group.publish_messages().await?;
+    desktop_group.publish_messages().await?;
+
+    // Each side syncs and should converge on the same latest edit.
+    alix_group.sync().await?;
+    desktop_group.sync().await?;
+
+    let mobile_enriched = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let mobile_msg = mobile_enriched
+        .iter()
+        .find(|m| m.metadata.id == message_id)
+        .expect("mobile sees original");
+
+    let desktop_enriched = desktop_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let desktop_msg = desktop_enriched
+        .iter()
+        .find(|m| m.metadata.id == message_id)
+        .expect("desktop sees original");
+
+    // Both sides must agree on the latest edited content.
+    let mobile_text = match &mobile_msg.content {
+        crate::messages::decoded_message::MessageBody::Text(t) => t.content.clone(),
+        other => panic!("Expected Text body on mobile, got {:?}", other),
+    };
+    let desktop_text = match &desktop_msg.content {
+        crate::messages::decoded_message::MessageBody::Text(t) => t.content.clone(),
+        other => panic!("Expected Text body on desktop, got {:?}", other),
+    };
+
+    assert_eq!(
+        mobile_text, desktop_text,
+        "concurrent-edit convergence: both installations must display the same winner"
+    );
+    assert!(
+        mobile_text == "from mobile" || mobile_text == "from desktop",
+        "winner must be one of the two edits, got {:?}",
+        mobile_text
+    );
+
+    // Both sides should expose the edited metadata so UIs can render "(edited)".
+    assert_eq!(
+        mobile_msg.edited,
+        Some(crate::messages::decoded_message::EditedBy::Sender)
+    );
+    assert_eq!(
+        desktop_msg.edited,
+        Some(crate::messages::decoded_message::EditedBy::Sender)
     );
 }

@@ -1142,12 +1142,17 @@ where
 
         let edit_message_id = self.send_message_optimistic(&buf, SendMessageOpts::default())?;
 
+        // Use a local clock reading for the optimistic row. When the message
+        // round-trips back through sync, `process_own_edit_message` rewrites
+        // `edited_at_ns` to the server-assigned envelope timestamp so this
+        // installation's view agrees with peers on "latest wins" ordering.
         let edit_record = StoredMessageEdit::new(
             edit_message_id.clone(),
             self.group_id.clone(),
             message_id,
             sender_inbox_id.to_string(),
             encoded_content_to_bytes(edited_content_for_storage),
+            now_ns(),
         );
 
         edit_record.store(&conn)?;

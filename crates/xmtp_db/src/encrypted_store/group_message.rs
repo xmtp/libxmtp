@@ -296,6 +296,12 @@ impl Editable for GroupMessageKind {
 
 impl Editable for ContentType {
     fn is_editable(&self) -> bool {
+        // Attachment is intentionally omitted: XIP-77 allows caption/description
+        // editing for attachments, but the current Attachment struct has no
+        // dedicated caption field (only filename/mime/content). Editing
+        // filename-as-caption would mutate metadata that downstream consumers
+        // use as the save-to-disk name. Revisit once Attachment has a proper
+        // caption/description field.
         matches!(
             self,
             ContentType::Text | ContentType::Markdown | ContentType::Reply

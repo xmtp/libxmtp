@@ -41,12 +41,20 @@ pub struct StoredMessageEdit {
 }
 
 impl StoredMessageEdit {
+    /// Construct an edit record with an explicit `edited_at_ns`.
+    ///
+    /// Callers should pass the *sender's* send time so concurrent edits from
+    /// different installations converge consistently across recipients. Using
+    /// a receiver-local clock causes the recipient to see its own locally
+    /// authored edit as "older" than a peer's edit simply because the peer's
+    /// edit arrived later over the network — a real convergence bug.
     pub fn new(
         id: Vec<u8>,
         group_id: Vec<u8>,
         edited_message_id: Vec<u8>,
         edited_by_inbox_id: String,
         edited_content_bytes: Vec<u8>,
+        edited_at_ns: i64,
     ) -> Self {
         Self {
             id,
@@ -54,7 +62,7 @@ impl StoredMessageEdit {
             edited_message_id,
             edited_by_inbox_id,
             edited_content_bytes,
-            edited_at_ns: xmtp_common::time::now_ns(),
+            edited_at_ns,
         }
     }
 }
@@ -94,6 +102,18 @@ pub trait QueryMessageEdit {
         &self,
         group_id: &[u8],
     ) -> Result<Vec<StoredMessageEdit>, crate::ConnectionError>;
+
+    /// Overwrite the `edited_at_ns` of an existing edit row.
+    ///
+    /// Used when a client's own optimistically-stored edit round-trips back
+    /// through sync carrying the server-assigned envelope timestamp. Bringing
+    /// the local row in line with the server time lets every installation
+    /// compute the same "latest edit" winner on cross-device edits.
+    fn set_edit_timestamp(
+        &self,
+        id: &[u8],
+        edited_at_ns: i64,
+    ) -> Result<(), crate::ConnectionError>;
 }
 
 impl<T> QueryMessageEdit for &T
@@ -112,6 +132,14 @@ where
         message_id: &[u8],
     ) -> Result<Option<StoredMessageEdit>, crate::ConnectionError> {
         (**self).get_latest_edit_by_message_id(message_id)
+    }
+
+    fn set_edit_timestamp(
+        &self,
+        id: &[u8],
+        edited_at_ns: i64,
+    ) -> Result<(), crate::ConnectionError> {
+        (**self).set_edit_timestamp(id, edited_at_ns)
     }
 
     fn is_message_edited(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError> {
@@ -194,6 +222,19 @@ impl<C: ConnectionExt> QueryMessageEdit for DbConnection<C> {
                     .or_insert(edit);
             }
             Ok(by_target.into_values().collect())
+        })
+    }
+
+    fn set_edit_timestamp(
+        &self,
+        id: &[u8],
+        edited_at_ns: i64,
+    ) -> Result<(), crate::ConnectionError> {
+        self.raw_query_write(|conn| {
+            diesel::update(dsl::message_edits.filter(dsl::id.eq(id)))
+                .set(dsl::edited_at_ns.eq(edited_at_ns))
+                .execute(conn)
+                .map(|_| ())
         })
     }
 

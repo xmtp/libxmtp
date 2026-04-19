@@ -869,6 +869,12 @@ mock! {
             &self,
             _group_id: &[u8],
         ) -> Result<Vec<crate::message_edit::StoredMessageEdit>, crate::ConnectionError>;
+
+        fn set_edit_timestamp(
+            &self,
+            _id: &[u8],
+            _edited_at_ns: i64,
+        ) -> Result<(), crate::ConnectionError>;
     }
 
 }
