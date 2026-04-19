@@ -1498,14 +1498,14 @@ where
         // of the same inbox see divergent "latest" edits — each installation's
         // locally-authored edit uses local now_ns() while the peer's edit arrives
         // via sync with the server timestamp.
-        if edit.edited_at_ns != message.sent_at_ns {
-            if let Err(err) = db.set_edit_timestamp(edit_message_id, message.sent_at_ns) {
-                tracing::warn!(
-                    message_id = hex::encode(edit_message_id),
-                    error = ?err,
-                    "Failed to canonicalize edit timestamp"
-                );
-            }
+        if edit.edited_at_ns != message.sent_at_ns
+            && let Err(err) = db.set_edit_timestamp(edit_message_id, message.sent_at_ns)
+        {
+            tracing::warn!(
+                message_id = hex::encode(edit_message_id),
+                error = ?err,
+                "Failed to canonicalize edit timestamp"
+            );
         }
 
         let Ok(Some(original_msg)) = db.get_group_message(&edit.edited_message_id) else {
