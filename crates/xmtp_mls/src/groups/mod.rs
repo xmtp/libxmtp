@@ -1098,6 +1098,35 @@ where
             return Err(EditMessageError::NonEditableMessage.into());
         }
 
+        // XIP-77: the new content's content type must match the original. This
+        // prevents "edits" that silently mutate a Text into a Reply (or vice
+        // versa) and leave downstream UIs disagreeing about what the message is.
+        let edit_content_type = edited_content
+            .r#type
+            .as_ref()
+            .map(|t| xmtp_db::group_message::ContentType::from(t.type_id.clone()))
+            .unwrap_or(xmtp_db::group_message::ContentType::Unknown);
+        if edit_content_type != original_msg.content_type {
+            return Err(EditMessageError::ContentTypeMismatch.into());
+        }
+
+        // XIP-77: Reply edits preserve the reply reference — only the inner
+        // content text may change. Changing which message a reply points at
+        // would be a different semantic operation.
+        if original_msg.content_type == xmtp_db::group_message::ContentType::Reply {
+            use xmtp_content_types::reply::ReplyCodec;
+            let original_encoded = xmtp_content_types::bytes_to_encoded_content(
+                original_msg.decrypted_message_bytes.clone(),
+            );
+            let original_reply = ReplyCodec::decode(original_encoded)
+                .map_err(|_| EditMessageError::ContentTypeMismatch)?;
+            let edited_reply = ReplyCodec::decode(edited_content.clone())
+                .map_err(|_| EditMessageError::ContentTypeMismatch)?;
+            if edited_reply.reference != original_reply.reference {
+                return Err(EditMessageError::ReplyReferenceChanged.into());
+            }
+        }
+
         // Keep a copy of the edited content for local storage — the proto takes
         // ownership of the original.
         let edited_content_for_storage = edited_content.clone();

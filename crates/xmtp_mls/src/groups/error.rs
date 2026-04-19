@@ -426,6 +426,10 @@ pub enum EditMessageError {
     NonEditableMessage,
     #[error("Cannot edit a deleted message")]
     MessageDeleted,
+    #[error("Edit content type does not match original")]
+    ContentTypeMismatch,
+    #[error("Reply edit cannot change the reply reference")]
+    ReplyReferenceChanged,
 }
 
 impl RetryableError for EditMessageError {

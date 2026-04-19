@@ -1731,8 +1731,6 @@ where
             }
         };
 
-        let edited_content_bytes = xmtp_content_types::encoded_content_to_bytes(edited_content);
-
         let db = storage.db();
 
         // Defense-in-depth authorization check at the storage layer. Enrichment
@@ -1763,6 +1761,49 @@ where
                 return Ok(());
             }
 
+            // XIP-77: content type must match the original.
+            let edit_content_type = edited_content
+                .r#type
+                .as_ref()
+                .map(|t| xmtp_db::group_message::ContentType::from(t.type_id.clone()))
+                .unwrap_or(xmtp_db::group_message::ContentType::Unknown);
+            if edit_content_type != original_msg.content_type {
+                tracing::warn!(
+                    "Content type mismatch in edit for {} (original: {:?}, edit: {:?})",
+                    edit_msg.message_id,
+                    original_msg.content_type,
+                    edit_content_type
+                );
+                return Ok(());
+            }
+
+            // XIP-77: Reply edits must preserve the reply reference.
+            if original_msg.content_type == xmtp_db::group_message::ContentType::Reply {
+                use xmtp_content_types::reply::ReplyCodec;
+                let original_encoded = xmtp_content_types::bytes_to_encoded_content(
+                    original_msg.decrypted_message_bytes.clone(),
+                );
+                let (Ok(original_reply), Ok(edited_reply)) = (
+                    ReplyCodec::decode(original_encoded),
+                    ReplyCodec::decode(edited_content.clone()),
+                ) else {
+                    tracing::warn!(
+                        "Failed to decode Reply content for edit validation on {}",
+                        edit_msg.message_id
+                    );
+                    return Ok(());
+                };
+                if edited_reply.reference != original_reply.reference {
+                    tracing::warn!(
+                        "Reply reference mutated in edit for {} (orig: {}, new: {})",
+                        edit_msg.message_id,
+                        original_reply.reference,
+                        edited_reply.reference
+                    );
+                    return Ok(());
+                }
+            }
+
             if original_msg.sender_inbox_id != message.sender_inbox_id {
                 tracing::warn!(
                     "Unauthorized edit by {} for message {} (author: {})",
@@ -1773,6 +1814,8 @@ where
                 return Ok(());
             }
         }
+
+        let edited_content_bytes = xmtp_content_types::encoded_content_to_bytes(edited_content);
 
         let edit_record = StoredMessageEdit::new(
             message.id.clone(),

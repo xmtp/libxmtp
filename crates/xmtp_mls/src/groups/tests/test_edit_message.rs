@@ -781,3 +781,261 @@ async fn test_sync_rejects_unauthorized_edit_over_wire() {
         other => panic!("Expected original Text body, got {:?}", other),
     }
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_cannot_edit_across_content_types() {
+    use xmtp_content_types::markdown::MarkdownCodec;
+
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    let text = TextCodec::encode("hello".to_string())?;
+    let msg_bytes = xmtp_content_types::encoded_content_to_bytes(text);
+    let message_id = alix_group
+        .send_message(&msg_bytes, SendMessageOpts::default())
+        .await?;
+
+    // Edit a Text message with Markdown content — must be rejected per XIP-77.
+    let markdown = MarkdownCodec::encode("**bold**".to_string())?;
+    let result = alix_group.edit_message(message_id, markdown);
+
+    assert!(matches!(
+        result,
+        Err(GroupError::EditMessage(
+            EditMessageError::ContentTypeMismatch
+        ))
+    ));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_reply_edit_preserves_text_succeeds() {
+    use xmtp_content_types::reply::{Reply, ReplyCodec};
+
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    // Send a target message to reply to.
+    let target_text = TextCodec::encode("original target".to_string())?;
+    let target_bytes = xmtp_content_types::encoded_content_to_bytes(target_text);
+    let target_id = alix_group
+        .send_message(&target_bytes, SendMessageOpts::default())
+        .await?;
+
+    // Send a Reply to that target.
+    let reply = Reply {
+        reference: hex::encode(&target_id),
+        reference_inbox_id: Some(alix.inbox_id().to_string()),
+        content: TextCodec::encode("first reply".to_string())?,
+    };
+    let reply_bytes = xmtp_content_types::encoded_content_to_bytes(ReplyCodec::encode(reply)?);
+    let reply_id = alix_group
+        .send_message(&reply_bytes, SendMessageOpts::default())
+        .await?;
+
+    // Edit the Reply with new text but the same reference — must succeed.
+    let edited_reply = Reply {
+        reference: hex::encode(&target_id),
+        reference_inbox_id: Some(alix.inbox_id().to_string()),
+        content: TextCodec::encode("edited reply text".to_string())?,
+    };
+    let edit_id =
+        alix_group.edit_message(reply_id.clone(), ReplyCodec::encode(edited_reply)?)?;
+    assert!(!edit_id.is_empty());
+
+    let conn = alix.context.db();
+    assert!(conn.is_message_edited(&reply_id)?);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_reply_edit_cannot_change_reference() {
+    use xmtp_content_types::reply::{Reply, ReplyCodec};
+
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    // Two target messages.
+    let first_target = alix_group
+        .send_message(
+            &xmtp_content_types::encoded_content_to_bytes(TextCodec::encode("first".to_string())?),
+            SendMessageOpts::default(),
+        )
+        .await?;
+    let other_target = alix_group
+        .send_message(
+            &xmtp_content_types::encoded_content_to_bytes(TextCodec::encode("other".to_string())?),
+            SendMessageOpts::default(),
+        )
+        .await?;
+
+    // Reply to the first target.
+    let reply = Reply {
+        reference: hex::encode(&first_target),
+        reference_inbox_id: Some(alix.inbox_id().to_string()),
+        content: TextCodec::encode("my reply".to_string())?,
+    };
+    let reply_id = alix_group
+        .send_message(
+            &xmtp_content_types::encoded_content_to_bytes(ReplyCodec::encode(reply)?),
+            SendMessageOpts::default(),
+        )
+        .await?;
+
+    // Attempt to edit the Reply to point at a different target — must be rejected.
+    let repointed = Reply {
+        reference: hex::encode(&other_target),
+        reference_inbox_id: Some(alix.inbox_id().to_string()),
+        content: TextCodec::encode("my reply".to_string())?,
+    };
+    let result = alix_group.edit_message(reply_id, ReplyCodec::encode(repointed)?);
+
+    assert!(matches!(
+        result,
+        Err(GroupError::EditMessage(
+            EditMessageError::ReplyReferenceChanged
+        ))
+    ));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_sync_rejects_cross_type_edit_over_wire() {
+    use xmtp_content_types::edit_message::EditMessageCodec;
+    use xmtp_content_types::markdown::MarkdownCodec;
+    use xmtp_proto::xmtp::mls::message_contents::content_types::EditMessage as EditMessageProto;
+
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    let text = TextCodec::encode("alix's text".to_string())?;
+    let msg_bytes = xmtp_content_types::encoded_content_to_bytes(text);
+    let message_id = alix_group
+        .send_message(&msg_bytes, SendMessageOpts::default())
+        .await?;
+
+    // Hand-roll a fraudulent cross-type EditMessage: claim to edit a Text
+    // message with Markdown content. Bypasses edit_message()'s API-level check.
+    let cross_type = EditMessageProto {
+        message_id: hex::encode(&message_id),
+        edited_content: Some(MarkdownCodec::encode("**hacked**".to_string())?),
+    };
+    let wire_bytes =
+        xmtp_content_types::encoded_content_to_bytes(EditMessageCodec::encode(cross_type)?);
+    alix_group
+        .send_message(&wire_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.publish_messages().await?;
+    alix_group.sync().await?;
+
+    // process_edit_message must refuse to persist.
+    let conn = alix.context.db();
+    assert!(
+        !conn.is_message_edited(&message_id)?,
+        "Cross-type edit must not persist a StoredMessageEdit row"
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_latest_edit_tie_breaks_by_smallest_id() {
+    use xmtp_db::Store;
+    use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
+    use xmtp_db::message_edit::StoredMessageEdit;
+
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+    let conn = alix.context.db();
+
+    let target_id = vec![77, 77, 77];
+    let edit_a_id = vec![1, 1, 1];
+    let edit_b_id = vec![2, 2, 2];
+
+    // Target message.
+    StoredGroupMessage {
+        id: target_id.clone(),
+        group_id: alix_group.group_id.clone(),
+        decrypted_message_bytes: xmtp_content_types::encoded_content_to_bytes(
+            TextCodec::encode("target".to_string())?,
+        ),
+        sent_at_ns: 1_000,
+        kind: GroupMessageKind::Application,
+        sender_installation_id: vec![],
+        sender_inbox_id: alix.inbox_id().to_string(),
+        delivery_status: DeliveryStatus::Published,
+        content_type: ContentType::Text,
+        version_major: 1,
+        version_minor: 0,
+        authority_id: "xmtp.org".to_string(),
+        reference_id: None,
+        originator_id: 0,
+        sequence_id: 1,
+        inserted_at_ns: 0,
+        expire_at_ns: None,
+        should_push: false,
+    }
+    .store(&conn)?;
+
+    // Two edit-carrier group_messages rows with the same sent time (FK target
+    // for message_edits.id).
+    for id in [&edit_a_id, &edit_b_id] {
+        StoredGroupMessage {
+            id: id.clone(),
+            group_id: alix_group.group_id.clone(),
+            decrypted_message_bytes: vec![],
+            sent_at_ns: 2_000,
+            kind: GroupMessageKind::Application,
+            sender_installation_id: vec![],
+            sender_inbox_id: alix.inbox_id().to_string(),
+            delivery_status: DeliveryStatus::Published,
+            content_type: ContentType::EditMessage,
+            version_major: 1,
+            version_minor: 0,
+            authority_id: "xmtp.org".to_string(),
+            reference_id: Some(target_id.clone()),
+            originator_id: 0,
+            sequence_id: 1,
+            inserted_at_ns: 0,
+            expire_at_ns: None,
+            should_push: false,
+        }
+        .store(&conn)?;
+    }
+
+    // Two edit records with IDENTICAL edited_at_ns — tie-break must pick the
+    // row with the smaller id (edit_a_id < edit_b_id lexicographically).
+    let common_ts = 2_000i64;
+    StoredMessageEdit {
+        id: edit_b_id.clone(),
+        group_id: alix_group.group_id.clone(),
+        edited_message_id: target_id.clone(),
+        edited_by_inbox_id: alix.inbox_id().to_string(),
+        edited_content_bytes: xmtp_content_types::encoded_content_to_bytes(TextCodec::encode(
+            "edit B".to_string(),
+        )?),
+        edited_at_ns: common_ts,
+    }
+    .store(&conn)?;
+    StoredMessageEdit {
+        id: edit_a_id.clone(),
+        group_id: alix_group.group_id.clone(),
+        edited_message_id: target_id.clone(),
+        edited_by_inbox_id: alix.inbox_id().to_string(),
+        edited_content_bytes: xmtp_content_types::encoded_content_to_bytes(TextCodec::encode(
+            "edit A".to_string(),
+        )?),
+        edited_at_ns: common_ts,
+    }
+    .store(&conn)?;
+
+    let latest = conn
+        .get_latest_edit_by_message_id(&target_id)?
+        .expect("expected an edit to resolve");
+    assert_eq!(
+        latest.id, edit_a_id,
+        "tie-break must prefer the smallest id"
+    );
+
+    let batch = conn.get_latest_edits_for_messages(vec![target_id.clone()])?;
+    assert_eq!(batch.len(), 1, "one target → one latest edit");
+    assert_eq!(
+        batch[0].id, edit_a_id,
+        "batch query must match single-lookup tie-break"
+    );
+}
