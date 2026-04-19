@@ -40,33 +40,6 @@ pub struct StoredMessageEdit {
     pub edited_at_ns: i64,
 }
 
-impl StoredMessageEdit {
-    /// Construct an edit record with an explicit `edited_at_ns`.
-    ///
-    /// Callers should pass the *sender's* send time so concurrent edits from
-    /// different installations converge consistently across recipients. Using
-    /// a receiver-local clock causes the recipient to see its own locally
-    /// authored edit as "older" than a peer's edit simply because the peer's
-    /// edit arrived later over the network — a real convergence bug.
-    pub fn new(
-        id: Vec<u8>,
-        group_id: Vec<u8>,
-        edited_message_id: Vec<u8>,
-        edited_by_inbox_id: String,
-        edited_content_bytes: Vec<u8>,
-        edited_at_ns: i64,
-    ) -> Self {
-        Self {
-            id,
-            group_id,
-            edited_message_id,
-            edited_by_inbox_id,
-            edited_content_bytes,
-            edited_at_ns,
-        }
-    }
-}
-
 impl_store!(StoredMessageEdit, message_edits);
 impl_store_or_ignore!(StoredMessageEdit, message_edits);
 

@@ -1115,9 +1115,9 @@ where
         // would be a different semantic operation.
         if original_msg.content_type == xmtp_db::group_message::ContentType::Reply {
             use xmtp_content_types::reply::ReplyCodec;
-            let original_encoded = xmtp_content_types::bytes_to_encoded_content(
-                original_msg.decrypted_message_bytes.clone(),
-            );
+            let original_encoded =
+                EncodedContent::decode(original_msg.decrypted_message_bytes.as_slice())
+                    .map_err(|_| EditMessageError::ContentTypeMismatch)?;
             let original_reply = ReplyCodec::decode(original_encoded)
                 .map_err(|_| EditMessageError::ContentTypeMismatch)?;
             let edited_reply = ReplyCodec::decode(edited_content.clone())
@@ -1146,14 +1146,14 @@ where
         // round-trips back through sync, `process_own_edit_message` rewrites
         // `edited_at_ns` to the server-assigned envelope timestamp so this
         // installation's view agrees with peers on "latest wins" ordering.
-        let edit_record = StoredMessageEdit::new(
-            edit_message_id.clone(),
-            self.group_id.clone(),
-            message_id,
-            sender_inbox_id.to_string(),
-            encoded_content_to_bytes(edited_content_for_storage),
-            now_ns(),
-        );
+        let edit_record = StoredMessageEdit {
+            id: edit_message_id.clone(),
+            group_id: self.group_id.clone(),
+            edited_message_id: message_id,
+            edited_by_inbox_id: sender_inbox_id.to_string(),
+            edited_content_bytes: encoded_content_to_bytes(edited_content_for_storage),
+            edited_at_ns: now_ns(),
+        };
 
         edit_record.store(&conn)?;
 

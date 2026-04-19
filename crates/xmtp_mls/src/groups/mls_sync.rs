@@ -1807,9 +1807,15 @@ where
             // XIP-77: Reply edits must preserve the reply reference.
             if original_msg.content_type == xmtp_db::group_message::ContentType::Reply {
                 use xmtp_content_types::reply::ReplyCodec;
-                let original_encoded = xmtp_content_types::bytes_to_encoded_content(
-                    original_msg.decrypted_message_bytes.clone(),
-                );
+                let Ok(original_encoded) =
+                    EncodedContent::decode(original_msg.decrypted_message_bytes.as_slice())
+                else {
+                    tracing::warn!(
+                        "Failed to decode stored EncodedContent for Reply edit validation on {}",
+                        edit_msg.message_id
+                    );
+                    return Ok(());
+                };
                 let (Ok(original_reply), Ok(edited_reply)) = (
                     ReplyCodec::decode(original_encoded),
                     ReplyCodec::decode(edited_content.clone()),
@@ -1857,14 +1863,14 @@ where
 
         let edited_content_bytes = xmtp_content_types::encoded_content_to_bytes(edited_content);
 
-        let edit_record = StoredMessageEdit::new(
-            message.id.clone(),
-            message.group_id.clone(),
-            edited_message_id.clone(),
-            message.sender_inbox_id.clone(),
+        let edit_record = StoredMessageEdit {
+            id: message.id.clone(),
+            group_id: message.group_id.clone(),
+            edited_message_id: edited_message_id.clone(),
+            edited_by_inbox_id: message.sender_inbox_id.clone(),
             edited_content_bytes,
-            message.sent_at_ns,
-        );
+            edited_at_ns: message.sent_at_ns,
+        };
 
         edit_record.store(&db)?;
 

@@ -9,7 +9,8 @@ use xmtp_db::group_message::{
 };
 use xmtp_db::message_deletion::StoredMessageDeletion;
 use xmtp_db::message_edit::StoredMessageEdit;
-use xmtp_proto::xmtp::mls::message_contents::ContentTypeId;
+use prost::Message;
+use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 /// Content type ID for deleted message placeholders shown in enriched message lists
 pub fn deleted_message_content_type() -> ContentTypeId {
@@ -156,17 +157,18 @@ pub fn enrich_messages(
                     .get(&decoded.metadata.id)
                     .filter(|edit| is_edit_valid(edit, &stored_message, group_id))
                 {
-                    let edited_encoded = xmtp_content_types::bytes_to_encoded_content(
-                        edit.edited_content_bytes.clone(),
-                    );
-                    match MessageBody::try_from(edited_encoded.clone()) {
+                    match EncodedContent::decode(edit.edited_content_bytes.as_slice())
+                        .map_err(|e| format!("EncodedContent decode: {e}"))
+                        .and_then(|c| {
+                            MessageBody::try_from(c).map_err(|e| format!("MessageBody: {e}"))
+                        }) {
                         Ok(body) => {
                             decoded.content = body;
                             decoded.edited = Some(EditedBy::Sender);
                         }
                         Err(err) => {
                             tracing::warn!(
-                                "Failed to decode edited content for message {}: {:?}",
+                                "Failed to decode edited content for message {}: {}",
                                 decoded.metadata.id.encode_hex(),
                                 err
                             );

@@ -416,14 +416,14 @@ async fn test_true_out_of_order_edit() {
 
     // Store the edit record before the original message exists.
     let edited_text = TextCodec::encode("edited content".to_string())?;
-    let edit_record = StoredMessageEdit::new(
-        edit_msg_id,
-        alix_group.group_id.clone(),
-        original_msg_id.clone(),
-        alix.inbox_id().to_string(),
-        xmtp_content_types::encoded_content_to_bytes(edited_text),
-        xmtp_common::time::now_ns(),
-    );
+    let edit_record = StoredMessageEdit {
+        id: edit_msg_id,
+        group_id: alix_group.group_id.clone(),
+        edited_message_id: original_msg_id.clone(),
+        edited_by_inbox_id: alix.inbox_id().to_string(),
+        edited_content_bytes: xmtp_content_types::encoded_content_to_bytes(edited_text),
+        edited_at_ns: xmtp_common::time::now_ns(),
+    };
     edit_record.store(&conn)?;
 
     // Now the original message arrives.
@@ -506,14 +506,14 @@ async fn test_out_of_order_unauthorized_edit_rejected() {
     fake_msg.store(&conn)?;
 
     let fake_content = TextCodec::encode("hacked".to_string())?;
-    let fake_edit = StoredMessageEdit::new(
-        fake_edit_id,
-        alix_group.group_id.clone(),
-        message_id.clone(),
-        "fake_inbox".to_string(),
-        xmtp_content_types::encoded_content_to_bytes(fake_content),
-        xmtp_common::time::now_ns(),
-    );
+    let fake_edit = StoredMessageEdit {
+        id: fake_edit_id,
+        group_id: alix_group.group_id.clone(),
+        edited_message_id: message_id.clone(),
+        edited_by_inbox_id: "fake_inbox".to_string(),
+        edited_content_bytes: xmtp_content_types::encoded_content_to_bytes(fake_content),
+        edited_at_ns: xmtp_common::time::now_ns(),
+    };
     fake_edit.store(&conn)?;
 
     // Enrichment must reject the unauthorized edit and show the original content.
