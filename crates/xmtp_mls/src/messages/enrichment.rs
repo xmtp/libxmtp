@@ -1,5 +1,6 @@
 use crate::messages::decoded_message::{DecodedMessage, DeletedBy, EditedBy, MessageBody};
 use hex::ToHexExt;
+use prost::Message;
 use std::collections::HashMap;
 use thiserror::Error;
 use xmtp_common::{ErrorCode, RetryableError};
@@ -9,7 +10,6 @@ use xmtp_db::group_message::{
 };
 use xmtp_db::message_deletion::StoredMessageDeletion;
 use xmtp_db::message_edit::StoredMessageEdit;
-use prost::Message;
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 /// Content type ID for deleted message placeholders shown in enriched message lists

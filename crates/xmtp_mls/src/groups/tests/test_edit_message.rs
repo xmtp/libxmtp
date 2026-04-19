@@ -854,8 +854,7 @@ async fn test_reply_edit_preserves_text_succeeds() {
         reference_inbox_id: Some(alix.inbox_id().to_string()),
         content: TextCodec::encode("edited reply text".to_string())?,
     };
-    let edit_id =
-        alix_group.edit_message(reply_id.clone(), ReplyCodec::encode(edited_reply)?)?;
+    let edit_id = alix_group.edit_message(reply_id.clone(), ReplyCodec::encode(edited_reply)?)?;
     assert!(!edit_id.is_empty());
 
     let conn = alix.context.db();
@@ -967,9 +966,9 @@ async fn test_latest_edit_tie_breaks_by_smallest_id() {
     StoredGroupMessage {
         id: target_id.clone(),
         group_id: alix_group.group_id.clone(),
-        decrypted_message_bytes: xmtp_content_types::encoded_content_to_bytes(
-            TextCodec::encode("target".to_string())?,
-        ),
+        decrypted_message_bytes: xmtp_content_types::encoded_content_to_bytes(TextCodec::encode(
+            "target".to_string(),
+        )?),
         sent_at_ns: 1_000,
         kind: GroupMessageKind::Application,
         sender_installation_id: vec![],
@@ -1261,7 +1260,10 @@ async fn test_enrichment_in_reply_to_reflects_target_edit() {
                     "{label}: in_reply_to should mirror the main-list enrichment"
                 );
             }
-            other => panic!("{label}: expected Text body in in_reply_to, got {:?}", other),
+            other => panic!(
+                "{label}: expected Text body in in_reply_to, got {:?}",
+                other
+            ),
         }
         assert_eq!(
             in_reply_to.edited,

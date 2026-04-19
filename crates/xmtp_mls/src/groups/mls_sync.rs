@@ -1538,8 +1538,7 @@ where
                         return;
                     }
                 }
-                decoded_message.edited =
-                    Some(crate::messages::decoded_message::EditedBy::Sender);
+                decoded_message.edited = Some(crate::messages::decoded_message::EditedBy::Sender);
                 let _ = self.context.local_events().send(
                     crate::subscriptions::LocalEvents::MessageEdited(Box::new(decoded_message)),
                 );
