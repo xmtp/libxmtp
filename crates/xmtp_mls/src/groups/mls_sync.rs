@@ -1695,7 +1695,19 @@ where
 
     /// Process an incoming EditMessage from the network.
     ///
-    /// Returns `Ok(())` for invalid edits to avoid disrupting sync — only DB errors bubble up.
+    /// Returns `Ok(())` for *invalid* edits (decode failures, unauthorized
+    /// senders, cross-group targets, non-editable originals, reply-reference
+    /// mutations, …) so the broader sync loop never aborts because a single
+    /// malformed or malicious payload fell through the wire. Only real DB
+    /// errors bubble up.
+    ///
+    /// This is the same error posture as `process_delete_message` and
+    /// intentionally *asymmetric* from the enrichment layer. `enrich_messages`
+    /// iterates over query results and can safely log-and-skip a single bad
+    /// row: the rest of the iteration still produces useful output for the
+    /// caller. Here we're midway through the MLS sync state machine — letting
+    /// one bad edit short-circuit into an `Err` would halt all message
+    /// processing for the group.
     #[cfg_attr(test, allow(dead_code))]
     pub(crate) fn process_edit_message(
         &self,
@@ -1817,6 +1829,19 @@ where
                     );
                     return Ok(());
                 }
+            }
+
+            // XIP-77: delete takes precedence over edit. Enrichment already
+            // renders the message as deleted regardless, but rejecting the
+            // edit here prevents junk rows accumulating in `message_edits`
+            // for targets that have been locally deleted. Mirrors the same
+            // check in `edit_message()` at the API layer.
+            if db.is_message_deleted(&edited_message_id)? {
+                tracing::warn!(
+                    "Edit targets already-deleted message {}",
+                    edit_msg.message_id
+                );
+                return Ok(());
             }
 
             if original_msg.sender_inbox_id != message.sender_inbox_id {

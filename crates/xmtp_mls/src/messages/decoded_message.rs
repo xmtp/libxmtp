@@ -216,6 +216,16 @@ impl TryFrom<EncodedContent> for MessageBody {
 impl TryFrom<StoredGroupMessage> for DecodedMessage {
     type Error = EnrichMessageError;
 
+    /// Decodes a stored message into its presentation form.
+    ///
+    /// The `edited` field is always initialized to `None` here. Callers that
+    /// know the message has been edited — the enrichment layer and the two
+    /// sync-path stream emitters (`process_edit_message`,
+    /// `process_own_edit_message`) — must set
+    /// `decoded.edited = Some(EditedBy::Sender)` explicitly after conversion.
+    /// If a new code path emits `LocalEvents::MessageEdited` without that
+    /// follow-up assignment, stream consumers will silently lose the
+    /// edited-state marker. Prefer a helper or builder if that pattern spreads.
     fn try_from(value: StoredGroupMessage) -> Result<Self, Self::Error> {
         // Decode the message content from the stored bytes
         // If we can't get past this part, we return an error

@@ -1122,3 +1122,62 @@ async fn test_concurrent_edits_from_two_installations() {
         Some(crate::messages::decoded_message::EditedBy::Sender)
     );
 }
+
+/// Defense-in-depth at the sync layer: if an EditMessage for a locally-deleted
+/// target arrives over the wire (bypassing `edit_message()`'s API-level
+/// `is_message_deleted` check by hand-crafting the payload), the storage
+/// layer must refuse to persist. Enrichment would already render the message
+/// as deleted regardless, but avoiding the stored row keeps the edits table
+/// from accumulating gravestones.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_sync_rejects_edit_of_deleted_message_over_wire() {
+    use xmtp_content_types::edit_message::EditMessageCodec;
+    use xmtp_proto::xmtp::mls::message_contents::content_types::EditMessage as EditMessageProto;
+
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    let text = TextCodec::encode("alix says hi".to_string())?;
+    let msg_bytes = xmtp_content_types::encoded_content_to_bytes(text);
+    let message_id = alix_group
+        .send_message(&msg_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.publish_messages().await?;
+
+    // Delete locally before the edit arrives.
+    alix_group.delete_message(message_id.clone())?;
+    alix_group.publish_messages().await?;
+    alix_group.sync().await?;
+
+    // Hand-roll an EditMessage payload and send it as a raw message so it
+    // bypasses `edit_message()`'s `is_message_deleted` guard.
+    let fraudulent = EditMessageProto {
+        message_id: hex::encode(&message_id),
+        edited_content: Some(TextCodec::encode("reanimated".to_string())?),
+    };
+    let wire_bytes =
+        xmtp_content_types::encoded_content_to_bytes(EditMessageCodec::encode(fraudulent)?);
+    alix_group
+        .send_message(&wire_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.publish_messages().await?;
+    alix_group.sync().await?;
+
+    // Storage-layer assertion: process_edit_message must have skipped the write.
+    let conn = alix.context.db();
+    assert!(
+        !conn.is_message_edited(&message_id)?,
+        "Edit targeting a deleted message must not persist a StoredMessageEdit row"
+    );
+
+    // Read-path assertion: the target still presents as deleted, not edited.
+    let enriched = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let msg = enriched
+        .iter()
+        .find(|m| m.metadata.id == message_id)
+        .unwrap();
+    assert!(matches!(
+        msg.content,
+        crate::messages::decoded_message::MessageBody::DeletedMessage { .. }
+    ));
+}
