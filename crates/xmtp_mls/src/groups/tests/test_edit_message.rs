@@ -658,6 +658,11 @@ async fn test_stream_message_edits_from_other_client() {
     assert!(received.is_some(), "Edit event should be received");
     let received_msg = received.as_ref().unwrap();
     assert_eq!(received_msg.metadata.id, message_id);
+    assert_eq!(
+        received_msg.edited,
+        Some(crate::messages::decoded_message::EditedBy::Sender),
+        "Stream event must expose `edited` metadata so consumers can display \"(edited)\""
+    );
 }
 
 /// Task 21: a sender watching `stream_message_edits` receives their own edit
@@ -708,4 +713,9 @@ async fn test_stream_message_edits_fires_for_self_after_publish() {
 
     let received_msg = received.lock().clone().unwrap();
     assert_eq!(received_msg.metadata.id, message_id);
+    assert_eq!(
+        received_msg.edited,
+        Some(crate::messages::decoded_message::EditedBy::Sender),
+        "Self-edit stream must expose `edited` metadata"
+    );
 }

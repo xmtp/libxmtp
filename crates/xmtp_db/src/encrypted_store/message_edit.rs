@@ -176,20 +176,22 @@ impl<C: ConnectionExt> QueryMessageEdit for DbConnection<C> {
             return Ok(vec![]);
         }
         self.raw_query_read(|conn| {
-            // Pull all edits for the target IDs, then dedupe in Rust keeping the
-            // greatest (edited_at_ns, reverse id) per edited_message_id.
+            // Pull all edits for the target IDs, then keep the latest per target:
+            // greatest `edited_at_ns`, tie-break by smallest `id`.
             let mut all: Vec<StoredMessageEdit> = dsl::message_edits
                 .filter(dsl::edited_message_id.eq_any(&message_ids))
                 .load(conn)?;
             all.sort_by(|a, b| {
-                a.edited_at_ns
-                    .cmp(&b.edited_at_ns)
-                    .then_with(|| b.id.cmp(&a.id))
+                b.edited_at_ns
+                    .cmp(&a.edited_at_ns)
+                    .then_with(|| a.id.cmp(&b.id))
             });
             let mut by_target: std::collections::HashMap<Vec<u8>, StoredMessageEdit> =
                 std::collections::HashMap::new();
             for edit in all.into_iter() {
-                by_target.insert(edit.edited_message_id.clone(), edit);
+                by_target
+                    .entry(edit.edited_message_id.clone())
+                    .or_insert(edit);
             }
             Ok(by_target.into_values().collect())
         })

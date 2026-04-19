@@ -1499,7 +1499,9 @@ where
         };
 
         match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
-            Ok(decoded_message) => {
+            Ok(mut decoded_message) => {
+                decoded_message.edited =
+                    Some(crate::messages::decoded_message::EditedBy::Sender);
                 let _ = self.context.local_events().send(
                     crate::subscriptions::LocalEvents::MessageEdited(Box::new(decoded_message)),
                 );
@@ -1745,7 +1747,9 @@ where
         // sender's own round-trip still cover the UI update.
         if let Some(original_msg) = db.get_group_message(&edited_message_id)? {
             match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
-                Ok(decoded_message) => {
+                Ok(mut decoded_message) => {
+                    decoded_message.edited =
+                        Some(crate::messages::decoded_message::EditedBy::Sender);
                     let _ = self.context.local_events().send(
                         crate::subscriptions::LocalEvents::MessageEdited(Box::new(decoded_message)),
                     );
