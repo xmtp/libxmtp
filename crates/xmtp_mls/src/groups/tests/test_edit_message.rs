@@ -719,3 +719,65 @@ async fn test_stream_message_edits_fires_for_self_after_publish() {
         "Self-edit stream must expose `edited` metadata"
     );
 }
+
+/// Defense-in-depth at the sync layer: if a non-sender publishes an EditMessage
+/// proto (bypassing the `edit_message()` auth gate by hand-crafting the payload),
+/// `process_edit_message` must reject it at storage time. The original content
+/// is preserved AND no `message_edits` row is written.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_sync_rejects_unauthorized_edit_over_wire() {
+    use xmtp_content_types::edit_message::EditMessageCodec;
+    use xmtp_proto::xmtp::mls::message_contents::content_types::EditMessage as EditMessageProto;
+
+    tester!(alix);
+    tester!(bo);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = &bo_groups[0];
+
+    let text = TextCodec::encode("Alix's message".to_string())?;
+    let msg_bytes = xmtp_content_types::encoded_content_to_bytes(text);
+    let message_id = alix_group
+        .send_message(&msg_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.publish_messages().await?;
+    bo_group.sync().await?;
+
+    // Bo bypasses edit_message()'s sender check by hand-rolling an EditMessage
+    // proto and sending it through send_message directly. MLS still signs it
+    // as Bo, so the recipient sees sender_inbox_id = bo but the payload claims
+    // to edit Alix's message.
+    let fraudulent = EditMessageProto {
+        message_id: hex::encode(&message_id),
+        edited_content: Some(TextCodec::encode("hacked".to_string())?),
+    };
+    let wire_bytes =
+        xmtp_content_types::encoded_content_to_bytes(EditMessageCodec::encode(fraudulent)?);
+    bo_group
+        .send_message(&wire_bytes, SendMessageOpts::default())
+        .await?;
+    bo_group.publish_messages().await?;
+
+    alix_group.sync().await?;
+
+    // Storage-layer assertion: process_edit_message must have refused to persist.
+    let conn = alix.context.db();
+    assert!(
+        !conn.is_message_edited(&message_id)?,
+        "Unauthorized edit from a non-sender must not persist a StoredMessageEdit row"
+    );
+
+    // Read-path assertion: enrichment still shows the original content.
+    let enriched = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let msg = enriched
+        .iter()
+        .find(|m| m.metadata.id == message_id)
+        .unwrap();
+    match &msg.content {
+        crate::messages::decoded_message::MessageBody::Text(t) => {
+            assert_eq!(t.content, "Alix's message");
+        }
+        other => panic!("Expected original Text body, got {:?}", other),
+    }
+}

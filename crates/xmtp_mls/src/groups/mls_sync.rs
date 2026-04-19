@@ -99,7 +99,10 @@ use xmtp_db::{
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_db::{TransactionalKeyStore, XmtpMlsStorageProvider, refresh_state::HasEntityKind};
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
-use xmtp_db::{group::GroupMembershipState, group_message::Deletable};
+use xmtp_db::{
+    group::GroupMembershipState,
+    group_message::{Deletable, Editable},
+};
 use xmtp_db::{
     group_message::MsgQueryArgs,
     pending_remove::{PendingRemove, QueryPendingRemove},
@@ -1730,6 +1733,47 @@ where
 
         let edited_content_bytes = xmtp_content_types::encoded_content_to_bytes(edited_content);
 
+        let db = storage.db();
+
+        // Defense-in-depth authorization check at the storage layer. Enrichment
+        // also validates via `is_edit_valid`, but rejecting here prevents junk
+        // `message_edits` rows from accumulating in the DB. Mirrors the author
+        // match that `process_delete_message` performs before inserting.
+        //
+        // If the original isn't in the DB yet (genuine out-of-order sync), the
+        // payload's sender identity is still cryptographically authenticated by
+        // MLS, and enrichment revalidates once the original arrives.
+        if let Some(ref original_msg) = db.get_group_message(&edited_message_id)? {
+            if original_msg.group_id != self.group_id {
+                tracing::warn!(
+                    "Cross-group edit attempt: message {} from group {}",
+                    edit_msg.message_id,
+                    hex::encode(&original_msg.group_id)
+                );
+                return Ok(());
+            }
+
+            if !original_msg.kind.is_editable() || !original_msg.content_type.is_editable() {
+                tracing::warn!(
+                    "Non-editable message {} (kind: {:?}, content_type: {:?})",
+                    edit_msg.message_id,
+                    original_msg.kind,
+                    original_msg.content_type
+                );
+                return Ok(());
+            }
+
+            if original_msg.sender_inbox_id != message.sender_inbox_id {
+                tracing::warn!(
+                    "Unauthorized edit by {} for message {} (author: {})",
+                    message.sender_inbox_id,
+                    edit_msg.message_id,
+                    original_msg.sender_inbox_id
+                );
+                return Ok(());
+            }
+        }
+
         let edit_record = StoredMessageEdit::new(
             message.id.clone(),
             message.group_id.clone(),
@@ -1738,7 +1782,6 @@ where
             edited_content_bytes,
         );
 
-        let db = storage.db();
         edit_record.store(&db)?;
 
         // Emit MessageEdited event with the original (now-edited) message, mirroring
