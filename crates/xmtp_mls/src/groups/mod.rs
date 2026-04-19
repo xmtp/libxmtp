@@ -1043,25 +1043,7 @@ where
         Ok(deletion_message_id)
     }
 
-    /// Edit a message by its ID. Returns the ID of the edit message.
-    ///
-    /// Only the original sender can edit a message. Admin override is intentionally
-    /// not supported: edits rewrite authored content, so they must remain authored
-    /// by the original sender. An already-deleted message cannot be edited.
-    ///
-    /// # Wire Protocol
-    /// The `EditMessage` protobuf encodes `message_id` as a hex-encoded string for wire
-    /// transmission, while the database stores message IDs as raw bytes. This function
-    /// accepts raw bytes and hex-encodes them for the wire protocol. The full
-    /// replacement `EncodedContent` is embedded in the `EditMessage` payload.
-    ///
-    /// # Arguments
-    /// * `message_id` - The message ID as bytes
-    /// * `edited_content` - The replacement `EncodedContent`
-    ///
-    /// # Returns
-    /// The ID of the edit message (the row in `group_messages` for the `EditMessage`
-    /// payload).
+    /// Edit a message. Sender-only per XIP-77.
     pub fn edit_message(
         &self,
         message_id: Vec<u8>,
@@ -1071,24 +1053,18 @@ where
 
         let conn = self.context.db();
 
-        // Load the original message.
         let original_msg = conn
             .get_group_message(&message_id)?
             .ok_or_else(|| EditMessageError::MessageNotFound(hex::encode(&message_id)))?;
 
-        // Validate the message belongs to this group (prevent cross-group edits).
         if original_msg.group_id != self.group_id {
             return Err(EditMessageError::NotAuthorized.into());
         }
 
-        // Cannot edit a deleted message. This check runs before the authorization
-        // check because a deleted message is an immutable gravestone regardless of
-        // who asks.
         if conn.is_message_deleted(&message_id)? {
             return Err(EditMessageError::MessageDeleted.into());
         }
 
-        // Only the original sender can edit. No admin override.
         let sender_inbox_id = self.context.inbox_id();
         if original_msg.sender_inbox_id != sender_inbox_id {
             return Err(EditMessageError::NotAuthorized.into());
@@ -1098,9 +1074,7 @@ where
             return Err(EditMessageError::NonEditableMessage.into());
         }
 
-        // XIP-77: the new content's content type must match the original. This
-        // prevents "edits" that silently mutate a Text into a Reply (or vice
-        // versa) and leave downstream UIs disagreeing about what the message is.
+        // XIP-77: content type must match the original.
         let edit_content_type = edited_content
             .r#type
             .as_ref()
@@ -1110,9 +1084,7 @@ where
             return Err(EditMessageError::ContentTypeMismatch.into());
         }
 
-        // XIP-77: Reply edits preserve the reply reference — only the inner
-        // content text may change. Changing which message a reply points at
-        // would be a different semantic operation.
+        // XIP-77: Reply edits preserve the reply reference.
         if original_msg.content_type == xmtp_db::group_message::ContentType::Reply {
             use xmtp_content_types::reply::ReplyCodec;
             let original_encoded =
@@ -1127,8 +1099,6 @@ where
             }
         }
 
-        // Keep a copy of the edited content for local storage — the proto takes
-        // ownership of the original.
         let edited_content_for_storage = edited_content.clone();
 
         let edit_msg = EditMessage {
@@ -1142,10 +1112,7 @@ where
 
         let edit_message_id = self.send_message_optimistic(&buf, SendMessageOpts::default())?;
 
-        // Use a local clock reading for the optimistic row. When the message
-        // round-trips back through sync, `process_own_edit_message` rewrites
-        // `edited_at_ns` to the server-assigned envelope timestamp so this
-        // installation's view agrees with peers on "latest wins" ordering.
+        // Optimistic timestamp; canonicalized on round-trip in process_own_edit_message.
         let edit_record = StoredMessageEdit {
             id: edit_message_id.clone(),
             group_id: self.group_id.clone(),

@@ -736,10 +736,6 @@ async fn test_stream_message_edits_fires_for_self_after_publish() {
     }
 }
 
-/// Defense-in-depth at the sync layer: if a non-sender publishes an EditMessage
-/// proto (bypassing the `edit_message()` auth gate by hand-crafting the payload),
-/// `process_edit_message` must reject it at storage time. The original content
-/// is preserved AND no `message_edits` row is written.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_sync_rejects_unauthorized_edit_over_wire() {
     use xmtp_content_types::edit_message::EditMessageCodec;
@@ -1136,12 +1132,6 @@ async fn test_concurrent_edits_from_two_installations() {
     );
 }
 
-/// Defense-in-depth at the sync layer: if an EditMessage for a locally-deleted
-/// target arrives over the wire (bypassing `edit_message()`'s API-level
-/// `is_message_deleted` check by hand-crafting the payload), the storage
-/// layer must refuse to persist. Enrichment would already render the message
-/// as deleted regardless, but avoiding the stored row keeps the edits table
-/// from accumulating gravestones.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_sync_rejects_edit_of_deleted_message_over_wire() {
     use xmtp_content_types::edit_message::EditMessageCodec;
@@ -1195,9 +1185,6 @@ async fn test_sync_rejects_edit_of_deleted_message_over_wire() {
     ));
 }
 
-/// If a message is edited after someone replies to it, the reply's
-/// `in_reply_to` preview must reflect the edited content — not the original.
-/// Mirrors the deletion handling already applied to `in_reply_to`.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_enrichment_in_reply_to_reflects_target_edit() {
     use xmtp_content_types::reply::{Reply, ReplyCodec};

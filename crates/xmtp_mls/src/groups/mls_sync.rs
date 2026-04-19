@@ -1493,11 +1493,8 @@ where
             return;
         };
 
-        // Canonicalize the optimistically-stored edit_at_ns to the server-assigned
-        // envelope timestamp. Without this, concurrent edits from two installations
-        // of the same inbox see divergent "latest" edits — each installation's
-        // locally-authored edit uses local now_ns() while the peer's edit arrives
-        // via sync with the server timestamp.
+        // Canonicalize to the server envelope timestamp so concurrent edits
+        // from multiple installations of the same inbox resolve consistently.
         if edit.edited_at_ns != message.sent_at_ns
             && let Err(err) = db.set_edit_timestamp(edit_message_id, message.sent_at_ns)
         {
@@ -1518,10 +1515,8 @@ where
 
         match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
             Ok(mut decoded_message) => {
-                // `try_from` decoded the *original* stored bytes. The streamed
-                // event must carry the post-edit body, not pre-edit text with
-                // just the edited-by flag set. Decode edited_content_bytes and
-                // swap it in. Mirrors the enrichment layer.
+                // Replace the pre-edit body decoded from StoredGroupMessage with
+                // the edit's body so the streamed event reflects the edit.
                 match EncodedContent::decode(edit.edited_content_bytes.as_slice())
                     .map_err(|e| format!("EncodedContent decode: {e}"))
                     .and_then(|c| {
@@ -1712,21 +1707,8 @@ where
         Ok(())
     }
 
-    /// Process an incoming EditMessage from the network.
-    ///
-    /// Returns `Ok(())` for *invalid* edits (decode failures, unauthorized
-    /// senders, cross-group targets, non-editable originals, reply-reference
-    /// mutations, …) so the broader sync loop never aborts because a single
-    /// malformed or malicious payload fell through the wire. Only real DB
-    /// errors bubble up.
-    ///
-    /// This is the same error posture as `process_delete_message` and
-    /// intentionally *asymmetric* from the enrichment layer. `enrich_messages`
-    /// iterates over query results and can safely log-and-skip a single bad
-    /// row: the rest of the iteration still produces useful output for the
-    /// caller. Here we're midway through the MLS sync state machine — letting
-    /// one bad edit short-circuit into an `Err` would halt all message
-    /// processing for the group.
+    /// Process an incoming EditMessage. Invalid payloads log and return
+    /// `Ok(())` to keep the sync loop running; only DB errors bubble up.
     #[cfg_attr(test, allow(dead_code))]
     pub(crate) fn process_edit_message(
         &self,
@@ -1779,14 +1761,9 @@ where
 
         let db = storage.db();
 
-        // Defense-in-depth authorization check at the storage layer. Enrichment
-        // also validates via `is_edit_valid`, but rejecting here prevents junk
-        // `message_edits` rows from accumulating in the DB. Mirrors the author
-        // match that `process_delete_message` performs before inserting.
-        //
-        // If the original isn't in the DB yet (genuine out-of-order sync), the
-        // payload's sender identity is still cryptographically authenticated by
-        // MLS, and enrichment revalidates once the original arrives.
+        // Validate at write time so the row never lands for an invalid edit.
+        // Out-of-order (original absent) falls through to storage; enrichment
+        // revalidates once the original arrives.
         if let Some(ref original_msg) = db.get_group_message(&edited_message_id)? {
             if original_msg.group_id != self.group_id {
                 tracing::warn!(
@@ -1856,11 +1833,7 @@ where
                 }
             }
 
-            // XIP-77: delete takes precedence over edit. Enrichment already
-            // renders the message as deleted regardless, but rejecting the
-            // edit here prevents junk rows accumulating in `message_edits`
-            // for targets that have been locally deleted. Mirrors the same
-            // check in `edit_message()` at the API layer.
+            // XIP-77: delete takes precedence over edit.
             if db.is_message_deleted(&edited_message_id)? {
                 tracing::warn!(
                     "Edit targets already-deleted message {}",
@@ -1893,15 +1866,11 @@ where
 
         edit_record.store(&db)?;
 
-        // Emit MessageEdited event with the original (now-edited) message, mirroring
-        // how process_delete_message fires MessageDeleted. If the original is not
-        // yet in the DB (out-of-order), the event is skipped — enrichment + the
-        // sender's own round-trip still cover the UI update.
+        // Out-of-order edits (original not yet in DB) skip the event; the
+        // sender's round-trip or subsequent enrichment covers the UI update.
         if let Some(original_msg) = db.get_group_message(&edited_message_id)? {
             match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
                 Ok(mut decoded_message) => {
-                    // Swap the event body to the edited content (see
-                    // process_own_edit_message for the rationale).
                     match EncodedContent::decode(edit_record.edited_content_bytes.as_slice())
                         .map_err(|e| format!("EncodedContent decode: {e}"))
                         .and_then(|c| {

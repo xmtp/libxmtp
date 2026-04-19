@@ -18,70 +18,55 @@ use serde::{Deserialize, Serialize};
 )]
 #[diesel(table_name = message_edits)]
 #[diesel(primary_key(id))]
-/// Represents an edit record for a message in a group conversation.
-///
-/// An edit is authored by the original sender of the target message. Each record
-/// corresponds to a single `EditMessage` payload stored in `group_messages` (via the
-/// `id` FK). Multiple edits of the same target message produce multiple rows that
-/// share the same `edited_message_id` but have distinct `id` values; the "current"
-/// edit is the one with the latest `edited_at_ns` (ties broken by `id` ascending).
+/// Represents an edit record for a message in a group conversation
 pub struct StoredMessageEdit {
-    /// Primary key: the ID of the EditMessage in the `group_messages` table.
+    /// The ID of the EditMessage in the group_messages table
     pub id: Vec<u8>,
-    /// The group this edit belongs to.
+    /// The group this edit belongs to
     pub group_id: Vec<u8>,
-    /// The ID of the original message being edited.
+    /// The ID of the original message being edited
     pub edited_message_id: Vec<u8>,
-    /// The inbox_id of who sent the edit.
+    /// The inbox_id of who sent the edit
     pub edited_by_inbox_id: String,
-    /// The replacement `EncodedContent` bytes.
+    /// The replacement EncodedContent bytes
     pub edited_content_bytes: Vec<u8>,
-    /// Timestamp when the edit was processed.
+    /// Timestamp when the edit was processed
     pub edited_at_ns: i64,
 }
 
 impl_store!(StoredMessageEdit, message_edits);
 impl_store_or_ignore!(StoredMessageEdit, message_edits);
 
-/// Trait for querying message edits.
+/// Trait for querying message edits
 pub trait QueryMessageEdit {
-    /// Look up an edit record by the EditMessage's own ID (the row primary key).
+    /// Get an edit record by the EditMessage ID
     fn get_message_edit(
         &self,
         id: &[u8],
     ) -> Result<Option<StoredMessageEdit>, crate::ConnectionError>;
 
-    /// Return the latest edit (by `edited_at_ns` desc, tie-break `id` asc) for the
-    /// given target message, if any.
+    /// Get the latest edit for a target message (edited_at_ns DESC, id ASC)
     fn get_latest_edit_by_message_id(
         &self,
         message_id: &[u8],
     ) -> Result<Option<StoredMessageEdit>, crate::ConnectionError>;
 
-    /// Check whether any edit exists for the given target message.
+    /// Check if a message has been edited
     fn is_message_edited(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError>;
 
-    /// Return the latest edit for each of the provided target message IDs.
-    /// At most one edit per target message; the latest is selected by
-    /// `edited_at_ns` descending, with ties broken by `id` ascending.
+    /// Get the latest edit per target for a list of message IDs
     fn get_latest_edits_for_messages(
         &self,
         message_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<StoredMessageEdit>, crate::ConnectionError>;
 
-    /// Return all edits in a group.
-    /// Stubbed for a future task — not implemented in this tracer-bullet slice.
+    /// Get all edits in a group
     fn get_group_edits(
         &self,
         group_id: &[u8],
     ) -> Result<Vec<StoredMessageEdit>, crate::ConnectionError>;
 
-    /// Overwrite the `edited_at_ns` of an existing edit row.
-    ///
-    /// Used when a client's own optimistically-stored edit round-trips back
-    /// through sync carrying the server-assigned envelope timestamp. Bringing
-    /// the local row in line with the server time lets every installation
-    /// compute the same "latest edit" winner on cross-device edits.
+    /// Overwrite edited_at_ns for an existing edit row
     fn set_edit_timestamp(
         &self,
         id: &[u8],
