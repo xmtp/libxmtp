@@ -1394,3 +1394,49 @@ async fn test_delete_message_encode_decode() {
     let result = decode_delete_message(invalid_bytes);
     assert!(result.is_err());
 }
+
+#[tokio::test]
+async fn test_edit_message_encode_decode() {
+    // Basic round-trip with a text replacement body.
+    let text_body = encode_text("edited".to_string()).unwrap();
+    let ffi_edit = FfiEditMessage {
+        message_id: "test-message-id-123".to_string(),
+        edited_content_bytes: Some(text_body.clone()),
+    };
+    let encoded = encode_edit_message(ffi_edit).unwrap();
+    let decoded = decode_edit_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, "test-message-id-123");
+    assert_eq!(decoded.edited_content_bytes.as_deref(), Some(text_body.as_slice()));
+
+    // Empty message_id still round-trips.
+    let ffi_edit_empty = FfiEditMessage {
+        message_id: "".to_string(),
+        edited_content_bytes: Some(text_body.clone()),
+    };
+    let encoded = encode_edit_message(ffi_edit_empty).unwrap();
+    let decoded = decode_edit_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, "");
+
+    // Long hex-formatted message_id.
+    let long_message_id = "a".repeat(64);
+    let ffi_edit_long = FfiEditMessage {
+        message_id: long_message_id.clone(),
+        edited_content_bytes: Some(text_body.clone()),
+    };
+    let encoded = encode_edit_message(ffi_edit_long).unwrap();
+    let decoded = decode_edit_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, long_message_id);
+
+    // None edited_content_bytes round-trips as None.
+    let ffi_edit_no_body = FfiEditMessage {
+        message_id: "id".to_string(),
+        edited_content_bytes: None,
+    };
+    let encoded = encode_edit_message(ffi_edit_no_body).unwrap();
+    let decoded = decode_edit_message(encoded).unwrap();
+    assert!(decoded.edited_content_bytes.is_none());
+
+    // Decoding garbage fails.
+    let invalid_bytes = vec![0xFF, 0xFF, 0xFF, 0xFF];
+    assert!(decode_edit_message(invalid_bytes).is_err());
+}

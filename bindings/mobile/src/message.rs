@@ -14,7 +14,7 @@ use xmtp_content_types::{
 };
 use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
 use xmtp_mls::messages::decoded_message::{
-    DecodedMessage, DecodedMessageMetadata, DeletedBy, Markdown, MessageBody,
+    DecodedMessage, DecodedMessageMetadata, DeletedBy, EditedBy, Markdown, MessageBody,
     Reply as ProcessedReply, Text,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -22,7 +22,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     content_types::{
-        DeleteMessage, LeaveRequest, MultiRemoteAttachment, ReactionAction, ReactionSchema,
+        DeleteMessage, EditMessage, LeaveRequest, MultiRemoteAttachment, ReactionAction, ReactionSchema,
         ReactionV2,
     },
     group_updated::Inbox,
@@ -81,6 +81,16 @@ pub enum FfiDeletedBy {
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiDeletedMessage {
     pub deleted_by: FfiDeletedBy,
+}
+
+#[derive(uniffi::Enum, Clone, Debug)]
+pub enum FfiEditedBy {
+    Sender,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiEditedMessage {
+    pub edited_by: FfiEditedBy,
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -286,6 +296,15 @@ pub struct FfiDeleteMessage {
     pub message_id: String,
 }
 
+/// Represents a request to edit a message.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiEditMessage {
+    /// The ID of the message to edit (hex-encoded)
+    pub message_id: String,
+    /// The replacement encoded content bytes
+    pub edited_content_bytes: Option<Vec<u8>>,
+}
+
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiWalletSendCalls {
     pub version: String,
@@ -419,6 +438,22 @@ impl From<Markdown> for FfiMarkdownContent {
     fn from(markdown: Markdown) -> Self {
         FfiMarkdownContent {
             content: markdown.content,
+        }
+    }
+}
+
+impl From<EditedBy> for FfiEditedBy {
+    fn from(value: EditedBy) -> Self {
+        match value {
+            EditedBy::Sender => FfiEditedBy::Sender,
+        }
+    }
+}
+
+impl From<EditedBy> for FfiEditedMessage {
+    fn from(value: EditedBy) -> Self {
+        FfiEditedMessage {
+            edited_by: value.into(),
         }
     }
 }
@@ -722,6 +757,31 @@ impl From<FfiDeleteMessage> for DeleteMessage {
     fn from(value: FfiDeleteMessage) -> Self {
         DeleteMessage {
             message_id: value.message_id,
+        }
+    }
+}
+
+impl From<EditMessage> for FfiEditMessage {
+    fn from(value: EditMessage) -> Self {
+        use prost::Message;
+        let edited_content_bytes = value.edited_content.map(|c| c.encode_to_vec());
+        FfiEditMessage {
+            message_id: value.message_id,
+            edited_content_bytes,
+        }
+    }
+}
+
+impl From<FfiEditMessage> for EditMessage {
+    fn from(value: FfiEditMessage) -> Self {
+        use prost::Message;
+        use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+        let edited_content = value
+            .edited_content_bytes
+            .and_then(|bytes| EncodedContent::decode(bytes.as_slice()).ok());
+        EditMessage {
+            message_id: value.message_id,
+            edited_content,
         }
     }
 }
@@ -1201,6 +1261,7 @@ pub struct FfiDecodedMessage {
     num_replies: u64,
     inserted_at_ns: i64,
     expires_at_ns: Option<i64>,
+    edited: Option<FfiEditedMessage>,
 }
 
 #[uniffi::export]
@@ -1270,6 +1331,10 @@ impl FfiDecodedMessage {
     pub fn expires_at_ns(&self) -> Option<i64> {
         self.expires_at_ns
     }
+
+    pub fn edited(&self) -> Option<FfiEditedMessage> {
+        self.edited.clone()
+    }
 }
 
 impl From<DecodedMessage> for FfiDecodedMessage {
@@ -1299,6 +1364,7 @@ impl From<DecodedMessage> for FfiDecodedMessage {
             num_replies: item.num_replies as u64,
             inserted_at_ns: metadata.inserted_at_ns,
             expires_at_ns: metadata.expires_at_ns,
+            edited: item.edited.map(Into::into),
         }
     }
 }

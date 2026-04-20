@@ -889,3 +889,53 @@ async fn test_stream_message_deletions_with_full_message_details() {
     stream.end_and_wait().await.unwrap();
     assert!(stream.is_closed());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_stream_message_edits_with_full_message_details() {
+    let alix = new_test_client().await;
+    let bo = new_test_client().await;
+
+    let alix_group = alix
+        .conversations()
+        .create_group_by_identity(
+            vec![bo.account_identifier.clone()],
+            FfiCreateGroupOptions::default(),
+        )
+        .await
+        .unwrap();
+
+    let message_id = alix_group
+        .send(
+            encode_text("Hello, world!".to_string()).unwrap(),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+
+    let edit_callback = Arc::new(RustMessageEditCallback::default());
+    let stream = alix
+        .conversations()
+        .stream_message_edits(edit_callback.clone())
+        .await;
+    stream.wait_for_ready().await;
+
+    let edited_body = encode_text("Goodbye, world!".to_string()).unwrap();
+    let edit_id = alix_group
+        .edit_message(message_id.clone(), edited_body)
+        .unwrap();
+    assert!(!edit_id.is_empty());
+    alix_group.publish_messages().await.unwrap();
+    alix_group.sync().await.unwrap();
+
+    edit_callback.wait_for_delivery(Some(5)).await.unwrap();
+
+    assert_eq!(edit_callback.edited_message_count(), 1);
+    let edited_messages = edit_callback.edited_messages();
+    assert_eq!(edited_messages[0].id(), message_id);
+    assert_eq!(edited_messages[0].sender_inbox_id(), alix.inbox_id());
+    assert_eq!(edited_messages[0].conversation_id(), alix_group.id());
+    assert!(edited_messages[0].edited().is_some());
+
+    stream.end_and_wait().await.unwrap();
+    assert!(stream.is_closed());
+}
