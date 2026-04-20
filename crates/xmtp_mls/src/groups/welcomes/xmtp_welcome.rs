@@ -323,6 +323,9 @@ where
                 welcome.cursor,
             )?;
         }
+        // TODO(app-data-migration): post-bootstrap groups have no legacy
+        // GroupMetadata extension; route through a capability-aware
+        // helper before the bootstrap commit lands.
         let metadata =
             extract_group_metadata(staged_welcome.public_group().group_context().extensions())
                 .map_err(MetadataPermissionsError::from)?;
@@ -362,6 +365,10 @@ where
         )?;
         let dm_members = metadata.dm_members;
         let conversation_type = metadata.conversation_type;
+        // TODO(app-data-migration): same caveat as the `metadata`
+        // extraction above — `.ok()` swallows the missing-GMM error
+        // on post-bootstrap groups, silently defaulting downstream
+        // disappearing / min-protocol reads.
         let mutable_metadata = extract_group_mutable_metadata(&mls_group).ok();
         let disappearing_settings = mutable_metadata.as_ref().and_then(|metadata| {
             MlsGroup::<C>::conversation_message_disappearing_settings_from_extensions(metadata).ok()

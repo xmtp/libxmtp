@@ -459,6 +459,13 @@ pub enum MetadataPermissionsError {
     DmValidation(#[from] DmValidationError),
     #[error("Invalid extension: {0}")]
     InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
+    /// Failed to decode a well-known component value from the
+    /// AppData dictionary on a migrated group. Surfaces
+    /// [`ComponentSourceError`] via `#[from]` so callers (e.g.
+    /// `mutable_metadata()`, `metadata()`) preserve the structured
+    /// source.
+    #[error(transparent)]
+    ComponentSource(#[from] crate::groups::app_data::component_source::ComponentSourceError),
 }
 
 impl RetryableError for MetadataPermissionsError {

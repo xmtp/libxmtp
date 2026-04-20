@@ -1133,6 +1133,10 @@ where
                         return Err(CommitValidationError::from(e).into());
                     }
                 };
+                // TODO(app-data-migration): these legacy extractors
+                // fail on post-bootstrap groups (GMM / GroupMetadata
+                // extensions are stripped). Unmigrated groups — the
+                // only ones in production today — are unaffected.
                 let immutable_metadata = match extract_group_metadata(extensions) {
                     Ok(m) => m,
                     Err(e) => {
@@ -1842,6 +1846,9 @@ where
     }
 
     fn get_message_expire_at_ns(mls_group: &OpenMlsGroup) -> Option<i64> {
+        // TODO(app-data-migration): on post-bootstrap groups the legacy
+        // GMM extension is gone; `.ok()?` will silently disable
+        // message-disappear settings.
         let mutable_metadata = extract_group_mutable_metadata(mls_group).ok()?;
         let group_disappearing_settings =
             Self::conversation_message_disappearing_settings_from_extensions(&mutable_metadata)
@@ -2696,7 +2703,7 @@ where
                 // (`NoRegistryEntry`) against an empty registry.
                 let proposals_on = self.proposals_enabled(openmls_group);
                 let registry_populated =
-                    !super::app_data::load_component_registry(openmls_group).is_empty();
+                    !super::app_data::load_component_registry(openmls_group)?.is_empty();
                 // DEBUG-level routing trace so operators can see which
                 // groups are on which path during the rollout — especially
                 // useful if the migration ships only partially and we need

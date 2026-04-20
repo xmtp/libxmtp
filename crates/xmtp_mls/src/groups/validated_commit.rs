@@ -104,6 +104,14 @@ pub enum CommitValidationError {
     ProposerNotFound,
     #[error("Proposals are not enabled on this group")]
     ProposalsNotEnabled,
+    /// A well-known component value in the AppData dictionary failed
+    /// to decode while validating an AppDataUpdate proposal — most
+    /// commonly a malformed `COMPONENT_REGISTRY`. Treated as a
+    /// terminal wire-format violation so the offending commit is
+    /// rejected rather than silently downgraded to "empty registry"
+    /// (which would let a permissive validator state slip in).
+    #[error(transparent)]
+    ComponentSource(#[from] super::app_data::component_source::ComponentSourceError),
 }
 
 impl RetryableError for CommitValidationError {
@@ -1139,7 +1147,7 @@ fn validate_app_data_update_proposals_in_commit(
         return Ok(());
     }
 
-    let registry = load_component_registry(openmls_group);
+    let registry = load_component_registry(openmls_group)?;
     // A single commit's bootstrap can carry multiple AppDataUpdate proposals
     // from the same leaf; cache extracted `CommitParticipant`s so we don't
     // re-walk the admin lists and re-parse the credential for every one.
@@ -1196,12 +1204,32 @@ fn extract_commit_participant(
     }
 }
 
-/// Get the [`GroupMembership`] from a `GroupContext` struct by iterating through all extensions
-/// until a match is found
+/// Get the [`GroupMembership`] from a `GroupContext` struct.
+///
+/// Post-migration the legacy `GROUP_MEMBERSHIP_EXTENSION_ID` is gone —
+/// we reconstruct from the AppData dictionary's `GROUP_MEMBERSHIP`
+/// component. Pre-migration the legacy extension is authoritative.
 #[tracing::instrument(level = "trace", skip_all)]
 pub fn extract_group_membership(
     extensions: &Extensions<GroupContext>,
 ) -> Result<GroupMembership, CommitValidationError> {
+    if let Some(proto) = super::app_data::component_source::read_group_membership_from_dict(
+        extensions,
+    )
+    .map_err(|e| {
+        CommitValidationError::GroupMutableMetadata(
+            xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from(e),
+        )
+    })? {
+        // Proto and `GroupMembership` carry the same two fields; build
+        // directly to skip a wasteful `encode → decode` round-trip
+        // through `try_from(bytes)`.
+        return Ok(GroupMembership {
+            members: proto.members,
+            failed_installations: proto.failed_installations,
+        });
+    }
+
     for extension in extensions.iter() {
         if let Extension::Unknown(
             xmtp_configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
@@ -1678,7 +1706,7 @@ pub fn validate_proposal(
                 component_id::ComponentId, validation::ActorAuthority,
             };
 
-            let registry = load_component_registry(openmls_group);
+            let registry = load_component_registry(openmls_group)?;
 
             // Delegate to the shared helper so the commit-time path
             // (`validate_app_data_update_proposals_in_commit`) and this

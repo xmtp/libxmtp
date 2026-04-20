@@ -364,46 +364,309 @@ pub(crate) fn pending_app_data_updates(
     accumulate_app_data_updates(mls_group, iter)
 }
 
+/// True when the group has completed the bootstrap migration from
+/// legacy GCE extensions to the AppData dictionary.
+///
+/// The discriminator is "does the dict have a `COMPONENT_REGISTRY`
+/// entry?" — bootstrap writes that entry as its first proposal, so
+/// its presence is the ground-truth marker that the group has been
+/// migrated.
+///
+/// This is intentionally distinct from [`MlsGroup::proposals_enabled`]:
+/// a group can have `proposals_enabled == true` without having
+/// completed a bootstrap commit yet (the foundation-PR window).
+/// Read accessors key off this helper instead so they correctly fall
+/// back to the legacy GMM extension on proposals-enabled-but-
+/// unbootstrapped groups.
+pub(crate) fn is_migrated_group(mls_group: &OpenMlsGroup) -> bool {
+    is_migrated_extensions(mls_group.extensions())
+}
+
+/// Extensions-only variant of [`is_migrated_group`]. Kept in sync so
+/// every read-path gate lands on the same predicate (COMPONENT_REGISTRY
+/// present in the AppData dict) — consumers that only have an
+/// `Extensions` reference (e.g. commit-validation paths walking
+/// staged-commit extensions) can call this directly without
+/// materializing an `OpenMlsGroup`.
+///
+/// Test-only override: when a test harness has installed a
+/// [`TEST_REGISTRY_OVERRIDE`] scope the group is treated as migrated
+/// regardless of what the dict contains. This bridges the gap for
+/// tests that exercise post-bootstrap reader semantics without
+/// actually running the bootstrap commit (which writes the real
+/// `COMPONENT_REGISTRY` entry — that work lives in a follow-up
+/// branch). Production paths never hit this branch because the
+/// task-local is only initialized inside test scopes.
+pub(crate) fn is_migrated_extensions(
+    extensions: &openmls::extensions::Extensions<openmls::group::GroupContext>,
+) -> bool {
+    // Test-only override: treat the group as migrated when a
+    // [`TEST_REGISTRY_OVERRIDE`] scope is active *and* the dict has
+    // any entry — i.e. at least one post-capability AppDataUpdate has
+    // written something. The dict-has-any-entry clause matters so that
+    // pre-`enable_proposals()` test steps (which write via the legacy
+    // path and leave the dict empty) still see legacy-authoritative
+    // semantics.
+    #[cfg(any(test, feature = "test-utils"))]
+    if TEST_REGISTRY_OVERRIDE.try_with(|_| ()).is_ok() {
+        let has_any_entry = extensions
+            .app_data_dictionary()
+            .map(|ext| !ext.dictionary().is_empty())
+            .unwrap_or(false);
+        if has_any_entry {
+            return true;
+        }
+    }
+    extensions
+        .app_data_dictionary()
+        .map(|ext| {
+            ext.dictionary()
+                .contains(&ComponentId::COMPONENT_REGISTRY.as_u16())
+        })
+        .unwrap_or(false)
+}
+
 /// Load the [`ComponentRegistry`] for a group.
 ///
-/// Returns an empty registry in production until the migration PR lands
-/// — see `docs/plans/2026-04-10-app-data-migration-plan.md` for the
-/// bootstrap-commit design that will synthesize and persist the
-/// registry inside the AppData dict under
-/// [`ComponentId::COMPONENT_REGISTRY`].
+/// On a migrated group the registry lives in the AppData dict under
+/// [`ComponentId::COMPONENT_REGISTRY`]; on unmigrated groups it
+/// returns an empty registry (or the test override, when present —
+/// see [`TEST_REGISTRY_OVERRIDE`]).
 ///
-/// ## Security model while the registry is empty
+/// Returns an error when a `COMPONENT_REGISTRY` entry is present in
+/// the dict but its bytes don't decode — silently swallowing that into
+/// an empty registry would let [`is_migrated_extensions`] (which only
+/// checks key existence) and this loader disagree about whether the
+/// group is migrated, and downstream readers built on an empty
+/// registry would silently lose every dict-backed component on the
+/// migrated path. Surfacing as
+/// [`ComponentSourceError::MalformedComponentValue`] keeps the
+/// wire-format-violation signal loud and reuses the same variant the
+/// rest of the dict-decode helpers already reach for.
+///
+/// ## Security model while the registry is empty (pre-bootstrap)
 ///
 /// Empty registry is the **strictest** validator state, not the most
 /// permissive. Two layers make this safe:
 ///
 /// 1. **Sender gate** (`mls_sync.rs`): the `AppDataUpdate` sender path
 ///    is guarded by `proposals_enabled(group) && !registry.is_empty()`.
-///    In production the second clause is false, so the legacy GCE path
-///    runs and no `AppDataUpdate` proposals get emitted.
+///    In production the second clause is false on unmigrated groups,
+///    so the legacy GCE path runs and no `AppDataUpdate` proposals get
+///    emitted.
 ///    (`test_update_group_name_uses_legacy_path_when_registry_is_empty`
 ///    pins this.)
-/// 2. **Receiver deny-by-default** (`xmtp_mls_common::app_data::
-///    validation::validate_component_write`): any `AppDataUpdate` whose
-///    component has no registry entry is rejected with
-///    `ComponentPermissionError::NoRegistryEntry`, surfacing as
-///    `CommitValidationError::InsufficientPermissions` in
+/// 2. **Receiver deny-by-default**
+///    (`xmtp_mls_common::app_data::validation::validate_component_write`):
+///    any `AppDataUpdate` whose component has no registry entry is
+///    rejected with `ComponentPermissionError::NoRegistryEntry`,
+///    surfacing as `CommitValidationError::InsufficientPermissions` in
 ///    [`validate_app_data_update_proposals_in_commit`]. So even if a
 ///    Byzantine peer crafts a commit carrying `AppDataUpdate`
 ///    proposals, honest receivers reject it.
 ///
 /// Hardcoded components (`COMPONENT_REGISTRY`, `SUPER_ADMIN_LIST`)
 /// bypass the registry lookup by design — they're super-admin-only in
-/// code — so the migration PR's bootstrap commit (which writes
-/// `COMPONENT_REGISTRY` as its first proposal) can land even against
-/// an empty registry.
+/// code — so the bootstrap commit (which writes `COMPONENT_REGISTRY`
+/// as its first proposal) can land even against an empty registry.
 ///
 /// Test code can inject a populated registry by wrapping its body in
 /// `TEST_REGISTRY_OVERRIDE.scope(registry, async { … }).await`.
-pub(crate) fn load_component_registry(_mls_group: &OpenMlsGroup) -> ComponentRegistry {
+pub(crate) fn load_component_registry(
+    mls_group: &OpenMlsGroup,
+) -> Result<ComponentRegistry, ComponentSourceError> {
+    load_component_registry_from_extensions(mls_group.extensions())
+}
+
+/// Extensions-only variant of [`load_component_registry`]. Mirrors the
+/// [`is_migrated_group`] / [`is_migrated_extensions`] split so unit
+/// tests can exercise the registry-decode path without materializing
+/// an `OpenMlsGroup`.
+pub(crate) fn load_component_registry_from_extensions(
+    extensions: &openmls::extensions::Extensions<openmls::group::GroupContext>,
+) -> Result<ComponentRegistry, ComponentSourceError> {
+    // Post-migration: the registry lives in the AppData dict under
+    // `COMPONENT_REGISTRY`. A migrated group's dict always has this
+    // entry (the bootstrap commit seeds it before flipping
+    // proposals_enabled), so if we find it, it's authoritative.
+    if let Some(ext) = extensions.app_data_dictionary()
+        && let Some(bytes) = ext
+            .dictionary()
+            .get(&ComponentId::COMPONENT_REGISTRY.as_u16())
+    {
+        return ComponentRegistry::from_bytes(bytes).map_err(|e| {
+            ComponentSourceError::MalformedComponentValue {
+                component_id: ComponentId::COMPONENT_REGISTRY,
+                reason: format!("registry decode: {e}"),
+            }
+        });
+    }
+
+    // Pre-migration or test override.
     #[cfg(any(test, feature = "test-utils"))]
     if let Ok(reg) = TEST_REGISTRY_OVERRIDE.try_with(|r| r.clone()) {
-        return reg;
+        return Ok(reg);
     }
-    ComponentRegistry::new()
+    Ok(ComponentRegistry::new())
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit coverage for the migration-marker predicate —
+    //! [`is_migrated_extensions`]. These pin the three read-side
+    //! invariants from the PR review:
+    //!   (a) registry empty / dict missing => legacy-authoritative,
+    //!   (b) overlay no-op on unmigrated groups (even if `TEST_REGISTRY_OVERRIDE`
+    //!       is set but the dict is empty),
+    //!   (c) `COMPONENT_REGISTRY` in dict => migrated
+    //!       (production signal, independent of any test override).
+    //!
+    //! Post-bootstrap reader-see-dict-values coverage lives as an
+    //! integration test in `groups/tests/test_proposals.rs` — see
+    //! `test_app_data_update_overlays_legacy_gmm_on_conflict` — because
+    //! it needs the full MLS commit pipeline.
+    use super::*;
+    use openmls::extensions::{
+        AppDataDictionary, AppDataDictionaryExtension, Extension, Extensions,
+    };
+
+    fn extensions_with_dict(
+        entries: &[(u16, Vec<u8>)],
+    ) -> Extensions<openmls::group::GroupContext> {
+        let mut dict = AppDataDictionary::new();
+        for (id, bytes) in entries {
+            let _ = dict.insert(*id, bytes.clone());
+        }
+        Extensions::from_vec(vec![Extension::AppDataDictionary(
+            AppDataDictionaryExtension::new(dict),
+        )])
+        .expect("AppDataDictionary is a valid GroupContext extension")
+    }
+
+    fn empty_extensions() -> Extensions<openmls::group::GroupContext> {
+        Extensions::from_vec(vec![]).expect("empty extensions are always valid")
+    }
+
+    #[test]
+    fn unmigrated_without_override_is_not_migrated() {
+        // Invariant (a): no dict, no override → legacy authoritative.
+        assert!(!is_migrated_extensions(&empty_extensions()));
+        // Dict present but empty → still not migrated.
+        assert!(!is_migrated_extensions(&extensions_with_dict(&[])));
+    }
+
+    #[test]
+    fn dict_without_registry_entry_is_not_migrated() {
+        // Invariant (a) corollary: a dict entry for some *other*
+        // component isn't enough to flip the gate in production —
+        // only `COMPONENT_REGISTRY` counts.
+        let exts =
+            extensions_with_dict(&[(ComponentId::GROUP_NAME.as_u16(), b"Group Name".to_vec())]);
+        assert!(!is_migrated_extensions(&exts));
+    }
+
+    #[test]
+    fn dict_with_registry_entry_is_migrated() {
+        // Invariant (c): production signal. `COMPONENT_REGISTRY` in the
+        // dict => migrated, regardless of any test override.
+        let exts =
+            extensions_with_dict(&[(ComponentId::COMPONENT_REGISTRY.as_u16(), vec![0x01, 0x02])]);
+        assert!(is_migrated_extensions(&exts));
+    }
+
+    #[tokio::test]
+    async fn override_without_dict_entries_is_not_migrated() {
+        // Invariant (b): with `TEST_REGISTRY_OVERRIDE` set but the dict
+        // empty (i.e. the pre-`enable_proposals()` window of an
+        // integration test), the gate stays closed. This is what lets
+        // step-1 assertions in `test_app_data_update_overlays_legacy_gmm_on_conflict`
+        // still read the legacy GMM value instead of being shadowed by
+        // an empty-dict overlay.
+        let reg = ComponentRegistry::new();
+        TEST_REGISTRY_OVERRIDE
+            .scope(reg, async {
+                assert!(!is_migrated_extensions(&empty_extensions()));
+                assert!(!is_migrated_extensions(&extensions_with_dict(&[])));
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn override_with_dict_entry_flips_migrated_in_tests() {
+        // Complement to the above: once a test has written at least
+        // one component to the dict, the test-override branch flips
+        // the gate so subsequent reads route through the overlay.
+        let reg = ComponentRegistry::new();
+        TEST_REGISTRY_OVERRIDE
+            .scope(reg, async {
+                let exts = extensions_with_dict(&[(
+                    ComponentId::GROUP_NAME.as_u16(),
+                    b"Dict Name".to_vec(),
+                )]);
+                assert!(is_migrated_extensions(&exts));
+            })
+            .await;
+    }
+
+    // ========================================================================
+    // load_component_registry_from_extensions
+    // ========================================================================
+    //
+    // These pin the contract that the migration-marker
+    // (`is_migrated_extensions`, key-existence) and the registry loader
+    // (`load_component_registry_from_extensions`, parseability) agree on
+    // exactly one shape of disagreement: malformed bytes surface as a
+    // hard `MalformedComponentValue` error rather than silently
+    // collapsing to an empty registry. An empty registry on a "migrated"
+    // group would cause downstream readers (mutable_metadata, validators)
+    // to silently lose every dict-backed component, so this invariant is
+    // load-bearing.
+
+    #[test]
+    fn load_registry_no_dict_returns_empty() {
+        let reg = load_component_registry_from_extensions(&empty_extensions()).unwrap();
+        assert!(reg.is_empty());
+    }
+
+    #[test]
+    fn load_registry_dict_without_entry_returns_empty() {
+        // Dict present but no COMPONENT_REGISTRY entry => pre-bootstrap.
+        // An entry under some *other* component id must not be confused
+        // for the registry payload.
+        let exts =
+            extensions_with_dict(&[(ComponentId::GROUP_NAME.as_u16(), b"Group Name".to_vec())]);
+        let reg = load_component_registry_from_extensions(&exts).unwrap();
+        assert!(reg.is_empty());
+    }
+
+    #[test]
+    fn load_registry_with_valid_bytes_round_trips() {
+        let original = ComponentRegistry::new();
+        let bytes = original.to_bytes().expect("empty registry serializes");
+        let exts = extensions_with_dict(&[(ComponentId::COMPONENT_REGISTRY.as_u16(), bytes)]);
+        let loaded = load_component_registry_from_extensions(&exts).unwrap();
+        assert_eq!(loaded, original);
+    }
+
+    #[test]
+    fn load_registry_with_malformed_bytes_surfaces_error() {
+        // Pin the "fail loud, never return empty" invariant: a
+        // malformed `COMPONENT_REGISTRY` value must surface as
+        // `MalformedComponentValue` so downstream readers don't carry
+        // on with a phantom empty registry against an
+        // `is_migrated_extensions == true` dict.
+        let exts = extensions_with_dict(&[(
+            ComponentId::COMPONENT_REGISTRY.as_u16(),
+            vec![0xff, 0xff, 0xff],
+        )]);
+        let err = load_component_registry_from_extensions(&exts).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ComponentSourceError::MalformedComponentValue { component_id, .. }
+                    if component_id == ComponentId::COMPONENT_REGISTRY
+            ),
+            "expected MalformedComponentValue for COMPONENT_REGISTRY, got: {err:?}"
+        );
+    }
 }
