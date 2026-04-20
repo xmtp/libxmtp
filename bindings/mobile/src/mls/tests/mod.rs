@@ -2,8 +2,8 @@
 
 use super::{
     FfiConsentCallback, FfiConversation, FfiMessage, FfiMessageCallback,
-    FfiMessageDeletionCallback, FfiMessageEditCallback, FfiPreferenceCallback, FfiPreferenceUpdate, FfiSignatureRequest,
-    FfiXmtpClient, create_client,
+    FfiMessageDeletionCallback, FfiMessageEditCallback, FfiPreferenceCallback, FfiPreferenceUpdate,
+    FfiSignatureRequest, FfiXmtpClient, create_client,
 };
 use crate::{
     DbOptions, FfiAction, FfiActionStyle, FfiActions, FfiAttachment, FfiConsent,
@@ -21,9 +21,9 @@ use crate::{
     decode_leave_request, decode_multi_remote_attachment, decode_reaction, decode_read_receipt,
     decode_remote_attachment, decode_reply, decode_text, decode_transaction_reference,
     encode_actions, encode_attachment, encode_delete_message, encode_edit_message, encode_intent,
-    encode_leave_request, encode_multi_remote_attachment,
-    encode_reaction, encode_read_receipt, encode_remote_attachment, encode_reply, encode_text,
-    encode_transaction_reference, get_inbox_id_for_identifier, get_newest_message_metadata,
+    encode_leave_request, encode_multi_remote_attachment, encode_reaction, encode_read_receipt,
+    encode_remote_attachment, encode_reply, encode_text, encode_transaction_reference,
+    get_inbox_id_for_identifier, get_newest_message_metadata,
     identity::FfiIdentifier,
     inbox_owner::FfiInboxOwner,
     inbox_state_from_inbox_ids, is_connected,

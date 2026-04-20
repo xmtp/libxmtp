@@ -22,8 +22,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     content_types::{
-        DeleteMessage, EditMessage, LeaveRequest, MultiRemoteAttachment, ReactionAction, ReactionSchema,
-        ReactionV2,
+        DeleteMessage, EditMessage, LeaveRequest, MultiRemoteAttachment, ReactionAction,
+        ReactionSchema, ReactionV2,
     },
     group_updated::Inbox,
 };

@@ -1406,7 +1406,10 @@ async fn test_edit_message_encode_decode() {
     let encoded = encode_edit_message(ffi_edit).unwrap();
     let decoded = decode_edit_message(encoded).unwrap();
     assert_eq!(decoded.message_id, "test-message-id-123");
-    assert_eq!(decoded.edited_content_bytes.as_deref(), Some(text_body.as_slice()));
+    assert_eq!(
+        decoded.edited_content_bytes.as_deref(),
+        Some(text_body.as_slice())
+    );
 
     // Empty message_id still round-trips.
     let ffi_edit_empty = FfiEditMessage {

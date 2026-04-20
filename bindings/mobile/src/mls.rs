@@ -97,14 +97,14 @@ use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::types::{ApiIdentifier, GroupMessageMetadata};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
-use xmtp_proto::xmtp::mls::message_contents::content_types::{DeleteMessage, EditMessage};
 use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
+use xmtp_proto::xmtp::mls::message_contents::content_types::{DeleteMessage, EditMessage};
 use xmtp_proto::xmtp::mls::message_contents::content_types::{MultiRemoteAttachment, ReactionV2};
 
 // Re-export types from message module that are used in public APIs
 pub use crate::message::{
-    FfiAttachment, FfiDeleteMessage, FfiEditMessage, FfiLeaveRequest, FfiMultiRemoteAttachment, FfiReadReceipt,
-    FfiRemoteAttachment, FfiTransactionReference,
+    FfiAttachment, FfiDeleteMessage, FfiEditMessage, FfiLeaveRequest, FfiMultiRemoteAttachment,
+    FfiReadReceipt, FfiRemoteAttachment, FfiTransactionReference,
 };
 
 pub mod device_sync;

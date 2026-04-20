@@ -152,11 +152,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub fn edit_message(
-    &self,
-    message_id: String,
-    edited_content: EncodedContent,
-  ) -> Result<String> {
+  pub fn edit_message(&self, message_id: String, edited_content: EncodedContent) -> Result<String> {
     let message_id_bytes = hex::decode(&message_id).map_err(ErrorWrapper::from)?;
     let edited_content: XmtpEncodedContent = edited_content.into();
     let group = self.create_mls_group();
