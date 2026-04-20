@@ -28,9 +28,8 @@ use crate::{
     inbox_owner::FfiInboxOwner,
     inbox_state_from_inbox_ids, is_connected,
     message::{
-        FfiDeleteMessage, FfiEditMessage, FfiEncodedContent, FfiGroupUpdated, FfiInbox,
-        FfiLeaveRequest,
-        FfiMetadataFieldChange, FfiTransactionMetadata,
+        FfiDeleteMessage, FfiEditMessage, FfiEditedBy, FfiEditedMessage, FfiEncodedContent,
+        FfiGroupUpdated, FfiInbox, FfiLeaveRequest, FfiMetadataFieldChange, FfiTransactionMetadata,
     },
     mls::{
         inbox_owner::FfiWalletInboxOwner,

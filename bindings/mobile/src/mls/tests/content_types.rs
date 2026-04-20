@@ -1427,6 +1427,16 @@ async fn test_edit_message_encode_decode() {
     let decoded = decode_edit_message(encoded).unwrap();
     assert_eq!(decoded.message_id, long_message_id);
 
+    // Unicode in message_id (edge case).
+    let unicode_id = "msg-🎉-123".to_string();
+    let ffi_edit_unicode = FfiEditMessage {
+        message_id: unicode_id.clone(),
+        edited_content_bytes: Some(text_body.clone()),
+    };
+    let encoded = encode_edit_message(ffi_edit_unicode).unwrap();
+    let decoded = decode_edit_message(encoded).unwrap();
+    assert_eq!(decoded.message_id, unicode_id);
+
     // None edited_content_bytes round-trips as None.
     let ffi_edit_no_body = FfiEditMessage {
         message_id: "id".to_string(),

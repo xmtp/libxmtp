@@ -934,7 +934,19 @@ async fn test_stream_message_edits_with_full_message_details() {
     assert_eq!(edited_messages[0].id(), message_id);
     assert_eq!(edited_messages[0].sender_inbox_id(), alix.inbox_id());
     assert_eq!(edited_messages[0].conversation_id(), alix_group.id());
-    assert!(edited_messages[0].edited().is_some());
+    assert!(matches!(
+        edited_messages[0].edited(),
+        Some(FfiEditedMessage {
+            edited_by: FfiEditedBy::Sender
+        })
+    ));
+    assert!(
+        matches!(
+            edited_messages[0].content(),
+            FfiDecodedMessageContent::Text(ref text) if text.content == "Goodbye, world!"
+        ),
+        "stream event body must carry the post-edit text, not the original"
+    );
 
     stream.end_and_wait().await.unwrap();
     assert!(stream.is_closed());
