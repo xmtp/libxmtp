@@ -3245,7 +3245,9 @@ pub fn decode_delete_message(bytes: Vec<u8>) -> Result<FfiDeleteMessage, FfiErro
 
 #[uniffi::export]
 pub fn encode_edit_message(request: FfiEditMessage) -> Result<Vec<u8>, FfiError> {
-    let edit_message: EditMessage = request.into();
+    let edit_message: EditMessage = request
+        .try_into()
+        .map_err(|e: GenericError| FfiError::generic(e.to_string()))?;
 
     let encoded =
         EditMessageCodec::encode(edit_message).map_err(|e| FfiError::generic(e.to_string()))?;

@@ -1449,4 +1449,12 @@ async fn test_edit_message_encode_decode() {
     // Decoding garbage fails.
     let invalid_bytes = vec![0xFF, 0xFF, 0xFF, 0xFF];
     assert!(decode_edit_message(invalid_bytes).is_err());
+
+    // Encoding with malformed edited_content_bytes surfaces the decode error
+    // instead of silently producing an empty-body edit.
+    let ffi_edit_bad_body = FfiEditMessage {
+        message_id: "id".to_string(),
+        edited_content_bytes: Some(vec![0xFF, 0xFF, 0xFF, 0xFF]),
+    };
+    assert!(encode_edit_message(ffi_edit_bad_body).is_err());
 }

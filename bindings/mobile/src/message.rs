@@ -772,17 +772,21 @@ impl From<EditMessage> for FfiEditMessage {
     }
 }
 
-impl From<FfiEditMessage> for EditMessage {
-    fn from(value: FfiEditMessage) -> Self {
+impl TryFrom<FfiEditMessage> for EditMessage {
+    type Error = GenericError;
+
+    fn try_from(value: FfiEditMessage) -> Result<Self, Self::Error> {
         use prost::Message;
         use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
         let edited_content = value
             .edited_content_bytes
-            .and_then(|bytes| EncodedContent::decode(bytes.as_slice()).ok());
-        EditMessage {
+            .map(|bytes| EncodedContent::decode(bytes.as_slice()))
+            .transpose()
+            .map_err(GenericError::from_error)?;
+        Ok(EditMessage {
             message_id: value.message_id,
             edited_content,
-        }
+        })
     }
 }
 
