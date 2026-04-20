@@ -386,6 +386,11 @@ pub enum GroupError {
     /// Failed to delete message. Not retryable.
     #[error(transparent)]
     DeleteMessage(#[from] DeleteMessageError),
+    /// Edit message error.
+    ///
+    /// Failed to edit message. Not retryable.
+    #[error(transparent)]
+    EditMessage(#[from] EditMessageError),
     /// Device sync error.
     ///
     /// Device sync operation failed. May be retryable.
@@ -406,6 +411,28 @@ pub enum DeleteMessageError {
 }
 
 impl RetryableError for DeleteMessageError {
+    fn is_retryable(&self) -> bool {
+        false
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum EditMessageError {
+    #[error("Message not found: {0}")]
+    MessageNotFound(String),
+    #[error("Not authorized to edit this message")]
+    NotAuthorized,
+    #[error("This message type cannot be edited")]
+    NonEditableMessage,
+    #[error("Cannot edit a deleted message")]
+    MessageDeleted,
+    #[error("Edit content type does not match original")]
+    ContentTypeMismatch,
+    #[error("Reply edit cannot change the reply reference")]
+    ReplyReferenceChanged,
+}
+
+impl RetryableError for EditMessageError {
     fn is_retryable(&self) -> bool {
         false
     }
@@ -540,6 +567,7 @@ impl RetryableError for GroupError {
             Self::Diesel(e) => e.is_retryable(),
             Self::LeaveCantProcessed(e) => e.is_retryable(),
             Self::DeleteMessage(e) => e.is_retryable(),
+            Self::EditMessage(e) => e.is_retryable(),
             Self::DeviceSync(e) => e.is_retryable(),
             Self::MergePendingCommit(e) => e.is_retryable(),
             Self::NotFound(_)

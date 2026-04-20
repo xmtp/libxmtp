@@ -389,6 +389,21 @@ impl Conversation {
     Ok(())
   }
 
+  #[wasm_bindgen(js_name = editMessage)]
+  pub fn edit_message(
+    &self,
+    #[wasm_bindgen(js_name = messageId)] message_id: String,
+    #[wasm_bindgen(js_name = editedContent)] edited_content: EncodedContent,
+  ) -> Result<String, JsError> {
+    let message_id_bytes = hex::decode(&message_id).map_err(ErrorWrapper::js)?;
+    let edited_content: XmtpEncodedContent = edited_content.into();
+    let group = self.to_mls_group();
+    let edit_message_id = group
+      .edit_message(message_id_bytes, edited_content)
+      .map_err(ErrorWrapper::js)?;
+    Ok(hex::encode(edit_message_id))
+  }
+
   #[wasm_bindgen]
   pub async fn sync(&self) -> Result<(), JsError> {
     let group = self.to_mls_group();

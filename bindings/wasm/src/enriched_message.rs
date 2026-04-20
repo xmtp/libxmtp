@@ -4,6 +4,7 @@ use wasm_bindgen::JsError;
 use xmtp_mls::messages::decoded_message::DecodedMessage as XmtpDecodedMessage;
 
 use crate::content_types::decoded_message_content::DecodedMessageContent;
+use crate::content_types::edited_message::EditedMessage;
 use crate::encoded_content::ContentTypeId;
 use crate::messages::{DeliveryStatus, GroupMessageKind};
 
@@ -31,6 +32,9 @@ pub struct DecodedMessage {
   pub delivery_status: DeliveryStatus,
   pub num_replies: i64,
   pub expires_at_ns: Option<i64>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[tsify(optional)]
+  pub edited: Option<EditedMessage>,
 }
 
 impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
@@ -39,6 +43,7 @@ impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
   fn try_from(msg: XmtpDecodedMessage) -> Result<Self, Self::Error> {
     let content = msg.content.try_into()?;
     let reactions: Result<Vec<_>, _> = msg.reactions.into_iter().map(|r| r.try_into()).collect();
+    let edited = msg.edited.map(Into::into);
 
     Ok(Self {
       id: hex::encode(msg.metadata.id),
@@ -54,6 +59,7 @@ impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
       delivery_status: msg.metadata.delivery_status.into(),
       num_replies: msg.num_replies as i64,
       expires_at_ns: msg.metadata.expires_at_ns,
+      edited,
     })
   }
 }

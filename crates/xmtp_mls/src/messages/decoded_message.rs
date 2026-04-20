@@ -57,6 +57,13 @@ pub enum DeletedBy {
     Admin(String), // inbox_id of the admin who deleted the message
 }
 
+/// Who authored the edit for a given message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EditedBy {
+    /// Edited by the original sender.
+    Sender,
+}
+
 #[derive(Debug, Clone)]
 pub enum MessageBody {
     Text(Text),
@@ -115,6 +122,8 @@ pub struct DecodedMessage {
     pub reactions: Vec<DecodedMessage>,
     // The number of replies to the message available
     pub num_replies: usize,
+    /// If this message has been edited, indicates who authored the edit.
+    pub edited: Option<EditedBy>,
 }
 
 impl TryFrom<EncodedContent> for MessageBody {
@@ -207,6 +216,8 @@ impl TryFrom<EncodedContent> for MessageBody {
 impl TryFrom<StoredGroupMessage> for DecodedMessage {
     type Error = EnrichMessageError;
 
+    /// `edited` is initialized to `None`; emitters of `MessageEdited` events
+    /// must set it explicitly after conversion.
     fn try_from(value: StoredGroupMessage) -> Result<Self, Self::Error> {
         // Decode the message content from the stored bytes
         // If we can't get past this part, we return an error
@@ -251,6 +262,7 @@ impl TryFrom<StoredGroupMessage> for DecodedMessage {
             fallback_text: fallback,
             reactions,
             num_replies,
+            edited: None,
         })
     }
 }

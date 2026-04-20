@@ -67,6 +67,7 @@ use xmtp_configuration::{
     WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
 use xmtp_content_types::delete_message::DeleteMessageCodec;
+use xmtp_content_types::edit_message::EditMessageCodec;
 use xmtp_content_types::leave_request::LeaveRequestCodec;
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes};
 use xmtp_content_types::{
@@ -74,8 +75,9 @@ use xmtp_content_types::{
     reply::ReplyCodec,
 };
 use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
-use xmtp_db::group_message::Deletable;
+use xmtp_db::group_message::{Deletable, Editable};
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
+use xmtp_db::message_edit::StoredMessageEdit;
 use xmtp_db::pending_remove::QueryPendingRemove;
 use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
@@ -105,7 +107,9 @@ use xmtp_mls_common::{
         GroupMutableMetadata, GroupMutableMetadataError, MessageDisappearingSettings, MetadataField,
     },
 };
-use xmtp_proto::xmtp::mls::message_contents::content_types::{DeleteMessage, LeaveRequest};
+use xmtp_proto::xmtp::mls::message_contents::content_types::{
+    DeleteMessage, EditMessage, LeaveRequest,
+};
 use xmtp_proto::{
     types::Cursor,
     xmtp::mls::message_contents::{
@@ -251,6 +255,11 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
                 DeleteMessage::decode(content.content.as_slice())
                     .ok()
                     .and_then(|delete_msg| hex::decode(delete_msg.message_id).ok())
+            }
+            (EditMessageCodec::TYPE_ID, EditMessageCodec::MAJOR_VERSION) => {
+                EditMessage::decode(content.content.as_slice())
+                    .ok()
+                    .and_then(|edit_msg| hex::decode(edit_msg.message_id).ok())
             }
             _ => None,
         };
@@ -1032,6 +1041,90 @@ where
         deletion.store(&conn)?;
 
         Ok(deletion_message_id)
+    }
+
+    /// Edit a message. Sender-only per XIP-77.
+    pub fn edit_message(
+        &self,
+        message_id: Vec<u8>,
+        edited_content: EncodedContent,
+    ) -> Result<Vec<u8>, GroupError> {
+        use error::EditMessageError;
+
+        let conn = self.context.db();
+
+        let original_msg = conn
+            .get_group_message(&message_id)?
+            .ok_or_else(|| EditMessageError::MessageNotFound(hex::encode(&message_id)))?;
+
+        if original_msg.group_id != self.group_id {
+            return Err(EditMessageError::NotAuthorized.into());
+        }
+
+        if conn.is_message_deleted(&message_id)? {
+            return Err(EditMessageError::MessageDeleted.into());
+        }
+
+        let sender_inbox_id = self.context.inbox_id();
+        if original_msg.sender_inbox_id != sender_inbox_id {
+            return Err(EditMessageError::NotAuthorized.into());
+        }
+
+        if !original_msg.kind.is_editable() || !original_msg.content_type.is_editable() {
+            return Err(EditMessageError::NonEditableMessage.into());
+        }
+
+        // XIP-77: content type must match the original.
+        let edit_content_type = edited_content
+            .r#type
+            .as_ref()
+            .map(|t| xmtp_db::group_message::ContentType::from(t.type_id.clone()))
+            .unwrap_or(xmtp_db::group_message::ContentType::Unknown);
+        if edit_content_type != original_msg.content_type {
+            return Err(EditMessageError::ContentTypeMismatch.into());
+        }
+
+        // XIP-77: Reply edits preserve the reply reference.
+        if original_msg.content_type == xmtp_db::group_message::ContentType::Reply {
+            use xmtp_content_types::reply::ReplyCodec;
+            let original_encoded =
+                EncodedContent::decode(original_msg.decrypted_message_bytes.as_slice())
+                    .map_err(|_| EditMessageError::ContentTypeMismatch)?;
+            let original_reply = ReplyCodec::decode(original_encoded)
+                .map_err(|_| EditMessageError::ContentTypeMismatch)?;
+            let edited_reply = ReplyCodec::decode(edited_content.clone())
+                .map_err(|_| EditMessageError::ContentTypeMismatch)?;
+            if edited_reply.reference != original_reply.reference {
+                return Err(EditMessageError::ReplyReferenceChanged.into());
+            }
+        }
+
+        let edited_content_for_storage = edited_content.clone();
+
+        let edit_msg = EditMessage {
+            message_id: hex::encode(&message_id),
+            edited_content: Some(edited_content),
+        };
+
+        let encoded_edit = EditMessageCodec::encode(edit_msg)?;
+        let mut buf = Vec::new();
+        encoded_edit.encode(&mut buf)?;
+
+        let edit_message_id = self.send_message_optimistic(&buf, SendMessageOpts::default())?;
+
+        // Optimistic timestamp; canonicalized on round-trip in process_own_edit_message.
+        let edit_record = StoredMessageEdit {
+            id: edit_message_id.clone(),
+            group_id: self.group_id.clone(),
+            edited_message_id: message_id,
+            edited_by_inbox_id: sender_inbox_id.to_string(),
+            edited_content_bytes: encoded_content_to_bytes(edited_content_for_storage),
+            edited_at_ns: now_ns(),
+        };
+
+        edit_record.store(&conn)?;
+
+        Ok(edit_message_id)
     }
 
     /// Helper function to extract queryable content fields from a message

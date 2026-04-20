@@ -20,6 +20,7 @@ use xmtp_content_types::actions::{Actions, ActionsCodec};
 use xmtp_content_types::attachment::Attachment;
 use xmtp_content_types::attachment::AttachmentCodec;
 use xmtp_content_types::delete_message::DeleteMessageCodec;
+use xmtp_content_types::edit_message::EditMessageCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_content_types::intent::{Intent, IntentCodec};
 use xmtp_content_types::leave_request::LeaveRequestCodec;
@@ -96,14 +97,14 @@ use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::types::{ApiIdentifier, GroupMessageMetadata};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
-use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::message_contents::content_types::LeaveRequest;
+use xmtp_proto::xmtp::mls::message_contents::content_types::{DeleteMessage, EditMessage};
 use xmtp_proto::xmtp::mls::message_contents::content_types::{MultiRemoteAttachment, ReactionV2};
 
 // Re-export types from message module that are used in public APIs
 pub use crate::message::{
-    FfiAttachment, FfiDeleteMessage, FfiLeaveRequest, FfiMultiRemoteAttachment, FfiReadReceipt,
-    FfiRemoteAttachment, FfiTransactionReference,
+    FfiAttachment, FfiDeleteMessage, FfiEditMessage, FfiLeaveRequest, FfiMultiRemoteAttachment,
+    FfiReadReceipt, FfiRemoteAttachment, FfiTransactionReference,
 };
 
 pub mod device_sync;
@@ -1887,6 +1888,23 @@ impl FfiConversations {
         FfiStreamCloser::new(handle)
     }
 
+    pub async fn stream_message_edits(
+        &self,
+        callback: Arc<dyn FfiMessageEditCallback>,
+    ) -> FfiStreamCloser {
+        let handle = RustXmtpClient::stream_message_edits_with_callback(
+            self.inner_client.clone(),
+            move |msg| {
+                if let Ok(message) = msg {
+                    let ffi_message: FfiDecodedMessage = message.into();
+                    callback.on_message_edited(Arc::new(ffi_message))
+                }
+            },
+        );
+
+        FfiStreamCloser::new(handle)
+    }
+
     pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, FfiError> {
         let inner = self.inner_client.as_ref();
         let conversations = inner.find_groups(GroupQueryArgs {
@@ -2401,6 +2419,20 @@ impl FfiConversation {
     pub fn delete_message(&self, message_id: Vec<u8>) -> Result<Vec<u8>, FfiError> {
         let deletion_id = self.inner.delete_message(message_id)?;
         Ok(deletion_id)
+    }
+
+    /// Edit a previously sent message. Returns the ID of the edit message.
+    pub fn edit_message(
+        &self,
+        message_id: Vec<u8>,
+        edited_content_bytes: Vec<u8>,
+    ) -> Result<Vec<u8>, FfiError> {
+        use prost::Message;
+        use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+        let edited_content = EncodedContent::decode(edited_content_bytes.as_slice())
+            .map_err(|e| FfiError::generic(e.to_string()))?;
+        let edit_id = self.inner.edit_message(message_id, edited_content)?;
+        Ok(edit_id)
     }
 
     /// Publish all unpublished messages
@@ -3212,6 +3244,33 @@ pub fn decode_delete_message(bytes: Vec<u8>) -> Result<FfiDeleteMessage, FfiErro
 }
 
 #[uniffi::export]
+pub fn encode_edit_message(request: FfiEditMessage) -> Result<Vec<u8>, FfiError> {
+    let edit_message: EditMessage = request
+        .try_into()
+        .map_err(|e: GenericError| FfiError::generic(e.to_string()))?;
+
+    let encoded =
+        EditMessageCodec::encode(edit_message).map_err(|e| FfiError::generic(e.to_string()))?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| FfiError::generic(e.to_string()))?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_edit_message(bytes: Vec<u8>) -> Result<FfiEditMessage, FfiError> {
+    let encoded_content =
+        EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
+
+    EditMessageCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| FfiError::generic(e.to_string()))
+}
+
+#[uniffi::export]
 pub fn decode_group_updated(bytes: Vec<u8>) -> Result<FfiGroupUpdated, FfiError> {
     let encoded_content =
         EncodedContent::decode(bytes.as_slice()).map_err(|e| FfiError::generic(e.to_string()))?;
@@ -3482,6 +3541,11 @@ pub trait FfiPreferenceCallback: Send + Sync {
 #[uniffi::export(with_foreign)]
 pub trait FfiMessageDeletionCallback: Send + Sync {
     fn on_message_deleted(&self, message: Arc<FfiDecodedMessage>);
+}
+
+#[uniffi::export(with_foreign)]
+pub trait FfiMessageEditCallback: Send + Sync {
+    fn on_message_edited(&self, message: Arc<FfiDecodedMessage>);
 }
 
 #[derive(uniffi::Enum, Debug)]

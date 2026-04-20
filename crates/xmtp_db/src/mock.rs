@@ -844,6 +844,39 @@ mock! {
         ) -> Result<bool, crate::ConnectionError>;
     }
 
+    impl crate::message_edit::QueryMessageEdit for DbQuery {
+        fn get_message_edit(
+            &self,
+            _id: &[u8],
+        ) -> Result<Option<crate::message_edit::StoredMessageEdit>, crate::ConnectionError>;
+
+        fn get_latest_edit_by_message_id(
+            &self,
+            _message_id: &[u8],
+        ) -> Result<Option<crate::message_edit::StoredMessageEdit>, crate::ConnectionError>;
+
+        fn is_message_edited(
+            &self,
+            _message_id: &[u8],
+        ) -> Result<bool, crate::ConnectionError>;
+
+        fn get_latest_edits_for_messages(
+            &self,
+            _message_ids: Vec<Vec<u8>>,
+        ) -> Result<Vec<crate::message_edit::StoredMessageEdit>, crate::ConnectionError>;
+
+        fn get_group_edits(
+            &self,
+            _group_id: &[u8],
+        ) -> Result<Vec<crate::message_edit::StoredMessageEdit>, crate::ConnectionError>;
+
+        fn set_edit_timestamp(
+            &self,
+            _id: &[u8],
+            _edited_at_ns: i64,
+        ) -> Result<(), crate::ConnectionError>;
+    }
+
 }
 
 impl ConnectionExt for MockDbQuery {
