@@ -11,7 +11,7 @@ use xmtp_proto::types::{Cursor, OriginatorId, SequenceId};
 use super::*;
 
 fn update_cursor(db: impl ConnectionExt, id: &[u8], kind: i32, cursor: i64) {
-    db.raw_query_write(|conn| {
+    db.raw_query(|conn| {
         sql_query(
             r#"
                 INSERT INTO refresh_state (entity_id, entity_kind, cursor)
@@ -34,7 +34,7 @@ fn update_cursor_new(
     sequence_id: i64,
     originator_id: i32,
 ) {
-    db.raw_query_write(|conn| {
+    db.raw_query(|conn| {
         sql_query(
             r#"
                 INSERT INTO refresh_state (entity_id, entity_kind, sequence_id, originator_id)
@@ -52,7 +52,7 @@ fn update_cursor_new(
 }
 
 fn message(db: impl ConnectionExt, group_id: &[u8], kind: i32, sequence_id: i64) {
-    db.raw_query_write(|conn| {
+    db.raw_query(|conn| {
         sql_query(r#"
             INSERT INTO group_messages (id, group_id, decrypted_message_bytes, sent_at_ns, kind, sender_installation_id, sender_inbox_id, delivery_status, content_type, version_major, version_minor, authority_id, sequence_id)
             VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
@@ -77,7 +77,7 @@ fn message(db: impl ConnectionExt, group_id: &[u8], kind: i32, sequence_id: i64)
 }
 
 fn identity_update(db: impl ConnectionExt, inbox_id: &str, sequence_id: i64) {
-    db.raw_query_write(|conn| {
+    db.raw_query(|conn| {
         sql_query(
             r#"
             INSERT INTO identity_updates (inbox_id, sequence_id, server_timestamp_ns, payload)
@@ -96,7 +96,7 @@ fn identity_update(db: impl ConnectionExt, inbox_id: &str, sequence_id: i64) {
 
 fn group(db: impl ConnectionExt, group_id: &[u8], welcome_id: Option<i64>) {
     if let Some(w_id) = welcome_id {
-        db.raw_query_write(|conn| {
+        db.raw_query(|conn| {
             sql_query(r#"
                 INSERT INTO groups (id, created_at_ns, membership_state, installations_last_checked, added_by_inbox_id, rotated_at_ns, conversation_type, maybe_forked, fork_details, should_publish_commit_log, welcome_id)
                 VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -116,7 +116,7 @@ fn group(db: impl ConnectionExt, group_id: &[u8], welcome_id: Option<i64>) {
                 Ok(())
         }).unwrap();
     } else {
-        db.raw_query_write(|conn| {
+        db.raw_query(|conn| {
             sql_query(r#"
                 INSERT INTO groups (id, created_at_ns, membership_state, installations_last_checked, added_by_inbox_id, rotated_at_ns, conversation_type, maybe_forked, fork_details, should_publish_commit_log)
                 VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -205,7 +205,7 @@ async fn down_identity_updates() {
     .unwrap();
 
     db.conn()
-        .raw_query_write(|conn| {
+        .raw_query(|conn| {
             conn.revert_last_migration(MIGRATIONS).unwrap();
             Ok(())
         })
@@ -223,7 +223,7 @@ async fn down_identity_updates() {
         #[diesel(sql_type = Blob)]
         payload: Vec<u8>,
     }
-    let results: Vec<OldIdentityUpdate> = db.conn().raw_query_read(|conn| {
+    let results: Vec<OldIdentityUpdate> = db.conn().raw_query(|conn| {
         sql_query("SELECT inbox_id, sequence_id, server_timestamp_ns, payload FROM identity_updates ORDER BY sequence_id")
             .load(conn)
     }).unwrap();
@@ -310,7 +310,7 @@ async fn down() {
     update_cursor_new(db.conn(), &[0, 0, 0], 1, 75, 11); // Welcome, seq_id=75, originator=11
 
     db.conn()
-        .raw_query_write(|conn| {
+        .raw_query(|conn| {
             conn.revert_last_migration(MIGRATIONS).unwrap();
             Ok(())
         })
@@ -332,7 +332,7 @@ async fn down() {
         cursor: i64,
     }
 
-    let results: Vec<OldRefreshState> = db.conn().raw_query_read(|conn| {
+    let results: Vec<OldRefreshState> = db.conn().raw_query(|conn| {
         sql_query("SELECT entity_id, entity_kind, cursor FROM refresh_state ORDER BY entity_id, entity_kind")
             .load(conn)
     }).unwrap();

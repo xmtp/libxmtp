@@ -108,7 +108,7 @@ where
 
     pub fn bench(&mut self) -> Result<Vec<Result<()>>> {
         let mut results = vec![];
-        let result = self.store.conn().raw_query_write(|conn| {
+        let result = self.store.conn().raw_query(|conn| {
             conn.transaction(|_txn| {
                 results.push(self.bench_group_queries());
                 results.push(self.bench_group_intent_queries());

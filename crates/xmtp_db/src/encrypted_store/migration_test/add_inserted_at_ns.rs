@@ -7,7 +7,7 @@ use super::*;
 /// Helper function to insert a group message before the migration
 /// (without the inserted_at_ns field)
 fn insert_message_before_migration(db: impl ConnectionExt, group_id: &[u8], payload: Vec<u8>) {
-    db.raw_query_write(|conn| {
+    db.raw_query(|conn| {
         sql_query(
             r#"
             INSERT INTO group_messages (
@@ -42,7 +42,7 @@ fn insert_message_before_migration(db: impl ConnectionExt, group_id: &[u8], payl
 
 /// Helper function to create a group before the migration
 fn insert_group_before_migration(db: impl ConnectionExt, group_id: &[u8]) {
-    db.raw_query_write(|conn| {
+    db.raw_query(|conn| {
         sql_query(
             r#"
             INSERT INTO groups (
@@ -96,7 +96,7 @@ async fn migration_performance_10k_messages() {
 
     // Run just the add_inserted_at_ns migration
     db.conn()
-        .raw_query_write(|conn| {
+        .raw_query(|conn| {
             conn.run_next_migration(MIGRATIONS).unwrap();
             Ok(())
         })
@@ -121,7 +121,7 @@ async fn migration_performance_10k_messages() {
 
     let result: CountResult = db
         .conn()
-        .raw_query_read(|conn| {
+        .raw_query(|conn| {
             sql_query(
                 "SELECT COUNT(*) as count FROM group_messages WHERE inserted_at_ns IS NOT NULL",
             )

@@ -146,7 +146,7 @@ impl<C: ConnectionExt> QueryIdentityUpdates for DbConnection<C> {
             query = query.filter(dsl::sequence_id.le(sequence_id));
         }
 
-        self.raw_query_read(|conn| query.load::<StoredIdentityUpdate>(conn))
+        self.raw_query(|conn| query.load::<StoredIdentityUpdate>(conn))
     }
 
     /// Batch insert identity updates, ignoring duplicates.
@@ -155,7 +155,7 @@ impl<C: ConnectionExt> QueryIdentityUpdates for DbConnection<C> {
         &self,
         updates: &[StoredIdentityUpdate],
     ) -> Result<(), crate::ConnectionError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::insert_or_ignore_into(dsl::identity_updates)
                 .values(updates)
                 .execute(conn)
@@ -174,7 +174,7 @@ impl<C: ConnectionExt> QueryIdentityUpdates for DbConnection<C> {
             .filter(dsl::inbox_id.eq(inbox_id))
             .into_boxed();
 
-        self.raw_query_read(|conn| query.first::<i64>(conn))
+        self.raw_query(|conn| query.first::<i64>(conn))
     }
 
     /// Given a list of inbox_ids return a HashMap of each inbox ID -> highest known sequence ID
@@ -191,7 +191,7 @@ impl<C: ConnectionExt> QueryIdentityUpdates for DbConnection<C> {
 
         // Get the results as a Vec of (inbox_id, sequence_id) tuples
         let result_tuples: Vec<(String, i64)> = self
-            .raw_query_read(|conn| query.load::<(String, Option<i64>)>(conn))?
+            .raw_query(|conn| query.load::<(String, Option<i64>)>(conn))?
             .into_iter()
             // Diesel needs an Option type for aggregations like max(sequence_id), so we
             // unwrap the option here
@@ -213,7 +213,7 @@ impl<C: ConnectionExt> QueryIdentityUpdates for DbConnection<C> {
             .group_by(dsl::inbox_id)
             .select((dsl::inbox_id, count_star()))
             .filter(dsl::inbox_id.eq_any(inbox_ids));
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             query
                 .load_iter::<(String, i64), _>(conn)?
                 .collect::<Result<HashMap<_, _>, _>>()

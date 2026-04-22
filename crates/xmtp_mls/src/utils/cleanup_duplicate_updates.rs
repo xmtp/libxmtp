@@ -88,7 +88,7 @@ where
                         continue;
                     }
 
-                    db.raw_query_write(|conn| {
+                    db.raw_query(|conn| {
                         xmtp_db::diesel::delete(xmtp_db::schema::group_messages::table)
                             .filter(xmtp_db::schema::group_messages::id.eq(&msg.metadata.id))
                             .execute(conn)
@@ -104,7 +104,7 @@ where
         group_offset += BATCH_SIZE;
     }
 
-    db.raw_query_write(|conn| {
+    db.raw_query(|conn| {
         xmtp_db::diesel::update(xmtp_db::schema::user_preferences::table)
             .set(xmtp_db::schema::user_preferences::dm_group_updates_migrated.eq(true))
             .execute(conn)

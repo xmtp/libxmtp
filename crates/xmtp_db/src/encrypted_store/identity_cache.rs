@@ -140,7 +140,7 @@ impl<C: ConnectionExt> QueryIdentityCache for DbConnection<C> {
         }
 
         let result = self
-            .raw_query_read(|conn| conditions.load::<IdentityCache>(conn))?
+            .raw_query(|conn| conditions.load::<IdentityCache>(conn))?
             .into_iter()
             .map(|entry| (entry.identity, entry.inbox_id))
             .collect();

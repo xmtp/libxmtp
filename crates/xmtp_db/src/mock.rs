@@ -39,16 +39,7 @@ impl AsRef<MockConnection> for MockConnection {
 
 // TODO: We should use diesels test transaction
 impl ConnectionExt for MockConnection {
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
-        let mut conn = self.inner.lock();
-        fun(&mut conn).map_err(ConnectionError::from)
-    }
-
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
@@ -847,21 +838,13 @@ mock! {
 }
 
 impl ConnectionExt for MockDbQuery {
-    fn raw_query_read<T, F>(&self, _fun: F) -> Result<T, crate::ConnectionError>
+    fn raw_query<T, F>(&self, _fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        todo!()
-    }
-
-    fn raw_query_write<T, F>(&self, _fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
-        // usually OK because we seldom use the result of a write
-        tracing::warn!("unhandled mock raw_query_write");
+        // usually OK because we seldom use the result
+        tracing::warn!("unhandled mock raw_query");
         unsafe {
             let uninit = std::mem::MaybeUninit::<T>::uninit();
             Ok(uninit.assume_init())

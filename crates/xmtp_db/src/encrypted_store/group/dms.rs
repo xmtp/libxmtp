@@ -38,7 +38,7 @@ where
 impl<C: ConnectionExt> QueryDms for DbConnection<C> {
     /// Same behavior as fetched, but will stitch DM groups
     fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, ConnectionError> {
-        let group = self.raw_query_read(|conn| {
+        let group = self.raw_query(|conn| {
             groups::table
                 .filter(groups::id.eq(key))
                 .first::<StoredGroup>(conn)
@@ -55,7 +55,7 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
         };
 
         // Otherwise, return the stitched DM
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             groups::table
                 .filter(groups::dm_id.eq(dm_id))
                 .order_by(groups::last_message_ns.desc())
@@ -73,14 +73,14 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
             .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
             .order_by(dsl::last_message_ns.desc());
 
-        self.raw_query_read(|conn| query.first(conn).optional())
+        self.raw_query(|conn| query.first(conn).optional())
     }
 
     /// Load the other DMs that are stitched into this group
     fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError> {
         let query = dsl::groups.filter(dsl::id.eq(group_id));
 
-        let groups: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
+        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
 
         // Grab the dm_id of the group
         let Some(StoredGroup {
@@ -96,7 +96,7 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
             .filter(dsl::dm_id.eq(dm_id))
             .filter(dsl::id.ne(id));
 
-        let other_dms: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
+        let other_dms: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
         Ok(other_dms)
     }
 }

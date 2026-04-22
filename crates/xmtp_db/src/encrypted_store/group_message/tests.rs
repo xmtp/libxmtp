@@ -158,7 +158,7 @@ fn it_gets_many_messages() {
         }
 
         let count: i64 = conn
-            .raw_query_read(|raw_conn| {
+            .raw_query(|raw_conn| {
                 dsl::group_messages
                     .select(diesel::dsl::count_star())
                     .first(raw_conn)

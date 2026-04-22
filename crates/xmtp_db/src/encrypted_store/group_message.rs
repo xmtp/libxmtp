@@ -414,7 +414,7 @@ where
     type Output = ();
     fn store(&self, into: &C) -> Result<(), crate::StorageError> {
         let new_msg = NewStoredGroupMessage::from(self);
-        into.raw_query_write::<_, _>(|conn| {
+        into.raw_query::<_, _>(|conn| {
             diesel::insert_into(group_messages::table)
                 .values(&new_msg)
                 .execute(conn)
@@ -433,7 +433,7 @@ where
 
     fn store_or_ignore(&self, into: &C) -> Result<(), crate::StorageError> {
         let new_msg = NewStoredGroupMessage::from(self);
-        into.raw_query_write(|conn| {
+        into.raw_query(|conn| {
             diesel::insert_or_ignore_into(group_messages::table)
                 .values(&new_msg)
                 .execute(conn)
@@ -873,7 +873,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             query = query.limit(limit);
         }
 
-        self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))
+        self.raw_query(|conn| query.load::<StoredGroupMessage>(conn))
     }
 
     /// Count group messages matching the given criteria
@@ -885,7 +885,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         use crate::schema::{group_messages::dsl, groups::dsl as groups_dsl};
 
         // Check if this is a DM group
-        let is_dm = self.raw_query_read(|conn| {
+        let is_dm = self.raw_query(|conn| {
             groups_dsl::groups
                 .filter(groups_dsl::id.eq(group_id))
                 .select(groups_dsl::conversation_type)
@@ -917,7 +917,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         query = apply_message_filters!(query, args);
 
         let count =
-            self.raw_query_read(|conn| query.select(diesel::dsl::count_star()).first::<i64>(conn))?;
+            self.raw_query(|conn| query.select(diesel::dsl::count_star()).first::<i64>(conn))?;
 
         Ok(count)
     }
@@ -962,7 +962,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
 
         query = query.limit(limit.unwrap_or(100)).offset(offset);
 
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             query
                 .select(group_messages::all_columns)
                 .load::<StoredGroupMessage>(conn)
@@ -1016,7 +1016,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         };
 
         let reactions: Vec<StoredGroupMessage> =
-            self.raw_query_read(|conn| reactions_query.load::<StoredGroupMessage>(conn))?;
+            self.raw_query(|conn| reactions_query.load::<StoredGroupMessage>(conn))?;
 
         // Group reactions by parent message id
         let mut reactions_by_reference: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
@@ -1077,7 +1077,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         }
 
         let raw_inbound_relations: Vec<StoredGroupMessage> =
-            self.raw_query_read(|conn| inbound_relations_query.load::<StoredGroupMessage>(conn))?;
+            self.raw_query(|conn| inbound_relations_query.load::<StoredGroupMessage>(conn))?;
 
         for inbound_reference in raw_inbound_relations {
             if let Some(reference_id) = &inbound_reference.reference_id {
@@ -1102,7 +1102,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .into_boxed();
 
         let raw_outbound_references: Vec<StoredGroupMessage> =
-            self.raw_query_read(|conn| outbound_references_query.load::<StoredGroupMessage>(conn))?;
+            self.raw_query(|conn| outbound_references_query.load::<StoredGroupMessage>(conn))?;
 
         Ok(raw_outbound_references
             .into_iter()
@@ -1129,7 +1129,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         }
 
         let raw_counts: Vec<(Option<Vec<u8>>, i64)> =
-            self.raw_query_read(|conn| count_query.load(conn))?;
+            self.raw_query(|conn| count_query.load(conn))?;
 
         Ok(raw_counts
             .into_iter()
@@ -1149,8 +1149,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .select((dsl::sender_inbox_id, diesel::dsl::max(dsl::sent_at_ns)))
             .into_boxed();
 
-        let raw_results: Vec<(String, Option<i64>)> =
-            self.raw_query_read(|conn| query.load(conn))?;
+        let raw_results: Vec<(String, Option<i64>)> = self.raw_query(|conn| query.load(conn))?;
 
         Ok(raw_results
             .into_iter()
@@ -1165,7 +1164,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         &self,
         id: MessageId,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             dsl::group_messages
                 .filter(dsl::id.eq(id.as_ref()))
                 .first::<StoredGroupMessage>(conn)
@@ -1178,7 +1177,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         &self,
         id: MessageId,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             dsl::group_messages
                 .filter(dsl::id.eq(id.as_ref()))
                 .first::<StoredGroupMessage>(conn)
@@ -1191,7 +1190,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         group_id: GroupId,
         timestamp: i64,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             dsl::group_messages
                 .filter(dsl::group_id.eq(group_id.as_ref()))
                 .filter(dsl::sent_at_ns.eq(&timestamp))
@@ -1205,7 +1204,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         group_id: GroupId,
         cursor: Cursor,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             dsl::group_messages
                 .filter(dsl::group_id.eq(group_id.as_ref()))
                 .filter(dsl::sequence_id.eq(cursor.sequence_id as i64))
@@ -1227,7 +1226,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             hex::encode(msg_id),
             cursor
         );
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
                 .set((
@@ -1245,7 +1244,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         &self,
         msg_id: &MessageId,
     ) -> Result<usize, crate::ConnectionError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
                 .set((dsl::delivery_status.eq(DeliveryStatus::Failed),))
@@ -1254,7 +1253,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     }
 
     fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             use diesel::prelude::*;
             let now = now_ns();
 
@@ -1274,7 +1273,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         &self,
         message_id: MessageId,
     ) -> Result<usize, crate::ConnectionError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             use diesel::prelude::*;
             diesel::delete(dsl::group_messages.filter(dsl::id.eq(message_id.as_ref())))
                 .execute(conn)
@@ -1349,7 +1348,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             }
 
             // Execute the query
-            let messages: Vec<(i64, i64)> = self.raw_query_read(|conn| {
+            let messages: Vec<(i64, i64)> = self.raw_query(|conn| {
                 dsl::group_messages
                     .select((dsl::originator_id, dsl::sequence_id))
                     .filter(batch_filter)
@@ -1380,7 +1379,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             query = query.filter(dsl::sent_at_ns.lt(limit));
         }
 
-        self.raw_query_write(|conn| query.execute(conn))
+        self.raw_query(|conn| query.execute(conn))
     }
 }
 

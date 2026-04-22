@@ -672,7 +672,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
         let mut groups = if includes_all {
             // No filtering at all
-            self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
+            self.raw_query(|conn| query.load::<StoredGroup>(conn))?
         } else if includes_unknown {
             // LEFT JOIN: include Unknown + NULL + filtered states
             let left_joined_query = query
@@ -687,7 +687,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                 )
                 .select(dsl::groups::all_columns());
 
-            self.raw_query_read(|conn| left_joined_query.load::<StoredGroup>(conn))?
+            self.raw_query(|conn| left_joined_query.load::<StoredGroup>(conn))?
         } else {
             // INNER JOIN: strict match only to specific states (no Unknown or NULL)
             let inner_joined_query = query
@@ -697,14 +697,14 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                 .filter(consent_dsl::state.eq_any(filtered_states.clone()))
                 .select(dsl::groups::all_columns());
 
-            self.raw_query_read(|conn| inner_joined_query.load::<StoredGroup>(conn))?
+            self.raw_query(|conn| inner_joined_query.load::<StoredGroup>(conn))?
         };
 
         // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
         // Then query for those separately
         if matches!(conversation_type, Some(ConversationType::Sync)) || *include_sync_groups {
             let query = dsl::groups.filter(dsl::conversation_type.eq(ConversationType::Sync));
-            let mut sync_groups = self.raw_query_read(|conn| query.load(conn))?;
+            let mut sync_groups = self.raw_query(|conn| query.load(conn))?;
             groups.append(&mut sync_groups);
         }
 
@@ -737,7 +737,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
         query = query.limit(limit.unwrap_or(100)).offset(offset);
 
-        self.raw_query_read(|conn| query.load::<StoredGroup>(conn))
+        self.raw_query(|conn| query.load::<StoredGroup>(conn))
     }
 
     /// Updates group membership state
@@ -746,7 +746,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         group_id: GroupId,
         state: GroupMembershipState,
     ) -> Result<(), crate::ConnectionError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::update(dsl::groups.find(group_id.as_ref()))
                 .set(dsl::membership_state.eq(state))
                 .execute(conn)
@@ -760,7 +760,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             .order(dsl::created_at_ns.desc())
             .filter(dsl::conversation_type.eq(ConversationType::Sync));
 
-        self.raw_query_read(|conn| query.load(conn))
+        self.raw_query(|conn| query.load(conn))
     }
 
     fn find_sync_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, crate::ConnectionError> {
@@ -768,7 +768,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
             .filter(dsl::id.eq(id));
 
-        self.raw_query_read(|conn| query.first(conn).optional())
+        self.raw_query(|conn| query.first(conn).optional())
     }
 
     fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError> {
@@ -776,7 +776,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             .order(dsl::created_at_ns.desc())
             .filter(dsl::conversation_type.eq(ConversationType::Sync));
 
-        self.raw_query_read(|conn| query.first(conn).optional())
+        self.raw_query(|conn| query.first(conn).optional())
     }
 
     /// Return a single group that matches the given ID
@@ -785,7 +785,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             .order(dsl::created_at_ns.asc())
             .limit(1)
             .filter(dsl::id.eq(id));
-        let groups = self.raw_query_read(|conn| query.load(conn))?;
+        let groups = self.raw_query(|conn| query.load(conn))?;
 
         Ok(groups.into_iter().next())
     }
@@ -800,7 +800,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             .filter(dsl::sequence_id.eq(cursor.sequence_id as i64))
             .filter(dsl::originator_id.eq(cursor.originator_id as i64));
 
-        let groups = self.raw_query_read(|conn| query.load(conn))?;
+        let groups = self.raw_query(|conn| query.load(conn))?;
 
         if groups.len() > 1 {
             tracing::warn!(
@@ -813,7 +813,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
-        let last_ts: Option<i64> = self.raw_query_read(|conn| {
+        let last_ts: Option<i64> = self.raw_query(|conn| {
             dsl::groups
                 .find(&group_id)
                 .select(dsl::rotated_at_ns)
@@ -828,7 +828,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     /// Updates the 'last time checked' we checked for new installations.
     fn update_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::rotated_at_ns.eq(now))
@@ -839,7 +839,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     fn get_installations_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
-        let last_ts = self.raw_query_read(|conn| {
+        let last_ts = self.raw_query(|conn| {
             dsl::groups
                 .find(&group_id)
                 .select(dsl::installations_last_checked)
@@ -852,7 +852,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     /// Updates the 'last time checked' we checked for new installations.
     fn update_installations_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::installations_last_checked.eq(now))
@@ -867,7 +867,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         group_id: Vec<u8>,
         from_ns: Option<i64>,
     ) -> Result<(), StorageError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::message_disappear_from_ns.eq(from_ns))
                 .execute(conn)
@@ -881,7 +881,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         group_id: Vec<u8>,
         in_ns: Option<i64>,
     ) -> Result<(), StorageError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::message_disappear_in_ns.eq(in_ns))
                 .execute(conn)
@@ -891,7 +891,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
-        let maybe_inserted_group: Option<StoredGroup> = self.raw_query_write(|conn| {
+        let maybe_inserted_group: Option<StoredGroup> = self.raw_query(|conn| {
             diesel::insert_into(dsl::groups)
                 .values(&group)
                 .on_conflict_do_nothing()
@@ -901,13 +901,13 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
         if maybe_inserted_group.is_none() {
             let mut existing_group: StoredGroup =
-                self.raw_query_read(|conn| dsl::groups.find(&group.id).first(conn))?;
+                self.raw_query(|conn| dsl::groups.find(&group.id).first(conn))?;
             // A restored group should be overwritten
             if matches!(
                 existing_group.membership_state,
                 GroupMembershipState::Restored
             ) {
-                self.raw_query_write(|c| {
+                self.raw_query(|c| {
                     diesel::update(dsl::groups.find(&group.id))
                         .set(&group)
                         .execute(c)
@@ -928,7 +928,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                     && (existing_group.sequence_id.is_none()
                         || group.sequence_id > existing_group.sequence_id)
                 {
-                    self.raw_query_write(|c| {
+                    self.raw_query(|c| {
                         diesel::update(dsl::groups.find(&group.id))
                             .set(dsl::sequence_id.eq(group.sequence_id))
                             .execute(c)
@@ -938,13 +938,13 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                 Ok(existing_group)
             }
         } else {
-            Ok(self.raw_query_read(|c| dsl::groups.find(group.id).first(c))?)
+            Ok(self.raw_query(|c| dsl::groups.find(group.id).first(c))?)
         }
     }
 
     /// Get all the welcome ids turned into groups
     fn group_cursors(&self) -> Result<Vec<Cursor>, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             Ok(dsl::groups
                 .filter(dsl::sequence_id.is_not_null())
                 .select((dsl::sequence_id, dsl::originator_id))
@@ -965,7 +965,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         group_id: &[u8],
         fork_details: String,
     ) -> Result<(), StorageError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::update(dsl::groups.find(&group_id))
                 .set((
                     dsl::maybe_forked.eq(true),
@@ -978,7 +978,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     fn clear_fork_flag_for_group(&self, group_id: &[u8]) -> Result<(), crate::ConnectionError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::update(dsl::groups.find(&group_id))
                 .set((dsl::maybe_forked.eq(false), dsl::fork_details.eq("")))
                 .execute(conn)
@@ -987,7 +987,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             let dm_id: Option<String> = dsl::groups
                 .filter(dsl::id.eq(group_id))
                 .select(dsl::dm_id)
@@ -1031,7 +1031,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             .select((dsl::id, dsl::commit_log_public_key))
             .order(dsl::created_at_ns.asc());
 
-        self.raw_query_read(|conn| query.load::<StoredGroupCommitLogPublicKey>(conn))
+        self.raw_query(|conn| query.load::<StoredGroupCommitLogPublicKey>(conn))
     }
 
     // All dms and groups that are not sync groups and have consent state Allowed
@@ -1048,7 +1048,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             .filter(consent_dsl::state.eq(ConsentState::Allowed))
             .select((dsl::id, dsl::commit_log_public_key));
 
-        self.raw_query_read(|conn| query.load::<StoredGroupCommitLogPublicKey>(conn))
+        self.raw_query(|conn| query.load::<StoredGroupCommitLogPublicKey>(conn))
     }
 
     // Get conversation IDs for fork checking (excludes already forked conversations and sync groups)
@@ -1065,7 +1065,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             )
             .select(dsl::id);
 
-        self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
+        self.raw_query(|conn| query.load::<Vec<u8>>(conn))
     }
 
     fn get_conversation_ids_for_requesting_readds(
@@ -1074,7 +1074,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         use super::schema::{groups::dsl as groups_dsl, remote_commit_log::dsl as rcl_dsl};
         use diesel::dsl::max;
 
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             groups_dsl::groups
                 .left_join(rcl_dsl::remote_commit_log.on(groups_dsl::id.eq(rcl_dsl::group_id)))
                 .filter(
@@ -1094,7 +1094,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         use super::schema::{groups::dsl as groups_dsl, readd_status::dsl as readd_dsl};
         use diesel::{ExpressionMethods, JoinOnDsl, QueryDsl};
 
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             readd_dsl::readd_status
                 .inner_join(groups_dsl::groups.on(readd_dsl::group_id.eq(groups_dsl::id)))
                 .filter(readd_dsl::requested_at_sequence_id.is_not_null())
@@ -1121,7 +1121,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         let query = dsl::groups
             .filter(dsl::id.eq(group_id))
             .select(dsl::conversation_type);
-        let conversation_type = self.raw_query_read(|conn| query.first(conn))?;
+        let conversation_type = self.raw_query(|conn| query.first(conn))?;
         Ok(conversation_type)
     }
 
@@ -1131,7 +1131,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         public_key: &[u8],
     ) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;
-        let num_updated = self.raw_query_write(|conn| {
+        let num_updated = self.raw_query(|conn| {
             diesel::update(dsl::groups)
                 .filter(
                     dsl::id
@@ -1155,7 +1155,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         is_forked: Option<bool>,
     ) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::update(dsl::groups.find(group_id))
                 .set(dsl::is_commit_log_forked.eq(is_forked))
                 .execute(conn)
@@ -1168,7 +1168,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         group_id: &[u8],
     ) -> Result<Option<bool>, StorageError> {
         use crate::schema::groups::dsl;
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             dsl::groups
                 .find(group_id)
                 .select(dsl::is_commit_log_forked)
@@ -1183,7 +1183,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         has_pending_leave_request: Option<bool>,
     ) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::update(dsl::groups.find(group_id))
                 .set(dsl::has_pending_leave_request.eq(has_pending_leave_request))
                 .execute(conn)
@@ -1202,7 +1202,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             )
             .select(dsl::id);
 
-        self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
+        self.raw_query(|conn| query.load::<Vec<u8>>(conn))
     }
 }
 
@@ -1410,7 +1410,7 @@ pub(crate) mod tests {
 
             test_group.store(conn).unwrap();
             assert_eq!(
-                conn.raw_query_read(|raw_conn| groups.first::<StoredGroup>(raw_conn))
+                conn.raw_query(|raw_conn| groups.first::<StoredGroup>(raw_conn))
                     .unwrap(),
                 test_group
             );
@@ -1422,7 +1422,7 @@ pub(crate) mod tests {
         with_connection(|conn| {
             let test_group = generate_group(None);
 
-            conn.raw_query_write(|raw_conn| {
+            conn.raw_query(|raw_conn| {
                 diesel::insert_into(groups)
                     .values(test_group.clone())
                     .execute(raw_conn)
@@ -1580,7 +1580,7 @@ pub(crate) mod tests {
         with_connection(|conn| {
             let test_group = generate_group(None);
 
-            conn.raw_query_write(|raw_conn| {
+            conn.raw_query(|raw_conn| {
                 diesel::insert_into(groups)
                     .values(test_group.clone())
                     .execute(raw_conn)
