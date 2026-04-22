@@ -17,8 +17,6 @@ function log {
 WORKSPACE="${WORKSPACE:-}"
 case "${WORKSPACE}" in
     testnet) BACKEND="production" ;;
-    testnet-dev) BACKEND="dev" ;;
-    testnet-staging) BACKEND="staging" ;;
     ""|*) BACKEND="local" ;;
 esac
 log "WORKSPACE='${WORKSPACE:-<unset>}' -> backend='${BACKEND}'"

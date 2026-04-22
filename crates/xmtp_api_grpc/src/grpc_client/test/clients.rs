@@ -1,5 +1,5 @@
 use toxiproxy_rust::TOXIPROXY;
-use xmtp_configuration::{GrpcUrls, GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsToxic};
+use xmtp_configuration::{GrpcUrls, GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsProduction, GrpcUrlsToxic};
 use xmtp_proto::{
     api_client::{ToxicProxies, ToxicTestClient, XmtpTestClient},
     prelude::NetConnectConfig,
@@ -52,23 +52,23 @@ impl XmtpTestClient for DevNodeGoClient {
     }
 }
 
-/// Client connected to xmtp-node-go on the dev network
+/// Client connected to the public testnet payer gateway.
 pub struct DevGatewayClient;
 impl XmtpTestClient for DevGatewayClient {
     type Builder = ClientBuilder;
 
     fn create() -> Self::Builder {
-        build_client(GrpcUrlsDev::GATEWAY)
+        build_client(GrpcUrlsProduction::GATEWAY)
     }
 }
 
-/// Client connected to xmtp-node-go on the dev network
+/// Client connected to the public testnet xmtpd node.
 pub struct DevXmtpdClient;
 impl XmtpTestClient for DevXmtpdClient {
     type Builder = ClientBuilder;
 
     fn create() -> Self::Builder {
-        build_client(GrpcUrlsDev::XMTPD)
+        build_client(GrpcUrlsProduction::XMTPD)
     }
 }
 

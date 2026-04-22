@@ -42,8 +42,8 @@ pub struct GrpcUrls;
 if_dev! {
     impl GrpcUrls {
         pub const NODE: &'static str = GrpcUrlsDev::NODE;
-        pub const XMTPD: &'static str = GrpcUrlsStaging::XMTPD;
-        pub const GATEWAY: &'static str = GrpcUrlsStaging::GATEWAY;
+        pub const XMTPD: &'static str = GrpcUrlsProduction::XMTPD;
+        pub const GATEWAY: &'static str = GrpcUrlsProduction::GATEWAY;
     }
 }
 
@@ -75,13 +75,8 @@ if_native! {
     }
 }
 
-/// GRPC URLS corresponding to dev environments
+/// GRPC URLS corresponding to the V3 dev node-go environment.
 pub struct GrpcUrlsDev;
-impl GrpcUrlsDev {
-    pub const XMTPD: &'static str = "https://grpc.testnet-dev.xmtp.network:443";
-    pub const GATEWAY: &'static str = "https://payer.testnet-dev.xmtp.network:443";
-    pub const PERF_GATEWAY: &'static str = "https://payer-perf.testnet-dev.xmtp.network:443";
-}
 
 if_wasm! {
     impl GrpcUrlsDev {
@@ -91,26 +86,6 @@ if_wasm! {
 
 if_native! {
      impl GrpcUrlsDev {
-        pub const NODE: &'static str = "https://grpc.dev.xmtp.network:443";
-    }
-}
-
-/// GRPC URLS corresponding to staging environments
-pub struct GrpcUrlsStaging;
-impl GrpcUrlsStaging {
-    pub const XMTPD: &'static str = "https://grpc.testnet-staging.xmtp.network:443";
-    pub const GATEWAY: &'static str = "https://payer.testnet-staging.xmtp.network:443";
-    pub const PERF_GATEWAY: &'static str = "https://payer-perf.testnet-staging.xmtp.network:443";
-}
-
-if_wasm! {
-    impl GrpcUrlsStaging {
-        pub const NODE: &'static str = "https://api.dev.xmtp.network:5558";
-    }
-}
-
-if_native! {
-    impl GrpcUrlsStaging {
         pub const NODE: &'static str = "https://grpc.dev.xmtp.network:443";
     }
 }

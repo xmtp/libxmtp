@@ -58,8 +58,6 @@ pub enum XmtpEnv {
   Local,
   Dev,
   Production,
-  TestnetStaging,
-  TestnetDev,
   Testnet,
   Mainnet,
 }
@@ -70,8 +68,6 @@ impl From<XmtpEnv> for CoreXmtpEnv {
       XmtpEnv::Local => Self::Local,
       XmtpEnv::Dev => Self::Dev,
       XmtpEnv::Production => Self::Production,
-      XmtpEnv::TestnetStaging => Self::TestnetStaging,
-      XmtpEnv::TestnetDev => Self::TestnetDev,
       XmtpEnv::Testnet => Self::Testnet,
       XmtpEnv::Mainnet => Self::Mainnet,
     }

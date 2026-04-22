@@ -33,7 +33,7 @@ use valuable::Valuable;
 use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_common::time::now_ns;
-use xmtp_configuration::{GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsProduction, GrpcUrlsStaging};
+use xmtp_configuration::{GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsProduction};
 use xmtp_content_types::{ContentCodec, text::TextCodec};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::signature::SignatureError;
@@ -69,7 +69,6 @@ enum Env {
     #[default]
     Local,
     Dev,
-    Staging,
     Production,
 }
 
@@ -240,18 +239,15 @@ async fn main() -> color_eyre::eyre::Result<()> {
             .v3_host(GrpcUrlsProduction::NODE)
             .gateway_host(GrpcUrlsProduction::GATEWAY)
             .build()?,
-        (true, Env::Staging) => MessageBackendBuilder::default()
-            .v3_host(GrpcUrlsStaging::NODE)
-            .gateway_host(GrpcUrlsStaging::GATEWAY)
-            .build()?,
-        (true, Env::Dev) => MessageBackendBuilder::default()
-            .v3_host(GrpcUrlsDev::NODE)
-            .gateway_host(GrpcUrlsDev::GATEWAY)
-            .build()?,
+        (true, Env::Dev) => {
+            return Err(color_eyre::eyre::eyre!(
+                "No testnet gateway for --env dev; use --testnet --env production (testnet) or --testnet --env local"
+            ));
+        }
         (false, Env::Local) => MessageBackendBuilder::default()
             .v3_host(GrpcUrlsLocal::NODE)
             .build()?,
-        (false, Env::Dev) | (false, Env::Staging) => MessageBackendBuilder::default()
+        (false, Env::Dev) => MessageBackendBuilder::default()
             .v3_host(GrpcUrlsDev::NODE)
             .build()?,
         (false, Env::Production) => MessageBackendBuilder::default()
