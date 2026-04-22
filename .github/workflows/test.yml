@@ -39,6 +39,7 @@ jobs:
               - 'rust-toolchain.toml'
               - 'dev/docker/**'
               - 'dev/up'
+              - 'flake.lock'
               - '.github/workflows/test.yml'
               - '.github/workflows/test-workspace*'
             node:
@@ -47,6 +48,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'nix/**'
+              - 'flake.lock'
               - 'dev/docker/**'
               - 'dev/up'
               - '.github/workflows/test-node*'
@@ -56,6 +58,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'nix/**'
+              - 'flake.lock'
               - 'dev/docker/**'
               - '.github/workflows/test-wasm*'
             ios:
@@ -63,6 +66,7 @@ jobs:
               - 'bindings/mobile/**'
               - 'crates/**'
               - 'nix/**'
+              - 'flake.lock'
               - 'Package.swift'
               - 'Cargo.toml'
               - 'Cargo.lock'
@@ -72,6 +76,7 @@ jobs:
               - 'bindings/mobile/**'
               - 'crates/**'
               - 'nix/**'
+              - 'flake.lock'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/workflows/test-android*'
@@ -83,6 +88,7 @@ jobs:
               - 'dev/up'
               - 'rust-toolchain.toml'
               - '.cargo/**'
+              - 'flake.lock'
               - '.github/workflows/test-bindings*'
             devcontainer:
               - '.devcontainer/**'
