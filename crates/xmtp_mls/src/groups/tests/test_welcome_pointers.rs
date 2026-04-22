@@ -229,27 +229,24 @@ async fn test_welcome_pointer_round_trip(
     .unwrap();
 
     // Verify testers can see the group
-    let welcomes = futures::future::join_all(
-        testers
-            .into_iter()
-            .chain(extra_installations.into_iter())
-            .map(|tester| async {
-                tester.sync_welcomes().await.unwrap();
-                let tester_groups = tester
-                    .find_groups(xmtp_db::group::GroupQueryArgs::default())
-                    .unwrap();
-                assert_eq!(tester_groups.len(), 1);
-                let installation_id = tester.identity().installation_id();
-                drop(tester);
-                // use alix's context here to avoid caching issues for welcome topics
-                alix_group
-                    .context
-                    .api()
-                    .query_welcome_messages(&installation_id)
-                    .await
-                    .unwrap()
-            }),
-    )
+    let welcomes = futures::future::join_all(testers.into_iter().chain(extra_installations).map(
+        |tester| async {
+            tester.sync_welcomes().await.unwrap();
+            let tester_groups = tester
+                .find_groups(xmtp_db::group::GroupQueryArgs::default())
+                .unwrap();
+            assert_eq!(tester_groups.len(), 1);
+            let installation_id = tester.identity().installation_id();
+            drop(tester);
+            // use alix's context here to avoid caching issues for welcome topics
+            alix_group
+                .context
+                .api()
+                .query_welcome_messages(&installation_id)
+                .await
+                .unwrap()
+        },
+    ))
     .await;
 
     for welcome in welcomes {

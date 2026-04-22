@@ -1168,8 +1168,8 @@ where
             .api()
             .get_inbox_ids(requests)
             .await?
-            .into_iter()
-            .filter_map(|(ident, _)| Some((ident.try_into().ok()?, true)))
+            .into_keys()
+            .filter_map(|ident| Some((ident.try_into().ok()?, true)))
             .collect();
 
         // Fill in the rest with false

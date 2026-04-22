@@ -284,7 +284,7 @@ where
             .subscribe_welcome_messages(&installation_key)
             .await?;
         let subscription = SubscriptionStream::new(subscription);
-        let known_welcome_ids = HashSet::from_iter(conn.group_cursors()?.into_iter());
+        let known_welcome_ids = HashSet::from_iter(conn.group_cursors()?);
 
         let stream = multiplexed(subscription, events);
 
