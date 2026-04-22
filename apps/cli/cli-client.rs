@@ -239,11 +239,10 @@ async fn main() -> color_eyre::eyre::Result<()> {
             .v3_host(GrpcUrlsProduction::NODE)
             .gateway_host(GrpcUrlsProduction::GATEWAY)
             .build()?,
-        (true, Env::Dev) => {
-            return Err(eyre!(
-                "No d14n gateway for Dev env; use --env production for testnet or --env local"
-            ));
-        }
+        (true, Env::Dev) => MessageBackendBuilder::default()
+            .v3_host(GrpcUrlsDev::NODE)
+            .gateway_host(GrpcUrlsProduction::GATEWAY)
+            .build()?,
         (false, Env::Local) => MessageBackendBuilder::default()
             .v3_host(GrpcUrlsLocal::NODE)
             .build()?,

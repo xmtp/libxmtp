@@ -351,7 +351,9 @@ impl BackendOpts {
         if self.perf {
             debug_assert!(self.d14n, "--perf requires --d14n");
             return match self.backend {
-                Dev => eyre::bail!("No d14n gateway for Dev backend"),
+                // Dev has no d14n endpoint of its own; pair the V3 dev node with the testnet
+                // (production) perf gateway — the only still-valid d14n target.
+                Dev => Ok((*crate::constants::XMTP_PRODUCTION_PERF_GATEWAY).clone()),
                 Production => Ok((*crate::constants::XMTP_PRODUCTION_PERF_GATEWAY).clone()),
                 Local => Ok((*crate::constants::XMTP_LOCAL_PERF_GATEWAY).clone()),
             };
@@ -361,11 +363,12 @@ impl BackendOpts {
             (Dev, false, false) => eyre::bail!("No gateway for V3"),
             (Production, false, false) => eyre::bail!("No gateway for V3"),
             (Local, false, false) => eyre::bail!("No gateway for V3"),
-            (Dev, true, false) => eyre::bail!("No d14n gateway for Dev backend"),
+            // Dev + d14n pairs the V3 dev node with the testnet (production) gateway.
+            (Dev, true, false) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
             (Production, true, false) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
             (Local, true, false) => Ok((*crate::constants::XMTP_LOCAL_GATEWAY).clone()),
             (Local, _, true) => Ok((*crate::constants::XMTP_LOCAL_GATEWAY).clone()),
-            (Dev, _, true) => eyre::bail!("No d14n gateway for Dev backend"),
+            (Dev, _, true) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
             (Production, _, true) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
         }
     }
