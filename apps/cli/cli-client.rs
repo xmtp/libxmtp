@@ -33,7 +33,7 @@ use valuable::Valuable;
 use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_common::time::now_ns;
-use xmtp_configuration::{GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsProduction};
+use xmtp_configuration::{GrpcUrlsDev, GrpcUrlsLocal, GrpcUrlsProduction, GrpcUrlsTestnet};
 use xmtp_content_types::{ContentCodec, text::TextCodec};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::signature::SignatureError;
@@ -237,11 +237,11 @@ async fn main() -> color_eyre::eyre::Result<()> {
             .build()?,
         (true, Env::Production) => MessageBackendBuilder::default()
             .v3_host(GrpcUrlsProduction::NODE)
-            .gateway_host(GrpcUrlsProduction::GATEWAY)
+            .gateway_host(GrpcUrlsTestnet::GATEWAY)
             .build()?,
         (true, Env::Dev) => MessageBackendBuilder::default()
             .v3_host(GrpcUrlsDev::NODE)
-            .gateway_host(GrpcUrlsProduction::GATEWAY)
+            .gateway_host(GrpcUrlsTestnet::GATEWAY)
             .build()?,
         (false, Env::Local) => MessageBackendBuilder::default()
             .v3_host(GrpcUrlsLocal::NODE)

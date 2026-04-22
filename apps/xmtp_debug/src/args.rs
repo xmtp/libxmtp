@@ -353,8 +353,8 @@ impl BackendOpts {
             return match self.backend {
                 // Dev has no d14n endpoint of its own; pair the V3 dev node with the testnet
                 // (production) perf gateway — the only still-valid d14n target.
-                Dev => Ok((*crate::constants::XMTP_PRODUCTION_PERF_GATEWAY).clone()),
-                Production => Ok((*crate::constants::XMTP_PRODUCTION_PERF_GATEWAY).clone()),
+                Dev => Ok((*crate::constants::XMTP_TESTNET_PERF_GATEWAY).clone()),
+                Production => Ok((*crate::constants::XMTP_TESTNET_PERF_GATEWAY).clone()),
                 Local => Ok((*crate::constants::XMTP_LOCAL_PERF_GATEWAY).clone()),
             };
         }
@@ -364,12 +364,12 @@ impl BackendOpts {
             (Production, false, false) => eyre::bail!("No gateway for V3"),
             (Local, false, false) => eyre::bail!("No gateway for V3"),
             // Dev + d14n pairs the V3 dev node with the testnet (production) gateway.
-            (Dev, true, false) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
-            (Production, true, false) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
+            (Dev, true, false) => Ok((*crate::constants::XMTP_TESTNET_GATEWAY).clone()),
+            (Production, true, false) => Ok((*crate::constants::XMTP_TESTNET_GATEWAY).clone()),
             (Local, true, false) => Ok((*crate::constants::XMTP_LOCAL_GATEWAY).clone()),
             (Local, _, true) => Ok((*crate::constants::XMTP_LOCAL_GATEWAY).clone()),
-            (Dev, _, true) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
-            (Production, _, true) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
+            (Dev, _, true) => Ok((*crate::constants::XMTP_TESTNET_GATEWAY).clone()),
+            (Production, _, true) => Ok((*crate::constants::XMTP_TESTNET_GATEWAY).clone()),
         }
     }
 
@@ -499,7 +499,7 @@ impl BackendKind {
             (Local, false) => (*crate::constants::XMTP_LOCAL).clone(),
             // Dev has no d14n target; fall back to the centralized V3 dev network.
             (Dev, true) => (*crate::constants::XMTP_DEV).clone(),
-            (Production, true) => (*crate::constants::XMTP_PRODUCTION_D14N).clone(),
+            (Production, true) => (*crate::constants::XMTP_TESTNET_D14N).clone(),
             (Local, true) => (*crate::constants::XMTP_LOCAL_D14N).clone(),
         }
     }

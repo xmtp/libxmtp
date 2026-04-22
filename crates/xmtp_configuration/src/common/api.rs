@@ -91,13 +91,8 @@ if_native! {
     }
 }
 
-/// GRPC URLS corresponding to production environments
+/// GRPC URLS corresponding to the centralized V3 production environment.
 pub struct GrpcUrlsProduction;
-impl GrpcUrlsProduction {
-    pub const XMTPD: &'static str = "https://grpc.testnet.xmtp.network:443";
-    pub const GATEWAY: &'static str = "https://payer.testnet.xmtp.network:443";
-    pub const PERF_GATEWAY: &'static str = "https://payer-perf.testnet.xmtp.network:443";
-}
 
 if_wasm! {
     impl GrpcUrlsProduction {
@@ -109,6 +104,14 @@ if_native! {
     impl GrpcUrlsProduction {
         pub const NODE: &'static str = "https://grpc.production.xmtp.network:443";
     }
+}
+
+/// GRPC URLS corresponding to the decentralized public testnet environment.
+pub struct GrpcUrlsTestnet;
+impl GrpcUrlsTestnet {
+    pub const XMTPD: &'static str = "https://grpc.testnet.xmtp.network:443";
+    pub const GATEWAY: &'static str = "https://payer.testnet.xmtp.network:443";
+    pub const PERF_GATEWAY: &'static str = "https://payer-perf.testnet.xmtp.network:443";
 }
 
 // URLs connected to toxiproxy
