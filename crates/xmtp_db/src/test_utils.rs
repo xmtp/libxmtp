@@ -61,7 +61,7 @@ pub use wasm::*;
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 mod wasm {
     use super::*;
-    use crate::{PersistentOrMem, StorageOption, WasmDbConnection};
+    use crate::{ConnectionExt, PersistentOrMem, StorageOption, WasmDbConnection};
     use futures::FutureExt;
     use std::sync::Arc;
 
