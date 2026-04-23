@@ -3,7 +3,7 @@ use std::{fmt, ops::Deref, str::FromStr};
 use bytes::Bytes;
 use hex::FromHexError;
 
-/// Canonical 16-byte group identifier.
+/// The canonical group identifier.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct GroupId(bytes::Bytes);
 
