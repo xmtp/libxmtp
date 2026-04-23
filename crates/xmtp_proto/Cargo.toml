@@ -52,7 +52,6 @@ wasm-bindgen-test.workspace = true
 
 [dev-dependencies]
 mockall.workspace = true
-openmls_rust_crypto.workspace = true
 rstest.workspace = true
 tokio = { workspace = true }
 toxiproxy_rust.workspace = true

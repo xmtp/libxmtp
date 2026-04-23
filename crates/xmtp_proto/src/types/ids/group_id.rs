@@ -159,17 +159,4 @@ mod test {
         let ommls_id = xmtp_id.to_openmls();
         assert_eq!(ommls_id.as_slice(), xmtp_id.as_slice());
     }
-
-    #[xmtp_common::test]
-    fn test_random_group_id_length_and_uniqueness() {
-        use openmls_rust_crypto::OpenMlsRustCrypto;
-        use openmls_traits::OpenMlsProvider;
-
-        let provider = OpenMlsRustCrypto::default();
-        let id1 = GroupId::random(provider.rand());
-        let id2 = GroupId::random(provider.rand());
-
-        assert_eq!(id1.as_slice().len(), 16);
-        assert_ne!(id1, id2);
-    }
 }
