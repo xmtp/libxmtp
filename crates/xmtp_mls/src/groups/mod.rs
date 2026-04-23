@@ -1,3 +1,4 @@
+pub mod app_data;
 pub mod commit_log;
 pub mod commit_log_key;
 mod error;
