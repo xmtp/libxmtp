@@ -36,7 +36,6 @@ workspace-members = [
   "xdbg",
   "error_glossary",
   "xnet-cli",
-  "xnet-gui",
   "xnet-lib",
 ]
 third-party = [
@@ -54,7 +53,6 @@ workspace-members = [
   "xdbg",
   "error_glossary",
   "xnet-cli",
-  "xnet-gui",
   "xnet-lib",
 ]
 third-party = [

@@ -17,26 +17,9 @@ XMTP network.
 
 ### Nix
 
-Install the GUI imperatively:
-
-> [!NOTE]
-> the gui install will only work imperatively on aarch64-darwin systems
-
 ```
-nix profile add github:xmtp/libxmtp#xnet-gui
+nix profile add github:xmtp/libxmtp#xnet-cli
 ```
-
-`nix profile add github:xmtp/libxmtp#xnet-cli`
-
-Install with Brew
-```
-brew tap xmtp/tap
-brew install xnet-gui
-```
-
-Install from Github Release DMG
-
--- Download from sidebar
 
 Installing from the overlay
 

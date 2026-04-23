@@ -21,7 +21,6 @@ let
     (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (
       src + /apps/mls_validation_service
     ))
-    (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (src + /apps/xnet/gui))
     (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (src + /apps/xnet/cli))
     (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (src + /apps/xnet/lib))
   ];
@@ -67,7 +66,6 @@ let
   ]);
   binaries = unions (flatten [
     (commonCargoSources (src + /apps/xnet/cli))
-    (commonCargoSources (src + /apps/xnet/gui))
     (commonCargoSources (src + /apps/android/xmtpv3_example))
     (crateSources (src + /bindings))
     (crateSources (src + /apps))

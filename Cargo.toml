@@ -196,7 +196,6 @@ xmtp_mls = { path = "crates/xmtp_mls" }
 xmtp_mls_common = { path = "crates/xmtp_mls_common" }
 xmtp_proto = { path = "crates/xmtp_proto" }
 xnet-cli = { path = "apps/xnet/cli" }
-xnet-gui = { path = "apps/xnet/gui" }
 xnet-lib = { path = "apps/xnet/lib" }
 
 [profile.dbg]
