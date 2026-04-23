@@ -13,9 +13,12 @@ pub(crate) struct TomlConfig {
     pub validation: ImageConfig,
     pub contracts: ImageConfig,
     pub history: ImageConfig,
-    pub toxiproxy: ImageConfig,
+    pub toxiproxy: ToxiProxyToml,
     pub prometheus: ImageConfig,
     pub grafana: ImageConfig,
+    pub traefik: TraefikToml,
+    #[serde(default)]
+    pub extra_traefik_routes: Vec<ExtraTraefikRoute>,
 }
 
 /// Reusable image+version pair for any Docker service
@@ -30,26 +33,51 @@ pub struct ImageConfig {
 #[serde(default)]
 pub struct XnetToml {
     pub use_standard_ports: bool,
-    pub toxiproxy_port: Option<u16>,
-    /// Override the Traefik HTTP host port (default: 80)
-    pub traefik_port: Option<u16>,
     /// Pause broadcaster contracts on startup (same as `--paused` CLI flag)
     pub paused: bool,
-    /// Public IP for remote addressing mode (sslip.io).
-    /// Equivalent to the --remote CLI flag.
-    pub remote_ip: Option<std::net::IpAddr>,
+    /// Custom domain for remote addressing mode.
+    /// Hostnames become {name}.{domain} instead of {name}.xmtpd.local.
+    pub remote_domain: Option<String>,
+    /// Enable the V3 stack (Validation, V3Db, MlsDb, History, NodeGo)
+    pub enable_v3: bool,
+    /// Enable the D14n stack (Redis, Gateway, XMTPD nodes)
+    pub enable_d14n: bool,
+    /// Enable monitoring services (Prometheus, Grafana, PgAdmin, Otterscan)
+    pub enable_monitoring: bool,
+    /// URL scheme for external references (gateway responses, node URLs).
+    /// "http" or "https". Default: "http".
+    /// Set to "https" when TLS is terminated at a CDN/proxy (e.g. Cloudflare).
+    pub public_scheme: Option<String>,
 }
 
 impl Default for XnetToml {
     fn default() -> Self {
         Self {
             use_standard_ports: true,
-            toxiproxy_port: Default::default(),
-            traefik_port: None,
             paused: false,
-            remote_ip: None,
+            remote_domain: None,
+            enable_v3: true,
+            enable_d14n: true,
+            enable_monitoring: true,
+            public_scheme: None,
         }
     }
+}
+
+#[derive(Deserialize, Default, Debug, Clone)]
+#[serde(default)]
+pub struct TraefikToml {
+    #[serde(flatten)]
+    pub image: ImageConfig,
+    pub port: Option<u16>,
+}
+
+#[derive(Deserialize, Default, Debug, Clone)]
+#[serde(default)]
+pub struct ToxiProxyToml {
+    #[serde(flatten)]
+    pub image: ImageConfig,
+    pub port: Option<u16>,
 }
 
 #[derive(Deserialize, Default, Debug, Clone)]
@@ -84,4 +112,12 @@ pub struct V3Toml {
     #[serde(flatten)]
     pub image: ImageConfig,
     pub port: Option<u16>,
+}
+
+#[derive(Deserialize, Default, Debug, Clone)]
+pub struct ExtraTraefikRoute {
+    pub name: String,
+    pub rule: String,
+    pub url: String,
+    pub priority: Option<i32>,
 }

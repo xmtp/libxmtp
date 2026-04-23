@@ -43,10 +43,13 @@ pub async fn start_service_poller() -> Result<(mpsc::Receiver<Vec<ServiceInfo>>,
     let (tx, rx) = mpsc::channel(4);
     let client = make_toxi_client()?;
 
-    let host = match xnet::Config::load_unchecked().address_mode {
-        xnet::config::AddressMode::Remote(ip) => ip.to_string(),
-        _ => "localhost".to_string(),
+    let config = xnet::Config::load_unchecked();
+    let host = match &config.address_mode {
+        xnet::config::AddressMode::RemoteDomain(domain) => domain.clone(),
+        xnet::config::AddressMode::Local => "localhost".to_string(),
     };
+    let enable_monitoring = config.enable_monitoring;
+    let need_shared = config.enable_v3 || config.enable_d14n;
     let handle = tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -78,21 +81,26 @@ pub async fn start_service_poller() -> Result<(mpsc::Receiver<Vec<ServiceInfo>>,
                     .collect();
                 services.sort_by(|a, b| a.name.cmp(&b.name));
                 // Add non-ToxiProxy services with fixed localhost ports
-                services.push(ServiceInfo {
-                    name: "grafana".into(),
-                    status: "running",
-                    external_url: Some(format!("http://{}:3000", host)),
-                });
-                services.push(ServiceInfo {
-                    name: "otterscan".into(),
-                    status: "running",
-                    external_url: Some(format!("http://{}:5100", host)),
-                });
-                services.push(ServiceInfo {
-                    name: "prometheus".into(),
-                    status: "running",
-                    external_url: Some(format!("http://{}:9090", host)),
-                });
+                // Only show monitoring services if monitoring is enabled
+                if enable_monitoring {
+                    services.push(ServiceInfo {
+                        name: "grafana".into(),
+                        status: "running",
+                        external_url: Some(format!("http://{}:3000", host)),
+                    });
+                    if need_shared {
+                        services.push(ServiceInfo {
+                            name: "otterscan".into(),
+                            status: "running",
+                            external_url: Some(format!("http://{}:5100", host)),
+                        });
+                    }
+                    services.push(ServiceInfo {
+                        name: "prometheus".into(),
+                        status: "running",
+                        external_url: Some(format!("http://{}:9090", host)),
+                    });
+                }
                 services.push(ServiceInfo {
                     name: "traefik".into(),
                     status: "running",
@@ -108,10 +116,10 @@ pub async fn start_service_poller() -> Result<(mpsc::Receiver<Vec<ServiceInfo>>,
     Ok((rx, handle.abort_handle()))
 }
 
-pub async fn execute_up(paused: bool) -> Result<()> {
+pub async fn execute_up() -> Result<()> {
     let _ = xnet::Config::load()?;
     tracing::info!("up");
-    App::parse()?.up(paused).await?;
+    App::parse()?.up(false).await?;
     Ok(())
 }
 
@@ -145,6 +153,15 @@ pub async fn execute_add_node() -> Result<NodeInfo> {
 }
 
 pub async fn execute_add_migrator() -> Result<NodeInfo> {
+    // Pause broadcaster contracts before adding a migrator node
+    let mgr = ServiceManager::start().await?;
+    let rpc = mgr
+        .anvil_rpc_url()
+        .ok_or_else(|| color_eyre::eyre::eyre!("Anvil not running"))?;
+    xnet::contracts::set_broadcasters_paused(rpc.as_str(), xnet::constants::Anvil::ADMIN_KEY, true)
+        .await?;
+    tracing::info!("broadcaster contracts paused for migrator node");
+
     let node = App::parse()?
         .add_node(&AddNode {
             migrator: true,
@@ -165,8 +182,11 @@ pub async fn execute_add_migrator() -> Result<NodeInfo> {
 
 pub async fn execute_activate_d14n() -> Result<()> {
     let mut mgr = ServiceManager::start().await?;
+    let rpc = mgr
+        .anvil_rpc_url()
+        .ok_or_else(|| color_eyre::eyre::eyre!("Anvil not running"))?;
     xnet::contracts::set_broadcasters_paused(
-        mgr.anvil_rpc_url().as_str(),
+        rpc.as_str(),
         xnet::constants::Anvil::ADMIN_KEY,
         false,
     )
@@ -303,6 +323,8 @@ pub async fn start_cutover_poller() -> Result<(mpsc::Receiver<u64>, AbortHandle)
     let mgr = ServiceManager::start().await?;
     let url = mgr
         .node_go
+        .as_ref()
+        .ok_or_else(|| color_eyre::eyre::eyre!("node-go not available (V3 disabled)"))?
         .external_grpc_url()
         .ok_or_else(|| color_eyre::eyre::eyre!("node-go gRPC URL not available"))?;
     let grpc = GrpcClient::create(url).map_err(|e| color_eyre::eyre::eyre!("{}", e))?;

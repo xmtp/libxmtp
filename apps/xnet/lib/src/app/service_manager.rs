@@ -1,19 +1,16 @@
 //! Stateful service manager
 //! network is hardcoded to XNET_NETWORK_NAME
 use std::collections::HashMap;
-use std::io::stdout;
 
 use crate::{
     Config,
-    config::NodeToml,
-    constants::Xmtpd as XmtpdConst,
     network::{Network, XNET_NETWORK_NAME},
+    node_provisioner::NodeProvisioner,
     services::{
         self, CoreDns, Gateway, Grafana, NodeGo, Otterscan, PgAdmin, Prometheus, ReplicationDb,
         Service, ToxiProxy, Traefik, TraefikConfig, Xmtpd, create_and_start_container,
     },
-    types::{XmtpdNode, resolve_port},
-    xmtpd_cli::XmtpdCli,
+    types::XmtpdNode,
 };
 use bollard::{
     Docker,
@@ -29,80 +26,148 @@ use futures::FutureExt;
 /// Starts services in the right order
 /// and keeps a list of running services
 pub struct ServiceManager {
+    // Always required (infrastructure)
     pub coredns: CoreDns,
     pub traefik: Traefik,
     pub traefik_config: TraefikConfig,
     pub proxy: ToxiProxy,
-    pub gateway: Gateway,
-    pub node_go: NodeGo,
-    services: Vec<Box<dyn Service>>,
-    otterscan: Otterscan,
-    prometheus: Prometheus,
-    grafana: Grafana,
-    pgadmin: PgAdmin,
+
+    // V3 stack (None when enable_v3 = false)
+    pub node_go: Option<NodeGo>,
+    v3_services: Vec<Box<dyn Service>>,
+
+    // D14n stack (None when enable_d14n = false)
+    pub gateway: Option<Gateway>,
+    d14n_services: Vec<Box<dyn Service>>,
+
+    // Shared — starts when either V3 or D14n is enabled
+    anvil_rpc_url: Option<url::Url>,
+    shared_services: Vec<Box<dyn Service>>,
+
+    // Monitoring (None when enable_monitoring = false)
+    prometheus: Option<Prometheus>,
+    grafana: Option<Grafana>,
+    pgadmin: Option<PgAdmin>,
+    otterscan: Option<Otterscan>,
+
     nodes: Vec<Xmtpd>,
-    /// Anvil RPC URL for funding node wallets and contract calls
-    anvil_rpc_url: url::Url,
 }
 
 impl ServiceManager {
-    pub fn anvil_rpc_url(&self) -> &url::Url {
-        &self.anvil_rpc_url
+    pub fn anvil_rpc_url(&self) -> Option<&url::Url> {
+        self.anvil_rpc_url.as_ref()
     }
 
     /// starts services if not already started
     /// if running connects to them.
     pub async fn start() -> Result<Self> {
-        // Start ToxiProxy first (other services may register with it)
+        Self::start_paused(false).await
+    }
+
+    /// Like [`start`](Self::start) but also pauses broadcaster contracts when
+    /// `cli_paused` is true (before node provisioning).
+    pub async fn start_paused(cli_paused: bool) -> Result<Self> {
+        let config = Config::load()?;
+
+        // Phase 1: Infrastructure (always)
         let mut proxy = ToxiProxy::builder().build()?;
         proxy.start().await?;
 
-        // Start Traefik first so we can get its IP for CoreDNS
-        let config = Config::load()?;
         let mut traefik = Traefik::builder()
             .maybe_http_port(config.traefik_port)
             .build();
         traefik.start(&proxy).await?;
 
-        // Get Traefik's IP address for CoreDNS container-facing DNS
         let traefik_ip = traefik.container_ip().await?;
 
-        // Start CoreDNS with Traefik's IP
         let mut coredns = CoreDns::builder().traefik_ip(traefik_ip).build();
         coredns.start(&proxy).await?;
 
-        // Create Traefik config manager (loads existing routes from file)
         let traefik_config = TraefikConfig::new(traefik.dynamic_config_path())?;
+        if !config.extra_traefik_routes.is_empty() {
+            traefik_config.set_extra_routes(config.extra_traefik_routes.clone())?;
+        }
 
-        // Start monitoring services (Prometheus + Grafana) in parallel.
-        // PgAdmin is started AFTER xmtpd nodes — see below.
-        let mut prometheus = Prometheus::builder().build();
-        let mut grafana = Grafana::builder().build();
-        let pgadmin = PgAdmin::builder().build();
-        let launch = vec![
-            prometheus.start(&proxy).boxed(),
-            grafana.start(&proxy).boxed(),
-        ];
-        futures::future::try_join_all(launch).await?;
-
-        let mut services = Vec::new();
-        info!("starting v3");
-        let (node_go, svcs) = start_v3(&proxy).await?;
-        services.extend(svcs);
-        let dns_ip = coredns.container_ip().await?;
-        let (gateway, anvil_external_rpc, svcs) = start_d14n(&proxy, dns_ip).await?;
-        services.extend(svcs);
-
-        let anvil_host_for_browser = match &config.address_mode {
-            crate::config::AddressMode::Remote(ip) => anvil_external_rpc
-                .to_string()
-                .replace("localhost", &ip.to_string()),
-            _ => anvil_external_rpc.to_string(),
+        // Phase 2: Monitoring — Prometheus + Grafana (conditional)
+        // PgAdmin is started AFTER xmtpd nodes so it can discover their
+        // ReplicationDb containers via Docker labels (xnet.pgadmin=true).
+        let (prometheus, grafana, pgadmin) = if config.enable_monitoring {
+            let mut p = Prometheus::builder().build();
+            let mut g = Grafana::builder().build();
+            let pa = PgAdmin::builder().build();
+            let launch = vec![p.start(&proxy).boxed(), g.start(&proxy).boxed()];
+            futures::future::try_join_all(launch).await?;
+            (Some(p), Some(g), Some(pa))
+        } else {
+            (None, None, None)
         };
-        let mut otterscan = Otterscan::builder()
-            .anvil_host(anvil_host_for_browser)
-            .build();
-        otterscan.start(&proxy).await?;
+
+        // Phase 3: Shared services — Anvil, Validation, History
+        // These are needed by both V3 and D14n stacks
+        let need_shared = config.enable_v3 || config.enable_d14n;
+        let (anvil_rpc_url, anvil_proxy_host, shared_services) = if need_shared {
+            let shared = start_shared_services(&proxy).await?;
+            (
+                Some(shared.anvil_rpc_url),
+                Some(shared.anvil_proxy_host),
+                shared.services,
+            )
+        } else {
+            (None, None, vec![])
+        };
+
+        // Phase 4: V3 (conditional)
+        let (node_go, v3_services) = if config.enable_v3 {
+            info!("starting v3");
+            let (ng, svcs) = start_v3(&proxy).await?;
+            (Some(ng), svcs)
+        } else {
+            (None, vec![])
+        };
+
+        // Phase 5: D14n — Redis + Gateway (conditional)
+        let dns_ip = coredns.container_ip().await?;
+        let (gateway, d14n_services) = if config.enable_d14n {
+            let host = anvil_proxy_host
+                .as_ref()
+                .expect("anvil must be running when d14n is enabled");
+            let anvil_rpc = anvil_rpc_url.as_ref().unwrap();
+            let (gw, svcs) = start_d14n(&proxy, dns_ip.clone(), host.clone(), anvil_rpc).await?;
+            (Some(gw), svcs)
+        } else {
+            (None, vec![])
+        };
+
+        // Phase 6: Otterscan (needs monitoring AND shared services)
+        let otterscan = if config.enable_monitoring && need_shared {
+            let anvil_rpc = anvil_rpc_url.as_ref().unwrap();
+            let anvil_host_for_browser = match &config.address_mode {
+                crate::config::AddressMode::RemoteDomain(domain) => {
+                    anvil_rpc.to_string().replace("localhost", domain)
+                }
+                crate::config::AddressMode::Local => anvil_rpc.to_string(),
+            };
+            let mut ot = Otterscan::builder()
+                .anvil_host(anvil_host_for_browser)
+                .build();
+            ot.start(&proxy).await?;
+            Some(ot)
+        } else {
+            None
+        };
+
+        // Phase 6b: Pause broadcasters if configured (must happen before Phase 7 node provisioning)
+        if config.paused || cli_paused {
+            if let Some(ref rpc) = anvil_rpc_url {
+                crate::contracts::set_broadcasters_paused(
+                    rpc.as_str(),
+                    crate::constants::Anvil::ADMIN_KEY,
+                    true,
+                )
+                .await?;
+                info!("broadcaster contracts paused");
+            }
+        }
 
         let mut this = Self {
             node_go,
@@ -111,70 +176,50 @@ impl ServiceManager {
             traefik_config,
             proxy,
             gateway,
-            services,
+            v3_services,
+            d14n_services,
+            shared_services,
+            anvil_rpc_url,
             otterscan,
             prometheus,
             grafana,
             pgadmin,
             nodes: Vec::new(),
-            anvil_rpc_url: anvil_external_rpc,
         };
 
-        let gateway_host = this.gateway.external_url().expect("just created gateway");
-        let mut id = 0;
-        // start any xmtpd nodes described in toml
-        let config = Config::load()?;
-        let cli = XmtpdCli::builder().toxiproxy(this.proxy.clone());
-        let existing_proxies = this.proxy.list_proxies().await?;
-        let mut output = stdout();
-        for NodeToml {
-            port,
-            migrator,
-            name,
-            enable,
-            use_standard_port,
-        } in config.xmtpd_nodes
-        {
-            id += XmtpdConst::NODE_ID_INCREMENT;
-            let node_name = name.as_ref().unwrap_or(&format!("xnet-{}", id)).to_string();
-            if existing_proxies.contains_key(&node_name) {
-                info!("node {} already has proxy registered, skipping", node_name);
-                continue;
-            }
-            if !enable {
-                continue;
-            }
-            let node = XmtpdNode::builder();
-            let node = node.port(resolve_port(use_standard_port, port)?);
-            let node = if let Some(n) = name {
-                node.name(n)
-            } else {
-                node.name(format!("xnet-{}", id))
-            };
-            let node = node.node_id(id);
-            let num_ids = id / XmtpdConst::NODE_ID_INCREMENT;
-            let base_idx = num_ids as usize * 3 + 1;
-            let mut node = node
-                .signer(config.signers[base_idx].clone())
-                .payer(config.signers[base_idx + 1].clone())
-                .migration_payer(config.signers[base_idx + 2].clone())
-                .build();
-            cli.clone()
-                .build()
-                .register(&this, &mut output, &node)
-                .await?;
-            cli.clone().build().enable(&mut node, &mut output).await?;
-            if migrator {
-                this.add_xmtpd_with_migrator(node).await?;
-            } else {
-                this.add_xmtpd(node).await?;
+        // Phase 7: XMTPD nodes from config (requires D14n)
+        if config.enable_d14n {
+            let existing_proxies = this.proxy.list_proxies().await?;
+            for node_toml in &config.xmtpd_nodes {
+                if !node_toml.enable {
+                    continue;
+                }
+                // Skip nodes whose proxy already exists (already provisioned in a previous run).
+                // Only applies to named nodes — unnamed nodes get their name from the gateway ID.
+                if let Some(ref name) = node_toml.name
+                    && existing_proxies.contains_key(name)
+                {
+                    info!("node {} already has proxy registered, skipping", name);
+                    continue;
+                }
+
+                NodeProvisioner::builder()
+                    .migrator(node_toml.migrator)
+                    .use_standard_port(node_toml.use_standard_port)
+                    .maybe_name(node_toml.name.clone())
+                    .maybe_port(node_toml.port)
+                    .build()
+                    .provision(&mut this)
+                    .await?;
             }
         }
 
         // Start PgAdmin AFTER xmtpd nodes so it can discover their
         // ReplicationDb containers via Docker labels (xnet.pgadmin=true).
         // Dependency chain: ReplicationDb (labels) → PgAdmin (scans labels)
-        this.pgadmin.start(&this.proxy).await?;
+        if let Some(ref mut pa) = this.pgadmin {
+            pa.start(&this.proxy).await?;
+        }
 
         Ok(this)
     }
@@ -184,15 +229,48 @@ impl ServiceManager {
     }
 
     pub async fn stop(&mut self) -> Result<()> {
-        for service in &mut self.services {
+        // Stop node-go before its database dependencies
+        if let Some(ref mut ng) = self.node_go {
+            ng.stop().await?;
+        }
+        // Stop V3 services (databases)
+        for service in &mut self.v3_services {
             service.stop().await?;
         }
-        self.gateway.stop().await?;
-        self.node_go.stop().await?;
-        self.otterscan.stop().await?;
-        self.pgadmin.stop().await?;
-        self.grafana.stop().await?;
-        self.prometheus.stop().await?;
+
+        // Stop XMTPD nodes (before their dependencies)
+        for node in &mut self.nodes {
+            node.stop().await?;
+        }
+
+        // Stop D14n services
+        for service in &mut self.d14n_services {
+            service.stop().await?;
+        }
+        if let Some(ref mut gw) = self.gateway {
+            gw.stop().await?;
+        }
+
+        // Stop shared services (Anvil, Validation, History)
+        for service in &mut self.shared_services {
+            service.stop().await?;
+        }
+
+        // Stop monitoring
+        if let Some(ref mut ot) = self.otterscan {
+            ot.stop().await?;
+        }
+        if let Some(ref mut pa) = self.pgadmin {
+            pa.stop().await?;
+        }
+        if let Some(ref mut g) = self.grafana {
+            g.stop().await?;
+        }
+        if let Some(ref mut p) = self.prometheus {
+            p.stop().await?;
+        }
+
+        // Infrastructure (always)
         self.coredns.stop().await?;
         self.traefik.stop().await?;
         self.proxy.stop().await?;
@@ -206,35 +284,47 @@ impl ServiceManager {
     }
 
     pub async fn add_xmtpd_with_migrator(&mut self, node: XmtpdNode) -> Result<()> {
+        let node_go = self.node_go.as_ref().ok_or_else(|| {
+            color_eyre::eyre::eyre!(
+                "Cannot add migrator node: V3 stack is disabled (enable_v3 required)"
+            )
+        })?;
         let dns_ip = self.coredns.container_ip().await?;
         let xmtpd = Xmtpd::builder()
             .node(node)
             .migrator(true)
-            .node_go(self.node_go.clone())
+            .node_go(node_go.clone())
             .dns_server(dns_ip)
             .build()?;
         self.internal_add_xmtpd(xmtpd).await
     }
 
     pub async fn reload_node_go(&mut self, d14n_cutover_ns: i64) -> Result<()> {
-        self.node_go.reload(d14n_cutover_ns, &self.proxy).await
+        let node_go = self.node_go.as_mut().ok_or_else(|| {
+            color_eyre::eyre::eyre!(
+                "Cannot reload node-go: V3 stack is disabled (enable_v3 required)"
+            )
+        })?;
+        node_go.reload(d14n_cutover_ns, &self.proxy).await
     }
 
     async fn internal_add_xmtpd(&mut self, mut xmtpd: Xmtpd) -> Result<()> {
-        // Fund all node wallets (signer, payer, migration payer) with testnet ETH
-        let rpc = self.anvil_rpc_url.as_str();
+        let rpc = self.anvil_rpc_url.as_ref().ok_or_else(|| {
+            color_eyre::eyre::eyre!(
+                "Cannot add xmtpd node: Anvil is not running (enable_v3 or enable_d14n required)"
+            )
+        })?;
         let node = xmtpd.node();
         for address in [
             node.address(),
             node.payer_address(),
             node.migration_payer_address(),
         ] {
-            crate::wallet_funding::fund_wallet(rpc, address, None).await?;
+            crate::wallet_funding::fund_wallet(rpc.as_str(), address, None).await?;
         }
 
         xmtpd.start(&self.proxy).await?;
 
-        // Register with Traefik for unified addressing
         if let Some(hostname) = <Xmtpd as Service>::hostname(&xmtpd)
             && let Some(toxi_port) = xmtpd.proxy_port()
         {
@@ -243,13 +333,16 @@ impl ServiceManager {
 
         self.nodes.push(xmtpd);
 
-        // Update Prometheus scrape targets with the new node
-        self.prometheus.update_targets(&self.nodes)?;
+        if let Some(ref mut prometheus) = self.prometheus {
+            prometheus.update_targets(&self.nodes)?;
+        }
 
         // Rescan Docker labels to pick up the new node's ReplicationDb.
         // PgAdmin discovers databases via xnet.pgadmin=true container labels,
         // so it doesn't need to know about Xmtpd directly.
-        self.pgadmin.discover_databases().await?;
+        if let Some(ref mut pgadmin) = self.pgadmin {
+            pgadmin.discover_databases().await?;
+        }
 
         Ok(())
     }
@@ -343,73 +436,75 @@ impl ServiceManager {
     }
 }
 
+struct SharedServices {
+    services: Vec<Box<dyn Service>>,
+    anvil_rpc_url: url::Url,
+    anvil_proxy_host: String,
+}
+
+/// Start shared services needed by both V3 and D14n: Anvil, Validation, History
+async fn start_shared_services(proxy: &ToxiProxy) -> Result<SharedServices> {
+    let mut anvil = services::Anvil::builder().build()?;
+    anvil.start(proxy).await?;
+    let rpc = anvil.external_rpc_url().unwrap_or_else(|| anvil.rpc_url());
+    let anvil_proxy_host = anvil.internal_proxy_host()?;
+
+    let mut validation = services::Validation::builder().build()?;
+    let mut history = services::HistoryServer::builder().build()?;
+    let launch = vec![
+        validation.start(proxy).boxed(),
+        history.start(proxy).boxed(),
+    ];
+    futures::future::try_join_all(launch).await?;
+
+    Ok(SharedServices {
+        services: vec![
+            Box::new(anvil) as _,
+            Box::new(validation) as _,
+            Box::new(history) as _,
+        ],
+        anvil_rpc_url: rpc,
+        anvil_proxy_host,
+    })
+}
+
 async fn start_d14n(
     proxy: &ToxiProxy,
     dns_ip: String,
-) -> Result<(Gateway, url::Url, Vec<Box<dyn Service>>)> {
+    anvil_proxy_host: String,
+    anvil_rpc: &url::Url,
+) -> Result<(Gateway, Vec<Box<dyn Service>>)> {
     use crate::constants::Gateway as GatewayConst;
     use alloy::signers::local::PrivateKeySigner;
 
-    let mut anvil = services::Anvil::builder().build()?;
     let mut redis = services::Redis::builder().build();
-
-    let launch = vec![anvil.start(proxy).boxed(), redis.start(proxy).boxed()];
-    futures::future::try_join_all(launch).await?;
+    redis.start(proxy).await?;
 
     // Fund the gateway wallet before starting it
-    let anvil_rpc = anvil.external_rpc_url().unwrap_or_else(|| anvil.rpc_url());
     let gateway_key: PrivateKeySigner = GatewayConst::PRIVATE_KEY.parse()?;
     let gateway_address = gateway_key.address();
-    crate::wallet_funding::fund_wallet(
-        anvil_rpc.as_str(),
-        gateway_address,
-        None, // Use default funding amount (1000 ETH)
-    )
-    .await?;
+    crate::wallet_funding::fund_wallet(anvil_rpc.as_str(), gateway_address, None).await?;
 
     let mut gateway = services::Gateway::builder()
         .redis_host(redis.internal_proxy_host()?)
-        .anvil_host(anvil.internal_proxy_host()?)
+        .anvil_host(anvil_proxy_host)
         .dns_server(dns_ip)
         .build()?;
     gateway.start(proxy).await?;
 
-    let anvil_external_rpc = anvil.external_rpc_url().unwrap_or_else(|| anvil.rpc_url());
-    Ok((
-        gateway,
-        anvil_external_rpc,
-        vec![Box::new(anvil) as _, Box::new(redis) as _],
-    ))
+    Ok((gateway, vec![Box::new(redis) as _]))
 }
 
 async fn start_v3(proxy: &ToxiProxy) -> Result<(NodeGo, Vec<Box<dyn Service>>)> {
-    let mut validation = services::Validation::builder().build()?;
     let mut mls_db = services::MlsDb::builder().build();
     let mut v3_db = services::V3Db::builder().build();
-    // history is both but OK to start with v3 stuff to follow docker-compose
-    let mut history = services::HistoryServer::builder().build()?;
-    // dependencies
-    let launch = vec![
-        validation.start(proxy).boxed(),
-        mls_db.start(proxy).boxed(),
-        v3_db.start(proxy).boxed(),
-        history.start(proxy).boxed(),
-    ];
+    let launch = vec![mls_db.start(proxy).boxed(), v3_db.start(proxy).boxed()];
     futures::future::try_join_all(launch).await?;
     let mut node_go = services::NodeGo::builder()
         .store_db_host(v3_db.internal_proxy_host()?)
         .mls_store_db_host(mls_db.internal_proxy_host()?)
-        .mls_validation_address(validation.internal_proxy_host()?)
         .build()?;
     node_go.start(proxy).await?;
 
-    Ok((
-        node_go,
-        vec![
-            Box::new(validation) as _,
-            Box::new(mls_db) as _,
-            Box::new(v3_db) as _,
-            Box::new(history) as _,
-        ],
-    ))
+    Ok((node_go, vec![Box::new(mls_db) as _, Box::new(v3_db) as _]))
 }

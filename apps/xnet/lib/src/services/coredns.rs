@@ -30,9 +30,10 @@ use crate::{
 /// - Port 5354: Resolves *.xmtpd.local → 127.0.0.1 for host machine access
 /// - Port 53: Resolves *.xmtpd.local → Traefik IP for container-to-container access
 ///
-/// In remote mode, sslip.io handles external DNS, so:
+///
+/// In remote domain mode, external DNS is handled by the domain provider, so:
 /// - Port 5354: Just forwards (no template needed)
-/// - Port 53: Resolves *.{ip-dashed}.sslip.io → Traefik IP for container-to-container access
+/// - Port 53: Resolves *.{domain} → Traefik IP for container-to-container access
 fn generate_corefile(traefik_ip: &str, address_mode: &AddressMode) -> String {
     match address_mode {
         AddressMode::Local => {
@@ -61,6 +62,10 @@ fn generate_corefile(traefik_ip: &str, address_mode: &AddressMode) -> String {
         answer "{{{{ .Name }}}} 60 IN A {traefik_ip}"
     }}
 
+    template IN AAAA xmtpd.local {{
+        rcode NOERROR
+    }}
+
     # Forward everything else to Docker's internal DNS
     forward . 127.0.0.11
 
@@ -69,10 +74,9 @@ fn generate_corefile(traefik_ip: &str, address_mode: &AddressMode) -> String {
 "#
             )
         }
-        AddressMode::Remote(ip) => {
-            let ip_dashed = ip.to_string().replace(['.', ':'], "-");
+        AddressMode::RemoteDomain(domain) => {
             format!(
-                r#"# Host-facing DNS (port 5354) - remote mode, just forward
+                r#"# Host-facing DNS (port 5354) - remote domain mode, just forward
 .:5354 {{
     log
     errors
@@ -82,13 +86,20 @@ fn generate_corefile(traefik_ip: &str, address_mode: &AddressMode) -> String {
 }}
 
 # Container-facing DNS (port 53)
-# Resolves *.{ip_dashed}.sslip.io to Traefik for container-to-container routing
+# Resolves *.{domain} to Traefik for container-to-container routing
 .:53 {{
     log
     errors
 
-    template IN A {ip_dashed}.sslip.io {{
+    template IN A {domain} {{
         answer "{{{{ .Name }}}} 60 IN A {traefik_ip}"
+    }}
+
+    # Block AAAA (IPv6) lookups for the domain so clients fall back to A records.
+    # Without this, Go's DNS resolver prefers IPv6 and connects to external IPs
+    # (e.g. Cloudflare) instead of the internal Traefik container.
+    template IN AAAA {domain} {{
+        rcode NOERROR
     }}
 
     # Forward everything else to Docker's internal DNS

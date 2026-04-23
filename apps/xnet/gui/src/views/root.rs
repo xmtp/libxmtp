@@ -13,7 +13,6 @@ use gpui::{
     deferred, div, hsla, prelude::*, px, rgb,
 };
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariant, ButtonVariants};
-use gpui_component::checkbox::Checkbox;
 use gpui_component::input::InputState;
 use gpui_component::{Disableable, Sizable};
 use gpui_tokio_bridge::Tokio;
@@ -37,8 +36,6 @@ pub struct RootView {
     state: AppState,
     /// Whether a background operation is in-flight (disables buttons).
     busy: bool,
-    /// Whether to pause broadcaster contracts on startup (--paused flag).
-    paused_on_up: bool,
     /// Scroll handle for the log panel so we can auto-scroll to bottom.
     log_scroll: ScrollHandle,
     /// Startup dependency check state.
@@ -60,7 +57,6 @@ impl RootView {
         Self {
             state: AppState::new(),
             busy: false,
-            paused_on_up: false,
             log_scroll: ScrollHandle::new(),
             setup: SetupChecks::new(),
             toxics: ToxicsState::new(),
@@ -224,15 +220,10 @@ impl RootView {
         }
         self.busy = true;
         self.state.network_status = NetworkStatus::Starting;
-        let paused = self.paused_on_up;
-        if paused {
-            info!("Starting services with broadcasters paused…");
-        } else {
-            info!("Starting services…");
-        }
+        info!("Starting services…");
         cx.notify();
 
-        let result = Tokio::spawn(cx, actions::execute_up(paused));
+        let result = Tokio::spawn(cx, actions::execute_up());
 
         cx.spawn(async |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = result.await?;
@@ -394,7 +385,7 @@ impl RootView {
             return;
         }
         self.busy = true;
-        info!("Registering new XMTPD migrator…");
+        info!("Pausing broadcasters and registering new XMTPD migrator…");
         cx.notify();
 
         let result = Tokio::spawn(cx, actions::execute_add_migrator());
@@ -644,18 +635,6 @@ impl RootView {
                 .active(rgb(0xBE94F5).into()),
         );
 
-        let entity = cx.entity().downgrade();
-        let paused_checkbox = Checkbox::new("chk-paused")
-            .label("Paused")
-            .small()
-            .checked(self.paused_on_up)
-            .on_click(move |checked, _window, cx| {
-                let _ = entity.update(cx, |view, cx| {
-                    view.paused_on_up = *checked;
-                    cx.notify();
-                });
-            });
-
         div()
             .flex()
             .flex_row()
@@ -671,7 +650,6 @@ impl RootView {
                 cx,
                 |view, _, _, cx| view.action_up(cx),
             ))
-            .child(paused_checkbox)
             .child(self.make_clickable_button(
                 "btn-down",
                 "Down",

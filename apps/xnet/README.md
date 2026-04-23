@@ -150,8 +150,21 @@ XNet can be configured via a `xnet.toml` file. Below are the default values:
 ```toml
 [xnet]
 use_standard_ports = true
-toxiproxy_port = 8474
 paused = false
+enable_v3 = true
+enable_d14n = true
+enable_monitoring = true
+
+[traefik]
+image = "traefik"
+version = "v3.2"
+port = 80
+https_port = 443
+
+[toxiproxy]
+image = "ghcr.io/shopify/toxiproxy"
+version = "2.12.0"
+port = 8474
 
 [migration]
 enable = false
@@ -159,7 +172,7 @@ migration_timestamp = 2_147_483_647
 
 [xmtpd]
 image = "ghcr.io/xmtp/xmtpd"
-version = "sha-695b07e"
+version = "sha-f72e436"
 
 [v3]
 image = "ghcr.io/xmtp/node-go"
@@ -168,7 +181,7 @@ port = 5556
 
 [gateway]
 image = "ghcr.io/xmtp/xmtpd-gateway"
-version = "sha-695b07e"
+version = "sha-f72e436"
 
 [validation]
 image = "ghcr.io/xmtp/mls-validation-service"
@@ -182,9 +195,13 @@ version = "main"
 image = "ghcr.io/xmtp/message-history-server"
 version = "main"
 
-[toxiproxy]
-image = "ghcr.io/shopify/toxiproxy"
-version = "2.12.0"
+[prometheus]
+image = "prom/prometheus"
+version = "latest"
+
+[grafana]
+image = "ghcr.io/xmtp/grafana-xmtpd"
+version = "latest"
 
 ## No XMTPD nodes are included by default, but can be added like this:
 # [[xmtpd.nodes]]
@@ -198,3 +215,16 @@ version = "2.12.0"
 ```
 
 </details>
+
+### Disabling Services
+
+For CI or lightweight testing, you can disable service groups:
+
+```toml
+[xnet]
+enable_v3 = false         # Disable V3 stack (V3Db, MlsDb, NodeGo)
+enable_d14n = false       # Disable D14n stack (Redis, Gateway, XMTPD nodes)
+enable_monitoring = false # Disable Prometheus, Grafana, PgAdmin, Otterscan
+```
+
+Anvil, Validation, and History are shared dependencies that start whenever either V3 or D14n is enabled.

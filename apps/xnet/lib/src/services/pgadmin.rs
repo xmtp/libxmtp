@@ -171,6 +171,7 @@ impl PgAdmin {
 
     /// Write the servers.json file with static databases and discovered databases.
     fn write_servers(&self, discovered: &[DiscoveredDb]) -> Result<()> {
+        fs::create_dir_all(PGADMIN_DIR)?;
         let servers_path = Path::new(PGADMIN_DIR).join("servers.json");
 
         let mut server_id = 0u32;
