@@ -20,6 +20,7 @@ futures.workspace = true
 hex.workspace = true
 http = "1.2"
 openmls.workspace = true
+openmls_traits.workspace = true
 pbjson.workspace = true
 pbjson-types.workspace = true
 pin-project.workspace = true
@@ -51,6 +52,7 @@ wasm-bindgen-test.workspace = true
 
 [dev-dependencies]
 mockall.workspace = true
+openmls_rust_crypto.workspace = true
 rstest.workspace = true
 tokio = { workspace = true }
 toxiproxy_rust.workspace = true
