@@ -559,7 +559,11 @@ public final class Client {
 		return newClient
 	}
 
-	@available(*, deprecated, message: "This function will be removed on d14n cutover. Use connectToSyncApiBackend instead.")
+	@available(
+		*,
+		deprecated,
+		message: "This function will be removed on d14n cutover. Use connectToSyncApiBackend instead."
+	)
 	public static func connectToSyncApiBackendExclusive(api: ClientOptions.Api)
 		async throws
 		-> XmtpApiClient
@@ -585,6 +589,7 @@ public final class Client {
 		await apiCache.setSyncClient(newClient, forKey: cacheKey)
 		return newClient
 	}
+
 	public static func getOrCreateInboxId(
 		api: ClientOptions.Api, publicIdentity: PublicIdentity
 	) async throws -> InboxId {

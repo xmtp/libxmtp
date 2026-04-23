@@ -66,12 +66,24 @@ impl BackendBuilder {
       .map_err(|_| napi::Error::from_reason("BackendBuilder lock poisoned"))?
       .take();
 
+    // MigrationXnet: substitute hardcoded xnet hosts when the caller did not
+    // supply their own. Explicit api_url / gateway_host always take precedence.
+    let (mut api_url, mut gateway_host) = (self.api_url.clone(), self.gateway_host.clone());
+    if let Some((v3, gw)) = self.env.xnet_hosts() {
+      if api_url.is_none() {
+        api_url = Some(v3.to_string());
+      }
+      if gateway_host.is_none() {
+        gateway_host = Some(gw.to_string());
+      }
+    }
+
     let app_version = self.app_version.clone().unwrap_or_default();
     let mut builder = ClientBundleBuilder::default();
     builder
       .env(self.env.into())
-      .maybe_v3_host(self.api_url.clone())
-      .maybe_gateway_host(self.gateway_host.clone())
+      .maybe_v3_host(api_url.clone())
+      .maybe_gateway_host(gateway_host.clone())
       .readonly(self.readonly.unwrap_or(false))
       .app_version(app_version.clone())
       .maybe_auth_callback(
@@ -89,7 +101,7 @@ impl BackendBuilder {
       bundle,
       env: self.env,
       v3_host,
-      gateway_host: self.gateway_host.clone(),
+      gateway_host,
       app_version,
     })
   }

@@ -941,7 +941,11 @@ class ClientTests: XCTestCase {
 
 	func testCanSeeKeyPackageStatus() async throws {
 		let fixtures = try await fixtures()
-		let api = ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure, gatewayHost: "http://localhost:5052")
+		let api = ClientOptions.Api(
+			env: .local,
+			isSecure: XMTPEnvironment.local.isSecure,
+			gatewayHost: "http://localhost:5052"
+		)
 
 		try await Client.connectToApiBackendExclusive(api: api)
 

@@ -36,7 +36,7 @@ pub async fn create_local_toxic_client(
 
   let c = create_client(
     api_addr,
-    None,
+    GrpcUrlsToxic::GATEWAY.to_string(),
     DbOptions::new(db_path, encryption_key, None, None),
     inbox_id,
     account_identifier,

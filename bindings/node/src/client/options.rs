@@ -1,5 +1,5 @@
 use napi_derive::napi;
-use xmtp_configuration::XmtpEnv as CoreXmtpEnv;
+use xmtp_configuration::{GrpcUrlsXnet, XmtpEnv as CoreXmtpEnv};
 use xmtp_mls::builder::DeviceSyncMode as XmtpSyncWorkerMode;
 
 #[napi(string_enum)]
@@ -65,14 +65,31 @@ pub enum XmtpEnv {
   MigrationLocal,
   MigrationStaging,
   MigrationProduction,
+  MigrationXnet,
 }
 
 impl XmtpEnv {
   pub fn is_migration(&self) -> bool {
     matches!(
       self,
-      Self::MigrationLocal | Self::MigrationStaging | Self::MigrationProduction
+      Self::MigrationLocal
+        | Self::MigrationStaging
+        | Self::MigrationProduction
+        | Self::MigrationXnet
     )
+  }
+
+  pub fn is_migration_xnet(&self) -> bool {
+    matches!(self, Self::MigrationXnet)
+  }
+
+  /// Returns `(v3_host, gateway_host)` for `MigrationXnet`, else `None`.
+  pub fn xnet_hosts(&self) -> Option<(&'static str, &'static str)> {
+    if self.is_migration_xnet() {
+      Some((GrpcUrlsXnet::NODE, GrpcUrlsXnet::GATEWAY))
+    } else {
+      None
+    }
   }
 }
 
@@ -89,6 +106,9 @@ impl From<XmtpEnv> for CoreXmtpEnv {
       XmtpEnv::MigrationLocal => Self::Local,
       XmtpEnv::MigrationStaging => Self::TestnetStaging,
       XmtpEnv::MigrationProduction => Self::Production,
+      // MigrationXnet uses runtime-selected hosts (see xnet_hosts); any
+      // env-derived URL is bypassed, so Production is a neutral placeholder.
+      XmtpEnv::MigrationXnet => Self::Production,
     }
   }
 }

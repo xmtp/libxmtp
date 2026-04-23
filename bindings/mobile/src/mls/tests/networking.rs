@@ -214,7 +214,7 @@ async fn test_is_connected_after_connect() {
 
     let api = connect_to_backend(
         "http://127.0.0.1:59999".to_string(),
-        Some("http://127.0.0:69999".to_string()),
+        Some("http://127.0.0.1:49999".to_string()),
         None,
         None,
         None,
