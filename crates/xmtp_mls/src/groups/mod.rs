@@ -2254,12 +2254,29 @@ where
         .await
     }
 
-    /// Get the `GroupMutableMetadata` of the group.
+    /// Get the `GroupMutableMetadata` of the group. Reads the legacy
+    /// mutable metadata extension as the base, then — on groups that
+    /// have flipped `proposals_enabled` — overlays any well-known
+    /// component values stored in the OpenMLS AppData dictionary on top.
+    ///
+    /// The dict-overlay is gated on `proposals_enabled` so that an
+    /// unmigrated group never accidentally reads from the dict: on those
+    /// groups the legacy GCE path is still authoritative, the dict
+    /// should be empty, and a stray entry (e.g. a misbehaving peer's
+    /// commit that somehow slipped through) would otherwise silently
+    /// shadow legacy metadata values.
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
         self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
-            GroupMutableMetadata::try_from(&mls_group)
+            let mut metadata = GroupMutableMetadata::try_from(&mls_group)
                 .map_err(MetadataPermissionsError::from)
-                .map_err(GroupError::from)
+                .map_err(GroupError::from)?;
+            if self.proposals_enabled(&mls_group) {
+                self::app_data::component_source::merge_app_data_into_mutable_metadata(
+                    &mut metadata,
+                    &mls_group,
+                )?;
+            }
+            Ok(metadata)
         })
     }
 

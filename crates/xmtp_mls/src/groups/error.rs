@@ -256,6 +256,20 @@ pub enum GroupError {
     /// Encountered a proposal when our client does not support proposals. Not retryable.
     #[error("Proposals not supported: {0}")]
     ProposalsNotSupported(String),
+    /// Component source error.
+    ///
+    /// Failed to encode, decode, or look up a well-known component during the
+    /// AppDataUpdate path. Not retryable.
+    #[error("component source error: {0}")]
+    ComponentSource(#[from] super::app_data::component_source::ComponentSourceError),
+    /// AppData commit error.
+    ///
+    /// Failed to build or stage a commit that bundles an inline AppDataUpdate
+    /// proposal. Wraps the structured `GroupAppDataError` from
+    /// [`stage_inline_app_data_commit`] so the underlying OpenMLS create/stage
+    /// failure is preserved instead of being string-flattened.
+    #[error("app data commit error: {0}")]
+    AppDataCommit(#[from] super::app_data::GroupAppDataError<sql_key_store::SqlKeyStoreError>),
     /// Credential error.
     ///
     /// MLS credential validation failed. Not retryable.
@@ -524,6 +538,8 @@ impl RetryableError for GroupError {
             Self::Proposal(e) => e.is_retryable(),
             Self::CommitToPendingProposals(e) => e.is_retryable(),
             Self::ProposalsNotSupported(_) => false,
+            Self::ComponentSource(_) => false,
+            Self::AppDataCommit(_) => false,
             Self::CommitValidation(err) => err.is_retryable(),
             Self::WrappedApi(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),

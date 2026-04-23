@@ -1,4 +1,3 @@
-#![expect(dead_code)]
 //! App-data plumbing for moving group state from group context extensions
 //! onto OpenMLS `AppDataUpdate` proposals.
 //!
@@ -63,6 +62,12 @@ pub enum ProcessMessageWithAppDataError<StorageError: std::error::Error> {
     /// [`apply_app_data_update_payload`]. Almost always indicates a
     /// malformed proposal from a peer (or a wire-format mismatch with a
     /// future version we don't understand yet).
+    ///
+    /// **Not retryable.** Decode failures are deterministic over the
+    /// exact bytes on the wire, so retrying the same message will fail
+    /// the same way. `GroupMessageProcessingError::is_retryable` and
+    /// `commit_result` treat this as a terminal wire-format violation
+    /// (mapped to `CommitResult::Invalid`).
     #[error("failed to decode incoming AppDataUpdate payload: {0}")]
     AppDataDecode(#[from] ComponentSourceError),
 }

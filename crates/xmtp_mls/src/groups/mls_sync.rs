@@ -157,6 +157,17 @@ pub enum GroupMessageProcessingError {
     OpenMlsProcessMessage(
         #[from] openmls::prelude::ProcessMessageError<sql_key_store::SqlKeyStoreError>,
     ),
+    /// AppDataUpdate-aware processing wrapper error.
+    ///
+    /// Wraps the same `ProcessMessageError` as the variant above, plus the
+    /// `ComponentSourceError` that fires when an incoming `AppDataUpdate`
+    /// payload can't be decoded under our wire format. Kept distinct from
+    /// `OpenMlsProcessMessage` so the AppData-decode failure mode is
+    /// greppable in logs.
+    #[error("app-data process message error: {0}")]
+    OpenMlsProcessMessageWithAppData(
+        #[from] super::app_data::ProcessMessageWithAppDataError<sql_key_store::SqlKeyStoreError>,
+    ),
     #[error("merge staged commit: {0}")]
     MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::SqlKeyStoreError>),
     #[error("TLS Codec error: {0}")]
@@ -214,6 +225,12 @@ impl RetryableError for GroupMessageProcessingError {
             Self::Diesel(err) => err.is_retryable(),
             Self::Identity(err) => err.is_retryable(),
             Self::OpenMlsProcessMessage(err) => err.is_retryable(),
+            Self::OpenMlsProcessMessageWithAppData(err) => match err {
+                super::app_data::ProcessMessageWithAppDataError::OpenMls(e) => e.is_retryable(),
+                // Decode failures are wire-format violations from the
+                // peer — retrying won't help.
+                super::app_data::ProcessMessageWithAppDataError::AppDataDecode(_) => false,
+            },
             Self::MergeStagedCommit(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),
             Self::CommitValidation(err) => err.is_retryable(),
@@ -249,10 +266,28 @@ impl RetryableError for GroupMessageProcessingError {
 
 impl GroupMessageProcessingError {
     pub(crate) fn commit_result(&self) -> CommitResult {
+        use super::app_data::ProcessMessageWithAppDataError;
         match self {
             GroupMessageProcessingError::OpenMlsProcessMessage(
                 ProcessMessageError::ValidationError(ValidationError::WrongEpoch),
             ) => CommitResult::WrongEpoch,
+            // Treat the AppData-aware wrapper the same as the bare
+            // OpenMLS error: if it carries a ValidationError(WrongEpoch),
+            // surface as WrongEpoch; if it carries any other OpenMLS
+            // error, surface as Undecryptable. Decode failures (the
+            // AppData-side variant) are treated as Invalid because they
+            // mean the peer's wire format was wrong.
+            GroupMessageProcessingError::OpenMlsProcessMessageWithAppData(
+                ProcessMessageWithAppDataError::OpenMls(ProcessMessageError::ValidationError(
+                    ValidationError::WrongEpoch,
+                )),
+            ) => CommitResult::WrongEpoch,
+            GroupMessageProcessingError::OpenMlsProcessMessageWithAppData(
+                ProcessMessageWithAppDataError::OpenMls(_),
+            ) => CommitResult::Undecryptable,
+            GroupMessageProcessingError::OpenMlsProcessMessageWithAppData(
+                ProcessMessageWithAppDataError::AppDataDecode(_),
+            ) => CommitResult::Invalid,
             GroupMessageProcessingError::OldEpoch(_, _) => CommitResult::WrongEpoch,
             GroupMessageProcessingError::FutureEpoch(_, _) => CommitResult::WrongEpoch,
             GroupMessageProcessingError::CommitValidation(_) => CommitResult::Invalid,
@@ -1010,7 +1045,11 @@ where
         let result = provider.key_store().transaction(|conn| {
             let storage = conn.key_store();
             let provider = XmtpOpenMlsProvider::new(storage);
-            processed_message = Some(mls_group.process_message(&provider, message.clone()));
+            processed_message = Some(super::app_data::process_message_with_app_data(
+                mls_group,
+                &provider,
+                message.clone(),
+            ));
             // Rollback the transaction. We want to synchronize with the server before committing.
             Err::<(), StorageError>(StorageError::IntentionalRollback)
         });
@@ -1174,7 +1213,11 @@ where
                 return identifier.build();
             }
             // once the checks for processing pass, actually process the message
-            let processed_message = mls_group.process_message(&provider, message.clone())?;
+            let processed_message = super::app_data::process_message_with_app_data(
+                mls_group,
+                &provider,
+                message.clone(),
+            )?;
             let identifier = self.process_external_message(
                 mls_group,
                 processed_message,
@@ -2636,6 +2679,90 @@ where
             }
             IntentKind::MetadataUpdate => {
                 let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
+
+                // Gate the AppDataUpdate path on both the capability flag
+                // AND a non-empty component registry. The registry check
+                // keeps unmigrated groups on the legacy path so a sender
+                // doesn't publish commits that the receiver would deny
+                // (`NoRegistryEntry`) against an empty registry.
+                let proposals_on = self.proposals_enabled(openmls_group);
+                let registry_populated =
+                    !super::app_data::load_component_registry(openmls_group).is_empty();
+                // DEBUG-level routing trace so operators can see which
+                // groups are on which path during the rollout — especially
+                // useful if the migration ships only partially and we need
+                // to know how many groups are still on the legacy path.
+                // INFO would spam every metadata update; DEBUG keeps it
+                // opt-in for on-demand investigation.
+                tracing::debug!(
+                    group_id = hex::encode(self.group_id.as_slice()),
+                    proposals_enabled = proposals_on,
+                    registry_populated,
+                    path = if proposals_on && registry_populated {
+                        "app_data_update"
+                    } else {
+                        "legacy_gce"
+                    },
+                    "MetadataUpdate intent routing"
+                );
+                if proposals_on && registry_populated {
+                    // Bundle the AppDataUpdate proposal and its resulting
+                    // dict update into a single commit so propose-and-apply
+                    // stays atomic — matching the legacy GCE path's
+                    // "metadata update completes in one sync" semantics.
+                    use super::app_data::{
+                        component_source::{
+                            ComponentMutation, ComponentSourceError,
+                            encode_app_data_update_payload, metadata_field_to_component_id,
+                        },
+                        stage_inline_app_data_commit,
+                    };
+
+                    let component_id = metadata_field_to_component_id(&metadata_intent.field_name)
+                        .ok_or_else(|| {
+                            GroupError::ComponentSource(ComponentSourceError::UnknownMetadataField(
+                                metadata_intent.field_name.clone(),
+                            ))
+                        })?;
+
+                    let payload = encode_app_data_update_payload(&ComponentMutation::Bytes {
+                        component_id,
+                        new_value: metadata_intent.field_value.as_bytes(),
+                    })?;
+
+                    let signer = self.context.identity().installation_keys.clone();
+                    let (bundle, staged_commit, group_epoch) = generate_commit_with_rollback(
+                        storage,
+                        openmls_group,
+                        move |group, provider| -> Result<_, GroupError> {
+                            Ok(stage_inline_app_data_commit(
+                                group,
+                                provider,
+                                &signer,
+                                component_id,
+                                payload,
+                            )?)
+                        },
+                    )?;
+
+                    let (commit, welcome, _group_info) = bundle.into_messages();
+                    // A metadata-only AppDataUpdate commit has no add/remove
+                    // proposals, so OpenMLS should never synthesize a welcome
+                    // alongside it. If that ever changes, dropping it here
+                    // would silently strand installations that expected one.
+                    debug_assert!(
+                        welcome.is_none(),
+                        "MetadataUpdate via AppDataUpdate must not produce a welcome"
+                    );
+                    return Ok(Some(PublishIntentData {
+                        payloads_to_publish: vec![commit.tls_serialize_detached()?],
+                        staged_commit,
+                        post_commit_action: None,
+                        should_send_push_notification: intent.should_push,
+                        group_epoch,
+                    }));
+                }
+
                 let mutable_metadata_extensions = build_extensions_for_metadata_update(
                     openmls_group,
                     metadata_intent.field_name,
@@ -2663,6 +2790,10 @@ where
                 }))
             }
             IntentKind::UpdateAdminList => {
+                // ADMIN_LIST stays on the legacy GCE path: routing it
+                // through AppDataUpdate would let the GMM-backed validators
+                // in `validated_commit.rs` diverge from the dict until the
+                // migration is dual-write or complete.
                 let admin_list_update_intent =
                     UpdateAdminListIntentData::try_from(intent.data.clone())?;
                 let mutable_metadata_extensions = build_extensions_for_admin_lists_update(
@@ -3054,28 +3185,26 @@ where
                                     .map_err(GroupError::Proposal)?;
                                 let gce_payload = gce_msg.tls_serialize_detached()?;
 
-                                // Create commit consuming all proposals (including GCE)
-                                let bundle = group
-                                    .commit_builder()
-                                    .consume_proposal_store(true)
-                                    .load_psks(provider.storage())
-                                    .map_err(CommitToPendingProposalsError::from)?
-                                    .build(provider.rand(), provider.crypto(), &signer, |qp| {
-                                        match qp.proposal() {
-                                            Proposal::GroupContextExtensions(gce) => {
-                                                extract_group_membership(gce.extensions())
-                                                    .map(|m| {
-                                                        m.members
-                                                            == new_membership_for_filter.members
-                                                    })
-                                                    .unwrap_or(false)
-                                            }
-                                            _ => true,
+                                // Create commit consuming all proposals (including GCE).
+                                // `build_commit_with_pending_app_data_updates` pre-computes
+                                // the AppData dictionary writes from any queued
+                                // `AppDataUpdate` proposals so the commit builder can
+                                // apply them in lockstep. See plan §11.
+                                let bundle = build_commit_with_pending_app_data_updates(
+                                    group,
+                                    provider,
+                                    &signer,
+                                    |qp| match qp.proposal() {
+                                        Proposal::GroupContextExtensions(gce) => {
+                                            extract_group_membership(gce.extensions())
+                                                .map(|m| {
+                                                    m.members == new_membership_for_filter.members
+                                                })
+                                                .unwrap_or(false)
                                         }
-                                    })
-                                    .map_err(CommitToPendingProposalsError::from)?
-                                    .stage_commit(provider)
-                                    .map_err(CommitToPendingProposalsError::from)?;
+                                        _ => true,
+                                    },
+                                )?;
 
                                 Ok((gce_payload, bundle))
                             },
@@ -3120,35 +3249,29 @@ where
                     let (bundle, staged_commit, group_epoch) = generate_commit_with_rollback(
                         storage,
                         openmls_group,
-                        |group,
-                         provider|
-                         -> Result<
-                            _,
-                            CommitToPendingProposalsError<sql_key_store::SqlKeyStoreError>,
-                        > {
-                            Ok(group
-                                .commit_builder()
-                                .consume_proposal_store(true)
-                                .load_psks(provider.storage())?
-                                .build(provider.rand(), provider.crypto(), signer, |qp| {
-                                    match qp.proposal() {
-                                        Proposal::GroupContextExtensions(gce) => {
-                                            if !membership_changed {
-                                                // No membership changes: include all GCEs
-                                                return true;
-                                            }
-                                            // Only include GCE with correct membership
-                                            // (compare members only, not failed_installations)
-                                            extract_group_membership(gce.extensions())
-                                                .map(|m| {
-                                                    m.members == new_membership_for_filter.members
-                                                })
-                                                .unwrap_or(false)
+                        |group, provider| -> Result<_, GroupError> {
+                            // See plan §11 — this commit path also has to thread
+                            // queued `AppDataUpdate` proposals' dict writes in
+                            // lockstep with the commit build.
+                            build_commit_with_pending_app_data_updates(
+                                group,
+                                provider,
+                                signer,
+                                |qp| match qp.proposal() {
+                                    Proposal::GroupContextExtensions(gce) => {
+                                        if !membership_changed {
+                                            // No membership changes: include all GCEs
+                                            return true;
                                         }
-                                        _ => true,
+                                        // Only include GCE with correct membership
+                                        // (compare members only, not failed_installations)
+                                        extract_group_membership(gce.extensions())
+                                            .map(|m| m.members == new_membership_for_filter.members)
+                                            .unwrap_or(false)
                                     }
-                                })?
-                                .stage_commit(provider)?)
+                                    _ => true,
+                                },
+                            )
                         },
                     )?;
                     let (commit, maybe_welcome, _group_info) = bundle.into_messages();
@@ -3871,6 +3994,47 @@ where
     Ok((operation_result, staged_commit, group_epoch))
 }
 
+/// Build a commit bundle that consumes all pending proposals and
+/// pre-computes any AppData dictionary writes required by queued
+/// `AppDataUpdate` proposals.
+///
+/// Any commit that consumes the proposal store must route through this
+/// helper so OpenMLS's `apply_app_data_update_proposals` sees the dict
+/// writes the queued `AppDataUpdate` proposals expect — otherwise the
+/// build fails with `MissingAppDataUpdates`. Callers provide a
+/// `proposal_filter` so the business logic (e.g. "only include a GCE
+/// whose membership matches the one we're about to apply") stays at
+/// the call site.
+fn build_commit_with_pending_app_data_updates<P, F>(
+    group: &mut OpenMlsGroup,
+    provider: &P,
+    signer: &impl openmls_traits::signatures::Signer,
+    proposal_filter: F,
+) -> Result<openmls::prelude::CommitMessageBundle, GroupError>
+where
+    P: OpenMlsProvider,
+    P::StorageProvider:
+        openmls_traits::storage::StorageProvider<1, Error = sql_key_store::SqlKeyStoreError>,
+    F: FnMut(&openmls::group::QueuedProposal) -> bool,
+{
+    let app_data_updates = super::app_data::pending_app_data_updates(group)?;
+
+    let mut stage = group
+        .commit_builder()
+        .consume_proposal_store(true)
+        .load_psks(provider.storage())
+        .map_err(CommitToPendingProposalsError::from)?;
+    stage.with_app_data_dictionary_updates(app_data_updates);
+
+    let bundle = stage
+        .build(provider.rand(), provider.crypto(), signer, proposal_filter)
+        .map_err(CommitToPendingProposalsError::from)?
+        .stage_commit(provider)
+        .map_err(CommitToPendingProposalsError::from)?;
+
+    Ok(bundle)
+}
+
 pub(crate) fn decode_staged_commit(
     data: &[u8],
 ) -> Result<StagedCommit, GroupMessageProcessingError> {
@@ -4203,6 +4367,45 @@ pub(crate) mod tests {
         assert!(
             result.is_ok(),
             "Invalid hex message_id should not cause error"
+        );
+    }
+
+    /// Pin the `CommitResult` mapping for each arm of the AppData-aware
+    /// wrapper error so future refactors of `commit_result()` can't
+    /// silently reshuffle what a receiver will write to the remote
+    /// commit log. In particular: `AppDataDecode` failures must be
+    /// `Invalid` (non-retriable wire-format violation), not
+    /// `Undecryptable` (retriable transport failure).
+    #[test]
+    fn process_message_with_app_data_error_commit_result_mapping() {
+        use super::super::app_data::ProcessMessageWithAppDataError;
+        use super::super::app_data::component_source::ComponentSourceError;
+        use openmls::group::ValidationError;
+
+        let wrong_epoch = GroupMessageProcessingError::OpenMlsProcessMessageWithAppData(
+            ProcessMessageWithAppDataError::OpenMls(ProcessMessageError::ValidationError(
+                ValidationError::WrongEpoch,
+            )),
+        );
+        assert_eq!(wrong_epoch.commit_result(), CommitResult::WrongEpoch);
+
+        let other_openmls = GroupMessageProcessingError::OpenMlsProcessMessageWithAppData(
+            ProcessMessageWithAppDataError::OpenMls(ProcessMessageError::IncompatibleWireFormat),
+        );
+        assert_eq!(other_openmls.commit_result(), CommitResult::Undecryptable);
+
+        // AppData decode failures are deterministic wire-format violations:
+        // retrying the same bytes can't fix them, and the receiver should
+        // log them as `Invalid` rather than `Undecryptable`.
+        let decode_failure = GroupMessageProcessingError::OpenMlsProcessMessageWithAppData(
+            ProcessMessageWithAppDataError::AppDataDecode(ComponentSourceError::UnknownComponent(
+                xmtp_mls_common::app_data::component_id::ComponentId::from(0u16),
+            )),
+        );
+        assert_eq!(decode_failure.commit_result(), CommitResult::Invalid);
+        assert!(
+            !decode_failure.is_retryable(),
+            "wire-format violations must not be retriable"
         );
     }
 }
