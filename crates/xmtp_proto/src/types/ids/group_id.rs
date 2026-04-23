@@ -3,18 +3,7 @@ use std::{fmt, ops::Deref, str::FromStr};
 use bytes::Bytes;
 use hex::FromHexError;
 
-/// The canonical group identifier used throughout the libxmtp workspace.
-///
-/// Group ids are 16 bytes by convention (see [`GroupId::random`]). Phase 2 of
-/// the GroupId migration will enforce this at the type level by changing the
-/// inner representation to `[u8; 16]` and adding `Copy`. Until then, call
-/// sites SHOULD NOT rely on `Deref<Target = bytes::Bytes>`; use
-/// [`GroupId::as_slice`] or `AsRef<[u8]>` instead.
-///
-/// Interop with `openmls::group::GroupId`:
-/// - Inbound: `let id: GroupId = openmls_id.into();` or `(&openmls_id).into()`.
-/// - Outbound: [`GroupId::to_openmls`].
-/// - Fresh random: [`GroupId::random`] (uses `OpenMlsRand` — matches openmls).
+/// Canonical 16-byte group identifier.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct GroupId(bytes::Bytes);
 
@@ -27,9 +16,6 @@ impl GroupId {
         openmls::group::GroupId::from_slice(self.as_ref())
     }
 
-    /// Generate a fresh 16-byte random GroupId using the provided [`OpenMlsRand`]
-    /// source. Mirrors `openmls::group::GroupId::random`, so group-id bytes come
-    /// from the same CSPRNG openmls uses internally.
     pub fn random<R: openmls_traits::random::OpenMlsRand>(rand: &R) -> Self {
         let bytes = rand
             .random_vec(16)
