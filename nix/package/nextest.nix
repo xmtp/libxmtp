@@ -33,8 +33,8 @@ let
     ];
   };
 
-  cargoArtifacts = rust.buildDepsOnly (
-    commonArgs
+  cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
+    (removeAttrs commonArgs [ "src" ])
     // {
       buildPhaseCargoCommand = "cargo llvm-cov --locked --profile $CARGO_PROFILE --no-report";
     }
@@ -53,6 +53,7 @@ rust.cargoNextest (
     cargoExtraArgs = if d14n then "--features d14n" else "";
     cargoNextestExtraArgs = if d14n then "--profile ci-d14n" else "--profile ci";
     withLlvmCov = true;
+    doInstallCargoArtifacts = false;
     # most tests query docker
     __noChroot = true;
   }

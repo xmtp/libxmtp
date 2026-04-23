@@ -13,6 +13,7 @@ jobs:
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
+          with-warpbuild-cache: "false"
       - uses: taiki-e/install-action@just
       - name: Install dependencies
         run: just node install-ci

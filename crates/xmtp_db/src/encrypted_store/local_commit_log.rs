@@ -191,7 +191,7 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
         &self,
         group_id: &[u8],
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
-        self.raw_query_read(|db| {
+        self.raw_query(|db| {
             dsl::local_commit_log
                 .filter(dsl::group_id.eq(group_id))
                 .order_by(dsl::rowid.asc())
@@ -220,7 +220,7 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
             .filter(dsl::rowid.gt(after_cursor))
             .filter(dsl::commit_sequence_id.ne(0));
 
-        self.raw_query_read(|db| match order {
+        self.raw_query(|db| match order {
             LocalCommitLogOrder::AscendingByRowid => query.order_by(dsl::rowid.asc()).load(db),
             LocalCommitLogOrder::DescendingByRowid => query.order_by(dsl::rowid.desc()).load(db),
         })
@@ -230,7 +230,7 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
         &self,
         group_id: &[u8],
     ) -> Result<Option<LocalCommitLog>, crate::ConnectionError> {
-        self.raw_query_read(|db| {
+        self.raw_query(|db| {
             dsl::local_commit_log
                 .filter(dsl::group_id.eq(group_id))
                 .order_by(dsl::rowid.desc())
@@ -250,6 +250,6 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
             .order(dsl::rowid.desc())
             .limit(1);
 
-        self.raw_query_read(|conn| query.first::<i32>(conn).optional())
+        self.raw_query(|conn| query.first::<i32>(conn).optional())
     }
 }

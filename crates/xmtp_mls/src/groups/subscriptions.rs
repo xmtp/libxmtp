@@ -85,7 +85,7 @@ where
             }
         }?;
 
-        future_stream::iter(messages.into_iter())
+        future_stream::iter(messages)
             .then(|msg| async move {
                 ProcessMessageFuture::new(self.context.clone())
                     .create(msg)

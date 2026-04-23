@@ -125,7 +125,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         &self,
         query_str: String,
     ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             diesel::sql_query(query_str)
                 .load_iter::<IceboxWithDep, _>(conn)?
                 .process_results(|iter| {
@@ -133,7 +133,7 @@ impl<C: ConnectionExt> DbConnection<C> {
                     // to optimize, we load a *const [u8] into `IceboxWithDep` for group_id and
                     // envelope_payload, cloning it only once in `fold_with`.
                     // as long as we are in the scope of `load_iter` (attached to the lifetime of
-                    // `conn` or `&mut SqliteConnection` within `raw_query_read`) the lifetime of group_id and
+                    // `conn` or `&mut SqliteConnection` within `raw_query`) the lifetime of group_id and
                     // envelope_payload is safe.
                     // the other raw pointers are safe as long as they aren't accessed once
                     // iteration ends, which is guaranteed by the end of grouping operation and
@@ -302,7 +302,7 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
         if orphans.is_empty() {
             return Ok(0);
         }
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let mut total = 0;
 
@@ -332,7 +332,7 @@ impl<C: ConnectionExt> QueryIcebox for DbConnection<C> {
         use super::refresh_state::EntityKind;
         use super::schema::{icebox, refresh_state};
 
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::delete(
                 icebox::table.filter(diesel::dsl::exists(
                     refresh_state::table
@@ -720,9 +720,8 @@ mod tests {
             );
 
             // Verify entry 30 remains
-            let mut remaining: Vec<Icebox> = conn.raw_query_read(|conn| {
-                dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn)
-            })?;
+            let mut remaining: Vec<Icebox> =
+                conn.raw_query(|conn| dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn))?;
             remaining.sort_by_key(|e| e.originator_id);
 
             assert_eq!(remaining.len(), 2, "Should have 2 entries remaining");
@@ -770,9 +769,8 @@ mod tests {
             let deleted = conn.prune_icebox()?;
             assert_eq!(deleted, 0, "Should not delete any entries");
 
-            let remaining: Vec<Icebox> = conn.raw_query_read(|conn| {
-                dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn)
-            })?;
+            let remaining: Vec<Icebox> =
+                conn.raw_query(|conn| dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn))?;
             assert_eq!(remaining.len(), 2);
         })
     }
@@ -807,9 +805,8 @@ mod tests {
             let deleted = conn.prune_icebox()?;
             assert_eq!(deleted, 0, "Should not delete due to wrong entity_kind");
 
-            let remaining: Vec<Icebox> = conn.raw_query_read(|conn| {
-                dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn)
-            })?;
+            let remaining: Vec<Icebox> =
+                conn.raw_query(|conn| dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn))?;
             assert_eq!(remaining.len(), 1);
         })
     }
@@ -834,7 +831,7 @@ mod tests {
             conn.ice(orphans)?;
 
             use crate::schema::icebox_dependencies::dsl as dep_dsl;
-            let deps: Vec<IceboxDependency> = conn.raw_query_read(|conn| {
+            let deps: Vec<IceboxDependency> = conn.raw_query(|conn| {
                 icebox_dependencies::table
                     .filter(dep_dsl::envelope_originator_id.eq(1))
                     .filter(dep_dsl::envelope_sequence_id.eq(10))
@@ -853,12 +850,11 @@ mod tests {
             let deleted = conn.prune_icebox()?;
             assert_eq!(deleted, 1, "Should delete the icebox entry");
 
-            let remaining: Vec<Icebox> = conn.raw_query_read(|conn| {
-                dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn)
-            })?;
+            let remaining: Vec<Icebox> =
+                conn.raw_query(|conn| dsl::icebox.filter(dsl::group_id.eq(&group_id)).load(conn))?;
             assert_eq!(remaining.len(), 0);
 
-            let deps: Vec<IceboxDependency> = conn.raw_query_read(|conn| {
+            let deps: Vec<IceboxDependency> = conn.raw_query(|conn| {
                 icebox_dependencies::table
                     .filter(dep_dsl::envelope_originator_id.eq(1))
                     .filter(dep_dsl::envelope_sequence_id.eq(10))

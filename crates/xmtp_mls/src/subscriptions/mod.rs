@@ -290,7 +290,7 @@ where
         envelope_bytes: Vec<u8>,
     ) -> Result<Vec<MlsGroup<Context>>> {
         let conn = self.context.db();
-        let mut known_welcomes = HashSet::from_iter(conn.group_cursors()?.into_iter());
+        let mut known_welcomes = HashSet::from_iter(conn.group_cursors()?);
         let welcome = decode_welcome_message(envelope_bytes.as_slice())?;
         let welcomes: Vec<_> = match welcome {
             V3OrD14n::D14n(envelope) => {

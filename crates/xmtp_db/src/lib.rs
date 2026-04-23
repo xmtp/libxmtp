@@ -70,13 +70,13 @@ pub trait ReadOnly {
 impl<C: ConnectionExt> ReadOnly for DbConnection<C> {
     #[allow(unused)]
     fn enable_readonly(&self) -> Result<(), StorageError> {
-        self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = ON;"))?;
+        self.raw_query(|conn| conn.batch_execute("PRAGMA query_only = ON;"))?;
         Ok(())
     }
 
     #[allow(unused)]
     fn disable_readonly(&self) -> Result<(), StorageError> {
-        self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = OFF;"))?;
+        self.raw_query(|conn| conn.batch_execute("PRAGMA query_only = OFF;"))?;
         Ok(())
     }
 }
@@ -199,7 +199,7 @@ pub mod test_util {
             ];
             for query in queries {
                 let query = diesel::sql_query(query);
-                let _ = self.raw_query_write(|conn| query.execute(conn)).unwrap();
+                let _ = self.raw_query(|conn| query.execute(conn)).unwrap();
             }
         }
 
@@ -207,12 +207,12 @@ pub mod test_util {
         pub fn disable_memory_security(&self) {
             let query = r#"PRAGMA cipher_memory_security = OFF"#;
             let query = diesel::sql_query(query);
-            let _ = self.raw_query_read(|c| query.clone().execute(c)).unwrap();
-            let _ = self.raw_query_write(|c| query.execute(c)).unwrap();
+            let _ = self.raw_query(|c| query.clone().execute(c)).unwrap();
+            let _ = self.raw_query(|c| query.execute(c)).unwrap();
         }
 
         pub fn intents_published(&self) -> i32 {
-            self.raw_query_read(|conn| {
+            self.raw_query(|conn| {
                 let mut row = conn
                     .load(sql_query(
                         "SELECT intents_published FROM test_metadata WHERE rowid = 1",
@@ -228,7 +228,7 @@ pub mod test_util {
         }
 
         pub fn intents_processed(&self) -> i32 {
-            self.raw_query_read(|conn| {
+            self.raw_query(|conn| {
                 let mut row = conn
                     .load(sql_query(
                         "SELECT intents_processed FROM test_metadata WHERE rowid = 1",
@@ -244,7 +244,7 @@ pub mod test_util {
         }
 
         pub fn intents_deleted(&self) -> i32 {
-            self.raw_query_read(|conn| {
+            self.raw_query(|conn| {
                 let mut row = conn
                     .load(sql_query("SELECT intents_deleted FROM test_metadata"))
                     .unwrap();
@@ -259,7 +259,7 @@ pub mod test_util {
 
         pub fn intent_payloads_deleted(&self) -> Vec<Vec<u8>> {
             let mut hashes = vec![];
-            self.raw_query_read(|conn| {
+            self.raw_query(|conn| {
                 let row = conn
                     .load(sql_query(
                         "SELECT payload_hash FROM deleted_intents_history",
@@ -280,7 +280,7 @@ pub mod test_util {
         }
 
         pub fn intents_created(&self) -> i32 {
-            self.raw_query_read(|conn| {
+            self.raw_query(|conn| {
                 let mut row = conn
                     .load(sql_query("SELECT intents_created FROM test_metadata"))
                     .unwrap();
@@ -303,12 +303,12 @@ pub mod test_util {
                 .filter(group_messages::kind.eq(GroupMessageKind::Application))
                 .order(group_messages::sequence_id.asc());
 
-            self.raw_query_read(|conn| query.load(conn)).unwrap()
+            self.raw_query(|conn| query.load(conn)).unwrap()
         }
 
         pub fn key_package_rotation_history(&self) -> Vec<(i64, i64)> {
             let mut history = vec![];
-            self.raw_query_read(|conn| {
+            self.raw_query(|conn| {
                  let rows = conn
                      .load(sql_query(
                          "SELECT next_key_package_rotation_ns, updated_at FROM key_package_rotation_history ORDER BY id ASC",
@@ -362,7 +362,7 @@ pub mod test_util {
 
             println!("\n=== group_messages ===");
             let msgs: Vec<crate::group_message::StoredGroupMessage> = self
-                .raw_query_read(|c| crate::schema::group_messages::table.load(c))
+                .raw_query(|c| crate::schema::group_messages::table.load(c))
                 .unwrap_or_default();
             t.column(0).set_header("id");
             t.column(1).set_header("group_id");
@@ -400,7 +400,7 @@ pub mod test_util {
             let mut t = AsciiTable::default();
             println!("\n=== refresh_state ===");
             let states: Vec<crate::refresh_state::RefreshState> = self
-                .raw_query_read(|c| crate::schema::refresh_state::table.load(c))
+                .raw_query(|c| crate::schema::refresh_state::table.load(c))
                 .unwrap_or_default();
             t.column(0).set_header("entity_id");
             t.column(1).set_header("entity_kind");
@@ -430,7 +430,7 @@ pub mod test_util {
             t.column(3).set_header("envelope_payload");
             println!("\n=== icebox ===");
             let ice: Vec<crate::icebox::Icebox> = self
-                .raw_query_read(|c| crate::schema::icebox::table.load(c))
+                .raw_query(|c| crate::schema::icebox::table.load(c))
                 .unwrap_or_default();
             let rows: Vec<Vec<String>> = ice
                 .iter()

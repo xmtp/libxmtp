@@ -210,7 +210,7 @@ jobs:
 
   build-macos-universal:
     needs: [setup, build-macos]
-    runs-on: macos-latest
+    runs-on: warp-macos-latest-arm64-6x
     steps:
       - uses: actions/download-artifact@v8
         with:

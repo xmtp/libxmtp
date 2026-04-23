@@ -77,7 +77,7 @@ impl<C: ConnectionExt> QueryPendingRemove for DbConnection<C> {
         &self,
         group_id: &[u8],
     ) -> Result<Vec<String>, crate::ConnectionError> {
-        let result = self.raw_query_read(|conn| {
+        let result = self.raw_query(|conn| {
             dsl::pending_remove
                 .filter(dsl::group_id.eq(group_id))
                 .select(dsl::inbox_id)
@@ -92,7 +92,7 @@ impl<C: ConnectionExt> QueryPendingRemove for DbConnection<C> {
         group_id: &[u8],
         inbox_id: &str,
     ) -> Result<bool, crate::ConnectionError> {
-        let result: bool = self.raw_query_read(|conn| {
+        let result: bool = self.raw_query(|conn| {
             select(exists(dsl::pending_remove.filter(
                 dsl::group_id.eq(group_id).and(dsl::inbox_id.eq(inbox_id)),
             )))
@@ -106,7 +106,7 @@ impl<C: ConnectionExt> QueryPendingRemove for DbConnection<C> {
         group_id: &[u8],
         inbox_ids: Vec<String>,
     ) -> Result<usize, crate::ConnectionError> {
-        let result = self.raw_query_write(|conn| {
+        let result = self.raw_query(|conn| {
             diesel::delete(
                 dsl::pending_remove.filter(
                     dsl::inbox_id

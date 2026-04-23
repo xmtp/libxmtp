@@ -65,6 +65,11 @@ _: {
           "xmtp_debug" = {
             autoWire = [ "crate" ];
             path = src + /apps/xmtp_debug;
+            # cacert is needed so xdbg can negotiate TLS to remote XMTP
+            # gateways at runtime (e.g. grpc.testnet.xmtp.network) without
+            # an externally-provided CA bundle.  Concatenate onto the
+            # shared commonArgs.nativeBuildInputs rather than replace it.
+            crane.args.nativeBuildInputs = pkgs.xmtp.base.commonArgs.nativeBuildInputs ++ [ pkgs.cacert ];
           };
           "xmtp_cli" = {
             path = src + /apps/cli;

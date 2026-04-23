@@ -9,9 +9,7 @@ let
   rust-toolchain = p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ ];
   rust = craneLib.overrideToolchain rust-toolchain;
   version = xmtp.mkVersion rust;
-
-  inherit (base) bindingsFileset;
-  commonArgs = base.commonArgs;
+  inherit (base) bindingsFileset commonArgs;
 
   specialArgs = {
     # set buildInputs to empty to force the android build to link against libraries in the NDK sysroot instead
@@ -27,6 +25,7 @@ let
     // {
       inherit cargoArtifacts version;
       pname = "xmtpv3-${stdenv.hostPlatform.rust.rustcTarget}";
+      doInstallCargoArtifacts = false;
       src = bindingsFileset;
       cargoExtraArgs = "-p xmtpv3";
       postFixup = ''
@@ -44,6 +43,7 @@ let
     language = "kotlin";
     dylibPath = "${dylib}/libuniffi_xmtpv3.${ext}";
     nativeBuildInputs = [ gnused ];
+    doInstallCargoArtifacts = false;
     postFixup = ''
       # Apply required sed replacements:
       # 1) Replace `return "xmtpv3"` with `return "uniffi_xmtpv3"` (library name fix)

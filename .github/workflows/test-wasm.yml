@@ -15,7 +15,7 @@ jobs:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "false"
-          gc-max-store-size: "10G"
+          with-warpbuild-cache: "false"
       - uses: taiki-e/install-action@just
       - name: Install dependencies
         run: just wasm install-ci

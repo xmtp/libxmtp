@@ -1,6 +1,5 @@
 [![Lint](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml)
 [![Test](https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/test.yml)
-[![built with garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2Fxmtp%2Flibxmtp%3Fbranch%3Dmain)](https://garnix.io/repo/xmtp/libxmtp)
 ![Status](https://img.shields.io/badge/Project_status-Alpha-orange)
 
 <!-- LOGO -->

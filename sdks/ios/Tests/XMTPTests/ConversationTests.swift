@@ -272,7 +272,13 @@ class ConversationTests: XCTestCase {
 	}
 
 	func testStreamsAndMessages() async throws {
-		var messages: [String] = []
+		let transcript = TestTranscript()
+		let expectation = XCTestExpectation(
+			description: "caro received 90 streamed messages"
+		)
+		expectation.expectedFulfillmentCount = 90
+		expectation.assertForOverFulfill = false
+
 		let fixtures = try await fixtures()
 
 		let alixGroup = try await fixtures.alixClient.conversations.newGroup(
@@ -311,14 +317,18 @@ class ConversationTests: XCTestCase {
 		// Start listening for messages
 		let caroTask = Task {
 			print("Caro is listening...")
+			var received = 0
 			do {
 				for try await message in await fixtures.caroClient.conversations
 					.streamAllMessages()
 				{
-					try messages.append(message.body)
-					try print("Caro received: \(message.body)")
+					let body = try message.body
+					await transcript.add(body)
+					print("Caro received: \(body)")
+					received += 1
+					expectation.fulfill()
 
-					if messages.count >= 90 { break }
+					if received >= 90 { break }
 				}
 			} catch {
 				print("Error while streaming messages: \(error)")
@@ -336,6 +346,10 @@ class ConversationTests: XCTestCase {
 					_ = try await alixGroup.send(content: message)
 					_ = try await alixGroup2.send(content: message)
 					print("Alix sent: \(message)")
+					// 50ms yield between sends so a single sender's MLS
+					// ratchet doesn't outrun OpenMLS's 5-generation
+					// out-of-order tolerance under concurrent load (#3512).
+					try await Task.sleep(nanoseconds: 50_000_000)
 				}
 			}
 
@@ -346,6 +360,7 @@ class ConversationTests: XCTestCase {
 					_ = try await boGroup.send(content: message)
 					_ = try await boGroup2.send(content: message)
 					print("Bo sent: \(message)")
+					try await Task.sleep(nanoseconds: 50_000_000) // #3512
 				}
 			}
 
@@ -359,6 +374,7 @@ class ConversationTests: XCTestCase {
 						)
 					_ = try await group.send(content: spamMessage)
 					print("Davon spam: \(spamMessage)")
+					try await Task.sleep(nanoseconds: 50_000_000) // #3512
 				}
 			}
 
@@ -369,17 +385,20 @@ class ConversationTests: XCTestCase {
 					_ = try await caroGroup.send(content: message)
 					_ = try await caroGroup2.send(content: message)
 					print("Caro sent: \(message)")
+					try await Task.sleep(nanoseconds: 50_000_000) // #3512
 				}
 			}
 		}
 
-		// Wait a bit to ensure all messages are processed
-		try await Task.sleep(nanoseconds: 5_000_000_000) // 2 seconds delay
+		// Wait for all 90 messages to arrive (event-driven, with a generous
+		// ceiling so a real streaming regression fails fast instead of
+		// masquerading as a flake).
+		await fulfillment(of: [expectation], timeout: 30)
 
 		caroTask.cancel()
 
-		// This test seems to fail with some random number between 87, 88, or 89, even with increased delay
-		XCTAssertEqual(messages.count, 90)
+		let finalCount = await transcript.messages.count
+		XCTAssertEqual(finalCount, 90)
 		let caroMessagesCount = try await caroGroup.messages().count
 		XCTAssertEqual(caroMessagesCount, 41)
 
@@ -659,12 +678,21 @@ class ConversationTests: XCTestCase {
 		XCTAssertTrue(publishedGroupCount == 3 || publishedGroupCount == 4)
 		XCTAssertEqual(publishedDmCount, 2)
 
-		// Test counting with time-based filters
-		let now = Int64(Date().millisecondsSinceEpoch + 2000) // Allow for 2s of clock skew between client and server
-		let futureGroupCount = try group.countMessages(afterNs: now * 1_000_000)
-		let futureDmCount = try dm.countMessages(afterNs: now * 1_000_000)
+		// Test counting with time-based filters.
+		//
+		// Anchor the cutoff to the latest server-stamped `sentAtNs` we've
+		// actually observed (rather than the client's local wall clock),
+		// because any skew between the CI runner and the XMTP node would
+		// otherwise flake this assertion. See issue #3502.
+		let groupMessages = try await group.messages()
+		let dmMessages = try await dm.messages()
+		let allSentAtNs = groupMessages.map(\.sentAtNs) + dmMessages.map(\.sentAtNs)
+		let maxObservedSentAtNs = allSentAtNs.max() ?? 0
+		let futureCutoffNs = maxObservedSentAtNs + 1_000_000_000 // +1s buffer
+		let futureGroupCount = try group.countMessages(afterNs: futureCutoffNs)
+		let futureDmCount = try dm.countMessages(afterNs: futureCutoffNs)
 
-		// No messages should be after current time
+		// No messages should exist strictly after the latest observed send.
 		XCTAssertEqual(futureGroupCount, 0)
 		XCTAssertEqual(futureDmCount, 0)
 

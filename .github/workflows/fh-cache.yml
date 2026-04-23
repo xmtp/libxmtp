@@ -12,6 +12,7 @@ concurrency:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         os: [warp-ubuntu-latest-x64-16x, warp-macos-26-arm64-12x]
     runs-on: ${{ matrix.os }}
@@ -27,7 +28,7 @@ jobs:
       - name: Install omnix
         run: nix profile install nixpkgs#omnix
       - name: Build all flake outputs
-        run: om ci run --include-all-dependencies --results=om.json
+        run: om ci run --include-all-dependencies --results=om.json -- --keep-going
       - name: Pin outputs to cachix
         # if: github.ref_name == 'main'
         run: |

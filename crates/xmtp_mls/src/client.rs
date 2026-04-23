@@ -1168,8 +1168,8 @@ where
             .api()
             .get_inbox_ids(requests)
             .await?
-            .into_iter()
-            .filter_map(|(ident, _)| Some((ident.try_into().ok()?, true)))
+            .into_keys()
+            .filter_map(|ident| Some((ident.try_into().ok()?, true)))
             .collect();
 
         // Fill in the rest with false
@@ -1227,7 +1227,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let conn = amal.context.store().conn();
-        conn.raw_query_write(|conn| diesel::delete(identity_updates::table).execute(conn))
+        conn.raw_query(|conn| diesel::delete(identity_updates::table).execute(conn))
             .unwrap();
 
         let members = group.members().await.unwrap();

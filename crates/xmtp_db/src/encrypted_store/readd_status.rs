@@ -81,7 +81,7 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
         use super::schema::readd_status::dsl as readd_dsl;
         use diesel::QueryDsl;
 
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             readd_dsl::readd_status
                 .filter(readd_dsl::group_id.eq(group_id))
                 .filter(readd_dsl::installation_id.eq(installation_id))
@@ -121,7 +121,7 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
             responded_at_sequence_id: None,
         };
 
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::insert_into(readd_dsl::readd_status)
                 .values(&new_status)
                 .on_conflict((readd_dsl::group_id, readd_dsl::installation_id))
@@ -154,7 +154,7 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
             responded_at_sequence_id: Some(sequence_id),
         };
 
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::insert_into(readd_dsl::readd_status)
                 .values(&new_status)
                 .on_conflict((readd_dsl::group_id, readd_dsl::installation_id))
@@ -179,7 +179,7 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
         use super::schema::readd_status::dsl as readd_dsl;
         use diesel::{ExpressionMethods, QueryDsl};
 
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::delete(
                 readd_dsl::readd_status
                     .filter(readd_dsl::group_id.eq(group_id))
@@ -198,7 +198,7 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
         use super::schema::readd_status::dsl as readd_dsl;
         use diesel::{ExpressionMethods, QueryDsl};
 
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::delete(
                 readd_dsl::readd_status
                     .filter(readd_dsl::group_id.eq(group_id))
@@ -217,7 +217,7 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
         use super::schema::readd_status::dsl as readd_dsl;
         use diesel::{ExpressionMethods, QueryDsl};
 
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             readd_dsl::readd_status
                 .filter(readd_dsl::group_id.eq(group_id))
                 .filter(readd_dsl::installation_id.ne(self_installation_id))

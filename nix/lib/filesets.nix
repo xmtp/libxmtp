@@ -47,6 +47,7 @@ let
     (src + /Cargo.toml)
     (src + /Cargo.lock)
     (src + /.cargo/config.toml)
+
     # include folders for apps/bindings so cargo workspace globs are satisfied
     # One-off files that are needed outside of cargo sources
     (src + /apps/.gitkeep)

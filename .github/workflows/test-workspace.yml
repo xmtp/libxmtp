@@ -25,10 +25,11 @@ jobs:
         uses: jwalton/gh-docker-logs@v2
       - name: Run tests (v3 + d14n with coverage)
         # use `nix build` instead of `nix flake check` because we need the resulting coverage
-        run: nix build -L .#nextest.x86_64-linux.v3 .#nextest.x86_64-linux.d14n
-
+        run: |
+          nix-fast-build --no-nom --flake .#nextest.x86_64-linux.v3 --out-link v3 --option sandbox relaxed
+          nix-fast-build --no-nom --flake .#nextest.x86_64-linux.d14n --out-link d14n --option sandbox relaxed
       - name: merge coverage files
-        run: nix run nixpkgs#lcov -- --add-tracefile result/coverage --add-tracefile result-1/coverage --output-file lcov.info
+        run: nix run nixpkgs#lcov -- --add-tracefile v3-/coverage --add-tracefile d14n-/coverage --output-file lcov.info
       - name: Upload coverage
         uses: codecov/codecov-action@v6
         with:
