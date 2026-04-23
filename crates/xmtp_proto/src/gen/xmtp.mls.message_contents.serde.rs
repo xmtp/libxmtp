@@ -225,20 +225,20 @@ impl serde::Serialize for ComponentMetadata {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.permissions.is_some() {
-            len += 1;
-        }
         if self.component_type != 0 {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.ComponentMetadata", len)?;
-        if let Some(v) = self.permissions.as_ref() {
-            struct_ser.serialize_field("permissions", v)?;
+        if self.permissions.is_some() {
+            len += 1;
         }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.ComponentMetadata", len)?;
         if self.component_type != 0 {
             let v = ComponentType::try_from(self.component_type)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.component_type)))?;
             struct_ser.serialize_field("component_type", &v)?;
+        }
+        if let Some(v) = self.permissions.as_ref() {
+            struct_ser.serialize_field("permissions", v)?;
         }
         struct_ser.end()
     }
@@ -250,15 +250,15 @@ impl<'de> serde::Deserialize<'de> for ComponentMetadata {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "permissions",
             "component_type",
             "componentType",
+            "permissions",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Permissions,
             ComponentType,
+            Permissions,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -281,8 +281,8 @@ impl<'de> serde::Deserialize<'de> for ComponentMetadata {
                         E: serde::de::Error,
                     {
                         match value {
-                            "permissions" => Ok(GeneratedField::Permissions),
                             "componentType" | "component_type" => Ok(GeneratedField::ComponentType),
+                            "permissions" => Ok(GeneratedField::Permissions),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -302,21 +302,21 @@ impl<'de> serde::Deserialize<'de> for ComponentMetadata {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut permissions__ = None;
                 let mut component_type__ = None;
+                let mut permissions__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Permissions => {
-                            if permissions__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("permissions"));
-                            }
-                            permissions__ = map_.next_value()?;
-                        }
                         GeneratedField::ComponentType => {
                             if component_type__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("componentType"));
                             }
                             component_type__ = Some(map_.next_value::<ComponentType>()? as i32);
+                        }
+                        GeneratedField::Permissions => {
+                            if permissions__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("permissions"));
+                            }
+                            permissions__ = map_.next_value()?;
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -324,8 +324,8 @@ impl<'de> serde::Deserialize<'de> for ComponentMetadata {
                     }
                 }
                 Ok(ComponentMetadata {
-                    permissions: permissions__,
                     component_type: component_type__.unwrap_or_default(),
+                    permissions: permissions__,
                 })
             }
         }
@@ -473,10 +473,11 @@ impl serde::Serialize for ComponentType {
         let variant = match self {
             Self::Unspecified => "COMPONENT_TYPE_UNSPECIFIED",
             Self::Bytes => "COMPONENT_TYPE_BYTES",
+            Self::String => "COMPONENT_TYPE_STRING",
             Self::TlsMapBytesBytes => "COMPONENT_TYPE_TLS_MAP_BYTES_BYTES",
             Self::TlsMapInboxIdBytes => "COMPONENT_TYPE_TLS_MAP_INBOX_ID_BYTES",
-            Self::SetBytes => "COMPONENT_TYPE_SET_BYTES",
-            Self::SetInboxId => "COMPONENT_TYPE_SET_INBOX_ID",
+            Self::TlsSetBytes => "COMPONENT_TYPE_TLS_SET_BYTES",
+            Self::TlsSetInboxId => "COMPONENT_TYPE_TLS_SET_INBOX_ID",
         };
         serializer.serialize_str(variant)
     }
@@ -490,10 +491,11 @@ impl<'de> serde::Deserialize<'de> for ComponentType {
         const FIELDS: &[&str] = &[
             "COMPONENT_TYPE_UNSPECIFIED",
             "COMPONENT_TYPE_BYTES",
+            "COMPONENT_TYPE_STRING",
             "COMPONENT_TYPE_TLS_MAP_BYTES_BYTES",
             "COMPONENT_TYPE_TLS_MAP_INBOX_ID_BYTES",
-            "COMPONENT_TYPE_SET_BYTES",
-            "COMPONENT_TYPE_SET_INBOX_ID",
+            "COMPONENT_TYPE_TLS_SET_BYTES",
+            "COMPONENT_TYPE_TLS_SET_INBOX_ID",
         ];
 
         struct GeneratedVisitor;
@@ -536,10 +538,11 @@ impl<'de> serde::Deserialize<'de> for ComponentType {
                 match value {
                     "COMPONENT_TYPE_UNSPECIFIED" => Ok(ComponentType::Unspecified),
                     "COMPONENT_TYPE_BYTES" => Ok(ComponentType::Bytes),
+                    "COMPONENT_TYPE_STRING" => Ok(ComponentType::String),
                     "COMPONENT_TYPE_TLS_MAP_BYTES_BYTES" => Ok(ComponentType::TlsMapBytesBytes),
                     "COMPONENT_TYPE_TLS_MAP_INBOX_ID_BYTES" => Ok(ComponentType::TlsMapInboxIdBytes),
-                    "COMPONENT_TYPE_SET_BYTES" => Ok(ComponentType::SetBytes),
-                    "COMPONENT_TYPE_SET_INBOX_ID" => Ok(ComponentType::SetInboxId),
+                    "COMPONENT_TYPE_TLS_SET_BYTES" => Ok(ComponentType::TlsSetBytes),
+                    "COMPONENT_TYPE_TLS_SET_INBOX_ID" => Ok(ComponentType::TlsSetInboxId),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
