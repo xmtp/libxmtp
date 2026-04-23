@@ -41,7 +41,10 @@ toxiproxy_rust = { workspace = true, optional = true }
 xmtp-workspace-hack.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tonic = { workspace = true, features = ["channel"] }
+# `codegen` is required because `build.rs` gates server-side generated
+# modules on `cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))`,
+# so native builds always compile server stubs that `use tonic::codegen::*`.
+tonic = { workspace = true, features = ["channel", "codegen"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-test.workspace = true
