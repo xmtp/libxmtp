@@ -3,12 +3,24 @@ use std::{fmt, ops::Deref, str::FromStr};
 use bytes::Bytes;
 use hex::FromHexError;
 
+/// The canonical group identifier.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct GroupId(bytes::Bytes);
 
 impl GroupId {
     pub fn as_slice(&self) -> &[u8] {
         self.0.as_ref()
+    }
+
+    pub fn to_openmls(&self) -> openmls::group::GroupId {
+        openmls::group::GroupId::from_slice(self.as_ref())
+    }
+
+    pub fn random<R: openmls_traits::random::OpenMlsRand>(rand: &R) -> Self {
+        let bytes = rand
+            .random_vec(16)
+            .expect("OpenMlsRand failed to produce randomness for GroupId");
+        GroupId::from(bytes)
     }
 }
 
@@ -65,6 +77,18 @@ impl From<&[u8]> for GroupId {
     }
 }
 
+impl From<&openmls::group::GroupId> for GroupId {
+    fn from(id: &openmls::group::GroupId) -> Self {
+        GroupId::from(id.as_slice())
+    }
+}
+
+impl From<openmls::group::GroupId> for GroupId {
+    fn from(id: openmls::group::GroupId) -> Self {
+        GroupId::from(id.as_slice())
+    }
+}
+
 xmtp_common::if_test! {
     impl xmtp_common::Generate for GroupId {
         fn generate() -> Self {
@@ -110,5 +134,13 @@ mod test {
         let data = vec![0x12, 0x34, 0xab, 0xcd];
         assert!(format!("{}", GroupId::from(data.clone())).contains("1234abcd"));
         assert!(format!("{:?}", GroupId::from(data)).contains("GroupId"));
+    }
+
+    #[xmtp_common::test]
+    fn test_to_openmls_roundtrip() {
+        let bytes: [u8; 16] = xmtp_common::rand_vec::<16>().try_into().unwrap();
+        let xmtp_id = GroupId::from(bytes.as_slice());
+        let ommls_id = xmtp_id.to_openmls();
+        assert_eq!(ommls_id.as_slice(), xmtp_id.as_slice());
     }
 }

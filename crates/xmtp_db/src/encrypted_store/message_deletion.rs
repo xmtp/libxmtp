@@ -109,7 +109,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
         &self,
         id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             dsl::message_deletions
                 .filter(dsl::id.eq(id))
                 .first(conn)
@@ -121,7 +121,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
         &self,
         deleted_message_id: &[u8],
     ) -> Result<Option<StoredMessageDeletion>, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             dsl::message_deletions
                 .filter(dsl::deleted_message_id.eq(deleted_message_id))
                 .first(conn)
@@ -137,7 +137,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
             return Ok(vec![]);
         }
 
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             dsl::message_deletions
                 .filter(dsl::deleted_message_id.eq_any(message_ids))
                 .load(conn)
@@ -148,7 +148,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
         &self,
         group_id: &[u8],
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             dsl::message_deletions
                 .filter(dsl::group_id.eq(group_id))
                 .load(conn)
@@ -156,7 +156,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
     }
 
     fn is_message_deleted(&self, message_id: &[u8]) -> Result<bool, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             diesel::dsl::select(diesel::dsl::exists(
                 dsl::message_deletions.filter(dsl::deleted_message_id.eq(message_id)),
             ))

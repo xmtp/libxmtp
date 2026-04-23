@@ -81,10 +81,14 @@ impl XmtpdCli {
             "register".to_string(),
             format!("--owner-address={addr}"),
             format!("--signing-key-pub=0x{pubkey}"),
-            format!(
-                "--http-address=http://{}",
-                Config::load_unchecked().address_mode.hostname(&node.name())
-            ),
+            {
+                let cfg = Config::load_unchecked();
+                format!(
+                    "--http-address={}://{}",
+                    cfg.public_scheme,
+                    cfg.address_mode.hostname(&node.name())
+                )
+            },
         ];
         self.run(cmd, None, w).await?;
         Ok(())

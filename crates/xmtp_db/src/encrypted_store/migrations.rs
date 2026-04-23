@@ -43,7 +43,7 @@ fn get_migrations() -> Result<Vec<Box<dyn Migration<Sqlite>>>, ConnectionError> 
 
 impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
     fn applied_migrations(&self) -> Result<Vec<String>, ConnectionError> {
-        let applied: Vec<MigrationVersion<'static>> = self.raw_query_read(|conn| {
+        let applied: Vec<MigrationVersion<'static>> = self.raw_query(|conn| {
             conn.applied_migrations()
                 .map_err(diesel::result::Error::QueryBuilderError)
         })?;
@@ -80,7 +80,7 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
                 break;
             }
 
-            let result = self.raw_query_write(|conn| {
+            let result = self.raw_query(|conn| {
                 conn.revert_last_migration(MIGRATIONS)
                     .map(|v| v.to_string())
                     .map_err(diesel::result::Error::QueryBuilderError)
@@ -105,7 +105,7 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
 
         for migration in &migrations {
             if migration.name().to_string() == name {
-                self.raw_query_write(|c| {
+                self.raw_query(|c| {
                     migration
                         .run(c)
                         .map_err(diesel::result::Error::QueryBuilderError)
@@ -124,7 +124,7 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
 
         for migration in &migrations {
             if migration.name().to_string() == name {
-                self.raw_query_write(|c| {
+                self.raw_query(|c| {
                     migration
                         .revert(c)
                         .map_err(diesel::result::Error::QueryBuilderError)
@@ -139,7 +139,7 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
     }
 
     fn run_pending_migrations(&self) -> Result<Vec<String>, ConnectionError> {
-        let ran: Vec<String> = self.raw_query_write(|conn| {
+        let ran: Vec<String> = self.raw_query(|conn| {
             conn.run_pending_migrations(MIGRATIONS)
                 .map(|versions| versions.into_iter().map(|v| v.to_string()).collect())
                 .map_err(diesel::result::Error::QueryBuilderError)

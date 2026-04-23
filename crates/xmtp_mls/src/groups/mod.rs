@@ -1,3 +1,4 @@
+pub mod app_data;
 pub mod commit_log;
 pub mod commit_log_key;
 mod error;
@@ -2715,11 +2716,25 @@ pub(crate) fn build_group_config(
 
     let required_proposal_types = &[ProposalType::GroupContextExtensions];
 
+    // Leaf-node-advertised proposal types: a superset of `required_proposal_types`.
+    // We advertise `AppDataUpdate` here so that the new path (commit-with-inline-
+    // AppDataUpdate-proposal) is supported, but we DO NOT add it to
+    // `required_proposal_types` because that would break backwards compatibility
+    // with members whose leaf nodes don't yet advertise it. The capability check
+    // OpenMLS performs at commit-build time inspects every member leaf node's
+    // proposal capabilities — adding it here ensures the creator advertises
+    // support; joining clients pick it up via their own key package (see
+    // `identity.rs`).
+    let creator_capability_proposals = &[
+        ProposalType::GroupContextExtensions,
+        ProposalType::AppDataUpdate,
+    ];
+
     let capabilities = Capabilities::new(
         None,
         None,
         Some(&creator_capability_extensions),
-        Some(required_proposal_types),
+        Some(creator_capability_proposals),
         None,
     );
     let credentials = &[CredentialType::Basic];

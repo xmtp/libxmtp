@@ -125,7 +125,7 @@ where
         }
 
         self.db()
-            .raw_query_write(|conn| {
+            .raw_query(|conn| {
                 let buff = conn.serialize_database_to_buffer();
                 Ok(buff.to_vec())
             })
@@ -344,7 +344,7 @@ where
     fn reset_identity_and_refresh_state(&self) {
         self.context
             .db()
-            .raw_query_write(|c| {
+            .raw_query(|c| {
                 xmtp_db::diesel::delete(xmtp_db::schema::association_state::table)
                     .execute(c)
                     .unwrap();

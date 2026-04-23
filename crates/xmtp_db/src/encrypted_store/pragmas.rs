@@ -31,7 +31,7 @@ where
 
 impl<C: ConnectionExt> Pragmas for DbConnection<C> {
     fn busy_timeout(&self) -> Result<i32, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             let BusyTimeout { timeout } =
                 diesel::sql_query("PRAGMA busy_timeout").get_result::<BusyTimeout>(conn)?;
             Ok(timeout)
@@ -40,7 +40,7 @@ impl<C: ConnectionExt> Pragmas for DbConnection<C> {
 
     fn set_sqlcipher_log<S: AsRef<str>>(&self, level: S) -> Result<(), crate::ConnectionError> {
         let level = level.as_ref();
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             diesel::sql_query(format!("PRAGMA cipher_log_level = {level}")).execute(conn)?;
             Ok(())
         })

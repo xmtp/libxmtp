@@ -9,7 +9,7 @@ use xmtp_proto::{
     prelude::{ApiBuilder, NetConnectConfig},
 };
 
-use crate::{Config, constants::Xmtpd as XmtpdConst, services::allocate_xmtpd_port};
+use crate::{constants::Xmtpd as XmtpdConst, services::allocate_xmtpd_port};
 
 /// An XMTPD node that must run at `port`
 /// and is owned by `signer`.
@@ -42,23 +42,6 @@ pub fn resolve_port(use_standard_port: bool, port: Option<u16>) -> Result<u16> {
 }
 
 impl XmtpdNode {
-    pub async fn new(gateway_host: &str, use_standard_port: bool) -> Result<Self> {
-        let config = Config::load()?;
-        let next_id = Self::get_next_id(gateway_host).await?;
-        let port = resolve_port(use_standard_port, None)?;
-
-        let num_ids = next_id / XmtpdConst::NODE_ID_INCREMENT;
-        let base_idx = num_ids as usize * 3 + 1;
-        Ok(Self {
-            port,
-            node_id: next_id,
-            signer: config.signers[base_idx].clone(),
-            payer: config.signers[base_idx + 1].clone(),
-            migration_payer: config.signers[base_idx + 2].clone(),
-            name: format!("xnet-{}", next_id),
-        })
-    }
-
     pub fn name(&self) -> &String {
         &self.name
     }

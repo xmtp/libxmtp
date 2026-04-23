@@ -1,4 +1,3 @@
-use std::net::IpAddr;
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
@@ -16,10 +15,10 @@ pub struct AppArgs {
     /// Path to a TOML configuration to use for xnet
     #[arg(long, short)]
     pub config: Option<PathBuf>,
-    /// Enable remote addressing mode with sslip.io.
-    /// Hostnames become {name}.{ip-dashed}.sslip.io instead of {name}.xmtpd.local.
+    /// Enable remote addressing mode with a custom domain.
+    /// Hostnames become {name}.{domain} instead of {name}.xmtpd.local.
     #[arg(long)]
-    pub remote: Option<IpAddr>,
+    pub remote_domain: Option<String>,
 }
 
 #[derive(Subcommand, Clone, Debug)]

@@ -76,7 +76,7 @@ where
 
 impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
     fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             let rotate_at_ns = now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS;
             diesel::update(dsl::identity)
                 .filter(dsl::next_key_package_rotation_ns.gt(rotate_at_ns))
@@ -95,7 +95,7 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
     ) -> Result<(), StorageError> {
         use crate::schema::identity::dsl;
 
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::update(dsl::identity)
                 .filter(
                     dsl::next_key_package_rotation_ns
@@ -113,7 +113,7 @@ impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
     fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
         use crate::schema::identity::dsl;
 
-        let next_rotation_opt: Option<i64> = self.raw_query_read(|conn| {
+        let next_rotation_opt: Option<i64> = self.raw_query(|conn| {
             dsl::identity
                 .select(dsl::next_key_package_rotation_ns)
                 .first::<Option<i64>>(conn)

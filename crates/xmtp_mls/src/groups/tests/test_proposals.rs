@@ -2544,3 +2544,56 @@ async fn test_add_member_after_sequence_id_bump_with_proposals_enabled() {
     assert_eq!(bo_members.len(), 3, "Bo should see 3 members");
     assert_eq!(caro_members.len(), 3, "Caro should see 3 members");
 }
+
+// =============================================================================
+// Capability Advertisement Backwards Compatibility
+// =============================================================================
+
+/// Backwards-compat invariant for the `AppDataUpdate` proposal capability flip.
+///
+/// The creator advertises `AppDataUpdate` on its own leaf node (so the new
+/// commit-with-inline-AppDataUpdate-proposal path works), but the group's
+/// `RequiredCapabilities` must NOT require it. Required-but-not-universally-
+/// advertised would break OpenMLS's RequiredCapabilities check for any
+/// installation whose leaf node only advertises the legacy proposal set,
+/// stranding every unmigrated client at join time.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_app_data_update_advertised_but_not_required() {
+    use openmls::messages::proposals::ProposalType;
+
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+
+    alix_group
+        .load_mls_group_with_lock_async(async |mls_group| {
+            let own_proposals = mls_group
+                .own_leaf_node()
+                .expect("group creator must have own leaf")
+                .capabilities()
+                .proposals()
+                .to_vec();
+            assert!(
+                own_proposals.contains(&ProposalType::AppDataUpdate),
+                "creator leaf must advertise AppDataUpdate, got: {own_proposals:?}",
+            );
+
+            let required = mls_group
+                .extensions()
+                .required_capabilities()
+                .expect("required_capabilities must be set")
+                .proposal_types()
+                .to_vec();
+            assert!(
+                required.contains(&ProposalType::GroupContextExtensions),
+                "GroupContextExtensions must be required, got: {required:?}",
+            );
+            assert!(
+                !required.contains(&ProposalType::AppDataUpdate),
+                "AppDataUpdate must NOT be required — would break backwards compat \
+                 with legacy leaf nodes. got: {required:?}",
+            );
+
+            Ok::<(), crate::groups::GroupError>(())
+        })
+        .await?;
+}

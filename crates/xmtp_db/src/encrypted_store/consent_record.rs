@@ -126,7 +126,7 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
         entity: String,
         entity_type: ConsentType,
     ) -> Result<Option<StoredConsentRecord>, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             dsl::consent_records
                 .filter(dsl::entity.eq(entity))
                 .filter(dsl::entity_type.eq(entity_type))
@@ -136,7 +136,7 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
     }
 
     fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
-        self.raw_query_read(|conn| super::schema::consent_records::table.load(conn))
+        self.raw_query(|conn| super::schema::consent_records::table.load(conn))
     }
 
     fn consent_records_paged(
@@ -149,7 +149,7 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
             .limit(limit)
             .offset(offset);
 
-        self.raw_query_read(|conn| query.load::<StoredConsentRecord>(conn))
+        self.raw_query(|conn| query.load::<StoredConsentRecord>(conn))
     }
 
     // returns true if newer
@@ -157,7 +157,7 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
         &self,
         record: StoredConsentRecord,
     ) -> Result<bool, crate::ConnectionError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             let maybe_inserted_consent_record: Option<StoredConsentRecord> =
                 diesel::insert_into(dsl::consent_records)
                     .values(&record)
@@ -211,7 +211,7 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
             );
         }
 
-        let changed = self.raw_query_write(|conn| {
+        let changed = self.raw_query(|conn| {
             let existing: Vec<StoredConsentRecord> = query.load(conn)?;
             let changed: Vec<_> = records
                 .iter()
@@ -241,7 +241,7 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
         &self,
         record: &StoredConsentRecord,
     ) -> Result<Option<StoredConsentRecord>, crate::ConnectionError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             let maybe_inserted_consent_record: Option<StoredConsentRecord> =
                 diesel::insert_into(dsl::consent_records)
                     .values(record)
@@ -265,7 +265,7 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
         &self,
         dm_id: &str,
     ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
-        self.raw_query_read(|conn| {
+        self.raw_query(|conn| {
             // First, get all group IDs for this dm_id
             let group_ids: Vec<Vec<u8>> = groups_dsl::groups
                 .filter(groups_dsl::dm_id.eq(dm_id))

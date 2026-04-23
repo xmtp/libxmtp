@@ -924,12 +924,12 @@ impl ::prost::Name for ComponentPermissions {
 /// it holds and who can insert, update, or delete it.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ComponentMetadata {
-    /// Permission policies for this component
-    #[prost(message, optional, tag = "1")]
-    pub permissions: ::core::option::Option<ComponentPermissions>,
     /// The data structure type of the component's value
-    #[prost(enumeration = "ComponentType", tag = "2")]
+    #[prost(enumeration = "ComponentType", tag = "1")]
     pub component_type: i32,
+    /// Permission policies for this component
+    #[prost(message, optional, tag = "2")]
+    pub permissions: ::core::option::Option<ComponentPermissions>,
 }
 impl ::prost::Name for ComponentMetadata {
     const NAME: &'static str = "ComponentMetadata";
@@ -948,14 +948,16 @@ pub enum ComponentType {
     Unspecified = 0,
     /// Opaque bytes, replaced atomically
     Bytes = 1,
+    /// A utf-8 encoded string, replaced atomically
+    String = 2,
     /// A TlsMap\<bytes, bytes> supporting key-level insert/update/delete via deltas
-    TlsMapBytesBytes = 2,
+    TlsMapBytesBytes = 3,
     /// A TlsMap\<InboxId, bytes> supporting key-level insert/update/delete via deltas
-    TlsMapInboxIdBytes = 3,
+    TlsMapInboxIdBytes = 4,
     /// A TlsSet<bytes> supporting insert/remove/remove-by-hash via deltas
-    SetBytes = 4,
+    TlsSetBytes = 5,
     /// A TlsSet<InboxId> supporting insert/remove/remove-by-hash via deltas
-    SetInboxId = 5,
+    TlsSetInboxId = 6,
 }
 impl ComponentType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -966,10 +968,11 @@ impl ComponentType {
         match self {
             Self::Unspecified => "COMPONENT_TYPE_UNSPECIFIED",
             Self::Bytes => "COMPONENT_TYPE_BYTES",
+            Self::String => "COMPONENT_TYPE_STRING",
             Self::TlsMapBytesBytes => "COMPONENT_TYPE_TLS_MAP_BYTES_BYTES",
             Self::TlsMapInboxIdBytes => "COMPONENT_TYPE_TLS_MAP_INBOX_ID_BYTES",
-            Self::SetBytes => "COMPONENT_TYPE_SET_BYTES",
-            Self::SetInboxId => "COMPONENT_TYPE_SET_INBOX_ID",
+            Self::TlsSetBytes => "COMPONENT_TYPE_TLS_SET_BYTES",
+            Self::TlsSetInboxId => "COMPONENT_TYPE_TLS_SET_INBOX_ID",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -977,10 +980,11 @@ impl ComponentType {
         match value {
             "COMPONENT_TYPE_UNSPECIFIED" => Some(Self::Unspecified),
             "COMPONENT_TYPE_BYTES" => Some(Self::Bytes),
+            "COMPONENT_TYPE_STRING" => Some(Self::String),
             "COMPONENT_TYPE_TLS_MAP_BYTES_BYTES" => Some(Self::TlsMapBytesBytes),
             "COMPONENT_TYPE_TLS_MAP_INBOX_ID_BYTES" => Some(Self::TlsMapInboxIdBytes),
-            "COMPONENT_TYPE_SET_BYTES" => Some(Self::SetBytes),
-            "COMPONENT_TYPE_SET_INBOX_ID" => Some(Self::SetInboxId),
+            "COMPONENT_TYPE_TLS_SET_BYTES" => Some(Self::TlsSetBytes),
+            "COMPONENT_TYPE_TLS_SET_INBOX_ID" => Some(Self::TlsSetInboxId),
             _ => None,
         }
     }

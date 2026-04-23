@@ -1227,7 +1227,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let conn = amal.context.store().conn();
-        conn.raw_query_write(|conn| diesel::delete(identity_updates::table).execute(conn))
+        conn.raw_query(|conn| diesel::delete(identity_updates::table).execute(conn))
             .unwrap();
 
         let members = group.members().await.unwrap();

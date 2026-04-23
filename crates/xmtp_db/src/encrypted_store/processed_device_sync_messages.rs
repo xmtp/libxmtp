@@ -141,7 +141,7 @@ where
 
 impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
     fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError> {
-        let result = self.raw_query_read(|conn| {
+        let result = self.raw_query(|conn| {
             group_messages_dsl::group_messages
                 .inner_join(groups_dsl::groups.on(group_messages_dsl::group_id.eq(groups_dsl::id)))
                 .filter(groups_dsl::conversation_type.eq(ConversationType::Sync))
@@ -170,7 +170,7 @@ impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
         offset: i64,
         limit: i64,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
-        let result = self.raw_query_read(|conn| {
+        let result = self.raw_query(|conn| {
             group_messages_dsl::group_messages
                 .inner_join(groups_dsl::groups.on(group_messages_dsl::group_id.eq(groups_dsl::id)))
                 .filter(groups_dsl::conversation_type.eq(ConversationType::Sync))
@@ -184,7 +184,7 @@ impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
     }
 
     fn mark_device_sync_msg_as_processed(&self, message_id: &[u8]) -> Result<(), StorageError> {
-        self.raw_query_write(|conn| {
+        self.raw_query(|conn| {
             diesel::insert_into(dsl::processed_device_sync_messages)
                 .values(StoredProcessedDeviceSyncMessages {
                     message_id: message_id.to_vec(),
@@ -204,7 +204,7 @@ impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
         message_id: &[u8],
         max_attempts: i32,
     ) -> Result<i32, StorageError> {
-        let attempts = self.raw_query_write(|conn| {
+        let attempts = self.raw_query(|conn| {
             // Upsert: insert with attempts=1 if no record exists, or increment attempts if it does
             diesel::insert_into(dsl::processed_device_sync_messages)
                 .values(StoredProcessedDeviceSyncMessages {
@@ -327,7 +327,7 @@ mod tests {
             conn.mark_device_sync_msg_as_processed(&message.id)?;
 
             // Verify attempts are preserved (should be 2)
-            let record: StoredProcessedDeviceSyncMessages = conn.raw_query_read(|c| {
+            let record: StoredProcessedDeviceSyncMessages = conn.raw_query(|c| {
                 dsl::processed_device_sync_messages
                     .find(&message.id)
                     .first(c)

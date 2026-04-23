@@ -13,7 +13,7 @@ use crate::config::AppArgs;
 use crate::constants::{ToxiProxy as ToxiProxyConst, Xmtpd as XmtpdConst};
 
 use super::AddressMode;
-use super::toml_config::{ImageConfig, MigrationConfig, NodeToml, TomlConfig};
+use super::toml_config::{ExtraTraefikRoute, ImageConfig, MigrationConfig, NodeToml, TomlConfig};
 
 static CONF: OnceLock<Config> = OnceLock::new();
 
@@ -69,13 +69,29 @@ pub struct Config {
     pub v3: ImageConfig,
     /// V3 node-go port override
     pub v3_port: Option<u16>,
+    /// Enable the V3 stack
+    #[builder(default = true)]
+    pub enable_v3: bool,
+    /// Enable the D14n stack
+    #[builder(default = true)]
+    pub enable_d14n: bool,
+    /// Enable monitoring services
+    #[builder(default = true)]
+    pub enable_monitoring: bool,
     /// Toxiproxy image overrides
     #[builder(default)]
     pub toxiproxy: ImageConfig,
     /// ToxiProxy port override
     pub toxiproxy_port: Option<u16>,
+    /// Traefik image overrides
+    #[builder(default)]
+    pub traefik: ImageConfig,
     /// Traefik HTTP host port override
     pub traefik_port: Option<u16>,
+    /// URL scheme for public references ("http" or "https").
+    /// Set to "https" when TLS is terminated at CDN/proxy (e.g. Cloudflare).
+    #[builder(default = "http".to_string())]
+    pub public_scheme: String,
     /// Gateway image overrides
     #[builder(default)]
     pub gateway: ImageConfig,
@@ -94,9 +110,25 @@ pub struct Config {
     /// Grafana image overrides
     #[builder(default)]
     pub grafana: ImageConfig,
-    /// Addressing mode (local or remote/sslip.io)
+    /// Addressing mode (local or remote domain)
     #[builder(default)]
     pub address_mode: AddressMode,
+    /// Extra Traefik routes from TOML config
+    #[builder(default)]
+    pub extra_traefik_routes: Vec<ExtraTraefikRoute>,
+}
+
+/// Validate that `remote_domain` is well-formed if provided.
+pub fn validate_remote_domain(remote_domain: &Option<String>) -> Result<()> {
+    if let Some(domain) = remote_domain {
+        if domain.is_empty() {
+            color_eyre::eyre::bail!("`remote_domain` must not be empty");
+        }
+        if domain.starts_with('.') || domain.ends_with('.') {
+            color_eyre::eyre::bail!("`remote_domain` must not start or end with '.'");
+        }
+    }
+    Ok(())
 }
 
 impl Config {
@@ -112,34 +144,34 @@ impl Config {
             let app = App::parse()?;
             let toml = Self::load_toml(&app.args)?;
             let signers = Self::load_signers();
-            // Resolve address mode: XNET_REMOTE_IP env > --remote CLI flag > TOML remote_ip > Local
-            let address_mode = if let Ok(env_ip) = std::env::var("XNET_REMOTE_IP") {
-                match env_ip.parse::<std::net::IpAddr>() {
-                    Ok(ip) => {
-                        tracing::info!("Remote mode from env XNET_REMOTE_IP: {}", ip);
-                        AddressMode::Remote(ip)
-                    }
-                    Err(_) => {
-                        tracing::error!(
-                            "XNET_REMOTE_IP is not a valid IP: '{}', falling back to local mode",
-                            env_ip
-                        );
-                        AddressMode::Local
-                    }
-                }
-            } else if let Some(ip) = app.args.remote {
-                tracing::info!("Remote mode from --remote flag: {}", ip);
-                AddressMode::Remote(ip)
-            } else if let Some(ip) = toml.xnet.remote_ip {
-                tracing::info!("Remote mode from TOML remote_ip: {}", ip);
-                AddressMode::Remote(ip)
+            // Resolve address mode: env > CLI > TOML
+            let effective_remote_domain = std::env::var("XNET_REMOTE_DOMAIN")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .or(app.args.remote_domain.clone())
+                .or(toml.xnet.remote_domain.clone());
+
+            validate_remote_domain(&effective_remote_domain)?;
+
+            let address_mode = if let Some(domain) = effective_remote_domain {
+                tracing::info!("Remote domain mode: {}", domain);
+                AddressMode::RemoteDomain(domain)
             } else {
                 AddressMode::Local
             };
 
+            // Merge CLI --paused flag with TOML paused setting
+            let cli_paused = matches!(
+                app.args.cmd,
+                Some(crate::config::Commands::Up(crate::config::Up {
+                    paused: true
+                }))
+            );
+            let paused = cli_paused || toml.xnet.paused;
+
             let mut c = Config::builder()
                 .use_standard_ports(toml.xnet.use_standard_ports)
-                .paused(toml.xnet.paused)
+                .paused(paused)
                 .signers(signers)
                 .migration(toml.migration)
                 .xmtpd(toml.xmtpd.image)
@@ -151,12 +183,24 @@ impl Config {
                 .validation(toml.validation)
                 .contracts(toml.contracts)
                 .history(toml.history)
-                .toxiproxy(toml.toxiproxy)
-                .maybe_toxiproxy_port(toml.xnet.toxiproxy_port)
-                .maybe_traefik_port(toml.xnet.traefik_port)
+                .toxiproxy(toml.toxiproxy.image)
+                .maybe_toxiproxy_port(toml.toxiproxy.port)
+                .traefik(toml.traefik.image)
+                .maybe_traefik_port(toml.traefik.port)
+                .public_scheme(
+                    toml.xnet
+                        .public_scheme
+                        .clone()
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| "http".to_string()),
+                )
+                .enable_v3(toml.xnet.enable_v3)
+                .enable_d14n(toml.xnet.enable_d14n)
+                .enable_monitoring(toml.xnet.enable_monitoring)
                 .prometheus(toml.prometheus)
                 .grafana(toml.grafana)
                 .address_mode(address_mode)
+                .extra_traefik_routes(toml.extra_traefik_routes)
                 .build();
 
             // Allow XNET_CUTOVER_TIMESTAMP env var to override the TOML migration_timestamp

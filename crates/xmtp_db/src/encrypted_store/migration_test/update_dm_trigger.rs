@@ -4,14 +4,14 @@ use super::*;
 async fn update_dm_trigger() {
     let db = crate::TestDb::create_database(None).await;
     db.conn()
-        .raw_query_read(|c| {
+        .raw_query(|c| {
             db.validate(c).unwrap();
             Ok(())
         })
         .unwrap();
 
     db.conn()
-        .raw_query_write(|conn| {
+        .raw_query(|conn| {
             for _ in 0..25 {
                 conn.run_next_migration(MIGRATIONS).unwrap();
             }
@@ -30,7 +30,7 @@ async fn update_dm_trigger() {
         .unwrap();
 
     db.conn()
-        .raw_query_write(|conn| {
+        .raw_query(|conn| {
             conn.run_pending_migrations(MIGRATIONS).unwrap();
             Ok(())
         })

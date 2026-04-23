@@ -242,7 +242,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     ) -> Result<Option<RefreshState>, StorageError> {
         use super::schema::refresh_state::dsl;
 
-        let res = self.raw_query_read(|conn| {
+        let res = self.raw_query(|conn| {
             dsl::refresh_state
                 .find((entity_id.as_ref(), entity_kind, originator_id as i32))
                 .first(conn)
@@ -262,7 +262,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         let id_ref = id.as_ref();
 
         let originator_ids_i32: Vec<i32> = originator_ids.iter().map(|o| *o as i32).collect();
-        let found_states: Vec<RefreshState> = self.raw_query_read(|conn| {
+        let found_states: Vec<RefreshState> = self.raw_query(|conn| {
             dsl::refresh_state
                 .filter(dsl::entity_id.eq(id_ref))
                 .filter(dsl::entity_kind.eq(entity_kind))
@@ -319,7 +319,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         // Keep chunks comfortably under SQLite's default 999-bind limit.
         const CHUNK: usize = 900;
 
-        let map = self.raw_query_read(|conn| {
+        let map = self.raw_query(|conn| {
             ids.chunks(CHUNK)
                 .map(|chunk| {
                     let id_refs: Vec<&[u8]> = chunk.iter().map(|id| id.as_ref()).collect();
@@ -368,7 +368,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
             sequence_id: cursor.sequence_id as i64,
             originator_id: cursor.originator_id as i32,
         };
-        let num_updated = self.raw_query_write(|conn| {
+        let num_updated = self.raw_query(|conn| {
             diesel::insert_into(dsl::refresh_state)
                 .values(&state)
                 .on_conflict((dsl::entity_id, dsl::entity_kind, dsl::originator_id))
@@ -409,7 +409,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
 
         let entity_ref = entity_id.as_ref();
 
-        let cursor_map = self.raw_query_read(|conn| {
+        let cursor_map = self.raw_query(|conn| {
             let base_query = dsl::refresh_state
                 .filter(dsl::entity_id.eq(entity_ref))
                 .filter(dsl::entity_kind.eq_any(entities));

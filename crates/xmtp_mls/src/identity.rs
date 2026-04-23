@@ -856,11 +856,19 @@ impl XmtpKeyPackageBuilder {
                     .retain(|e| *e != ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID));
             }
         }
+        // Advertise both `GroupContextExtensions` (required by all groups)
+        // and `AppDataUpdate` (used by the new app-data path) so this client
+        // can join groups that commit AppDataUpdate proposals. Required-vs-
+        // supported is enforced by the group's RequiredCapabilities, not by
+        // this leaf-node list, so advertising more is always safe.
         let capabilities = Capabilities::new(
             None,
             Some(&[CIPHERSUITE]),
             Some(&capability_extensions),
-            Some(&[ProposalType::GroupContextExtensions]),
+            Some(&[
+                ProposalType::GroupContextExtensions,
+                ProposalType::AppDataUpdate,
+            ]),
             None,
         );
 
@@ -1175,6 +1183,39 @@ mod tests {
         let key_package_from_db: Option<KeyPackageBundle> =
             provider.storage().key_package(&pq_hash_ref_inner).unwrap();
         assert!(key_package_from_db.is_none());
+    }
+
+    /// Companion to `test_app_data_update_advertised_but_not_required` in
+    /// `groups/tests/test_proposals.rs`, which covers the group-creator side.
+    ///
+    /// The joiner side: a key package built by `XmtpKeyPackageBuilder` must
+    /// advertise `AppDataUpdate` on its leaf node so this installation can be
+    /// added to groups whose commits inline AppDataUpdate proposals. If this
+    /// regresses, new clients would fail RequiredCapabilities on join into any
+    /// group created by a peer that later requires the capability.
+    #[xmtp_common::test]
+    async fn test_app_data_update_capability_advertised_on_key_package() {
+        use openmls::messages::proposals::ProposalType;
+
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let storage = client.context.mls_storage();
+        let provider = XmtpOpenMlsProviderRef::new(storage);
+
+        let kp = client
+            .identity()
+            .new_key_package(&provider, false)
+            .unwrap()
+            .key_package;
+        let proposals = kp.leaf_node().capabilities().proposals();
+
+        assert!(
+            proposals.contains(&ProposalType::AppDataUpdate),
+            "key package must advertise AppDataUpdate, got: {proposals:?}",
+        );
+        assert!(
+            proposals.contains(&ProposalType::GroupContextExtensions),
+            "key package must still advertise GroupContextExtensions, got: {proposals:?}",
+        );
     }
 
     #[test]

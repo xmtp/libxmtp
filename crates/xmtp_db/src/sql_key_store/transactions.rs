@@ -21,16 +21,7 @@ impl<'a> MutableTransactionConnection<'a> {
 }
 
 impl<'a> ConnectionExt for MutableTransactionConnection<'a> {
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
-        let mut conn = self.conn.try_lock().expect("Lock is held somewhere else");
-        fun(&mut conn).map_err(crate::ConnectionError::from)
-    }
-
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
@@ -85,7 +76,7 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
         //      transaction starts. Otherwise, we still run into problem #2, even if BUSY_TIMEOUT is
         //      set.
 
-        conn.raw_query_write(|c| Ok(c.immediate_transaction(|sqlite_c| f(sqlite_c))))?
+        conn.raw_query(|c| Ok(c.immediate_transaction(|sqlite_c| f(sqlite_c))))?
     }
 
     fn savepoint<T, E, F>(&self, f: F) -> Result<T, E>
@@ -94,7 +85,7 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
         self.conn
-            .raw_query_write(|c| Ok(c.transaction(|sqlite_c| f(sqlite_c))))?
+            .raw_query(|c| Ok(c.transaction(|sqlite_c| f(sqlite_c))))?
     }
 
     fn read<V: Entity<CURRENT_VERSION>>(
@@ -133,7 +124,7 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
     #[cfg(feature = "test-utils")]
     fn hash_all(&self) -> Result<Vec<u8>, SqlKeyStoreError> {
         self.conn
-            .raw_query_read(OpenMlsKeyValue::hash_all)
+            .raw_query(OpenMlsKeyValue::hash_all)
             .map_err(Into::into)
     }
 }

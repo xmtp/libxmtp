@@ -412,16 +412,7 @@ impl EphemeralDbConnection {
 }
 
 impl ConnectionExt for EphemeralDbConnection {
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
-        let mut conn = self.conn.lock();
-        fun(&mut conn).map_err(ConnectionError::from)
-    }
-
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
@@ -497,7 +488,7 @@ impl NativeDbConnection {
 
 impl ConnectionExt for NativeDbConnection {
     #[tracing::instrument(level = "trace", skip_all)]
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
@@ -505,27 +496,6 @@ impl ConnectionExt for NativeDbConnection {
         if let Some(pool) = &*self.pool.load() {
             tracing::trace!(
                 "pulling connection from pool, idle={}, total={}",
-                pool.state().idle_connections,
-                pool.state().connections
-            );
-            let mut conn = pool.get()?;
-            fun(&mut conn).map_err(ConnectionError::from)
-        } else {
-            Err(ConnectionError::from(
-                PlatformStorageError::PoolNeedsConnection,
-            ))
-        }
-    }
-
-    #[tracing::instrument(level = "trace", skip_all)]
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
-        if let Some(pool) = &*self.pool.load() {
-            tracing::trace!(
-                "pulling connection from pool for write, idle={}, total={}",
                 pool.state().idle_connections,
                 pool.state().connections
             );

@@ -135,7 +135,7 @@ impl<C: ConnectionExt> QueryAssociationStateCache for DbConnection<C> {
             );
 
         let association_states =
-            self.raw_query_read(|query_conn| query.load::<StoredAssociationState>(query_conn))?;
+            self.raw_query(|query_conn| query.load::<StoredAssociationState>(query_conn))?;
 
         association_states
             .into_iter()

@@ -49,6 +49,9 @@ xmtp_api_grpc.workspace = true
 xmtp_common.workspace = true
 xmtp_proto.workspace = true
 
+[dev-dependencies]
+tempfile = "3"
+
 [build-dependencies]
 vergen-gix = { workspace = true, features = ["build"] }
 
