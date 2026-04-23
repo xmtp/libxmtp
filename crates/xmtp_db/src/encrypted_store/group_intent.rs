@@ -45,6 +45,15 @@ pub enum IntentKind {
     ProposeMemberUpdate = 8,
     ProposeGroupContextExtensions = 9,
     CommitPendingProposals = 10,
+    /// One-time bootstrap commit that flips a group from the legacy
+    /// GroupContextExtensions-backed metadata layout onto the AppData
+    /// dictionary. Distinct from [`Self::ProposeGroupContextExtensions`]
+    /// because the payload shape is different (it bundles a GCE proposal
+    /// with a fan-out of `AppDataUpdate` proposals) and because the
+    /// dispatch path in `mls_sync` needs an explicit marker rather than
+    /// sniffing the extension-set shape.
+    #[doc(alias = "AppData migration")]
+    BootstrapMigration = 11,
 }
 
 impl std::fmt::Display for IntentKind {
@@ -60,6 +69,7 @@ impl std::fmt::Display for IntentKind {
             IntentKind::ProposeMemberUpdate => "ProposeMemberUpdate",
             IntentKind::ProposeGroupContextExtensions => "ProposeGroupContextExtensions",
             IntentKind::CommitPendingProposals => "CommitPendingProposals",
+            IntentKind::BootstrapMigration => "BootstrapMigration",
         };
         write!(f, "{}", description)
     }
@@ -634,7 +644,8 @@ where
             8 => Ok(IntentKind::ProposeMemberUpdate),
             9 => Ok(IntentKind::ProposeGroupContextExtensions),
             10 => Ok(IntentKind::CommitPendingProposals),
-            x => Err(format!("Unrecognized variant {}", x).into()),
+            11 => Ok(IntentKind::BootstrapMigration),
+            x => Err(format!("Unrecognized IntentKind variant {}", x).into()),
         }
     }
 }
@@ -1084,6 +1095,31 @@ pub(crate) mod tests {
             assert_eq!(dep2.cursor.sequence_id, 100);
             assert_eq!(dep2.cursor.originator_id, 42);
             assert_eq!(dep2.group_id.as_ref(), &group_id);
+        })
+    }
+
+    #[xmtp_common::test]
+    fn bootstrap_migration_intent_round_trips_through_sql() {
+        // Exercises both the i32 → IntentKind::BootstrapMigration arm
+        // and the Display impl. Cheap coverage for the new variant
+        // that would otherwise sit dead until end-to-end migration tests.
+        let group_id = rand_vec::<24>();
+        let data = rand_vec::<24>();
+        let kind = IntentKind::BootstrapMigration;
+        let to_insert =
+            NewGroupIntent::new_test(kind, group_id.clone(), data.clone(), IntentState::ToPublish);
+
+        with_connection(|conn| {
+            insert_group(conn, group_id.clone());
+            to_insert.store(conn).unwrap();
+
+            let results = conn
+                .find_group_intents(group_id.clone(), Some(vec![IntentState::ToPublish]), None)
+                .unwrap();
+
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].kind, IntentKind::BootstrapMigration);
+            assert_eq!(format!("{}", results[0].kind), "BootstrapMigration");
         })
     }
 }
