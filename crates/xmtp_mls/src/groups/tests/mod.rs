@@ -14,6 +14,7 @@ mod test_network;
 mod test_prepare_message_for_later_publish;
 mod test_proposals;
 mod test_send_message_opts;
+mod test_validate_app_data_update;
 mod test_welcome_pointers;
 mod test_welcomes;
 
