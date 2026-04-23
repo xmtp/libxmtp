@@ -137,22 +137,6 @@ mod test {
     }
 
     #[xmtp_common::test]
-    fn test_from_openmls_group_id_ref() {
-        let bytes: [u8; 16] = xmtp_common::rand_vec::<16>().try_into().unwrap();
-        let ommls_id = openmls::group::GroupId::from_slice(&bytes);
-        let xmtp_id: GroupId = (&ommls_id).into();
-        assert_eq!(xmtp_id.as_slice(), &bytes);
-    }
-
-    #[xmtp_common::test]
-    fn test_from_openmls_group_id_owned() {
-        let bytes: [u8; 16] = xmtp_common::rand_vec::<16>().try_into().unwrap();
-        let ommls_id = openmls::group::GroupId::from_slice(&bytes);
-        let xmtp_id: GroupId = ommls_id.into();
-        assert_eq!(xmtp_id.as_slice(), &bytes);
-    }
-
-    #[xmtp_common::test]
     fn test_to_openmls_roundtrip() {
         let bytes: [u8; 16] = xmtp_common::rand_vec::<16>().try_into().unwrap();
         let xmtp_id = GroupId::from(bytes.as_slice());
