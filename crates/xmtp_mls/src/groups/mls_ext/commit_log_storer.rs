@@ -5,7 +5,6 @@ use crate::identity::Identity;
 use openmls::group::{MlsGroup, MlsGroupCreateConfig, StagedCommit};
 use openmls::prelude::CredentialWithKey;
 use openmls::prelude::GroupEpoch;
-use openmls::prelude::GroupId;
 use openmls::prelude::StagedWelcome;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::{
@@ -14,6 +13,7 @@ use xmtp_db::{
     prelude::*,
     remote_commit_log::CommitResult,
 };
+use xmtp_proto::types::GroupId;
 
 /// This trait wraps openmls groups to include commit logs for any mutations to encryption state.
 /// This helps with fork detection.
@@ -104,7 +104,7 @@ impl CommitLogStorer for MlsGroup {
             provider,
             &identity.installation_keys,
             group_config,
-            group_id,
+            group_id.to_openmls(),
             CredentialWithKey {
                 credential: identity.credential(),
                 signature_key: identity.installation_keys.public_slice().into(),

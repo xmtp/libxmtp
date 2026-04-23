@@ -54,7 +54,9 @@ use openmls::{
     },
     group::{GroupContext, MlsGroupCreateConfig},
     messages::proposals::ProposalType,
-    prelude::{Capabilities, GroupId, MlsGroup as OpenMlsGroup, WireFormatPolicy},
+    prelude::{
+        Capabilities, GroupId as OpenMlsGroupId, MlsGroup as OpenMlsGroup, WireFormatPolicy,
+    },
 };
 use prost::Message;
 use std::collections::HashMap;
@@ -108,7 +110,7 @@ use xmtp_mls_common::{
 };
 use xmtp_proto::xmtp::mls::message_contents::content_types::{DeleteMessage, LeaveRequest};
 use xmtp_proto::{
-    types::Cursor,
+    types::{Cursor, GroupId},
     xmtp::mls::message_contents::{
         EncodedContent, OneshotMessage, PlaintextEnvelope,
         content_types::ReactionV2,
@@ -368,7 +370,7 @@ where
         // Acquire the lock synchronously using blocking_lock
         let _lock = self.mls_commit_lock.get_lock_sync(group_id.clone());
         // Load the MLS group
-        let mls_group = OpenMlsGroup::load(storage, &GroupId::from_slice(&self.group_id))
+        let mls_group = OpenMlsGroup::load(storage, &OpenMlsGroupId::from_slice(&self.group_id))
             .map_err(|_| NotFound::MlsGroup)?
             .ok_or(NotFound::MlsGroup)?;
 
@@ -393,10 +395,10 @@ where
         let _lock = self.mls_commit_lock.get_lock_async(group_id.clone()).await;
 
         // Load the MLS group
-        let mls_group = OpenMlsGroup::load(mls_storage, &GroupId::from_slice(&self.group_id))?
-            .ok_or(StorageError::from(NotFound::GroupById(
-                self.group_id.to_vec(),
-            )))?;
+        let mls_group =
+            OpenMlsGroup::load(mls_storage, &OpenMlsGroupId::from_slice(&self.group_id))?.ok_or(
+                StorageError::from(NotFound::GroupById(self.group_id.to_vec())),
+            )?;
 
         // Perform the operation with the MLS group
         operation(mls_group).await
@@ -650,7 +652,7 @@ where
                 &provider,
                 context.identity(),
                 &group_config,
-                GroupId::from_slice(existing_group_id),
+                GroupId::from(existing_group_id),
             )?
         } else {
             OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?
@@ -713,7 +715,7 @@ where
                 &provider,
                 context.identity(),
                 &group_config,
-                GroupId::from_slice(group_id),
+                GroupId::from(group_id),
             )?
         } else {
             OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?

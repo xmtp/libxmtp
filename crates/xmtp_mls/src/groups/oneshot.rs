@@ -1,6 +1,5 @@
 use super::{GroupError, MlsGroup, PreconfiguredPolicies};
 use crate::context::XmtpSharedContext;
-use openmls::group::GroupId;
 use xmtp_common::snippet::Snippet;
 use xmtp_db::{
     MlsProviderExt, XmtpMlsStorageProvider,
@@ -11,7 +10,7 @@ use xmtp_db::{
 use xmtp_id::AsIdRef;
 use xmtp_mls_common::{group::GroupMetadataOptions, group_metadata::GroupMetadata};
 use xmtp_proto::{
-    types::Cursor,
+    types::{Cursor, GroupId},
     xmtp::mls::message_contents::{OneshotMessage, oneshot_message},
 };
 
@@ -134,9 +133,10 @@ impl Oneshot {
             return Ok(false);
         }
         // Fetch the OpenMLS group without locking; consistency is not important here, and we are not writing to it
-        let Ok(Some(openmls_group)) =
-            openmls::group::MlsGroup::load(storage, &GroupId::from_slice(group_id))
-        else {
+        let Ok(Some(openmls_group)) = openmls::group::MlsGroup::load(
+            storage,
+            &GroupId::from(group_id.as_slice()).to_openmls(),
+        ) else {
             tracing::warn!(
                 group_id = group_id.snippet(),
                 "Unable to load OpenMLS group for readd request"

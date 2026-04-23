@@ -1,10 +1,11 @@
 use super::*;
-use openmls::group::{GroupId, MlsGroup};
+use openmls::group::MlsGroup;
 use xmtp_db::group::{GroupQueryArgs, StoredGroup};
 use xmtp_db::sql_key_store::SqlKeyStore;
 use xmtp_mls_common::{
     group_metadata::GroupMetadata, group_mutable_metadata::GroupMutableMetadata,
 };
+use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::device_sync::{
     backup_element::Element,
     group_backup::{
@@ -42,8 +43,8 @@ impl BackupRecordProvider for GroupSave {
                 if record.conversation_type.is_virtual() {
                     return None;
                 }
-                let mls_group =
-                    MlsGroup::load(&storage, &GroupId::from_slice(&record.id)).ok()??;
+                let group_id = GroupId::from(record.id.as_slice());
+                let mls_group = MlsGroup::load(&storage, &group_id.to_openmls()).ok()??;
                 let immutable = mls_group.extensions().immutable_metadata()?;
 
                 let immutable_metadata = GroupMetadata::try_from(immutable.metadata()).ok()?;
