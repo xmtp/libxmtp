@@ -45,4 +45,12 @@ mod tests {
         assert_eq!(short_hex.len(), SHORT_LEN * 2);
         assert_eq!(hex[..short_hex.len()], short_hex);
     }
+
+    #[test]
+    fn test_short_hex_group_id() {
+        let hex = "5bf078bd83995fe83092d93c5655f059";
+        let bytes = hex::decode(hex).unwrap();
+        let group_id = GroupId::from(bytes);
+        assert_eq!(group_id.short_hex(), &hex[..SHORT_LEN * 2]);
+    }
 }
