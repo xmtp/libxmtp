@@ -112,6 +112,13 @@ pub enum CommitValidationError {
     /// (which would let a permissive validator state slip in).
     #[error(transparent)]
     ComponentSource(#[from] super::app_data::component_source::ComponentSourceError),
+
+    /// All bootstrap-commit-validator failures. The bootstrap path runs
+    /// only during the one-time AppData migration; isolating its many
+    /// failure modes in a sub-enum keeps the steady-state validator's
+    /// surface from being dominated by migration-specific noise.
+    #[error(transparent)]
+    Bootstrap(#[from] super::app_data::bootstrap_validator::BootstrapValidationError),
 }
 
 impl RetryableError for CommitValidationError {
@@ -338,17 +345,48 @@ pub struct ValidatedCommit {
     pub dm_members: Option<DmMembers<String>>,
 }
 
+/// Reject any commit that carries a `PreSharedKey` proposal.
+///
+/// Called from both the steady-state and bootstrap commit-validation
+/// paths so the rejection rule lives in one place — drift between the
+/// two paths is a security risk (a steady-state tightening that misses
+/// the bootstrap path would let a sender smuggle a PSK proposal through
+/// a bootstrap-shaped commit).
+fn reject_psk_proposals(staged_commit: &StagedCommit) -> Result<(), CommitValidationError> {
+    if staged_commit.psk_proposals().any(|_| true) {
+        return Err(CommitValidationError::NoPSKSupport);
+    }
+    Ok(())
+}
+
 impl ValidatedCommit {
     pub async fn from_staged_commit(
         context: &impl XmtpSharedContext,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
     ) -> Result<Self, CommitValidationError> {
-        let conn = context.db();
-        // Get the immutable and mutable metadata
         let extensions = openmls_group.extensions();
         let immutable_metadata: GroupMetadata = extensions.try_into()?;
         let mutable_metadata: GroupMutableMetadata = extensions.try_into()?;
+
+        // Bootstrap detection MUST run before the steady-state
+        // extractors below — bootstrap commits strip MUTABLE_METADATA,
+        // GROUP_PERMISSIONS, and GROUP_MEMBERSHIP from
+        // `new_group_extensions`, so `extract_metadata_changes` /
+        // `extract_permissions_changed` / membership-diff would all
+        // surface MissingExtension errors before bootstrap-specific
+        // validation could ever run. The pre-flip extensions still
+        // carry the legacy set, so the metadata reads above are safe.
+        if super::app_data::bootstrap_validator::is_bootstrap_commit(staged_commit, extensions) {
+            return Self::validate_bootstrap_and_build(
+                staged_commit,
+                openmls_group,
+                immutable_metadata,
+                mutable_metadata,
+            );
+        }
+
+        let conn = context.db();
         let group_permissions: GroupMutablePermissions = extensions.try_into()?;
         let current_group_members = get_current_group_members(openmls_group);
 
@@ -412,16 +450,16 @@ impl ValidatedCommit {
             &mutable_metadata,
         )?;
 
-        // Block any psk proposals
-        if staged_commit.psk_proposals().any(|_| true) {
-            return Err(CommitValidationError::NoPSKSupport);
-        }
+        reject_psk_proposals(staged_commit)?;
 
         // AppDataUpdate proposals carried by a commit (inline OR by
         // reference, since `staged_commit.app_data_update_proposals()`
-        // iterates both) never flow through `validate_proposal()` — that
-        // path only handles standalone proposal-by-reference messages —
-        // so this is where their permission check lives.
+        // iterates both) never flow through `validate_proposal()` —
+        // that path only handles standalone proposal-by-reference
+        // messages — so this is where their permission check lives.
+        // Bootstrap commits are routed earlier in this function and
+        // never reach this path; their dispatch is via
+        // `validate_bootstrap_and_build`.
         validate_app_data_update_proposals_in_commit(
             staged_commit,
             openmls_group,
@@ -589,6 +627,59 @@ impl ValidatedCommit {
     pub fn actor_installation_id(&self) -> Vec<u8> {
         self.actor.installation_id.clone()
     }
+
+    /// Build a `ValidatedCommit` for the one-time AppData-migration
+    /// bootstrap commit.
+    ///
+    /// Bootstrap commits don't add or remove members, don't change the
+    /// per-inbox sequence ids, and don't change the legacy permissions
+    /// (their state is migrated to the AppData dictionary, not
+    /// modified). They're validated against the receiver-derived
+    /// canonical subset and a super-admin proposer requirement; the
+    /// resulting `ValidatedCommit` reports "no diff" on every
+    /// steady-state field so downstream policy evaluation and
+    /// installation-diff checks see a no-op.
+    fn validate_bootstrap_and_build(
+        staged_commit: &StagedCommit,
+        openmls_group: &OpenMlsGroup,
+        immutable_metadata: GroupMetadata,
+        mutable_metadata: GroupMutableMetadata,
+    ) -> Result<Self, CommitValidationError> {
+        reject_psk_proposals(staged_commit)?;
+
+        let (actor, proposers) = extract_committer_and_proposers(
+            staged_commit,
+            openmls_group,
+            &immutable_metadata,
+            &mutable_metadata,
+        )?;
+
+        let gce_proposer = super::app_data::bootstrap_validator::extract_gce_proposer(
+            staged_commit,
+            openmls_group,
+            &immutable_metadata,
+            &mutable_metadata,
+        )?
+        .ok_or(CommitValidationError::ProposerNotFound)?;
+
+        super::app_data::bootstrap_validator::validate_bootstrap_commit(
+            staged_commit,
+            openmls_group,
+            &gce_proposer,
+        )?;
+
+        Ok(Self {
+            actor,
+            proposers,
+            added_inboxes: Vec::new(),
+            removed_inboxes: Vec::new(),
+            readded_installations: HashSet::new(),
+            metadata_validation_info: MutableMetadataValidationInfo::default(),
+            installations_changed: false,
+            permissions_changed: false,
+            dm_members: immutable_metadata.dm_members,
+        })
+    }
 }
 
 impl From<ValidatedCommit> for GroupMembershipChanges {
@@ -745,10 +836,7 @@ impl ExpectedDiff {
         let immutable_metadata: GroupMetadata = extensions.try_into()?;
         let mutable_metadata: GroupMutableMetadata = extensions.try_into()?;
 
-        // Block any psk proposals
-        if staged_commit.psk_proposals().any(|_| true) {
-            return Err(CommitValidationError::NoPSKSupport);
-        }
+        reject_psk_proposals(staged_commit)?;
 
         let expected_diff = Self::extract_expected_diff_with_proposers(
             context,
@@ -1183,7 +1271,7 @@ fn validate_app_data_update_proposals_in_commit(
 }
 
 /// Extracts the [`CommitParticipant`] from the [`LeafNodeIndex`]
-fn extract_commit_participant(
+pub(super) fn extract_commit_participant(
     leaf_index: &LeafNodeIndex,
     group: &OpenMlsGroup,
     immutable_metadata: &GroupMetadata,
