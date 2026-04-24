@@ -116,7 +116,7 @@ mock! {
     impl QueryDms for DbQuery {
         fn fetch_stitched(
             &self,
-            key: &[u8],
+            key: &xmtp_proto::types::GroupId,
         ) -> Result<Option<crate::group::StoredGroup>, ConnectionError>;
 
         #[mockall::concretize]
@@ -127,7 +127,7 @@ mock! {
         where
             M: std::fmt::Display;
 
-        fn other_dms(&self, group_id: &[u8])
+        fn other_dms(&self, group_id: &xmtp_proto::types::GroupId)
         -> Result<Vec<crate::group::StoredGroup>, ConnectionError>;
     }
 

@@ -766,7 +766,7 @@ where
     ///
     pub fn stitched_group(&self, group_id: &[u8]) -> Result<MlsGroup<Context>, ClientError> {
         let conn = self.context.db();
-        let stored_group = conn.fetch_stitched(group_id)?;
+        let stored_group = conn.fetch_stitched(&xmtp_proto::types::GroupId::from(group_id))?;
         stored_group
             .map(|g| {
                 MlsGroup::new(

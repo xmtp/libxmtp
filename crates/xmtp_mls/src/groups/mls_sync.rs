@@ -359,7 +359,9 @@ where
         );
 
         // Also sync the "stitched DMs", if any...
-        for other_dm in conn.other_dms(&self.group_id)? {
+        for other_dm in
+            conn.other_dms(&xmtp_proto::types::GroupId::from(self.group_id.as_slice()))?
+        {
             let other_dm = Self::new_from_arc(
                 self.context.clone(),
                 other_dm.id,
