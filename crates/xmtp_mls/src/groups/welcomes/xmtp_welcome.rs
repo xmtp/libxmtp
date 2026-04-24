@@ -38,6 +38,7 @@ use xmtp_mls_common::{
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, GroupUpdated, group_updated::Inbox};
 
+use xmtp_proto::types::GroupId;
 /// Create a group from a decrypted and decoded welcome message.
 /// If the group already exists in the store, overwrite the MLS state and do not update the group entry
 ///
@@ -209,7 +210,7 @@ where
         // try to load the group this welcome represents
         // defensive to avoid race conditions & duplicates
         if db
-            .find_group(&xmtp_proto::types::GroupId::from(group_id.as_slice()))?
+            .find_group(&GroupId::from(group_id.as_slice()))?
             .is_some()
         {
             // Fetch the original MLS group, rather than the one from the welcome
@@ -338,8 +339,7 @@ where
 
         // Extract group_id before consuming staged_welcome
         let group_id = staged_welcome.public_group().group_id().to_vec();
-        let existing_group =
-            db.find_group(&xmtp_proto::types::GroupId::from(group_id.as_slice()))?;
+        let existing_group = db.find_group(&GroupId::from(group_id.as_slice()))?;
 
         // Check if this is a re-add scenario:
         // - Self-removal (PendingRemove): user left voluntarily, then gets re-added

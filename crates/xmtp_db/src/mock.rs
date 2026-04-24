@@ -7,7 +7,7 @@ use crate::local_commit_log::{LocalCommitLog, LocalCommitLogOrder};
 use crate::remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder};
 use std::collections::HashMap;
 use std::sync::Arc;
-use xmtp_proto::types::{Cursor, GlobalCursor, OrphanedEnvelope};
+use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, OrphanedEnvelope};
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
 use crate::SqliteConnection;
@@ -116,7 +116,7 @@ mock! {
     impl QueryDms for DbQuery {
         fn fetch_stitched(
             &self,
-            key: &xmtp_proto::types::GroupId,
+            key: &GroupId,
         ) -> Result<Option<crate::group::StoredGroup>, ConnectionError>;
 
         #[mockall::concretize]
@@ -127,7 +127,7 @@ mock! {
         where
             M: std::fmt::Display;
 
-        fn other_dms(&self, group_id: &xmtp_proto::types::GroupId)
+        fn other_dms(&self, group_id: &GroupId)
         -> Result<Vec<crate::group::StoredGroup>, ConnectionError>;
     }
 
@@ -146,9 +146,9 @@ mock! {
         ) -> Result<Vec<crate::group::StoredGroup>, crate::ConnectionError>;
 
         #[mockall::concretize]
-        fn update_group_membership<GroupId: AsRef<[u8]>>(
+        fn update_group_membership<Id: AsRef<[u8]>>(
             &self,
-            group_id: GroupId,
+            group_id: Id,
             state: crate::group::GroupMembershipState,
         ) -> Result<(), crate::ConnectionError>;
 
@@ -156,7 +156,7 @@ mock! {
 
         fn find_sync_group(
             &self,
-            id: &xmtp_proto::types::GroupId,
+            id: &GroupId,
         ) -> Result<Option<crate::group::StoredGroup>, crate::ConnectionError>;
 
         fn primary_sync_group(
@@ -165,7 +165,7 @@ mock! {
 
         fn find_group(
             &self,
-            id: &xmtp_proto::types::GroupId,
+            id: &GroupId,
         ) -> Result<Option<crate::group::StoredGroup>, crate::ConnectionError>;
 
         fn find_group_by_sequence_id(
@@ -173,23 +173,23 @@ mock! {
             cursor: Cursor,
         ) -> Result<Option<crate::group::StoredGroup>, crate::ConnectionError>;
 
-        fn get_rotated_at_ns(&self, group_id: xmtp_proto::types::GroupId) -> Result<i64, StorageError>;
+        fn get_rotated_at_ns(&self, group_id: GroupId) -> Result<i64, StorageError>;
 
-        fn update_rotated_at_ns(&self, group_id: xmtp_proto::types::GroupId) -> Result<(), StorageError>;
+        fn update_rotated_at_ns(&self, group_id: GroupId) -> Result<(), StorageError>;
 
-        fn get_installations_time_checked(&self, group_id: xmtp_proto::types::GroupId) -> Result<i64, StorageError>;
+        fn get_installations_time_checked(&self, group_id: GroupId) -> Result<i64, StorageError>;
 
-        fn update_installations_time_checked(&self, group_id: xmtp_proto::types::GroupId) -> Result<(), StorageError>;
+        fn update_installations_time_checked(&self, group_id: GroupId) -> Result<(), StorageError>;
 
         fn update_message_disappearing_from_ns(
             &self,
-            group_id: xmtp_proto::types::GroupId,
+            group_id: GroupId,
             from_ns: Option<i64>,
         ) -> Result<(), StorageError>;
 
         fn update_message_disappearing_in_ns(
             &self,
-            group_id: xmtp_proto::types::GroupId,
+            group_id: GroupId,
             in_ns: Option<i64>,
         ) -> Result<(), StorageError>;
 
@@ -202,13 +202,13 @@ mock! {
 
         fn mark_group_as_maybe_forked(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             fork_details: String,
         ) -> Result<(), StorageError>;
 
-        fn clear_fork_flag_for_group(&self, group_id: &xmtp_proto::types::GroupId) -> Result<(), crate::ConnectionError>;
+        fn clear_fork_flag_for_group(&self, group_id: &GroupId) -> Result<(), crate::ConnectionError>;
 
-        fn has_duplicate_dm(&self, group_id: &xmtp_proto::types::GroupId) -> Result<bool, crate::ConnectionError>;
+        fn has_duplicate_dm(&self, group_id: &GroupId) -> Result<bool, crate::ConnectionError>;
 
         fn get_conversation_ids_for_remote_log_publish(&self) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
 
@@ -226,28 +226,28 @@ mock! {
             &self,
         ) -> Result<Vec<crate::encrypted_store::group::StoredGroupForRespondingReadds>, crate::ConnectionError>;
 
-        fn get_conversation_type(&self, group_id: &xmtp_proto::types::GroupId) -> Result<ConversationType, crate::ConnectionError>;
+        fn get_conversation_type(&self, group_id: &GroupId) -> Result<ConversationType, crate::ConnectionError>;
 
         fn set_group_commit_log_public_key(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             public_key: &[u8],
         ) -> Result<(), StorageError>;
 
         fn set_group_commit_log_forked_status(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             is_forked: Option<bool>,
         ) -> Result<(), StorageError>;
 
         fn get_group_commit_log_forked_status(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
         ) -> Result<Option<bool>, StorageError>;
 
         fn set_group_has_pending_leave_request_status(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             has_pending_leave_request: Option<bool>,
         ) -> Result<(), StorageError>;
             fn get_groups_have_pending_leave_request(
@@ -256,11 +256,11 @@ mock! {
     }
 
     impl QueryGroupVersion for DbQuery {
-        fn set_group_paused(&self, group_id: &xmtp_proto::types::GroupId, min_version: &str) -> Result<(), StorageError>;
+        fn set_group_paused(&self, group_id: &GroupId, min_version: &str) -> Result<(), StorageError>;
 
-        fn unpause_group(&self, group_id: &xmtp_proto::types::GroupId) -> Result<(), StorageError>;
+        fn unpause_group(&self, group_id: &GroupId) -> Result<(), StorageError>;
 
-        fn get_group_paused_version(&self, group_id: &xmtp_proto::types::GroupId) -> Result<Option<String>, StorageError>;
+        fn get_group_paused_version(&self, group_id: &GroupId) -> Result<Option<String>, StorageError>;
     }
 
     impl QueryGroupIntent for DbQuery {
@@ -333,45 +333,45 @@ mock! {
     impl QueryReaddStatus for DbQuery {
         fn get_readd_status(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             installation_id: &[u8],
         ) -> Result<Option<crate::readd_status::ReaddStatus>, crate::ConnectionError>;
 
         fn is_awaiting_readd(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             installation_id: &[u8],
         ) -> Result<bool, crate::ConnectionError>;
 
         fn update_requested_at_sequence_id(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             installation_id: &[u8],
             sequence_id: i64,
         ) -> Result<(), crate::ConnectionError>;
 
         fn update_responded_at_sequence_id(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             installation_id: &[u8],
             sequence_id: i64,
         ) -> Result<(), crate::ConnectionError>;
 
         fn delete_other_readd_statuses(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             self_installation_id: &[u8],
         ) -> Result<(), crate::ConnectionError>;
 
         fn delete_readd_statuses(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             installation_ids: std::collections::HashSet<Vec<u8> > ,
         ) -> Result<(), crate::ConnectionError>;
 
         fn get_readds_awaiting_response(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             self_installation_id: &[u8],
         ) -> Result<Vec<crate::readd_status::ReaddStatus>, crate::ConnectionError>;
     }
@@ -379,13 +379,13 @@ mock! {
     impl QueryGroupMessage for DbQuery {
         fn get_group_messages(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             args: &crate::group_message::MsgQueryArgs,
         ) -> Result<Vec<crate::group_message::StoredGroupMessage>, crate::ConnectionError>;
 
         fn count_group_messages(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             args: &crate::group_message::MsgQueryArgs,
         ) -> Result<i64, crate::ConnectionError>;
 
@@ -397,26 +397,26 @@ mock! {
 
         fn get_group_messages_with_reactions(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             args: &crate::group_message::MsgQueryArgs,
         ) -> Result<Vec<crate::group_message::StoredGroupMessageWithReactions>, crate::ConnectionError>;
 
         fn get_inbound_relations<'a>(
             &self,
-            group_id: &'a xmtp_proto::types::GroupId,
+            group_id: &'a GroupId,
             message_ids: &'a [&'a [u8]],
             relation_query: crate::group_message::RelationQuery,
         ) -> Result<crate::group_message::InboundRelations, crate::ConnectionError>;
 
         fn get_outbound_relations<'a>(
             &self,
-            group_id: &'a xmtp_proto::types::GroupId,
+            group_id: &'a GroupId,
             message_ids: &'a [&'a [u8]],
         ) -> Result<crate::group_message::OutboundRelations, crate::ConnectionError>;
 
         fn get_inbound_relation_counts<'a>(
             &self,
-            group_id: &'a xmtp_proto::types::GroupId,
+            group_id: &'a GroupId,
             message_ids: &'a [&'a [u8]],
             relation_query: crate::group_message::RelationQuery,
         ) -> Result<crate::group_message::RelationCounts, crate::ConnectionError>;
@@ -652,35 +652,35 @@ mock! {
     impl QueryLocalCommitLog for DbQuery {
         fn get_group_logs(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
         ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
 
         // Local commit log entries are returned sorted in ascending order of `rowid`
         // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
         fn get_local_commit_log_after_cursor(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             after_cursor: i64,
             order_by: LocalCommitLogOrder,
         ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
 
         fn get_latest_log_for_group(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
         ) -> Result<Option<LocalCommitLog>, crate::ConnectionError>;
 
         fn get_local_commit_log_cursor(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
         ) -> Result<Option<i32>, crate::ConnectionError>;
     }
 
     impl QueryRemoteCommitLog for DbQuery {
-        fn get_latest_remote_log_for_group(&self, group_id: &xmtp_proto::types::GroupId) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
+        fn get_latest_remote_log_for_group(&self, group_id: &GroupId) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
 
         fn get_remote_commit_log_after_cursor(
             &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             after_cursor: i64,
             order_by: RemoteCommitLogOrder,
         ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError>;
@@ -742,15 +742,15 @@ mock! {
     impl QueryPendingRemove for DbQuery{
         fn get_pending_remove_users(
         &self,
-        group_id: &xmtp_proto::types::GroupId,
+        group_id: &GroupId,
     ) -> Result<Vec<String>, crate::ConnectionError>;
         fn delete_pending_remove_users(
         &self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             inbox_ids: Vec<String>,
         ) -> Result<usize, crate::ConnectionError>;
              fn get_user_pending_remove_status(&self,
-            group_id: &xmtp_proto::types::GroupId,
+            group_id: &GroupId,
             inbox_id: &str,
         ) -> Result<bool, crate::ConnectionError>;
     }
@@ -826,7 +826,7 @@ mock! {
 
         fn get_group_deletions(
             &self,
-            _group_id: &xmtp_proto::types::GroupId,
+            _group_id: &GroupId,
         ) -> Result<Vec<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
 
         fn is_message_deleted(

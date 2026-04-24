@@ -6,6 +6,7 @@ use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group::StoredGroup;
 use xmtp_db::group_message::MsgQueryArgs;
 
+use xmtp_proto::types::GroupId;
 impl<Context> Client<Context>
 where
     Context: XmtpSharedContext,
@@ -28,7 +29,7 @@ where
         let mut all_messages = vec![];
         for StoredGroup { id, .. } in groups.into_iter() {
             let messages = provider.db().get_group_messages(
-                &xmtp_proto::types::GroupId::from(id.as_slice()),
+                &GroupId::from(id.as_slice()),
                 &MsgQueryArgs::default(),
             )?;
             for msg in messages {

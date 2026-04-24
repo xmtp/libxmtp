@@ -1,6 +1,6 @@
 use xmtp_api_d14n::protocol::{XmtpEnvelope, XmtpQuery};
 use xmtp_db::prelude::QueryGroupMessage;
-use xmtp_proto::types::{Cursor, TopicKind};
+use xmtp_proto::types::{Cursor, GroupId, TopicKind};
 
 use crate::groups::MlsGroup;
 use crate::utils::test::MlsGroupExt;
@@ -30,7 +30,7 @@ fn message_debug(env: &XmtpEnvelope) -> String {
 
 fn db_message_debug(db: impl QueryGroupMessage, id: &[u8]) -> String {
     db.get_group_messages(
-        &xmtp_proto::types::GroupId::from(id),
+        &GroupId::from(id),
         &Default::default(),
     )
         .unwrap()

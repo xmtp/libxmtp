@@ -15,6 +15,7 @@ use crate::groups::mls_sync::GroupMessageProcessingError;
 use crate::messages::decoded_message::MessageBody;
 use crate::messages::enrichment::enrich_messages;
 
+use xmtp_proto::types::GroupId;
 const BATCH_SIZE: i64 = 100;
 
 pub async fn perform<C>(db: DbConnection<C>)
@@ -59,7 +60,7 @@ where
 
             loop {
                 msgs = db.get_group_messages(
-                    &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                    &GroupId::from(group.id.as_slice()),
                     &MsgQueryArgs {
                         content_types: Some(vec![ContentType::GroupUpdated]),
                         sent_after_ns,

@@ -49,6 +49,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
     OneshotMessage, ReaddRequest, oneshot_message::MessageType,
 };
 
+use xmtp_proto::types::GroupId;
 /// Interval at which the CommitLogWorker runs to publish commit log entries.
 pub const DEFAULT_INTERVAL_DURATION: Duration = Duration::from_secs(60 * 5); // 5 minutes
 
@@ -297,9 +298,7 @@ where
         for conversation in conversation_keys {
             // Step 1: Check each conversation cursors to see if we have new commits that have not been published to remote commit log yet
             let local_commit_log_cursor = conn
-                .get_local_commit_log_cursor(&xmtp_proto::types::GroupId::from(
-                    conversation.id.as_slice(),
-                ))
+                .get_local_commit_log_cursor(&GroupId::from(conversation.id.as_slice()))
                 .ok()
                 .flatten()
                 .unwrap_or(0);
@@ -322,7 +321,7 @@ where
             // All local commit log will have rowid > 0 since sqlite rowid starts at 1 https://www.sqlite.org/autoinc.html
             let (plaintext_commit_log_entries, rowids): (Vec<PlaintextCommitLogEntry>, Vec<i32>) =
                 conn.get_local_commit_log_after_cursor(
-                    &xmtp_proto::types::GroupId::from(conversation.id.as_slice()),
+                    &GroupId::from(conversation.id.as_slice()),
                     published_commit_log_cursor as i64,
                     LocalCommitLogOrder::AscendingByRowid,
                 )?
@@ -468,9 +467,8 @@ where
         // 2. The latest applied epoch number
         // 3. The latest stored sequence id
         if let Some(consensus_public_key) = consensus_public_key {
-            let mut latest_saved_remote_log = conn.get_latest_remote_log_for_group(
-                &xmtp_proto::types::GroupId::from(group_id.as_slice()),
-            )?;
+            let mut latest_saved_remote_log =
+                conn.get_latest_remote_log_for_group(&GroupId::from(group_id.as_slice()))?;
             for commit_log_entry in &commit_log_response.commit_log_entries {
                 let log_entry = match PlaintextCommitLogEntry::decode(
                     commit_log_entry.serialized_commit_log_entry.as_slice(),
@@ -602,7 +600,7 @@ where
                 let is_forked = self.check_conversation_fork_state(&db, &conversation_id)?;
                 // Persist the fork status to the database
                 db.set_group_commit_log_forked_status(
-                    &xmtp_proto::types::GroupId::from(conversation_id.as_slice()),
+                    &GroupId::from(conversation_id.as_slice()),
                     is_forked,
                 )?;
                 Ok::<(), CommitLogError>(())
@@ -635,7 +633,7 @@ where
     ) -> Result<(), CommitLogError> {
         let conn = self.context.db();
         let group_id = group_info.group_id;
-        let group_id_typed = xmtp_proto::types::GroupId::from(group_id.as_slice());
+        let group_id_typed = GroupId::from(group_id.as_slice());
 
         // Check if a readd request has already been sent for this group
         if conn.is_awaiting_readd(&group_id_typed, self.context.installation_id().as_slice())? {
@@ -783,7 +781,7 @@ where
                             e
                         );
                         conn.delete_other_readd_statuses(
-                            &xmtp_proto::types::GroupId::from(group.group_id.as_slice()),
+                            &GroupId::from(group.group_id.as_slice()),
                             self.context.installation_id().as_slice(),
                         )?;
                     }
@@ -839,7 +837,7 @@ where
         }
 
         let readd_statuses = conn.get_readds_awaiting_response(
-            &xmtp_proto::types::GroupId::from(mls_group.group_id.as_slice()),
+            &GroupId::from(mls_group.group_id.as_slice()),
             self.context.installation_id().as_slice(),
         )?;
         let mut unverified = readd_statuses
@@ -865,10 +863,7 @@ where
             unverified.len(),
             verified.len()
         );
-        conn.delete_readd_statuses(
-            &xmtp_proto::types::GroupId::from(mls_group.group_id.as_slice()),
-            unverified,
-        )?;
+        conn.delete_readd_statuses(&GroupId::from(mls_group.group_id.as_slice()), unverified)?;
 
         Ok(verified)
     }
@@ -891,7 +886,7 @@ where
         )?;
 
         // Get local and remote commit logs
-        let conversation_id_typed = xmtp_proto::types::GroupId::from(conversation_id);
+        let conversation_id_typed = GroupId::from(conversation_id);
         let local_logs = conn.get_local_commit_log_after_cursor(
             &conversation_id_typed,
             fork_check_local_cursor.sequence_id as i64,
@@ -1006,9 +1001,8 @@ where
 
         let mut results = HashMap::new();
         for group in all_groups {
-            let fork_status = conn.get_group_commit_log_forked_status(
-                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
-            )?;
+            let fork_status =
+                conn.get_group_commit_log_forked_status(&GroupId::from(group.id.as_slice()))?;
             results.insert(group.id, fork_status);
         }
 

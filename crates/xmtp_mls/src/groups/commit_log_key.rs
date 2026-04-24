@@ -15,6 +15,7 @@ use xmtp_db::{
 use xmtp_proto::xmtp::mls::api::v1::QueryCommitLogResponse;
 use xmtp_proto::xmtp::mls::message_contents::CommitLogEntry as CommitLogEntryProto;
 
+use xmtp_proto::types::GroupId;
 pub(crate) trait CommitLogKeyCrypto {
     type Error: std::error::Error;
     fn generate_commit_log_key(&self) -> Result<Secret, Self::Error>;
@@ -131,7 +132,7 @@ pub(crate) async fn derive_consensus_public_key(
             )
             .await?;
             context.db().set_group_commit_log_public_key(
-                &xmtp_proto::types::GroupId::from(commit_log_response.group_id.as_slice()),
+                &GroupId::from(commit_log_response.group_id.as_slice()),
                 &signature.public_key,
             )?;
             return Ok(Some(signature.public_key.clone()));

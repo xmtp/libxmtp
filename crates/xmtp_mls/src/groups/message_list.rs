@@ -6,6 +6,7 @@ use xmtp_db::DbQuery;
 use xmtp_db::group_message::{ContentType as DbContentType, MsgQueryArgs};
 use xmtp_db::prelude::QueryGroupMessage;
 
+use xmtp_proto::types::GroupId;
 impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
@@ -26,7 +27,7 @@ where
     where
         C: QueryGroupMessage + DbQuery,
     {
-        let group_id_typed = xmtp_proto::types::GroupId::from(self.group_id.as_slice());
+        let group_id_typed = GroupId::from(self.group_id.as_slice());
         let initial_messages = conn.get_group_messages(
             &group_id_typed,
             &filter_out_hidden_message_types_from_query(query),

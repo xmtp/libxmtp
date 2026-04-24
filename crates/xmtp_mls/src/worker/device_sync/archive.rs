@@ -19,6 +19,7 @@ use xmtp_mls_common::group::{DMMetadataOptions, GroupMetadataOptions};
 use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
 
+use xmtp_proto::types::GroupId;
 #[derive(Default)]
 struct ImportContext {
     group_timestamps: HashMap<Vec<u8>, Option<i64>>,
@@ -78,9 +79,8 @@ fn insert(
             context.db().insert_newer_consent_record(consent)?;
         }
         Element::Group(save) => {
-            if let Ok(Some(existing_group)) = context
-                .db()
-                .find_group(&xmtp_proto::types::GroupId::from(save.id.as_slice()))
+            if let Ok(Some(existing_group)) =
+                context.db().find_group(&GroupId::from(save.id.as_slice()))
             {
                 let timestamp = match (existing_group.last_message_ns, save.last_message_ns) {
                     (Some(e), Some(s)) => Some(e.max(s)),
@@ -245,21 +245,15 @@ mod tests {
 
         let alix_timestamp = alix
             .db()
-            .find_group(&xmtp_proto::types::GroupId::from(
-                alix_group.group_id.as_slice(),
-            ))??
+            .find_group(&GroupId::from(alix_group.group_id.as_slice()))??
             .last_message_ns?;
         let alix2_timestamp = alix2
             .db()
-            .find_group(&xmtp_proto::types::GroupId::from(
-                alix_group.group_id.as_slice(),
-            ))??
+            .find_group(&GroupId::from(alix_group.group_id.as_slice()))??
             .last_message_ns?;
         let alix3_timestamp = alix3
             .db()
-            .find_group(&xmtp_proto::types::GroupId::from(
-                alix_group.group_id.as_slice(),
-            ))??
+            .find_group(&GroupId::from(alix_group.group_id.as_slice()))??
             .last_message_ns?;
 
         // Alix2's older timestamp on the existing group should be updated.
@@ -280,9 +274,7 @@ mod tests {
 
         let timestamp = alix
             .db()
-            .find_group(&xmtp_proto::types::GroupId::from(
-                alix_bo_dm.group_id.as_slice(),
-            ))??
+            .find_group(&GroupId::from(alix_bo_dm.group_id.as_slice()))??
             .last_message_ns?;
 
         let key = vec![7; 32];
@@ -321,9 +313,7 @@ mod tests {
 
         let timestamp2 = alix2
             .db()
-            .find_group(&xmtp_proto::types::GroupId::from(
-                alix_bo_dm.group_id.as_slice(),
-            ))??
+            .find_group(&GroupId::from(alix_bo_dm.group_id.as_slice()))??
             .last_message_ns?;
         assert_eq!(timestamp, timestamp2);
 

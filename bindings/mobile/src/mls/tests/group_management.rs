@@ -2,6 +2,7 @@
 
 use super::*;
 
+use xmtp_proto::types::GroupId;
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_create_group_with_members() {
     let amal = Tester::new().await;
@@ -792,9 +793,7 @@ async fn test_disappearing_messages_deletion() {
         .inner_client
         .context
         .db()
-        .find_group(&xmtp_proto::types::GroupId::from(
-            alix_group.id().as_slice(),
-        ))
+        .find_group(&GroupId::from(alix_group.id().as_slice()))
         .unwrap();
     assert_eq!(
         group_from_db
@@ -822,9 +821,7 @@ async fn test_disappearing_messages_deletion() {
     let bola_group_from_db = bola_provider
         .key_store()
         .db()
-        .find_group(&xmtp_proto::types::GroupId::from(
-            alix_group.id().as_slice(),
-        ))
+        .find_group(&GroupId::from(alix_group.id().as_slice()))
         .unwrap();
     assert_eq!(
         bola_group_from_db
@@ -891,9 +888,7 @@ async fn test_disappearing_messages_deletion() {
     let group_from_db = alix_provider
         .key_store()
         .db()
-        .find_group(&xmtp_proto::types::GroupId::from(
-            alix_group.id().as_slice(),
-        ))
+        .find_group(&GroupId::from(alix_group.id().as_slice()))
         .unwrap();
     assert_eq!(
         group_from_db
@@ -986,9 +981,7 @@ async fn test_disappearing_messages_with_0_from_ns_settings() {
         .inner_client
         .context
         .db()
-        .find_group(&xmtp_proto::types::GroupId::from(
-            alix_group.id().as_slice(),
-        ))
+        .find_group(&GroupId::from(alix_group.id().as_slice()))
         .unwrap();
     assert_eq!(
         group_from_db
@@ -1016,9 +1009,7 @@ async fn test_disappearing_messages_with_0_from_ns_settings() {
     let bola_group_from_db = bola_provider
         .key_store()
         .db()
-        .find_group(&xmtp_proto::types::GroupId::from(
-            alix_group.id().as_slice(),
-        ))
+        .find_group(&GroupId::from(alix_group.id().as_slice()))
         .unwrap();
     assert_eq!(
         bola_group_from_db
@@ -1068,9 +1059,7 @@ async fn test_disappearing_messages_with_0_from_ns_settings() {
     let group_from_db = alix_provider
         .key_store()
         .db()
-        .find_group(&xmtp_proto::types::GroupId::from(
-            alix_group.id().as_slice(),
-        ))
+        .find_group(&GroupId::from(alix_group.id().as_slice()))
         .unwrap();
     assert_eq!(
         group_from_db
@@ -1150,9 +1139,7 @@ async fn test_set_disappearing_messages_when_creating_group() {
     let group_from_db = alix_provider
         .key_store()
         .db()
-        .find_group(&xmtp_proto::types::GroupId::from(
-            alix_group.id().as_slice(),
-        ))
+        .find_group(&GroupId::from(alix_group.id().as_slice()))
         .unwrap();
     assert_eq!(
         group_from_db

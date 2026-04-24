@@ -65,6 +65,7 @@ use xmtp_proto::{
 };
 use xmtp_proto::{types::InstallationId, xmtp::identity::associations::IdentifierKind};
 
+use xmtp_proto::types::GroupId;
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
 pub enum Network {
@@ -766,7 +767,7 @@ where
     ///
     pub fn stitched_group(&self, group_id: &[u8]) -> Result<MlsGroup<Context>, ClientError> {
         let conn = self.context.db();
-        let stored_group = conn.fetch_stitched(&xmtp_proto::types::GroupId::from(group_id))?;
+        let stored_group = conn.fetch_stitched(&GroupId::from(group_id))?;
         stored_group
             .map(|g| {
                 MlsGroup::new(
