@@ -37,6 +37,7 @@ xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 
 # optional
+diesel = { workspace = true, optional = true, features = ["sqlite"] }
 mockall = { workspace = true, optional = true }
 toxiproxy_rust = { workspace = true, optional = true }
 xmtp-workspace-hack.workspace = true
@@ -75,6 +76,7 @@ tonic = { workspace = true, features = ["codegen"] }
 
 [features]
 default = []
+diesel = ["dep:diesel"]
 dev = ["xmtp_configuration/dev"]
 test-utils = [
   "xmtp_common/test-utils",

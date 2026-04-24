@@ -53,7 +53,7 @@ xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
-xmtp_proto.workspace = true
+xmtp_proto = { workspace = true, features = ["diesel"] }
 zeroize.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

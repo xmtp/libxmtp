@@ -1,10 +1,21 @@
 use std::{fmt, ops::Deref, str::FromStr};
 
 use bytes::Bytes;
+#[cfg(feature = "diesel")]
+use diesel::{
+    backend::Backend,
+    deserialize::{self, FromSql, FromSqlRow},
+    expression::AsExpression,
+    serialize::{self, IsNull, Output, ToSql},
+    sql_types::Binary,
+    sqlite::Sqlite,
+};
 use hex::FromHexError;
 
 /// The canonical group identifier.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[cfg_attr(feature = "diesel", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "diesel", diesel(sql_type = Binary))]
 pub struct GroupId(bytes::Bytes);
 
 impl GroupId {
@@ -74,6 +85,27 @@ impl From<Vec<u8>> for GroupId {
 impl From<&[u8]> for GroupId {
     fn from(v: &[u8]) -> GroupId {
         GroupId(v.to_vec().into())
+    }
+}
+
+#[cfg(feature = "diesel")]
+impl ToSql<Binary, Sqlite> for GroupId
+where
+    [u8]: ToSql<Binary, Sqlite>,
+{
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
+        out.set_value(self.as_slice().to_vec());
+        Ok(IsNull::No)
+    }
+}
+
+#[cfg(feature = "diesel")]
+impl FromSql<Binary, Sqlite> for GroupId
+where
+    Vec<u8>: FromSql<Binary, Sqlite>,
+{
+    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
+        Vec::<u8>::from_sql(bytes).map(GroupId::from)
     }
 }
 

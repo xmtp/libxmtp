@@ -17883,6 +17883,7 @@ dependencies = [
  "const-hex",
  "ctor 0.10.0",
  "derive_builder",
+ "diesel",
  "ed25519-dalek",
  "futures",
  "http 1.4.0",
