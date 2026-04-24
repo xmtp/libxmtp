@@ -193,10 +193,12 @@ fn get_relations(
         .build()
         .unwrap_or_default();
 
-    let reactions = conn.get_inbound_relations(group_id, message_ids, reactions_relations_query)?;
-    let referenced_messages = conn.get_outbound_relations(group_id, reference_ids)?;
+    let group_id_typed = xmtp_proto::types::GroupId::from(group_id);
+    let reactions =
+        conn.get_inbound_relations(&group_id_typed, message_ids, reactions_relations_query)?;
+    let referenced_messages = conn.get_outbound_relations(&group_id_typed, reference_ids)?;
     let reply_counts =
-        conn.get_inbound_relation_counts(group_id, message_ids, replies_count_query)?;
+        conn.get_inbound_relation_counts(&group_id_typed, message_ids, replies_count_query)?;
 
     // Get deletions for all messages AND referenced messages in a single batch query.
     // This ensures that if a reply references a deleted message, we can properly show

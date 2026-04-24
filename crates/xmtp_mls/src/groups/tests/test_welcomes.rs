@@ -46,8 +46,9 @@ async fn test_welcome_cursor() {
 
 #[track_caller]
 fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &[u8]) {
+    let group_id_typed = xmtp_proto::types::GroupId::from(group_id);
     let msg = db
-        .get_group_messages(group_id, &Default::default())
+        .get_group_messages(&group_id_typed, &Default::default())
         .unwrap();
     let msg = msg.last().unwrap();
     let cursor = db
@@ -65,7 +66,7 @@ fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &[u8]) {
     );
 
     let other_msg = db2
-        .get_group_messages(group_id, &Default::default())
+        .get_group_messages(&group_id_typed, &Default::default())
         .unwrap();
     let other_msg = other_msg.last().unwrap();
     assert_eq!(

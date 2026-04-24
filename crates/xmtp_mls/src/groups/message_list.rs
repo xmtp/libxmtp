@@ -26,8 +26,9 @@ where
     where
         C: QueryGroupMessage + DbQuery,
     {
+        let group_id_typed = xmtp_proto::types::GroupId::from(self.group_id.as_slice());
         let initial_messages = conn.get_group_messages(
-            &self.group_id,
+            &group_id_typed,
             &filter_out_hidden_message_types_from_query(query),
         )?;
 

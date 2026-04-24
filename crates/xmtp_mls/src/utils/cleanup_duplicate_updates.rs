@@ -59,7 +59,7 @@ where
 
             loop {
                 msgs = db.get_group_messages(
-                    &group.id,
+                    &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                     &MsgQueryArgs {
                         content_types: Some(vec![ContentType::GroupUpdated]),
                         sent_after_ns,

@@ -97,7 +97,12 @@ fn test_exclude_content_types_filter() {
             ..Default::default()
         };
 
-        let filtered_messages = conn.get_group_messages(&group.id, &exclude_args).unwrap();
+        let filtered_messages = conn
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &exclude_args,
+            )
+            .unwrap();
         assert_eq!(filtered_messages.len(), 3); // 2 Text + 1 Attachment
         assert!(
             filtered_messages
@@ -106,7 +111,12 @@ fn test_exclude_content_types_filter() {
                     && m.content_type != ContentType::ReadReceipt)
         );
 
-        let count = conn.count_group_messages(&group.id, &exclude_args).unwrap();
+        let count = conn
+            .count_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &exclude_args,
+            )
+            .unwrap();
         assert_eq!(count, 3);
     })
 }
@@ -167,7 +177,10 @@ fn it_gets_many_messages() {
         assert_eq!(count, 50);
 
         let messages = conn
-            .get_group_messages(&group.id, &MsgQueryArgs::default())
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &MsgQueryArgs::default(),
+            )
             .unwrap();
 
         assert_eq!(messages.len(), 50);
@@ -193,7 +206,7 @@ fn it_gets_messages_by_time() {
         assert_ok!(messages.store(conn));
         let message = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     sent_after_ns: Some(1_000),
                     sent_before_ns: Some(100_000),
@@ -206,7 +219,7 @@ fn it_gets_messages_by_time() {
 
         let messages = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     sent_before_ns: Some(100_000),
                     ..Default::default()
@@ -217,7 +230,7 @@ fn it_gets_messages_by_time() {
 
         let messages = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     sent_after_ns: Some(10_000),
                     ..Default::default()
@@ -267,7 +280,7 @@ fn it_deletes_middle_message_by_expiration_time() {
 
         let remaining_messages = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     ..Default::default()
                 },
@@ -325,7 +338,7 @@ fn it_gets_messages_by_kind() {
 
         let application_messages = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     kind: Some(GroupMessageKind::Application),
                     ..Default::default()
@@ -336,7 +349,7 @@ fn it_gets_messages_by_kind() {
 
         let membership_changes = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     kind: Some(GroupMessageKind::MembershipChange),
                     ..Default::default()
@@ -372,7 +385,7 @@ fn it_orders_messages_by_sent() {
 
         let messages_asc = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     direction: Some(SortDirection::Ascending),
                     ..Default::default()
@@ -387,7 +400,7 @@ fn it_orders_messages_by_sent() {
 
         let messages_desc = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     direction: Some(SortDirection::Descending),
                     ..Default::default()
@@ -439,7 +452,7 @@ fn it_gets_messages_by_content_type() {
         // Query for text messages
         let text_messages = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     content_types: Some(vec![ContentType::Text]),
                     ..Default::default()
@@ -454,7 +467,7 @@ fn it_gets_messages_by_content_type() {
         // Query for membership change messages
         let membership_messages = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     content_types: Some(vec![ContentType::GroupMembershipChange]),
                     ..Default::default()
@@ -471,7 +484,7 @@ fn it_gets_messages_by_content_type() {
         // Query for group updated messages
         let updated_messages = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     content_types: Some(vec![ContentType::GroupUpdated]),
                     ..Default::default()
@@ -541,7 +554,10 @@ fn it_dedupes_group_updated_messages_from_dm_by_default() {
 
         // Default query: GroupUpdated messages are deduplicated for DMs
         let messages_default = conn
-            .get_group_messages(&group.id, &MsgQueryArgs::default())
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &MsgQueryArgs::default(),
+            )
             .unwrap();
 
         assert_eq!(messages_default.len(), 4);
@@ -557,7 +573,7 @@ fn it_dedupes_group_updated_messages_from_dm_by_default() {
         // Explicitly request GroupUpdated messages - should get them
         let messages_with_group_updated = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     content_types: Some(vec![ContentType::GroupUpdated]),
                     ..Default::default()
@@ -642,7 +658,7 @@ fn test_inbound_relations_with_results() {
         // Get the main messages (exclude reactions)
         let messages = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     content_types: Some(vec![ContentType::Text]),
                     ..Default::default()
@@ -656,7 +672,7 @@ fn test_inbound_relations_with_results() {
         let message_ids: Vec<&[u8]> = messages.iter().map(|m| m.id.as_ref()).collect();
         let inbound_relations = conn
             .get_inbound_relations(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &message_ids,
                 RelationQuery::builder()
                     .content_types(Some(vec![ContentType::Reaction]))
@@ -692,7 +708,10 @@ fn test_relations_when_no_references_exist() {
 
         // Get the messages
         let messages = conn
-            .get_group_messages(&group.id, &MsgQueryArgs::default())
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &MsgQueryArgs::default(),
+            )
             .unwrap();
         assert_eq!(messages.len(), 2);
 
@@ -701,7 +720,7 @@ fn test_relations_when_no_references_exist() {
         // Test inbound relations when no references exist
         let inbound_relations = conn
             .get_inbound_relations(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &message_ids,
                 RelationQuery::builder()
                     .content_types(Some(vec![ContentType::Reaction]))
@@ -724,7 +743,10 @@ fn test_relations_when_no_references_exist() {
             .collect();
 
         let outbound_relations = conn
-            .get_outbound_relations(&group.id, &reference_ids)
+            .get_outbound_relations(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &reference_ids,
+            )
             .unwrap();
 
         assert_eq!(
@@ -745,7 +767,7 @@ fn test_inbound_relations_no_main_query_results() {
         let empty_ids: Vec<&[u8]> = vec![];
         let inbound_relations = conn
             .get_inbound_relations(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &empty_ids,
                 RelationQuery::builder()
                     .content_types(Some(vec![ContentType::Reaction]))
@@ -781,7 +803,7 @@ fn test_inbound_relations_with_limit() {
         // Get the main message (exclude reactions)
         let messages = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     content_types: Some(vec![ContentType::Text]),
                     ..Default::default()
@@ -794,7 +816,7 @@ fn test_inbound_relations_with_limit() {
         let msg1_ids: Vec<&[u8]> = vec![msg1.id.as_ref()];
         let inbound_relations = conn
             .get_inbound_relations(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &msg1_ids,
                 RelationQuery::builder()
                     .content_types(Some(vec![ContentType::Reaction]))
@@ -857,7 +879,7 @@ fn test_relations_with_content_type_filters() {
         let msg_ids: Vec<&[u8]> = vec![text_msg.id.as_ref(), attachment_msg.id.as_ref()];
         let inbound_relations = conn
             .get_inbound_relations(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &msg_ids,
                 RelationQuery::builder()
                     .content_types(Some(vec![ContentType::Reaction]))
@@ -874,7 +896,7 @@ fn test_relations_with_content_type_filters() {
         let msg_ids2: Vec<&[u8]> = vec![text_msg.id.as_ref(), attachment_msg.id.as_ref()];
         let inbound_relations = conn
             .get_inbound_relations(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &msg_ids2,
                 RelationQuery::builder()
                     .content_types(Some(vec![ContentType::Reaction, ContentType::Reply]))
@@ -890,7 +912,7 @@ fn test_relations_with_content_type_filters() {
         // First get the reply messages
         let replies = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     content_types: Some(vec![ContentType::Reply]),
                     ..Default::default()
@@ -904,7 +926,10 @@ fn test_relations_with_content_type_filters() {
         let reference_ids: Vec<&[u8]> = vec![text_msg.id.as_ref()];
 
         let outbound_relations = conn
-            .get_outbound_relations(&group.id, &reference_ids)
+            .get_outbound_relations(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &reference_ids,
+            )
             .unwrap();
 
         assert_eq!(outbound_relations.len(), 1, "Should only get text message");
@@ -946,7 +971,7 @@ fn test_outbound_relations_with_results() {
         // Query for replies
         let replies = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     content_types: Some(vec![ContentType::Reply]),
                     ..Default::default()
@@ -964,7 +989,10 @@ fn test_outbound_relations_with_results() {
 
         // Get outbound relations
         let outbound_relations = conn
-            .get_outbound_relations(&group.id, &reference_ids)
+            .get_outbound_relations(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &reference_ids,
+            )
             .unwrap();
 
         assert_eq!(outbound_relations.len(), 2); // The original messages
@@ -997,7 +1025,7 @@ fn test_outbound_relations_no_main_query_results() {
         // Query with time filter that excludes all messages
         let messages = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     sent_before_ns: Some(500), // Before any messages
                     ..Default::default()
@@ -1014,7 +1042,10 @@ fn test_outbound_relations_no_main_query_results() {
             .collect();
 
         let outbound_relations = conn
-            .get_outbound_relations(&group.id, &reference_ids)
+            .get_outbound_relations(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &reference_ids,
+            )
             .unwrap();
 
         assert_eq!(outbound_relations.len(), 0);
@@ -1054,7 +1085,7 @@ fn test_outbound_relations_with_limit() {
         // Query for replies
         let replies = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     content_types: Some(vec![ContentType::Reply]),
                     ..Default::default()
@@ -1072,7 +1103,10 @@ fn test_outbound_relations_with_limit() {
             .collect();
 
         let outbound_relations = conn
-            .get_outbound_relations(&group.id, &reference_ids)
+            .get_outbound_relations(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &reference_ids,
+            )
             .unwrap();
 
         assert_eq!(outbound_relations.len(), 2); // Limited to 2
@@ -1117,7 +1151,7 @@ fn test_both_inbound_and_outbound_relations() {
         // Query for the reply
         let messages = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     content_types: Some(vec![ContentType::Reply]),
                     ..Default::default()
@@ -1132,7 +1166,7 @@ fn test_both_inbound_and_outbound_relations() {
         let reply_ids: Vec<&[u8]> = vec![reply.id.as_ref()];
         let inbound_relations = conn
             .get_inbound_relations(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &reply_ids,
                 RelationQuery::builder()
                     .content_types(Some(vec![ContentType::Reaction]))
@@ -1152,7 +1186,10 @@ fn test_both_inbound_and_outbound_relations() {
             .collect();
 
         let outbound_relations = conn
-            .get_outbound_relations(&group.id, &reference_ids)
+            .get_outbound_relations(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &reference_ids,
+            )
             .unwrap();
 
         // Check outbound relation (original message)
@@ -1199,7 +1236,7 @@ fn test_relation_filters_none_behavior() {
         // Test 1: Get messages without fetching any relations (exclude reactions)
         let messages = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     content_types: Some(vec![ContentType::Text, ContentType::Reply]),
                     ..Default::default()
@@ -1213,7 +1250,7 @@ fn test_relation_filters_none_behavior() {
         let message_ids: Vec<&[u8]> = vec![msg1.id.as_ref(), reply.id.as_ref()];
         let inbound_relations = conn
             .get_inbound_relations(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &message_ids,
                 RelationQuery::builder()
                     .content_types(Some(vec![ContentType::Reaction]))
@@ -1233,7 +1270,7 @@ fn test_relation_filters_none_behavior() {
         // Test 3: Get outbound relations for reply message
         let replies = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     content_types: Some(vec![ContentType::Reply]),
                     ..Default::default()
@@ -1249,7 +1286,10 @@ fn test_relation_filters_none_behavior() {
             .collect();
 
         let outbound_relations = conn
-            .get_outbound_relations(&group.id, &reference_ids)
+            .get_outbound_relations(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &reference_ids,
+            )
             .unwrap();
 
         assert_eq!(
@@ -1297,7 +1337,7 @@ fn test_complex_relation_chain() {
         // Query for the original message
         let messages = conn
             .get_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     content_types: Some(vec![ContentType::Text]),
                     ..Default::default()
@@ -1312,7 +1352,7 @@ fn test_complex_relation_chain() {
         let msg1_ids: Vec<&[u8]> = vec![msg1.id.as_ref()];
         let inbound_relations = conn
             .get_inbound_relations(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &msg1_ids,
                 RelationQuery::builder()
                     // Get all inbound
@@ -1379,7 +1419,7 @@ fn test_inbound_relation_counts() {
         let message_ids: Vec<&[u8]> = vec![msg1.id.as_ref(), msg2.id.as_ref(), msg3.id.as_ref()];
         let counts = conn
             .get_inbound_relation_counts(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &message_ids,
                 RelationQuery::builder().build().unwrap(),
             )
@@ -1392,7 +1432,7 @@ fn test_inbound_relation_counts() {
         // Test getting only reaction counts
         let reaction_counts = conn
             .get_inbound_relation_counts(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &message_ids,
                 RelationQuery::builder()
                     .content_types(Some(vec![ContentType::Reaction]))
@@ -1408,7 +1448,7 @@ fn test_inbound_relation_counts() {
         // Test getting only reply counts
         let reply_counts = conn
             .get_inbound_relation_counts(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &message_ids,
                 RelationQuery::builder()
                     .content_types(Some(vec![ContentType::Reply]))
@@ -1785,15 +1825,18 @@ fn test_count_group_messages() {
 
         // Test basic counts
         assert_eq!(
-            conn.count_group_messages(&group.id, &MsgQueryArgs::default())
-                .unwrap(),
+            conn.count_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &MsgQueryArgs::default()
+            )
+            .unwrap(),
             10
         );
 
         // Test count by content type
         assert_eq!(
             conn.count_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     content_types: Some(vec![ContentType::Text]),
                     ..Default::default()
@@ -1805,7 +1848,7 @@ fn test_count_group_messages() {
 
         assert_eq!(
             conn.count_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     content_types: Some(vec![ContentType::Reaction]),
                     ..Default::default()
@@ -1818,7 +1861,7 @@ fn test_count_group_messages() {
         // Test count by kind
         assert_eq!(
             conn.count_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     kind: Some(GroupMessageKind::Application),
                     ..Default::default()
@@ -1830,7 +1873,7 @@ fn test_count_group_messages() {
 
         assert_eq!(
             conn.count_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     kind: Some(GroupMessageKind::MembershipChange),
                     ..Default::default()
@@ -1843,7 +1886,7 @@ fn test_count_group_messages() {
         // Test time filters
         assert_eq!(
             conn.count_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     sent_after_ns: Some(5_000),
                     ..Default::default()
@@ -1855,7 +1898,7 @@ fn test_count_group_messages() {
 
         assert_eq!(
             conn.count_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     sent_before_ns: Some(10_000),
                     ..Default::default()
@@ -1867,7 +1910,7 @@ fn test_count_group_messages() {
 
         assert_eq!(
             conn.count_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     sent_after_ns: Some(3_000),
                     sent_before_ns: Some(12_000),
@@ -1881,7 +1924,7 @@ fn test_count_group_messages() {
         // Test delivery status filters (note: generate_message defaults to Published)
         assert_eq!(
             conn.count_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     delivery_status: Some(DeliveryStatus::Published),
                     ..Default::default()
@@ -1893,7 +1936,7 @@ fn test_count_group_messages() {
 
         assert_eq!(
             conn.count_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     delivery_status: Some(DeliveryStatus::Unpublished),
                     ..Default::default()
@@ -1905,7 +1948,7 @@ fn test_count_group_messages() {
 
         assert_eq!(
             conn.count_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     delivery_status: Some(DeliveryStatus::Failed),
                     ..Default::default()
@@ -1983,15 +2026,21 @@ fn test_count_group_messages_dm_vs_regular_groups() {
 
         // DM groups exclude GroupUpdated messages by default (should get 2 Text messages)
         assert_eq!(
-            conn.count_group_messages(&dm_group.id, &MsgQueryArgs::default())
-                .unwrap(),
+            conn.count_group_messages(
+                &xmtp_proto::types::GroupId::from(dm_group.id.as_slice()),
+                &MsgQueryArgs::default()
+            )
+            .unwrap(),
             2
         );
 
         // Regular groups count all messages (should get all 5)
         assert_eq!(
-            conn.count_group_messages(&regular_group.id, &MsgQueryArgs::default())
-                .unwrap(),
+            conn.count_group_messages(
+                &xmtp_proto::types::GroupId::from(regular_group.id.as_slice()),
+                &MsgQueryArgs::default()
+            )
+            .unwrap(),
             5
         );
 
@@ -2001,13 +2050,19 @@ fn test_count_group_messages_dm_vs_regular_groups() {
             ..Default::default()
         };
         assert_eq!(
-            conn.count_group_messages(&dm_group.id, &group_updated_args)
-                .unwrap(),
+            conn.count_group_messages(
+                &xmtp_proto::types::GroupId::from(dm_group.id.as_slice()),
+                &group_updated_args
+            )
+            .unwrap(),
             3
         );
         assert_eq!(
-            conn.count_group_messages(&regular_group.id, &group_updated_args)
-                .unwrap(),
+            conn.count_group_messages(
+                &xmtp_proto::types::GroupId::from(regular_group.id.as_slice()),
+                &group_updated_args
+            )
+            .unwrap(),
             3
         );
 
@@ -2017,12 +2072,19 @@ fn test_count_group_messages_dm_vs_regular_groups() {
             ..Default::default()
         };
         assert_eq!(
-            conn.count_group_messages(&dm_group.id, &text_args).unwrap(),
+            conn.count_group_messages(
+                &xmtp_proto::types::GroupId::from(dm_group.id.as_slice()),
+                &text_args
+            )
+            .unwrap(),
             2
         );
         assert_eq!(
-            conn.count_group_messages(&regular_group.id, &text_args)
-                .unwrap(),
+            conn.count_group_messages(
+                &xmtp_proto::types::GroupId::from(regular_group.id.as_slice()),
+                &text_args
+            )
+            .unwrap(),
             2
         );
     })
@@ -2036,15 +2098,18 @@ fn test_count_group_messages_empty_groups() {
 
         // Test count with no messages
         assert_eq!(
-            conn.count_group_messages(&group.id, &MsgQueryArgs::default())
-                .unwrap(),
+            conn.count_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &MsgQueryArgs::default()
+            )
+            .unwrap(),
             0
         );
 
         // Test count with filters that would match nothing
         assert_eq!(
             conn.count_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     content_types: Some(vec![ContentType::Text]),
                     ..Default::default()
@@ -2056,7 +2121,7 @@ fn test_count_group_messages_empty_groups() {
 
         assert_eq!(
             conn.count_group_messages(
-                &group.id,
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
                 &MsgQueryArgs {
                     sent_after_ns: Some(1000),
                     ..Default::default()
@@ -2262,7 +2327,10 @@ fn test_exclude_sender_inbox_ids_filter() {
         };
 
         let filtered_messages = conn
-            .get_group_messages(&group.id, &exclude_sender1_args)
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &exclude_sender1_args,
+            )
             .unwrap();
         assert_eq!(filtered_messages.len(), 3); // sender2 (2) + sender3 (1)
         assert!(
@@ -2272,7 +2340,10 @@ fn test_exclude_sender_inbox_ids_filter() {
         );
 
         let count = conn
-            .count_group_messages(&group.id, &exclude_sender1_args)
+            .count_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &exclude_sender1_args,
+            )
             .unwrap();
         assert_eq!(count, 3);
 
@@ -2283,13 +2354,19 @@ fn test_exclude_sender_inbox_ids_filter() {
         };
 
         let filtered_messages = conn
-            .get_group_messages(&group.id, &exclude_multiple_args)
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &exclude_multiple_args,
+            )
             .unwrap();
         assert_eq!(filtered_messages.len(), 1); // Only sender3
         assert_eq!(filtered_messages[0].sender_inbox_id, sender3);
 
         let count = conn
-            .count_group_messages(&group.id, &exclude_multiple_args)
+            .count_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &exclude_multiple_args,
+            )
             .unwrap();
         assert_eq!(count, 1);
 
@@ -2300,12 +2377,18 @@ fn test_exclude_sender_inbox_ids_filter() {
         };
 
         let filtered_messages = conn
-            .get_group_messages(&group.id, &exclude_all_args)
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &exclude_all_args,
+            )
             .unwrap();
         assert_eq!(filtered_messages.len(), 0);
 
         let count = conn
-            .count_group_messages(&group.id, &exclude_all_args)
+            .count_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &exclude_all_args,
+            )
             .unwrap();
         assert_eq!(count, 0);
 
@@ -2316,7 +2399,10 @@ fn test_exclude_sender_inbox_ids_filter() {
         };
 
         let filtered_messages = conn
-            .get_group_messages(&group.id, &exclude_nonexistent_args)
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &exclude_nonexistent_args,
+            )
             .unwrap();
         assert_eq!(filtered_messages.len(), 5); // All messages
 
@@ -2327,7 +2413,12 @@ fn test_exclude_sender_inbox_ids_filter() {
             ..Default::default()
         };
 
-        let filtered_messages = conn.get_group_messages(&group.id, &combined_args).unwrap();
+        let filtered_messages = conn
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &combined_args,
+            )
+            .unwrap();
         assert_eq!(filtered_messages.len(), 2); // sender2 at 5000 and sender3 at 3000
         assert!(
             filtered_messages
@@ -2357,7 +2448,12 @@ fn test_sort_by_sent_at() {
             direction: Some(SortDirection::Ascending),
             ..Default::default()
         };
-        let asc_messages = conn.get_group_messages(&group.id, &asc_args).unwrap();
+        let asc_messages = conn
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &asc_args,
+            )
+            .unwrap();
         assert_eq!(asc_messages.len(), 3);
         assert_eq!(asc_messages[0].sent_at_ns, 1000);
         assert_eq!(asc_messages[1].sent_at_ns, 2000);
@@ -2369,7 +2465,12 @@ fn test_sort_by_sent_at() {
             direction: Some(SortDirection::Descending),
             ..Default::default()
         };
-        let desc_messages = conn.get_group_messages(&group.id, &desc_args).unwrap();
+        let desc_messages = conn
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &desc_args,
+            )
+            .unwrap();
         assert_eq!(desc_messages.len(), 3);
         assert_eq!(desc_messages[0].sent_at_ns, 3000);
         assert_eq!(desc_messages[1].sent_at_ns, 2000);
@@ -2404,7 +2505,12 @@ fn test_sort_by_inserted_at() {
             direction: Some(SortDirection::Ascending),
             ..Default::default()
         };
-        let asc_messages = conn.get_group_messages(&group.id, &asc_args).unwrap();
+        let asc_messages = conn
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &asc_args,
+            )
+            .unwrap();
         assert_eq!(asc_messages.len(), 3);
         // Should be in insertion order: 3000, 1000, 2000
         assert_eq!(asc_messages[0].sent_at_ns, 3000);
@@ -2450,7 +2556,10 @@ fn test_inserted_after_filter() {
 
         // Get all messages to get their inserted_at_ns
         let all_messages = conn
-            .get_group_messages(&group.id, &MsgQueryArgs::default())
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &MsgQueryArgs::default(),
+            )
             .unwrap();
         assert_eq!(all_messages.len(), 5);
 
@@ -2461,7 +2570,12 @@ fn test_inserted_after_filter() {
             inserted_after_ns: Some(second_inserted_at),
             ..Default::default()
         };
-        let after_messages = conn.get_group_messages(&group.id, &after_args).unwrap();
+        let after_messages = conn
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &after_args,
+            )
+            .unwrap();
 
         // Should get messages 3, 4, 5
         assert_eq!(after_messages.len(), 3);
@@ -2512,7 +2626,10 @@ fn test_inserted_before_filter() {
 
         // Get all messages to get their inserted_at_ns
         let all_messages = conn
-            .get_group_messages(&group.id, &MsgQueryArgs::default())
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &MsgQueryArgs::default(),
+            )
             .unwrap();
         assert_eq!(all_messages.len(), 5);
 
@@ -2522,7 +2639,12 @@ fn test_inserted_before_filter() {
             inserted_before_ns: Some(fourth_inserted_at),
             ..Default::default()
         };
-        let before_messages = conn.get_group_messages(&group.id, &before_args).unwrap();
+        let before_messages = conn
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &before_args,
+            )
+            .unwrap();
 
         // Should get messages 1, 2, 3
         assert_eq!(before_messages.len(), 3);
@@ -2554,7 +2676,12 @@ fn test_inserted_at_based_pagination() {
             limit: Some(3),
             ..Default::default()
         };
-        let page1 = conn.get_group_messages(&group.id, &page1_args).unwrap();
+        let page1 = conn
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &page1_args,
+            )
+            .unwrap();
         assert_eq!(page1.len(), 3);
         assert_eq!(page1[2].sent_at_ns, 3000);
         let last_inserted_page1 = page1[2].inserted_at_ns;
@@ -2565,7 +2692,12 @@ fn test_inserted_at_based_pagination() {
             limit: Some(3),
             ..Default::default()
         };
-        let page2 = conn.get_group_messages(&group.id, &page2_args).unwrap();
+        let page2 = conn
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &page2_args,
+            )
+            .unwrap();
         assert_eq!(page2.len(), 3);
         assert_eq!(page2[0].sent_at_ns, 4000);
         assert_eq!(page2[2].sent_at_ns, 6000);
@@ -2577,7 +2709,12 @@ fn test_inserted_at_based_pagination() {
             limit: Some(3),
             ..Default::default()
         };
-        let page3 = conn.get_group_messages(&group.id, &page3_args).unwrap();
+        let page3 = conn
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &page3_args,
+            )
+            .unwrap();
         assert_eq!(page3.len(), 3);
         assert_eq!(page3[0].sent_at_ns, 7000);
         assert_eq!(page3[2].sent_at_ns, 9000);
@@ -2667,7 +2804,10 @@ fn test_expired_messages_excluded_from_queries() {
 
         // Query should only return non-expired messages
         let results = conn
-            .get_group_messages(&group.id, &MsgQueryArgs::default())
+            .get_group_messages(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+                &MsgQueryArgs::default(),
+            )
             .unwrap();
 
         assert_eq!(

@@ -379,13 +379,13 @@ mock! {
     impl QueryGroupMessage for DbQuery {
         fn get_group_messages(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             args: &crate::group_message::MsgQueryArgs,
         ) -> Result<Vec<crate::group_message::StoredGroupMessage>, crate::ConnectionError>;
 
         fn count_group_messages(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             args: &crate::group_message::MsgQueryArgs,
         ) -> Result<i64, crate::ConnectionError>;
 
@@ -397,26 +397,26 @@ mock! {
 
         fn get_group_messages_with_reactions(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             args: &crate::group_message::MsgQueryArgs,
         ) -> Result<Vec<crate::group_message::StoredGroupMessageWithReactions>, crate::ConnectionError>;
 
         fn get_inbound_relations<'a>(
             &self,
-            group_id: &'a [u8],
+            group_id: &'a xmtp_proto::types::GroupId,
             message_ids: &'a [&'a [u8]],
             relation_query: crate::group_message::RelationQuery,
         ) -> Result<crate::group_message::InboundRelations, crate::ConnectionError>;
 
         fn get_outbound_relations<'a>(
             &self,
-            group_id: &'a [u8],
+            group_id: &'a xmtp_proto::types::GroupId,
             message_ids: &'a [&'a [u8]],
         ) -> Result<crate::group_message::OutboundRelations, crate::ConnectionError>;
 
         fn get_inbound_relation_counts<'a>(
             &self,
-            group_id: &'a [u8],
+            group_id: &'a xmtp_proto::types::GroupId,
             message_ids: &'a [&'a [u8]],
             relation_query: crate::group_message::RelationQuery,
         ) -> Result<crate::group_message::RelationCounts, crate::ConnectionError>;

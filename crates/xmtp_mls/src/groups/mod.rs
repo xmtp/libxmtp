@@ -1113,14 +1113,14 @@ where
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
         let conn = self.context.db();
-        let messages = conn.get_group_messages(&self.group_id, args)?;
+        let messages = conn.get_group_messages(&GroupId::from(self.group_id.as_slice()), args)?;
         Ok(messages)
     }
 
     /// Count the number of stored messages matching the given criteria
     pub fn count_messages(&self, args: &MsgQueryArgs) -> Result<i64, GroupError> {
         let conn = self.context.db();
-        let count = conn.count_group_messages(&self.group_id, args)?;
+        let count = conn.count_group_messages(&GroupId::from(self.group_id.as_slice()), args)?;
         Ok(count)
     }
 
@@ -1131,7 +1131,8 @@ where
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessageWithReactions>, GroupError> {
         let conn = self.context.db();
-        let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
+        let messages =
+            conn.get_group_messages_with_reactions(&GroupId::from(self.group_id.as_slice()), args)?;
         Ok(messages)
     }
 
@@ -1141,7 +1142,7 @@ where
         args: &MsgQueryArgs,
     ) -> Result<Vec<crate::messages::decoded_message::DecodedMessage>, EnrichMessageError> {
         let conn = self.context.db();
-        let messages = conn.get_group_messages(&self.group_id, args)?;
+        let messages = conn.get_group_messages(&GroupId::from(self.group_id.as_slice()), args)?;
         let enriched =
             crate::messages::enrichment::enrich_messages(conn, &self.group_id, messages)?;
         Ok(enriched)

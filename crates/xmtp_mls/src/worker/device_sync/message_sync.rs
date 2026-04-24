@@ -27,9 +27,10 @@ where
 
         let mut all_messages = vec![];
         for StoredGroup { id, .. } in groups.into_iter() {
-            let messages = provider
-                .db()
-                .get_group_messages(&id, &MsgQueryArgs::default())?;
+            let messages = provider.db().get_group_messages(
+                &xmtp_proto::types::GroupId::from(id.as_slice()),
+                &MsgQueryArgs::default(),
+            )?;
             for msg in messages {
                 all_messages.push(Syncable::GroupMessage(msg));
             }
