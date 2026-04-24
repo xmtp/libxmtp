@@ -364,7 +364,10 @@ fn it_orders_messages_by_sent() {
 
         assert_ok!(messages.store(conn));
 
-        let group = conn.find_group(&group.id).unwrap().unwrap();
+        let group = conn
+            .find_group(&xmtp_proto::types::GroupId::from(group.id.as_slice()))
+            .unwrap()
+            .unwrap();
         assert_eq!(group.last_message_ns.unwrap(), 1_000_000);
 
         let messages_asc = conn

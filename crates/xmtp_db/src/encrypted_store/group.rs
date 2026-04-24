@@ -264,12 +264,12 @@ pub trait QueryGroup {
 
     fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError>;
 
-    fn find_sync_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, crate::ConnectionError>;
+    fn find_sync_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError>;
 
     fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError>;
 
     /// Return a single group that matches the given ID
-    fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, crate::ConnectionError>;
+    fn find_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError>;
 
     /// Return a single group that matches the given welcome ID
     fn find_group_by_sequence_id(
@@ -406,7 +406,7 @@ where
         (**self).all_sync_groups()
     }
 
-    fn find_sync_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+    fn find_sync_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         (**self).find_sync_group(id)
     }
 
@@ -415,7 +415,7 @@ where
     }
 
     /// Return a single group that matches the given ID
-    fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+    fn find_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         (**self).find_group(id)
     }
 
@@ -763,10 +763,10 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         self.raw_query(|conn| query.load(conn))
     }
 
-    fn find_sync_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+    fn find_sync_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
-            .filter(dsl::id.eq(id));
+            .filter(dsl::id.eq(id.as_slice()));
 
         self.raw_query(|conn| query.first(conn).optional())
     }
@@ -780,11 +780,11 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     /// Return a single group that matches the given ID
-    fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+    fn find_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.asc())
             .limit(1)
-            .filter(dsl::id.eq(id));
+            .filter(dsl::id.eq(id.as_slice()));
         let groups = self.raw_query(|conn| query.load(conn))?;
 
         Ok(groups.into_iter().next())

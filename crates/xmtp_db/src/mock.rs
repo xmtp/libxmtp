@@ -156,7 +156,7 @@ mock! {
 
         fn find_sync_group(
             &self,
-            id: &[u8],
+            id: &xmtp_proto::types::GroupId,
         ) -> Result<Option<crate::group::StoredGroup>, crate::ConnectionError>;
 
         fn primary_sync_group(
@@ -165,7 +165,7 @@ mock! {
 
         fn find_group(
             &self,
-            id: &[u8],
+            id: &xmtp_proto::types::GroupId,
         ) -> Result<Option<crate::group::StoredGroup>, crate::ConnectionError>;
 
         fn find_group_by_sequence_id(

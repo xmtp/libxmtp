@@ -1322,8 +1322,9 @@ where
                             if let Some(StoredGroup {
                                 conversation_type: ConversationType::Sync,
                                 ..
-                            }) = storage.db().find_group(&self.group_id)?
-                            {
+                            }) = storage.db().find_group(&xmtp_proto::types::GroupId::from(
+                                self.group_id.as_slice(),
+                            ))? {
                                 // Send this event after the transaction completes
                                 deferred_events.add_worker_event(SyncWorkerEvent::NewSyncGroupMsg);
                             }
@@ -3363,7 +3364,9 @@ where
         update_interval_ns: Option<i64>,
     ) -> Result<(), GroupError> {
         let db = self.context.db();
-        let Some(stored_group) = db.find_group(&self.group_id)? else {
+        let Some(stored_group) =
+            db.find_group(&xmtp_proto::types::GroupId::from(self.group_id.as_slice()))?
+        else {
             return Err(GroupError::NotFound(NotFound::GroupById(
                 self.group_id.clone(),
             )));

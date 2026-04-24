@@ -318,7 +318,7 @@ where
         group_id: &[u8],
     ) -> Result<(Self, StoredGroup), StorageError> {
         let conn = context.db();
-        if let Some(group) = conn.find_group(group_id)? {
+        if let Some(group) = conn.find_group(&GroupId::from(group_id))? {
             Ok((
                 Self::new_from_arc(
                     context,
@@ -1157,7 +1157,7 @@ where
     /// Load the group reference stored in the local database
     pub fn load(&self) -> Result<StoredGroup, StorageError> {
         let conn = self.context.db();
-        if let Some(group) = conn.find_group(&self.group_id)? {
+        if let Some(group) = conn.find_group(&GroupId::from(self.group_id.as_slice()))? {
             Ok(group)
         } else {
             tracing::error!("group {} does not exist", hex::encode(&self.group_id));
@@ -2089,7 +2089,7 @@ where
     pub fn added_by_inbox_id(&self) -> Result<String, GroupError> {
         let conn = self.context.db();
         let group = conn
-            .find_group(&self.group_id)?
+            .find_group(&GroupId::from(self.group_id.as_slice()))?
             .ok_or_else(|| NotFound::GroupById(self.group_id.clone()))?;
         Ok(group.added_by_inbox_id)
     }
@@ -2200,7 +2200,7 @@ where
         let remote_commit_log = self.remote_commit_log().await?;
         let db = self.context.db();
 
-        let stored_group = match db.find_group(&self.group_id)? {
+        let stored_group = match db.find_group(&GroupId::from(self.group_id.as_slice()))? {
             Some(group) => group,
             None => {
                 return Err(GroupError::NotFound(NotFound::GroupById(
@@ -2238,7 +2238,11 @@ where
     #[tracing::instrument(skip_all, level = "trace")]
     pub fn is_active(&self) -> Result<bool, GroupError> {
         // Restored groups that are not yet added are inactive
-        let Some(stored_group) = self.context.db().find_group(&self.group_id)? else {
+        let Some(stored_group) = self
+            .context
+            .db()
+            .find_group(&GroupId::from(self.group_id.as_slice()))?
+        else {
             return Err(GroupError::NotFound(NotFound::GroupById(
                 self.group_id.clone(),
             )));
@@ -2261,7 +2265,7 @@ where
         let stored_group = self
             .context
             .db()
-            .find_group(&self.group_id)?
+            .find_group(&GroupId::from(self.group_id.as_slice()))?
             .ok_or_else(|| GroupError::NotFound(NotFound::GroupById(self.group_id.clone())))?;
         Ok(stored_group.membership_state)
     }

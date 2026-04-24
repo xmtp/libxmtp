@@ -1582,7 +1582,11 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
     println!("✓ All participants now have the new signing key in mutable metadata");
 
     // Additional verification: the consensus key should be set in the database
-    let stored_group = alix.context.db().find_group(&group.group_id)?.unwrap();
+    let stored_group = alix
+        .context
+        .db()
+        .find_group(&GroupId::from(group.group_id.as_slice()))?
+        .unwrap();
     assert_eq!(
         stored_group.commit_log_public_key,
         Some(new_public_key.clone())

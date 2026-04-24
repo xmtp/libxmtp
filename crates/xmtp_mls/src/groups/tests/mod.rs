@@ -1285,7 +1285,10 @@ async fn test_self_removal() {
     assert_eq!(bola_i1_group_pending_leave_users.len(), 1);
 
     // Bola's state for the group should be set to PendingRemove
-    let bola_i1_group_from_db = bola_i1.db().find_group(&bola_i1_group.group_id).unwrap();
+    let bola_i1_group_from_db = bola_i1
+        .db()
+        .find_group(&GroupId::from(bola_i1_group.group_id.as_slice()))
+        .unwrap();
     assert_eq!(
         bola_i1_group_from_db.unwrap().membership_state,
         GroupMembershipState::PendingRemove
@@ -1295,7 +1298,7 @@ async fn test_self_removal() {
     amal_group.sync().await.unwrap();
     let amal_group_member_state = amal
         .db()
-        .find_group(&amal_group.group_id)
+        .find_group(&GroupId::from(amal_group.group_id.as_slice()))
         .unwrap()
         .unwrap()
         .membership_state;
@@ -1317,7 +1320,10 @@ async fn test_self_removal() {
     assert!(bola_i2_group_pending_leave_users.contains(&bola_i1.inbox_id().to_string()));
     // The pending-remove list should only contain one item
     assert_eq!(bola_i2_group_pending_leave_users.len(), 1);
-    let bola_i2_group_state_in_db = bola_i2.db().find_group(&bola_i2_group.group_id).unwrap();
+    let bola_i2_group_state_in_db = bola_i2
+        .db()
+        .find_group(&GroupId::from(bola_i2_group.group_id.as_slice()))
+        .unwrap();
 
     // group's state should be set to PendingRemove on Bola's other installation
     assert_eq!(
@@ -1575,7 +1581,10 @@ async fn test_self_removal_single_installations() {
     assert!(bola_group_pending_leave_users.contains(&bola.inbox_id().to_string()));
 
     // Bola's state for the group should be set to PendingRemove
-    let bola_group_from_db = bola.db().find_group(&bola_group.group_id).unwrap();
+    let bola_group_from_db = bola
+        .db()
+        .find_group(&GroupId::from(bola_group.group_id.as_slice()))
+        .unwrap();
     assert_eq!(
         bola_group_from_db.unwrap().membership_state,
         GroupMembershipState::PendingRemove
@@ -1585,7 +1594,7 @@ async fn test_self_removal_single_installations() {
     amal_group.sync().await.unwrap();
     let amal_group_member_state = amal
         .db()
-        .find_group(&amal_group.group_id)
+        .find_group(&GroupId::from(amal_group.group_id.as_slice()))
         .unwrap()
         .unwrap()
         .membership_state;
@@ -1630,7 +1639,10 @@ async fn test_self_removal_with_multiple_initial_installations() {
     assert!(bola_i1_group_pending_leave_users.contains(&bola_i1.inbox_id().to_string()));
 
     // Bola_i1's state for the group should be set to PendingRemove
-    let bola_i1_group_from_db = bola_i1.db().find_group(&bola_i1_group.group_id).unwrap();
+    let bola_i1_group_from_db = bola_i1
+        .db()
+        .find_group(&GroupId::from(bola_i1_group.group_id.as_slice()))
+        .unwrap();
     assert_eq!(
         bola_i1_group_from_db.unwrap().membership_state,
         GroupMembershipState::PendingRemove
@@ -1648,7 +1660,10 @@ async fn test_self_removal_with_multiple_initial_installations() {
     // The pending-remove list should only contain one item
     assert_eq!(bola_i2_group_pending_leave_users.len(), 1);
 
-    let bola_i2_group_state_in_db = bola_i2.db().find_group(&bola_i2_group.group_id).unwrap();
+    let bola_i2_group_state_in_db = bola_i2
+        .db()
+        .find_group(&GroupId::from(bola_i2_group.group_id.as_slice()))
+        .unwrap();
     // Group's state should be set to PendingRemove on Bola's other installation
     assert_eq!(
         bola_i2_group_state_in_db.unwrap().membership_state,
@@ -1685,7 +1700,10 @@ async fn test_self_removal_with_late_installation() {
     assert!(bola_i1_group_pending_leave_users.contains(&bola_i1.inbox_id().to_string()));
 
     // Bola_i1's state for the group should be set to PendingRemove
-    let bola_i1_group_from_db = bola_i1.db().find_group(&bola_i1_group.group_id).unwrap();
+    let bola_i1_group_from_db = bola_i1
+        .db()
+        .find_group(&GroupId::from(bola_i1_group.group_id.as_slice()))
+        .unwrap();
     assert_eq!(
         bola_i1_group_from_db.unwrap().membership_state,
         GroupMembershipState::PendingRemove
@@ -1719,7 +1737,10 @@ async fn test_self_removal_with_late_installation() {
     // The pending-remove list should only contain one item
     assert_eq!(bola_i3_group_pending_leave_users.len(), 1);
 
-    let bola_i3_group_state_in_db = bola_i3.db().find_group(&bola_i1_group.group_id).unwrap();
+    let bola_i3_group_state_in_db = bola_i3
+        .db()
+        .find_group(&GroupId::from(bola_i1_group.group_id.as_slice()))
+        .unwrap();
     // Group's state should be set to PendingRemove on the new installation
     assert_eq!(
         bola_i3_group_state_in_db.unwrap().membership_state,
@@ -1866,7 +1887,11 @@ async fn test_super_admin_promotion_marks_pending_leave_requests() {
     assert!(pending_users.contains(&caro.inbox_id().to_string()));
 
     // Initially, the group should not have pending leave requests on Bola's side (not super admin)
-    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
+    let bola_group_status = bola
+        .db()
+        .find_group(&GroupId::from(bola_group.group_id.as_slice()))
+        .unwrap()
+        .unwrap();
     assert_eq!(bola_group_status.has_pending_leave_request, None);
 
     // Amal promotes Bola to super_admin
@@ -1888,7 +1913,11 @@ async fn test_super_admin_promotion_marks_pending_leave_requests() {
     );
 
     // Verify the group is marked as having pending leave requests
-    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
+    let bola_group_status = bola
+        .db()
+        .find_group(&GroupId::from(bola_group.group_id.as_slice()))
+        .unwrap()
+        .unwrap();
     assert_eq!(bola_group_status.has_pending_leave_request, Some(true));
 }
 
@@ -1939,7 +1968,11 @@ async fn test_super_admin_demotion_clears_pending_leave_requests() {
     bola_group.sync().await.unwrap();
 
     // Verify the group is marked as having pending leave requests on Bola's side
-    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
+    let bola_group_status = bola
+        .db()
+        .find_group(&GroupId::from(bola_group.group_id.as_slice()))
+        .unwrap()
+        .unwrap();
     assert_eq!(bola_group_status.has_pending_leave_request, Some(true));
 
     // Bola demotes themselves from super_admin
@@ -1961,7 +1994,11 @@ async fn test_super_admin_demotion_clears_pending_leave_requests() {
     );
 
     // Verify the pending leave request flag is cleared
-    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
+    let bola_group_status = bola
+        .db()
+        .find_group(&GroupId::from(bola_group.group_id.as_slice()))
+        .unwrap()
+        .unwrap();
     assert_eq!(bola_group_status.has_pending_leave_request, Some(false));
 }
 
@@ -2005,7 +2042,11 @@ async fn test_no_status_change_when_not_in_pending_remove_list() {
     );
 
     // Verify the group is NOT marked as having pending leave requests (no pending users)
-    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
+    let bola_group_status = bola
+        .db()
+        .find_group(&GroupId::from(bola_group.group_id.as_slice()))
+        .unwrap()
+        .unwrap();
     // The status should be false or None since there are no pending remove users
     assert!(
         bola_group_status.has_pending_leave_request == Some(false)
@@ -2058,7 +2099,11 @@ async fn test_promotion_excludes_self_from_pending_check() {
 
     // Verify the group is NOT marked as having pending leave requests
     // (because the only pending user is Bola themselves)
-    let bola_group_status = bola.db().find_group(&bola_group.group_id).unwrap().unwrap();
+    let bola_group_status = bola
+        .db()
+        .find_group(&GroupId::from(bola_group.group_id.as_slice()))
+        .unwrap()
+        .unwrap();
     assert!(
         bola_group_status.has_pending_leave_request == Some(false)
             || bola_group_status.has_pending_leave_request.is_none()

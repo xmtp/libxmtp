@@ -147,7 +147,11 @@ async fn up_groups() {
 
     finish_migrations(db.conn());
 
-    let group = db.db().find_group(&[1, 2, 3]).unwrap().unwrap();
+    let group = db
+        .db()
+        .find_group(&xmtp_proto::types::GroupId::from(&[1u8, 2, 3][..]))
+        .unwrap()
+        .unwrap();
     assert_eq!(group.sequence_id, Some(100));
     assert_eq!(
         group.originator_id,

@@ -208,7 +208,10 @@ where
         let group_id = staged_welcome.public_group().group_id();
         // try to load the group this welcome represents
         // defensive to avoid race conditions & duplicates
-        if db.find_group(group_id.as_slice())?.is_some() {
+        if db
+            .find_group(&xmtp_proto::types::GroupId::from(group_id.as_slice()))?
+            .is_some()
+        {
             // Fetch the original MLS group, rather than the one from the welcome
             let result = MlsGroup::new_cached(self.context.clone(), group_id.as_slice());
             if let Ok((group, _)) = result {
@@ -335,7 +338,8 @@ where
 
         // Extract group_id before consuming staged_welcome
         let group_id = staged_welcome.public_group().group_id().to_vec();
-        let existing_group = db.find_group(group_id.as_slice())?;
+        let existing_group =
+            db.find_group(&xmtp_proto::types::GroupId::from(group_id.as_slice()))?;
 
         // Check if this is a re-add scenario:
         // - Self-removal (PendingRemove): user left voluntarily, then gets re-added
