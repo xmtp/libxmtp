@@ -6,7 +6,7 @@ use xmtp_db::encrypted_store::local_commit_log::NewLocalCommitLog;
 use xmtp_db::encrypted_store::remote_commit_log::{CommitResult, NewRemoteCommitLog};
 use xmtp_db::local_commit_log::CommitType;
 use xmtp_db::prelude::*;
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{Cursor, GroupId};
 
 #[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
@@ -305,11 +305,14 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
         Originators::REMOTE_COMMIT_LOG,
     )?;
-    let latest_two_local_log = alix.context.db().get_latest_log_for_group(&group_id)?;
+    let latest_two_local_log = alix
+        .context
+        .db()
+        .get_latest_log_for_group(&GroupId::from(group_id.as_slice()))?;
     let latest_two_remote_log = alix
         .context
         .db()
-        .get_latest_remote_log_for_group(&group_id)?;
+        .get_latest_remote_log_for_group(&GroupId::from(group_id.as_slice()))?;
 
     assert_eq!(
         updated_two_local_cursor,

@@ -206,7 +206,8 @@ impl CommitLogStorer for MlsGroup {
         let conn = provider.key_store().db();
         let mut maybe_recently_welcomed = true;
         // Latest log may not exist if a client upgraded from a version without local commit logs
-        if let Some(latest_log) = conn.get_latest_log_for_group(&group_id)?
+        if let Some(latest_log) =
+            conn.get_latest_log_for_group(&GroupId::from(group_id.as_slice()))?
             && latest_log.commit_type != Some(CommitType::Welcome.to_string())
         {
             maybe_recently_welcomed = false;

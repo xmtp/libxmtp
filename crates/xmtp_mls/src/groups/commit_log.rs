@@ -297,7 +297,9 @@ where
         for conversation in conversation_keys {
             // Step 1: Check each conversation cursors to see if we have new commits that have not been published to remote commit log yet
             let local_commit_log_cursor = conn
-                .get_local_commit_log_cursor(&conversation.id)
+                .get_local_commit_log_cursor(&xmtp_proto::types::GroupId::from(
+                    conversation.id.as_slice(),
+                ))
                 .ok()
                 .flatten()
                 .unwrap_or(0);
@@ -320,7 +322,7 @@ where
             // All local commit log will have rowid > 0 since sqlite rowid starts at 1 https://www.sqlite.org/autoinc.html
             let (plaintext_commit_log_entries, rowids): (Vec<PlaintextCommitLogEntry>, Vec<i32>) =
                 conn.get_local_commit_log_after_cursor(
-                    &conversation.id,
+                    &xmtp_proto::types::GroupId::from(conversation.id.as_slice()),
                     published_commit_log_cursor as i64,
                     LocalCommitLogOrder::AscendingByRowid,
                 )?
@@ -466,7 +468,9 @@ where
         // 2. The latest applied epoch number
         // 3. The latest stored sequence id
         if let Some(consensus_public_key) = consensus_public_key {
-            let mut latest_saved_remote_log = conn.get_latest_remote_log_for_group(&group_id)?;
+            let mut latest_saved_remote_log = conn.get_latest_remote_log_for_group(
+                &xmtp_proto::types::GroupId::from(group_id.as_slice()),
+            )?;
             for commit_log_entry in &commit_log_response.commit_log_entries {
                 let log_entry = match PlaintextCommitLogEntry::decode(
                     commit_log_entry.serialized_commit_log_entry.as_slice(),
@@ -884,13 +888,14 @@ where
         )?;
 
         // Get local and remote commit logs
+        let conversation_id_typed = xmtp_proto::types::GroupId::from(conversation_id);
         let local_logs = conn.get_local_commit_log_after_cursor(
-            conversation_id,
+            &conversation_id_typed,
             fork_check_local_cursor.sequence_id as i64,
             LocalCommitLogOrder::DescendingByRowid,
         )?;
         let remote_logs = conn.get_remote_commit_log_after_cursor(
-            conversation_id,
+            &conversation_id_typed,
             fork_check_remote_cursor.sequence_id as i64,
             RemoteCommitLogOrder::DescendingByRowid,
         )?;

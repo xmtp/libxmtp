@@ -652,35 +652,35 @@ mock! {
     impl QueryLocalCommitLog for DbQuery {
         fn get_group_logs(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
         ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
 
         // Local commit log entries are returned sorted in ascending order of `rowid`
         // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
         fn get_local_commit_log_after_cursor(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             after_cursor: i64,
             order_by: LocalCommitLogOrder,
         ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
 
         fn get_latest_log_for_group(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
         ) -> Result<Option<LocalCommitLog>, crate::ConnectionError>;
 
         fn get_local_commit_log_cursor(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
         ) -> Result<Option<i32>, crate::ConnectionError>;
     }
 
     impl QueryRemoteCommitLog for DbQuery {
-        fn get_latest_remote_log_for_group(&self, group_id: &[u8]) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
+        fn get_latest_remote_log_for_group(&self, group_id: &xmtp_proto::types::GroupId) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
 
         fn get_remote_commit_log_after_cursor(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             after_cursor: i64,
             order_by: RemoteCommitLogOrder,
         ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError>;

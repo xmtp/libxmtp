@@ -17,6 +17,7 @@ use diesel::{
 
 use serde::{Deserialize, Serialize};
 use xmtp_common::snippet::Snippet;
+use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
 
 #[derive(Insertable, Debug, Clone)]
@@ -140,12 +141,12 @@ pub enum RemoteCommitLogOrder {
 pub trait QueryRemoteCommitLog {
     fn get_latest_remote_log_for_group(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
 
     fn get_remote_commit_log_after_cursor(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         after_cursor: i64,
         order_by: RemoteCommitLogOrder,
     ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError>;
@@ -157,14 +158,14 @@ where
 {
     fn get_latest_remote_log_for_group(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
         (**self).get_latest_remote_log_for_group(group_id)
     }
 
     fn get_remote_commit_log_after_cursor(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         after_cursor: i64,
         order_by: RemoteCommitLogOrder,
     ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError> {
@@ -175,11 +176,11 @@ where
 impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
     fn get_latest_remote_log_for_group(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
         self.raw_query(|db| {
             dsl::remote_commit_log
-                .filter(remote_commit_log::group_id.eq(group_id))
+                .filter(remote_commit_log::group_id.eq(group_id.as_slice()))
                 .order(remote_commit_log::log_sequence_id.desc())
                 .limit(1)
                 .first(db)
@@ -189,7 +190,7 @@ impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
 
     fn get_remote_commit_log_after_cursor(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         after_cursor: i64,
         order: RemoteCommitLogOrder,
     ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError> {
@@ -203,7 +204,7 @@ impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
         let after_cursor: i32 = after_cursor as i32;
 
         let query = dsl::remote_commit_log
-            .filter(dsl::group_id.eq(group_id))
+            .filter(dsl::group_id.eq(group_id.as_slice()))
             .filter(dsl::rowid.gt(after_cursor))
             .filter(dsl::commit_sequence_id.ne(0));
 

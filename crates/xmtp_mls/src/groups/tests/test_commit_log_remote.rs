@@ -23,6 +23,7 @@ use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
 use xmtp_proto::types::Cursor;
+use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
 use xmtp_proto::xmtp::mls::message_contents::CommitLogEntry;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
@@ -294,7 +295,7 @@ async fn test_publish_commit_log_to_remote() {
     let commit_log_entries = alix
         .context
         .db()
-        .get_group_logs(&alix_group.group_id)
+        .get_group_logs(&GroupId::from(alix_group.group_id.as_slice()))
         .unwrap();
     assert_eq!(commit_log_entries.len(), 2);
 

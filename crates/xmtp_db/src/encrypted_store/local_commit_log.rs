@@ -2,6 +2,7 @@ use super::{DbConnection, remote_commit_log::CommitResult, schema::local_commit_
 use crate::{ConnectionExt, impl_store, schema::local_commit_log};
 use diesel::{Insertable, Queryable, prelude::*};
 use xmtp_common::snippet::Snippet;
+use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
 pub enum CommitType {
@@ -128,26 +129,26 @@ pub enum LocalCommitLogOrder {
 pub trait QueryLocalCommitLog {
     fn get_group_logs(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
 
     // Local commit log entries are returned sorted in ascending order of `rowid`
     // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
     fn get_local_commit_log_after_cursor(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         after_cursor: i64,
         order_by: LocalCommitLogOrder,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
 
     fn get_latest_log_for_group(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<LocalCommitLog>, crate::ConnectionError>;
 
     fn get_local_commit_log_cursor(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<i32>, crate::ConnectionError>;
 }
 
@@ -157,14 +158,14 @@ where
 {
     fn get_group_logs(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
         (**self).get_group_logs(group_id)
     }
 
     fn get_local_commit_log_after_cursor(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         after_cursor: i64,
         order_by: LocalCommitLogOrder,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
@@ -173,14 +174,14 @@ where
 
     fn get_latest_log_for_group(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<LocalCommitLog>, crate::ConnectionError> {
         (**self).get_latest_log_for_group(group_id)
     }
 
     fn get_local_commit_log_cursor(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<i32>, crate::ConnectionError> {
         (**self).get_local_commit_log_cursor(group_id)
     }
@@ -189,11 +190,11 @@ where
 impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
     fn get_group_logs(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
         self.raw_query(|db| {
             dsl::local_commit_log
-                .filter(dsl::group_id.eq(group_id))
+                .filter(dsl::group_id.eq(group_id.as_slice()))
                 .order_by(dsl::rowid.asc())
                 .load(db)
         })
@@ -203,7 +204,7 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
     // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
     fn get_local_commit_log_after_cursor(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         after_cursor: i64,
         order: LocalCommitLogOrder,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
@@ -216,7 +217,7 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
         let after_cursor = after_cursor as i32;
 
         let query = dsl::local_commit_log
-            .filter(dsl::group_id.eq(group_id))
+            .filter(dsl::group_id.eq(group_id.as_slice()))
             .filter(dsl::rowid.gt(after_cursor))
             .filter(dsl::commit_sequence_id.ne(0));
 
@@ -228,11 +229,11 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
 
     fn get_latest_log_for_group(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<LocalCommitLog>, crate::ConnectionError> {
         self.raw_query(|db| {
             dsl::local_commit_log
-                .filter(dsl::group_id.eq(group_id))
+                .filter(dsl::group_id.eq(group_id.as_slice()))
                 .order_by(dsl::rowid.desc())
                 .limit(1)
                 .first(db)
@@ -242,10 +243,10 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
 
     fn get_local_commit_log_cursor(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<i32>, crate::ConnectionError> {
         let query = dsl::local_commit_log
-            .filter(dsl::group_id.eq(group_id))
+            .filter(dsl::group_id.eq(group_id.as_slice()))
             .select(dsl::rowid)
             .order(dsl::rowid.desc())
             .limit(1);

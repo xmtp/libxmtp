@@ -2163,12 +2163,15 @@ where
     }
 
     pub async fn local_commit_log(&self) -> Result<Vec<LocalCommitLog>, GroupError> {
-        Ok(self.context.db().get_group_logs(&self.group_id)?)
+        Ok(self
+            .context
+            .db()
+            .get_group_logs(&GroupId::from(self.group_id.as_slice()))?)
     }
 
     pub async fn remote_commit_log(&self) -> Result<Vec<RemoteCommitLog>, GroupError> {
         Ok(self.context.db().get_remote_commit_log_after_cursor(
-            &self.group_id,
+            &GroupId::from(self.group_id.as_slice()),
             0,
             RemoteCommitLogOrder::AscendingByRowid,
         )?)
