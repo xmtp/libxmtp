@@ -1824,9 +1824,10 @@ where
         readded_installations: &HashSet<Vec<u8>>,
         cursor: i64,
     ) -> Result<(), StorageError> {
+        let group_id_typed = xmtp_proto::types::GroupId::from(group_id.as_slice());
         for installation_id in readded_installations {
             storage.db().update_responded_at_sequence_id(
-                group_id.as_slice(),
+                &group_id_typed,
                 installation_id.as_slice(),
                 cursor,
             )?;

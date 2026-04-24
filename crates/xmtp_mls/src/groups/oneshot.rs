@@ -68,8 +68,9 @@ impl Oneshot {
                     &readd_request.group_id,
                     &sender_installation_id,
                 )? {
+                    let group_id = GroupId::from(readd_request.group_id.as_slice());
                     provider.key_store().db().update_requested_at_sequence_id(
-                        readd_request.group_id.as_slice(),
+                        &group_id,
                         &sender_installation_id,
                         readd_request.latest_commit_sequence_id as i64,
                     )?;
@@ -178,6 +179,7 @@ mod tests {
             .await
             .unwrap();
         let group_id = a_group.group_id.clone();
+        let group_id_typed: GroupId = group_id.clone().into();
         bo.sync_all_welcomes_and_groups(None).await.unwrap();
         caro.sync_all_welcomes_and_groups(None).await.unwrap();
         let b_group = bo.group(&group_id).unwrap();
@@ -190,7 +192,7 @@ mod tests {
         let bo_initial_status = bo
             .context
             .db()
-            .get_readd_status(&group_id, alix.context.installation_id().as_slice())
+            .get_readd_status(&group_id_typed, alix.context.installation_id().as_slice())
             .expect("Failed to query readd status");
         assert!(
             bo_initial_status.is_none(),
@@ -200,7 +202,7 @@ mod tests {
         let caro_initial_status = caro
             .context
             .db()
-            .get_readd_status(&group_id, alix.context.installation_id().as_slice())
+            .get_readd_status(&group_id_typed, alix.context.installation_id().as_slice())
             .expect("Failed to query readd status");
         assert!(
             caro_initial_status.is_none(),
@@ -232,7 +234,7 @@ mod tests {
         let bo_status = bo
             .context
             .db()
-            .get_readd_status(&group_id, alix.context.installation_id().as_slice())
+            .get_readd_status(&group_id_typed, alix.context.installation_id().as_slice())
             .expect("Failed to query readd status")
             .expect("Bo should have readd status for Alix after syncing");
 
@@ -254,7 +256,7 @@ mod tests {
         let caro_status = caro
             .context
             .db()
-            .get_readd_status(&group_id, alix.context.installation_id().as_slice())
+            .get_readd_status(&group_id_typed, alix.context.installation_id().as_slice())
             .expect("Failed to query readd status")
             .expect("Caro should have readd status for Alix after syncing");
 

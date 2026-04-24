@@ -4,6 +4,7 @@ use crate::{
     tester,
 };
 use xmtp_db::{consent_record::ConsentState, group::QueryGroup, prelude::QueryReaddStatus};
+use xmtp_proto::types::GroupId;
 
 #[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test]
@@ -44,17 +45,26 @@ async fn test_request_readd() {
     // No readd requests yet
     assert!(
         !a_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         !b_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         !c_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
 
@@ -70,32 +80,50 @@ async fn test_request_readd() {
     // Only Alix and Bo are superadmins, so only they should have recorded a readd request
     assert!(
         a_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         b_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         !c_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         !a_conn
-            .is_awaiting_readd(&group.group_id, bo.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                bo.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         !b_conn
-            .is_awaiting_readd(&group.group_id, bo.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                bo.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         !c_conn
-            .is_awaiting_readd(&group.group_id, bo.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                bo.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
 }
@@ -126,12 +154,18 @@ async fn test_request_readd_dm() {
     // No readd requests yet
     assert!(
         !a_conn
-            .is_awaiting_readd(&dm.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(dm.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         !b_conn
-            .is_awaiting_readd(&dm.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(dm.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
 
@@ -145,22 +179,34 @@ async fn test_request_readd_dm() {
 
     assert!(
         a_conn
-            .is_awaiting_readd(&dm.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(dm.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         b_conn
-            .is_awaiting_readd(&dm.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(dm.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         !a_conn
-            .is_awaiting_readd(&dm.group_id, bo.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(dm.group_id.as_slice()),
+                bo.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         !b_conn
-            .is_awaiting_readd(&dm.group_id, bo.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(dm.group_id.as_slice()),
+                bo.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
 }
@@ -257,17 +303,26 @@ async fn test_readd_bookkeeping() {
     // No readd requests yet
     assert!(
         !a_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         !b_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         !c_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
 
@@ -282,22 +337,34 @@ async fn test_readd_bookkeeping() {
     // Everyone except Devon (non-superadmin) sees Alix as awaiting readd
     assert!(
         a_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         b_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         c_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         !d_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
 
@@ -311,24 +378,36 @@ async fn test_readd_bookkeeping() {
     // Everyone should see that Alix is no longer awaiting readd
     assert!(
         !b_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         !c_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
     assert!(
         !d_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
 
     alix.sync_welcomes().await.unwrap();
     assert!(
         !a_conn
-            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(
+                &GroupId::from(group.group_id.as_slice()),
+                alix.context.installation_id().as_slice(),
+            )
             .unwrap()
     );
 }
@@ -346,6 +425,7 @@ async fn test_request_readd_with_allowlisted_groups() {
         .unwrap();
 
     let group_id = group.group_id.clone();
+    let group_id_typed: GroupId = group_id.clone().into();
     let group_id_hex = hex::encode(&group_id);
     let unnormalized_group_id = "0x".to_owned() + &group_id_hex.to_uppercase();
 
@@ -386,12 +466,12 @@ async fn test_request_readd_with_allowlisted_groups() {
     // No readd requests yet
     assert!(
         !a_conn
-            .is_awaiting_readd(&group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(&group_id_typed, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         !b_conn
-            .is_awaiting_readd(&group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(&group_id_typed, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
 
@@ -404,19 +484,19 @@ async fn test_request_readd_with_allowlisted_groups() {
     // Alix should have recorded a readd request since the group is allowlisted
     assert!(
         a_conn
-            .is_awaiting_readd(&group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(&group_id_typed, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     // Bo is a superadmin so should have recorded the request
     assert!(
         b_conn
-            .is_awaiting_readd(&group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(&group_id_typed, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     // Caro is not a superadmin so should not have received the request
     assert!(
         !c_conn
-            .is_awaiting_readd(&group_id, alix.context.installation_id().as_slice(),)
+            .is_awaiting_readd(&group_id_typed, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
 }

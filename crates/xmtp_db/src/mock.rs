@@ -333,45 +333,45 @@ mock! {
     impl QueryReaddStatus for DbQuery {
         fn get_readd_status(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             installation_id: &[u8],
         ) -> Result<Option<crate::readd_status::ReaddStatus>, crate::ConnectionError>;
 
         fn is_awaiting_readd(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             installation_id: &[u8],
         ) -> Result<bool, crate::ConnectionError>;
 
         fn update_requested_at_sequence_id(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             installation_id: &[u8],
             sequence_id: i64,
         ) -> Result<(), crate::ConnectionError>;
 
         fn update_responded_at_sequence_id(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             installation_id: &[u8],
             sequence_id: i64,
         ) -> Result<(), crate::ConnectionError>;
 
         fn delete_other_readd_statuses(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             self_installation_id: &[u8],
         ) -> Result<(), crate::ConnectionError>;
 
         fn delete_readd_statuses(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             installation_ids: std::collections::HashSet<Vec<u8> > ,
         ) -> Result<(), crate::ConnectionError>;
 
         fn get_readds_awaiting_response(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             self_installation_id: &[u8],
         ) -> Result<Vec<crate::readd_status::ReaddStatus>, crate::ConnectionError>;
     }

@@ -628,9 +628,10 @@ where
     ) -> Result<(), CommitLogError> {
         let conn = self.context.db();
         let group_id = group_info.group_id;
+        let group_id_typed = xmtp_proto::types::GroupId::from(group_id.as_slice());
 
         // Check if a readd request has already been sent for this group
-        if conn.is_awaiting_readd(&group_id, self.context.installation_id().as_slice())? {
+        if conn.is_awaiting_readd(&group_id_typed, self.context.installation_id().as_slice())? {
             tracing::debug!(
                 group_id = hex::encode(&group_id),
                 "Skipping readd request for group because it has already been requested"
@@ -666,7 +667,7 @@ where
 
         // Mark readd as requested
         conn.update_requested_at_sequence_id(
-            &group_id,
+            &group_id_typed,
             self.context.installation_id().as_slice(),
             latest_commit_sequence_id as i64,
         )?;
@@ -775,7 +776,7 @@ where
                             e
                         );
                         conn.delete_other_readd_statuses(
-                            &group.group_id,
+                            &xmtp_proto::types::GroupId::from(group.group_id.as_slice()),
                             self.context.installation_id().as_slice(),
                         )?;
                     }
@@ -831,7 +832,7 @@ where
         }
 
         let readd_statuses = conn.get_readds_awaiting_response(
-            &mls_group.group_id,
+            &xmtp_proto::types::GroupId::from(mls_group.group_id.as_slice()),
             self.context.installation_id().as_slice(),
         )?;
         let mut unverified = readd_statuses
@@ -857,7 +858,10 @@ where
             unverified.len(),
             verified.len()
         );
-        conn.delete_readd_statuses(&mls_group.group_id, unverified)?;
+        conn.delete_readd_statuses(
+            &xmtp_proto::types::GroupId::from(mls_group.group_id.as_slice()),
+            unverified,
+        )?;
 
         Ok(verified)
     }
