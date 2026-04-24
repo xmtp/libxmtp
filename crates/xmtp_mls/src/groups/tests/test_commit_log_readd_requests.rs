@@ -4,8 +4,8 @@ use crate::{
     tester,
 };
 use xmtp_db::{consent_record::ConsentState, group::QueryGroup, prelude::QueryReaddStatus};
-use xmtp_proto::types::GroupId;
 
+use xmtp_proto::types::GroupId;
 #[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test]
 async fn test_request_readd() {

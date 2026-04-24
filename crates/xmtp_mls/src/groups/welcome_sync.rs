@@ -18,9 +18,7 @@ use xmtp_common::{Retry, retry_async};
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
 use xmtp_macro::log_event;
-use xmtp_proto::types::GlobalCursor;
-use xmtp_proto::types::GroupId;
-use xmtp_proto::types::GroupMessageMetadata;
+use xmtp_proto::types::{GlobalCursor, GroupId, GroupMessageMetadata};
 
 #[derive(Debug, Clone)]
 pub struct GroupSyncSummary {
@@ -391,7 +389,9 @@ mod tests {
     use xmtp_db::{MemoryStorage, mock::MockDbQuery, sql_key_store::mock::MockSqlKeyStore};
     use xmtp_id::key_package::WrapperAlgorithm;
     use xmtp_proto::mls_v1::WelcomeMetadata;
-    use xmtp_proto::types::{Cursor, WelcomeMessage, WelcomeMessageType, WelcomeMessageV1};
+    use xmtp_proto::types::{
+        Cursor, GroupId, WelcomeMessage, WelcomeMessageType, WelcomeMessageV1,
+    };
 
     fn generate_welcome(
         id: u64,

@@ -23,11 +23,11 @@ use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
 use xmtp_proto::types::Cursor;
-use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
 use xmtp_proto::xmtp::mls::message_contents::CommitLogEntry;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
+use xmtp_proto::types::GroupId;
 // Helper functions for tracking commit types
 fn get_commit_types_as_strings(logs: &[LocalCommitLog]) -> Vec<String> {
     logs.iter()

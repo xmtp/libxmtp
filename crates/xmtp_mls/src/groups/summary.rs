@@ -7,6 +7,7 @@ use xmtp_db::group_intent::IntentKind;
 use xmtp_proto::types::Cursor;
 
 use super::{GroupError, mls_sync::GroupMessageProcessingError};
+use xmtp_proto::types::GroupId;
 
 #[derive(Default)]
 pub struct SyncSummary {
@@ -150,7 +151,7 @@ impl std::fmt::Display for SyncSummary {
 pub struct MessageIdentifier {
     /// the cursor of the message as it exists on the network
     pub cursor: Cursor,
-    pub group_id: xmtp_proto::types::GroupId,
+    pub group_id: GroupId,
     pub created_ns: chrono::DateTime<Utc>,
     /// true if the message has been processed previously
     #[builder(default = false)]

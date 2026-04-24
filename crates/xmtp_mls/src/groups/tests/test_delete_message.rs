@@ -6,8 +6,8 @@ use crate::tester;
 use xmtp_content_types::{ContentCodec, text::TextCodec};
 use xmtp_db::group_message::{ContentType, GroupMessageKind, MsgQueryArgs, QueryGroupMessage};
 use xmtp_db::message_deletion::QueryMessageDeletion;
-use xmtp_proto::types::GroupId;
 
+use xmtp_proto::types::GroupId;
 /// Test basic message deletion by the original sender
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_delete_message_by_sender() {

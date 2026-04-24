@@ -17,9 +17,9 @@ use diesel::{
 
 use serde::{Deserialize, Serialize};
 use xmtp_common::snippet::Snippet;
-use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
 
+use xmtp_proto::types::GroupId;
 #[derive(Insertable, Debug, Clone)]
 #[diesel(table_name = remote_commit_log)]
 pub struct NewRemoteCommitLog {

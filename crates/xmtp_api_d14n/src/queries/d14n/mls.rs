@@ -24,7 +24,6 @@ use xmtp_proto::api::{ApiClientError, Query};
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1;
 use xmtp_proto::mls_v1::BatchQueryCommitLogResponse;
-use xmtp_proto::types::GroupId;
 use xmtp_proto::types::GroupMessageMetadata;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::Topic;
@@ -34,6 +33,7 @@ use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeResponse;
 
+use xmtp_proto::types::GroupId;
 #[xmtp_common::async_trait]
 impl<C, Store> XmtpMlsClient for D14nClient<C, Store>
 where

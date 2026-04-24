@@ -3,8 +3,8 @@ use crate::schema::message_deletions::dsl;
 use crate::{DbConnection, impl_store, impl_store_or_ignore, schema::message_deletions};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use xmtp_proto::types::GroupId;
 
+use xmtp_proto::types::GroupId;
 #[derive(
     Debug,
     Clone,

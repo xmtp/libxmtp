@@ -5,7 +5,6 @@ use xmtp_db::sql_key_store::SqlKeyStore;
 use xmtp_mls_common::{
     group_metadata::GroupMetadata, group_mutable_metadata::GroupMutableMetadata,
 };
-use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::device_sync::{
     backup_element::Element,
     group_backup::{
@@ -13,6 +12,7 @@ use xmtp_proto::xmtp::device_sync::{
     },
 };
 
+use xmtp_proto::types::GroupId;
 #[xmtp_common::async_trait]
 impl BackupRecordProvider for GroupSave {
     const BATCH_SIZE: i64 = 100;

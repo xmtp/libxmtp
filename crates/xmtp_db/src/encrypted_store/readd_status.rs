@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
 use diesel::prelude::*;
-use xmtp_proto::types::GroupId;
 
 use super::{
     DbConnection,
@@ -9,6 +8,7 @@ use super::{
 };
 use crate::{ConnectionExt, impl_store};
 
+use xmtp_proto::types::GroupId;
 #[derive(Identifiable, Queryable, Selectable, Insertable, Debug, Clone, PartialEq, Eq)]
 #[diesel(table_name = readd_status)]
 #[diesel(primary_key(group_id, installation_id))]

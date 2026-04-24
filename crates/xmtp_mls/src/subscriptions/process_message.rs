@@ -108,6 +108,7 @@ mod tests {
     use super::*;
     use rstest::*;
     use rstest_reuse::{self, *};
+    use xmtp_proto::types::GroupId;
 
     #[template]
     #[rstest]
@@ -164,7 +165,6 @@ mod tests {
         expected: u64,
     ) {
         use xmtp_common::Generate as _;
-        use xmtp_proto::types::GroupId;
 
         use crate::test::mock::generate_errored_summary;
 
@@ -216,7 +216,6 @@ mod tests {
     #[xmtp_common::test]
     pub async fn test_process_surfaces_decrypt_between_failed_cursors() {
         use xmtp_common::Generate as _;
-        use xmtp_proto::types::GroupId;
 
         use crate::test::mock::{generate_errored_summary_with_group, generate_stored_msg};
 

@@ -2,9 +2,9 @@ use super::{DbConnection, remote_commit_log::CommitResult, schema::local_commit_
 use crate::{ConnectionExt, impl_store, schema::local_commit_log};
 use diesel::{Insertable, Queryable, prelude::*};
 use xmtp_common::snippet::Snippet;
-use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
+use xmtp_proto::types::GroupId;
 pub enum CommitType {
     GroupCreation,
     BackupRestore,

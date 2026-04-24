@@ -1,9 +1,9 @@
 use crate::ConnectionExt;
-use xmtp_proto::types::GroupId;
 
 use super::*;
 use crate::ConnectionError;
 
+use xmtp_proto::types::GroupId;
 pub trait QueryDms {
     /// Same behavior as fetched, but will stitch DM groups
     fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError>;

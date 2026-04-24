@@ -13,8 +13,8 @@ use xmtp_db::{
     prelude::*,
     remote_commit_log::CommitResult,
 };
-use xmtp_proto::types::GroupId;
 
+use xmtp_proto::types::GroupId;
 /// This trait wraps openmls groups to include commit logs for any mutations to encryption state.
 /// This helps with fork detection.
 pub trait CommitLogStorer: std::marker::Sized {

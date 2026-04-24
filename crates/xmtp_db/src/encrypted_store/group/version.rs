@@ -1,8 +1,8 @@
 use crate::ConnectionExt;
-use xmtp_proto::types::GroupId;
 
 use super::*;
 
+use xmtp_proto::types::GroupId;
 pub trait QueryGroupVersion {
     fn set_group_paused(&self, group_id: &GroupId, min_version: &str) -> Result<(), StorageError>;
 

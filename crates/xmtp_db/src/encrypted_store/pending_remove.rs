@@ -5,8 +5,8 @@ use diesel::dsl::exists;
 use diesel::prelude::*;
 use diesel::select;
 use serde::{Deserialize, Serialize};
-use xmtp_proto::types::GroupId;
 
+use xmtp_proto::types::GroupId;
 #[derive(
     Debug,
     Clone,
