@@ -667,7 +667,7 @@ async fn test_welcome_pointer_task_retry_resolution() {
         .find_group_by_sequence_id(welcome_from_api.cursor)
         .unwrap()
         .unwrap();
-    assert_eq!(stored_group.id, bo_group.group_id);
+    assert_eq!(stored_group.id.as_slice(), bo_group.group_id.as_slice());
 
     tracing::info!("Verifying message is received in conversation stream");
     let conversation_group =

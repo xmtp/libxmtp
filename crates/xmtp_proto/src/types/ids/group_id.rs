@@ -11,12 +11,25 @@ use diesel::{
     sqlite::Sqlite,
 };
 use hex::FromHexError;
+use serde::{Deserialize, Serialize};
 
 /// The canonical group identifier.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[cfg_attr(feature = "diesel", derive(AsExpression, FromSqlRow))]
 #[cfg_attr(feature = "diesel", diesel(sql_type = Binary))]
 pub struct GroupId(bytes::Bytes);
+
+impl Serialize for GroupId {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        self.0.as_ref().serialize(s)
+    }
+}
+
+impl<'de> Deserialize<'de> for GroupId {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Vec::<u8>::deserialize(d).map(GroupId::from)
+    }
+}
 
 impl GroupId {
     pub fn as_slice(&self) -> &[u8] {

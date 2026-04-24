@@ -363,7 +363,7 @@ where
         for other_dm in conn.other_dms(&GroupId::from(self.group_id.as_slice()))? {
             let other_dm = Self::new_from_arc(
                 self.context.clone(),
-                other_dm.id,
+                other_dm.id.to_vec(),
                 other_dm.dm_id.clone(),
                 other_dm.conversation_type,
                 other_dm.created_at_ns,

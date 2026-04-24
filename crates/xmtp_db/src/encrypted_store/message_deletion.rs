@@ -177,7 +177,7 @@ mod tests {
 
     fn create_test_group(conn: &DbConnection<impl ConnectionExt>, group_id: Vec<u8>) {
         StoredGroup {
-            id: group_id,
+            id: group_id.into(),
             created_at_ns: 0,
             membership_state: GroupMembershipState::Allowed,
             installations_last_checked: 0,

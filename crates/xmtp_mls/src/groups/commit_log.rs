@@ -335,7 +335,7 @@ where
                     self.sign_group_logs(conversation, &plaintext_commit_log_entries)?;
                 all_entries.extend(signed_entries);
                 conversation_cursor_info.push(ConversationCursorInfo {
-                    conversation_id: conversation.id.clone(),
+                    conversation_id: conversation.id.to_vec(),
                     num_entries_published: plaintext_commit_log_entries.len(),
                     last_entry_published_sequence_id: plaintext_commit_log_entries
                         .last()
@@ -373,7 +373,7 @@ where
             let public_key = xmtp_cryptography::signature::to_public_key(&private_key)?.to_vec();
 
             signed_entries.push(PublishCommitLogRequest {
-                group_id: conversation.id.clone(),
+                group_id: conversation.id.to_vec(),
                 serialized_commit_log_entry,
                 signature: Some(RecoverableEd25519Signature {
                     bytes: signature,
@@ -391,7 +391,7 @@ where
         let conversation_id_to_public_key: HashMap<Vec<u8>, Option<Vec<u8>>> = conn
             .get_conversation_ids_for_remote_log_download()?
             .into_iter()
-            .map(|c| (c.id, c.commit_log_public_key))
+            .map(|c| (c.id.to_vec(), c.commit_log_public_key))
             .collect();
 
         // Step 1 is to collect a list of remote log cursors for all conversations and convert them into query log requests
@@ -1001,9 +1001,8 @@ where
 
         let mut results = HashMap::new();
         for group in all_groups {
-            let fork_status =
-                conn.get_group_commit_log_forked_status(&GroupId::from(group.id.as_slice()))?;
-            results.insert(group.id, fork_status);
+            let fork_status = conn.get_group_commit_log_forked_status(&group.id)?;
+            results.insert(group.id.to_vec(), fork_status);
         }
 
         Ok(results)

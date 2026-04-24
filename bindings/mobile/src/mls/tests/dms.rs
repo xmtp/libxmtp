@@ -636,7 +636,7 @@ async fn test_can_successfully_thread_dms() {
         .unwrap()
         .unwrap();
     assert!(group_bo.last_message_ns.unwrap() < group_alix.last_message_ns.unwrap());
-    assert_eq!(group_bo.id, convo_bo.id());
+    assert_eq!(group_bo.id.as_slice(), convo_bo.id().as_slice());
 
     // Check messages
     let bo_messages = convo_bo

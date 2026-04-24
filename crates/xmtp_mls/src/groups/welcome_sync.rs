@@ -234,7 +234,7 @@ where
             .map(|g| {
                 MlsGroup::new(
                     self.context.clone(),
-                    g.id,
+                    g.id.to_vec(),
                     g.dm_id,
                     g.conversation_type,
                     g.created_at_ns,
@@ -270,7 +270,7 @@ where
             .map(|c| {
                 MlsGroup::new(
                     self.context.clone(),
-                    c.id,
+                    c.id.to_vec(),
                     c.dm_id,
                     c.conversation_type,
                     c.created_at_ns,

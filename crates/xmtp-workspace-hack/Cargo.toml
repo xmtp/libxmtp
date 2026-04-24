@@ -37,6 +37,7 @@ clap_builder = { version = "4", default-features = false, features = ["color", "
 const-hex = { version = "1", features = ["core-error", "serde"] }
 crypto-common = { version = "0.1", default-features = false, features = ["getrandom", "std"] }
 derive_more = { version = "2", default-features = false, features = ["add", "add_assign", "as_ref", "deref", "deref_mut", "display", "from", "from_str", "index", "index_mut", "into", "into_iterator", "not", "std"] }
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["32-column-tables", "returning_clauses_for_sqlite_3_35", "serde_json"] }
 digest = { version = "0.10", features = ["mac", "oid", "std"] }
 ed25519-dalek = { version = "2", features = ["digest", "rand_core"] }
 either = { version = "1", features = ["serde", "use_std"] }
@@ -123,6 +124,8 @@ clap_builder = { version = "4", default-features = false, features = ["color", "
 const-hex = { version = "1", features = ["core-error", "serde"] }
 crypto-common = { version = "0.1", default-features = false, features = ["getrandom", "std"] }
 derive_more = { version = "2", default-features = false, features = ["add", "add_assign", "as_ref", "deref", "deref_mut", "display", "from", "from_str", "index", "index_mut", "into", "into_iterator", "not", "std"] }
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["32-column-tables", "returning_clauses_for_sqlite_3_35", "serde_json"] }
+diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", features = ["32-column-tables", "sqlite"] }
 digest = { version = "0.10", features = ["mac", "oid", "std"] }
 ed25519-dalek = { version = "2", features = ["digest", "rand_core"] }
 either = { version = "1", features = ["serde", "use_std"] }
@@ -190,9 +193,11 @@ zerocopy = { version = "0.8", default-features = false, features = ["derive", "s
 
 [target.x86_64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
+libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
@@ -202,9 +207,12 @@ tower = { version = "0.5", default-features = false, features = ["retry", "timeo
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
+diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
+libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
@@ -213,11 +221,13 @@ tower = { version = "0.5", default-features = false, features = ["retry", "timeo
 
 [target.aarch64-apple-darwin.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 libc = { version = "0.2" }
+libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
@@ -227,11 +237,14 @@ tower = { version = "0.5", default-features = false, features = ["retry", "timeo
 [target.aarch64-apple-darwin.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
+diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 libc = { version = "0.2" }
+libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
@@ -240,11 +253,13 @@ tower = { version = "0.5", default-features = false, features = ["retry", "timeo
 
 [target.aarch64-linux-android.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 libc = { version = "0.2" }
+libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
@@ -254,11 +269,14 @@ tower = { version = "0.5", default-features = false, features = ["retry", "timeo
 [target.aarch64-linux-android.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
+diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 libc = { version = "0.2" }
+libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
@@ -267,10 +285,12 @@ tower = { version = "0.5", default-features = false, features = ["retry", "timeo
 
 [target.x86_64-linux-android.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
+libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
@@ -280,10 +300,13 @@ tower = { version = "0.5", default-features = false, features = ["retry", "timeo
 [target.x86_64-linux-android.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
+diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
+libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }

@@ -52,7 +52,7 @@ pub type ID = Vec<u8>;
 /// A Unique group chat
 pub struct StoredGroup {
     /// Randomly generated ID by group creator
-    pub id: Vec<u8>,
+    pub id: GroupId,
     /// Based on timestamp of this welcome message
     pub created_at_ns: i64,
     /// Enum, [`GroupMembershipState`] representing access to the group
@@ -148,7 +148,7 @@ impl StoredGroupBuilder {
 #[derive(Queryable)]
 #[diesel(table_name = groups)]
 pub struct StoredGroupCommitLogPublicKey {
-    pub id: Vec<u8>,
+    pub id: GroupId,
     pub commit_log_public_key: Option<Vec<u8>>,
 }
 
@@ -175,7 +175,7 @@ pub struct StoredGroupForRespondingReadds {
 }
 
 // TODO: Create two more structs that delegate to StoredGroup
-impl_fetch!(StoredGroup, groups, Vec<u8>);
+impl_fetch!(StoredGroup, groups, GroupId);
 impl_store!(StoredGroup, groups);
 impl_store_or_ignore!(StoredGroup, groups);
 

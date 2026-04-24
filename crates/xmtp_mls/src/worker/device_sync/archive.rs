@@ -91,7 +91,7 @@ fn insert(
 
                 import_context
                     .group_timestamps
-                    .insert(existing_group.id, timestamp);
+                    .insert(existing_group.id.to_vec(), timestamp);
                 // Do not restore groups that already exist.
                 return Ok(());
             }
@@ -506,7 +506,7 @@ mod tests {
             assert_eq!(old_msg.group_id, msg.group_id);
         }
 
-        let alix2_group = alix2.group(&old_group.id)?;
+        let alix2_group = alix2.group(old_group.id.as_slice())?;
         // Loading all the groups works fine
         let _groups = alix2.find_groups(GroupQueryArgs::default())?;
         // Can fetch the group name no problem
@@ -514,13 +514,13 @@ mod tests {
         assert!(!alix2_group.is_active()?);
 
         // Add the new inbox to the groups
-        alix.group(&old_group.id)?
+        alix.group(old_group.id.as_slice())?
             .add_members(&[alix2.inbox_id()])
             .await?;
         alix2.sync_welcomes().await?;
 
         // The group restores to being fully functional
-        let alix2_group = alix2.group(&old_group.id)?;
+        let alix2_group = alix2.group(old_group.id.as_slice())?;
         assert!(alix2_group.is_active()?);
 
         // The old messages should be stitched in

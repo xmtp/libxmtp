@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 /// Combined view of a group and its messages, now named `conversation_list`.
 pub struct ConversationListItem {
     /// group_id
-    pub id: Vec<u8>,
+    pub id: xmtp_proto::types::GroupId,
     /// Based on timestamp of the welcome message
     pub created_at_ns: i64,
     /// Enum, [`GroupMembershipState`] representing access to the group

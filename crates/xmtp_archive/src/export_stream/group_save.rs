@@ -81,7 +81,7 @@ impl GroupSaveExt for GroupSave {
         let conversation_type: ConversationTypeSave = group.conversation_type.into();
 
         Self {
-            id: group.id,
+            id: group.id.to_vec(),
             created_at_ns: group.created_at_ns,
             membership_state: membership_state as i32,
             installations_last_checked: group.installations_last_checked,

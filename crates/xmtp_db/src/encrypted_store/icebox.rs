@@ -369,7 +369,7 @@ mod tests {
     fn create_test_group(conn: &impl crate::DbQuery) -> Vec<u8> {
         let group_id = xmtp_common::rand_vec::<24>();
         let group = StoredGroup {
-            id: group_id.clone(),
+            id: group_id.clone().into(),
             created_at_ns: 0,
             membership_state: GroupMembershipState::Allowed,
             installations_last_checked: 0,

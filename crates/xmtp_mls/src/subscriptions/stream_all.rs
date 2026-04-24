@@ -27,7 +27,6 @@ use xmtp_db::{
 };
 use xmtp_macro::log_event;
 use xmtp_proto::api_client::XmtpMlsStreams;
-use xmtp_proto::types::GroupId;
 
 #[pin_project(PinnedDrop)]
 pub struct StreamAllMessages<'a, Context, Conversations, Messages>
@@ -129,15 +128,11 @@ where
                     StoredGroup {
                         conversation_type: ConversationType::Sync,
                         ..
-                    } => Some(g.id.clone()),
+                    } => Some(g.id.to_vec()),
                     _ => None,
                 })
                 .collect();
-            let active_conversations = groups
-                .into_iter()
-                // TODO: Create find groups query only for group ID
-                .map(|g| GroupId::from(g.id))
-                .collect();
+            let active_conversations = groups.into_iter().map(|g| g.id).collect();
 
             Ok::<_, SubscribeError>((active_conversations, sync_groups))
         }

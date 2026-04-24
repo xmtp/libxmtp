@@ -112,7 +112,7 @@ pub async fn create_dm_with_consent(
         let group_id = xmtp_common::rand_vec::<20>();
         let consent_entity = hex::encode(&group_id);
         let group = StoredGroup {
-            id: group_id,
+            id: group_id.into(),
             dm_id: Some(dm_id.clone()),
             added_by_inbox_id: client.inbox_id().to_string(),
             created_at_ns: now_ns(),

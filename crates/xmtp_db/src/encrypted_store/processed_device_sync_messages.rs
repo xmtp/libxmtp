@@ -433,7 +433,7 @@ mod tests {
             // Verify all returned messages are in order and belong to the sync group
             for (i, msg) in all_messages.iter().enumerate() {
                 assert_eq!(msg.id, sync_message_ids[i]);
-                assert_eq!(msg.group_id, sync_group.id);
+                assert_eq!(msg.group_id.as_slice(), sync_group.id.as_slice());
             }
         })
     }

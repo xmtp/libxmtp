@@ -601,7 +601,7 @@ where
         )?;
         let new_group = Self::new_from_arc(
             context.clone(),
-            stored_group.id,
+            stored_group.id.to_vec(),
             stored_group.dm_id,
             conversation_type,
             stored_group.created_at_ns,
@@ -2319,7 +2319,8 @@ where
     /// `None` if the group or settings are missing, or `Err(ClientError)` on a database error.
     pub fn disappearing_settings(&self) -> Result<Option<MessageDisappearingSettings>, GroupError> {
         let conn = self.context.db();
-        let stored_group: Option<StoredGroup> = conn.fetch(&self.group_id)?;
+        let stored_group: Option<StoredGroup> =
+            conn.fetch(&GroupId::from(self.group_id.as_slice()))?;
 
         let settings = stored_group.and_then(|group| {
             let from_ns = group.message_disappear_from_ns?;
@@ -2343,7 +2344,7 @@ where
             .map(|g| {
                 MlsGroup::new(
                     self.context.clone(),
-                    g.id,
+                    g.id.to_vec(),
                     g.dm_id,
                     g.conversation_type,
                     g.created_at_ns,

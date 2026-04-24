@@ -9,7 +9,7 @@ use xmtp_db::{
     Fetch, NotFound, XmtpOpenMlsProvider,
     group::{GroupQueryArgs, StoredGroup},
 };
-use xmtp_proto::types::{GroupMessage, WelcomeMessage};
+use xmtp_proto::types::{GroupId, GroupMessage, WelcomeMessage};
 
 use crate::{context::XmtpSharedContext, groups::MlsGroup};
 use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
@@ -136,7 +136,7 @@ where
             .map(|stored_group| {
                 MlsGroup::new(
                     self.context.clone(),
-                    stored_group.id,
+                    stored_group.id.to_vec(),
                     stored_group.dm_id,
                     stored_group.conversation_type,
                     stored_group.created_at_ns,
@@ -149,20 +149,20 @@ where
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
-    pub fn group(&self, group_id: &Vec<u8>) -> Result<MlsGroup<Context>, MlsStoreError> {
+    pub fn group(&self, group_id: &[u8]) -> Result<MlsGroup<Context>, MlsStoreError> {
         let conn = self.context.db();
-        let stored_group: Option<StoredGroup> = conn.fetch(group_id)?;
+        let stored_group: Option<StoredGroup> = conn.fetch(&GroupId::from(group_id))?;
         stored_group
             .map(|g| {
                 MlsGroup::new(
                     self.context.clone(),
-                    g.id,
+                    g.id.to_vec(),
                     g.dm_id,
                     g.conversation_type,
                     g.created_at_ns,
                 )
             })
-            .ok_or(NotFound::GroupById(group_id.clone()))
+            .ok_or(NotFound::GroupById(group_id.to_vec()))
             .map_err(Into::into)
     }
 }

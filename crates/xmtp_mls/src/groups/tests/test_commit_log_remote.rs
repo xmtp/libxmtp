@@ -994,11 +994,11 @@ async fn test_all_users_use_same_signing_key_for_publishing() {
     // Find the DM conversation key for each party
     let alix_dm_key = alix_conversation_keys
         .iter()
-        .find(|k| k.id == alix_dm.group_id)
+        .find(|k| k.id.as_slice() == alix_dm.group_id.as_slice())
         .expect("Alix should have DM key");
     let bo_dm_key = bo_conversation_keys
         .iter()
-        .find(|k| k.id == bo_dm.group_id)
+        .find(|k| k.id.as_slice() == bo_dm.group_id.as_slice())
         .expect("Bo should have DM key");
 
     // Get the signing keys that would be used for publishing
