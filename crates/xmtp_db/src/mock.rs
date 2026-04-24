@@ -826,7 +826,7 @@ mock! {
 
         fn get_group_deletions(
             &self,
-            _group_id: &[u8],
+            _group_id: &xmtp_proto::types::GroupId,
         ) -> Result<Vec<crate::message_deletion::StoredMessageDeletion>, crate::ConnectionError>;
 
         fn is_message_deleted(

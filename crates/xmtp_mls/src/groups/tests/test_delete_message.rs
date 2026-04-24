@@ -6,6 +6,7 @@ use crate::tester;
 use xmtp_content_types::{ContentCodec, text::TextCodec};
 use xmtp_db::group_message::{ContentType, GroupMessageKind, MsgQueryArgs, QueryGroupMessage};
 use xmtp_db::message_deletion::QueryMessageDeletion;
+use xmtp_proto::types::GroupId;
 
 /// Test basic message deletion by the original sender
 #[xmtp_common::test(unwrap_try = true)]
@@ -583,7 +584,8 @@ async fn test_deletion_database_queries() {
     assert!(conn.is_message_deleted(&message_ids[2])?);
 
     // Test get_group_deletions
-    let group_deletions = conn.get_group_deletions(&alix_group.group_id)?;
+    let group_deletions =
+        conn.get_group_deletions(&GroupId::from(alix_group.group_id.as_slice()))?;
     assert_eq!(group_deletions.len(), 2);
 }
 
