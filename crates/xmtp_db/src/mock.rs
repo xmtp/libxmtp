@@ -173,23 +173,23 @@ mock! {
             cursor: Cursor,
         ) -> Result<Option<crate::group::StoredGroup>, crate::ConnectionError>;
 
-        fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError>;
+        fn get_rotated_at_ns(&self, group_id: xmtp_proto::types::GroupId) -> Result<i64, StorageError>;
 
-        fn update_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<(), StorageError>;
+        fn update_rotated_at_ns(&self, group_id: xmtp_proto::types::GroupId) -> Result<(), StorageError>;
 
-        fn get_installations_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError>;
+        fn get_installations_time_checked(&self, group_id: xmtp_proto::types::GroupId) -> Result<i64, StorageError>;
 
-        fn update_installations_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError>;
+        fn update_installations_time_checked(&self, group_id: xmtp_proto::types::GroupId) -> Result<(), StorageError>;
 
         fn update_message_disappearing_from_ns(
             &self,
-            group_id: Vec<u8>,
+            group_id: xmtp_proto::types::GroupId,
             from_ns: Option<i64>,
         ) -> Result<(), StorageError>;
 
         fn update_message_disappearing_in_ns(
             &self,
-            group_id: Vec<u8>,
+            group_id: xmtp_proto::types::GroupId,
             in_ns: Option<i64>,
         ) -> Result<(), StorageError>;
 

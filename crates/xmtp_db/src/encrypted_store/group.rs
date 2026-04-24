@@ -277,25 +277,25 @@ pub trait QueryGroup {
         cursor: Cursor,
     ) -> Result<Option<StoredGroup>, crate::ConnectionError>;
 
-    fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError>;
+    fn get_rotated_at_ns(&self, group_id: GroupId) -> Result<i64, StorageError>;
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<(), StorageError>;
+    fn update_rotated_at_ns(&self, group_id: GroupId) -> Result<(), StorageError>;
 
-    fn get_installations_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError>;
+    fn get_installations_time_checked(&self, group_id: GroupId) -> Result<i64, StorageError>;
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_installations_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError>;
+    fn update_installations_time_checked(&self, group_id: GroupId) -> Result<(), StorageError>;
 
     fn update_message_disappearing_from_ns(
         &self,
-        group_id: Vec<u8>,
+        group_id: GroupId,
         from_ns: Option<i64>,
     ) -> Result<(), StorageError>;
 
     fn update_message_disappearing_in_ns(
         &self,
-        group_id: Vec<u8>,
+        group_id: GroupId,
         in_ns: Option<i64>,
     ) -> Result<(), StorageError>;
 
@@ -427,27 +427,27 @@ where
         (**self).find_group_by_sequence_id(cursor)
     }
 
-    fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
+    fn get_rotated_at_ns(&self, group_id: GroupId) -> Result<i64, StorageError> {
         (**self).get_rotated_at_ns(group_id)
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
+    fn update_rotated_at_ns(&self, group_id: GroupId) -> Result<(), StorageError> {
         (**self).update_rotated_at_ns(group_id)
     }
 
-    fn get_installations_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
+    fn get_installations_time_checked(&self, group_id: GroupId) -> Result<i64, StorageError> {
         (**self).get_installations_time_checked(group_id)
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_installations_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
+    fn update_installations_time_checked(&self, group_id: GroupId) -> Result<(), StorageError> {
         (**self).update_installations_time_checked(group_id)
     }
 
     fn update_message_disappearing_from_ns(
         &self,
-        group_id: Vec<u8>,
+        group_id: GroupId,
         from_ns: Option<i64>,
     ) -> Result<(), StorageError> {
         (**self).update_message_disappearing_from_ns(group_id, from_ns)
@@ -455,7 +455,7 @@ where
 
     fn update_message_disappearing_in_ns(
         &self,
-        group_id: Vec<u8>,
+        group_id: GroupId,
         in_ns: Option<i64>,
     ) -> Result<(), StorageError> {
         (**self).update_message_disappearing_in_ns(group_id, in_ns)
@@ -812,25 +812,25 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(groups.into_iter().next())
     }
 
-    fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
+    fn get_rotated_at_ns(&self, group_id: GroupId) -> Result<i64, StorageError> {
         let last_ts: Option<i64> = self.raw_query(|conn| {
             dsl::groups
-                .find(&group_id)
+                .find(group_id.as_slice())
                 .select(dsl::rotated_at_ns)
                 .first(conn)
                 .optional()
         })?;
 
         last_ts.ok_or(StorageError::NotFound(NotFound::InstallationTimeForGroup(
-            group_id,
+            group_id.as_ref().to_vec(),
         )))
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
+    fn update_rotated_at_ns(&self, group_id: GroupId) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let now = xmtp_common::time::now_ns();
-            diesel::update(dsl::groups.find(&group_id))
+            diesel::update(dsl::groups.find(group_id.as_slice()))
                 .set(dsl::rotated_at_ns.eq(now))
                 .execute(conn)
         })?;
@@ -838,23 +838,23 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
-    fn get_installations_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
+    fn get_installations_time_checked(&self, group_id: GroupId) -> Result<i64, StorageError> {
         let last_ts = self.raw_query(|conn| {
             dsl::groups
-                .find(&group_id)
+                .find(group_id.as_slice())
                 .select(dsl::installations_last_checked)
                 .first(conn)
                 .optional()
         })?;
 
-        last_ts.ok_or(NotFound::InstallationTimeForGroup(group_id).into())
+        last_ts.ok_or(NotFound::InstallationTimeForGroup(group_id.as_ref().to_vec()).into())
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_installations_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
+    fn update_installations_time_checked(&self, group_id: GroupId) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let now = xmtp_common::time::now_ns();
-            diesel::update(dsl::groups.find(&group_id))
+            diesel::update(dsl::groups.find(group_id.as_slice()))
                 .set(dsl::installations_last_checked.eq(now))
                 .execute(conn)
         })?;
@@ -864,11 +864,11 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     fn update_message_disappearing_from_ns(
         &self,
-        group_id: Vec<u8>,
+        group_id: GroupId,
         from_ns: Option<i64>,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.find(&group_id))
+            diesel::update(dsl::groups.find(group_id.as_slice()))
                 .set(dsl::message_disappear_from_ns.eq(from_ns))
                 .execute(conn)
         })?;
@@ -878,11 +878,11 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     fn update_message_disappearing_in_ns(
         &self,
-        group_id: Vec<u8>,
+        group_id: GroupId,
         in_ns: Option<i64>,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.find(&group_id))
+            diesel::update(dsl::groups.find(group_id.as_slice()))
                 .set(dsl::message_disappear_in_ns.eq(in_ns))
                 .execute(conn)
         })?;
@@ -1564,7 +1564,8 @@ pub(crate) mod tests {
             }
             // Check that some event occurred which triggers an installation list update.
             // Here we invoke that event directly
-            let result = conn.update_installations_time_checked(test_group.id.clone());
+            let result =
+                conn.update_installations_time_checked(GroupId::from(test_group.id.as_slice()));
             assert_ok!(result);
 
             // Check that the latest installation list timestamp has been updated

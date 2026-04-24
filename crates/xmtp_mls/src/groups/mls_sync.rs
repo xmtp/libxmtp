@@ -2105,13 +2105,13 @@ where
             match data.field_name.as_str() {
                 field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {
                     storage.db().update_message_disappearing_from_ns(
-                        self.group_id.clone(),
+                        xmtp_proto::types::GroupId::from(self.group_id.as_slice()),
                         data.field_value.parse::<i64>().ok(),
                     )?
                 }
                 field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
                     storage.db().update_message_disappearing_in_ns(
-                        self.group_id.clone(),
+                        xmtp_proto::types::GroupId::from(self.group_id.as_slice()),
                         data.field_value.parse::<i64>().ok(),
                     )?
                 }
@@ -2134,18 +2134,20 @@ where
                         .new_value
                         .as_deref()
                         .and_then(|v| v.parse::<i64>().ok());
-                    storage
-                        .db()
-                        .update_message_disappearing_from_ns(self.group_id.clone(), parsed_value)?
+                    storage.db().update_message_disappearing_from_ns(
+                        xmtp_proto::types::GroupId::from(self.group_id.as_slice()),
+                        parsed_value,
+                    )?
                 }
                 field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
                     let parsed_value = change
                         .new_value
                         .as_deref()
                         .and_then(|v| v.parse::<i64>().ok());
-                    storage
-                        .db()
-                        .update_message_disappearing_in_ns(self.group_id.clone(), parsed_value)?
+                    storage.db().update_message_disappearing_in_ns(
+                        xmtp_proto::types::GroupId::from(self.group_id.as_slice()),
+                        parsed_value,
+                    )?
                 }
                 _ => {} // Handle other metadata updates if needed
             }
@@ -3374,11 +3376,15 @@ where
         let interval_ns = update_interval_ns.unwrap_or(SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS);
 
         let now_ns = xmtp_common::time::now_ns();
-        let last_ns = db.get_installations_time_checked(self.group_id.clone())?;
+        let last_ns = db.get_installations_time_checked(xmtp_proto::types::GroupId::from(
+            self.group_id.as_slice(),
+        ))?;
         let elapsed_ns = now_ns - last_ns;
         if elapsed_ns > interval_ns && self.is_active()? {
             self.add_missing_installations().await?;
-            db.update_installations_time_checked(self.group_id.clone())?;
+            db.update_installations_time_checked(xmtp_proto::types::GroupId::from(
+                self.group_id.as_slice(),
+            ))?;
         }
 
         Ok(())
