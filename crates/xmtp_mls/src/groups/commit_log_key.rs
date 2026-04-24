@@ -131,7 +131,7 @@ pub(crate) async fn derive_consensus_public_key(
             )
             .await?;
             context.db().set_group_commit_log_public_key(
-                &commit_log_response.group_id,
+                &xmtp_proto::types::GroupId::from(commit_log_response.group_id.as_slice()),
                 &signature.public_key,
             )?;
             return Ok(Some(signature.public_key.clone()));

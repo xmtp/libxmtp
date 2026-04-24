@@ -479,7 +479,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     let db_fork_status = alix
         .context
         .db()
-        .get_group_commit_log_forked_status(&group_id)?;
+        .get_group_commit_log_forked_status(&GroupId::from(group_id.as_slice()))?;
     assert_eq!(
         db_fork_status,
         Some(false),
@@ -513,7 +513,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     let db_fork_status_second = alix
         .context
         .db()
-        .get_group_commit_log_forked_status(&group_id)?;
+        .get_group_commit_log_forked_status(&GroupId::from(group_id.as_slice()))?;
     assert_eq!(
         db_fork_status_second,
         Some(false),
@@ -547,7 +547,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     let db_fork_status_final = alix
         .context
         .db()
-        .get_group_commit_log_forked_status(&group_id)?;
+        .get_group_commit_log_forked_status(&GroupId::from(group_id.as_slice()))?;
     assert_eq!(
         db_fork_status_final,
         Some(false),

@@ -601,7 +601,10 @@ where
                 let db = key_store.db();
                 let is_forked = self.check_conversation_fork_state(&db, &conversation_id)?;
                 // Persist the fork status to the database
-                db.set_group_commit_log_forked_status(&conversation_id, is_forked)?;
+                db.set_group_commit_log_forked_status(
+                    &xmtp_proto::types::GroupId::from(conversation_id.as_slice()),
+                    is_forked,
+                )?;
                 Ok::<(), CommitLogError>(())
             })?;
             tokio::task::yield_now().await;
@@ -902,7 +905,7 @@ where
 
         // If there are no new commits to check, preserve the existing fork status
         if local_logs.is_empty() {
-            return Ok(conn.get_group_commit_log_forked_status(conversation_id)?);
+            return Ok(conn.get_group_commit_log_forked_status(&conversation_id_typed)?);
         }
 
         let mut is_remote_log_up_to_date = true;
@@ -1003,7 +1006,9 @@ where
 
         let mut results = HashMap::new();
         for group in all_groups {
-            let fork_status = conn.get_group_commit_log_forked_status(&group.id)?;
+            let fork_status = conn.get_group_commit_log_forked_status(
+                &xmtp_proto::types::GroupId::from(group.id.as_slice()),
+            )?;
             results.insert(group.id, fork_status);
         }
 

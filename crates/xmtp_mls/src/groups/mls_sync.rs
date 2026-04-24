@@ -1795,10 +1795,10 @@ where
                 "Group has pending remove requests requiring admin action"
             );
 
-            if let Err(e) = storage
-                .db()
-                .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
-            {
+            if let Err(e) = storage.db().set_group_has_pending_leave_request_status(
+                &xmtp_proto::types::GroupId::from(self.group_id.as_slice()),
+                Some(true),
+            ) {
                 tracing::error!(
                     error = %e,
                     operation = "set_group_pending_status",
@@ -1813,10 +1813,10 @@ where
                 "Group has no pending remove requests"
             );
 
-            if let Err(e) = storage
-                .db()
-                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))
-            {
+            if let Err(e) = storage.db().set_group_has_pending_leave_request_status(
+                &xmtp_proto::types::GroupId::from(self.group_id.as_slice()),
+                Some(false),
+            ) {
                 tracing::error!(
                     operation = "set_group_pending_status",
                     group_id = hex::encode(&self.group_id),
@@ -2478,10 +2478,10 @@ where
                 original_error = error.to_string(),
                 fork_details
             );
-            let _ = self
-                .context
-                .db()
-                .mark_group_as_maybe_forked(&self.group_id, fork_details);
+            let _ = self.context.db().mark_group_as_maybe_forked(
+                &xmtp_proto::types::GroupId::from(self.group_id.as_slice()),
+                fork_details,
+            );
             return epoch_validation_result;
         }
 

@@ -202,13 +202,13 @@ mock! {
 
         fn mark_group_as_maybe_forked(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             fork_details: String,
         ) -> Result<(), StorageError>;
 
-        fn clear_fork_flag_for_group(&self, group_id: &[u8]) -> Result<(), crate::ConnectionError>;
+        fn clear_fork_flag_for_group(&self, group_id: &xmtp_proto::types::GroupId) -> Result<(), crate::ConnectionError>;
 
-        fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError>;
+        fn has_duplicate_dm(&self, group_id: &xmtp_proto::types::GroupId) -> Result<bool, crate::ConnectionError>;
 
         fn get_conversation_ids_for_remote_log_publish(&self) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
 
@@ -226,28 +226,28 @@ mock! {
             &self,
         ) -> Result<Vec<crate::encrypted_store::group::StoredGroupForRespondingReadds>, crate::ConnectionError>;
 
-        fn get_conversation_type(&self, group_id: &[u8]) -> Result<ConversationType, crate::ConnectionError>;
+        fn get_conversation_type(&self, group_id: &xmtp_proto::types::GroupId) -> Result<ConversationType, crate::ConnectionError>;
 
         fn set_group_commit_log_public_key(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             public_key: &[u8],
         ) -> Result<(), StorageError>;
 
         fn set_group_commit_log_forked_status(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             is_forked: Option<bool>,
         ) -> Result<(), StorageError>;
 
         fn get_group_commit_log_forked_status(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
         ) -> Result<Option<bool>, StorageError>;
 
         fn set_group_has_pending_leave_request_status(
             &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             has_pending_leave_request: Option<bool>,
         ) -> Result<(), StorageError>;
             fn get_groups_have_pending_leave_request(

@@ -39,7 +39,7 @@ async fn test_request_readd() {
     let c_conn = caro.context.db();
     // Simulate a fork
     a_conn
-        .set_group_commit_log_forked_status(&group.group_id, Some(true))
+        .set_group_commit_log_forked_status(&GroupId::from(group.group_id.as_slice()), Some(true))
         .unwrap();
 
     // No readd requests yet
@@ -148,7 +148,7 @@ async fn test_request_readd_dm() {
     let b_conn = bo.context.db();
     // Simulate a fork
     a_conn
-        .set_group_commit_log_forked_status(&dm.group_id, Some(true))
+        .set_group_commit_log_forked_status(&GroupId::from(dm.group_id.as_slice()), Some(true))
         .unwrap();
 
     // No readd requests yet
@@ -297,7 +297,7 @@ async fn test_readd_bookkeeping() {
     let d_conn = devon.context.db();
     // Simulate a fork
     a_conn
-        .set_group_commit_log_forked_status(&group.group_id, Some(true))
+        .set_group_commit_log_forked_status(&GroupId::from(group.group_id.as_slice()), Some(true))
         .unwrap();
 
     // No readd requests yet
@@ -460,7 +460,7 @@ async fn test_request_readd_with_allowlisted_groups() {
 
     // Simulate a fork
     a_conn
-        .set_group_commit_log_forked_status(&group_id, Some(true))
+        .set_group_commit_log_forked_status(&GroupId::from(group_id.as_slice()), Some(true))
         .unwrap();
 
     // No readd requests yet

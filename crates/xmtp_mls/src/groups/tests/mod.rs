@@ -4795,7 +4795,7 @@ async fn test_when_processing_message_return_future_wrong_epoch_group_marked_pro
     client_b
         .context
         .db()
-        .clear_fork_flag_for_group(&group_b.group_id)
+        .clear_fork_flag_for_group(&GroupId::from(group_b.group_id.as_slice()))
         .unwrap();
     let group_debug_info = group_b.debug_info().await.unwrap();
     assert!(!group_debug_info.maybe_forked);

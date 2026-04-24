@@ -1479,7 +1479,10 @@ where
             // Clear the pending leave request status
             self.context
                 .db()
-                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))?;
+                .set_group_has_pending_leave_request_status(
+                    &GroupId::from(self.group_id.as_slice()),
+                    Some(false),
+                )?;
             return Ok(());
         }
 
@@ -1518,7 +1521,10 @@ where
             // Clear the pending leave request status if no pending removals remain
             self.context
                 .db()
-                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))?;
+                .set_group_has_pending_leave_request_status(
+                    &GroupId::from(self.group_id.as_slice()),
+                    Some(false),
+                )?;
         }
 
         tracing::info!(
@@ -2042,7 +2048,10 @@ where
 
     /// Retrieves the conversation type of the group from the group's metadata extension.
     pub async fn conversation_type(&self) -> Result<ConversationType, GroupError> {
-        let conversation_type = self.context.db().get_conversation_type(&self.group_id)?;
+        let conversation_type = self
+            .context
+            .db()
+            .get_conversation_type(&GroupId::from(self.group_id.as_slice()))?;
         Ok(conversation_type)
     }
 

@@ -24,7 +24,7 @@ mod version;
 
 pub use dms::QueryDms;
 pub use version::QueryGroupVersion;
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{Cursor, GroupId};
 
 pub type ID = Vec<u8>;
 
@@ -256,9 +256,9 @@ pub trait QueryGroup {
     ) -> Result<Vec<StoredGroup>, crate::ConnectionError>;
 
     /// Updates group membership state
-    fn update_group_membership<GroupId: AsRef<[u8]>>(
+    fn update_group_membership<Id: AsRef<[u8]>>(
         &self,
-        group_id: GroupId,
+        group_id: Id,
         state: GroupMembershipState,
     ) -> Result<(), crate::ConnectionError>;
 
@@ -306,13 +306,13 @@ pub trait QueryGroup {
 
     fn mark_group_as_maybe_forked(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         fork_details: String,
     ) -> Result<(), StorageError>;
 
-    fn clear_fork_flag_for_group(&self, group_id: &[u8]) -> Result<(), crate::ConnectionError>;
+    fn clear_fork_flag_for_group(&self, group_id: &GroupId) -> Result<(), crate::ConnectionError>;
 
-    fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError>;
+    fn has_duplicate_dm(&self, group_id: &GroupId) -> Result<bool, crate::ConnectionError>;
 
     /// Get conversations for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
     fn get_conversation_ids_for_remote_log_publish(
@@ -339,33 +339,33 @@ pub trait QueryGroup {
 
     fn get_conversation_type(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<ConversationType, crate::ConnectionError>;
 
     /// Updates the commit log public key for a group
     fn set_group_commit_log_public_key(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         public_key: &[u8],
     ) -> Result<(), StorageError>;
 
     /// Updates the is_commit_log_forked status for a group
     fn set_group_commit_log_forked_status(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         is_forked: Option<bool>,
     ) -> Result<(), StorageError>;
 
     /// Gets the is_commit_log_forked status for a group
     fn get_group_commit_log_forked_status(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<bool>, StorageError>;
 
     /// Updates the has_pending_leave_request status for a group
     fn set_group_has_pending_leave_request_status(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         has_pending_leave_request: Option<bool>,
     ) -> Result<(), StorageError>;
 
@@ -394,9 +394,9 @@ where
     }
 
     /// Updates group membership state
-    fn update_group_membership<GroupId: AsRef<[u8]>>(
+    fn update_group_membership<Id: AsRef<[u8]>>(
         &self,
-        group_id: GroupId,
+        group_id: Id,
         state: GroupMembershipState,
     ) -> Result<(), crate::ConnectionError> {
         (**self).update_group_membership(group_id, state)
@@ -472,17 +472,17 @@ where
 
     fn mark_group_as_maybe_forked(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         fork_details: String,
     ) -> Result<(), StorageError> {
         (**self).mark_group_as_maybe_forked(group_id, fork_details)
     }
 
-    fn clear_fork_flag_for_group(&self, group_id: &[u8]) -> Result<(), crate::ConnectionError> {
+    fn clear_fork_flag_for_group(&self, group_id: &GroupId) -> Result<(), crate::ConnectionError> {
         (**self).clear_fork_flag_for_group(group_id)
     }
 
-    fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError> {
+    fn has_duplicate_dm(&self, group_id: &GroupId) -> Result<bool, crate::ConnectionError> {
         (**self).has_duplicate_dm(group_id)
     }
 
@@ -517,14 +517,14 @@ where
 
     fn get_conversation_type(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<ConversationType, crate::ConnectionError> {
         (**self).get_conversation_type(group_id)
     }
 
     fn set_group_commit_log_public_key(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         public_key: &[u8],
     ) -> Result<(), StorageError> {
         (**self).set_group_commit_log_public_key(group_id, public_key)
@@ -532,7 +532,7 @@ where
 
     fn set_group_commit_log_forked_status(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         is_forked: Option<bool>,
     ) -> Result<(), StorageError> {
         (**self).set_group_commit_log_forked_status(group_id, is_forked)
@@ -540,14 +540,14 @@ where
 
     fn get_group_commit_log_forked_status(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<bool>, StorageError> {
         (**self).get_group_commit_log_forked_status(group_id)
     }
 
     fn set_group_has_pending_leave_request_status(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         has_pending_leave_request: Option<bool>,
     ) -> Result<(), StorageError> {
         (**self).set_group_has_pending_leave_request_status(group_id, has_pending_leave_request)
@@ -741,9 +741,9 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     /// Updates group membership state
-    fn update_group_membership<GroupId: AsRef<[u8]>>(
+    fn update_group_membership<Id: AsRef<[u8]>>(
         &self,
-        group_id: GroupId,
+        group_id: Id,
         state: GroupMembershipState,
     ) -> Result<(), crate::ConnectionError> {
         self.raw_query(|conn| {
@@ -962,11 +962,11 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     fn mark_group_as_maybe_forked(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         fork_details: String,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.find(&group_id))
+            diesel::update(dsl::groups.find(group_id.as_slice()))
                 .set((
                     dsl::maybe_forked.eq(true),
                     dsl::fork_details.eq(fork_details),
@@ -977,19 +977,19 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
-    fn clear_fork_flag_for_group(&self, group_id: &[u8]) -> Result<(), crate::ConnectionError> {
+    fn clear_fork_flag_for_group(&self, group_id: &GroupId) -> Result<(), crate::ConnectionError> {
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.find(&group_id))
+            diesel::update(dsl::groups.find(group_id.as_slice()))
                 .set((dsl::maybe_forked.eq(false), dsl::fork_details.eq("")))
                 .execute(conn)
         })?;
         Ok(())
     }
 
-    fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError> {
+    fn has_duplicate_dm(&self, group_id: &GroupId) -> Result<bool, crate::ConnectionError> {
         self.raw_query(|conn| {
             let dm_id: Option<String> = dsl::groups
-                .filter(dsl::id.eq(group_id))
+                .filter(dsl::id.eq(group_id.as_slice()))
                 .select(dsl::dm_id)
                 .first::<Option<String>>(conn)
                 .optional()?
@@ -1116,10 +1116,10 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     fn get_conversation_type(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<ConversationType, crate::ConnectionError> {
         let query = dsl::groups
-            .filter(dsl::id.eq(group_id))
+            .filter(dsl::id.eq(group_id.as_slice()))
             .select(dsl::conversation_type);
         let conversation_type = self.raw_query(|conn| query.first(conn))?;
         Ok(conversation_type)
@@ -1127,7 +1127,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     fn set_group_commit_log_public_key(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         public_key: &[u8],
     ) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;
@@ -1135,7 +1135,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             diesel::update(dsl::groups)
                 .filter(
                     dsl::id
-                        .eq(group_id)
+                        .eq(group_id.as_slice())
                         .and(dsl::commit_log_public_key.is_null()),
                 )
                 .set(dsl::commit_log_public_key.eq(public_key))
@@ -1143,7 +1143,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         })?;
         if num_updated == 0 {
             return Err(StorageError::Duplicate(DuplicateItem::CommitLogPublicKey(
-                group_id.to_vec(),
+                group_id.as_ref().to_vec(),
             )));
         }
         Ok(())
@@ -1151,12 +1151,12 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     fn set_group_commit_log_forked_status(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         is_forked: Option<bool>,
     ) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.find(group_id))
+            diesel::update(dsl::groups.find(group_id.as_slice()))
                 .set(dsl::is_commit_log_forked.eq(is_forked))
                 .execute(conn)
         })?;
@@ -1165,12 +1165,12 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     fn get_group_commit_log_forked_status(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<bool>, StorageError> {
         use crate::schema::groups::dsl;
         self.raw_query(|conn| {
             dsl::groups
-                .find(group_id)
+                .find(group_id.as_slice())
                 .select(dsl::is_commit_log_forked)
                 .first::<Option<bool>>(conn)
         })
@@ -1179,12 +1179,12 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     fn set_group_has_pending_leave_request_status(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         has_pending_leave_request: Option<bool>,
     ) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.find(group_id))
+            diesel::update(dsl::groups.find(group_id.as_slice()))
                 .set(dsl::has_pending_leave_request.eq(has_pending_leave_request))
                 .execute(conn)
         })?;
