@@ -1,4 +1,4 @@
-use crate::types::InstallationId;
+use crate::types::{GroupId, InstallationId};
 
 const SHORT_LEN: usize = 4;
 
@@ -12,6 +12,11 @@ impl ShortHex for &[u8] {
     }
 }
 impl ShortHex for InstallationId {
+    fn short_hex(&self) -> String {
+        self.as_slice().short_hex()
+    }
+}
+impl ShortHex for GroupId {
     fn short_hex(&self) -> String {
         self.as_slice().short_hex()
     }
