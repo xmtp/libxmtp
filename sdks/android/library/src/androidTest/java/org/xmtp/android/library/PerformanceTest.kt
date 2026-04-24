@@ -105,7 +105,7 @@ class PerformanceTest : BaseInstrumentedTest() {
                     account = fakeWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.DEV, true),
+                            ClientOptions.Api(XMTPEnvironment.DEV, true, gatewayHost = TestGateway.DEV),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -122,7 +122,7 @@ class PerformanceTest : BaseInstrumentedTest() {
                     fakeWallet.publicIdentity,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.DEV, true),
+                            ClientOptions.Api(XMTPEnvironment.DEV, true, gatewayHost = TestGateway.DEV),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -139,7 +139,7 @@ class PerformanceTest : BaseInstrumentedTest() {
                     fakeWallet.publicIdentity,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.DEV, true),
+                            ClientOptions.Api(XMTPEnvironment.DEV, true, gatewayHost = TestGateway.DEV),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -150,14 +150,18 @@ class PerformanceTest : BaseInstrumentedTest() {
         val time3 = end3.time - start3.time
         Log.d("PERF", "Built a client with inboxId in ${time3 / 1000.0}s")
 
-        runBlocking { Client.connectToApiBackend(ClientOptions.Api(XMTPEnvironment.DEV, true)) }
+        runBlocking {
+            Client.connectToApiBackendExclusive(
+                ClientOptions.Api(XMTPEnvironment.DEV, true, gatewayHost = TestGateway.DEV),
+            )
+        }
         val start4 = Date()
         runBlocking {
             Client.create(
                 PrivateKeyBuilder(),
                 options =
                     ClientOptions(
-                        ClientOptions.Api(XMTPEnvironment.DEV, true),
+                        ClientOptions.Api(XMTPEnvironment.DEV, true, gatewayHost = TestGateway.DEV),
                         appContext = context,
                         dbEncryptionKey = key,
                     ),

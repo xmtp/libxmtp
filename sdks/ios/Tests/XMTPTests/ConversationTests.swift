@@ -215,7 +215,7 @@ class ConversationTests: XCTestCase {
 	func testReturnsAllHMACKeys() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let opts = ClientOptions(
-			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure, gatewayHost: "http://localhost:5052"),
 			dbEncryptionKey: key
 		)
 		let fixtures = try await fixtures()
@@ -506,7 +506,7 @@ class ConversationTests: XCTestCase {
 	func testReturnsAllTopics() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let opts = ClientOptions(
-			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure, gatewayHost: "http://localhost:5052"),
 			dbEncryptionKey: key
 		)
 

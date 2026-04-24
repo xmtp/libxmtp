@@ -92,7 +92,9 @@
         "--mls-validation.grpc-address=localhost:50051",
         "--api.enable-mls",
         "--wait-for-db=30s",
-        "--api.authn.enable"
+        "--api.authn.enable",
+        "--api.enable-migration",
+        "--api.d14n-cutover-ns=9223372036854775807"
       ],
       "depends_on": [
         { "name": "db", "condition": "healthy" },

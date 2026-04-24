@@ -135,6 +135,15 @@ if_native! {
     }
 }
 
+/// GRPC URLS corresponding to the xnet migration environment.
+/// Unlike the other `GrpcUrls*` structs, `NODE` is the same on native and wasm —
+/// the xnet node-go instance is a single public endpoint.
+pub struct GrpcUrlsXnet;
+impl GrpcUrlsXnet {
+    pub const NODE: &'static str = "https://node-go.xmtp.run";
+    pub const GATEWAY: &'static str = "https://gateway.xmtp.run";
+}
+
 // URLs connected to toxiproxy
 pub struct GrpcUrlsToxic;
 impl GrpcUrlsToxic {

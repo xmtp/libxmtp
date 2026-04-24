@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use crate::fork_recovery::FfiForkRecoveryOpts;
 use crate::identity::{FfiCollectionExt, FfiCollectionTryExt, FfiIdentifier};
 pub use crate::inbox_owner::SigningError;
@@ -130,9 +132,8 @@ impl XmtpApiClient {
 }
 
 /// connect to the XMTP backend
-/// specifying `gateway_host` enables the D14n backend
-/// and assumes `host` is set to the correct
-/// d14n backend url.
+/// Not specifying `gateway_host` uses the default gateway.
+/// This builds a client that will auto-migrate on D14n cutover date.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn connect_to_backend(
     v3_host: String,
@@ -141,6 +142,57 @@ pub async fn connect_to_backend(
     app_version: Option<String>,
     auth_callback: Option<Arc<dyn gateway_auth::FfiAuthCallback>>,
     auth_handle: Option<Arc<gateway_auth::FfiAuthHandle>>,
+) -> Result<Arc<XmtpApiClient>, FfiError> {
+    connect_to_backend_internal(
+        v3_host,
+        gateway_host,
+        client_mode,
+        app_version,
+        auth_callback,
+        auth_handle,
+        false,
+    )
+    .await
+}
+
+/// connect to the XMTP backend
+/// specifying `gateway_host` enables the D14n backend
+/// and assumes `host` is set to the correct
+/// d14n backend url. This will exclusively use
+/// v3 or d14n and _will not migrate_. it is
+/// provided for the convenience of testing v3/d14n
+/// but should not be used and will be removed on cutover.
+#[deprecated]
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn connect_to_backend_exclusive(
+    v3_host: String,
+    gateway_host: Option<String>,
+    client_mode: Option<FfiClientMode>,
+    app_version: Option<String>,
+    auth_callback: Option<Arc<dyn gateway_auth::FfiAuthCallback>>,
+    auth_handle: Option<Arc<gateway_auth::FfiAuthHandle>>,
+) -> Result<Arc<XmtpApiClient>, FfiError> {
+    connect_to_backend_internal(
+        v3_host,
+        gateway_host,
+        client_mode,
+        app_version,
+        auth_callback,
+        auth_handle,
+        true,
+    )
+    .await
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+async fn connect_to_backend_internal(
+    v3_host: String,
+    gateway_host: Option<String>,
+    client_mode: Option<FfiClientMode>,
+    app_version: Option<String>,
+    auth_callback: Option<Arc<dyn gateway_auth::FfiAuthCallback>>,
+    auth_handle: Option<Arc<gateway_auth::FfiAuthHandle>>,
+    exclusive: bool,
 ) -> Result<Arc<XmtpApiClient>, FfiError> {
     init_logger();
 
@@ -163,9 +215,11 @@ pub async fn connect_to_backend(
         )
         .readonly(matches!(client_mode, FfiClientMode::Notification))
         .maybe_auth_handle(auth_handle.map(|handle| handle.as_ref().clone().into()));
-    // switch v3/d14n based on presence of gateway host to preserve
-    // previous behavior and avoid breaking changes
-    let client_bundle = client_bundle.build_optional_d14n()?;
+    let client_bundle = if exclusive {
+        client_bundle.build_optional_d14n()
+    } else {
+        client_bundle.build()
+    }?;
     let backend = MessageBackendBuilder::default().from_bundle(client_bundle.clone())?;
     let api: ApiClientWrapper<xmtp_mls::XmtpApiClient> =
         ApiClientWrapper::new(backend, strategies::exponential_cooldown());

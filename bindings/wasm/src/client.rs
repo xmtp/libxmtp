@@ -10,6 +10,7 @@ use tracing_subscriber::{filter, fmt::format::Pretty};
 use tsify::Tsify;
 use wasm_bindgen::{JsValue, prelude::*};
 use xmtp_api_d14n::MessageBackendBuilder;
+use xmtp_configuration::GrpcUrlsXnet;
 use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::Client as MlsClient;
@@ -102,6 +103,35 @@ pub enum XmtpEnv {
   TestnetDev = 4,
   Testnet = 5,
   Mainnet = 6,
+  MigrationLocal = 7,
+  MigrationStaging = 8,
+  MigrationProduction = 9,
+  MigrationXnet = 10,
+}
+
+impl XmtpEnv {
+  pub fn is_migration(&self) -> bool {
+    matches!(
+      self,
+      Self::MigrationLocal
+        | Self::MigrationStaging
+        | Self::MigrationProduction
+        | Self::MigrationXnet
+    )
+  }
+
+  pub fn is_migration_xnet(&self) -> bool {
+    matches!(self, Self::MigrationXnet)
+  }
+
+  /// Returns `(v3_host, gateway_host)` for `MigrationXnet`, else `None`.
+  pub fn xnet_hosts(&self) -> Option<(&'static str, &'static str)> {
+    if self.is_migration_xnet() {
+      Some((GrpcUrlsXnet::NODE, GrpcUrlsXnet::GATEWAY))
+    } else {
+      None
+    }
+  }
 }
 
 impl From<XmtpEnv> for xmtp_configuration::XmtpEnv {
@@ -114,6 +144,11 @@ impl From<XmtpEnv> for xmtp_configuration::XmtpEnv {
       XmtpEnv::TestnetDev => Self::TestnetDev,
       XmtpEnv::Testnet => Self::Testnet,
       XmtpEnv::Mainnet => Self::Mainnet,
+      XmtpEnv::MigrationLocal => Self::Local,
+      XmtpEnv::MigrationStaging => Self::TestnetStaging,
+      XmtpEnv::MigrationProduction => Self::Production,
+      // MigrationXnet uses runtime-selected hosts; Production is a neutral placeholder.
+      XmtpEnv::MigrationXnet => Self::Production,
     }
   }
 }

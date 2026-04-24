@@ -20,6 +20,17 @@ import org.xmtp.android.library.messages.PrivateKeyBuilder
 import java.math.BigInteger
 import java.security.SecureRandom
 
+object TestGateway {
+    /** Gateway URL for LOCAL env from Android emulator (10.0.2.2 = host localhost) */
+    const val LOCAL = "http://10.0.2.2:5052"
+
+    /** Gateway URL for DEV env */
+    const val DEV = "https://payer.testnet-dev.xmtp.network:443"
+
+    /** Gateway URL for PRODUCTION env */
+    const val PRODUCTION = "https://payer.testnet.xmtp.network:443"
+}
+
 const val ANVIL_TEST_PRIVATE_KEY_1 =
     "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 const val ANVIL_TEST_PRIVATE_KEY_2 =
@@ -122,6 +133,7 @@ class Fixtures(
         ClientOptions.Api(
             XMTPEnvironment.LOCAL,
             isSecure = false,
+            gatewayHost = TestGateway.LOCAL,
         ),
 ) {
     val key = SecureRandom().generateSeed(32)
@@ -164,5 +176,6 @@ fun fixtures(
         ClientOptions.Api(
             XMTPEnvironment.LOCAL,
             isSecure = false,
+            gatewayHost = TestGateway.LOCAL,
         ),
 ): Fixtures = Fixtures(api)

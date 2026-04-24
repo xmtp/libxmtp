@@ -98,7 +98,8 @@
 		@available(iOS 15, *)
 		func fixtures(
 			clientOptions: ClientOptions.Api = ClientOptions.Api(
-				env: XMTPEnvironment.local, isSecure: XMTPEnvironment.local.isSecure
+				env: XMTPEnvironment.local, isSecure: XMTPEnvironment.local.isSecure,
+				gatewayHost: "http://localhost:5052"
 			)
 		) async throws -> Fixtures {
 			try await Fixtures(clientOptions: clientOptions)

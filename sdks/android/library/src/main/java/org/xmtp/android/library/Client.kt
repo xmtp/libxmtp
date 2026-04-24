@@ -32,6 +32,7 @@ import uniffi.xmtpv3.FfiXmtpClient
 import uniffi.xmtpv3.XmtpApiClient
 import uniffi.xmtpv3.applySignatureRequest
 import uniffi.xmtpv3.connectToBackend
+import uniffi.xmtpv3.connectToBackendExclusive
 import uniffi.xmtpv3.createClient
 import uniffi.xmtpv3.enterDebugWriter
 import uniffi.xmtpv3.exitDebugWriter
@@ -148,8 +149,8 @@ class Client(
                 registry
             }
 
-        private fun ClientOptions.Api.toCacheKey(): String =
-            "${env.getUrl()}|${appVersion ?: "nil"}|${gatewayHost ?: "nil"}"
+        private fun ClientOptions.Api.toCacheKey(exclusive: Boolean = false): String =
+            "${env.getUrl()}|${appVersion ?: "nil"}|${gatewayHost ?: "nil"}|$exclusive"
 
         private val apiClientCache = mutableMapOf<String, XmtpApiClient>()
         private val cacheLock = Mutex()
@@ -252,6 +253,56 @@ class Client(
                 // If not cached or not connected, create a fresh client
                 val newClient =
                     connectToBackend(
+                        api.env.getUrl(),
+                        api.gatewayHost,
+                        FfiClientMode.DEFAULT,
+                        api.appVersion,
+                        null,
+                        null,
+                    )
+                syncApiClientCache[cacheKey] = newClient
+                return@withLock newClient
+            }
+        }
+
+        @Deprecated("This function will be removed on d14n cutover. Use connectToApiBackend instead.")
+        suspend fun connectToApiBackendExclusive(api: ClientOptions.Api): XmtpApiClient {
+            val cacheKey = api.toCacheKey(exclusive = true)
+            return cacheLock.withLock {
+                val cached = apiClientCache[cacheKey]
+
+                if (cached != null && isConnected(cached)) {
+                    return cached
+                }
+
+                // If not cached or not connected, create a fresh client
+                val newClient =
+                    connectToBackendExclusive(
+                        api.env.getUrl(),
+                        api.gatewayHost,
+                        FfiClientMode.DEFAULT,
+                        api.appVersion,
+                        null,
+                        null,
+                    )
+                apiClientCache[cacheKey] = newClient
+                return@withLock newClient
+            }
+        }
+
+        @Deprecated("This function will be removed on d14n cutover. Use connectToSyncApiBackend instead.")
+        suspend fun connectToSyncApiBackendExclusive(api: ClientOptions.Api): XmtpApiClient {
+            val cacheKey = api.toCacheKey(exclusive = true)
+            return syncCacheLock.withLock {
+                val cached = syncApiClientCache[cacheKey]
+
+                if (cached != null && isConnected(cached)) {
+                    return cached
+                }
+
+                // If not cached or not connected, create a fresh client
+                val newClient =
+                    connectToBackendExclusive(
                         api.env.getUrl(),
                         api.gatewayHost,
                         FfiClientMode.DEFAULT,

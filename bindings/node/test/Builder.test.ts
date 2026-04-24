@@ -22,6 +22,22 @@ describe('BackendBuilder', () => {
     await builder.build()
     await expect(builder.build()).rejects.toThrow('already been consumed')
   })
+
+  it('should build a MigrationXnet Backend with hardcoded xnet hosts', async () => {
+    const backend = await new BackendBuilder(XmtpEnv.MigrationXnet).build()
+    expect(backend.env).toBe(XmtpEnv.MigrationXnet)
+    expect(backend.v3Host).toBe('https://node-go.xmtp.run')
+    expect(backend.gatewayHost).toBe('https://gateway.xmtp.run')
+  })
+
+  it('should let explicit hosts override MigrationXnet defaults', async () => {
+    const backend = await new BackendBuilder(XmtpEnv.MigrationXnet)
+      .setApiUrl('http://localhost:5556')
+      .setGatewayHost('http://localhost:5052')
+      .build()
+    expect(backend.v3Host).toBe('http://localhost:5556')
+    expect(backend.gatewayHost).toBe('http://localhost:5052')
+  })
 })
 
 describe('NapiTestBuilder', () => {
