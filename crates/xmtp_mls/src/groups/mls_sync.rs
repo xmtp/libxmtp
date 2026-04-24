@@ -379,8 +379,11 @@ where
 
     fn handle_group_paused(&self) -> Result<(), GroupError> {
         // Check if group is paused and try to unpause if version requirements are met
-        if let Some(required_min_version_str) =
-            self.context.db().get_group_paused_version(&self.group_id)?
+        let group_id_typed = xmtp_proto::types::GroupId::from(self.group_id.as_slice());
+        if let Some(required_min_version_str) = self
+            .context
+            .db()
+            .get_group_paused_version(&group_id_typed)?
         {
             tracing::info!(
                 "Group is paused until version: {}",
@@ -396,7 +399,7 @@ where
                      Group ID: {}",
                     hex::encode(&self.group_id),
                 );
-                self.context.db().unpause_group(&self.group_id)?;
+                self.context.db().unpause_group(&group_id_typed)?;
             } else {
                 tracing::warn!(
                     "Skipping sync for paused group since version requirements are not met. \
@@ -2169,9 +2172,10 @@ where
                 CommitValidationError::ProtocolVersionTooLow(min_version),
             )) => {
                 // Instead of updating cursor, mark group as paused
-                self.context
-                    .db()
-                    .set_group_paused(&self.group_id, &min_version)?;
+                self.context.db().set_group_paused(
+                    &xmtp_proto::types::GroupId::from(self.group_id.as_slice()),
+                    &min_version,
+                )?;
                 tracing::warn!(
                     "Group [{}] paused due to minimum protocol version requirement",
                     hex::encode(&self.group_id)

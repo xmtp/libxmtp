@@ -1939,13 +1939,20 @@ where
 
     /// If group is not paused, will return None, otherwise will return the version that the group is paused for
     pub fn paused_for_version(&self) -> Result<Option<String>, GroupError> {
-        let paused_for_version = self.context.db().get_group_paused_version(&self.group_id)?;
+        let paused_for_version = self
+            .context
+            .db()
+            .get_group_paused_version(&GroupId::from(self.group_id.as_slice()))?;
         Ok(paused_for_version)
     }
 
     #[tracing::instrument(skip_all, level = "trace")]
     async fn ensure_not_paused(&self) -> Result<(), GroupError> {
-        if let Some(min_version) = self.context.db().get_group_paused_version(&self.group_id)? {
+        if let Some(min_version) = self
+            .context
+            .db()
+            .get_group_paused_version(&GroupId::from(self.group_id.as_slice()))?
+        {
             Err(GroupError::GroupPausedUntilUpdate(min_version))
         } else {
             Ok(())

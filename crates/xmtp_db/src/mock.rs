@@ -256,11 +256,11 @@ mock! {
     }
 
     impl QueryGroupVersion for DbQuery {
-        fn set_group_paused(&self, group_id: &[u8], min_version: &str) -> Result<(), StorageError>;
+        fn set_group_paused(&self, group_id: &xmtp_proto::types::GroupId, min_version: &str) -> Result<(), StorageError>;
 
-        fn unpause_group(&self, group_id: &[u8]) -> Result<(), StorageError>;
+        fn unpause_group(&self, group_id: &xmtp_proto::types::GroupId) -> Result<(), StorageError>;
 
-        fn get_group_paused_version(&self, group_id: &[u8]) -> Result<Option<String>, StorageError>;
+        fn get_group_paused_version(&self, group_id: &xmtp_proto::types::GroupId) -> Result<Option<String>, StorageError>;
     }
 
     impl QueryGroupIntent for DbQuery {
