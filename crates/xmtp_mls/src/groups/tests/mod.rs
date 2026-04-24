@@ -35,7 +35,7 @@ use xmtp_db::ConnectionExt;
 use xmtp_db::XmtpOpenMlsProviderRef;
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_id::InboxOwner;
-use xmtp_proto::types::{Cursor, TopicKind};
+use xmtp_proto::types::{Cursor, GroupId, TopicKind};
 
 use super::group_permissions::PolicySet;
 use crate::context::XmtpSharedContext;
@@ -1155,7 +1155,7 @@ async fn test_self_remove_group_fail_with_one_member() {
 
     let amal_group_pending_leave_users = amal
         .db()
-        .get_pending_remove_users(&amal_group.group_id)
+        .get_pending_remove_users(&GroupId::from(amal_group.group_id.as_slice()))
         .unwrap();
     assert!(amal_group_pending_leave_users.is_empty());
 
@@ -1195,7 +1195,7 @@ async fn test_non_member_cannot_leave_group() {
     // Verify the pending-remove list is empty on Amal's group
     let amal_group_pending_leave_users = amal
         .db()
-        .get_pending_remove_users(&amal_group.group_id)
+        .get_pending_remove_users(&GroupId::from(amal_group.group_id.as_slice()))
         .unwrap();
     assert!(amal_group_pending_leave_users.is_empty());
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
@@ -1208,7 +1208,7 @@ async fn test_non_member_cannot_leave_group() {
     // Verify the pending-remove list is empty on Bola_i1's group
     let bola_group_pending_leave_users = bola
         .db()
-        .get_pending_remove_users(&bola_group.group_id)
+        .get_pending_remove_users(&GroupId::from(bola_group.group_id.as_slice()))
         .unwrap();
     assert!(bola_group_pending_leave_users.is_empty());
 
@@ -1237,7 +1237,7 @@ async fn test_self_removal() {
     // Verify the pending-remove list is empty on Amal's group
     let amal_group_pending_leave_users = amal
         .db()
-        .get_pending_remove_users(&amal_group.group_id)
+        .get_pending_remove_users(&GroupId::from(amal_group.group_id.as_slice()))
         .unwrap();
     assert!(amal_group_pending_leave_users.is_empty());
 
@@ -1251,7 +1251,7 @@ async fn test_self_removal() {
     // Verify the pending-remove list is empty on Bola_i1's group
     let bola_i1_group_pending_leave_users = bola_i1
         .db()
-        .get_pending_remove_users(&bola_i1_group.group_id)
+        .get_pending_remove_users(&GroupId::from(bola_i1_group.group_id.as_slice()))
         .unwrap();
     assert!(bola_i1_group_pending_leave_users.is_empty());
 
@@ -1262,7 +1262,7 @@ async fn test_self_removal() {
         .expect_err("Amal should not be able to leave the group");
     let amal_group_pending_leave_users = amal
         .db()
-        .get_pending_remove_users(&amal_group.group_id)
+        .get_pending_remove_users(&GroupId::from(amal_group.group_id.as_slice()))
         .unwrap();
     assert!(amal_group_pending_leave_users.is_empty());
 
@@ -1274,7 +1274,7 @@ async fn test_self_removal() {
     bola_i1_group.leave_group().await.unwrap();
     let bola_i1_group_pending_leave_users = bola_i1
         .db()
-        .get_pending_remove_users(&bola_i1_group.group_id)
+        .get_pending_remove_users(&GroupId::from(bola_i1_group.group_id.as_slice()))
         .unwrap();
     tracing::info!(
         "Bola_i1_group_pending_leave_users: {:?}",
@@ -1311,7 +1311,7 @@ async fn test_self_removal() {
 
     let bola_i2_group_pending_leave_users = bola_i2
         .db()
-        .get_pending_remove_users(&bola_i2_group.group_id)
+        .get_pending_remove_users(&GroupId::from(bola_i2_group.group_id.as_slice()))
         .unwrap();
     // Bola's inboxId should be in the pending-remove list
     assert!(bola_i2_group_pending_leave_users.contains(&bola_i1.inbox_id().to_string()));
@@ -1517,7 +1517,7 @@ async fn test_self_removal_single_installations() {
     // Verify the pending-remove list is empty on Amal's group
     let amal_group_pending_leave_users = amal
         .db()
-        .get_pending_remove_users(&amal_group.group_id)
+        .get_pending_remove_users(&GroupId::from(amal_group.group_id.as_slice()))
         .unwrap();
     assert!(amal_group_pending_leave_users.is_empty());
 
@@ -1531,7 +1531,7 @@ async fn test_self_removal_single_installations() {
     // Verify the pending-remove list is empty on Bola's group
     let bola_group_pending_leave_users = bola
         .db()
-        .get_pending_remove_users(&bola_group.group_id)
+        .get_pending_remove_users(&GroupId::from(bola_group.group_id.as_slice()))
         .unwrap();
     assert!(bola_group_pending_leave_users.is_empty());
 
@@ -1542,7 +1542,7 @@ async fn test_self_removal_single_installations() {
         .expect_err("Amal should not be able to leave the group");
     let amal_group_pending_leave_users = amal
         .db()
-        .get_pending_remove_users(&amal_group.group_id)
+        .get_pending_remove_users(&GroupId::from(amal_group.group_id.as_slice()))
         .unwrap();
     // Amal's inboxId shouldn't be in the pending-remove list
     assert!(!amal_group_pending_leave_users.contains(&amal.inbox_id().to_string()));
@@ -1568,7 +1568,7 @@ async fn test_self_removal_single_installations() {
 
     let bola_group_pending_leave_users = bola
         .db()
-        .get_pending_remove_users(&bola_group.group_id)
+        .get_pending_remove_users(&GroupId::from(bola_group.group_id.as_slice()))
         .unwrap();
 
     // Bola's inboxId should be in the pending-remove list on Bola's group
@@ -1623,7 +1623,7 @@ async fn test_self_removal_with_multiple_initial_installations() {
     bola_i1_group.leave_group().await.unwrap();
     let bola_i1_group_pending_leave_users = bola_i1
         .db()
-        .get_pending_remove_users(&bola_i1_group.group_id)
+        .get_pending_remove_users(&GroupId::from(bola_i1_group.group_id.as_slice()))
         .unwrap();
 
     // Bola's inboxId should be in the pending-remove list on Bola_i1's group
@@ -1640,7 +1640,7 @@ async fn test_self_removal_with_multiple_initial_installations() {
     bola_i2_group.sync().await.unwrap();
     let bola_i2_group_pending_leave_users = bola_i2
         .db()
-        .get_pending_remove_users(&bola_i2_group.group_id)
+        .get_pending_remove_users(&GroupId::from(bola_i2_group.group_id.as_slice()))
         .unwrap();
 
     // Bola's inboxId should be in the pending-remove list on i2 as well
@@ -1678,7 +1678,7 @@ async fn test_self_removal_with_late_installation() {
     bola_i1_group.leave_group().await.unwrap();
     let bola_i1_group_pending_leave_users = bola_i1
         .db()
-        .get_pending_remove_users(&bola_i1_group.group_id)
+        .get_pending_remove_users(&GroupId::from(bola_i1_group.group_id.as_slice()))
         .unwrap();
 
     // Bola's inboxId should be in the pending-remove list on Bola_i1's group
@@ -1711,7 +1711,7 @@ async fn test_self_removal_with_late_installation() {
 
     let bola_i3_group_pending_leave_users = bola_i3
         .db()
-        .get_pending_remove_users(&bola_i3_group.group_id)
+        .get_pending_remove_users(&GroupId::from(bola_i3_group.group_id.as_slice()))
         .unwrap();
 
     // Bola's inboxId should be in the pending-remove list on the new installation
@@ -1758,7 +1758,7 @@ async fn test_clean_pending_remove_list_on_member_removal() {
     // Verify Bola is in the pending_remove list
     let pending_users = bola
         .db()
-        .get_pending_remove_users(&bola_group.group_id)
+        .get_pending_remove_users(&GroupId::from(bola_group.group_id.as_slice()))
         .unwrap();
     assert_eq!(pending_users.len(), 1);
     assert!(pending_users.contains(&bola.inbox_id().to_string()));
@@ -1778,13 +1778,13 @@ async fn test_clean_pending_remove_list_on_member_removal() {
     // Verify Bola is removed from the pending_remove list on all clients
     let amal_pending = amal
         .db()
-        .get_pending_remove_users(&amal_group.group_id)
+        .get_pending_remove_users(&GroupId::from(amal_group.group_id.as_slice()))
         .unwrap();
     assert!(amal_pending.is_empty());
 
     let caro_pending = caro
         .db()
-        .get_pending_remove_users(&caro_group.group_id)
+        .get_pending_remove_users(&GroupId::from(caro_group.group_id.as_slice()))
         .unwrap();
     assert!(caro_pending.is_empty());
 
@@ -1860,7 +1860,7 @@ async fn test_super_admin_promotion_marks_pending_leave_requests() {
     // Verify Caro is in the pending_remove list
     let pending_users = caro
         .db()
-        .get_pending_remove_users(&caro_group.group_id)
+        .get_pending_remove_users(&GroupId::from(caro_group.group_id.as_slice()))
         .unwrap();
     assert_eq!(pending_users.len(), 1);
     assert!(pending_users.contains(&caro.inbox_id().to_string()));
@@ -1984,7 +1984,7 @@ async fn test_no_status_change_when_not_in_pending_remove_list() {
     // Verify no pending remove users
     let pending_users = bola
         .db()
-        .get_pending_remove_users(&bola_group.group_id)
+        .get_pending_remove_users(&GroupId::from(bola_group.group_id.as_slice()))
         .unwrap();
     assert!(pending_users.is_empty());
 
@@ -2036,7 +2036,7 @@ async fn test_promotion_excludes_self_from_pending_check() {
     // Verify Bola is in the pending_remove list
     let pending_users = bola
         .db()
-        .get_pending_remove_users(&bola_group.group_id)
+        .get_pending_remove_users(&GroupId::from(bola_group.group_id.as_slice()))
         .unwrap();
     assert!(pending_users.contains(&bola.inbox_id().to_string()));
 
@@ -2094,7 +2094,7 @@ async fn test_admin_removal_without_pending_shows_as_removed() {
     // Verify Bola is NOT in the pending_remove list
     let pending_users = amal
         .db()
-        .get_pending_remove_users(&amal_group.group_id)
+        .get_pending_remove_users(&GroupId::from(amal_group.group_id.as_slice()))
         .unwrap();
     assert!(pending_users.is_empty());
 

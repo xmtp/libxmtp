@@ -1506,9 +1506,10 @@ where
             );
 
             // Remove all users who are no longer in the group from pending list
-            self.context
-                .db()
-                .delete_pending_remove_users(&self.group_id, removed_members)?;
+            self.context.db().delete_pending_remove_users(
+                &GroupId::from(self.group_id.as_slice()),
+                removed_members,
+            )?;
         }
 
         // After cleanup, check if there are any pending removals left
@@ -1986,7 +1987,7 @@ where
     pub fn pending_remove_list(&self) -> Result<Vec<String>, GroupError> {
         self.context
             .db()
-            .get_pending_remove_users(&self.group_id)
+            .get_pending_remove_users(&GroupId::from(self.group_id.as_slice()))
             .map_err(Into::into)
     }
 
@@ -1994,7 +1995,7 @@ where
     pub fn is_in_pending_remove(&self, inbox_id: &str) -> Result<bool, GroupError> {
         self.context
             .db()
-            .get_user_pending_remove_status(&self.group_id, inbox_id)
+            .get_user_pending_remove_status(&GroupId::from(self.group_id.as_slice()), inbox_id)
             .map_err(Into::into)
     }
 

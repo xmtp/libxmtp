@@ -1669,9 +1669,12 @@ where
         if !is_super_admin {
             return Ok(());
         }
-        let pending_remove_users = storage
-            .db()
-            .get_pending_remove_users(&mls_group.group_id().to_vec())?;
+        let pending_remove_users =
+            storage
+                .db()
+                .get_pending_remove_users(&xmtp_proto::types::GroupId::from(
+                    mls_group.group_id().as_slice(),
+                ))?;
         if pending_remove_users.is_empty() {
             return Ok(());
         }
@@ -1698,10 +1701,10 @@ where
             .map(|inbox| inbox.inbox_id.clone())
             .collect();
 
-        match storage
-            .db()
-            .delete_pending_remove_users(&self.group_id, removed_inbox_ids.clone())
-        {
+        match storage.db().delete_pending_remove_users(
+            &xmtp_proto::types::GroupId::from(self.group_id.as_slice()),
+            removed_inbox_ids.clone(),
+        ) {
             Ok(_) => {
                 tracing::info!(
                     group_id = hex::encode(&self.group_id),
@@ -1749,8 +1752,9 @@ where
             // Promoted to super_admin: check if there are pending remove users
             match storage
                 .db()
-                .get_pending_remove_users(&mls_group.group_id().to_vec())
-            {
+                .get_pending_remove_users(&xmtp_proto::types::GroupId::from(
+                    mls_group.group_id().as_slice(),
+                )) {
                 Ok(pending_remove_users) => {
                     if !pending_remove_users.is_empty()
                         && !pending_remove_users.contains(&current_inbox_id)
@@ -2327,9 +2331,12 @@ where
         let sender_installation_id = validated_commit.actor_installation_id();
         let sender_inbox_id = validated_commit.actor_inbox_id();
 
-        let pending_remove_users = &storage
-            .db()
-            .get_pending_remove_users(self.group_id.as_slice())?;
+        let pending_remove_users =
+            &storage
+                .db()
+                .get_pending_remove_users(&xmtp_proto::types::GroupId::from(
+                    self.group_id.as_slice(),
+                ))?;
         let payload: GroupUpdated = validated_commit.into_with(pending_remove_users);
         tracing::info!("Storing transcript message");
         let encoded_payload = GroupUpdatedCodec::encode(payload.clone())?;

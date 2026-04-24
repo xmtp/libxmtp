@@ -742,15 +742,15 @@ mock! {
     impl QueryPendingRemove for DbQuery{
         fn get_pending_remove_users(
         &self,
-        group_id: &[u8],
+        group_id: &xmtp_proto::types::GroupId,
     ) -> Result<Vec<String>, crate::ConnectionError>;
         fn delete_pending_remove_users(
         &self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             inbox_ids: Vec<String>,
         ) -> Result<usize, crate::ConnectionError>;
              fn get_user_pending_remove_status(&self,
-            group_id: &[u8],
+            group_id: &xmtp_proto::types::GroupId,
             inbox_id: &str,
         ) -> Result<bool, crate::ConnectionError>;
     }
