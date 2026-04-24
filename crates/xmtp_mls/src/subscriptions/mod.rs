@@ -22,6 +22,7 @@ mod stream_all;
 mod stream_conversations;
 pub mod stream_messages;
 
+use crate::messages::enrichment::EnrichMessageError;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::subscriptions::stream_messages::stream_stats::{StreamStatsWrapper, StreamWithStats};
 
@@ -64,7 +65,7 @@ pub enum LocalEvents {
     NewGroup(Vec<u8>),
     PreferencesChanged(Vec<PreferenceUpdate>),
     // a message was deleted (contains the decoded message that was deleted)
-    MessageDeleted(Box<DecodedMessage>),
+    MsgsDeleted(Vec<StoredGroupMessage>),
 }
 
 #[derive(Clone)]
@@ -126,9 +127,9 @@ impl LocalEvents {
         }
     }
 
-    fn message_deletion_filter(self) -> Option<Box<DecodedMessage>> {
+    fn message_deletion_filter(self) -> Option<Vec<StoredGroupMessage>> {
         match self {
-            Self::MessageDeleted(message) => Some(message),
+            Self::MsgsDeleted(msgs) => Some(msgs),
             _ => None,
         }
     }
@@ -137,7 +138,7 @@ impl LocalEvents {
 pub(crate) trait StreamMessages {
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>>;
     fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>>;
-    fn stream_message_deletions(self) -> impl Stream<Item = Result<Box<DecodedMessage>>>;
+    fn stream_message_deletions(self) -> impl Stream<Item = Result<DecodedMessage>>;
 }
 
 impl StreamMessages for broadcast::Receiver<LocalEvents> {
@@ -160,12 +161,17 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
     }
 
     #[instrument(level = "trace", skip_all)]
-    fn stream_message_deletions(self) -> impl Stream<Item = Result<Box<DecodedMessage>>> {
-        BroadcastStream::new(self).filter_map(|event| async {
-            xmtp_common::optify!(event, "Missed message due to event queue lag")
-                .and_then(LocalEvents::message_deletion_filter)
-                .map(Result::Ok)
-        })
+    fn stream_message_deletions(self) -> impl Stream<Item = Result<DecodedMessage>> {
+        BroadcastStream::new(self)
+            .filter_map(|event| async {
+                xmtp_common::optify!(event, "Missed message due to event queue lag")
+                    .and_then(LocalEvents::message_deletion_filter)
+                    .map(futures::stream::iter)
+            })
+            .flatten()
+            // let caller handle any potential decode failures
+            // this should be rare since the message already in db
+            .map(|m| DecodedMessage::try_from(m).map_err(Into::into))
     }
 }
 
@@ -237,6 +243,9 @@ pub enum SubscribeError {
     /// Decentralized API envelope error. May be retryable.
     #[error(transparent)]
     Envelope(#[from] xmtp_api_d14n::protocol::EnvelopeError),
+    /// Enriched Message Error.
+    #[error("error occured during subscription {0}")]
+    Enriched(#[from] EnrichMessageError),
 }
 
 impl SubscribeError {
@@ -274,6 +283,7 @@ impl RetryableError for SubscribeError {
             Db(c) => retryable!(c),
             Conversion(c) => retryable!(c),
             Envelope(c) => retryable!(c),
+            Enriched(c) => retryable!(c),
         }
     }
 }
@@ -546,7 +556,7 @@ where
             futures::pin_mut!(stream);
             let _ = tx.send(());
             while let Some(message) = stream.next().await {
-                callback(message.map(|boxed| *boxed))
+                callback(message)
             }
             tracing::debug!("`stream_message_deletions` stream ended, dropping stream");
             Ok::<_, SubscribeError>(())

@@ -1444,20 +1444,12 @@ where
             return;
         };
 
-        match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
-            Ok(decoded_message) => {
-                let _ = self.context.local_events().send(
-                    crate::subscriptions::LocalEvents::MessageDeleted(Box::new(decoded_message)),
-                );
-            }
-            Err(e) => {
-                tracing::warn!(
-                    message_id = hex::encode(&deletion.deleted_message_id),
-                    error = ?e,
-                    "Failed to decode deleted message for deletion event"
-                );
-            }
-        }
+        let _ = self
+            .context
+            .local_events()
+            .send(crate::subscriptions::LocalEvents::MsgsDeleted(vec![
+                original_msg,
+            ]));
     }
 
     fn process_leave_request_message(
@@ -1590,22 +1582,12 @@ where
 
         let out_of_order = original_msg_opt.is_none();
         if let Some(original_msg) = original_msg_opt {
-            match crate::messages::decoded_message::DecodedMessage::try_from(original_msg) {
-                Ok(decoded_message) => {
-                    let _ = self.context.local_events().send(
-                        crate::subscriptions::LocalEvents::MessageDeleted(Box::new(
-                            decoded_message,
-                        )),
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        message_id = hex::encode(&target_message_id),
-                        error = ?e,
-                        "Failed to decode deleted message for deletion event"
-                    );
-                }
-            }
+            let _ =
+                self.context
+                    .local_events()
+                    .send(crate::subscriptions::LocalEvents::MsgsDeleted(vec![
+                        original_msg,
+                    ]));
         }
 
         tracing::info!(

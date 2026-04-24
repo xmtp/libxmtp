@@ -863,16 +863,19 @@ where
         let conn = self.context.db();
 
         // Fetch the message before deleting so we can emit the decoded message in the event
-        let decoded_message = self.message_v2(message_id.clone()).ok();
+        let msg = conn.get_group_message(&message_id)?;
 
         let num_deleted = conn.delete_message_by_id(&message_id)?;
         // Fire a local event if the message was successfully deleted
         if num_deleted > 0
-            && let Some(message) = decoded_message
+            && let Some(message) = msg
         {
-            let _ = self.context.local_events().send(
-                crate::subscriptions::LocalEvents::MessageDeleted(Box::new(message)),
-            );
+            let _ =
+                self.context
+                    .local_events()
+                    .send(crate::subscriptions::LocalEvents::MsgsDeleted(vec![
+                        message,
+                    ]));
         }
 
         Ok(num_deleted)

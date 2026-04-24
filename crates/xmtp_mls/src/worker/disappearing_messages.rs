@@ -1,5 +1,4 @@
 use crate::context::XmtpSharedContext;
-use crate::messages::decoded_message::DecodedMessage;
 use crate::worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory};
 use crate::worker::{WorkerKind, WorkerResult};
 use futures::{StreamExt, TryFutureExt};
@@ -101,41 +100,31 @@ where
     /// Iterate on the list of groups and delete expired messages
     async fn delete_expired_messages(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
         let db = self.context.db();
-        match db.delete_expired_messages() {
-            Ok(deleted_messages) if !deleted_messages.is_empty() => {
-                tracing::info!(
-                    "Successfully deleted {} expired messages",
-                    deleted_messages.len()
-                );
-
-                // Emit an event for each deleted message
-                for message in deleted_messages {
-                    let message_id = message.id.clone();
-                    // Try to convert to DecodedMessage, log warning if conversion fails
-                    match DecodedMessage::try_from(message) {
-                        Ok(decoded_message) => {
-                            let _ = self.context.local_events().send(
-                                crate::subscriptions::LocalEvents::MessageDeleted(Box::new(
-                                    decoded_message,
-                                )),
-                            );
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                message_id = hex::encode(&message_id),
-                                error = ?e,
-                                "Failed to decode expired message for deletion event"
-                            );
-                        }
-                    }
-                    tokio::task::yield_now().await;
-                }
-            }
-            Ok(_) => {}
-            Err(e) => {
+        // ensure we propagate the error so that the worker harness can properly handle
+        // `PoolDisconnected`
+        let deleted_messages = db
+            .delete_expired_messages()
+            .inspect_err(|e| {
                 tracing::error!("Failed to delete expired messages, error: {:?}", e);
-            }
+            })
+            .map_err(StorageError::from)?;
+
+        if !deleted_messages.is_empty() {
+            tracing::info!(
+                "Successfully deleted {} expired messages",
+                deleted_messages.len()
+            );
+
+            // Emit a single event for all deleted messages
+            // this avoids a hot loop that may starve async tasks.
+            let _ =
+                self.context
+                    .local_events()
+                    .send(crate::subscriptions::LocalEvents::MsgsDeleted(
+                        deleted_messages,
+                    ));
         }
+
         Ok(())
     }
 }

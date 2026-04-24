@@ -649,7 +649,7 @@ async fn test_welcome_pointer_task_retry_resolution() {
         crate::subscriptions::LocalEvents::NewGroup(id) => {
             assert_eq!(id, group.group_id.clone());
         }
-        _ => panic!("Expected NewGroup event"),
+        e => panic!("Expected NewGroup event, got {:?}", e),
     }
 
     tracing::info!("Finding group for bo");
