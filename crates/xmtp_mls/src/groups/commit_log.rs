@@ -298,7 +298,7 @@ where
         for conversation in conversation_keys {
             // Step 1: Check each conversation cursors to see if we have new commits that have not been published to remote commit log yet
             let local_commit_log_cursor = conn
-                .get_local_commit_log_cursor(&GroupId::from(conversation.id.as_slice()))
+                .get_local_commit_log_cursor(&conversation.id)
                 .ok()
                 .flatten()
                 .unwrap_or(0);
@@ -321,7 +321,7 @@ where
             // All local commit log will have rowid > 0 since sqlite rowid starts at 1 https://www.sqlite.org/autoinc.html
             let (plaintext_commit_log_entries, rowids): (Vec<PlaintextCommitLogEntry>, Vec<i32>) =
                 conn.get_local_commit_log_after_cursor(
-                    &GroupId::from(conversation.id.as_slice()),
+                    &conversation.id,
                     published_commit_log_cursor as i64,
                     LocalCommitLogOrder::AscendingByRowid,
                 )?
