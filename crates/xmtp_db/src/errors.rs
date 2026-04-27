@@ -9,7 +9,7 @@ use super::{
     sql_key_store::{self, SqlKeyStoreError},
 };
 use xmtp_common::{BoxDynError, RetryableError, retryable};
-use xmtp_proto::types::{Cursor, InstallationId};
+use xmtp_proto::types::{Cursor, GroupId, InstallationId};
 
 pub struct Mls;
 
@@ -140,8 +140,8 @@ pub enum NotFound {
     /// Installation time for group not found.
     ///
     /// Missing installation timestamp. Retryable.
-    #[error("installation time for group {id}", id = hex::encode(_0))]
-    InstallationTimeForGroup(Vec<u8>),
+    #[error("installation time for group {0}")]
+    InstallationTimeForGroup(GroupId),
     /// Inbox ID for address not found.
     ///
     /// Address has no associated inbox. Retryable.

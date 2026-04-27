@@ -26,8 +26,6 @@ pub use dms::QueryDms;
 pub use version::QueryGroupVersion;
 use xmtp_proto::types::{Cursor, GroupId};
 
-pub type ID = Vec<u8>;
-
 #[derive(
     Debug,
     Clone,
@@ -822,7 +820,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         })?;
 
         last_ts.ok_or(StorageError::NotFound(NotFound::InstallationTimeForGroup(
-            group_id.to_vec(),
+            group_id,
         )))
     }
 
@@ -847,7 +845,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                 .optional()
         })?;
 
-        last_ts.ok_or(NotFound::InstallationTimeForGroup(group_id.to_vec()).into())
+        last_ts.ok_or(NotFound::InstallationTimeForGroup(group_id).into())
     }
 
     /// Updates the 'last time checked' we checked for new installations.

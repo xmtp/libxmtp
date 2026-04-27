@@ -18,7 +18,6 @@ use xmtp_proto::types::Cursor;
 use super::{
     ConnectionExt, Sqlite,
     db_connection::DbConnection,
-    group,
     schema::group_intents::{self, dsl},
 };
 use crate::{
@@ -83,7 +82,7 @@ pub enum IntentState {
 pub struct StoredGroupIntent {
     pub id: ID,
     pub kind: IntentKind,
-    pub group_id: group::ID,
+    pub group_id: Vec<u8>,
     pub data: Vec<u8>,
     pub state: IntentState,
     pub payload_hash: Option<Vec<u8>>,
@@ -704,7 +703,7 @@ pub(crate) mod tests {
 
     fn find_first_intent<C: ConnectionExt>(
         conn: &DbConnection<C>,
-        group_id: group::ID,
+        group_id: Vec<u8>,
     ) -> StoredGroupIntent {
         conn.raw_query(|raw_conn| {
             dsl::group_intents

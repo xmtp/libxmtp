@@ -5,7 +5,7 @@ use rand::{
     distr::{Distribution, StandardUniform},
     prelude::IteratorRandom,
 };
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{Cursor, GroupId};
 
 use crate::{
     DuplicateItem, NotFound, StorageError, refresh_state::EntityKind,
@@ -60,7 +60,7 @@ impl Distribution<NotFound> for StandardUniform {
         match rng.random_range(0..=13) {
             0 => NotFound::GroupByWelcome(Cursor::default()),
             1 => NotFound::GroupById(Vec::new()),
-            2 => NotFound::InstallationTimeForGroup(Vec::new()),
+            2 => NotFound::InstallationTimeForGroup(GroupId::default()),
             3 => NotFound::InboxIdForAddress("random test inbox".into()),
             4 => NotFound::MessageById(Vec::new()),
             5 => NotFound::DmByInbox("random dm by inbox".into()),
