@@ -1,10 +1,11 @@
 use super::*;
 use crate::{Store, group::tests::generate_group, test_utils::with_connection};
 use xmtp_common::{assert_ok, rand_vec};
+use xmtp_proto::types::GroupId;
 
 // Helper function to create a message with specific sequence_id and originator_id
 fn generate_message_with_cursor(
-    group_id: &[u8],
+    group_id: &GroupId,
     originator_id: i64,
     sequence_id: i64,
     sent_at_ns: i64,
@@ -42,10 +43,10 @@ fn test_messages_newer_than_basic() {
 
         // Create messages with different originator_ids and sequence_ids
         let messages = vec![
-            generate_message_with_cursor(group.id.as_slice(), 1, 10, 1000),
-            generate_message_with_cursor(group.id.as_slice(), 1, 20, 2000),
-            generate_message_with_cursor(group.id.as_slice(), 2, 15, 3000),
-            generate_message_with_cursor(group.id.as_slice(), 2, 25, 4000),
+            generate_message_with_cursor(&group.id, 1, 10, 1000),
+            generate_message_with_cursor(&group.id, 1, 20, 2000),
+            generate_message_with_cursor(&group.id, 2, 15, 3000),
+            generate_message_with_cursor(&group.id, 2, 25, 4000),
         ];
         assert_ok!(messages.store(conn));
 
@@ -85,9 +86,9 @@ fn test_messages_newer_than_new_originator() {
 
         // Create messages from originator 1 and 2
         let messages = vec![
-            generate_message_with_cursor(group.id.as_slice(), 1, 10, 1000),
-            generate_message_with_cursor(group.id.as_slice(), 2, 5, 2000),
-            generate_message_with_cursor(group.id.as_slice(), 2, 10, 3000),
+            generate_message_with_cursor(&group.id, 1, 10, 1000),
+            generate_message_with_cursor(&group.id, 2, 5, 2000),
+            generate_message_with_cursor(&group.id, 2, 10, 3000),
         ];
         assert_ok!(messages.store(conn));
 
@@ -128,10 +129,10 @@ fn test_messages_newer_than_multiple_groups() {
 
         // Create messages in both groups
         let messages = vec![
-            generate_message_with_cursor(group1.id.as_slice(), 1, 10, 1000),
-            generate_message_with_cursor(group1.id.as_slice(), 1, 20, 2000),
-            generate_message_with_cursor(group2.id.as_slice(), 1, 5, 3000),
-            generate_message_with_cursor(group2.id.as_slice(), 1, 15, 4000),
+            generate_message_with_cursor(&group1.id, 1, 10, 1000),
+            generate_message_with_cursor(&group1.id, 1, 20, 2000),
+            generate_message_with_cursor(&group2.id, 1, 5, 3000),
+            generate_message_with_cursor(&group2.id, 1, 15, 4000),
         ];
         assert_ok!(messages.store(conn));
 
@@ -171,12 +172,7 @@ fn test_messages_newer_than_batching() {
         // Create one message per group
         let mut messages = Vec::new();
         for (i, group) in groups.iter().enumerate() {
-            let msg = generate_message_with_cursor(
-                group.id.as_slice(),
-                1,
-                (i + 1) as i64,
-                1000 + i as i64,
-            );
+            let msg = generate_message_with_cursor(&group.id, 1, (i + 1) as i64, 1000 + i as i64);
             messages.push(msg);
         }
         assert_ok!(messages.store(conn));
@@ -205,9 +201,9 @@ fn test_messages_newer_than_empty_cursor() {
         group.store(conn).unwrap();
 
         let messages = vec![
-            generate_message_with_cursor(group.id.as_slice(), 1, 10, 1000),
-            generate_message_with_cursor(group.id.as_slice(), 2, 5, 2000),
-            generate_message_with_cursor(group.id.as_slice(), 3, 8, 3000),
+            generate_message_with_cursor(&group.id, 1, 10, 1000),
+            generate_message_with_cursor(&group.id, 2, 5, 2000),
+            generate_message_with_cursor(&group.id, 3, 8, 3000),
         ];
         assert_ok!(messages.store(conn));
 
@@ -232,8 +228,8 @@ fn test_messages_newer_than_no_new_messages() {
         group.store(conn).unwrap();
 
         let messages = vec![
-            generate_message_with_cursor(group.id.as_slice(), 1, 10, 1000),
-            generate_message_with_cursor(group.id.as_slice(), 2, 15, 2000),
+            generate_message_with_cursor(&group.id, 1, 10, 1000),
+            generate_message_with_cursor(&group.id, 2, 15, 2000),
         ];
         assert_ok!(messages.store(conn));
 
@@ -262,12 +258,12 @@ fn test_messages_newer_than_mixed_originators() {
 
         // Messages from 3 originators
         let messages = vec![
-            generate_message_with_cursor(group.id.as_slice(), 1, 5, 1000),
-            generate_message_with_cursor(group.id.as_slice(), 1, 10, 2000),
-            generate_message_with_cursor(group.id.as_slice(), 2, 3, 3000),
-            generate_message_with_cursor(group.id.as_slice(), 2, 7, 4000),
-            generate_message_with_cursor(group.id.as_slice(), 3, 2, 5000),
-            generate_message_with_cursor(group.id.as_slice(), 3, 4, 6000),
+            generate_message_with_cursor(&group.id, 1, 5, 1000),
+            generate_message_with_cursor(&group.id, 1, 10, 2000),
+            generate_message_with_cursor(&group.id, 2, 3, 3000),
+            generate_message_with_cursor(&group.id, 2, 7, 4000),
+            generate_message_with_cursor(&group.id, 3, 2, 5000),
+            generate_message_with_cursor(&group.id, 3, 4, 6000),
         ];
         assert_ok!(messages.store(conn));
 
@@ -343,11 +339,11 @@ fn test_messages_newer_than_per_group_cursors() {
         // Create messages in both groups from the same originator
         let messages = vec![
             // Group 1 messages from originator 1
-            generate_message_with_cursor(group1.id.as_slice(), 1, 50, 1000),
-            generate_message_with_cursor(group1.id.as_slice(), 1, 150, 2000), // newer than cursor (100)
+            generate_message_with_cursor(&group1.id, 1, 50, 1000),
+            generate_message_with_cursor(&group1.id, 1, 150, 2000), // newer than cursor (100)
             // Group 2 messages from originator 1
-            generate_message_with_cursor(group2.id.as_slice(), 1, 200, 3000), // older than cursor (300)
-            generate_message_with_cursor(group2.id.as_slice(), 1, 400, 4000), // newer than cursor (300)
+            generate_message_with_cursor(&group2.id, 1, 200, 3000), // older than cursor (300)
+            generate_message_with_cursor(&group2.id, 1, 400, 4000), // newer than cursor (300)
         ];
         assert_ok!(messages.store(conn));
 
