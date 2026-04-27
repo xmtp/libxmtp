@@ -1,4 +1,4 @@
-use crate::tls_map::TlsMap;
+use crate::tls_map::{TlsMap, TlsMapDelta, TlsMapMutation};
 use prost::Message;
 use tls_codec::{Deserialize, Serialize, VLBytes};
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -70,6 +70,8 @@ pub enum ComponentRegistryError {
     TlsCodecError(#[from] tls_codec::Error),
     #[error("constrained component {0} requires AllowIfAdmin or AllowIfSuperAdmin policies")]
     ConstrainedPolicyViolation(ComponentId),
+    #[error("COMPONENT_REGISTRY bootstrap delta carried a non-Insert mutation")]
+    NonInsertBootstrapMutation,
 }
 
 /// A component registry stored as a `TlsMap<ComponentId, VLBytes>` where each
@@ -188,45 +190,71 @@ impl ComponentRegistry {
         })
     }
 
-    /// Serialize the entire registry to TLS-encoded bytes.
+    /// Serialize the entire registry as the wire-format
+    /// `TlsMapDelta<ComponentId, VLBytes>` of all-`Insert` mutations.
+    ///
+    /// `COMPONENT_REGISTRY` is a delta-shaped component (the proto
+    /// declares it as `TlsMapBytesBytes` with key-level insert/update/
+    /// delete). At bootstrap there is no prior state, so the on-the-wire
+    /// payload is "delta from empty" — every entry inserted. Post-
+    /// bootstrap updates use the same `TlsMapDelta` wire shape with
+    /// mixed `Insert`/`Update`/`Delete` mutations; bootstrap is just the
+    /// degenerate all-`Insert` case, keeping a single wire format.
     pub fn to_bytes(&self) -> Result<Vec<u8>, ComponentRegistryError> {
-        Ok(self.inner.tls_serialize_detached()?)
+        let mut delta: TlsMapDelta<ComponentId, VLBytes> = TlsMapDelta::new();
+        for (id, raw) in self.inner.iter() {
+            delta = delta.insert(*id, raw.clone());
+        }
+        Ok(delta.tls_serialize_detached()?)
     }
 
-    /// Deserialize a component registry from TLS-encoded bytes.
+    /// Deserialize a component registry from a TLS-encoded
+    /// `TlsMapDelta<ComponentId, VLBytes>`.
     ///
-    /// Validates that every key is in the component ID space, not reserved,
-    /// and not hardcoded, and that every value decodes as a valid
-    /// [`ComponentMetadata`] — peers cannot send us a registry with
-    /// structurally invalid keys or malformed values, nor can they smuggle
-    /// in entries for hardcoded components (whose permissions are enforced
-    /// in code). The decoded values are discarded; we keep the original raw
-    /// bytes so re-serialization is byte-identical to what was received.
+    /// All mutations must be `Insert` (bootstrap is delta-from-empty);
+    /// `Update` or `Delete` at this entry point indicates a malformed
+    /// payload or a post-bootstrap delta routed through the wrong path
+    /// and surfaces [`ComponentRegistryError::NonInsertBootstrapMutation`].
+    ///
+    /// Validates that every key is in the component ID space, not
+    /// reserved, and not hardcoded, and that every value decodes as a
+    /// valid [`ComponentMetadata`] — peers cannot send us a registry
+    /// with structurally invalid keys or malformed values, nor can they
+    /// smuggle in entries for hardcoded components (whose permissions
+    /// are enforced in code).
     ///
     /// Immutability is intentionally not enforced here because it's a
     /// write-time concern, not a wire-format invariant.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, ComponentRegistryError> {
-        let inner: TlsMap<ComponentId, VLBytes> = TlsMap::tls_deserialize_exact(bytes)?;
-        for (id, raw) in inner.iter() {
+        let delta = TlsMapDelta::<ComponentId, VLBytes>::tls_deserialize_exact(bytes)?;
+        let mut inner: TlsMap<ComponentId, VLBytes> = TlsMap::new();
+        for mutation in delta.mutations {
+            let (id, raw) = match mutation {
+                TlsMapMutation::Insert { key, value } => (key, value),
+                TlsMapMutation::Update { .. } | TlsMapMutation::Delete { .. } => {
+                    return Err(ComponentRegistryError::NonInsertBootstrapMutation);
+                }
+            };
             if !id.is_in_component_space() {
-                return Err(ComponentRegistryError::InvalidComponentId(*id));
+                return Err(ComponentRegistryError::InvalidComponentId(id));
             }
             if id.is_reserved() {
-                return Err(ComponentRegistryError::ReservedRange(*id));
+                return Err(ComponentRegistryError::ReservedRange(id));
             }
             if id.is_hardcoded() {
-                return Err(ComponentRegistryError::HardcodedComponent(*id));
+                return Err(ComponentRegistryError::HardcodedComponent(id));
             }
             // Eagerly verify the value decodes AND is structurally valid —
             // fail fast at the wire boundary so callers don't get a partial
             // failure mid-iteration.
             let meta = ComponentMetadata::decode(raw.as_slice()).map_err(|source| {
                 ComponentRegistryError::DecodeError {
-                    component_id: *id,
+                    component_id: id,
                     source,
                 }
             })?;
-            Self::validate_metadata(id, &meta)?;
+            Self::validate_metadata(&id, &meta)?;
+            inner.set(id, raw);
         }
         Ok(Self { inner })
     }
@@ -753,14 +781,9 @@ mod tests {
 
     #[xmtp_common::test]
     fn test_from_bytes_rejects_out_of_space_id() {
-        // Build a TlsMap directly with an out-of-space key (0x0001) and
-        // serialize it, then try to load it as a ComponentRegistry.
-        let mut raw: TlsMap<ComponentId, VLBytes> = TlsMap::new();
-        raw.set(
-            ComponentId::new(0x0001),
-            VLBytes::new(sample_meta().encode_to_vec()),
-        );
-        let bytes = raw.tls_serialize_detached().unwrap();
+        // Build a TlsMapDelta directly with an out-of-space key (0x0001)
+        // and serialize it, then try to load it as a ComponentRegistry.
+        let bytes = raw_bytes_with_entry(ComponentId::new(0x0001), sample_meta().encode_to_vec());
         let result = ComponentRegistry::from_bytes(&bytes);
         assert!(matches!(
             result,
@@ -770,12 +793,7 @@ mod tests {
 
     #[xmtp_common::test]
     fn test_from_bytes_rejects_reserved_id() {
-        let mut raw: TlsMap<ComponentId, VLBytes> = TlsMap::new();
-        raw.set(
-            ComponentId::new(0xFF50),
-            VLBytes::new(sample_meta().encode_to_vec()),
-        );
-        let bytes = raw.tls_serialize_detached().unwrap();
+        let bytes = raw_bytes_with_entry(ComponentId::new(0xFF50), sample_meta().encode_to_vec());
         let result = ComponentRegistry::from_bytes(&bytes);
         assert!(matches!(
             result,
@@ -783,13 +801,13 @@ mod tests {
         ));
     }
 
-    /// Build a TLS-encoded `TlsMap<ComponentId, VLBytes>` containing a single
-    /// entry. Bypasses `ComponentRegistry::set` so we can construct payloads
-    /// that the public API would refuse to produce.
+    /// Build a TLS-encoded `TlsMapDelta<ComponentId, VLBytes>` containing
+    /// a single `Insert` mutation. Bypasses `ComponentRegistry::set` so
+    /// we can construct payloads that the public API would refuse to
+    /// produce.
     fn raw_bytes_with_entry(id: ComponentId, value: Vec<u8>) -> Vec<u8> {
-        let mut raw: TlsMap<ComponentId, VLBytes> = TlsMap::new();
-        raw.set(id, VLBytes::new(value));
-        raw.tls_serialize_detached().unwrap()
+        let delta = TlsMapDelta::<ComponentId, VLBytes>::new().insert(id, VLBytes::new(value));
+        delta.tls_serialize_detached().unwrap()
     }
 
     #[xmtp_common::test]
