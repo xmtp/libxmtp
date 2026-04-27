@@ -33,7 +33,7 @@ use openmls::{
     group::{GroupContext, MlsGroup as OpenMlsGroup},
     messages::proposals::AppDataUpdateOperation,
 };
-use tls_codec::{Deserialize, Serialize};
+use tls_codec::{Deserialize, Serialize, VLBytes};
 use xmtp_mls_common::{
     app_data::{component_id::ComponentId, component_registry::ComponentOp},
     group_mutable_metadata::{
@@ -41,6 +41,7 @@ use xmtp_mls_common::{
         find_mutable_metadata_extension,
     },
     inbox_id::{InboxId, InboxIdError},
+    tls_map::{TlsMap, TlsMapDelta, TlsMapError},
     tls_set::{TlsKeyHash, TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
 };
 use xmtp_proto::xmtp::mls::message_contents::ComponentType;
@@ -113,6 +114,11 @@ pub enum ComponentSourceError {
     /// value of a collection component from an incoming delta.
     #[error("tls set apply error: {0}")]
     TlsSetApply(#[from] TlsSetError),
+
+    /// A `TlsMap::apply_delta` call failed while synthesizing the new full
+    /// value of a map component from an incoming delta.
+    #[error("tls map apply error: {0}")]
+    TlsMapApply(#[from] TlsMapError),
 }
 
 /// Describes a single, atomic mutation that a per-field intent handler wants
@@ -557,7 +563,28 @@ pub(crate) fn apply_app_data_update_payload(
             set.apply_delta(delta)?;
             Ok(set.tls_serialize_detached()?)
         }
-        ComponentId::GROUP_MEMBERSHIP => Err(ComponentSourceError::NotImplemented(id)),
+        // Map components ship their updates as a `TlsMapDelta`. Apply
+        // it to the prior materialized `TlsMap` (or an empty map at
+        // bootstrap) and re-serialize the result. The dictionary stores
+        // the materialized snapshot; the wire stays delta-shaped.
+        ComponentId::COMPONENT_REGISTRY => {
+            let delta = TlsMapDelta::<ComponentId, VLBytes>::tls_deserialize_exact(payload)?;
+            let mut map: TlsMap<ComponentId, VLBytes> = match old_value {
+                Some(bytes) => TlsMap::<ComponentId, VLBytes>::tls_deserialize_exact(bytes)?,
+                None => TlsMap::new(),
+            };
+            map.apply_delta(delta)?;
+            Ok(map.tls_serialize_detached()?)
+        }
+        ComponentId::GROUP_MEMBERSHIP => {
+            let delta = TlsMapDelta::<InboxId, VLBytes>::tls_deserialize_exact(payload)?;
+            let mut map: TlsMap<InboxId, VLBytes> = match old_value {
+                Some(bytes) => TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(bytes)?,
+                None => TlsMap::new(),
+            };
+            map.apply_delta(delta)?;
+            Ok(map.tls_serialize_detached()?)
+        }
         _ => Err(ComponentSourceError::UnknownComponent(id)),
     }
 }
@@ -1061,10 +1088,95 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    fn test_apply_group_membership_not_implemented() {
-        let err =
-            apply_app_data_update_payload(ComponentId::GROUP_MEMBERSHIP, b"x", None).unwrap_err();
-        assert!(matches!(err, ComponentSourceError::NotImplemented(_)));
+    fn test_apply_component_registry_delta_against_empty() {
+        // Bootstrap shape: a `TlsMapDelta<ComponentId, VLBytes>` of
+        // all-`Insert` mutations applied against an empty map produces
+        // a materialized snapshot containing those entries.
+        let id_a = ComponentId::GROUP_NAME;
+        let id_b = ComponentId::GROUP_DESCRIPTION;
+        let delta = TlsMapDelta::<ComponentId, VLBytes>::new()
+            .insert(id_a, VLBytes::new(vec![0x11; 4]))
+            .insert(id_b, VLBytes::new(vec![0x22; 4]));
+        let payload = delta.tls_serialize_detached().unwrap();
+
+        let new_bytes =
+            apply_app_data_update_payload(ComponentId::COMPONENT_REGISTRY, &payload, None).unwrap();
+        let map = TlsMap::<ComponentId, VLBytes>::tls_deserialize_exact(&new_bytes).unwrap();
+        assert_eq!(map.len(), 2);
+        assert_eq!(
+            map.get(&id_a).map(|v| v.as_slice()),
+            Some([0x11; 4].as_slice())
+        );
+        assert_eq!(
+            map.get(&id_b).map(|v| v.as_slice()),
+            Some([0x22; 4].as_slice())
+        );
+    }
+
+    #[xmtp_common::test]
+    fn test_apply_group_membership_delta_against_existing_map() {
+        // Post-bootstrap shape: an `Update` mutation applied on top of
+        // a prior `TlsMap<InboxId, VLBytes>` snapshot produces a new
+        // snapshot with the updated value.
+        let alice = fake_inbox(0xAA);
+        let bob = fake_inbox(0xBB);
+        let mut prior: TlsMap<InboxId, VLBytes> = TlsMap::new();
+        prior.set(alice, VLBytes::new(vec![0x01]));
+        prior.set(bob, VLBytes::new(vec![0x02]));
+        let prior_bytes = prior.tls_serialize_detached().unwrap();
+
+        let delta = TlsMapDelta::<InboxId, VLBytes>::new()
+            .update(alice, VLBytes::new(vec![0x99]))
+            .delete(bob);
+        let payload = delta.tls_serialize_detached().unwrap();
+
+        let new_bytes = apply_app_data_update_payload(
+            ComponentId::GROUP_MEMBERSHIP,
+            &payload,
+            Some(&prior_bytes),
+        )
+        .unwrap();
+        let map = TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(&new_bytes).unwrap();
+        assert_eq!(map.len(), 1);
+        assert_eq!(
+            map.get(&alice).map(|v| v.as_slice()),
+            Some([0x99].as_slice())
+        );
+        assert!(!map.contains_key(&bob));
+    }
+
+    #[xmtp_common::test]
+    fn test_apply_map_component_malformed_delta_returns_codec_error() {
+        // Garbage bytes that aren't a valid TlsMapDelta surface as a
+        // TLS-codec error, same shape as the set-component path.
+        let err = apply_app_data_update_payload(
+            ComponentId::COMPONENT_REGISTRY,
+            &[0xff, 0xff, 0xff, 0xff],
+            None,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ComponentSourceError::TlsCodec(_)),
+            "got {err:?}"
+        );
+    }
+
+    #[xmtp_common::test]
+    fn test_apply_map_component_apply_failure_surfaces_apply_error() {
+        // A delta that updates a key not present in the prior snapshot
+        // fails at apply time — surfaced as `TlsMapApply(KeyNotFound)`.
+        let alice = fake_inbox(0x01);
+        let delta = TlsMapDelta::<InboxId, VLBytes>::new().update(alice, VLBytes::new(vec![0x42]));
+        let payload = delta.tls_serialize_detached().unwrap();
+        let err = apply_app_data_update_payload(ComponentId::GROUP_MEMBERSHIP, &payload, None)
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ComponentSourceError::TlsMapApply(TlsMapError::KeyNotFound)
+            ),
+            "got {err:?}"
+        );
     }
 
     #[xmtp_common::test]
