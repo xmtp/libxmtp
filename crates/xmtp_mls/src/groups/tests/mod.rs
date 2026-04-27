@@ -468,7 +468,7 @@ async fn test_dm_stitching() {
         now
     );
 
-    let dm_group = alix.group(dm_group.id.as_slice()).unwrap();
+    let dm_group = alix.group(dm_group.id.as_ref()).unwrap();
     let alix_msgs = dm_group
         .find_messages(&MsgQueryArgs {
             kind: Some(GroupMessageKind::Application),

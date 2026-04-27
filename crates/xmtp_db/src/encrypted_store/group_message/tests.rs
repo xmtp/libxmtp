@@ -1972,8 +1972,8 @@ fn test_count_group_messages_dm_vs_regular_groups() {
             ]
         };
 
-        let dm_messages = create_messages(dm_group.id.as_slice());
-        let regular_messages = create_messages(regular_group.id.as_slice());
+        let dm_messages = create_messages(&dm_group.id);
+        let regular_messages = create_messages(&regular_group.id);
 
         assert_ok!(dm_messages.store(conn));
         assert_ok!(regular_messages.store(conn));

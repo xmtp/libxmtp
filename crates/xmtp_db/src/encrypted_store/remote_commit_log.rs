@@ -180,7 +180,7 @@ impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
     ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
         self.raw_query(|db| {
             dsl::remote_commit_log
-                .filter(remote_commit_log::group_id.eq(group_id.as_slice()))
+                .filter(remote_commit_log::group_id.eq(group_id))
                 .order(remote_commit_log::log_sequence_id.desc())
                 .limit(1)
                 .first(db)
@@ -204,7 +204,7 @@ impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
         let after_cursor: i32 = after_cursor as i32;
 
         let query = dsl::remote_commit_log
-            .filter(dsl::group_id.eq(group_id.as_slice()))
+            .filter(dsl::group_id.eq(group_id))
             .filter(dsl::rowid.gt(after_cursor))
             .filter(dsl::commit_sequence_id.ne(0));
 

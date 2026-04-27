@@ -194,7 +194,7 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
         self.raw_query(|db| {
             dsl::local_commit_log
-                .filter(dsl::group_id.eq(group_id.as_slice()))
+                .filter(dsl::group_id.eq(group_id))
                 .order_by(dsl::rowid.asc())
                 .load(db)
         })
@@ -217,7 +217,7 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
         let after_cursor = after_cursor as i32;
 
         let query = dsl::local_commit_log
-            .filter(dsl::group_id.eq(group_id.as_slice()))
+            .filter(dsl::group_id.eq(group_id))
             .filter(dsl::rowid.gt(after_cursor))
             .filter(dsl::commit_sequence_id.ne(0));
 
@@ -233,7 +233,7 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
     ) -> Result<Option<LocalCommitLog>, crate::ConnectionError> {
         self.raw_query(|db| {
             dsl::local_commit_log
-                .filter(dsl::group_id.eq(group_id.as_slice()))
+                .filter(dsl::group_id.eq(group_id))
                 .order_by(dsl::rowid.desc())
                 .limit(1)
                 .first(db)
@@ -246,7 +246,7 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
         group_id: &GroupId,
     ) -> Result<Option<i32>, crate::ConnectionError> {
         let query = dsl::local_commit_log
-            .filter(dsl::group_id.eq(group_id.as_slice()))
+            .filter(dsl::group_id.eq(group_id))
             .select(dsl::rowid)
             .order(dsl::rowid.desc())
             .limit(1);

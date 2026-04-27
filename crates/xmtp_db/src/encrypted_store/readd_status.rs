@@ -84,7 +84,7 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
 
         self.raw_query(|conn| {
             readd_dsl::readd_status
-                .filter(readd_dsl::group_id.eq(group_id.as_slice()))
+                .filter(readd_dsl::group_id.eq(group_id))
                 .filter(readd_dsl::installation_id.eq(installation_id))
                 .first::<ReaddStatus>(conn)
                 .optional()
@@ -183,7 +183,7 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
         self.raw_query(|conn| {
             diesel::delete(
                 readd_dsl::readd_status
-                    .filter(readd_dsl::group_id.eq(group_id.as_slice()))
+                    .filter(readd_dsl::group_id.eq(group_id))
                     .filter(readd_dsl::installation_id.ne(self_installation_id)),
             )
             .execute(conn)?;
@@ -202,7 +202,7 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
         self.raw_query(|conn| {
             diesel::delete(
                 readd_dsl::readd_status
-                    .filter(readd_dsl::group_id.eq(group_id.as_slice()))
+                    .filter(readd_dsl::group_id.eq(group_id))
                     .filter(readd_dsl::installation_id.eq_any(installation_ids)),
             )
             .execute(conn)?;
@@ -220,7 +220,7 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
 
         self.raw_query(|conn| {
             readd_dsl::readd_status
-                .filter(readd_dsl::group_id.eq(group_id.as_slice()))
+                .filter(readd_dsl::group_id.eq(group_id))
                 .filter(readd_dsl::installation_id.ne(self_installation_id))
                 .filter(readd_dsl::requested_at_sequence_id.is_not_null())
                 .filter(

@@ -151,7 +151,7 @@ impl<C: ConnectionExt> QueryMessageDeletion for DbConnection<C> {
     ) -> Result<Vec<StoredMessageDeletion>, crate::ConnectionError> {
         self.raw_query(|conn| {
             dsl::message_deletions
-                .filter(dsl::group_id.eq(group_id.as_slice()))
+                .filter(dsl::group_id.eq(group_id))
                 .load(conn)
         })
     }
@@ -381,12 +381,12 @@ mod tests {
             .store(conn)?;
 
             // Get deletions for group1
-            let group1_deletions = conn.get_group_deletions(&GroupId::from(group1.as_slice()))?;
+            let group1_deletions = conn.get_group_deletions(&GroupId::from(group1.clone()))?;
             assert_eq!(group1_deletions.len(), 1);
             assert_eq!(group1_deletions[0].deleted_message_id, msg1);
 
             // Get deletions for group2
-            let group2_deletions = conn.get_group_deletions(&GroupId::from(group2.as_slice()))?;
+            let group2_deletions = conn.get_group_deletions(&GroupId::from(group2.clone()))?;
             assert_eq!(group2_deletions.len(), 1);
             assert_eq!(group2_deletions[0].deleted_message_id, msg2);
         })

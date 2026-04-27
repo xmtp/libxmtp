@@ -841,7 +841,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
 
         // Start with base query
         let mut query = dsl::group_messages
-            .filter(group_id_filter(group_id.as_slice()))
+            .filter(group_id_filter(group_id.as_ref()))
             .into_boxed();
 
         // Apply common filters using macro
@@ -887,7 +887,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         // Check if this is a DM group
         let is_dm = self.raw_query(|conn| {
             groups_dsl::groups
-                .filter(groups_dsl::id.eq(group_id.as_slice()))
+                .filter(groups_dsl::id.eq(group_id))
                 .select(groups_dsl::conversation_type)
                 .first::<ConversationType>(conn)
         })? == ConversationType::Dm;
@@ -900,7 +900,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
 
         // Start with base query
         let mut query = dsl::group_messages
-            .filter(group_id_filter(group_id.as_slice()))
+            .filter(group_id_filter(group_id.as_ref()))
             .into_boxed();
 
         // For DM groups, exclude GroupUpdated messages unless specifically requested
@@ -1004,7 +1004,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         let message_ids: Vec<&[u8]> = messages.iter().map(|m| m.id.as_slice()).collect();
 
         let mut reactions_query = dsl::group_messages
-            .filter(group_id_filter(group_id.as_slice()))
+            .filter(group_id_filter(group_id.as_ref()))
             .filter(dsl::reference_id.is_not_null())
             .filter(dsl::reference_id.eq_any(message_ids))
             .into_boxed();
@@ -1056,7 +1056,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         let mut inbound_relations: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
 
         let mut inbound_relations_query = dsl::group_messages
-            .filter(group_id_filter(group_id.as_slice()))
+            .filter(group_id_filter(group_id.as_ref()))
             .filter(dsl::reference_id.is_not_null())
             .filter(dsl::reference_id.eq_any(message_ids))
             .into_boxed();
@@ -1097,7 +1097,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         reference_ids: &[&[u8]],
     ) -> Result<OutboundRelations, crate::ConnectionError> {
         let outbound_references_query = dsl::group_messages
-            .filter(group_id_filter(group_id.as_slice()))
+            .filter(group_id_filter(group_id.as_ref()))
             .filter(dsl::id.eq_any(reference_ids))
             .into_boxed();
 
@@ -1117,7 +1117,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         relation_query: RelationQuery,
     ) -> Result<RelationCounts, crate::ConnectionError> {
         let mut count_query = dsl::group_messages
-            .filter(group_id_filter(group_id.as_slice()))
+            .filter(group_id_filter(group_id.as_ref()))
             .filter(dsl::reference_id.is_not_null())
             .filter(dsl::reference_id.eq_any(message_ids))
             .group_by(dsl::reference_id)
@@ -1309,7 +1309,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             for (group_id, global_cursor) in batch {
                 if global_cursor.is_empty() {
                     // No cursor for this group - include all messages
-                    batch_filter = Box::new(batch_filter.or(dsl::group_id.eq(group_id.as_slice())));
+                    batch_filter = Box::new(batch_filter.or(dsl::group_id.eq(group_id)));
                 } else {
                     // Build condition for this group: group_id matches AND (originator conditions)
                     let known_originators: Vec<i64> =
@@ -1341,8 +1341,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
 
                     // Combine: this group AND (originator conditions)
                     batch_filter = Box::new(
-                        batch_filter
-                            .or(dsl::group_id.eq(group_id.as_slice()).and(originator_filter)),
+                        batch_filter.or(dsl::group_id.eq(group_id).and(originator_filter)),
                     );
                 }
             }

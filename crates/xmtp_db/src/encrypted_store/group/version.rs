@@ -33,7 +33,7 @@ impl<C: ConnectionExt> QueryGroupVersion for DbConnection<C> {
         use crate::schema::groups::dsl;
 
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.filter(dsl::id.eq(group_id.as_slice())))
+            diesel::update(dsl::groups.filter(dsl::id.eq(group_id)))
                 .set(dsl::paused_for_version.eq(Some(min_version.to_string())))
                 .execute(conn)
         })?;
@@ -45,7 +45,7 @@ impl<C: ConnectionExt> QueryGroupVersion for DbConnection<C> {
         use crate::schema::groups::dsl;
 
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.filter(dsl::id.eq(group_id.as_slice())))
+            diesel::update(dsl::groups.filter(dsl::id.eq(group_id)))
                 .set(dsl::paused_for_version.eq::<Option<String>>(None))
                 .execute(conn)
         })?;
@@ -59,7 +59,7 @@ impl<C: ConnectionExt> QueryGroupVersion for DbConnection<C> {
         let paused_version = self.raw_query(|conn| {
             dsl::groups
                 .select(dsl::paused_for_version)
-                .filter(dsl::id.eq(group_id.as_slice()))
+                .filter(dsl::id.eq(group_id))
                 .first::<Option<String>>(conn)
         })?;
 

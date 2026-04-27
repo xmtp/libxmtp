@@ -766,7 +766,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     fn find_sync_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
-            .filter(dsl::id.eq(id.as_slice()));
+            .filter(dsl::id.eq(id));
 
         self.raw_query(|conn| query.first(conn).optional())
     }
@@ -784,7 +784,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         let query = dsl::groups
             .order(dsl::created_at_ns.asc())
             .limit(1)
-            .filter(dsl::id.eq(id.as_slice()));
+            .filter(dsl::id.eq(id));
         let groups = self.raw_query(|conn| query.load(conn))?;
 
         Ok(groups.into_iter().next())
@@ -815,14 +815,14 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     fn get_rotated_at_ns(&self, group_id: GroupId) -> Result<i64, StorageError> {
         let last_ts: Option<i64> = self.raw_query(|conn| {
             dsl::groups
-                .find(group_id.as_slice())
+                .find(&group_id)
                 .select(dsl::rotated_at_ns)
                 .first(conn)
                 .optional()
         })?;
 
         last_ts.ok_or(StorageError::NotFound(NotFound::InstallationTimeForGroup(
-            group_id.as_ref().to_vec(),
+            group_id.to_vec(),
         )))
     }
 
@@ -830,7 +830,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     fn update_rotated_at_ns(&self, group_id: GroupId) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let now = xmtp_common::time::now_ns();
-            diesel::update(dsl::groups.find(group_id.as_slice()))
+            diesel::update(dsl::groups.find(group_id))
                 .set(dsl::rotated_at_ns.eq(now))
                 .execute(conn)
         })?;
@@ -841,20 +841,20 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     fn get_installations_time_checked(&self, group_id: GroupId) -> Result<i64, StorageError> {
         let last_ts = self.raw_query(|conn| {
             dsl::groups
-                .find(group_id.as_slice())
+                .find(&group_id)
                 .select(dsl::installations_last_checked)
                 .first(conn)
                 .optional()
         })?;
 
-        last_ts.ok_or(NotFound::InstallationTimeForGroup(group_id.as_ref().to_vec()).into())
+        last_ts.ok_or(NotFound::InstallationTimeForGroup(group_id.to_vec()).into())
     }
 
     /// Updates the 'last time checked' we checked for new installations.
     fn update_installations_time_checked(&self, group_id: GroupId) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let now = xmtp_common::time::now_ns();
-            diesel::update(dsl::groups.find(group_id.as_slice()))
+            diesel::update(dsl::groups.find(group_id))
                 .set(dsl::installations_last_checked.eq(now))
                 .execute(conn)
         })?;
@@ -868,7 +868,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         from_ns: Option<i64>,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.find(group_id.as_slice()))
+            diesel::update(dsl::groups.find(group_id))
                 .set(dsl::message_disappear_from_ns.eq(from_ns))
                 .execute(conn)
         })?;
@@ -882,7 +882,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         in_ns: Option<i64>,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.find(group_id.as_slice()))
+            diesel::update(dsl::groups.find(group_id))
                 .set(dsl::message_disappear_in_ns.eq(in_ns))
                 .execute(conn)
         })?;
@@ -966,7 +966,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         fork_details: String,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.find(group_id.as_slice()))
+            diesel::update(dsl::groups.find(group_id))
                 .set((
                     dsl::maybe_forked.eq(true),
                     dsl::fork_details.eq(fork_details),
@@ -979,7 +979,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     fn clear_fork_flag_for_group(&self, group_id: &GroupId) -> Result<(), crate::ConnectionError> {
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.find(group_id.as_slice()))
+            diesel::update(dsl::groups.find(group_id))
                 .set((dsl::maybe_forked.eq(false), dsl::fork_details.eq("")))
                 .execute(conn)
         })?;
@@ -989,7 +989,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     fn has_duplicate_dm(&self, group_id: &GroupId) -> Result<bool, crate::ConnectionError> {
         self.raw_query(|conn| {
             let dm_id: Option<String> = dsl::groups
-                .filter(dsl::id.eq(group_id.as_slice()))
+                .filter(dsl::id.eq(group_id))
                 .select(dsl::dm_id)
                 .first::<Option<String>>(conn)
                 .optional()?
@@ -1119,7 +1119,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         group_id: &GroupId,
     ) -> Result<ConversationType, crate::ConnectionError> {
         let query = dsl::groups
-            .filter(dsl::id.eq(group_id.as_slice()))
+            .filter(dsl::id.eq(group_id))
             .select(dsl::conversation_type);
         let conversation_type = self.raw_query(|conn| query.first(conn))?;
         Ok(conversation_type)
@@ -1135,7 +1135,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             diesel::update(dsl::groups)
                 .filter(
                     dsl::id
-                        .eq(group_id.as_slice())
+                        .eq(group_id)
                         .and(dsl::commit_log_public_key.is_null()),
                 )
                 .set(dsl::commit_log_public_key.eq(public_key))
@@ -1156,7 +1156,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     ) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.find(group_id.as_slice()))
+            diesel::update(dsl::groups.find(group_id))
                 .set(dsl::is_commit_log_forked.eq(is_forked))
                 .execute(conn)
         })?;
@@ -1170,7 +1170,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         use crate::schema::groups::dsl;
         self.raw_query(|conn| {
             dsl::groups
-                .find(group_id.as_slice())
+                .find(group_id)
                 .select(dsl::is_commit_log_forked)
                 .first::<Option<bool>>(conn)
         })
@@ -1184,7 +1184,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     ) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.find(group_id.as_slice()))
+            diesel::update(dsl::groups.find(group_id))
                 .set(dsl::has_pending_leave_request.eq(has_pending_leave_request))
                 .execute(conn)
         })?;
@@ -1564,8 +1564,7 @@ pub(crate) mod tests {
             }
             // Check that some event occurred which triggers an installation list update.
             // Here we invoke that event directly
-            let result =
-                conn.update_installations_time_checked(GroupId::from(test_group.id.as_slice()));
+            let result = conn.update_installations_time_checked(test_group.id.clone());
             assert_ok!(result);
 
             // Check that the latest installation list timestamp has been updated

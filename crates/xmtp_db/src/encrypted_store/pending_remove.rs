@@ -80,7 +80,7 @@ impl<C: ConnectionExt> QueryPendingRemove for DbConnection<C> {
     ) -> Result<Vec<String>, crate::ConnectionError> {
         let result = self.raw_query(|conn| {
             dsl::pending_remove
-                .filter(dsl::group_id.eq(group_id.as_slice()))
+                .filter(dsl::group_id.eq(group_id))
                 .select(dsl::inbox_id)
                 .load::<String>(conn)
         })?;
@@ -94,13 +94,9 @@ impl<C: ConnectionExt> QueryPendingRemove for DbConnection<C> {
         inbox_id: &str,
     ) -> Result<bool, crate::ConnectionError> {
         let result: bool = self.raw_query(|conn| {
-            select(exists(
-                dsl::pending_remove.filter(
-                    dsl::group_id
-                        .eq(group_id.as_slice())
-                        .and(dsl::inbox_id.eq(inbox_id)),
-                ),
-            ))
+            select(exists(dsl::pending_remove.filter(
+                dsl::group_id.eq(group_id).and(dsl::inbox_id.eq(inbox_id)),
+            )))
             .get_result::<bool>(conn)
         })?;
         Ok(result)
@@ -116,7 +112,7 @@ impl<C: ConnectionExt> QueryPendingRemove for DbConnection<C> {
                 dsl::pending_remove.filter(
                     dsl::inbox_id
                         .eq_any(inbox_ids)
-                        .and(dsl::group_id.eq(group_id.as_slice())),
+                        .and(dsl::group_id.eq(group_id)),
                 ),
             )
             .execute(conn)

@@ -41,7 +41,7 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
     fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError> {
         let group = self.raw_query(|conn| {
             groups::table
-                .filter(groups::id.eq(key.as_slice()))
+                .filter(groups::id.eq(key))
                 .first::<StoredGroup>(conn)
                 .optional()
         })?;
@@ -79,7 +79,7 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
 
     /// Load the other DMs that are stitched into this group
     fn other_dms(&self, group_id: &GroupId) -> Result<Vec<StoredGroup>, ConnectionError> {
-        let query = dsl::groups.filter(dsl::id.eq(group_id.as_slice()));
+        let query = dsl::groups.filter(dsl::id.eq(group_id));
 
         let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
 
