@@ -5,8 +5,6 @@ use xmtp_configuration::DeviceSyncUrls;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group::StoredGroup;
 use xmtp_db::group_message::MsgQueryArgs;
-
-use xmtp_proto::types::GroupId;
 impl<Context> Client<Context>
 where
     Context: XmtpSharedContext,
@@ -28,10 +26,9 @@ where
 
         let mut all_messages = vec![];
         for StoredGroup { id, .. } in groups.into_iter() {
-            let messages = provider.db().get_group_messages(
-                &GroupId::from(id.as_slice()),
-                &MsgQueryArgs::default(),
-            )?;
+            let messages = provider
+                .db()
+                .get_group_messages(&id, &MsgQueryArgs::default())?;
             for msg in messages {
                 all_messages.push(Syncable::GroupMessage(msg));
             }

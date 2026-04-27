@@ -29,10 +29,7 @@ fn message_debug(env: &XmtpEnvelope) -> String {
 }
 
 fn db_message_debug(db: impl QueryGroupMessage, id: &[u8]) -> String {
-    db.get_group_messages(
-        &GroupId::from(id),
-        &Default::default(),
-    )
+    db.get_group_messages(&GroupId::from(id), &Default::default())
         .unwrap()
         .into_iter()
         .enumerate()
