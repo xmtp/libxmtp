@@ -13,7 +13,7 @@ use xmtp_proto::types::{Cursor, GroupId};
 async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
     let group = alix.create_group(None, None).unwrap();
-    let group_id = group.group_id.clone();
+    let group_id = group.group_id.to_vec();
 
     // Insert local commit log entries
     let local_entry_1 = NewLocalCommitLog {
@@ -88,7 +88,7 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
 async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
     let group = alix.create_group(None, None).unwrap();
-    let group_id = group.group_id.clone();
+    let group_id = group.group_id.to_vec();
 
     // Insert local commit log entries
     let local_entry_1 = NewLocalCommitLog {
@@ -163,7 +163,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
 async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
     let group = alix.create_group(None, None).unwrap();
-    let group_id = group.group_id.clone();
+    let group_id = group.group_id.to_vec();
 
     // Insert local commit log entry
     let local_entry = NewLocalCommitLog {
@@ -336,7 +336,7 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
 -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
     let group = alix.create_group(None, None).unwrap();
-    let group_id = group.group_id.clone();
+    let group_id = group.group_id.to_vec();
 
     // Insert local commit log entries
     let local_entry_1 = NewLocalCommitLog {
@@ -407,7 +407,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
 -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
     let group = alix.create_group(None, None).unwrap();
-    let group_id = group.group_id.clone();
+    let group_id = group.group_id.to_vec();
 
     // Insert local commit log entries
     let local_entry_1 = NewLocalCommitLog {

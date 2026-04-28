@@ -59,7 +59,7 @@ impl Distribution<NotFound> for StandardUniform {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> NotFound {
         match rng.random_range(0..=13) {
             0 => NotFound::GroupByWelcome(Cursor::default()),
-            1 => NotFound::GroupById(Vec::new()),
+            1 => NotFound::GroupById(GroupId::default()),
             2 => NotFound::InstallationTimeForGroup(GroupId::default()),
             3 => NotFound::InboxIdForAddress("random test inbox".into()),
             4 => NotFound::MessageById(Vec::new()),

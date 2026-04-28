@@ -424,7 +424,7 @@ async fn test_request_readd_with_allowlisted_groups() {
         .await
         .unwrap();
 
-    let group_id = group.group_id.clone();
+    let group_id = group.group_id.to_vec();
     let group_id_typed: GroupId = group_id.clone().into();
     let group_id_hex = hex::encode(&group_id);
     let unnormalized_group_id = "0x".to_owned() + &group_id_hex.to_uppercase();

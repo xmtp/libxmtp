@@ -249,7 +249,9 @@ where
                 client
                     .send_archive(
                         &options,
-                        &send_sync_archive.sync_group_id,
+                        &xmtp_proto::types::GroupId::from(
+                            send_sync_archive.sync_group_id.as_slice(),
+                        ),
                         &pin,
                         &send_sync_archive.server_url,
                     )

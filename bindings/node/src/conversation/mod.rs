@@ -27,7 +27,7 @@ pub struct Conversation {
 impl From<RustMlsGroup> for Conversation {
   fn from(mls_group: RustMlsGroup) -> Self {
     Conversation {
-      group_id: mls_group.group_id.clone(),
+      group_id: mls_group.group_id.to_vec(),
       dm_id: mls_group.dm_id.clone(),
       created_at_ns: BigInt::from(mls_group.created_at_ns),
       inner_group: mls_group,
@@ -55,7 +55,7 @@ impl Conversation {
   pub fn create_mls_group(&self) -> RustMlsGroup {
     MlsGroup::new(
       self.inner_group.context.clone(),
-      self.group_id.clone(),
+      self.group_id.clone().into(),
       self.dm_id.clone(),
       self.inner_group.conversation_type,
       self.created_at_ns.get_i64().0,

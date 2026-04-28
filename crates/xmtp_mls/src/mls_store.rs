@@ -136,7 +136,7 @@ where
             .map(|stored_group| {
                 MlsGroup::new(
                     self.context.clone(),
-                    stored_group.id.to_vec(),
+                    stored_group.id,
                     stored_group.dm_id,
                     stored_group.conversation_type,
                     stored_group.created_at_ns,
@@ -156,13 +156,13 @@ where
             .map(|g| {
                 MlsGroup::new(
                     self.context.clone(),
-                    g.id.to_vec(),
+                    g.id,
                     g.dm_id,
                     g.conversation_type,
                     g.created_at_ns,
                 )
             })
-            .ok_or(NotFound::GroupById(group_id.to_vec()))
+            .ok_or(NotFound::GroupById(GroupId::from(group_id)))
             .map_err(Into::into)
     }
 }

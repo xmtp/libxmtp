@@ -128,7 +128,7 @@ const MAX_APP_DATA_LENGTH: usize = 8192;
 /// different.
 /// the Hash implementation hashes the [`GroupId`]
 pub struct MlsGroup<Context> {
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     pub dm_id: Option<String>,
     pub conversation_type: ConversationType,
     pub created_at_ns: i64,
@@ -293,7 +293,7 @@ where
     // Creates a new group instance. Does not validate that the group exists in the DB
     pub fn new(
         context: Context,
-        group_id: Vec<u8>,
+        group_id: GroupId,
         dm_id: Option<String>,
         conversation_type: ConversationType,
         created_at_ns: i64,
@@ -322,7 +322,7 @@ where
             Ok((
                 Self::new_from_arc(
                     context,
-                    group_id.to_vec(),
+                    GroupId::from(group_id),
                     group.dm_id.clone(),
                     group.conversation_type,
                     group.created_at_ns,
@@ -331,13 +331,13 @@ where
             ))
         } else {
             tracing::error!("group {} does not exist", hex::encode(group_id));
-            Err(NotFound::GroupById(group_id.to_vec()).into())
+            Err(NotFound::GroupById(GroupId::from(group_id)).into())
         }
     }
 
     pub(crate) fn new_from_arc(
         context: Context,
-        group_id: Vec<u8>,
+        group_id: GroupId,
         dm_id: Option<String>,
         conversation_type: ConversationType,
         created_at_ns: i64,
@@ -397,7 +397,7 @@ where
         // Load the MLS group
         let mls_group =
             OpenMlsGroup::load(mls_storage, &OpenMlsGroupId::from_slice(&self.group_id))?.ok_or(
-                StorageError::from(NotFound::GroupById(self.group_id.to_vec())),
+                StorageError::from(NotFound::GroupById(self.group_id.clone())),
             )?;
 
         // Perform the operation with the MLS group
@@ -601,7 +601,7 @@ where
         )?;
         let new_group = Self::new_from_arc(
             context.clone(),
-            stored_group.id.to_vec(),
+            stored_group.id,
             stored_group.dm_id,
             conversation_type,
             stored_group.created_at_ns,
@@ -721,7 +721,7 @@ where
             OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?
         };
 
-        let group_id = mls_group.group_id().to_vec();
+        let group_id: GroupId = mls_group.group_id().into();
         let stored_group = StoredGroup::builder()
             .id(group_id.clone())
             .created_at_ns(now_ns())
@@ -745,7 +745,7 @@ where
         stored_group.store(&context.db())?;
         let new_group = Self::new_from_arc(
             context.clone(),
-            group_id.clone(),
+            group_id,
             stored_group.dm_id,
             ConversationType::Dm,
             stored_group.created_at_ns,
@@ -887,7 +887,7 @@ where
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
         let group_message = StoredGroupMessage {
             id: message_id.clone(),
-            group_id: self.group_id.clone(),
+            group_id: self.group_id.to_vec(),
             decrypted_message_bytes: message.to_vec(),
             sent_at_ns: now,
             kind: GroupMessageKind::Application,
@@ -990,7 +990,7 @@ where
             .ok_or_else(|| DeleteMessageError::MessageNotFound(hex::encode(&message_id)))?;
 
         // Validate message belongs to this group (prevent cross-group deletion)
-        if original_msg.group_id != self.group_id {
+        if original_msg.group_id.as_slice() != self.group_id.as_slice() {
             return Err(DeleteMessageError::NotAuthorized.into());
         }
 
@@ -1025,7 +1025,7 @@ where
 
         let deletion = StoredMessageDeletion {
             id: deletion_message_id.clone(),
-            group_id: self.group_id.clone(),
+            group_id: self.group_id.to_vec(),
             deleted_message_id: message_id,
             deleted_by_inbox_id: sender_inbox_id.to_string(),
             is_super_admin_deletion,
@@ -1162,7 +1162,7 @@ where
             Ok(group)
         } else {
             tracing::error!("group {} does not exist", hex::encode(&self.group_id));
-            Err(NotFound::GroupById(self.group_id.to_vec()).into())
+            Err(NotFound::GroupById(self.group_id.clone()).into())
         }
     }
 
@@ -2344,7 +2344,7 @@ where
             .map(|g| {
                 MlsGroup::new(
                     self.context.clone(),
-                    g.id.to_vec(),
+                    g.id,
                     g.dm_id,
                     g.conversation_type,
                     g.created_at_ns,
@@ -2397,7 +2397,7 @@ where
 
         let mls_group =
             OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?;
-        let group_id = mls_group.group_id().to_vec();
+        let group_id: GroupId = mls_group.group_id().into();
         let stored_group = StoredGroup::builder()
             .id(group_id.clone())
             .created_at_ns(now_ns())

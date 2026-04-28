@@ -37,6 +37,7 @@ use xmtp_db::{DuplicateItem, StorageError};
 pub use xmtp_id::InboxOwner;
 pub use xmtp_mls_common as mls_common;
 pub use xmtp_proto::api_client::*;
+use xmtp_proto::types::GroupId;
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
@@ -46,7 +47,7 @@ pub fn version() -> &'static str {
 #[derive(Debug)]
 pub struct GroupCommitLock {
     // Storage for group-specific semaphores
-    locks: Mutex<HashMap<Vec<u8>, Arc<TokioMutex<()>>>>,
+    locks: Mutex<HashMap<GroupId, Arc<TokioMutex<()>>>>,
 }
 
 impl Default for GroupCommitLock {
@@ -63,7 +64,7 @@ impl GroupCommitLock {
     }
 
     /// Get or create a semaphore for a specific group and acquire it, returning a guard
-    pub async fn get_lock_async(&self, group_id: Vec<u8>) -> MlsGroupGuard {
+    pub async fn get_lock_async(&self, group_id: GroupId) -> MlsGroupGuard {
         let lock = {
             let mut locks = self.locks.lock();
             locks
@@ -78,7 +79,7 @@ impl GroupCommitLock {
     }
 
     /// Get or create a semaphore for a specific group and acquire it synchronously
-    pub fn get_lock_sync(&self, group_id: Vec<u8>) -> Result<MlsGroupGuard, GroupError> {
+    pub fn get_lock_sync(&self, group_id: GroupId) -> Result<MlsGroupGuard, GroupError> {
         let lock = {
             let mut locks = self.locks.lock();
             locks

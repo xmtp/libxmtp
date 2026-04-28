@@ -757,7 +757,7 @@ where
                     }
                     let mls_group = MlsGroup::new(
                         self.context.clone(),
-                        group.group_id.clone(),
+                        GroupId::from(group.group_id.as_slice()),
                         group.dm_id.clone(),
                         group.conversation_type,
                         group.created_at_ns,

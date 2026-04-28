@@ -338,7 +338,7 @@ async fn test_publish_commit_log_to_remote() {
 
     // Query the remote commit log to make sure it matches the local commit log entry
     let query = QueryCommitLogRequest {
-        group_id: alix_group.group_id.clone(),
+        group_id: alix_group.group_id.to_vec(),
         ..Default::default()
     };
 
@@ -450,8 +450,10 @@ async fn test_download_commit_log_from_remote() {
 
     // Verify the number of commits published results for alix group 1
     assert_eq!(
-        test_results[0].publish_commit_log_results.clone().unwrap()[0].conversation_id,
-        alix_group.group_id
+        test_results[0].publish_commit_log_results.clone().unwrap()[0]
+            .conversation_id
+            .as_slice(),
+        alix_group.group_id.as_slice()
     );
     // We should have published 4 commits
     assert_eq!(
@@ -506,7 +508,7 @@ async fn test_download_commit_log_from_remote() {
             .save_remote_commit_log_results
             .as_ref()
             .unwrap()
-            .get(&alix_group.group_id)
+            .get(alix_group.group_id.as_slice())
             .unwrap(),
         5
     );
@@ -526,7 +528,7 @@ async fn test_download_commit_log_from_remote() {
             .save_remote_commit_log_results
             .as_ref()
             .unwrap()
-            .get(&alix_group.group_id)
+            .get(alix_group.group_id.as_slice())
             .unwrap(),
         5
     );
@@ -568,8 +570,9 @@ async fn test_download_commit_log_from_remote() {
             .publish_commit_log_results
             .as_ref()
             .unwrap()[0]
-            .conversation_id,
-        alix_group.group_id
+            .conversation_id
+            .as_slice(),
+        alix_group.group_id.as_slice()
     );
     // We published 2 new commits
     assert_eq!(
@@ -596,7 +599,7 @@ async fn test_download_commit_log_from_remote() {
             .save_remote_commit_log_results
             .as_ref()
             .unwrap()
-            .get(&alix_group.group_id)
+            .get(alix_group.group_id.as_slice())
             .unwrap(),
         2
     );
@@ -639,7 +642,7 @@ async fn test_download_commit_log_from_remote() {
             .save_remote_commit_log_results
             .as_ref()
             .unwrap()
-            .get(&bo_group.group_id)
+            .get(bo_group.group_id.as_slice())
             .unwrap(),
         2
     );
@@ -658,7 +661,7 @@ async fn test_download_commit_log_from_remote() {
             .save_remote_commit_log_results
             .as_ref()
             .unwrap()
-            .get(&bo_group.group_id)
+            .get(bo_group.group_id.as_slice())
             .unwrap(),
         4
     );
@@ -1061,7 +1064,10 @@ async fn test_consecutive_entries_verification_happy_case() {
         .as_ref()
         .unwrap();
     assert_eq!(alix_publish_result.len(), 1);
-    assert_eq!(alix_publish_result[0].conversation_id, alix_dm.group_id);
+    assert_eq!(
+        alix_publish_result[0].conversation_id,
+        alix_dm.group_id.to_vec()
+    );
     // Only UpdateGroupMembership gets published (GroupCreation is not published to remote log)
     assert_eq!(alix_publish_result[0].num_entries_published, 1);
 
@@ -1077,9 +1083,10 @@ async fn test_consecutive_entries_verification_happy_case() {
         .as_ref()
         .unwrap();
     assert_eq!(bo_download_result.len(), 1);
-    assert!(bo_download_result.contains_key(&bo_dm.group_id));
+    assert!(bo_download_result.contains_key(bo_dm.group_id.as_slice()));
     assert_eq!(
-        bo_download_result[&bo_dm.group_id], 1,
+        bo_download_result[bo_dm.group_id.as_slice()],
+        1,
         "Bo should successfully verify the 1 entry from creator (UpdateGroupMembership)"
     );
 
@@ -1121,7 +1128,10 @@ async fn test_consecutive_entries_verification_happy_case() {
         .as_ref()
         .unwrap();
     assert_eq!(bo_publish_result.len(), 1);
-    assert_eq!(bo_publish_result[0].conversation_id, bo_dm.group_id);
+    assert_eq!(
+        bo_publish_result[0].conversation_id,
+        bo_dm.group_id.to_vec()
+    );
     // Bo should publish 1 commit log entry: KeyUpdate (Welcome is not published, it's only received)
     assert_eq!(bo_publish_result[0].num_entries_published, 1);
 
@@ -1137,9 +1147,10 @@ async fn test_consecutive_entries_verification_happy_case() {
         .as_ref()
         .unwrap();
     assert_eq!(alix_download_result.len(), 1);
-    assert!(alix_download_result.contains_key(&alix_dm.group_id));
+    assert!(alix_download_result.contains_key(alix_dm.group_id.as_slice()));
     assert_eq!(
-        alix_download_result[&alix_dm.group_id], 2,
+        alix_download_result[alix_dm.group_id.as_slice()],
+        2,
         "Alix should download 2 entries total: her original UpdateGroupMembership + Bo's new KeyUpdate"
     );
 

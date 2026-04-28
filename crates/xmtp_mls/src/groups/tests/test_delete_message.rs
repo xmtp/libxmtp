@@ -264,7 +264,7 @@ async fn test_true_out_of_order_deletion_by_sender() {
 
     let delete_message = StoredGroupMessage {
         id: delete_message_id.clone(),
-        group_id: alix_group.group_id.clone(),
+        group_id: alix_group.group_id.to_vec(),
         decrypted_message_bytes: delete_msg_bytes,
         sent_at_ns: xmtp_common::time::now_ns(),
         kind: GroupMessageKind::Application,
@@ -288,7 +288,7 @@ async fn test_true_out_of_order_deletion_by_sender() {
     // This simulates the deletion arriving before the original message
     let deletion = StoredMessageDeletion {
         id: delete_message_id.clone(),
-        group_id: alix_group.group_id.clone(),
+        group_id: alix_group.group_id.to_vec(),
         deleted_message_id: future_message_id.clone(),
         deleted_by_inbox_id: alix_inbox_id.clone(), // Sender deleting their own message
         is_super_admin_deletion: false,             // Regular user deletion
@@ -310,7 +310,7 @@ async fn test_true_out_of_order_deletion_by_sender() {
 
     let message = StoredGroupMessage {
         id: future_message_id.clone(),
-        group_id: alix_group.group_id.clone(),
+        group_id: alix_group.group_id.to_vec(),
         decrypted_message_bytes: text_bytes,
         sent_at_ns: xmtp_common::time::now_ns() - 1000, // Sent before deletion
         kind: GroupMessageKind::Application,
@@ -384,7 +384,7 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
 
     let malicious_delete_message = StoredGroupMessage {
         id: malicious_delete_msg_id.clone(),
-        group_id: bo_group.group_id.clone(),
+        group_id: bo_group.group_id.to_vec(),
         decrypted_message_bytes: delete_msg_bytes,
         sent_at_ns: xmtp_common::time::now_ns(),
         kind: GroupMessageKind::Application,
@@ -408,7 +408,7 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
     // This simulates a malicious deletion arriving before the message
     let malicious_deletion = StoredMessageDeletion {
         id: malicious_delete_msg_id.clone(),
-        group_id: bo_group.group_id.clone(),
+        group_id: bo_group.group_id.to_vec(),
         deleted_message_id: future_message_id.clone(),
         deleted_by_inbox_id: bo_inbox_id.clone(), // Bo trying to delete
         is_super_admin_deletion: false,           // Bo is not super admin
@@ -422,7 +422,7 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
 
     let message = StoredGroupMessage {
         id: future_message_id.clone(),
-        group_id: bo_group.group_id.clone(),
+        group_id: bo_group.group_id.to_vec(),
         decrypted_message_bytes: text_bytes,
         sent_at_ns: xmtp_common::time::now_ns() - 1000,
         kind: GroupMessageKind::Application,
@@ -991,7 +991,7 @@ async fn test_out_of_order_sender_deletion_shows_correct_deleted_by() {
 
     let delete_message = StoredGroupMessage {
         id: delete_message_id.clone(),
-        group_id: alix_group.group_id.clone(),
+        group_id: alix_group.group_id.to_vec(),
         decrypted_message_bytes: delete_msg_bytes,
         sent_at_ns: xmtp_common::time::now_ns(),
         kind: GroupMessageKind::Application,
@@ -1014,7 +1014,7 @@ async fn test_out_of_order_sender_deletion_shows_correct_deleted_by() {
     // Store deletion with is_super_admin_deletion=true (out-of-order scenario)
     let deletion = StoredMessageDeletion {
         id: delete_message_id.clone(),
-        group_id: alix_group.group_id.clone(),
+        group_id: alix_group.group_id.to_vec(),
         deleted_message_id: future_message_id.clone(),
         deleted_by_inbox_id: alix_inbox_id.clone(),
         is_super_admin_deletion: true,
@@ -1028,7 +1028,7 @@ async fn test_out_of_order_sender_deletion_shows_correct_deleted_by() {
 
     let original_message = StoredGroupMessage {
         id: future_message_id.clone(),
-        group_id: alix_group.group_id.clone(),
+        group_id: alix_group.group_id.to_vec(),
         decrypted_message_bytes: text_bytes,
         sent_at_ns: xmtp_common::time::now_ns() - 1000,
         kind: GroupMessageKind::Application,

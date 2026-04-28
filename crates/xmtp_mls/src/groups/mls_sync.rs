@@ -363,7 +363,7 @@ where
         for other_dm in conn.other_dms(&GroupId::from(self.group_id.as_slice()))? {
             let other_dm = Self::new_from_arc(
                 self.context.clone(),
-                other_dm.id.to_vec(),
+                other_dm.id,
                 other_dm.dm_id.clone(),
                 other_dm.conversation_type,
                 other_dm.created_at_ns,
@@ -1290,7 +1290,7 @@ where
 
                         let message = StoredGroupMessage {
                             id: message_id.clone(),
-                            group_id: self.group_id.clone(),
+                            group_id: self.group_id.to_vec(),
                             decrypted_message_bytes: content,
                             sent_at_ns: envelope_timestamp_ns,
                             kind: GroupMessageKind::Application,
@@ -1519,7 +1519,7 @@ where
 
         // put the user in the pending-remove list
         PendingRemove {
-            group_id: message.group_id.clone(),
+            group_id: message.group_id.to_vec(),
             inbox_id: message.sender_inbox_id.clone(),
             message_id: message.id.clone(),
         }
@@ -1573,7 +1573,7 @@ where
         let original_msg_opt = storage.db().get_group_message(&target_message_id)?;
 
         let is_super_admin_deletion = if let Some(ref original_msg) = original_msg_opt {
-            if original_msg.group_id != self.group_id {
+            if original_msg.group_id.as_slice() != self.group_id.as_slice() {
                 tracing::warn!(
                     "Cross-group deletion attempt: message {} from group {}",
                     delete_msg.message_id,
@@ -1620,7 +1620,7 @@ where
 
         let deletion = StoredMessageDeletion {
             id: message.id.clone(),
-            group_id: self.group_id.clone(),
+            group_id: self.group_id.to_vec(),
             deleted_message_id: target_message_id.clone(),
             deleted_by_inbox_id: message.sender_inbox_id.clone(),
             is_super_admin_deletion,
@@ -1826,14 +1826,13 @@ where
 
     pub(crate) fn mark_readd_requests_as_responded(
         storage: &impl XmtpMlsStorageProvider,
-        group_id: &Vec<u8>,
+        group_id: &GroupId,
         readded_installations: &HashSet<Vec<u8>>,
         cursor: i64,
     ) -> Result<(), StorageError> {
-        let group_id_typed = GroupId::from(group_id.as_slice());
         for installation_id in readded_installations {
             storage.db().update_responded_at_sequence_id(
-                &group_id_typed,
+                group_id,
                 installation_id.as_slice(),
                 cursor,
             )?;
@@ -2369,7 +2368,7 @@ where
 
         let msg = StoredGroupMessage {
             id: message_id,
-            group_id: self.group_id.clone(),
+            group_id: self.group_id.to_vec(),
             decrypted_message_bytes: encoded_payload_bytes,
             sent_at_ns: timestamp_ns as i64,
             kind: GroupMessageKind::MembershipChange,
@@ -3716,7 +3715,7 @@ where
                 key
             }
         };
-        ikm.extend(&self.group_id);
+        ikm.extend_from_slice(self.group_id.as_ref());
         let hkdf = Hkdf::<Sha256>::new(Some(HMAC_SALT), &ikm);
 
         let mut result = vec![];
@@ -3724,7 +3723,7 @@ where
         for delta in epoch_delta_range {
             let epoch = current_epoch + delta;
 
-            let mut info = self.group_id.clone();
+            let mut info = self.group_id.to_vec();
             info.extend(&epoch.to_le_bytes());
 
             let mut key = [0; 42];
@@ -4202,7 +4201,7 @@ pub(crate) mod tests {
         // Create a message with completely invalid EncodedContent proto
         let malformed_message = xmtp_db::group_message::StoredGroupMessage {
             id: vec![1, 2, 3],
-            group_id: alix_group.group_id.clone(),
+            group_id: alix_group.group_id.to_vec(),
             decrypted_message_bytes: vec![0xFF, 0xFE, 0xFD], // Invalid protobuf
             sent_at_ns: xmtp_common::time::now_ns(),
             kind: GroupMessageKind::Application,
@@ -4269,7 +4268,7 @@ pub(crate) mod tests {
 
         let malformed_message = xmtp_db::group_message::StoredGroupMessage {
             id: vec![4, 5, 6],
-            group_id: alix_group.group_id.clone(),
+            group_id: alix_group.group_id.to_vec(),
             decrypted_message_bytes: encoded_bytes,
             sent_at_ns: xmtp_common::time::now_ns(),
             kind: GroupMessageKind::Application,
@@ -4343,7 +4342,7 @@ pub(crate) mod tests {
 
         let message_with_bad_hex = xmtp_db::group_message::StoredGroupMessage {
             id: vec![7, 8, 9],
-            group_id: alix_group.group_id.clone(),
+            group_id: alix_group.group_id.to_vec(),
             decrypted_message_bytes: encoded_bytes,
             sent_at_ns: xmtp_common::time::now_ns(),
             kind: GroupMessageKind::Application,

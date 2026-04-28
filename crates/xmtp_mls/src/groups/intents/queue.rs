@@ -12,7 +12,6 @@ use xmtp_db::{
     prelude::*,
 };
 
-use xmtp_proto::types::GroupId;
 #[derive(Builder, Clone, Debug)]
 #[builder(setter(strip_option), build_fn(error = "GroupError", private))]
 pub struct QueueIntent {
@@ -193,13 +192,13 @@ impl QueueIntent {
 
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             intent_kind,
-            group.group_id.clone(),
+            group.group_id.to_vec(),
             intent_data,
             should_push,
         ))?;
 
         if intent_kind != IntentKind::SendMessage {
-            conn.update_rotated_at_ns(GroupId::from(group.group_id.as_slice()))?;
+            conn.update_rotated_at_ns(group.group_id.clone())?;
         }
         tracing::debug!(inbox_id = group.context.inbox_id(), intent_kind = %intent_kind, "queued intent");
 
@@ -215,8 +214,7 @@ impl QueueIntent {
     where
         Ctx: XmtpSharedContext,
     {
-        let last_rotated_at_ns =
-            conn.get_rotated_at_ns(GroupId::from(group.group_id.as_slice()))?;
+        let last_rotated_at_ns = conn.get_rotated_at_ns(group.group_id.clone())?;
         let now_ns = xmtp_common::time::now_ns();
         let elapsed_ns = now_ns - last_rotated_at_ns;
         if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
@@ -253,7 +251,7 @@ mod tests {
             .unwrap();
 
         MlsGroup {
-            group_id: id,
+            group_id: id.into(),
             dm_id: None,
             created_at_ns: 1,
             context,

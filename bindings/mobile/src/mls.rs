@@ -1894,7 +1894,7 @@ impl FfiConversations {
 
         let mut hmac_map = HashMap::new();
         for conversation in conversations {
-            let id = conversation.group_id.clone();
+            let id = conversation.group_id.to_vec();
             let keys = conversation
                 .hmac_keys(-1..=1)?
                 .into_iter()
@@ -2735,7 +2735,7 @@ impl FfiConversation {
         let close_cb = message_callback.clone();
         let handle = MlsGroup::stream_with_callback(
             self.inner.context.clone(),
-            self.id(),
+            self.inner.group_id.clone(),
             move |message| match message {
                 Ok(m) => message_callback.on_message(m.into()),
                 Err(e) => message_callback.on_error(e.into()),
@@ -2794,7 +2794,7 @@ impl FfiConversation {
 
         let mut hmac_map = HashMap::new();
         for conversation in duplicate_dms {
-            let id = conversation.group_id.clone();
+            let id = conversation.group_id.to_vec();
             let keys = conversation
                 .hmac_keys(-1..=1)?
                 .into_iter()
@@ -2839,7 +2839,7 @@ impl FfiConversation {
 #[uniffi::export]
 impl FfiConversation {
     pub fn id(&self) -> Vec<u8> {
-        self.inner.group_id.clone()
+        self.inner.group_id.to_vec()
     }
 
     pub fn conversation_type(&self) -> FfiConversationType {

@@ -178,7 +178,7 @@ mod tests {
             .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
             .await
             .unwrap();
-        let group_id = a_group.group_id.clone();
+        let group_id = a_group.group_id.to_vec();
         let group_id_typed: GroupId = group_id.clone().into();
         bo.sync_all_welcomes_and_groups(None).await.unwrap();
         caro.sync_all_welcomes_and_groups(None).await.unwrap();
