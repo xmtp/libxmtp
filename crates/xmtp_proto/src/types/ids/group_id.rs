@@ -101,6 +101,12 @@ impl From<&[u8]> for GroupId {
     }
 }
 
+impl From<GroupId> for Vec<u8> {
+    fn from(id: GroupId) -> Vec<u8> {
+        id.0.into()
+    }
+}
+
 #[cfg(feature = "diesel")]
 impl ToSql<Binary, Sqlite> for GroupId
 where
