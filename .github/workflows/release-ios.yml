@@ -50,6 +50,8 @@ jobs:
             VERSION=$(xmtp-release compute-version --sdk ios --release-type rc --rc-number ${{ inputs.rc-number }})
           elif [ "${{ inputs.release-type }}" = "dev" ]; then
             VERSION=$(xmtp-release compute-version --sdk ios --release-type dev)
+          elif [ "${{ inputs.release-type }}" = "nightly" ]; then
+            VERSION=$(xmtp-release compute-version --sdk ios --release-type nightly)
           else
             VERSION=$BASE
           fi
@@ -197,6 +199,7 @@ jobs:
               "XMTP-${VERSION}.zip"
           fi
       - name: Publish to CocoaPods
+        if: inputs.release-type != 'nightly'
         env:
           COCOAPODS_TRUNK_TOKEN: ${{ secrets.COCOAPODS_TRUNK_TOKEN }}
           VERSION: ${{ needs.build-and-package.outputs.version }}
