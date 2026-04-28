@@ -36,6 +36,7 @@ clap = { version = "4", features = ["derive", "env"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "env", "help", "std", "suggestions", "usage"] }
 const-hex = { version = "1", features = ["core-error", "serde"] }
 crypto-common = { version = "0.1", default-features = false, features = ["getrandom", "std"] }
+ctor = { version = "0.10" }
 derive_more = { version = "2", default-features = false, features = ["add", "add_assign", "as_ref", "deref", "deref_mut", "display", "from", "from_str", "index", "index_mut", "into", "into_iterator", "not", "std"] }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["32-column-tables", "returning_clauses_for_sqlite_3_35", "serde_json"] }
 digest = { version = "0.10", features = ["mac", "oid", "std"] }
@@ -123,6 +124,7 @@ clap = { version = "4", features = ["derive", "env"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "env", "help", "std", "suggestions", "usage"] }
 const-hex = { version = "1", features = ["core-error", "serde"] }
 crypto-common = { version = "0.1", default-features = false, features = ["getrandom", "std"] }
+ctor = { version = "0.10" }
 derive_more = { version = "2", default-features = false, features = ["add", "add_assign", "as_ref", "deref", "deref_mut", "display", "from", "from_str", "index", "index_mut", "into", "into_iterator", "not", "std"] }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["32-column-tables", "returning_clauses_for_sqlite_3_35", "serde_json"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", features = ["32-column-tables", "sqlite"] }
