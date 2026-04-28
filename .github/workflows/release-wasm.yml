@@ -41,6 +41,8 @@ jobs:
             VERSION=$(xmtp-release compute-version --sdk wasm-bindings --release-type rc --rc-number ${{ inputs.rc-number }})
           elif [ "${{ inputs.release-type }}" = "dev" ]; then
             VERSION=$(xmtp-release compute-version --sdk wasm-bindings --release-type dev)
+          elif [ "${{ inputs.release-type }}" = "nightly" ]; then
+            VERSION=$(xmtp-release compute-version --sdk wasm-bindings --release-type nightly)
           else
             VERSION=$(xmtp-release compute-version --sdk wasm-bindings --release-type final)
           fi
