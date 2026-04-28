@@ -204,6 +204,10 @@ actor ApiClientCache {
 public typealias InboxId = String
 
 public final class Client {
+	/// Sentinel value assigned to ``dbPath`` when the client was created via
+	/// ``createInMemory(account:options:)``. No file exists at this path.
+	public static let inMemoryDbPath = ":memory:"
+
 	public let inboxID: InboxId
 	public let libXMTPVersion: String = getVersionInfo()
 	public let dbPath: String
@@ -212,6 +216,14 @@ public final class Client {
 	public let environment: XMTPEnvironment
 	private let ffiClient: FfiXmtpClient
 	private static let apiCache = ApiClientCache()
+
+	/// `true` when this client is backed by an in-memory database. In that case
+	/// ``deleteLocalDatabase()``, ``dropLocalDatabaseConnection()`` and
+	/// ``reconnectLocalDatabase()`` are no-ops and the underlying state is
+	/// discarded when the client is deallocated.
+	public var isInMemory: Bool {
+		dbPath == Client.inMemoryDbPath
+	}
 
 	public lazy var conversations: Conversations = .init(
 		clientInboxId: inboxID,
@@ -324,14 +336,19 @@ public final class Client {
 
 	/// Creates a Client backed by an in-memory SQLCipher database.
 	///
-	/// This bypasses all on-disk database management — no `.db3` file is created,
-	/// no directory is touched, and `dropLocalDatabaseConnection` / `reconnectLocalDatabase`
-	/// are no-ops against the in-memory pool. Intended for tests and other ephemeral
-	/// flows where a real client is needed but persistence is not. State is lost when
-	/// the client is deallocated.
+	/// This bypasses all on-disk database management — no `.db3` file is created
+	/// and no directory is touched. The returned client has ``dbPath`` equal to
+	/// ``Client/inMemoryDbPath`` (`":memory:"`) and ``isInMemory`` returns `true`.
 	///
-	/// `options.dbDirectory` and `options.dbEncryptionKey` are ignored — libxmtp manages
-	/// the in-memory store itself.
+	/// On in-memory clients, ``deleteLocalDatabase()``,
+	/// ``dropLocalDatabaseConnection()`` and ``reconnectLocalDatabase()`` are
+	/// no-ops — state lives only in the FFI pool and is discarded when the
+	/// client is deallocated.
+	///
+	/// Intended for tests and other ephemeral flows where a real client is
+	/// needed but persistence is not. `options.dbDirectory` and
+	/// `options.dbEncryptionKey` are ignored — libxmtp manages the in-memory
+	/// store itself.
 	public static func createInMemory(
 		account: SigningKey, options: ClientOptions
 	)
@@ -435,7 +452,7 @@ public final class Client {
 				forkRecoveryOpts: options.forkRecoveryOptions?.toFfi()
 			)
 
-			return (ffiClient, ":memory:")
+			return (ffiClient, Client.inMemoryDbPath)
 		}
 
 		let mlsDbDirectory = options.dbDirectory
@@ -924,6 +941,8 @@ public final class Client {
 	}
 
 	public func deleteLocalDatabase() throws {
+		// In-memory clients have no on-disk file; nothing to drop or remove.
+		guard !isInMemory else { return }
 		try dropLocalDatabaseConnection()
 		let fm = FileManager.default
 		try fm.removeItem(atPath: dbPath)
@@ -935,10 +954,14 @@ public final class Client {
 		"This function is delicate and should be used with caution. App will error if database not properly reconnected. See: reconnectLocalDatabase()"
 	)
 	public func dropLocalDatabaseConnection() throws {
+		// In-memory clients hold their state in the FFI pool; releasing the
+		// connection would discard data that cannot be restored on reconnect.
+		guard !isInMemory else { return }
 		try ffiClient.releaseDbConnection()
 	}
 
 	public func reconnectLocalDatabase() async throws {
+		guard !isInMemory else { return }
 		try await ffiClient.dbReconnect()
 	}
 

@@ -138,8 +138,23 @@ class Client(
     val libXMTPVersion: String = getVersionInfo()
     private val ffiClient: FfiXmtpClient = libXMTPClient
 
+    /**
+     * `true` when this client is backed by an in-memory database. In that case
+     * [deleteLocalDatabase], [dropLocalDatabaseConnection] and
+     * [reconnectLocalDatabase] are no-ops and the underlying state is
+     * discarded when the client is garbage collected.
+     */
+    val isInMemory: Boolean
+        get() = dbPath == IN_MEMORY_DB_PATH
+
     companion object {
         private const val TAG = "Client"
+
+        /**
+         * Sentinel value assigned to [Client.dbPath] when the client was created
+         * via [createInMemory]. No file exists at this path.
+         */
+        const val IN_MEMORY_DB_PATH: String = ":memory:"
 
         var codecRegistry =
             run {
@@ -489,14 +504,20 @@ class Client(
         /**
          * Creates a Client backed by an in-memory SQLCipher database.
          *
-         * Bypasses all on-disk database management — no `.db3` file is created,
-         * no directory is touched, and `dropLocalDatabaseConnection` /
-         * `reconnectLocalDatabase` are no-ops against the in-memory pool. Intended
-         * for tests and other ephemeral flows where a real client is needed but
-         * persistence is not. State is lost when the client is garbage collected.
+         * Bypasses all on-disk database management — no `.db3` file is created
+         * and no directory is touched. The returned client has [Client.dbPath]
+         * equal to [IN_MEMORY_DB_PATH] (`":memory:"`) and [Client.isInMemory]
+         * returns `true`.
          *
-         * `options.dbDirectory` and `options.dbEncryptionKey` are ignored — libxmtp
-         * manages the in-memory store itself.
+         * On in-memory clients, [Client.deleteLocalDatabase],
+         * [Client.dropLocalDatabaseConnection] and
+         * [Client.reconnectLocalDatabase] are no-ops — state lives only in the
+         * FFI pool and is discarded when the client is garbage collected.
+         *
+         * Intended for tests and other ephemeral flows where a real client is
+         * needed but persistence is not. [ClientOptions.dbDirectory] and
+         * [ClientOptions.dbEncryptionKey] are ignored — libxmtp manages the
+         * in-memory store itself.
          */
         suspend fun createInMemory(
             account: SigningKey,
@@ -568,7 +589,7 @@ class Client(
                             allowOffline = buildOffline,
                             forkRecoveryOpts = options.forkRecoveryOptions?.toFfi(),
                         )
-                    return@withContext Pair(ffiClient, ":memory:")
+                    return@withContext Pair(ffiClient, IN_MEMORY_DB_PATH)
                 }
 
                 val alias = "xmtp-${options.api.env}-$inboxId"
@@ -749,6 +770,8 @@ class Client(
 
     suspend fun deleteLocalDatabase() =
         withContext(Dispatchers.IO) {
+            // In-memory clients have no on-disk file; nothing to drop or remove.
+            if (isInMemory) return@withContext
             dropLocalDatabaseConnection()
             File(dbPath).delete()
         }
@@ -758,11 +781,15 @@ class Client(
     )
     suspend fun dropLocalDatabaseConnection() =
         withContext(Dispatchers.IO) {
+            // In-memory clients hold their state in the FFI pool; releasing the
+            // connection would discard data that cannot be restored on reconnect.
+            if (isInMemory) return@withContext
             ffiClient.releaseDbConnection()
         }
 
     suspend fun reconnectLocalDatabase() =
         withContext(Dispatchers.IO) {
+            if (isInMemory) return@withContext
             ffiClient.dbReconnect()
         }
 
