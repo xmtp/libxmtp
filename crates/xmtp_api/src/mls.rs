@@ -36,7 +36,7 @@ impl GroupFilter {
 impl From<GroupFilter> for GroupFilterProto {
     fn from(filter: GroupFilter) -> Self {
         Self {
-            group_id: filter.group_id.to_vec(),
+            group_id: filter.group_id.into(),
             id_cursor: filter.id_cursor.unwrap_or(0),
         }
     }
