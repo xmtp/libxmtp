@@ -1285,3 +1285,60 @@ impl ::prost::Name for GroupMembership {
         "/xmtp.mls.message_contents.GroupMembership".into()
     }
 }
+/// Per-member membership state stored inside the GROUP_MEMBERSHIP component
+/// as a TlsMap\<InboxId, bytes>. Keys are 32-byte inbox ids, values are the
+/// encoded bytes of this message.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GroupMembershipEntry {
+    #[prost(oneof = "group_membership_entry::Version", tags = "1")]
+    pub version: ::core::option::Option<group_membership_entry::Version>,
+}
+/// Nested message and enum types in `GroupMembershipEntry`.
+pub mod group_membership_entry {
+    /// V1 of the per-member membership state.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct V1 {
+        /// Latest identity-update sequence id this client has applied for this
+        /// member. Validator-checked at bootstrap against the pre-flip
+        /// `GroupMembership.members\[inbox_id\]` value.
+        #[prost(uint64, tag = "1")]
+        pub sequence_id: u64,
+        /// Installation ids belonging to this member that we previously failed
+        /// to add (expired key package, validation failure, etc.). Used to
+        /// suppress retries on later membership updates.
+        ///
+        /// Sender-authoritative at migration: the migrator partitions the
+        /// global `failed_installations` per inbox by walking identity-update
+        /// history. Receivers accept these bytes as-is — the validator only
+        /// checks `sequence_id`, so the blast radius of a bad partition is
+        /// bounded to extra or silenced retries. Installations whose owning
+        /// inbox can't be determined are dropped.
+        #[prost(bytes = "vec", repeated, tag = "2")]
+        pub failed_installations: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    }
+    impl ::prost::Name for V1 {
+        const NAME: &'static str = "V1";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.GroupMembershipEntry.V1".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.GroupMembershipEntry.V1".into()
+        }
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Version {
+        #[prost(message, tag = "1")]
+        V1(V1),
+    }
+}
+impl ::prost::Name for GroupMembershipEntry {
+    const NAME: &'static str = "GroupMembershipEntry";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.GroupMembershipEntry".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.GroupMembershipEntry".into()
+    }
+}
