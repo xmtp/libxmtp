@@ -211,7 +211,7 @@ impl GenerateMessages {
                 .ok_or(eyre!("client does not exist"))?;
             let client = client.lock().await;
             client.sync_welcomes().await?;
-            let mls_group = client.group(&group.id.into())?;
+            let mls_group = client.group(&group.id)?;
             mls_group.sync_with_conn().await?;
             mls_group.maybe_update_installations(None).await?;
             let words = rng.random_range(0..10);
@@ -300,7 +300,7 @@ impl GenerateMessages {
                 .ok_or(eyre!("client does not exist"))?;
             let client = client.lock().await;
             client.sync_welcomes().await?;
-            let group = client.group(&group.id.into())?;
+            let group = client.group(&group.id)?;
             group.sync_with_conn().await?;
             group.maybe_update_installations(None).await?;
             let words = rng.random_range(0..*max_message_size);
