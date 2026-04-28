@@ -16,7 +16,7 @@ let
     RUSTFLAGS = "-C target-feature=+crt-static";
   };
 
-  commonArgs = base.commonArgs // specialArgs;
+  commonArgs = base.commonArgs // base.opensslEnv // specialArgs;
 
   src = lib.fileset.toSource {
     inherit root;
@@ -47,7 +47,7 @@ let
     ];
   };
 
-  cargoArtifacts = xmtp.base.mkCargoArtifacts rust false specialArgs;
+  cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (base.opensslEnv // specialArgs);
 in
 rust.buildPackage (
   commonArgs

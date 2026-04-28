@@ -69,12 +69,21 @@ let
     # https://crane.dev/faq/cross-compiling-aws-lc-sys.html
     "AWS_LC_SYS_TARGET_CC_${buildPlatformSuffix}" = "cc";
     "AWS_LC_SYS_TARGET_CXX_${buildPlatformSuffix}" = "c++";
+  };
 
-    # Tell openssl-sys to bind against the prebuilt nixpkgs openssl already in
-    # buildInputs instead of falling through to its vendored `openssl-src` path,
-    # which compiles OpenSSL from source. The source build's `mkinstallvars.pl`
-    # fails on macOS 26 cross-compiles to musl with empty `LIBDIR`.
-    # See https://github.com/xmtp/libxmtp/issues/3575.
+  # Tell openssl-sys to bind against the prebuilt nixpkgs openssl already in
+  # buildInputs instead of falling through to its vendored `openssl-src` path,
+  # which compiles OpenSSL from source. The source build's `mkinstallvars.pl`
+  # fails on macOS 26 cross-compiles to musl with empty `LIBDIR`.
+  # See https://github.com/xmtp/libxmtp/issues/3575.
+  #
+  # Not folded into `commonArgs` because `package/android.nix` deliberately
+  # clears `buildInputs` to use the NDK sysroot — we let openssl-sys vendor
+  # there since the cross-compiled openssl for `*-unknown-linux-android`
+  # fails to build (kernel TLS headers in `internal/ktls.h` aren't satisfied
+  # by the Android sysroot). Consumers that keep `buildInputs` intact merge
+  # this set into their args explicitly.
+  opensslEnv = {
     OPENSSL_NO_VENDOR = "1";
     OPENSSL_DIR = "${openssl.dev}";
     OPENSSL_LIB_DIR = "${lib.getLib openssl}/lib";
@@ -107,5 +116,6 @@ in
     bindingsFileset
     commonArgs
     mkCargoArtifacts
+    opensslEnv
     ;
 }

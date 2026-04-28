@@ -45,13 +45,15 @@ let
 
   commonArgs =
     xmtp.base.commonArgs
+    // xmtp.base.opensslEnv
     // {
       inherit version;
     }
     // specialArgs;
 
   cargoArtifacts = xmtp.base.mkCargoArtifacts rust test (
-    specialArgs
+    xmtp.base.opensslEnv
+    // specialArgs
     // lib.optionalAttrs isGnu {
       # override everything for glibc compatibility
       preBuild = "export HOME=$TMPDIR";
