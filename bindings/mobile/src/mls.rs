@@ -245,12 +245,10 @@ pub async fn get_newest_message_metadata(
     api: Arc<XmtpApiClient>,
     group_ids: Vec<Vec<u8>>,
 ) -> Result<HashMap<Vec<u8>, FfiMessageMetadata>, FfiError> {
-    let group_id_refs: Vec<&[u8]> = group_ids.iter().map(|id| id.as_slice()).collect();
+    let group_ids: Vec<xmtp_proto::types::GroupId> =
+        group_ids.into_iter().map(Into::into).collect();
 
-    let metadata = api
-        .wrapper
-        .get_newest_message_metadata(group_id_refs)
-        .await?;
+    let metadata = api.wrapper.get_newest_message_metadata(&group_ids).await?;
 
     metadata
         .into_iter()

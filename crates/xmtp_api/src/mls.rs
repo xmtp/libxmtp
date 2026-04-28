@@ -18,23 +18,14 @@ use xmtp_proto::xmtp::mls::api::v1::{
 };
 
 /// A filter for querying group messages
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct GroupFilter {
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     pub id_cursor: Option<u64>,
 }
 
-impl std::fmt::Debug for GroupFilter {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GroupFilter")
-            .field("group_id", &xmtp_common::fmt::debug_hex(&self.group_id))
-            .field("id_cursor", &self.id_cursor)
-            .finish()
-    }
-}
-
 impl GroupFilter {
-    pub fn new(group_id: Vec<u8>, id_cursor: Option<u64>) -> Self {
+    pub fn new(group_id: GroupId, id_cursor: Option<u64>) -> Self {
         Self {
             group_id,
             id_cursor,
@@ -45,7 +36,7 @@ impl GroupFilter {
 impl From<GroupFilter> for GroupFilterProto {
     fn from(filter: GroupFilter) -> Self {
         Self {
-            group_id: filter.group_id,
+            group_id: filter.group_id.to_vec(),
             id_cursor: filter.id_cursor.unwrap_or(0),
         }
     }
@@ -330,7 +321,7 @@ where
 
     pub async fn get_newest_message_metadata(
         &self,
-        group_ids: Vec<&[u8]>,
+        group_ids: &[GroupId],
     ) -> Result<MessageMetadataMap> {
         const BATCH_SIZE: usize = 1000;
 
@@ -338,7 +329,7 @@ where
             futures::future::try_join_all(group_ids.chunks(BATCH_SIZE).map(|chunk| async move {
                 self.api_client
                     .get_newest_group_message(GetNewestGroupMessageRequest {
-                        group_ids: chunk.to_vec().iter().map(|id| id.to_vec()).collect(),
+                        group_ids: chunk.iter().map(|id| id.to_vec()).collect(),
                         include_content: false,
                     })
                     .await

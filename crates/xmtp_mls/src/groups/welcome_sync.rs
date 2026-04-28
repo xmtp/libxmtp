@@ -207,12 +207,16 @@ where
         let db = self.context.db();
         let api = self.context.api();
 
-        let group_ids: Vec<&[u8]> = groups.iter().map(|group| group.group_id.as_ref()).collect();
+        let group_ids: Vec<GroupId> = groups
+            .iter()
+            .map(|group| GroupId::from(group.group_id.as_slice()))
+            .collect();
+        let id_slices: Vec<&[u8]> = group_ids.iter().map(|id| id.as_ref()).collect();
         let last_synced_cursors = db.get_last_cursor_for_ids(
-            &group_ids,
+            &id_slices,
             &[EntityKind::ApplicationMessage, EntityKind::CommitMessage],
         )?;
-        let latest_message_metadata = api.get_newest_message_metadata(group_ids).await?;
+        let latest_message_metadata = api.get_newest_message_metadata(&group_ids).await?;
 
         let group_ids_needing_sync =
             filter_groups_with_new_messages(last_synced_cursors, latest_message_metadata);
