@@ -1,12 +1,18 @@
 //! Shared types, errors, and encoding helpers for the app-data
 //! migration synthesis path.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
+use openmls::{
+    extensions::Extensions,
+    group::{GroupContext, MlsGroup as OpenMlsGroup},
+    messages::proposals::AppDataUpdateOperationType,
+};
 use prost::Message as _;
 use tls_codec::{Deserialize, Serialize, VLBytes};
 use xmtp_proto::xmtp::mls::message_contents::{
-    ComponentPermissions, ComponentType, MembershipPolicy as MembershipPolicyProto,
+    ComponentMetadata, ComponentPermissions, ComponentType,
+    GroupMembership as GroupMembershipProto, MembershipPolicy as MembershipPolicyProto,
     MetadataPolicy as MetadataPolicyProto, PermissionsUpdatePolicy as PermissionsUpdatePolicyProto,
     PolicySet as PolicySetProto,
     membership_policy::{BasePolicy as MembershipBasePolicy, Kind as MembershipPolicyKind},
@@ -17,11 +23,12 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use crate::{
     app_data::{
         component_id::ComponentId,
-        component_registry::{ComponentRegistry, new_component_metadata},
+        component_registry::{ComponentRegistry, ComponentRegistryError, new_component_metadata},
     },
     group_mutable_metadata::MetadataField,
     inbox_id::{InboxId, InboxIdError},
     tls_map::{TlsMapDelta, TlsMapMutation},
+    tls_set::TlsSet,
 };
 use xmtp_proto::xmtp::mls::message_contents::GroupMembershipEntry;
 /// Errors produced by the synthesis functions in this module.
@@ -51,7 +58,7 @@ pub enum MigrationError {
     UpdatePermissionsNotSuperAdmin(Option<i32>),
 
     #[error("component registry error: {0}")]
-    Registry(#[from] crate::app_data::component_registry::ComponentRegistryError),
+    Registry(#[from] ComponentRegistryError),
 
     #[error("legacy mutable-metadata extension missing from group")]
     MissingMutableMetadataExtension,
@@ -106,6 +113,14 @@ pub enum MigrationError {
     /// `Insert` means the sender or fixture is malformed.
     #[error("GROUP_MEMBERSHIP bootstrap delta carried a non-Insert mutation")]
     GroupMembershipNonInsertBootstrapMutation,
+
+    /// Legacy `GroupMembership.failed_installations` carried an entry
+    /// whose length isn't 32 bytes (the Ed25519 installation-key size).
+    /// Either the legacy state is corrupt or the wire shape changed —
+    /// either way, fail loud rather than silently admit a malformed
+    /// installation ID into the validator's allow-set.
+    #[error("legacy failed_installations entry has invalid length: expected 32, got {0}")]
+    InvalidFailedInstallationLength(usize),
 }
 
 /// Produce a populated [`ComponentRegistry`] from the legacy
@@ -425,6 +440,294 @@ fn validate_update_permissions_is_super_admin(
     }
 }
 
+/// The receiver-side bootstrap expectation. The validator picks the
+/// comparison strategy per component:
+///
+/// - [`Self::strict`] — byte-compared against the sender's commit
+///   payload. Used for components whose canonical encoding is
+///   deterministic by construction: raw bytes/utf-8 (metadata
+///   attributes, `COMMIT_LOG_SIGNER`, `CREATOR_INBOX_ID`,
+///   `CONVERSATION_TYPE`) and TLS-codec containers that sort their keys
+///   (`ADMIN_LIST`, `SUPER_ADMIN_LIST`, `DM_MEMBERS`,
+///   `ONESHOT_MESSAGE`).
+/// - [`Self::expected_registry`] — `COMPONENT_REGISTRY` is decoded
+///   first, then compared per entry as a typed [`ComponentMetadata`].
+///   The outer `TlsMapDelta` wrapper IS deterministic, but each
+///   entry's value is a prost-encoded `ComponentMetadata`. Prost
+///   tag-order emission is theoretically deterministic, but
+///   byte-compare is brittle against future proto evolution (newly
+///   optional fields, default-value elision differences across
+///   encoder versions or language bindings) and produces useless
+///   diffs ("byte 47 differs"). Decoded compare side-steps both.
+/// - [`Self::membership_sequence_ids`] — `GROUP_MEMBERSHIP`'s
+///   `failed_installations` is sender-authoritative (the migrator
+///   partitions per inbox by walking identity-update history, so
+///   different honest senders may legitimately disagree on bytes),
+///   so the validator only checks per-inbox `sequence_id`.
+/// - [`Self::allowed_failed_installations`] — bounds the universe of
+///   installation IDs the sender may legally place into ANY per-inbox
+///   `failed_installations`. Drawn from the legacy
+///   `GroupMembership.failed_installations` flat list, with each entry
+///   length-checked to 32 bytes (Ed25519 installation key). The sender
+///   is allowed to drop entries (e.g., when the owning inbox can't be
+///   determined) but not to add ones the legacy state never contained.
+///   Validator semantics: every per-inbox `failed_installations`
+///   entry must be 32 bytes AND present in this set.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CanonicalBootstrapExpectation {
+    pub strict: BTreeMap<ComponentId, (AppDataUpdateOperationType, Vec<u8>)>,
+    pub expected_registry: BTreeMap<ComponentId, ComponentMetadata>,
+    pub membership_sequence_ids: BTreeMap<InboxId, u64>,
+    pub allowed_failed_installations: BTreeSet<[u8; 32]>,
+}
+
+/// Compute the [`CanonicalBootstrapExpectation`] from a pre-flip
+/// group's state. **Sync, fully local** — no API calls — so every
+/// honest receiver produces bit-identical output.
+pub fn synthesize_canonical_subset_for_validation(
+    mls_group: &OpenMlsGroup,
+) -> Result<CanonicalBootstrapExpectation, MigrationError> {
+    synthesize_canonical_subset_from_extensions(mls_group.extensions())
+}
+
+/// Extensions-only variant of [`synthesize_canonical_subset_for_validation`].
+/// Lets tests exercise synthesis without standing up a real MLS group.
+pub fn synthesize_canonical_subset_from_extensions(
+    extensions: &Extensions<GroupContext>,
+) -> Result<CanonicalBootstrapExpectation, MigrationError> {
+    let gmm: crate::group_mutable_metadata::GroupMutableMetadata = extensions.try_into()?;
+    let registry = synthesize_registry_from_extensions(extensions)?;
+    let legacy_membership = extract_legacy_group_membership(extensions)?;
+    let legacy_metadata = crate::group_metadata::GroupMetadata::try_from(extensions)?;
+
+    let mut strict: BTreeMap<ComponentId, (AppDataUpdateOperationType, Vec<u8>)> = BTreeMap::new();
+
+    // COMPONENT_REGISTRY: decoded per-entry compare (see
+    // `CanonicalBootstrapExpectation` doc — bytes inside each entry are
+    // prost-encoded and brittle to byte-compare).
+    let mut expected_registry: BTreeMap<ComponentId, ComponentMetadata> = BTreeMap::new();
+    for entry in registry.iter() {
+        let (id, meta) = entry?;
+        expected_registry.insert(id, meta);
+    }
+
+    // Bytes metadata attributes.
+    for (field, component_id, _) in metadata_field_registry_mapping() {
+        let value = gmm
+            .attributes
+            .get(field.as_str())
+            .map(|s| s.as_bytes().to_vec())
+            .unwrap_or_default();
+        strict.insert(*component_id, (AppDataUpdateOperationType::Update, value));
+    }
+
+    // COMMIT_LOG_SIGNER lives in the same GMM attributes map.
+    let commit_log_signer = gmm
+        .attributes
+        .get(MetadataField::CommitLogSigner.as_str())
+        .map(|s| s.as_bytes().to_vec())
+        .unwrap_or_default();
+    strict.insert(
+        ComponentId::COMMIT_LOG_SIGNER,
+        (AppDataUpdateOperationType::Update, commit_log_signer),
+    );
+
+    // ADMIN_LIST / SUPER_ADMIN_LIST: hex-decode inbox-id strings and
+    // serialize as TlsSet<InboxId> — matches the bridge encoder.
+    strict.insert(
+        ComponentId::ADMIN_LIST,
+        (
+            AppDataUpdateOperationType::Update,
+            encode_inbox_id_set(&gmm.admin_list)?,
+        ),
+    );
+    strict.insert(
+        ComponentId::SUPER_ADMIN_LIST,
+        (
+            AppDataUpdateOperationType::Update,
+            encode_inbox_id_set(&gmm.super_admin_list)?,
+        ),
+    );
+
+    // Immutable seeds. Route the DB-side `ConversationType` through
+    // its `From<_> for ConversationTypeProto` impl before casting to
+    // i32 — the two enums share variants today but are *separate*
+    // types with their own discriminants. Direct `as i32` on the DB
+    // enum would silently drift if either side renumbers. Mirrors the
+    // pattern in `group_metadata.rs::TryFrom<GroupMetadata> for Vec<u8>`.
+    let conversation_type_proto: xmtp_proto::xmtp::mls::message_contents::ConversationType =
+        legacy_metadata.conversation_type.into();
+    strict.insert(
+        ComponentId::CONVERSATION_TYPE,
+        (
+            AppDataUpdateOperationType::Update,
+            encode_conversation_type(conversation_type_proto as i32),
+        ),
+    );
+    strict.insert(
+        ComponentId::CREATOR_INBOX_ID,
+        (
+            AppDataUpdateOperationType::Update,
+            legacy_metadata.creator_inbox_id.as_bytes().to_vec(),
+        ),
+    );
+    if let Some(dm) = &legacy_metadata.dm_members {
+        strict.insert(
+            ComponentId::DM_MEMBERS,
+            (AppDataUpdateOperationType::Update, encode_dm_members(dm)?),
+        );
+    }
+    if let Some(oneshot) = &legacy_metadata.oneshot_message {
+        strict.insert(
+            ComponentId::ONESHOT_MESSAGE,
+            (AppDataUpdateOperationType::Update, oneshot.encode_to_vec()),
+        );
+    }
+
+    // GROUP_MEMBERSHIP: per-inbox sequence-id map keyed by [`InboxId`]
+    // (matches the `TlsMap<InboxId, VLBytes>` wire format).
+    let mut membership_sequence_ids: BTreeMap<InboxId, u64> = BTreeMap::new();
+    for (inbox_id_hex, seq) in legacy_membership.members.iter() {
+        let inbox_id = InboxId::from_hex(inbox_id_hex)?;
+        membership_sequence_ids.insert(inbox_id, *seq);
+    }
+
+    // Bound the universe of installation IDs the sender may legally
+    // emit into ANY per-inbox `failed_installations`. Each entry must
+    // be 32 bytes (Ed25519 installation-key size) — fail loud on
+    // anything else rather than silently admit it to the allow-set.
+    // Set semantics: the legacy field is `repeated bytes` so duplicates
+    // are possible but irrelevant for subset membership checks.
+    let mut allowed_failed_installations: BTreeSet<[u8; 32]> = BTreeSet::new();
+    for raw in &legacy_membership.failed_installations {
+        let key: [u8; 32] = raw
+            .as_slice()
+            .try_into()
+            .map_err(|_| MigrationError::InvalidFailedInstallationLength(raw.len()))?;
+        allowed_failed_installations.insert(key);
+    }
+
+    Ok(CanonicalBootstrapExpectation {
+        strict,
+        expected_registry,
+        membership_sequence_ids,
+        allowed_failed_installations,
+    })
+}
+
+/// Build a registry tailored to the legacy state in `extensions` —
+/// gates `DM_MEMBERS` / `ONESHOT_MESSAGE` on `GroupMetadata` presence so
+/// the registry bytes line up with the per-component entries the
+/// receiver will see in the bootstrap commit.
+fn synthesize_registry_from_extensions(
+    extensions: &Extensions<GroupContext>,
+) -> Result<ComponentRegistry, MigrationError> {
+    let policy_set_bytes = find_unknown_extension(
+        extensions,
+        xmtp_configuration::GROUP_PERMISSIONS_EXTENSION_ID,
+    )
+    .ok_or(MigrationError::MissingPolicyField(
+        "group_permissions extension",
+    ))?;
+    let permissions_proto =
+        xmtp_proto::xmtp::mls::message_contents::GroupMutablePermissionsV1::decode(
+            policy_set_bytes.as_slice(),
+        )
+        .map_err(MigrationError::GroupPermissionsDecode)?;
+    let policy_set = permissions_proto
+        .policies
+        .ok_or(MigrationError::MissingPolicyField("policies"))?;
+
+    let legacy_metadata = crate::group_metadata::GroupMetadata::try_from(extensions)?;
+    build_registry(
+        &policy_set,
+        legacy_metadata.dm_members.is_some(),
+        legacy_metadata.oneshot_message.is_some(),
+    )
+}
+
+fn find_unknown_extension(extensions: &Extensions<GroupContext>, id: u16) -> Option<&Vec<u8>> {
+    use openmls::extensions::{Extension, UnknownExtension};
+    extensions.iter().find_map(|extension| match extension {
+        Extension::Unknown(eid, UnknownExtension(data)) if *eid == id => Some(data),
+        _ => None,
+    })
+}
+
+fn extract_legacy_group_membership(
+    extensions: &Extensions<GroupContext>,
+) -> Result<GroupMembershipProto, MigrationError> {
+    let bytes = find_unknown_extension(
+        extensions,
+        xmtp_configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
+    )
+    .ok_or(MigrationError::MissingGroupMembershipExtension)?;
+    Ok(GroupMembershipProto::decode(bytes.as_slice())?)
+}
+
+/// Encode hex inbox ids as a `TlsSet<InboxId>`. Must stay byte-identical
+/// to the bridge's `encode_inbox_id_set` or byte-compare validation
+/// fails.
+fn encode_inbox_id_set(inbox_ids_hex: &[String]) -> Result<Vec<u8>, MigrationError> {
+    let ids: Vec<InboxId> = inbox_ids_hex
+        .iter()
+        .map(|s| InboxId::from_hex(s))
+        .collect::<Result<Vec<_>, _>>()?;
+    let set: TlsSet<InboxId> = ids.into_iter().collect();
+    Ok(set.tls_serialize_detached()?)
+}
+
+/// Encode the DM's two members as a `TlsSet<InboxId>` (the declared
+/// `ComponentType::TlsSetInboxId` for `DM_MEMBERS`).
+fn encode_dm_members(
+    dm: &crate::group_metadata::DmMembers<xmtp_id::InboxId>,
+) -> Result<Vec<u8>, MigrationError> {
+    // Decode first, then compare on bytes — hex strings can differ
+    // only in case ("ABC..." vs "abc...") and still represent the same
+    // inbox id. Self-DMs would otherwise slip past a string-compare
+    // and `TlsSet` would silently collapse to one element, losing
+    // fidelity.
+    let one_str: &str = dm.member_one_inbox_id.as_ref();
+    let two_str: &str = dm.member_two_inbox_id.as_ref();
+    let one = InboxId::from_hex(one_str)?;
+    let two = InboxId::from_hex(two_str)?;
+    if one == two {
+        // Include both raw inputs so case-divergent self-references
+        // ("ABC..." vs "abc...") are visible in logs without having
+        // to reproduce.
+        return Err(MigrationError::DmMembersSelfReference(format!(
+            "{} (member_one={one_str}, member_two={two_str})",
+            one.to_hex(),
+        )));
+    }
+    let set: TlsSet<InboxId> = [one, two].into_iter().collect();
+    Ok(set.tls_serialize_detached()?)
+}
+
+/// `CONVERSATION_TYPE` payload codec: 4-byte big-endian `i32` matching
+/// `xmtp_proto::xmtp::mls::message_contents::ConversationType`.
+/// Fixed-width simplifies byte-compare validation.
+pub(crate) fn encode_conversation_type(value: i32) -> Vec<u8> {
+    value.to_be_bytes().to_vec()
+}
+
+/// Inverse of [`encode_conversation_type`]. Test-only by design: the
+/// receiver-side validator byte-compares the sender's CONVERSATION_TYPE
+/// payload against [`encode_conversation_type`]'s output without ever
+/// decoding it — equal bytes are semantically equal because the codec
+/// is fixed-width. Decode is only needed to round-trip-test the codec
+/// itself, so it stays gated behind `#[cfg(test)]` rather than leaking
+/// into production callers that might be tempted to re-decode (and
+/// then have to handle a wrong-length error path that the validator
+/// already rules out via byte-compare).
+#[cfg(test)]
+pub(crate) fn decode_conversation_type(bytes: &[u8]) -> Result<i32, MigrationError> {
+    let arr: [u8; 4] = bytes
+        .try_into()
+        .map_err(|_| MigrationError::ConversationTypePayloadLength(bytes.len()))?;
+    Ok(i32::from_be_bytes(arr))
+}
+
 /// Encode the bootstrap-time `GROUP_MEMBERSHIP` payload as a
 /// `TlsMapDelta<InboxId, VLBytes>` of all-`Insert` mutations — one per
 /// inbox, each value a [`GroupMembershipEntry`] envelope (currently
@@ -474,6 +777,7 @@ pub fn decode_group_membership_delta(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::inbox_id::INBOX_ID_BYTE_LEN;
     use xmtp_proto::xmtp::mls::message_contents::{
         MembershipPolicy as MembershipPolicyProto, MetadataPolicy as MetadataPolicyProto,
         PermissionsUpdatePolicy as PermissionsUpdatePolicyProto,
@@ -766,5 +1070,423 @@ mod tests {
             err,
             MigrationError::GroupMembershipEntryUnknownVersion
         ));
+    }
+
+    // ========================================================================
+    // Wire-format / codec coverage for the bootstrap canonical subset
+    // ========================================================================
+    //
+    // These pin the byte shape each component produces so a future tweak
+    // to the encoder can't silently break byte-identity between sender
+    // synthesis and the receiver's byte-compare validation.
+
+    fn hex_inbox(tag: u8) -> String {
+        hex::encode([tag; INBOX_ID_BYTE_LEN])
+    }
+
+    #[test]
+    fn encode_inbox_id_set_uses_versioned_inbox_id_wire_format() {
+        // Two inbox ids → TlsSet<InboxId>. Each InboxId on the wire is
+        // `varint(0) || 32 raw bytes` = 33 bytes. TlsSet prefixes the
+        // payload with a tls_codec varint length, not a fixed-length
+        // prefix — so the exact total depends on that varint. Round-
+        // tripping through TlsSet::<InboxId>::tls_deserialize_exact is
+        // the authoritative shape check.
+        let ids = vec![hex_inbox(0xAA), hex_inbox(0xBB)];
+        let bytes = encode_inbox_id_set(&ids).unwrap();
+        let set: TlsSet<InboxId> =
+            TlsSet::<InboxId>::tls_deserialize_exact(&bytes).expect("decodes as TlsSet<InboxId>");
+        let decoded: Vec<InboxId> = set.iter().copied().collect();
+        assert_eq!(decoded.len(), 2);
+        // TlsSet preserves sorted order — both inputs sort as [0xAA, 0xBB].
+        assert_eq!(decoded[0].as_bytes(), &[0xAA; INBOX_ID_BYTE_LEN]);
+        assert_eq!(decoded[1].as_bytes(), &[0xBB; INBOX_ID_BYTE_LEN]);
+    }
+
+    #[test]
+    fn encode_inbox_id_set_rejects_bad_hex() {
+        let err = encode_inbox_id_set(&["not-hex".to_string()]).unwrap_err();
+        assert!(matches!(err, MigrationError::InvalidInboxId(_)));
+    }
+
+    #[test]
+    fn encode_dm_members_produces_two_element_tls_set() {
+        let dm = crate::group_metadata::DmMembers {
+            member_one_inbox_id: hex_inbox(0xCC),
+            member_two_inbox_id: hex_inbox(0xDD),
+        };
+        let bytes = encode_dm_members(&dm).unwrap();
+        let set = TlsSet::<InboxId>::tls_deserialize_exact(&bytes).unwrap();
+        let ids: Vec<InboxId> = set.iter().copied().collect();
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids[0].as_bytes(), &[0xCC; INBOX_ID_BYTE_LEN]);
+        assert_eq!(ids[1].as_bytes(), &[0xDD; INBOX_ID_BYTE_LEN]);
+    }
+
+    #[test]
+    fn encode_dm_members_rejects_self_reference() {
+        // `TlsSet<InboxId>` dedupes by value. A self-DM (both slots
+        // identical) would silently collapse to a one-element set —
+        // fail loud instead so the fidelity loss is visible.
+        let id = hex_inbox(0xEE);
+        let dm = crate::group_metadata::DmMembers {
+            member_one_inbox_id: id.clone(),
+            member_two_inbox_id: id.clone(),
+        };
+        let err = encode_dm_members(&dm).unwrap_err();
+        let MigrationError::DmMembersSelfReference(msg) = err else {
+            panic!("expected DmMembersSelfReference, got {err:?}");
+        };
+        // Message carries the canonical hex plus both raw inputs.
+        assert!(msg.starts_with(&id), "missing canonical hex: {msg}");
+        assert!(msg.contains(&format!("member_one={id}")), "{msg}");
+        assert!(msg.contains(&format!("member_two={id}")), "{msg}");
+    }
+
+    #[test]
+    fn encode_dm_members_rejects_case_divergent_self_reference() {
+        // Hex encoding is case-insensitive, so two strings with
+        // different cases can name the same inbox id. A naive
+        // string-compare would miss this and `TlsSet` would silently
+        // collapse the duplicate. Decode-then-compare catches it, and
+        // the error carries both raw inputs so the case divergence is
+        // visible in logs without reproducing.
+        let lower = hex_inbox(0xEE);
+        let upper = lower.to_ascii_uppercase();
+        assert_ne!(lower, upper, "test premise: strings must differ");
+        let dm = crate::group_metadata::DmMembers {
+            member_one_inbox_id: lower.clone(),
+            member_two_inbox_id: upper.clone(),
+        };
+        let err = encode_dm_members(&dm).unwrap_err();
+        let MigrationError::DmMembersSelfReference(msg) = err else {
+            panic!("expected DmMembersSelfReference, got {err:?}");
+        };
+        // Canonical (lowercase) hex first, then both raw inputs as
+        // observed — proves we kept fidelity for log inspection.
+        assert!(msg.starts_with(&lower), "missing canonical hex: {msg}");
+        assert!(msg.contains(&format!("member_one={lower}")), "{msg}");
+        assert!(msg.contains(&format!("member_two={upper}")), "{msg}");
+    }
+
+    #[test]
+    fn conversation_type_codec_round_trips() {
+        // 0=Unspecified, 1=Group, 2=Dm today, plus a negative to pin
+        // the two's-complement representation in case the enum is ever
+        // widened.
+        for v in [0_i32, 1, 2, -1, i32::MAX, i32::MIN] {
+            let bytes = encode_conversation_type(v);
+            assert_eq!(bytes.len(), 4, "always 4 bytes");
+            assert_eq!(decode_conversation_type(&bytes).unwrap(), v);
+        }
+    }
+
+    #[test]
+    fn conversation_type_decode_rejects_wrong_length() {
+        let err = decode_conversation_type(&[0, 0, 0]).unwrap_err();
+        assert!(matches!(
+            err,
+            MigrationError::ConversationTypePayloadLength(3)
+        ));
+        let err = decode_conversation_type(&[0; 8]).unwrap_err();
+        assert!(matches!(
+            err,
+            MigrationError::ConversationTypePayloadLength(8)
+        ));
+    }
+
+    // ========================================================================
+    // End-to-end canonical-subset coverage via synthetic Extensions
+    // ========================================================================
+
+    /// Synthetic `Extensions<GroupContext>` with the four legacy
+    /// extensions that bootstrap synthesis reads.
+    fn build_test_extensions(
+        gmm: crate::group_mutable_metadata::GroupMutableMetadata,
+        policy_set: PolicySetProto,
+        membership: xmtp_proto::xmtp::mls::message_contents::GroupMembership,
+        metadata: crate::group_metadata::GroupMetadata,
+    ) -> Extensions<GroupContext> {
+        use openmls::extensions::{Extension, Metadata, UnknownExtension};
+        use xmtp_configuration::{
+            GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID,
+            MUTABLE_METADATA_EXTENSION_ID,
+        };
+        use xmtp_proto::xmtp::mls::message_contents::GroupMutablePermissionsV1;
+
+        let gmm_bytes: Vec<u8> = gmm.try_into().unwrap();
+        let permissions_bytes = GroupMutablePermissionsV1 {
+            policies: Some(policy_set),
+        }
+        .encode_to_vec();
+        let membership_bytes = membership.encode_to_vec();
+        let metadata_bytes: Vec<u8> = metadata.try_into().unwrap();
+
+        Extensions::from_vec(vec![
+            Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, UnknownExtension(gmm_bytes)),
+            Extension::Unknown(
+                GROUP_PERMISSIONS_EXTENSION_ID,
+                UnknownExtension(permissions_bytes),
+            ),
+            Extension::Unknown(
+                GROUP_MEMBERSHIP_EXTENSION_ID,
+                UnknownExtension(membership_bytes),
+            ),
+            Extension::ImmutableMetadata(Metadata::new(metadata_bytes)),
+        ])
+        .unwrap()
+    }
+
+    fn default_gmm() -> crate::group_mutable_metadata::GroupMutableMetadata {
+        crate::group_mutable_metadata::GroupMutableMetadata::new(
+            std::collections::HashMap::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+    }
+
+    fn empty_membership() -> xmtp_proto::xmtp::mls::message_contents::GroupMembership {
+        xmtp_proto::xmtp::mls::message_contents::GroupMembership {
+            members: std::collections::HashMap::new(),
+            failed_installations: vec![],
+        }
+    }
+
+    fn plain_group_metadata() -> crate::group_metadata::GroupMetadata {
+        crate::group_metadata::GroupMetadata::new(
+            xmtp_db::group::ConversationType::Group,
+            hex_inbox(0x11),
+            None,
+            None,
+        )
+    }
+
+    #[test]
+    fn canonical_subset_empty_group_omits_optional_seeds() {
+        // Non-DM, non-oneshot group. DM_MEMBERS and ONESHOT_MESSAGE
+        // must be absent from BOTH the strict byte-compare map and the
+        // registry bytes — any asymmetry between them would trip the
+        // receiver-side byte-compare check.
+        let exts = build_test_extensions(
+            default_gmm(),
+            minimal_default_policy_set(),
+            empty_membership(),
+            plain_group_metadata(),
+        );
+        let subset = synthesize_canonical_subset_from_extensions(&exts).unwrap();
+
+        // Strict table contains every non-optional component, but NOT
+        // COMPONENT_REGISTRY (which compares semantically via
+        // `expected_registry`).
+        assert!(!subset.strict.contains_key(&ComponentId::COMPONENT_REGISTRY));
+        assert!(subset.strict.contains_key(&ComponentId::GROUP_NAME));
+        assert!(subset.strict.contains_key(&ComponentId::ADMIN_LIST));
+        assert!(subset.strict.contains_key(&ComponentId::SUPER_ADMIN_LIST));
+        assert!(subset.strict.contains_key(&ComponentId::CONVERSATION_TYPE));
+        assert!(subset.strict.contains_key(&ComponentId::CREATOR_INBOX_ID));
+
+        // Optional seeds gated on presence.
+        assert!(!subset.strict.contains_key(&ComponentId::DM_MEMBERS));
+        assert!(!subset.strict.contains_key(&ComponentId::ONESHOT_MESSAGE));
+
+        // The expected_registry must agree with the optional-seed
+        // gating: no DM_MEMBERS / ONESHOT_MESSAGE entry, so the
+        // semantic validator on the receiver side sees a symmetric
+        // picture.
+        assert!(
+            !subset
+                .expected_registry
+                .contains_key(&ComponentId::DM_MEMBERS)
+        );
+        assert!(
+            !subset
+                .expected_registry
+                .contains_key(&ComponentId::ONESHOT_MESSAGE)
+        );
+
+        assert!(subset.membership_sequence_ids.is_empty());
+    }
+
+    #[test]
+    fn canonical_subset_dm_group_includes_dm_members() {
+        let dm_members = crate::group_metadata::DmMembers {
+            member_one_inbox_id: hex_inbox(0x22),
+            member_two_inbox_id: hex_inbox(0x33),
+        };
+        let metadata = crate::group_metadata::GroupMetadata::new(
+            xmtp_db::group::ConversationType::Dm,
+            hex_inbox(0x22),
+            Some(dm_members.clone()),
+            None,
+        );
+        let exts = build_test_extensions(
+            default_gmm(),
+            minimal_default_policy_set(),
+            empty_membership(),
+            metadata,
+        );
+        let subset = synthesize_canonical_subset_from_extensions(&exts).unwrap();
+
+        let (_, dm_bytes) = subset
+            .strict
+            .get(&ComponentId::DM_MEMBERS)
+            .expect("DM group must include DM_MEMBERS in strict");
+        assert_eq!(*dm_bytes, encode_dm_members(&dm_members).unwrap());
+
+        assert!(
+            subset
+                .expected_registry
+                .contains_key(&ComponentId::DM_MEMBERS),
+            "expected_registry must keep DM_MEMBERS for a DM group"
+        );
+    }
+
+    #[test]
+    fn canonical_subset_oneshot_group_includes_oneshot() {
+        use xmtp_proto::xmtp::mls::message_contents::OneshotMessage;
+        // An empty `OneshotMessage` is enough to exercise the
+        // presence-gated path — the wire bytes we assert on are the
+        // prost encoding of whatever proto we feed in, not any
+        // particular content shape.
+        let oneshot = OneshotMessage { message_type: None };
+        let metadata = crate::group_metadata::GroupMetadata::new(
+            xmtp_db::group::ConversationType::Group,
+            hex_inbox(0x44),
+            None,
+            Some(oneshot.clone()),
+        );
+        let exts = build_test_extensions(
+            default_gmm(),
+            minimal_default_policy_set(),
+            empty_membership(),
+            metadata,
+        );
+        let subset = synthesize_canonical_subset_from_extensions(&exts).unwrap();
+
+        let (_, oneshot_bytes) = subset
+            .strict
+            .get(&ComponentId::ONESHOT_MESSAGE)
+            .expect("oneshot group must include ONESHOT_MESSAGE");
+        assert_eq!(*oneshot_bytes, oneshot.encode_to_vec());
+
+        assert!(
+            subset
+                .expected_registry
+                .contains_key(&ComponentId::ONESHOT_MESSAGE)
+        );
+    }
+
+    #[test]
+    fn canonical_subset_membership_sequence_ids() {
+        let mut members = std::collections::HashMap::new();
+        members.insert(hex_inbox(0x55), 7_u64);
+        members.insert(hex_inbox(0x66), 42_u64);
+        let membership = xmtp_proto::xmtp::mls::message_contents::GroupMembership {
+            members,
+            failed_installations: vec![],
+        };
+
+        let exts = build_test_extensions(
+            default_gmm(),
+            minimal_default_policy_set(),
+            membership,
+            plain_group_metadata(),
+        );
+        let subset = synthesize_canonical_subset_from_extensions(&exts).unwrap();
+
+        assert_eq!(subset.membership_sequence_ids.len(), 2);
+        assert_eq!(
+            subset
+                .membership_sequence_ids
+                .get(&InboxId::from_bytes([0x55; 32]))
+                .copied(),
+            Some(7)
+        );
+        assert_eq!(
+            subset
+                .membership_sequence_ids
+                .get(&InboxId::from_bytes([0x66; 32]))
+                .copied(),
+            Some(42)
+        );
+        // Empty legacy `failed_installations` → empty allow-set.
+        assert!(subset.allowed_failed_installations.is_empty());
+    }
+
+    #[test]
+    fn canonical_subset_collects_legacy_failed_installations_into_allow_set() {
+        // Bound the sender's blast radius: every per-inbox
+        // `failed_installations` byte-string the sender ships must come
+        // from this set. Duplicates in the legacy list collapse — the
+        // contract is set membership, not multiset.
+        let installation_a = [0xAA_u8; 32];
+        let installation_b = [0xBB_u8; 32];
+        let membership = xmtp_proto::xmtp::mls::message_contents::GroupMembership {
+            members: std::collections::HashMap::new(),
+            failed_installations: vec![
+                installation_a.to_vec(),
+                installation_b.to_vec(),
+                installation_a.to_vec(), // duplicate — collapses in BTreeSet
+            ],
+        };
+        let exts = build_test_extensions(
+            default_gmm(),
+            minimal_default_policy_set(),
+            membership,
+            plain_group_metadata(),
+        );
+        let subset = synthesize_canonical_subset_from_extensions(&exts).unwrap();
+
+        assert_eq!(subset.allowed_failed_installations.len(), 2);
+        assert!(
+            subset
+                .allowed_failed_installations
+                .contains(&installation_a)
+        );
+        assert!(
+            subset
+                .allowed_failed_installations
+                .contains(&installation_b)
+        );
+    }
+
+    #[test]
+    fn canonical_subset_rejects_non_32_byte_failed_installation() {
+        // Anything other than a 32-byte Ed25519 installation key is
+        // either corrupt legacy state or a wire-shape change — fail
+        // loud rather than silently admit a bogus ID to the allow-set.
+        let membership = xmtp_proto::xmtp::mls::message_contents::GroupMembership {
+            members: std::collections::HashMap::new(),
+            failed_installations: vec![vec![0xCC; 16]], // wrong length
+        };
+        let exts = build_test_extensions(
+            default_gmm(),
+            minimal_default_policy_set(),
+            membership,
+            plain_group_metadata(),
+        );
+        let err = synthesize_canonical_subset_from_extensions(&exts).unwrap_err();
+        assert!(matches!(
+            err,
+            MigrationError::InvalidFailedInstallationLength(16)
+        ));
+    }
+
+    #[test]
+    fn canonical_subset_deterministic_across_calls() {
+        // The validator byte-compares the sender's bootstrap commit
+        // against this output on every receiver. Bit-identical output
+        // from two calls on the same inputs is the entire point.
+        let make = || {
+            build_test_extensions(
+                default_gmm(),
+                minimal_default_policy_set(),
+                empty_membership(),
+                plain_group_metadata(),
+            )
+        };
+        let a = synthesize_canonical_subset_from_extensions(&make()).unwrap();
+        let b = synthesize_canonical_subset_from_extensions(&make()).unwrap();
+        assert_eq!(a, b);
     }
 }
