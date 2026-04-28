@@ -70,6 +70,15 @@ let
     "AWS_LC_SYS_TARGET_CC_${buildPlatformSuffix}" = "cc";
     "AWS_LC_SYS_TARGET_CXX_${buildPlatformSuffix}" = "c++";
 
+    # Tell openssl-sys to bind against the prebuilt nixpkgs openssl already in
+    # buildInputs instead of falling through to its vendored `openssl-src` path,
+    # which compiles OpenSSL from source. The source build's `mkinstallvars.pl`
+    # fails on macOS 26 cross-compiles to musl with empty `LIBDIR`.
+    # See https://github.com/xmtp/libxmtp/issues/3575.
+    OPENSSL_NO_VENDOR = "1";
+    OPENSSL_DIR = "${openssl.dev}";
+    OPENSSL_LIB_DIR = "${lib.getLib openssl}/lib";
+    OPENSSL_INCLUDE_DIR = "${openssl.dev}/include";
   };
 
   # Make cargo artifacts for a derivation building rust code
