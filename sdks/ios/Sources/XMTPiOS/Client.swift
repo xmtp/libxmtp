@@ -239,13 +239,15 @@ public final class Client {
 		signingKey: SigningKey?,
 		inboxId: InboxId,
 		apiClient _: XmtpApiClient? = nil,
-		buildOffline: Bool = false
+		buildOffline: Bool = false,
+		inMemory: Bool = false
 	) async throws -> Client {
 		let (libxmtpClient, dbPath) = try await initFFiClient(
 			accountIdentifier: publicIdentity,
 			options: options,
 			inboxId: inboxId,
-			buildOffline: buildOffline
+			buildOffline: buildOffline,
+			inMemory: inMemory
 		)
 
 		let client = try Client(
@@ -320,6 +322,35 @@ public final class Client {
 		)
 	}
 
+	/// Creates a Client backed by an in-memory SQLCipher database.
+	///
+	/// This bypasses all on-disk database management — no `.db3` file is created,
+	/// no directory is touched, and `dropLocalDatabaseConnection` / `reconnectLocalDatabase`
+	/// are no-ops against the in-memory pool. Intended for tests and other ephemeral
+	/// flows where a real client is needed but persistence is not. State is lost when
+	/// the client is deallocated.
+	///
+	/// `options.dbDirectory` and `options.dbEncryptionKey` are ignored — libxmtp manages
+	/// the in-memory store itself.
+	public static func createInMemory(
+		account: SigningKey, options: ClientOptions
+	)
+		async throws -> Client
+	{
+		let identity = account.identity
+		let inboxId = try await getOrCreateInboxId(
+			api: options.api, publicIdentity: identity
+		)
+
+		return try await initializeClient(
+			publicIdentity: identity,
+			options: options,
+			signingKey: account,
+			inboxId: inboxId,
+			inMemory: true
+		)
+	}
+
 	public static func build(
 		publicIdentity: PublicIdentity, options: ClientOptions,
 		inboxId: InboxId? = nil
@@ -379,8 +410,34 @@ public final class Client {
 		accountIdentifier: PublicIdentity,
 		options: ClientOptions,
 		inboxId: InboxId,
-		buildOffline: Bool = false
+		buildOffline: Bool = false,
+		inMemory: Bool = false
 	) async throws -> (FfiXmtpClient, String) {
+		if inMemory {
+			let deviceSyncMode: FfiDeviceSyncMode =
+				!options.deviceSyncEnabled ? .disabled : .enabled
+
+			let ffiClient = try await createClient(
+				api: connectToApiBackend(api: options.api),
+				syncApi: connectToSyncApiBackend(api: options.api),
+				db: DbOptions(
+					db: nil,
+					encryptionKey: nil,
+					maxDbPoolSize: options.dbPoolOptions?.maxPoolSize,
+					minDbPoolSize: options.dbPoolOptions?.minPoolSize
+				),
+				inboxId: inboxId,
+				accountIdentifier: accountIdentifier.ffiPrivate,
+				nonce: 0,
+				legacySignedPrivateKeyProto: nil,
+				deviceSyncMode: deviceSyncMode,
+				allowOffline: buildOffline,
+				forkRecoveryOpts: options.forkRecoveryOptions?.toFfi()
+			)
+
+			return (ffiClient, ":memory:")
+		}
+
 		let mlsDbDirectory = options.dbDirectory
 		var directoryURL: URL
 		if let mlsDbDirectory {

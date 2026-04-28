@@ -419,6 +419,7 @@ class Client(
             signingKey: SigningKey? = null,
             inboxId: InboxId? = null,
             buildOffline: Boolean = false,
+            inMemory: Boolean = false,
         ): Client =
             withContext(Dispatchers.IO) {
                 val recoveredInboxId =
@@ -431,6 +432,7 @@ class Client(
                         clientOptions,
                         clientOptions.appContext,
                         buildOffline,
+                        inMemory,
                     )
                 clientOptions.preAuthenticateToInboxCallback?.let {
                     runBlocking {
@@ -484,6 +486,35 @@ class Client(
                 }
             }
 
+        /**
+         * Creates a Client backed by an in-memory SQLCipher database.
+         *
+         * Bypasses all on-disk database management — no `.db3` file is created,
+         * no directory is touched, and `dropLocalDatabaseConnection` /
+         * `reconnectLocalDatabase` are no-ops against the in-memory pool. Intended
+         * for tests and other ephemeral flows where a real client is needed but
+         * persistence is not. State is lost when the client is garbage collected.
+         *
+         * `options.dbDirectory` and `options.dbEncryptionKey` are ignored — libxmtp
+         * manages the in-memory store itself.
+         */
+        suspend fun createInMemory(
+            account: SigningKey,
+            options: ClientOptions,
+        ): Client =
+            withContext(Dispatchers.IO) {
+                try {
+                    initializeV3Client(
+                        account.publicIdentity,
+                        options,
+                        account,
+                        inMemory = true,
+                    )
+                } catch (e: Exception) {
+                    throw XMTPException("Error creating in-memory V3 client: ${e.message}", e)
+                }
+            }
+
         // Function to build a client from a address
         suspend fun build(
             publicIdentity: PublicIdentity,
@@ -509,8 +540,37 @@ class Client(
             options: ClientOptions,
             appContext: Context,
             buildOffline: Boolean = false,
+            inMemory: Boolean = false,
         ): Pair<FfiXmtpClient, String> =
             withContext(Dispatchers.IO) {
+                if (inMemory) {
+                    val ffiClient =
+                        createClient(
+                            api = connectToApiBackend(options.api),
+                            syncApi = connectToSyncApiBackend(options.api),
+                            db =
+                                DbOptions(
+                                    db = null,
+                                    encryptionKey = null,
+                                    maxDbPoolSize = options.dbPoolOptions?.maxPoolSize,
+                                    minDbPoolSize = options.dbPoolOptions?.minPoolSize,
+                                ),
+                            accountIdentifier = publicIdentity.ffiPrivate,
+                            inboxId = inboxId,
+                            nonce = 0.toULong(),
+                            legacySignedPrivateKeyProto = null,
+                            deviceSyncMode =
+                                if (!options.deviceSyncEnabled) {
+                                    FfiDeviceSyncMode.DISABLED
+                                } else {
+                                    FfiDeviceSyncMode.ENABLED
+                                },
+                            allowOffline = buildOffline,
+                            forkRecoveryOpts = options.forkRecoveryOptions?.toFfi(),
+                        )
+                    return@withContext Pair(ffiClient, ":memory:")
+                }
+
                 val alias = "xmtp-${options.api.env}-$inboxId"
 
                 val mlsDbDirectory = options.dbDirectory
