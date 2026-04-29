@@ -446,10 +446,10 @@ fn validate_update_permissions_is_super_admin(
 /// - [`Self::strict`] — byte-compared against the sender's commit
 ///   payload. Used for components whose canonical encoding is
 ///   deterministic by construction: raw bytes/utf-8 (metadata
-///   attributes, `COMMIT_LOG_SIGNER`, `CREATOR_INBOX_ID`,
-///   `CONVERSATION_TYPE`) and TLS-codec containers that sort their keys
-///   (`ADMIN_LIST`, `SUPER_ADMIN_LIST`, `DM_MEMBERS`,
-///   `ONESHOT_MESSAGE`).
+///   attributes, `COMMIT_LOG_SIGNER`, `CONVERSATION_TYPE`),
+///   the versioned single-`InboxId` TLS wire form (`CREATOR_INBOX_ID`),
+///   and TLS-codec containers that sort their keys (`ADMIN_LIST`,
+///   `SUPER_ADMIN_LIST`, `DM_MEMBERS`, `ONESHOT_MESSAGE`).
 /// - [`Self::expected_registry`] — `COMPONENT_REGISTRY` is decoded
 ///   first, then compared per entry as a typed [`ComponentMetadata`].
 ///   The outer `TlsMapDelta` wrapper IS deterministic, but each
@@ -564,11 +564,15 @@ pub fn synthesize_canonical_subset_from_extensions(
             encode_conversation_type(conversation_type_proto as i32),
         ),
     );
+    // CREATOR_INBOX_ID rides the same versioned `InboxId` wire form
+    // (`varint(version) || 32-byte payload`) every other inbox-id-bearing
+    // component on the new path uses, so the bytes round-trip through
+    // the same decoder.
     strict.insert(
         ComponentId::CREATOR_INBOX_ID,
         (
             AppDataUpdateOperationType::Update,
-            legacy_metadata.creator_inbox_id.as_bytes().to_vec(),
+            InboxId::from_hex(&legacy_metadata.creator_inbox_id)?.tls_serialize_detached()?,
         ),
     );
     if let Some(dm) = &legacy_metadata.dm_members {
