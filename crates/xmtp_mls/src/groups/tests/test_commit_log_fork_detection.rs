@@ -82,7 +82,7 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
         .is_forked
         .as_ref()
         .unwrap()
-        .get(group_id.as_slice())
+        .get(group_id.as_ref())
         .unwrap();
     assert_eq!(*fork_status, Some(false), "Should detect no fork");
     Ok(())
@@ -161,7 +161,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
         .is_forked
         .as_ref()
         .unwrap()
-        .get(group_id.as_slice())
+        .get(group_id.as_ref())
         .unwrap();
     assert_eq!(*fork_status, Some(true), "Should detect a fork");
 
@@ -233,7 +233,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
         .is_forked
         .as_ref()
         .unwrap()
-        .get(group_id.as_slice())
+        .get(group_id.as_ref())
         .unwrap();
     assert_eq!(
         *fork_status,
@@ -306,7 +306,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
         .is_forked
         .as_ref()
         .unwrap()
-        .get(group_id.as_slice())
+        .get(group_id.as_ref())
         .unwrap();
     assert_eq!(
         *fork_status,
@@ -413,7 +413,7 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
         .is_forked
         .as_ref()
         .unwrap()
-        .get(group_id.as_slice())
+        .get(group_id.as_ref())
         .unwrap();
     assert_eq!(
         *fork_status, None,
@@ -498,7 +498,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
         .is_forked
         .as_ref()
         .unwrap()
-        .get(group_id.as_slice())
+        .get(group_id.as_ref())
         .unwrap();
     assert_eq!(*fork_status, Some(false), "Should initially detect no fork");
 
@@ -528,7 +528,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
         .is_forked
         .as_ref()
         .unwrap()
-        .get(group_id.as_slice())
+        .get(group_id.as_ref())
         .unwrap();
     assert_eq!(
         *fork_status_second,
@@ -562,7 +562,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
         .is_forked
         .as_ref()
         .unwrap()
-        .get(group_id.as_slice())
+        .get(group_id.as_ref())
         .unwrap();
     assert_eq!(
         *fork_status_third,
