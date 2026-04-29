@@ -135,7 +135,7 @@ impl Conversation {
   pub fn to_mls_group(&self) -> RustMlsGroup {
     MlsGroup::new(
       self.inner_group.context.clone(),
-      self.group_id.clone(),
+      self.group_id.clone().into(),
       self.dm_id.clone(),
       self.inner_group.conversation_type,
       self.created_at_ns,
@@ -146,7 +146,7 @@ impl Conversation {
 impl From<RustMlsGroup> for Conversation {
   fn from(mls_group: RustMlsGroup) -> Self {
     Conversation {
-      group_id: mls_group.group_id.clone(),
+      group_id: mls_group.group_id.to_vec(),
       dm_id: mls_group.dm_id.clone(),
       created_at_ns: mls_group.created_at_ns,
       inner_group: mls_group,
@@ -731,7 +731,7 @@ impl Conversation {
     let on_close_cb = callback.clone();
     let stream_closer = MlsGroup::stream_with_callback(
       self.inner_group.context.clone(),
-      self.group_id.clone(),
+      self.group_id.clone().into(),
       move |message| match message {
         Ok(item) => callback.on_message(item.into()),
         Err(e) => callback.on_error(JsError::from(e)),
@@ -975,7 +975,7 @@ mod tests {
   fn test_group_message_to_object() {
     let stored_message = StoredGroupMessage {
       id: xmtp_common::rand_vec::<32>(),
-      group_id: xmtp_common::rand_vec::<32>(),
+      group_id: xmtp_common::rand_vec::<32>().into(),
       decrypted_message_bytes: xmtp_common::rand_vec::<32>(),
       sent_at_ns: 1738354508964432000,
       inserted_at_ns: 1738354508964432000,

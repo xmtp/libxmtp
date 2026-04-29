@@ -1877,9 +1877,9 @@ pub(crate) mod tests {
     fn test_get_conversation_ids_for_responding_readds() {
         with_connection(|conn| {
             // Create test groups
-            let group_id_1 = vec![1, 2, 3];
-            let group_id_2 = vec![4, 5, 6];
-            let group_id_3 = vec![7, 8, 9];
+            let group_id_1: GroupId = vec![1, 2, 3].into();
+            let group_id_2: GroupId = vec![4, 5, 6].into();
+            let group_id_3: GroupId = vec![7, 8, 9].into();
 
             let group1 = StoredGroup::builder()
                 .id(group_id_1.clone())
@@ -1912,35 +1912,35 @@ pub(crate) mod tests {
             let test_cases = vec![
                 // Case 1: Pending readd (requested_at > responded_at)
                 ReaddStatus {
-                    group_id: GroupId::from(group_id_1.as_slice()),
+                    group_id: group_id_1.clone(),
                     installation_id: vec![1],
                     requested_at_sequence_id: Some(10),
                     responded_at_sequence_id: Some(5),
                 },
                 // Case 2: Pending readd (responded_at is None)
                 ReaddStatus {
-                    group_id: GroupId::from(group_id_1.as_slice()),
+                    group_id: group_id_1.clone(),
                     installation_id: vec![2],
                     requested_at_sequence_id: Some(8),
                     responded_at_sequence_id: None,
                 },
                 // Case 4: Not pending (requested_at < responded_at)
                 ReaddStatus {
-                    group_id: GroupId::from(group_id_2.as_slice()),
+                    group_id: group_id_2.clone(),
                     installation_id: vec![4],
                     requested_at_sequence_id: Some(12),
                     responded_at_sequence_id: Some(15),
                 },
                 // Case 5: Not pending (requested_at is None)
                 ReaddStatus {
-                    group_id: GroupId::from(group_id_2.as_slice()),
+                    group_id: group_id_2.clone(),
                     installation_id: vec![5],
                     requested_at_sequence_id: None,
                     responded_at_sequence_id: Some(20),
                 },
                 // Case 6: Pending readd (requested_at == responded_at, should be pending)
                 ReaddStatus {
-                    group_id: GroupId::from(group_id_3.as_slice()),
+                    group_id: group_id_3.clone(),
                     installation_id: vec![6],
                     requested_at_sequence_id: Some(25),
                     responded_at_sequence_id: Some(25),
@@ -1960,26 +1960,20 @@ pub(crate) mod tests {
             assert_eq!(result.len(), 2);
 
             // Results should be sorted by group_id (since we used distinct())
-            let mut result_group_ids: Vec<Vec<u8>> =
-                result.iter().map(|r| r.group_id.to_vec()).collect();
+            let mut result_group_ids: Vec<GroupId> =
+                result.iter().map(|r| r.group_id.clone()).collect();
             result_group_ids.sort();
 
             assert_eq!(result_group_ids[0], group_id_1);
             assert_eq!(result_group_ids[1], group_id_3);
 
             // Check that the correct metadata is returned
-            let group1_result = result
-                .iter()
-                .find(|r| r.group_id.as_slice() == group_id_1)
-                .unwrap();
+            let group1_result = result.iter().find(|r| r.group_id == group_id_1).unwrap();
             assert_eq!(group1_result.dm_id, None);
             assert_eq!(group1_result.conversation_type, ConversationType::Group);
             assert_eq!(group1_result.created_at_ns, 1000);
 
-            let group3_result = result
-                .iter()
-                .find(|r| r.group_id.as_slice() == group_id_3)
-                .unwrap();
+            let group3_result = result.iter().find(|r| r.group_id == group_id_3).unwrap();
             assert_eq!(group3_result.dm_id, None);
             assert_eq!(group3_result.conversation_type, ConversationType::Group);
             assert_eq!(group3_result.created_at_ns, 3000);
