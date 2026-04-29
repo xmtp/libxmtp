@@ -23,6 +23,7 @@ use xmtp_content_types::{
 };
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
+use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::message_contents::{
     ContentTypeId, EncodedContent, GroupUpdated,
     content_types::{LeaveRequest, MultiRemoteAttachment, ReactionV2},
@@ -85,7 +86,7 @@ pub struct DecodedMessageMetadata {
     // The message ID
     pub id: Vec<u8>,
     // The group ID
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     // The timestamp of the message in nanoseconds
     pub sent_at_ns: i64,
     // The kind of message
@@ -229,7 +230,7 @@ impl TryFrom<StoredGroupMessage> for DecodedMessage {
         // Create the metadata
         let metadata = DecodedMessageMetadata {
             id: value.id,
-            group_id: value.group_id.to_vec(),
+            group_id: value.group_id,
             sent_at_ns: value.sent_at_ns,
             kind: value.kind,
             sender_installation_id: value.sender_installation_id,
