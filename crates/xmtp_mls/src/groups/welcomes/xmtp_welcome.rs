@@ -181,7 +181,7 @@ where
 
             let group = MlsGroup::<_>::new(
                 context.clone(),
-                group.id.to_vec(),
+                group.id,
                 group.dm_id,
                 group.conversation_type,
                 group.created_at_ns,
@@ -514,7 +514,7 @@ where
         // this is the commit that brought us into the group
         let added_msg = StoredGroupMessage {
             id: added_message_id,
-            group_id: stored_group.id.to_vec(),
+            group_id: stored_group.id.clone(),
             decrypted_message_bytes: encoded_added_payload_bytes,
             sent_at_ns: welcome.timestamp(),
             kind: GroupMessageKind::MembershipChange,
@@ -542,7 +542,7 @@ where
 
         let group = MlsGroup::new(
             context.clone(),
-            stored_group.id.to_vec(),
+            stored_group.id,
             stored_group.dm_id,
             stored_group.conversation_type,
             stored_group.created_at_ns,

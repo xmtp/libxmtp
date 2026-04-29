@@ -276,12 +276,12 @@ where
     /// # Errors
     /// May return errors if:
     /// - Creating the new subscription fails
-    #[tracing::instrument(level = "trace", skip(context, new_group), fields(new_group = hex::encode(&new_group)))]
+    #[tracing::instrument(level = "trace", skip(context, new_group), fields(new_group = %new_group))]
     #[allow(clippy::type_complexity)]
     async fn subscribe(
         context: Cow<'a, C>,
         topic_cursor: TopicCursor,
-        new_group: Vec<u8>,
+        new_group: xmtp_proto::types::GroupId,
     ) -> Result<(
         MessagesApiSubscription<'a, C::ApiClient>,
         Vec<u8>,
@@ -294,7 +294,7 @@ where
             .await?;
         Ok((
             stream,
-            new_group,
+            new_group.to_vec(),
             Some(Cursor::new(1 as SequenceId, 0 as OriginatorId)),
         ))
     }

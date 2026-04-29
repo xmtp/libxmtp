@@ -363,7 +363,7 @@ where
         );
         Ok(Some(MlsGroup::new(
             self.context.clone(),
-            group.id.to_vec(),
+            group.id,
             group.dm_id,
             group.conversation_type,
             group.created_at_ns,

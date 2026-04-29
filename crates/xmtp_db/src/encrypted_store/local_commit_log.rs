@@ -35,7 +35,7 @@ impl std::fmt::Display for CommitType {
 #[derive(Insertable, Debug, Clone)]
 #[diesel(table_name = local_commit_log)]
 pub struct NewLocalCommitLog {
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     pub commit_sequence_id: i64,
     pub last_epoch_authenticator: Vec<u8>,
     pub commit_result: CommitResult,
@@ -52,7 +52,7 @@ pub struct NewLocalCommitLog {
 #[diesel(primary_key(id))]
 pub struct LocalCommitLog {
     pub rowid: i32,
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     pub commit_sequence_id: i64,
     pub last_epoch_authenticator: Vec<u8>,
     pub commit_result: CommitResult,
@@ -67,7 +67,7 @@ pub struct LocalCommitLog {
 impl From<&LocalCommitLog> for PlaintextCommitLogEntry {
     fn from(local_commit_log: &LocalCommitLog) -> Self {
         PlaintextCommitLogEntry {
-            group_id: local_commit_log.group_id.clone(),
+            group_id: local_commit_log.group_id.to_vec(),
             commit_sequence_id: local_commit_log.commit_sequence_id as u64,
             last_epoch_authenticator: local_commit_log.last_epoch_authenticator.clone(),
             commit_result: local_commit_log.commit_result.into(),

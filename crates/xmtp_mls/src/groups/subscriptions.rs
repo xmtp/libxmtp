@@ -103,7 +103,7 @@ where
     where
         Context::ApiClient: XmtpMlsStreams + 'a,
     {
-        StreamGroupMessages::new(&self.context, vec![self.group_id.clone().into()]).await
+        StreamGroupMessages::new(&self.context, vec![self.group_id.clone()]).await
     }
 
     /// create a stream that is not attached to any lifetime
@@ -115,13 +115,12 @@ where
         Context::ApiClient: XmtpMlsStreams + 'static,
         Context::Db: 'static,
     {
-        StreamGroupMessages::new_owned(self.context.clone(), vec![self.group_id.clone().into()])
-            .await
+        StreamGroupMessages::new_owned(self.context.clone(), vec![self.group_id.clone()]).await
     }
 
     pub fn stream_with_callback(
         context: Context,
-        group_id: Vec<u8>,
+        group_id: GroupId,
         callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
         on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>>
@@ -131,7 +130,7 @@ where
     {
         stream_messages_with_callback(
             context.clone(),
-            vec![group_id.into()].into_iter(),
+            vec![group_id].into_iter(),
             callback,
             on_close,
         )
@@ -313,9 +312,10 @@ pub(crate) mod tests {
                     use xmtp_db::group_message::{
                         ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
                     };
+                    use xmtp_proto::types::GroupId;
                     Ok(Some(StoredGroupMessage {
                         id: xmtp_common::rand_vec::<32>(),
-                        group_id: group_id.as_ref().to_vec(),
+                        group_id: GroupId::from(group_id.as_ref()),
                         decrypted_message_bytes: b"test message".to_vec(),
                         sent_at_ns: timestamp,
                         kind: GroupMessageKind::Application,
@@ -357,7 +357,7 @@ pub(crate) mod tests {
             version: Some(group_message::Version::V1(group_message::V1 {
                 id: 1,
                 created_ns: 1000000,
-                group_id: group.group_id.clone(),
+                group_id: group.group_id.to_vec(),
                 data: message_data,
                 sender_hmac: vec![],
                 should_push: false,
@@ -399,9 +399,10 @@ pub(crate) mod tests {
                     use xmtp_db::group_message::{
                         ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
                     };
+                    use xmtp_proto::types::GroupId;
                     Ok(Some(StoredGroupMessage {
                         id: xmtp_common::rand_vec::<32>(),
-                        group_id: group_id.as_ref().to_vec(),
+                        group_id: GroupId::from(group_id.as_ref()),
                         decrypted_message_bytes: b"test message".to_vec(),
                         sent_at_ns: timestamp,
                         kind: GroupMessageKind::Application,
@@ -451,7 +452,7 @@ pub(crate) mod tests {
 
         let client_envelope = ClientEnvelope {
             aad: Some(AuthenticatedData {
-                target_topic: group.group_id.clone(),
+                target_topic: group.group_id.to_vec(),
                 depends_on: None,
             }),
             payload: Some(client_envelope::Payload::GroupMessage(group_message_input)),

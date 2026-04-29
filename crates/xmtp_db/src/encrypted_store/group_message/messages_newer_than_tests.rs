@@ -12,7 +12,7 @@ fn generate_message_with_cursor(
 ) -> StoredGroupMessage {
     StoredGroupMessage {
         id: rand_vec::<24>(),
-        group_id: group_id.to_vec(),
+        group_id: group_id.clone(),
         decrypted_message_bytes: rand_vec::<24>(),
         sent_at_ns,
         sender_installation_id: rand_vec::<24>(),

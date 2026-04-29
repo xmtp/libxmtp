@@ -742,7 +742,7 @@ where
         if let Some(group) = group {
             return Ok(MlsGroup::new(
                 self.context.clone(),
-                group.id.to_vec(),
+                group.id,
                 group.dm_id,
                 group.conversation_type,
                 group.created_at_ns,
@@ -772,13 +772,13 @@ where
             .map(|g| {
                 MlsGroup::new(
                     self.context.clone(),
-                    g.id.to_vec(),
+                    g.id,
                     g.dm_id,
                     g.conversation_type,
                     g.created_at_ns,
                 )
             })
-            .ok_or(NotFound::GroupById(group_id.to_vec()))
+            .ok_or(NotFound::GroupById(GroupId::from(group_id)))
             .map_err(Into::into)
     }
 
@@ -822,7 +822,7 @@ where
             .ok_or(NotFound::DmByInbox(target_inbox_id))?;
         Ok(MlsGroup::new(
             self.context.clone(),
-            group.id.to_vec(),
+            group.id,
             group.dm_id,
             group.conversation_type,
             group.created_at_ns,
@@ -914,7 +914,7 @@ where
                     // Only construct StoredGroupMessage if all fields are Some
                     let msg: Option<StoredGroupMessage> = Some(StoredGroupMessage {
                         id: message_id,
-                        group_id: conversation_item.id.to_vec(),
+                        group_id: conversation_item.id.clone(),
                         decrypted_message_bytes: conversation_item.decrypted_message_bytes?,
                         sent_at_ns: conversation_item.sent_at_ns?,
                         sender_installation_id: conversation_item.sender_installation_id?,
@@ -941,7 +941,7 @@ where
                 ConversationListItem {
                     group: MlsGroup::new(
                         self.context.clone(),
-                        conversation_item.id.to_vec(),
+                        conversation_item.id,
                         conversation_item.dm_id,
                         conversation_item.conversation_type,
                         conversation_item.created_at_ns,
@@ -1118,7 +1118,7 @@ where
             .map(|g| {
                 MlsGroup::new(
                     self.context.clone(),
-                    g.id.to_vec(),
+                    g.id,
                     g.dm_id,
                     g.conversation_type,
                     g.created_at_ns,

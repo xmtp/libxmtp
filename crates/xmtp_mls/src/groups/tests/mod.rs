@@ -4990,7 +4990,7 @@ async fn non_retryable_error_increments_cursor() {
     let message = xmtp_proto::types::GroupMessage {
         cursor: new_cursor,
         created_ns: DateTime::from_timestamp_nanos(xmtp_common::time::now_ns()),
-        group_id: group.group_id.clone().into(),
+        group_id: group.group_id.clone(),
         message: MlsMessageIn::tls_deserialize(&mut message.to_bytes().unwrap().as_slice())
             .unwrap()
             .try_into_protocol_message()

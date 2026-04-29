@@ -5,7 +5,7 @@ use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 use xmtp_api_d14n::protocol::{EnvelopeError, V3WelcomeMessageExtractor, WelcomeMessageExtractor};
 use xmtp_api_d14n::stream;
-use xmtp_proto::types::WelcomeMessage;
+use xmtp_proto::types::{GroupId, WelcomeMessage};
 
 use tracing::instrument;
 use xmtp_db::prelude::*;
@@ -62,7 +62,7 @@ impl RetryableError for LocalEventError {
 #[derive(Debug, Clone)]
 pub enum LocalEvents {
     // a new group was created
-    NewGroup(Vec<u8>),
+    NewGroup(GroupId),
     PreferencesChanged(Vec<PreferenceUpdate>),
     // a message was deleted (contains the decoded message that was deleted)
     MsgsDeleted(Vec<StoredGroupMessage>),
@@ -94,7 +94,7 @@ impl std::fmt::Debug for SyncWorkerEvent {
 }
 
 impl LocalEvents {
-    fn group_filter(self) -> Option<Vec<u8>> {
+    fn group_filter(self) -> Option<GroupId> {
         use LocalEvents::*;
         // this is just to protect against any future variants
         match self {

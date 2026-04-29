@@ -135,8 +135,8 @@ pub enum NotFound {
     /// Group with ID not found.
     ///
     /// Group does not exist in local DB. Retryable.
-    #[error("group with id {id} not found", id = hex::encode(_0))]
-    GroupById(Vec<u8>),
+    #[error("group with id {0} not found")]
+    GroupById(GroupId),
     /// Installation time for group not found.
     ///
     /// Missing installation timestamp. Retryable.

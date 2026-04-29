@@ -139,6 +139,7 @@ mod tests {
         group_intent::{IntentKind, IntentState, NewGroupIntent},
         prelude::QueryGroupIntent,
     };
+    use xmtp_proto::types::GroupId;
 
     use super::*;
 
@@ -167,7 +168,7 @@ mod tests {
                     let storage = conn.key_store();
                     storage.db().insert_group_intent(NewGroupIntent {
                         kind: IntentKind::SendMessage,
-                        group_id: vec![],
+                        group_id: GroupId::default(),
                         data: vec![],
                         should_push: false,
                         state: IntentState::ToPublish,

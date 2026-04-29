@@ -13,7 +13,7 @@ use diesel::{
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use xmtp_common::fmt;
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{Cursor, GroupId};
 
 use super::{
     ConnectionExt, Sqlite,
@@ -82,7 +82,7 @@ pub enum IntentState {
 pub struct StoredGroupIntent {
     pub id: ID,
     pub kind: IntentKind,
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     pub data: Vec<u8>,
     pub state: IntentState,
     pub payload_hash: Option<Vec<u8>>,
@@ -153,7 +153,7 @@ impl<C: ConnectionExt> Delete<StoredGroupIntent> for DbConnection<C> {
 #[builder(setter(into), build_fn(error = "StorageError"))]
 pub struct NewGroupIntent {
     pub kind: IntentKind,
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     pub data: Vec<u8>,
     pub should_push: bool,
     #[builder(default = "IntentState::ToPublish")]
@@ -167,10 +167,15 @@ impl NewGroupIntent {
         NewGroupIntentBuilder::default()
     }
 
-    pub fn new(kind: IntentKind, group_id: Vec<u8>, data: Vec<u8>, should_push: bool) -> Self {
+    pub fn new(
+        kind: IntentKind,
+        group_id: impl Into<GroupId>,
+        data: Vec<u8>,
+        should_push: bool,
+    ) -> Self {
         Self {
             kind,
-            group_id,
+            group_id: group_id.into(),
             data,
             state: IntentState::ToPublish,
             should_push,
@@ -693,7 +698,7 @@ pub(crate) mod tests {
         ) -> Self {
             Self {
                 kind,
-                group_id,
+                group_id: group_id.into(),
                 data,
                 state,
                 should_push: false,
@@ -735,7 +740,7 @@ pub(crate) mod tests {
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].kind, kind);
             assert_eq!(results[0].data, data);
-            assert_eq!(results[0].group_id, group_id);
+            assert_eq!(results[0].group_id.as_slice(), group_id.as_slice());
 
             let id = results[0].id;
 

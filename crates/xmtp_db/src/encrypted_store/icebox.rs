@@ -7,7 +7,7 @@ use diesel::prelude::*;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use xmtp_proto::types::{
-    Cursor, OriginatorId, OrphanedEnvelope, OrphanedEnvelopeBuilder, SequenceId,
+    Cursor, GroupId, OriginatorId, OrphanedEnvelope, OrphanedEnvelopeBuilder, SequenceId,
 };
 
 mod types;
@@ -30,7 +30,7 @@ mod types;
 pub struct Icebox {
     pub originator_id: i64,
     pub sequence_id: i64,
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     pub envelope_payload: Vec<u8>,
 }
 

@@ -154,7 +154,7 @@ pub struct StoredGroupCommitLogPublicKey {
 #[derive(Debug, Clone, Queryable, QueryableByName)]
 pub struct StoredGroupForReaddRequest {
     #[diesel(sql_type = diesel::sql_types::Binary)]
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::BigInt>)]
     pub latest_commit_sequence_id: Option<i64>,
 }
@@ -163,7 +163,7 @@ pub struct StoredGroupForReaddRequest {
 #[derive(Debug, Clone, Queryable, QueryableByName)]
 pub struct StoredGroupForRespondingReadds {
     #[diesel(sql_type = diesel::sql_types::Binary)]
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
     pub dm_id: Option<String>,
     #[diesel(sql_type = diesel::sql_types::Integer)]
@@ -275,25 +275,25 @@ pub trait QueryGroup {
         cursor: Cursor,
     ) -> Result<Option<StoredGroup>, crate::ConnectionError>;
 
-    fn get_rotated_at_ns(&self, group_id: GroupId) -> Result<i64, StorageError>;
+    fn get_rotated_at_ns(&self, group_id: &GroupId) -> Result<i64, StorageError>;
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_rotated_at_ns(&self, group_id: GroupId) -> Result<(), StorageError>;
+    fn update_rotated_at_ns(&self, group_id: &GroupId) -> Result<(), StorageError>;
 
-    fn get_installations_time_checked(&self, group_id: GroupId) -> Result<i64, StorageError>;
+    fn get_installations_time_checked(&self, group_id: &GroupId) -> Result<i64, StorageError>;
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_installations_time_checked(&self, group_id: GroupId) -> Result<(), StorageError>;
+    fn update_installations_time_checked(&self, group_id: &GroupId) -> Result<(), StorageError>;
 
     fn update_message_disappearing_from_ns(
         &self,
-        group_id: GroupId,
+        group_id: &GroupId,
         from_ns: Option<i64>,
     ) -> Result<(), StorageError>;
 
     fn update_message_disappearing_in_ns(
         &self,
-        group_id: GroupId,
+        group_id: &GroupId,
         in_ns: Option<i64>,
     ) -> Result<(), StorageError>;
 
@@ -425,27 +425,27 @@ where
         (**self).find_group_by_sequence_id(cursor)
     }
 
-    fn get_rotated_at_ns(&self, group_id: GroupId) -> Result<i64, StorageError> {
+    fn get_rotated_at_ns(&self, group_id: &GroupId) -> Result<i64, StorageError> {
         (**self).get_rotated_at_ns(group_id)
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_rotated_at_ns(&self, group_id: GroupId) -> Result<(), StorageError> {
+    fn update_rotated_at_ns(&self, group_id: &GroupId) -> Result<(), StorageError> {
         (**self).update_rotated_at_ns(group_id)
     }
 
-    fn get_installations_time_checked(&self, group_id: GroupId) -> Result<i64, StorageError> {
+    fn get_installations_time_checked(&self, group_id: &GroupId) -> Result<i64, StorageError> {
         (**self).get_installations_time_checked(group_id)
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_installations_time_checked(&self, group_id: GroupId) -> Result<(), StorageError> {
+    fn update_installations_time_checked(&self, group_id: &GroupId) -> Result<(), StorageError> {
         (**self).update_installations_time_checked(group_id)
     }
 
     fn update_message_disappearing_from_ns(
         &self,
-        group_id: GroupId,
+        group_id: &GroupId,
         from_ns: Option<i64>,
     ) -> Result<(), StorageError> {
         (**self).update_message_disappearing_from_ns(group_id, from_ns)
@@ -453,7 +453,7 @@ where
 
     fn update_message_disappearing_in_ns(
         &self,
-        group_id: GroupId,
+        group_id: &GroupId,
         in_ns: Option<i64>,
     ) -> Result<(), StorageError> {
         (**self).update_message_disappearing_in_ns(group_id, in_ns)
@@ -810,7 +810,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(groups.into_iter().next())
     }
 
-    fn get_rotated_at_ns(&self, group_id: GroupId) -> Result<i64, StorageError> {
+    fn get_rotated_at_ns(&self, group_id: &GroupId) -> Result<i64, StorageError> {
         let last_ts: Option<i64> = self.raw_query(|conn| {
             dsl::groups
                 .find(&group_id)
@@ -820,12 +820,12 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         })?;
 
         last_ts.ok_or(StorageError::NotFound(NotFound::InstallationTimeForGroup(
-            group_id,
+            group_id.clone(),
         )))
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_rotated_at_ns(&self, group_id: GroupId) -> Result<(), StorageError> {
+    fn update_rotated_at_ns(&self, group_id: &GroupId) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(group_id))
@@ -836,7 +836,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
-    fn get_installations_time_checked(&self, group_id: GroupId) -> Result<i64, StorageError> {
+    fn get_installations_time_checked(&self, group_id: &GroupId) -> Result<i64, StorageError> {
         let last_ts = self.raw_query(|conn| {
             dsl::groups
                 .find(&group_id)
@@ -845,11 +845,11 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                 .optional()
         })?;
 
-        last_ts.ok_or(NotFound::InstallationTimeForGroup(group_id).into())
+        last_ts.ok_or(NotFound::InstallationTimeForGroup(group_id.clone()).into())
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_installations_time_checked(&self, group_id: GroupId) -> Result<(), StorageError> {
+    fn update_installations_time_checked(&self, group_id: &GroupId) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(group_id))
@@ -862,7 +862,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     fn update_message_disappearing_from_ns(
         &self,
-        group_id: GroupId,
+        group_id: &GroupId,
         from_ns: Option<i64>,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
@@ -876,7 +876,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     fn update_message_disappearing_in_ns(
         &self,
-        group_id: GroupId,
+        group_id: &GroupId,
         in_ns: Option<i64>,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
@@ -1562,7 +1562,7 @@ pub(crate) mod tests {
             }
             // Check that some event occurred which triggers an installation list update.
             // Here we invoke that event directly
-            let result = conn.update_installations_time_checked(test_group.id.clone());
+            let result = conn.update_installations_time_checked(&test_group.id);
             assert_ok!(result);
 
             // Check that the latest installation list timestamp has been updated
@@ -1877,9 +1877,9 @@ pub(crate) mod tests {
     fn test_get_conversation_ids_for_responding_readds() {
         with_connection(|conn| {
             // Create test groups
-            let group_id_1 = vec![1, 2, 3];
-            let group_id_2 = vec![4, 5, 6];
-            let group_id_3 = vec![7, 8, 9];
+            let group_id_1: GroupId = vec![1, 2, 3].into();
+            let group_id_2: GroupId = vec![4, 5, 6].into();
+            let group_id_3: GroupId = vec![7, 8, 9].into();
 
             let group1 = StoredGroup::builder()
                 .id(group_id_1.clone())
@@ -1960,7 +1960,7 @@ pub(crate) mod tests {
             assert_eq!(result.len(), 2);
 
             // Results should be sorted by group_id (since we used distinct())
-            let mut result_group_ids: Vec<Vec<u8>> =
+            let mut result_group_ids: Vec<GroupId> =
                 result.iter().map(|r| r.group_id.clone()).collect();
             result_group_ids.sort();
 

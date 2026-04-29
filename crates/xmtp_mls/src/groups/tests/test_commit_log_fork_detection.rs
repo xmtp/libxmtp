@@ -6,7 +6,7 @@ use xmtp_db::encrypted_store::local_commit_log::NewLocalCommitLog;
 use xmtp_db::encrypted_store::remote_commit_log::{CommitResult, NewRemoteCommitLog};
 use xmtp_db::local_commit_log::CommitType;
 use xmtp_db::prelude::*;
-use xmtp_proto::types::{Cursor, GroupId};
+use xmtp_proto::types::Cursor;
 
 #[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
@@ -78,7 +78,12 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
     assert_eq!(results.len(), 1);
     let result = &results[0];
     assert!(result.is_forked.is_some());
-    let fork_status = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
+    let fork_status = result
+        .is_forked
+        .as_ref()
+        .unwrap()
+        .get(group_id.as_ref())
+        .unwrap();
     assert_eq!(*fork_status, Some(false), "Should detect no fork");
     Ok(())
 }
@@ -152,7 +157,12 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
     assert_eq!(results.len(), 1);
     let result = &results[0];
     assert!(result.is_forked.is_some());
-    let fork_status = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
+    let fork_status = result
+        .is_forked
+        .as_ref()
+        .unwrap()
+        .get(group_id.as_ref())
+        .unwrap();
     assert_eq!(*fork_status, Some(true), "Should detect a fork");
 
     Ok(())
@@ -219,7 +229,12 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     assert_eq!(results.len(), 1);
     let result = &results[0];
     assert!(result.is_forked.is_some());
-    let fork_status = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
+    let fork_status = result
+        .is_forked
+        .as_ref()
+        .unwrap()
+        .get(group_id.as_ref())
+        .unwrap();
     assert_eq!(
         *fork_status,
         Some(false),
@@ -287,7 +302,12 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     assert_eq!(results.len(), 1);
     let result = &results[0];
     assert!(result.is_forked.is_some());
-    let fork_status = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
+    let fork_status = result
+        .is_forked
+        .as_ref()
+        .unwrap()
+        .get(group_id.as_ref())
+        .unwrap();
     assert_eq!(
         *fork_status,
         Some(true),
@@ -305,14 +325,11 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
         Originators::REMOTE_COMMIT_LOG,
     )?;
-    let latest_two_local_log = alix
-        .context
-        .db()
-        .get_latest_log_for_group(&GroupId::from(group_id.as_slice()))?;
+    let latest_two_local_log = alix.context.db().get_latest_log_for_group(&group_id)?;
     let latest_two_remote_log = alix
         .context
         .db()
-        .get_latest_remote_log_for_group(&GroupId::from(group_id.as_slice()))?;
+        .get_latest_remote_log_for_group(&group_id)?;
 
     assert_eq!(
         updated_two_local_cursor,
@@ -392,7 +409,12 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
     assert_eq!(results.len(), 1);
     let result = &results[0];
     assert!(result.is_forked.is_some());
-    let fork_status = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
+    let fork_status = result
+        .is_forked
+        .as_ref()
+        .unwrap()
+        .get(group_id.as_ref())
+        .unwrap();
     assert_eq!(
         *fork_status, None,
         "Should return None when latest local commit has no matching remote entry"
@@ -472,14 +494,19 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     assert_eq!(results.len(), 1);
     let result = &results[0];
     assert!(result.is_forked.is_some());
-    let fork_status = result.is_forked.as_ref().unwrap().get(&group_id).unwrap();
+    let fork_status = result
+        .is_forked
+        .as_ref()
+        .unwrap()
+        .get(group_id.as_ref())
+        .unwrap();
     assert_eq!(*fork_status, Some(false), "Should initially detect no fork");
 
     // Verify the status is persisted in the database
     let db_fork_status = alix
         .context
         .db()
-        .get_group_commit_log_forked_status(&GroupId::from(group_id.as_slice()))?;
+        .get_group_commit_log_forked_status(&group_id)?;
     assert_eq!(
         db_fork_status,
         Some(false),
@@ -501,7 +528,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
         .is_forked
         .as_ref()
         .unwrap()
-        .get(&group_id)
+        .get(group_id.as_ref())
         .unwrap();
     assert_eq!(
         *fork_status_second,
@@ -513,7 +540,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     let db_fork_status_second = alix
         .context
         .db()
-        .get_group_commit_log_forked_status(&GroupId::from(group_id.as_slice()))?;
+        .get_group_commit_log_forked_status(&group_id)?;
     assert_eq!(
         db_fork_status_second,
         Some(false),
@@ -535,7 +562,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
         .is_forked
         .as_ref()
         .unwrap()
-        .get(&group_id)
+        .get(group_id.as_ref())
         .unwrap();
     assert_eq!(
         *fork_status_third,
@@ -547,7 +574,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     let db_fork_status_final = alix
         .context
         .db()
-        .get_group_commit_log_forked_status(&GroupId::from(group_id.as_slice()))?;
+        .get_group_commit_log_forked_status(&group_id)?;
     assert_eq!(
         db_fork_status_final,
         Some(false),

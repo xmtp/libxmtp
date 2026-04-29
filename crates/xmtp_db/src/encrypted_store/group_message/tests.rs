@@ -12,7 +12,10 @@ pub(crate) fn generate_message(
 ) -> StoredGroupMessage {
     StoredGroupMessage {
         id: rand_vec::<24>(),
-        group_id: group_id.map(<[u8]>::to_vec).unwrap_or(rand_vec::<24>()),
+        group_id: group_id
+            .map(<[u8]>::to_vec)
+            .unwrap_or(rand_vec::<24>())
+            .into(),
         decrypted_message_bytes: rand_vec::<24>(),
         sent_at_ns: sent_at_ns.unwrap_or(rand_time()),
         sender_installation_id: rand_vec::<24>(),
@@ -580,7 +583,7 @@ pub(crate) fn generate_message_with_reference<C: ConnectionExt>(
 ) -> StoredGroupMessage {
     let message = StoredGroupMessage {
         id: rand_vec::<24>(),
-        group_id: group_id.to_vec(),
+        group_id: group_id.into(),
         decrypted_message_bytes: rand_vec::<24>(),
         sent_at_ns,
         sender_installation_id: rand_vec::<24>(),

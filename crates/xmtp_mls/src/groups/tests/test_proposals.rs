@@ -115,7 +115,7 @@ async fn test_proposal_intent_serialization(
         .unwrap();
 
     assert_eq!(intent.kind, IntentKind::ProposeMemberUpdate);
-    assert_eq!(intent.group_id, alix_group.group_id);
+    assert_eq!(intent.group_id.as_slice(), alix_group.group_id.as_slice());
 
     // Verify deserialization
     let parsed = ProposeMemberUpdateIntentData::try_from(intent.data.as_slice()).unwrap();

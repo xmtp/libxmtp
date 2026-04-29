@@ -182,7 +182,10 @@ where
         let next_message = this.messages.as_mut().poll_next(cx);
         if let Ready(Some(msg)) = next_message {
             if let Ok(msg) = &msg
-                && self.sync_groups.contains(&msg.group_id)
+                && self
+                    .sync_groups
+                    .iter()
+                    .any(|id| id.as_slice() == msg.group_id.as_slice())
             {
                 let _ = self
                     .context

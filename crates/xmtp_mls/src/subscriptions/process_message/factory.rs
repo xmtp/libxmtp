@@ -121,7 +121,7 @@ where
     async fn recover(&self, msg: &xmtp_proto::types::GroupMessage) -> SyncSummary {
         let group = MlsGroup::new(
             self.0.clone(),
-            msg.group_id.to_vec(),
+            msg.group_id.clone(),
             None,
             ConversationType::Group,
             msg.timestamp(),
@@ -253,7 +253,7 @@ where
             Ok(ProcessedMessage {
                 message: Some(new_msg.clone()),
                 next_message: delivered_cursor,
-                group_id: new_msg.group_id.clone(),
+                group_id: new_msg.group_id.to_vec(),
                 tried_to_process: msg.cursor,
             })
         } else {

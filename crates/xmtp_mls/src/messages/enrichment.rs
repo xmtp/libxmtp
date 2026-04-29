@@ -65,7 +65,7 @@ pub(crate) fn is_deletion_valid(
         return false;
     }
 
-    if deletion.group_id != group_id || message.group_id != group_id {
+    if deletion.group_id.as_slice() != group_id || message.group_id.as_slice() != group_id {
         return false;
     }
 

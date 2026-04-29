@@ -360,10 +360,10 @@ where
         );
 
         // Also sync the "stitched DMs", if any...
-        for other_dm in conn.other_dms(&GroupId::from(self.group_id.as_slice()))? {
+        for other_dm in conn.other_dms(&self.group_id)? {
             let other_dm = Self::new_from_arc(
                 self.context.clone(),
-                other_dm.id.to_vec(),
+                other_dm.id,
                 other_dm.dm_id.clone(),
                 other_dm.conversation_type,
                 other_dm.created_at_ns,
@@ -380,7 +380,7 @@ where
 
     fn handle_group_paused(&self) -> Result<(), GroupError> {
         // Check if group is paused and try to unpause if version requirements are met
-        let group_id_typed = GroupId::from(self.group_id.as_slice());
+        let group_id_typed = self.group_id.clone();
         if let Some(required_min_version_str) = self
             .context
             .db()
@@ -1321,9 +1321,7 @@ where
                             if let Some(StoredGroup {
                                 conversation_type: ConversationType::Sync,
                                 ..
-                            }) = storage
-                                .db()
-                                .find_group(&GroupId::from(self.group_id.as_slice()))?
+                            }) = storage.db().find_group(&self.group_id)?
                             {
                                 // Send this event after the transaction completes
                                 deferred_events.add_worker_event(SyncWorkerEvent::NewSyncGroupMsg);
@@ -1573,7 +1571,7 @@ where
         let original_msg_opt = storage.db().get_group_message(&target_message_id)?;
 
         let is_super_admin_deletion = if let Some(ref original_msg) = original_msg_opt {
-            if original_msg.group_id != self.group_id {
+            if original_msg.group_id.as_slice() != self.group_id.as_slice() {
                 tracing::warn!(
                     "Cross-group deletion attempt: message {} from group {}",
                     delete_msg.message_id,
@@ -1704,10 +1702,10 @@ where
             .map(|inbox| inbox.inbox_id.clone())
             .collect();
 
-        match storage.db().delete_pending_remove_users(
-            &GroupId::from(self.group_id.as_slice()),
-            removed_inbox_ids.clone(),
-        ) {
+        match storage
+            .db()
+            .delete_pending_remove_users(&self.group_id, removed_inbox_ids.clone())
+        {
             Ok(_) => {
                 tracing::info!(
                     group_id = hex::encode(&self.group_id),
@@ -1792,10 +1790,10 @@ where
                 "Group has pending remove requests requiring admin action"
             );
 
-            if let Err(e) = storage.db().set_group_has_pending_leave_request_status(
-                &GroupId::from(self.group_id.as_slice()),
-                Some(true),
-            ) {
+            if let Err(e) = storage
+                .db()
+                .set_group_has_pending_leave_request_status(&self.group_id, Some(true))
+            {
                 tracing::error!(
                     error = %e,
                     operation = "set_group_pending_status",
@@ -1810,10 +1808,10 @@ where
                 "Group has no pending remove requests"
             );
 
-            if let Err(e) = storage.db().set_group_has_pending_leave_request_status(
-                &GroupId::from(self.group_id.as_slice()),
-                Some(false),
-            ) {
+            if let Err(e) = storage
+                .db()
+                .set_group_has_pending_leave_request_status(&self.group_id, Some(false))
+            {
                 tracing::error!(
                     operation = "set_group_pending_status",
                     group_id = hex::encode(&self.group_id),
@@ -1826,14 +1824,13 @@ where
 
     pub(crate) fn mark_readd_requests_as_responded(
         storage: &impl XmtpMlsStorageProvider,
-        group_id: &Vec<u8>,
+        group_id: &GroupId,
         readded_installations: &HashSet<Vec<u8>>,
         cursor: i64,
     ) -> Result<(), StorageError> {
-        let group_id_typed = GroupId::from(group_id.as_slice());
         for installation_id in readded_installations {
             storage.db().update_responded_at_sequence_id(
-                &group_id_typed,
+                group_id,
                 installation_id.as_slice(),
                 cursor,
             )?;
@@ -2102,13 +2099,13 @@ where
             match data.field_name.as_str() {
                 field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {
                     storage.db().update_message_disappearing_from_ns(
-                        GroupId::from(self.group_id.as_slice()),
+                        &self.group_id,
                         data.field_value.parse::<i64>().ok(),
                     )?
                 }
                 field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
                     storage.db().update_message_disappearing_in_ns(
-                        GroupId::from(self.group_id.as_slice()),
+                        &self.group_id,
                         data.field_value.parse::<i64>().ok(),
                     )?
                 }
@@ -2131,20 +2128,18 @@ where
                         .new_value
                         .as_deref()
                         .and_then(|v| v.parse::<i64>().ok());
-                    storage.db().update_message_disappearing_from_ns(
-                        GroupId::from(self.group_id.as_slice()),
-                        parsed_value,
-                    )?
+                    storage
+                        .db()
+                        .update_message_disappearing_from_ns(&self.group_id, parsed_value)?
                 }
                 field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
                     let parsed_value = change
                         .new_value
                         .as_deref()
                         .and_then(|v| v.parse::<i64>().ok());
-                    storage.db().update_message_disappearing_in_ns(
-                        GroupId::from(self.group_id.as_slice()),
-                        parsed_value,
-                    )?
+                    storage
+                        .db()
+                        .update_message_disappearing_in_ns(&self.group_id, parsed_value)?
                 }
                 _ => {} // Handle other metadata updates if needed
             }
@@ -2175,7 +2170,7 @@ where
                 // Instead of updating cursor, mark group as paused
                 self.context
                     .db()
-                    .set_group_paused(&GroupId::from(self.group_id.as_slice()), &min_version)?;
+                    .set_group_paused(&self.group_id, &min_version)?;
                 tracing::warn!(
                     "Group [{}] paused due to minimum protocol version requirement",
                     hex::encode(&self.group_id)
@@ -2335,9 +2330,7 @@ where
         let sender_installation_id = validated_commit.actor_installation_id();
         let sender_inbox_id = validated_commit.actor_inbox_id();
 
-        let pending_remove_users = &storage
-            .db()
-            .get_pending_remove_users(&GroupId::from(self.group_id.as_slice()))?;
+        let pending_remove_users = &storage.db().get_pending_remove_users(&self.group_id)?;
         let payload: GroupUpdated = validated_commit.into_with(pending_remove_users);
         tracing::info!("Storing transcript message");
         let encoded_payload = GroupUpdatedCodec::encode(payload.clone())?;
@@ -2476,7 +2469,7 @@ where
             let _ = self
                 .context
                 .db()
-                .mark_group_as_maybe_forked(&GroupId::from(self.group_id.as_slice()), fork_details);
+                .mark_group_as_maybe_forked(&self.group_id, fork_details);
             return epoch_validation_result;
         }
 
@@ -3356,7 +3349,7 @@ where
         update_interval_ns: Option<i64>,
     ) -> Result<(), GroupError> {
         let db = self.context.db();
-        let Some(stored_group) = db.find_group(&GroupId::from(self.group_id.as_slice()))? else {
+        let Some(stored_group) = db.find_group(&self.group_id)? else {
             return Err(GroupError::NotFound(NotFound::GroupById(
                 self.group_id.clone(),
             )));
@@ -3369,11 +3362,11 @@ where
         let interval_ns = update_interval_ns.unwrap_or(SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS);
 
         let now_ns = xmtp_common::time::now_ns();
-        let last_ns = db.get_installations_time_checked(GroupId::from(self.group_id.as_slice()))?;
+        let last_ns = db.get_installations_time_checked(&self.group_id)?;
         let elapsed_ns = now_ns - last_ns;
         if elapsed_ns > interval_ns && self.is_active()? {
             self.add_missing_installations().await?;
-            db.update_installations_time_checked(GroupId::from(self.group_id.as_slice()))?;
+            db.update_installations_time_checked(&self.group_id)?;
         }
 
         Ok(())
@@ -3716,7 +3709,7 @@ where
                 key
             }
         };
-        ikm.extend(&self.group_id);
+        ikm.extend_from_slice(self.group_id.as_ref());
         let hkdf = Hkdf::<Sha256>::new(Some(HMAC_SALT), &ikm);
 
         let mut result = vec![];
@@ -3724,7 +3717,7 @@ where
         for delta in epoch_delta_range {
             let epoch = current_epoch + delta;
 
-            let mut info = self.group_id.clone();
+            let mut info = self.group_id.to_vec();
             info.extend(&epoch.to_le_bytes());
 
             let mut key = [0; 42];
@@ -4161,7 +4154,7 @@ pub(crate) mod tests {
         let intent = StoredGroupIntent {
             id: 42,
             kind: IntentKind::SendMessage,
-            group_id: xmtp_common::rand_vec::<16>(),
+            group_id: GroupId::from(xmtp_common::rand_vec::<16>()),
             data: Vec::new(),
             state: IntentState::Published,
             payload_hash: Some(xmtp_common::rand_vec::<32>()),

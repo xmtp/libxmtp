@@ -496,7 +496,7 @@ where
                 num_entries_saved += 1;
                 NewRemoteCommitLog {
                     log_sequence_id: commit_log_entry.sequence_id as i64,
-                    group_id: log_entry.group_id.clone(),
+                    group_id: GroupId::from(log_entry.group_id.as_slice()),
                     commit_sequence_id: log_entry.commit_sequence_id as i64,
                     commit_result: CommitResult::from(
                         ProtoCommitResult::try_from(log_entry.commit_result)
@@ -510,7 +510,7 @@ where
                 latest_saved_remote_log = Some(RemoteCommitLog {
                     rowid: 0,
                     log_sequence_id: commit_log_entry.sequence_id as i64,
-                    group_id: log_entry.group_id,
+                    group_id: GroupId::from(log_entry.group_id),
                     commit_sequence_id: log_entry.commit_sequence_id as i64,
                     commit_result: CommitResult::from(
                         ProtoCommitResult::try_from(log_entry.commit_result)
@@ -656,11 +656,11 @@ where
                 )))?;
         let oneshot_message = OneshotMessage {
             message_type: Some(MessageType::ReaddRequest(ReaddRequest {
-                group_id: group_id.clone(),
+                group_id: group_id.to_vec(),
                 latest_commit_sequence_id: latest_commit_sequence_id as u64,
             })),
         };
-        let readders = self.permitted_readders(&group_id).await?;
+        let readders = self.permitted_readders(group_id.as_ref()).await?;
         tracing::info!(
             group_id = hex::encode(&group_id),
             "Sending readd request to {:?}",
@@ -757,7 +757,7 @@ where
                     }
                     let mls_group = MlsGroup::new(
                         self.context.clone(),
-                        group.group_id.clone(),
+                        GroupId::from(group.group_id.as_slice()),
                         group.dm_id.clone(),
                         group.conversation_type,
                         group.created_at_ns,

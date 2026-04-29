@@ -24,6 +24,7 @@ use xmtp_common::{Event, NS_IN_DAY, time::now_ns};
 use xmtp_db::group_message::{MsgQueryArgs, StoredGroupMessage};
 use xmtp_db::{prelude::*, tasks::NewTask};
 use xmtp_macro::log_event;
+use xmtp_proto::types::GroupId;
 use xmtp_proto::{
     ConversionError,
     xmtp::{
@@ -347,7 +348,7 @@ where
                                     SendSyncArchive {
                                         options: request.options,
                                         pin: Some(request.pin),
-                                        sync_group_id: msg.group_id.clone(),
+                                        sync_group_id: msg.group_id.to_vec(),
                                         server_url: request.server_url,
                                     },
                                 ),
@@ -409,7 +410,7 @@ where
     pub(crate) async fn send_archive(
         &self,
         options: &ArchiveOptions,
-        sync_group_id: &Vec<u8>,
+        sync_group_id: &GroupId,
         pin: &str,
         server_url: &str,
     ) -> Result<(), DeviceSyncError>

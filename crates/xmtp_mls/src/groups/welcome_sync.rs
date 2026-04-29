@@ -238,7 +238,7 @@ where
             .map(|g| {
                 MlsGroup::new(
                     self.context.clone(),
-                    g.id.to_vec(),
+                    g.id,
                     g.dm_id,
                     g.conversation_type,
                     g.created_at_ns,
@@ -274,7 +274,7 @@ where
             .map(|c| {
                 MlsGroup::new(
                     self.context.clone(),
-                    c.id.to_vec(),
+                    c.id,
                     c.dm_id,
                     c.conversation_type,
                     c.created_at_ns,
@@ -351,7 +351,7 @@ where
 fn filter_groups_with_new_messages(
     last_synced_cursors: HashMap<Vec<u8>, GlobalCursor>,
     latest_messages: HashMap<GroupId, GroupMessageMetadata>,
-) -> HashSet<Vec<u8>> {
+) -> HashSet<GroupId> {
     let mut groups_with_unread_messages = HashSet::new();
     for (group_id, latest_message_metadata) in latest_messages {
         match last_synced_cursors.get(group_id.as_ref()) {
@@ -361,12 +361,12 @@ fn filter_groups_with_new_messages(
                 if cursor.get(&latest_message_metadata.cursor.originator_id)
                     < latest_message_metadata.cursor.sequence_id
                 {
-                    groups_with_unread_messages.insert(group_id.to_vec());
+                    groups_with_unread_messages.insert(group_id);
                 }
             }
             None => {
                 // No cursor found. Must have never been synced before.
-                groups_with_unread_messages.insert(group_id.to_vec());
+                groups_with_unread_messages.insert(group_id);
             }
         }
     }
@@ -799,7 +799,7 @@ mod tests {
         let result = filter_groups_with_new_messages(last_synced, latest);
 
         assert_eq!(result.len(), 1);
-        assert!(result.contains(&group_id_1));
+        assert!(result.contains(&GroupId::from(group_id_1.as_slice())));
     }
 
     #[xmtp_common::test]
@@ -825,7 +825,7 @@ mod tests {
         let result = filter_groups_with_new_messages(last_synced, latest);
 
         assert_eq!(result.len(), 1);
-        assert!(result.contains(&group_never_synced));
+        assert!(result.contains(&GroupId::from(group_never_synced.as_slice())));
     }
 
     #[xmtp_common::test]
@@ -849,7 +849,7 @@ mod tests {
         let result = filter_groups_with_new_messages(last_synced, latest);
 
         assert_eq!(result.len(), 1);
-        assert!(result.contains(&group_id));
+        assert!(result.contains(&GroupId::from(group_id.as_slice())));
     }
 
     #[xmtp_common::test]
@@ -868,7 +868,7 @@ mod tests {
         let result = filter_groups_with_new_messages(last_synced, latest);
 
         assert_eq!(result.len(), 1);
-        assert!(result.contains(&group_id));
+        assert!(result.contains(&GroupId::from(group_id.as_slice())));
     }
 
     // I have no idea why this test is specifically failing on WASM
@@ -928,7 +928,7 @@ mod tests {
         let result = filter_groups_with_new_messages(last_synced, latest);
 
         assert_eq!(result.len(), 2);
-        assert!(result.contains(&g1));
-        assert!(result.contains(&g4));
+        assert!(result.contains(&GroupId::from(g1.as_slice())));
+        assert!(result.contains(&GroupId::from(g4.as_slice())));
     }
 }

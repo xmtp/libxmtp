@@ -44,14 +44,14 @@ impl xmtp_common::RetryableError for ConversationStreamError {
 }
 
 pub enum WelcomeOrGroup {
-    Group(Vec<u8>),
+    Group(xmtp_proto::types::GroupId),
     Welcome(xmtp_proto::types::WelcomeMessage),
 }
 
 impl std::fmt::Debug for WelcomeOrGroup {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Group(arg0) => f.debug_tuple("Group").field(&hex::encode(arg0)).finish(),
+            Self::Group(arg0) => f.debug_tuple("Group").field(arg0).finish(),
             Self::Welcome(arg0) => f.debug_tuple("Welcome").field(arg0).finish(),
         }
     }

@@ -229,7 +229,7 @@ impl TryFrom<StoredGroupMessage> for DecodedMessage {
         // Create the metadata
         let metadata = DecodedMessageMetadata {
             id: value.id,
-            group_id: value.group_id,
+            group_id: value.group_id.to_vec(),
             sent_at_ns: value.sent_at_ns,
             kind: value.kind,
             sender_installation_id: value.sender_installation_id,
