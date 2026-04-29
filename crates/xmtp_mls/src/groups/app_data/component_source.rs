@@ -785,7 +785,11 @@ pub(crate) fn read_super_admin_list_from_extensions(
 /// [`xmtp_mls_common::app_data::migration::synthesize_canonical_subset_for_validation`]:
 /// - `CONVERSATION_TYPE`: 4 big-endian bytes of `ConversationType as i32`
 ///   (see `encode_conversation_type` there).
-/// - `CREATOR_INBOX_ID`: raw UTF-8 inbox id string.
+/// - `CREATOR_INBOX_ID`: the versioned `InboxId` TLS wire form
+///   (`varint(version) || 32-byte payload`) — the same shape every
+///   other inbox-id-bearing component on the new path uses. Reader
+///   hex-encodes the decoded id back into the legacy
+///   `GroupMetadata::creator_inbox_id: String` slot.
 /// - `DM_MEMBERS`: `TlsSet<InboxId>` with exactly two elements —
 ///   matches the declared `ComponentType::TlsSetInboxId` and the
 ///   sender's `encode_dm_members`. The writer rejects self-DMs
@@ -835,12 +839,12 @@ pub(crate) fn read_group_metadata_from_extensions(
             })?;
     let conversation_type = i32::from_be_bytes(ct_arr);
 
-    let creator_inbox_id = std::str::from_utf8(creator_bytes)
+    let creator_inbox_id = InboxId::tls_deserialize_exact(creator_bytes)
         .map_err(|e| ComponentSourceError::MalformedComponentValue {
             component_id: ComponentId::CREATOR_INBOX_ID,
-            reason: format!("non-UTF-8: {e}"),
+            reason: format!("invalid InboxId TLS encoding: {e}"),
         })?
-        .to_string();
+        .to_hex();
 
     // `DM_MEMBERS` on the wire is `TlsSet<InboxId>`; re-shape to
     // `DmMembersProto` so downstream `GroupMetadata::try_from` is unchanged.
@@ -1743,6 +1747,12 @@ mod tests {
         encode_inbox_id_set(&[fake_inbox_id(tag_a), fake_inbox_id(tag_b)]).unwrap()
     }
 
+    /// Encode a single tagged inbox id in the `CREATOR_INBOX_ID` wire
+    /// form (versioned `InboxId` TLS encoding).
+    fn encode_creator_bytes(tag: u8) -> Vec<u8> {
+        fake_inbox(tag).tls_serialize_detached().unwrap()
+    }
+
     #[xmtp_common::test]
     fn read_group_metadata_unmigrated_returns_none() {
         let exts = extensions_with_entries(
@@ -1754,7 +1764,7 @@ mod tests {
                 ),
                 (
                     ComponentId::CREATOR_INBOX_ID.as_u16(),
-                    fake_inbox_id(0x11).into_bytes(),
+                    encode_creator_bytes(0x11),
                 ),
             ],
         );
@@ -1788,7 +1798,7 @@ mod tests {
                 ),
                 (
                     ComponentId::CREATOR_INBOX_ID.as_u16(),
-                    fake_inbox_id(0x11).into_bytes(),
+                    encode_creator_bytes(0x11),
                 ),
             ],
         );
@@ -1812,7 +1822,7 @@ mod tests {
                 ),
                 (
                     ComponentId::CREATOR_INBOX_ID.as_u16(),
-                    fake_inbox_id(0x22).into_bytes(),
+                    encode_creator_bytes(0x22),
                 ),
                 (ComponentId::DM_MEMBERS.as_u16(), encode_dm_pair(0x22, 0x33)),
             ],
@@ -1837,7 +1847,7 @@ mod tests {
                 ),
                 (
                     ComponentId::CREATOR_INBOX_ID.as_u16(),
-                    fake_inbox_id(0x44).into_bytes(),
+                    encode_creator_bytes(0x44),
                 ),
                 (ComponentId::DM_MEMBERS.as_u16(), one_element),
             ],
@@ -1853,7 +1863,12 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    fn read_group_metadata_non_utf8_creator_errors() {
+    fn read_group_metadata_malformed_creator_errors() {
+        // CREATOR_INBOX_ID is the versioned `InboxId` TLS encoding —
+        // a few stray bytes won't satisfy the varint length prefix
+        // plus 32-byte payload, so deserialization must fail loud as
+        // `MalformedComponentValue` rather than silently producing
+        // a phantom inbox id.
         let exts = extensions_with_entries(
             true,
             &[
@@ -1863,7 +1878,7 @@ mod tests {
                 ),
                 (
                     ComponentId::CREATOR_INBOX_ID.as_u16(),
-                    vec![0xFF, 0xFE, 0xFD], // invalid UTF-8
+                    vec![0xFF, 0xFE, 0xFD],
                 ),
             ],
         );
