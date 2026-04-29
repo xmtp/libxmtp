@@ -2043,6 +2043,25 @@ where
         mls_group: &OpenMlsGroup,
         inbox_id: String,
     ) -> Result<bool, GroupMutableMetadataError> {
+        // On migrated groups, the legacy GMM extension is gone — read
+        // SUPER_ADMIN_LIST from the AppData dict. A missing dict
+        // entry on a migrated group is treated as "no super-admins":
+        // falling through to `GroupMutableMetadata::try_from(mls_group)`
+        // would hit `MissingExtension` because bootstrap has already
+        // stripped the legacy GMM. Today bootstrap always seeds an
+        // (empty or populated) `SUPER_ADMIN_LIST` entry so the `None`
+        // branch is defensive, but the explicit handling keeps the
+        // read-side safe against any future weakening of that
+        // invariant.
+        //
+        // On unmigrated groups we fall back to the legacy GMM
+        // extension — that path is unchanged.
+        if self::app_data::is_migrated_group(mls_group) {
+            let list = self::app_data::component_source::read_super_admin_list_from_dict(mls_group)
+                .map_err(GroupMutableMetadataError::from)?
+                .unwrap_or_default();
+            return Ok(list.contains(&inbox_id));
+        }
         let mutable_metadata = GroupMutableMetadata::try_from(mls_group)?;
         Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
     }
@@ -2272,8 +2291,46 @@ where
     }
 
     /// Get the `GroupMetadata` of the group.
+    ///
+    /// On migrated groups the legacy immutable-metadata extension has
+    /// been removed; synthesize from dict (CONVERSATION_TYPE,
+    /// CREATOR_INBOX_ID, DM_MEMBERS, ONESHOT_MESSAGE). On unmigrated
+    /// groups, the legacy extension is authoritative.
+    ///
+    /// Migrated-but-no-seeds is treated as a hard error rather than
+    /// falling through to the legacy extension — the bootstrap commit
+    /// strips the legacy `GroupContextExtension`, so falling through
+    /// would surface an unrelated `MissingExtension` from the legacy
+    /// path. Returning `MissingExtension` directly here keeps the
+    /// failure shape callers already handle while making the
+    /// "incomplete migration" condition explicit at the originating
+    /// site.
     pub async fn metadata(&self) -> Result<GroupMetadata, GroupError> {
         self.load_mls_group_with_lock_async(async |mls_group| {
+            if self::app_data::is_migrated_group(&mls_group) {
+                let seed =
+                    self::app_data::component_source::read_group_metadata_from_dict(&mls_group)
+                        .map_err(MetadataPermissionsError::from)?
+                        .ok_or_else(|| {
+                            MetadataPermissionsError::from(GroupMetadataError::MissingExtension)
+                        })?;
+                use xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1 as GroupMetadataProto;
+                // `creator_account_address` has been `""` on the
+                // legacy write path since long before this migration
+                // (see the `TODO: remove from proto` note in
+                // `xmtp_mls_common::group_metadata`). The field is
+                // effectively dead — no consumer reads it — so the
+                // migrated synthesis keeps it empty to match legacy
+                // bytes exactly.
+                let proto = GroupMetadataProto {
+                    conversation_type: seed.conversation_type,
+                    creator_inbox_id: seed.creator_inbox_id,
+                    creator_account_address: String::new(),
+                    dm_members: seed.dm_members,
+                    oneshot_message: seed.oneshot,
+                };
+                return Ok(GroupMetadata::try_from(proto).map_err(MetadataPermissionsError::from)?);
+            }
             extract_group_metadata(mls_group.extensions())
                 .map_err(MetadataPermissionsError::from)
                 .map_err(Into::into)
@@ -2281,28 +2338,41 @@ where
         .await
     }
 
-    /// Get the `GroupMutableMetadata` of the group. Reads the legacy
-    /// mutable metadata extension as the base, then — on groups that
-    /// have flipped `proposals_enabled` — overlays any well-known
-    /// component values stored in the OpenMLS AppData dictionary on top.
+    /// Get the `GroupMutableMetadata` of the group.
     ///
-    /// The dict-overlay is gated on `proposals_enabled` so that an
-    /// unmigrated group never accidentally reads from the dict: on those
-    /// groups the legacy GCE path is still authoritative, the dict
-    /// should be empty, and a stray entry (e.g. a misbehaving peer's
-    /// commit that somehow slipped through) would otherwise silently
-    /// shadow legacy metadata values.
+    /// Post-migration (dict contains `COMPONENT_REGISTRY` — see
+    /// [`self::app_data::is_migrated_group`]) the legacy GMM extension
+    /// is gone; we start with an empty base and
+    /// `merge_app_data_into_mutable_metadata` populates every field
+    /// from the AppData dict. Pre-migration we read the legacy GMM
+    /// extension authoritatively. The overlay helper itself also
+    /// checks the migration marker (defense in depth), so a stray
+    /// dict entry on a pre-bootstrap group can't silently shadow
+    /// legacy values.
+    ///
+    /// Intentionally distinct from `proposals_enabled`: a group can
+    /// have `proposals_enabled == true` but not yet have completed
+    /// its bootstrap commit (the foundation-PR window). During that
+    /// window the legacy GMM is still authoritative.
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
         self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
-            let mut metadata = GroupMutableMetadata::try_from(&mls_group)
-                .map_err(MetadataPermissionsError::from)
-                .map_err(GroupError::from)?;
-            if self.proposals_enabled(&mls_group) {
-                self::app_data::component_source::merge_app_data_into_mutable_metadata(
-                    &mut metadata,
-                    &mls_group,
-                )?;
-            }
+            let mut metadata = if self::app_data::is_migrated_group(&mls_group) {
+                // Post-migration: legacy GMM extension is gone. Start
+                // with an empty base; `merge_app_data_into_mutable_metadata`
+                // populates every field from the dict.
+                GroupMutableMetadata::new(std::collections::HashMap::new(), Vec::new(), Vec::new())
+            } else {
+                GroupMutableMetadata::try_from(&mls_group)
+                    .map_err(MetadataPermissionsError::from)
+                    .map_err(GroupError::from)?
+            };
+            // The merge helper is also gated on the migration marker,
+            // so on unmigrated groups this is a no-op regardless of
+            // what the dict happens to contain.
+            self::app_data::component_source::merge_app_data_into_mutable_metadata(
+                &mut metadata,
+                &mls_group,
+            )?;
             Ok(metadata)
         })
     }

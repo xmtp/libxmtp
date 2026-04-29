@@ -2906,7 +2906,9 @@ async fn test_update_group_name_uses_legacy_path_when_registry_is_empty() {
     // ever changes.
     let registry = alix_group
         .load_mls_group_with_lock_async(async |g| {
-            Ok::<_, crate::groups::GroupError>(crate::groups::app_data::load_component_registry(&g))
+            Ok::<_, crate::groups::GroupError>(crate::groups::app_data::load_component_registry(
+                &g,
+            )?)
         })
         .await?;
     assert!(
