@@ -270,6 +270,25 @@ pub enum GroupError {
     /// failure is preserved instead of being string-flattened.
     #[error("app data commit error: {0}")]
     AppDataCommit(#[from] super::app_data::GroupAppDataError<sql_key_store::SqlKeyStoreError>),
+    /// Bootstrap synthesis failure — sender-side couldn't build the
+    /// complete set of initial component values for the migration
+    /// commit. Includes identity-update lookup failures.
+    ///
+    /// Conditionally retryable: delegates to the wrapped
+    /// [`BootstrapSynthesisError`], which retries only when an inner
+    /// identity-update API error is itself retryable. Decode/registry-shape
+    /// failures are deterministic and not retryable.
+    #[error("bootstrap synthesis error: {0}")]
+    BootstrapSynthesis(#[from] super::app_data::migration::BootstrapSynthesisError),
+    /// Bootstrap commit-build failure.
+    ///
+    /// Not retryable: every variant of [`BootstrapCommitError`] is a
+    /// deterministic OpenMLS commit failure, a TLS codec error, or a
+    /// caller-side precondition violation.
+    #[error("bootstrap commit error: {0}")]
+    BootstrapCommit(
+        #[from] super::app_data::migration::BootstrapCommitError<sql_key_store::SqlKeyStoreError>,
+    ),
     /// Credential error.
     ///
     /// MLS credential validation failed. Not retryable.
@@ -547,6 +566,12 @@ impl RetryableError for GroupError {
             Self::ProposalsNotSupported(_) => false,
             Self::ComponentSource(_) => false,
             Self::AppDataCommit(_) => false,
+            // Bootstrap synthesis can fail on a transient identity-update
+            // API blip — delegate to the inner error so we retry on
+            // network errors and stay non-retryable on deterministic
+            // wire-format / registry-shape failures.
+            Self::BootstrapSynthesis(e) => e.is_retryable(),
+            Self::BootstrapCommit(_) => false,
             Self::CommitValidation(err) => err.is_retryable(),
             Self::WrappedApi(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),

@@ -15,6 +15,7 @@
 // crate ecosystem still can't read or write arbitrary components — only
 // `GroupError` consumers see the error type.
 pub mod component_source;
+pub mod migration;
 
 use std::collections::BTreeMap;
 

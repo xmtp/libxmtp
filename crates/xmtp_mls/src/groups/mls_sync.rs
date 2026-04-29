@@ -714,7 +714,8 @@ where
             | IntentKind::MetadataUpdate
             | IntentKind::UpdatePermission
             | IntentKind::ReaddInstallations
-            | IntentKind::CommitPendingProposals => {
+            | IntentKind::CommitPendingProposals
+            | IntentKind::BootstrapMigration => {
                 if let Some(published_in_epoch) = intent.published_in_epoch {
                     let group_epoch = group_epoch.as_u64() as i64;
                     let message_epoch = message_epoch.as_u64() as i64;
@@ -2985,20 +2986,27 @@ where
             IntentKind::ProposeGroupContextExtensions => {
                 // No proposals_enabled guard here — ProposeGroupContextExtensions is used
                 // by enable_proposals() to bootstrap proposal support on the group.
+                //
+                // This arm handles the legacy propose-by-reference flow
+                // only. The one-time AppData-migration bootstrap commit
+                // is routed through [`IntentKind::BootstrapMigration`]
+                // instead — keep them distinct so the commit-producing
+                // path never fires accidentally when a caller just
+                // wants a standalone GCE proposal.
                 let intent_data =
                     ProposeGroupContextExtensionsIntentData::try_from(intent.data.as_slice())?;
                 let group_epoch = openmls_group.epoch().as_u64();
 
                 // Deserialize the extensions using tls_codec
                 use openmls::prelude::tls_codec::Deserialize;
-                let extensions =
+                let new_extensions =
                     Extensions::tls_deserialize(&mut intent_data.extensions_bytes.as_slice())?;
 
                 let signer = &self.context.identity().installation_keys;
                 let (proposal_msg, _proposal_ref) = openmls_group
                     .propose_group_context_extensions(
                         &self.context.mls_provider(),
-                        extensions,
+                        new_extensions,
                         signer,
                     )
                     .map_err(GroupError::Proposal)?;
@@ -3006,6 +3014,81 @@ where
                 Ok(Some(PublishIntentData {
                     payloads_to_publish: vec![proposal_msg.tls_serialize_detached()?],
                     staged_commit: None,
+                    post_commit_action: None,
+                    should_send_push_notification: intent.should_push,
+                    group_epoch,
+                }))
+            }
+            IntentKind::BootstrapMigration => {
+                // One-time AppData-migration bootstrap: bundles one
+                // GCE proposal (that strips the four legacy XMTP
+                // extensions and adds PROPOSAL_SUPPORT) with an
+                // `AppDataUpdate` proposal per well-known component.
+                // Routed on an explicit [`IntentKind::BootstrapMigration`]
+                // rather than shape-sniffing `ProposeGroupContextExtensions`
+                // payloads so a future non-bootstrap GCE intent with
+                // similar extension shape can't accidentally trigger
+                // the bootstrap path.
+                //
+                // NOTE: honest receivers reject the bootstrap commit
+                // until the receiver-side validator that understands
+                // `COMPONENT_REGISTRY` / `GROUP_MEMBERSHIP` writes is
+                // wired. Emitting this intent is only useful when the
+                // validator lands in the same release.
+                let intent_data =
+                    ProposeGroupContextExtensionsIntentData::try_from(intent.data.as_slice())?;
+
+                use openmls::prelude::tls_codec::Deserialize;
+                let new_extensions =
+                    Extensions::tls_deserialize(&mut intent_data.extensions_bytes.as_slice())?;
+
+                // Synthesize component values (async — hits
+                // identity-update API for failed_installations
+                // partitioning). The read runs outside the
+                // rollback transaction below, which is fine because:
+                // (a) identity-updates are append-only so a concurrent
+                // write can't invalidate a snapshot we just read,
+                // (b) honest receivers re-derive identity from the
+                // bootstrap-commit AppDataUpdate bytes directly rather
+                // than running the same synthesis, so cross-peer
+                // byte-identity isn't at stake, and
+                // (c) if a concurrent intent (e.g.
+                // `UpdateGroupMembership`) commits between this
+                // synthesis and `stage_bootstrap_commit`, the staged
+                // commit fails with an epoch mismatch and the
+                // `BootstrapMigration` arm of the `OldEpoch` retry
+                // path republishes the intent — benign churn, not data
+                // loss. Worth noting in production monitoring under
+                // high concurrency.
+                let component_values =
+                    super::app_data::migration::synthesize_initial_component_values(
+                        &self.context,
+                        openmls_group,
+                    )
+                    .await?;
+
+                let signer = self.context.identity().installation_keys.clone();
+                let (bundle, staged_commit, group_epoch): (
+                    openmls::prelude::CommitMessageBundle,
+                    Option<Vec<u8>>,
+                    u64,
+                ) = generate_commit_with_rollback(
+                    storage,
+                    openmls_group,
+                    move |group, provider| -> Result<_, GroupError> {
+                        Ok(super::app_data::migration::stage_bootstrap_commit(
+                            group,
+                            provider,
+                            &signer,
+                            &component_values,
+                            new_extensions,
+                        )?)
+                    },
+                )?;
+                let (commit, _, _) = bundle.into_messages();
+                Ok(Some(PublishIntentData {
+                    payloads_to_publish: vec![commit.tls_serialize_detached()?],
+                    staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
                     group_epoch,
