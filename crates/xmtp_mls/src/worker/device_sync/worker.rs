@@ -348,7 +348,7 @@ where
                                     SendSyncArchive {
                                         options: request.options,
                                         pin: Some(request.pin),
-                                        sync_group_id: msg.group_id.clone(),
+                                        sync_group_id: msg.group_id.to_vec(),
                                         server_url: request.server_url,
                                     },
                                 ),

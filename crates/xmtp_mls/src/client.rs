@@ -914,7 +914,7 @@ where
                     // Only construct StoredGroupMessage if all fields are Some
                     let msg: Option<StoredGroupMessage> = Some(StoredGroupMessage {
                         id: message_id,
-                        group_id: conversation_item.id.to_vec(),
+                        group_id: conversation_item.id.clone(),
                         decrypted_message_bytes: conversation_item.decrypted_message_bytes?,
                         sent_at_ns: conversation_item.sent_at_ns?,
                         sender_installation_id: conversation_item.sender_installation_id?,

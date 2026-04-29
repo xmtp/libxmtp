@@ -150,7 +150,7 @@ pub fn generate_errored_summary_with_group(
 pub fn generate_stored_msg(cursor: Cursor, group_id: Vec<u8>) -> StoredGroupMessage {
     StoredGroupMessage {
         id: xmtp_common::rand_vec::<32>(),
-        group_id,
+        group_id: group_id.into(),
         decrypted_message_bytes: b"test message".to_vec(),
         sent_at_ns: 100,
         kind: xmtp_db::group_message::GroupMessageKind::Application,

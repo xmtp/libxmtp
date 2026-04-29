@@ -23,7 +23,7 @@ use xmtp_proto::types::GroupId;
 #[diesel(primary_key(inbox_id, group_id))]
 pub struct PendingRemove {
     /// Id of the group this message is tied to.
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     /// Id of the inbox user want to leave the group.
     pub inbox_id: String,
     /// Id of the LeaveRequest message
@@ -132,7 +132,7 @@ mod tests {
             // Break the chain by unsetting the originator.
             PendingRemove {
                 inbox_id: "123".to_string(),
-                group_id: vec![1, 2, 3],
+                group_id: GroupId::from(vec![1, 2, 3]),
                 message_id: vec![1, 2, 3],
             }
             .store_or_ignore(conn)?;
@@ -153,19 +153,19 @@ mod tests {
             // Break the chain by unsetting the originator.
             PendingRemove {
                 inbox_id: "1".to_string(),
-                group_id: vec![1, 2, 3],
+                group_id: GroupId::from(vec![1, 2, 3]),
                 message_id: vec![1, 2, 3],
             }
             .store_or_ignore(conn)?;
             PendingRemove {
                 inbox_id: "2".to_string(),
-                group_id: vec![1, 2, 3],
+                group_id: GroupId::from(vec![1, 2, 3]),
                 message_id: vec![1, 2, 3],
             }
             .store_or_ignore(conn)?;
             PendingRemove {
                 inbox_id: "3".to_string(),
-                group_id: vec![1, 2, 3],
+                group_id: GroupId::from(vec![1, 2, 3]),
                 message_id: vec![1, 2, 3],
             }
             .store_or_ignore(conn)?;

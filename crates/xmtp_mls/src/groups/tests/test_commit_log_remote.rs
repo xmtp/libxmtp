@@ -705,7 +705,7 @@ async fn test_should_skip_remote_log_entry() {
     let latest_saved_remote_log = RemoteCommitLog {
         rowid: 0,
         log_sequence_id: 0,
-        group_id: vec![0x11, 0x22, 0x33],
+        group_id: GroupId::from(vec![0x11, 0x22, 0x33]),
         commit_sequence_id: 100,
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
@@ -733,7 +733,7 @@ async fn test_should_skip_remote_log_entry() {
     let latest_saved_remote_log = RemoteCommitLog {
         rowid: 0,
         log_sequence_id: 0,
-        group_id: vec![0x11, 0x22, 0x33],
+        group_id: GroupId::from(vec![0x11, 0x22, 0x33]),
         commit_sequence_id: 100,
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
@@ -760,7 +760,7 @@ async fn test_should_skip_remote_log_entry() {
     let latest_saved_remote_log = RemoteCommitLog {
         rowid: 0,
         log_sequence_id: 0,
-        group_id: vec![0x11, 0x22, 0x33],
+        group_id: GroupId::from(vec![0x11, 0x22, 0x33]),
         commit_sequence_id: 100,
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
@@ -788,7 +788,7 @@ async fn test_should_skip_remote_log_entry() {
     let latest_saved_remote_log = RemoteCommitLog {
         rowid: 0,
         log_sequence_id: 0,
-        group_id: vec![0x11, 0x22, 0x33],
+        group_id: GroupId::from(vec![0x11, 0x22, 0x33]),
         commit_sequence_id: 100,
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
@@ -816,7 +816,7 @@ async fn test_should_skip_remote_log_entry() {
     let latest_saved_remote_log = RemoteCommitLog {
         rowid: 0,
         log_sequence_id: 0,
-        group_id: vec![0x11, 0x22, 0x33],
+        group_id: GroupId::from(vec![0x11, 0x22, 0x33]),
         commit_sequence_id: 100,
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
@@ -844,7 +844,7 @@ async fn test_should_skip_remote_log_entry() {
     let latest_saved_remote_log = RemoteCommitLog {
         rowid: 0,
         log_sequence_id: 0,
-        group_id: vec![0x11, 0x22, 0x33],
+        group_id: GroupId::from(vec![0x11, 0x22, 0x33]),
         commit_sequence_id: 100,
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
@@ -872,7 +872,7 @@ async fn test_should_skip_remote_log_entry() {
     let latest_saved_remote_log = RemoteCommitLog {
         rowid: 0,
         log_sequence_id: 0,
-        group_id: vec![0x11, 0x22, 0x33],
+        group_id: GroupId::from(vec![0x11, 0x22, 0x33]),
         commit_sequence_id: 100,
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,
@@ -899,7 +899,7 @@ async fn test_should_skip_remote_log_entry() {
     let latest_saved_remote_log = RemoteCommitLog {
         rowid: 0,
         log_sequence_id: 0,
-        group_id: vec![0x11, 0x22, 0x33],
+        group_id: GroupId::from(vec![0x11, 0x22, 0x33]),
         commit_sequence_id: 100,
         commit_result: CommitResult::Success,
         applied_epoch_number: 3,

@@ -514,7 +514,7 @@ where
         // this is the commit that brought us into the group
         let added_msg = StoredGroupMessage {
             id: added_message_id,
-            group_id: stored_group.id.to_vec(),
+            group_id: stored_group.id.clone(),
             decrypted_message_bytes: encoded_added_payload_bytes,
             sent_at_ns: welcome.timestamp(),
             kind: GroupMessageKind::MembershipChange,

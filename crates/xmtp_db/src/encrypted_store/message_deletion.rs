@@ -24,7 +24,7 @@ pub struct StoredMessageDeletion {
     /// The ID of the DeleteMessage in the group_messages table
     pub id: Vec<u8>,
     /// The group this deletion belongs to
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     /// The ID of the original message being deleted
     pub deleted_message_id: Vec<u8>,
     /// The inbox_id of who sent the delete message
@@ -209,7 +209,7 @@ mod tests {
     ) {
         StoredGroupMessage {
             id,
-            group_id,
+            group_id: group_id.into(),
             decrypted_message_bytes: vec![],
             sent_at_ns: 1000,
             kind: GroupMessageKind::Application,
@@ -244,7 +244,7 @@ mod tests {
 
             let deletion = StoredMessageDeletion {
                 id: delete_message_id.clone(),
-                group_id: group_id.clone(),
+                group_id: group_id.clone().into(),
                 deleted_message_id: message_id.clone(),
                 deleted_by_inbox_id: "sender".to_string(),
                 is_super_admin_deletion: false,
@@ -282,7 +282,7 @@ mod tests {
             // Store deletion
             StoredMessageDeletion {
                 id: delete_message_id.clone(),
-                group_id: group_id.clone(),
+                group_id: group_id.clone().into(),
                 deleted_message_id: message_id.clone(),
                 deleted_by_inbox_id: "sender".to_string(),
                 is_super_admin_deletion: false,
@@ -315,7 +315,7 @@ mod tests {
             // Delete msg1 and msg2
             StoredMessageDeletion {
                 id: del1.clone(),
-                group_id: group_id.clone(),
+                group_id: group_id.clone().into(),
                 deleted_message_id: msg1.clone(),
                 deleted_by_inbox_id: "sender".to_string(),
                 is_super_admin_deletion: false,
@@ -325,7 +325,7 @@ mod tests {
 
             StoredMessageDeletion {
                 id: del2.clone(),
-                group_id: group_id.clone(),
+                group_id: group_id.clone().into(),
                 deleted_message_id: msg2.clone(),
                 deleted_by_inbox_id: "admin".to_string(),
                 is_super_admin_deletion: true,
@@ -362,7 +362,7 @@ mod tests {
 
             StoredMessageDeletion {
                 id: del1.clone(),
-                group_id: group1.clone(),
+                group_id: group1.clone().into(),
                 deleted_message_id: msg1.clone(),
                 deleted_by_inbox_id: "sender".to_string(),
                 is_super_admin_deletion: false,
@@ -372,7 +372,7 @@ mod tests {
 
             StoredMessageDeletion {
                 id: del2.clone(),
-                group_id: group2.clone(),
+                group_id: group2.clone().into(),
                 deleted_message_id: msg2.clone(),
                 deleted_by_inbox_id: "sender".to_string(),
                 is_super_admin_deletion: false,

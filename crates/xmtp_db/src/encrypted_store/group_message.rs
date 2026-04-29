@@ -47,7 +47,7 @@ pub struct StoredGroupMessage {
     /// Id of the message.
     pub id: Vec<u8>,
     /// Id of the group this message is tied to.
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     /// Contents of message after decryption.
     pub decrypted_message_bytes: Vec<u8>,
     /// Time in nanoseconds the message was sent.
@@ -94,7 +94,7 @@ impl StoredGroupMessage {
 #[diesel(table_name = group_messages)]
 struct NewStoredGroupMessage {
     pub id: Vec<u8>,
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     pub decrypted_message_bytes: Vec<u8>,
     pub sent_at_ns: i64,
     pub kind: GroupMessageKind,

@@ -24,7 +24,7 @@ use xmtp_proto::types::GroupId;
 #[diesel(table_name = remote_commit_log)]
 pub struct NewRemoteCommitLog {
     pub log_sequence_id: i64,
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     pub commit_sequence_id: i64,
     pub commit_result: CommitResult,
     pub applied_epoch_number: i64,
@@ -41,7 +41,7 @@ pub struct RemoteCommitLog {
     // The sequence ID of the log entry on the server
     pub log_sequence_id: i64,
     // The group ID of the conversation
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     // The sequence ID of the commit being referenced
     pub commit_sequence_id: i64,
     // Whether the commit was successfully applied or not

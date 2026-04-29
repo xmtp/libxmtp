@@ -18,7 +18,7 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
 
         Ok(Self {
             id: value.id,
-            group_id: value.group_id,
+            group_id: value.group_id.into(),
             decrypted_message_bytes: value.decrypted_message_bytes,
             sent_at_ns: value.sent_at_ns,
             kind,
@@ -94,7 +94,7 @@ impl From<StoredGroupMessage> for GroupMessageSave {
 
         Self {
             id: value.id,
-            group_id: value.group_id,
+            group_id: value.group_id.into(),
             decrypted_message_bytes: value.decrypted_message_bytes,
             sent_at_ns: value.sent_at_ns,
             kind: kind as i32,

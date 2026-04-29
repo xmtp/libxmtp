@@ -17,7 +17,7 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
 
     // Insert local commit log entries
     let local_entry_1 = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 1,
         last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
@@ -30,7 +30,7 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
     };
 
     let local_entry_2 = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 2,
         last_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
         commit_result: CommitResult::Success,
@@ -48,7 +48,7 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
     // Insert matching remote commit log entries (no fork)
     let remote_entry_1 = NewRemoteCommitLog {
         log_sequence_id: 100,
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 1,
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
@@ -57,7 +57,7 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
 
     let remote_entry_2 = NewRemoteCommitLog {
         log_sequence_id: 101,
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 2,
         commit_result: CommitResult::Success,
         applied_epoch_number: 2,
@@ -92,7 +92,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
 
     // Insert local commit log entries
     let local_entry_1 = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 200,
         last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
@@ -105,7 +105,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
     };
 
     let local_entry_2 = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 201,
         last_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
         commit_result: CommitResult::Success,
@@ -123,7 +123,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
     // Insert matching remote commit log entries (no fork)
     let remote_entry_1 = NewRemoteCommitLog {
         log_sequence_id: 100,
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 200,
         commit_result: CommitResult::Invalid, // For some reason remote marked this commit invalid
         applied_epoch_number: 1,
@@ -132,7 +132,7 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
 
     let remote_entry_2 = NewRemoteCommitLog {
         log_sequence_id: 101,
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 200,
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
@@ -167,7 +167,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
 
     // Insert local commit log entry
     let local_entry = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 1,
         last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
@@ -184,7 +184,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     // Insert matching remote commit log entry with same authenticator (should update cursors)
     let remote_entry = NewRemoteCommitLog {
         log_sequence_id: 100,
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 1, // Same commit_sequence_id
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
@@ -250,7 +250,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
 
     // Insert local commit log entry
     let local_entry = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 2,
         last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
@@ -267,7 +267,7 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     // Insert matching remote commit log entry with same authenticator (should update cursors)
     let remote_entry = NewRemoteCommitLog {
         log_sequence_id: 101,
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 2, // Same commit_sequence_id
         commit_result: CommitResult::Success,
         applied_epoch_number: 2,
@@ -340,7 +340,7 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
 
     // Insert local commit log entries
     let local_entry_1 = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 1,
         last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
@@ -353,7 +353,7 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
     };
 
     let local_entry_2 = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 2,
         last_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
         commit_result: CommitResult::Success,
@@ -371,7 +371,7 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
     // Insert remote commit log entries with different commit_sequence_ids (no match for latest local)
     let remote_entry = NewRemoteCommitLog {
         log_sequence_id: 100,
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 1, // Only matches first local entry
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
@@ -411,7 +411,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
 
     // Insert local commit log entries
     let local_entry_1 = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 1,
         last_epoch_authenticator: vec![0x11, 0x22, 0x33],
         commit_result: CommitResult::Success,
@@ -424,7 +424,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     };
 
     let local_entry_2 = NewLocalCommitLog {
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 2,
         last_epoch_authenticator: vec![0xAA, 0xBB, 0xCC],
         commit_result: CommitResult::Success,
@@ -442,7 +442,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
     // Insert matching remote commit log entries (no fork)
     let remote_entry_1 = NewRemoteCommitLog {
         log_sequence_id: 100,
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 1,
         commit_result: CommitResult::Success,
         applied_epoch_number: 1,
@@ -451,7 +451,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
 
     let remote_entry_2 = NewRemoteCommitLog {
         log_sequence_id: 101,
-        group_id: group_id.clone(),
+        group_id: group_id.clone().into(),
         commit_sequence_id: 2,
         commit_result: CommitResult::Success,
         applied_epoch_number: 2,

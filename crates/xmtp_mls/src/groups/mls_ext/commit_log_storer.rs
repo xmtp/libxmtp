@@ -77,7 +77,7 @@ impl CommitLogStorer for MlsGroup {
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
-                group_id: mls_group.group_id().to_vec(),
+                group_id: mls_group.group_id().into(),
                 commit_sequence_id: 0,
                 last_epoch_authenticator: vec![],
                 commit_result: CommitResult::Success,
@@ -115,7 +115,7 @@ impl CommitLogStorer for MlsGroup {
             // It is safe to log this stubbed encryption state, because we will not upload anything
             // to the remote commit log with a sequence ID of 0.
             NewLocalCommitLog {
-                group_id: mls_group.group_id().to_vec(),
+                group_id: mls_group.group_id().into(),
                 commit_sequence_id: 0,
                 last_epoch_authenticator: vec![],
                 commit_result: CommitResult::Success,
@@ -143,7 +143,7 @@ impl CommitLogStorer for MlsGroup {
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
-                group_id: mls_group.group_id().to_vec(),
+                group_id: mls_group.group_id().into(),
                 // TODO(rich): Replace with the cursor sequence ID of the welcome once implemented
                 commit_sequence_id: 0,
                 last_epoch_authenticator: vec![],
@@ -173,7 +173,7 @@ impl CommitLogStorer for MlsGroup {
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
-                group_id: self.group_id().to_vec(),
+                group_id: self.group_id().into(),
                 commit_sequence_id: sequence_id,
                 last_epoch_authenticator,
                 commit_result: CommitResult::Success,
@@ -200,14 +200,13 @@ impl CommitLogStorer for MlsGroup {
         if !xmtp_configuration::ENABLE_COMMIT_LOG {
             return Ok(());
         }
-        let group_id = self.group_id().to_vec();
+        let group_id: GroupId = self.group_id().into();
         let last_epoch_number = self.epoch();
         let last_epoch_authenticator = self.epoch_authenticator();
         let conn = provider.key_store().db();
         let mut maybe_recently_welcomed = true;
         // Latest log may not exist if a client upgraded from a version without local commit logs
-        if let Some(latest_log) =
-            conn.get_latest_log_for_group(&GroupId::from(group_id.as_slice()))?
+        if let Some(latest_log) = conn.get_latest_log_for_group(&group_id)?
             && latest_log.commit_type != Some(CommitType::Welcome.to_string())
         {
             maybe_recently_welcomed = false;
@@ -219,7 +218,7 @@ impl CommitLogStorer for MlsGroup {
         }
 
         NewLocalCommitLog {
-            group_id: group_id.to_vec(),
+            group_id,
             commit_sequence_id: commit_sequence_id as i64,
             last_epoch_authenticator: last_epoch_authenticator.as_slice().to_vec(),
             commit_result: error.commit_result(),

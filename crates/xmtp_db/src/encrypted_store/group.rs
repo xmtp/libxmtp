@@ -154,7 +154,7 @@ pub struct StoredGroupCommitLogPublicKey {
 #[derive(Debug, Clone, Queryable, QueryableByName)]
 pub struct StoredGroupForReaddRequest {
     #[diesel(sql_type = diesel::sql_types::Binary)]
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::BigInt>)]
     pub latest_commit_sequence_id: Option<i64>,
 }
@@ -163,7 +163,7 @@ pub struct StoredGroupForReaddRequest {
 #[derive(Debug, Clone, Queryable, QueryableByName)]
 pub struct StoredGroupForRespondingReadds {
     #[diesel(sql_type = diesel::sql_types::Binary)]
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
     pub dm_id: Option<String>,
     #[diesel(sql_type = diesel::sql_types::Integer)]
@@ -275,25 +275,25 @@ pub trait QueryGroup {
         cursor: Cursor,
     ) -> Result<Option<StoredGroup>, crate::ConnectionError>;
 
-    fn get_rotated_at_ns(&self, group_id: GroupId) -> Result<i64, StorageError>;
+    fn get_rotated_at_ns(&self, group_id: &GroupId) -> Result<i64, StorageError>;
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_rotated_at_ns(&self, group_id: GroupId) -> Result<(), StorageError>;
+    fn update_rotated_at_ns(&self, group_id: &GroupId) -> Result<(), StorageError>;
 
-    fn get_installations_time_checked(&self, group_id: GroupId) -> Result<i64, StorageError>;
+    fn get_installations_time_checked(&self, group_id: &GroupId) -> Result<i64, StorageError>;
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_installations_time_checked(&self, group_id: GroupId) -> Result<(), StorageError>;
+    fn update_installations_time_checked(&self, group_id: &GroupId) -> Result<(), StorageError>;
 
     fn update_message_disappearing_from_ns(
         &self,
-        group_id: GroupId,
+        group_id: &GroupId,
         from_ns: Option<i64>,
     ) -> Result<(), StorageError>;
 
     fn update_message_disappearing_in_ns(
         &self,
-        group_id: GroupId,
+        group_id: &GroupId,
         in_ns: Option<i64>,
     ) -> Result<(), StorageError>;
 
@@ -425,27 +425,27 @@ where
         (**self).find_group_by_sequence_id(cursor)
     }
 
-    fn get_rotated_at_ns(&self, group_id: GroupId) -> Result<i64, StorageError> {
+    fn get_rotated_at_ns(&self, group_id: &GroupId) -> Result<i64, StorageError> {
         (**self).get_rotated_at_ns(group_id)
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_rotated_at_ns(&self, group_id: GroupId) -> Result<(), StorageError> {
+    fn update_rotated_at_ns(&self, group_id: &GroupId) -> Result<(), StorageError> {
         (**self).update_rotated_at_ns(group_id)
     }
 
-    fn get_installations_time_checked(&self, group_id: GroupId) -> Result<i64, StorageError> {
+    fn get_installations_time_checked(&self, group_id: &GroupId) -> Result<i64, StorageError> {
         (**self).get_installations_time_checked(group_id)
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_installations_time_checked(&self, group_id: GroupId) -> Result<(), StorageError> {
+    fn update_installations_time_checked(&self, group_id: &GroupId) -> Result<(), StorageError> {
         (**self).update_installations_time_checked(group_id)
     }
 
     fn update_message_disappearing_from_ns(
         &self,
-        group_id: GroupId,
+        group_id: &GroupId,
         from_ns: Option<i64>,
     ) -> Result<(), StorageError> {
         (**self).update_message_disappearing_from_ns(group_id, from_ns)
@@ -453,7 +453,7 @@ where
 
     fn update_message_disappearing_in_ns(
         &self,
-        group_id: GroupId,
+        group_id: &GroupId,
         in_ns: Option<i64>,
     ) -> Result<(), StorageError> {
         (**self).update_message_disappearing_in_ns(group_id, in_ns)
@@ -810,7 +810,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(groups.into_iter().next())
     }
 
-    fn get_rotated_at_ns(&self, group_id: GroupId) -> Result<i64, StorageError> {
+    fn get_rotated_at_ns(&self, group_id: &GroupId) -> Result<i64, StorageError> {
         let last_ts: Option<i64> = self.raw_query(|conn| {
             dsl::groups
                 .find(&group_id)
@@ -820,12 +820,12 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         })?;
 
         last_ts.ok_or(StorageError::NotFound(NotFound::InstallationTimeForGroup(
-            group_id,
+            group_id.clone(),
         )))
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_rotated_at_ns(&self, group_id: GroupId) -> Result<(), StorageError> {
+    fn update_rotated_at_ns(&self, group_id: &GroupId) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(group_id))
@@ -836,7 +836,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
-    fn get_installations_time_checked(&self, group_id: GroupId) -> Result<i64, StorageError> {
+    fn get_installations_time_checked(&self, group_id: &GroupId) -> Result<i64, StorageError> {
         let last_ts = self.raw_query(|conn| {
             dsl::groups
                 .find(&group_id)
@@ -845,11 +845,11 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                 .optional()
         })?;
 
-        last_ts.ok_or(NotFound::InstallationTimeForGroup(group_id).into())
+        last_ts.ok_or(NotFound::InstallationTimeForGroup(group_id.clone()).into())
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_installations_time_checked(&self, group_id: GroupId) -> Result<(), StorageError> {
+    fn update_installations_time_checked(&self, group_id: &GroupId) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(group_id))
@@ -862,7 +862,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     fn update_message_disappearing_from_ns(
         &self,
-        group_id: GroupId,
+        group_id: &GroupId,
         from_ns: Option<i64>,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
@@ -876,7 +876,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
 
     fn update_message_disappearing_in_ns(
         &self,
-        group_id: GroupId,
+        group_id: &GroupId,
         in_ns: Option<i64>,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
@@ -1562,7 +1562,7 @@ pub(crate) mod tests {
             }
             // Check that some event occurred which triggers an installation list update.
             // Here we invoke that event directly
-            let result = conn.update_installations_time_checked(test_group.id.clone());
+            let result = conn.update_installations_time_checked(&test_group.id);
             assert_ok!(result);
 
             // Check that the latest installation list timestamp has been updated
@@ -1912,35 +1912,35 @@ pub(crate) mod tests {
             let test_cases = vec![
                 // Case 1: Pending readd (requested_at > responded_at)
                 ReaddStatus {
-                    group_id: group_id_1.clone(),
+                    group_id: GroupId::from(group_id_1.as_slice()),
                     installation_id: vec![1],
                     requested_at_sequence_id: Some(10),
                     responded_at_sequence_id: Some(5),
                 },
                 // Case 2: Pending readd (responded_at is None)
                 ReaddStatus {
-                    group_id: group_id_1.clone(),
+                    group_id: GroupId::from(group_id_1.as_slice()),
                     installation_id: vec![2],
                     requested_at_sequence_id: Some(8),
                     responded_at_sequence_id: None,
                 },
                 // Case 4: Not pending (requested_at < responded_at)
                 ReaddStatus {
-                    group_id: group_id_2.clone(),
+                    group_id: GroupId::from(group_id_2.as_slice()),
                     installation_id: vec![4],
                     requested_at_sequence_id: Some(12),
                     responded_at_sequence_id: Some(15),
                 },
                 // Case 5: Not pending (requested_at is None)
                 ReaddStatus {
-                    group_id: group_id_2.clone(),
+                    group_id: GroupId::from(group_id_2.as_slice()),
                     installation_id: vec![5],
                     requested_at_sequence_id: None,
                     responded_at_sequence_id: Some(20),
                 },
                 // Case 6: Pending readd (requested_at == responded_at, should be pending)
                 ReaddStatus {
-                    group_id: group_id_3.clone(),
+                    group_id: GroupId::from(group_id_3.as_slice()),
                     installation_id: vec![6],
                     requested_at_sequence_id: Some(25),
                     responded_at_sequence_id: Some(25),
@@ -1961,19 +1961,25 @@ pub(crate) mod tests {
 
             // Results should be sorted by group_id (since we used distinct())
             let mut result_group_ids: Vec<Vec<u8>> =
-                result.iter().map(|r| r.group_id.clone()).collect();
+                result.iter().map(|r| r.group_id.to_vec()).collect();
             result_group_ids.sort();
 
             assert_eq!(result_group_ids[0], group_id_1);
             assert_eq!(result_group_ids[1], group_id_3);
 
             // Check that the correct metadata is returned
-            let group1_result = result.iter().find(|r| r.group_id == group_id_1).unwrap();
+            let group1_result = result
+                .iter()
+                .find(|r| r.group_id.as_slice() == group_id_1)
+                .unwrap();
             assert_eq!(group1_result.dm_id, None);
             assert_eq!(group1_result.conversation_type, ConversationType::Group);
             assert_eq!(group1_result.created_at_ns, 1000);
 
-            let group3_result = result.iter().find(|r| r.group_id == group_id_3).unwrap();
+            let group3_result = result
+                .iter()
+                .find(|r| r.group_id.as_slice() == group_id_3)
+                .unwrap();
             assert_eq!(group3_result.dm_id, None);
             assert_eq!(group3_result.conversation_type, ConversationType::Group);
             assert_eq!(group3_result.created_at_ns, 3000);

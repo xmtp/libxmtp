@@ -13,7 +13,7 @@ use xmtp_proto::types::GroupId;
 #[diesel(table_name = readd_status)]
 #[diesel(primary_key(group_id, installation_id))]
 pub struct ReaddStatus {
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     pub installation_id: Vec<u8>,
     pub requested_at_sequence_id: Option<i64>,
     pub responded_at_sequence_id: Option<i64>,
@@ -116,7 +116,7 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
         use diesel::query_dsl::methods::FilterDsl;
 
         let new_status = super::readd_status::ReaddStatus {
-            group_id: group_id.as_ref().to_vec(),
+            group_id: group_id.clone(),
             installation_id: installation_id.to_vec(),
             requested_at_sequence_id: Some(sequence_id),
             responded_at_sequence_id: None,
@@ -149,7 +149,7 @@ impl<C: ConnectionExt> QueryReaddStatus for DbConnection<C> {
         use diesel::query_dsl::methods::FilterDsl;
 
         let new_status = super::readd_status::ReaddStatus {
-            group_id: group_id.as_ref().to_vec(),
+            group_id: group_id.clone(),
             installation_id: installation_id.to_vec(),
             requested_at_sequence_id: None,
             responded_at_sequence_id: Some(sequence_id),
@@ -319,7 +319,7 @@ mod tests {
             let installation_id = vec![4, 5, 6];
 
             let status = ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: installation_id.clone(),
                 requested_at_sequence_id: Some(100),
                 responded_at_sequence_id: Some(50),
@@ -365,7 +365,7 @@ mod tests {
 
             // Create initial status
             let initial_status = ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: installation_id.clone(),
                 requested_at_sequence_id: Some(50),
                 responded_at_sequence_id: Some(25),
@@ -393,7 +393,7 @@ mod tests {
 
             // Create initial status with high sequence_id
             let initial_status = ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: installation_id.clone(),
                 requested_at_sequence_id: Some(100),
                 responded_at_sequence_id: Some(50),
@@ -421,7 +421,7 @@ mod tests {
 
             // Create initial status with null requested_at_sequence_id
             let initial_status = ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: installation_id.clone(),
                 requested_at_sequence_id: None,
                 responded_at_sequence_id: Some(25),
@@ -469,7 +469,7 @@ mod tests {
 
             // Create initial status with high responded_at_sequence_id
             let initial_status = ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: installation_id.clone(),
                 requested_at_sequence_id: Some(50),
                 responded_at_sequence_id: Some(100),
@@ -520,7 +520,7 @@ mod tests {
 
             // Create a readd status without a requested_at_sequence_id
             ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: installation_id.clone(),
                 requested_at_sequence_id: None,
                 responded_at_sequence_id: Some(5),
@@ -542,7 +542,7 @@ mod tests {
 
             // Create a readd status with requested_at > responded_at
             ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: installation_id.clone(),
                 requested_at_sequence_id: Some(10),
                 responded_at_sequence_id: Some(5),
@@ -564,7 +564,7 @@ mod tests {
 
             // Create a readd status with requested_at <= responded_at
             ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: installation_id.clone(),
                 requested_at_sequence_id: Some(5),
                 responded_at_sequence_id: Some(10),
@@ -586,7 +586,7 @@ mod tests {
 
             // Create a readd status with requested_at == responded_at
             ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: installation_id.clone(),
                 requested_at_sequence_id: Some(10),
                 responded_at_sequence_id: Some(10),
@@ -610,7 +610,7 @@ mod tests {
 
             // Create a readd status with requested_at but no responded_at (defaults to 0)
             ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: installation_id.clone(),
                 requested_at_sequence_id: Some(5),
                 responded_at_sequence_id: None,
@@ -634,7 +634,7 @@ mod tests {
 
             // Create readd statuses for the same group with different installation IDs
             let status_to_keep = ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: keep_installation_id.clone(),
                 requested_at_sequence_id: Some(10),
                 responded_at_sequence_id: Some(5),
@@ -642,7 +642,7 @@ mod tests {
             status_to_keep.store(conn).unwrap();
 
             let status_to_delete_1 = ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: delete_installation_id_1.clone(),
                 requested_at_sequence_id: Some(15),
                 responded_at_sequence_id: Some(8),
@@ -650,7 +650,7 @@ mod tests {
             status_to_delete_1.store(conn).unwrap();
 
             let status_to_delete_2 = ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: delete_installation_id_2.clone(),
                 requested_at_sequence_id: Some(20),
                 responded_at_sequence_id: None,
@@ -659,7 +659,7 @@ mod tests {
 
             // Create a status for a different group (should not be affected)
             let different_group_status = ReaddStatus {
-                group_id: vec![4, 5, 6],
+                group_id: GroupId::from(vec![4, 5, 6]),
                 installation_id: vec![40, 41, 42],
                 requested_at_sequence_id: Some(25),
                 responded_at_sequence_id: Some(12),
@@ -707,7 +707,7 @@ mod tests {
 
             // Case 1: Pending readd from other installation (should be included)
             let pending_status_1 = ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: other_installation_id_1.clone(),
                 requested_at_sequence_id: Some(10),
                 responded_at_sequence_id: Some(5),
@@ -716,7 +716,7 @@ mod tests {
 
             // Case 2: Pending readd from other installation with null responded_at (should be included)
             let pending_status_2 = ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: other_installation_id_2.clone(),
                 requested_at_sequence_id: Some(15),
                 responded_at_sequence_id: None,
@@ -725,7 +725,7 @@ mod tests {
 
             // Case 3: Not pending readd from other installation (should be excluded)
             let fulfilled_status = ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: vec![40, 41, 42],
                 requested_at_sequence_id: Some(8),
                 responded_at_sequence_id: Some(12),
@@ -734,7 +734,7 @@ mod tests {
 
             // Case 4: Pending readd from self installation (should be excluded)
             let self_status = ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: self_installation_id.clone(),
                 requested_at_sequence_id: Some(20),
                 responded_at_sequence_id: Some(10),
@@ -743,7 +743,7 @@ mod tests {
 
             // Case 5: No requested_at_sequence_id (should be excluded)
             let no_request_status = ReaddStatus {
-                group_id: group_id.to_vec(),
+                group_id: group_id.clone(),
                 installation_id: vec![50, 51, 52],
                 requested_at_sequence_id: None,
                 responded_at_sequence_id: Some(5),
@@ -752,7 +752,7 @@ mod tests {
 
             // Case 6: Different group (should be excluded)
             let different_group_status = ReaddStatus {
-                group_id: vec![4, 5, 6],
+                group_id: GroupId::from(vec![4, 5, 6]),
                 installation_id: vec![60, 61, 62],
                 requested_at_sequence_id: Some(25),
                 responded_at_sequence_id: Some(15),

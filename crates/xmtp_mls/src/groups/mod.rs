@@ -887,7 +887,7 @@ where
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
         let group_message = StoredGroupMessage {
             id: message_id.clone(),
-            group_id: self.group_id.to_vec(),
+            group_id: self.group_id.clone(),
             decrypted_message_bytes: message.to_vec(),
             sent_at_ns: now,
             kind: GroupMessageKind::Application,
@@ -1025,7 +1025,7 @@ where
 
         let deletion = StoredMessageDeletion {
             id: deletion_message_id.clone(),
-            group_id: self.group_id.to_vec(),
+            group_id: self.group_id.clone(),
             deleted_message_id: message_id,
             deleted_by_inbox_id: sender_inbox_id.to_string(),
             is_super_admin_deletion,

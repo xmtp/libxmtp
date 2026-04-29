@@ -14,7 +14,7 @@ fn create_test_message(
 ) -> StoredGroupMessage {
     StoredGroupMessage {
         id,
-        group_id,
+        group_id: group_id.into(),
         decrypted_message_bytes: vec![],
         sent_at_ns: 1000,
         kind,
@@ -44,7 +44,7 @@ fn create_test_deletion(
 ) -> StoredMessageDeletion {
     StoredMessageDeletion {
         id,
-        group_id,
+        group_id: group_id.into(),
         deleted_message_id,
         deleted_by_inbox_id: deleted_by_inbox_id.to_string(),
         is_super_admin_deletion: is_super_admin,

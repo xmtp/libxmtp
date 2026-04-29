@@ -312,9 +312,10 @@ pub(crate) mod tests {
                     use xmtp_db::group_message::{
                         ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
                     };
+                    use xmtp_proto::types::GroupId;
                     Ok(Some(StoredGroupMessage {
                         id: xmtp_common::rand_vec::<32>(),
-                        group_id: group_id.as_ref().to_vec(),
+                        group_id: GroupId::from(group_id.as_ref()),
                         decrypted_message_bytes: b"test message".to_vec(),
                         sent_at_ns: timestamp,
                         kind: GroupMessageKind::Application,
@@ -398,9 +399,10 @@ pub(crate) mod tests {
                     use xmtp_db::group_message::{
                         ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
                     };
+                    use xmtp_proto::types::GroupId;
                     Ok(Some(StoredGroupMessage {
                         id: xmtp_common::rand_vec::<32>(),
-                        group_id: group_id.as_ref().to_vec(),
+                        group_id: GroupId::from(group_id.as_ref()),
                         decrypted_message_bytes: b"test message".to_vec(),
                         sent_at_ns: timestamp,
                         kind: GroupMessageKind::Application,

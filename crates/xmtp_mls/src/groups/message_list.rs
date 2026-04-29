@@ -101,7 +101,7 @@ mod tests {
 
         StoredGroupMessage {
             id: message_id,
-            group_id: group_id.to_vec(),
+            group_id: group_id.into(),
             decrypted_message_bytes: content_bytes,
             sent_at_ns,
             kind: GroupMessageKind::Application,
@@ -145,7 +145,7 @@ mod tests {
 
         StoredGroupMessage {
             id: message_id,
-            group_id: group_id.to_vec(),
+            group_id: group_id.into(),
             decrypted_message_bytes: content,
             sent_at_ns,
             kind: GroupMessageKind::Application,

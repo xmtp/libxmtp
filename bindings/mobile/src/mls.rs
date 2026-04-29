@@ -3304,7 +3304,7 @@ impl From<StoredGroupMessage> for FfiMessage {
         Self {
             id: msg.id,
             sent_at_ns: msg.sent_at_ns,
-            conversation_id: msg.group_id,
+            conversation_id: msg.group_id.into(),
             sender_inbox_id: msg.sender_inbox_id,
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),

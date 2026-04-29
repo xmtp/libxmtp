@@ -253,7 +253,7 @@ where
             Ok(ProcessedMessage {
                 message: Some(new_msg.clone()),
                 next_message: delivered_cursor,
-                group_id: new_msg.group_id.clone(),
+                group_id: new_msg.group_id.to_vec(),
                 tried_to_process: msg.cursor,
             })
         } else {
