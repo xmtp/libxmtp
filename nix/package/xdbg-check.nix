@@ -10,29 +10,20 @@
   stdenv,
 }:
 let
-  inherit (lib.fileset) unions fileFilter;
   inherit (xmtp) craneLib base;
-  inherit (craneLib.fileset) commonCargoSources;
   root = ./../..;
 
   rust-toolchain = p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ ];
   rust = craneLib.overrideToolchain rust-toolchain;
 
-  # All workspace members' Cargo.toml/build.rs need to be present so
-  # `cargo check --locked` evaluates the workspace without trying to
-  # rewrite Cargo.lock to drop missing members.
-  workspaceManifests = unions [
-    (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (root + /apps))
-    (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (root + /bindings))
-  ];
-
+  # `workspace` is `libraries + binaries`, which covers every workspace
+  # member declared in the root Cargo.toml. cargo --locked needs every
+  # workspace member's manifest *and* enough source for cargo to
+  # resolve auto-discovered targets, otherwise it errors with either
+  # "cannot update lock file" or "no targets specified in the manifest".
   src = lib.fileset.toSource {
     inherit root;
-    fileset = unions [
-      xmtp.filesets.libraries
-      workspaceManifests
-      (commonCargoSources (root + /apps/xmtp_debug))
-    ];
+    fileset = xmtp.filesets.workspace;
   };
 
   cargoArtifacts = base.mkCargoArtifacts rust false null;
