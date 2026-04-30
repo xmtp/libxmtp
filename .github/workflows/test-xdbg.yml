@@ -1,0 +1,20 @@
+name: Test XDBG
+on:
+  workflow_call:
+env:
+  NIX_DEVSHELL: rust
+jobs:
+  check:
+    name: Check (xdbg)
+    runs-on: warp-ubuntu-latest-x64-16x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          sccache: "true"
+          with-warpbuild-cache: "false"
+      - name: Check xdbg compiles
+        run: nix develop .#rust --command cargo check --locked -p xdbg
