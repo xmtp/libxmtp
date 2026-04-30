@@ -10,7 +10,7 @@
   stdenv,
 }:
 let
-  inherit (lib.fileset) unions;
+  inherit (lib.fileset) unions fileFilter;
   inherit (xmtp) craneLib base;
   inherit (craneLib.fileset) commonCargoSources;
   root = ./../..;
@@ -18,10 +18,19 @@ let
   rust-toolchain = p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ ];
   rust = craneLib.overrideToolchain rust-toolchain;
 
+  # All workspace members' Cargo.toml/build.rs need to be present so
+  # `cargo check --locked` evaluates the workspace without trying to
+  # rewrite Cargo.lock to drop missing members.
+  workspaceManifests = unions [
+    (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (root + /apps))
+    (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (root + /bindings))
+  ];
+
   src = lib.fileset.toSource {
     inherit root;
     fileset = unions [
       xmtp.filesets.libraries
+      workspaceManifests
       (commonCargoSources (root + /apps/xmtp_debug))
     ];
   };
