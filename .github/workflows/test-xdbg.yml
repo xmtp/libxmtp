@@ -1,8 +1,6 @@
 name: Test XDBG
 on:
   workflow_call:
-env:
-  NIX_DEVSHELL: rust
 jobs:
   check:
     name: Check (xdbg)
@@ -14,7 +12,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "true"
+          sccache: "false"
           with-warpbuild-cache: "false"
       - name: Check xdbg compiles
-        run: nix develop .#rust --command cargo check --locked -p xdbg
+        run: nix build .#xdbg-check --print-build-logs
