@@ -1,6 +1,7 @@
 # Derivation that runs cargo nextest with llvm-cov on the workspace
 {
   xmtp,
+  xmtp-base,
   lib,
   cargo-llvm-cov,
   d14n ? false,
@@ -27,13 +28,13 @@ let
     ];
   };
 
-  commonArgs = xmtp.base.commonArgs // {
-    nativeBuildInputs = xmtp.base.commonArgs.nativeBuildInputs ++ [
+  commonArgs = xmtp-base.commonArgs // {
+    nativeBuildInputs = xmtp-base.commonArgs.nativeBuildInputs ++ [
       cargo-llvm-cov
     ];
   };
 
-  cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
+  cargoArtifacts = xmtp-base.mkCargoArtifacts rust false (
     (removeAttrs commonArgs [ "src" ])
     // {
       buildPhaseCargoCommand = "cargo llvm-cov --locked --profile $CARGO_PROFILE --no-report";

@@ -1,15 +1,16 @@
 {
   gnused,
   xmtp,
+  xmtp-base,
   stdenv,
   ...
 }:
 let
-  inherit (xmtp) craneLib base;
+  inherit (xmtp) craneLib;
   rust-toolchain = p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ ];
   rust = craneLib.overrideToolchain rust-toolchain;
   version = xmtp.mkVersion rust;
-  inherit (base) bindingsFileset commonArgs;
+  inherit (xmtp-base) bindingsFileset commonArgs;
 
   specialArgs = {
     # set buildInputs to empty to force the android build to link against libraries in the NDK sysroot instead
@@ -17,7 +18,7 @@ let
     buildInputs = [ ];
   };
 
-  cargoArtifacts = xmtp.base.mkCargoArtifacts rust false specialArgs;
+  cargoArtifacts = xmtp-base.mkCargoArtifacts rust false specialArgs;
 
   ext = if stdenv.isDarwin then "dylib" else "so";
   dylib = rust.buildPackage (

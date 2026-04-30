@@ -1,11 +1,12 @@
 {
   xmtp,
+  xmtp-base,
   lib,
   stdenv,
 }:
 let
   inherit (lib.fileset) unions;
-  inherit (xmtp) craneLib mkToolchain base;
+  inherit (xmtp) craneLib mkToolchain;
   inherit (craneLib.fileset) commonCargoSources;
 
   rust-toolchain = p: mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ ];
@@ -16,7 +17,7 @@ let
     RUSTFLAGS = "-C target-feature=+crt-static";
   };
 
-  commonArgs = base.commonArgs // specialArgs;
+  commonArgs = xmtp-base.commonArgs // specialArgs;
 
   src = lib.fileset.toSource {
     inherit root;
@@ -47,7 +48,7 @@ let
     ];
   };
 
-  cargoArtifacts = xmtp.base.mkCargoArtifacts rust false specialArgs;
+  cargoArtifacts = xmtp-base.mkCargoArtifacts rust false specialArgs;
 in
 rust.buildPackage (
   commonArgs

@@ -40,6 +40,7 @@
   chromium,
   writeText,
   xmtp,
+  xmtp-base,
 }:
 let
   inherit (stdenv) isLinux;
@@ -67,7 +68,7 @@ let
 in
 {
   # Core Rust build environment: env vars, hardening, native deps, LD_LIBRARY_PATH
-  rustBase = xmtp.base.commonArgs // {
+  rustBase = xmtp-base.commonArgs // {
     env = {
       OPENSSL_DIR = "${openssl.dev}";
       OPENSSL_LIB_DIR = "${lib.getLib openssl}/lib";

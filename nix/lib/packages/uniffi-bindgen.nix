@@ -1,16 +1,16 @@
 {
   xmtp,
+  xmtp-base,
   lib,
 }:
 let
-  inherit (xmtp) base;
   rust-toolchain = p: xmtp.mkToolchain p [ ] [ ];
   rust = xmtp.craneLib.overrideToolchain rust-toolchain;
-  cargoArtifacts = xmtp.base.mkCargoArtifacts rust false null;
+  cargoArtifacts = xmtp-base.mkCargoArtifacts rust false null;
   src = ./../../..;
 in
 rust.buildPackage (
-  base.commonArgs
+  xmtp-base.commonArgs
   // {
     inherit cargoArtifacts;
     pname = "ffi-uniffi-bindgen";

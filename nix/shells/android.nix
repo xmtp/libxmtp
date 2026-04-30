@@ -9,10 +9,11 @@
   lib,
   gnused,
   xmtp,
+  xmtp-base,
   zlib,
 }:
 let
-  inherit (xmtp) androidEnv base shellCommon;
+  inherit (xmtp) androidEnv shellCommon;
 
   # Rust toolchain with Android cross-compilation targets
   rust-android-toolchain = xmtp.mkNativeToolchain androidEnv.androidTargets [
@@ -36,10 +37,10 @@ mkShell (
       zlib
     ];
 
-    inherit (base.commonArgs) nativeBuildInputs;
+    inherit (xmtp-base.commonArgs) nativeBuildInputs;
 
     buildInputs =
-      base.commonArgs.buildInputs
+      xmtp-base.commonArgs.buildInputs
       ++ [
         rust-android-toolchain
         kotlin

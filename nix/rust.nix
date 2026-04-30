@@ -40,25 +40,17 @@ _: {
           fileset = pkgs.xmtp.filesets.workspace;
         };
         defaults = {
-          perCrate.crane.args = pkgs.xmtp.base.commonArgs;
+          perCrate.crane.args = pkgs.xmtp-base.commonArgs;
         };
         crates = {
           "xmtp_debug" = {
             autoWire = [ "crate" ];
             path = src + /apps/xmtp_debug;
-            # cacert is needed so xdbg can negotiate TLS to remote XMTP
-            # gateways at runtime (e.g. grpc.testnet.xmtp.network) without
-            # an externally-provided CA bundle.  Concatenate onto the
-            # shared commonArgs.nativeBuildInputs rather than replace it.
-            crane.args.nativeBuildInputs = pkgs.xmtp.base.commonArgs.nativeBuildInputs ++ [ pkgs.cacert ];
+            crane.args.nativeBuildInputs = pkgs.xmtp-base.commonArgs.nativeBuildInputs ++ [ pkgs.cacert ];
           };
           "xmtp_cli" = {
             path = src + /apps/cli;
             autoWire = [ "crate" ];
-          };
-          "bindings_wasm" = {
-            # wasm bindings have custom build in wasm.nix
-            autoWire = [ ];
           };
           "xnet" = {
             path = src + /apps/xnet/lib;

@@ -35,6 +35,25 @@ let
     builtins.replaceStrings [ "-" ] [ "_" ]
       pkgsBuildHost.stdenv.hostPlatform.rust.rustcTarget;
 
+  # macOS 26 vendored openssl-src build aborts in util/mkinstallvars.pl
+  # (empty LIBDIR) when cross-compiling to *-unknown-linux-musl. Point
+  # openssl-sys at nixpkgs openssl to skip vendored build.
+  # See https://github.com/xmtp/libxmtp/issues/3575.
+  #
+  # Skip on android: cross openssl fails on internal/ktls.h (NDK sysroot
+  # missing msghdr/cmsghdr fields). android.nix clears buildInputs;
+  # OPENSSL_DIR here would re-pull cross-android openssl or link
+  # android-arm64 against native x86_64 openssl libs.
+  # ios.nix strips these keys itself since it runs through native pkgs
+  # (CARGO_BUILD_TARGET=*-apple-ios) and the inherited macOS libssl.dylib
+  # would fail to link against an ios-simulator slice.
+  opensslEnv = lib.optionalAttrs (!stdenv.hostPlatform.isAndroid) {
+    OPENSSL_NO_VENDOR = "1";
+    OPENSSL_DIR = "${openssl.dev}";
+    OPENSSL_LIB_DIR = "${openssl.out}/lib";
+    OPENSSL_INCLUDE_DIR = "${openssl.dev}/include";
+  };
+
   # Common build arguments shared between iOS and Android derivations.
   # Platform-specific args (like ANDROID_HOME or __noChroot) are added by each derivation.
   commonArgs = {
@@ -70,7 +89,8 @@ let
     "AWS_LC_SYS_TARGET_CC_${buildPlatformSuffix}" = "cc";
     "AWS_LC_SYS_TARGET_CXX_${buildPlatformSuffix}" = "c++";
 
-  };
+  }
+  // opensslEnv;
 
   # Make cargo artifacts for a derivation building rust code
   # "rust" is the rust toolchain to use (native or host)

@@ -1,6 +1,7 @@
 # Derivation that runs cargo nextest with llvm-cov on the workspace
 {
   xmtp,
+  xmtp-base,
   lib,
   chromedriver,
   google-chrome,
@@ -14,7 +15,7 @@
 }:
 let
   inherit (lib.fileset) unions fileFilter;
-  inherit (xmtp) craneLib base;
+  inherit (xmtp) craneLib;
   inherit (craneLib.fileset) commonCargoSources;
   root = ./../..;
   rust-toolchain = p: xmtp.mkToolchain p [ "wasm32-unknown-unknown" ] [ "llvm-tools-preview" ];
@@ -33,8 +34,8 @@ let
     ];
   };
 
-  commonArgs = base.commonArgs // {
-    nativeBuildInputs = base.commonArgs.nativeBuildInputs ++ [
+  commonArgs = xmtp-base.commonArgs // {
+    nativeBuildInputs = xmtp-base.commonArgs.nativeBuildInputs ++ [
       cargo-nextest
       wasm-bindgen-cli
       nodejs_24
@@ -54,7 +55,7 @@ let
   d14nTestArgs = if d14n then "--features d14n" else "";
   wasmPackages = "-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_d14n -p xmtp_content_types";
 
-  cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
+  cargoArtifacts = xmtp-base.mkCargoArtifacts rust false (
     (removeAttrs commonArgs [ "src" ])
     // {
       buildPhaseCargoCommand = "cargo nextest run --locked --cargo-profile $CARGO_PROFILE --no-run ${wasmPackages}";
@@ -76,7 +77,7 @@ rust.cargoNextest (
     # chromedriver requires home to be editable/set, otherwise it SIGKILLS and fails tests.
     preBuild = "export HOME=$TMPDIR";
     buildInputs =
-      base.commonArgs.buildInputs
+      xmtp-base.commonArgs.buildInputs
       ++ [
         chromedriver
       ]

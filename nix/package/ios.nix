@@ -15,11 +15,12 @@
 {
   lib,
   xmtp,
+  xmtp-base,
   stdenv,
   ...
 }:
 let
-  inherit (xmtp) iosEnv base;
+  inherit (xmtp) iosEnv;
   # override craneLib rust toolchain with given stdenv
   # https://crane.dev/API.html#mklib
   craneLib = xmtp.craneLib.overrideScope (
@@ -38,8 +39,19 @@ let
   # Extract version once for use throughout the file
   version = xmtp.mkVersion rust;
 
-  # Inherit shared config
-  inherit (base) commonArgs bindingsFileset;
+  # Inherit shared config. Strip OPENSSL_* vars: ios.nix runs as native
+  # `pkgs.callPackage` (target stdenv = ios via CARGO_BUILD_TARGET), but
+  # `xmtp-base` here is the native-macOS-spliced one whose OPENSSL_DIR
+  # points at native libssl.dylib. Linking ios-sim against macOS libssl
+  # fails with "building for iOS-simulator, but linking in dylib built
+  # for macOS". xcode SDK supplies its own crypto so dropping is safe.
+  inherit (xmtp-base) bindingsFileset;
+  commonArgs = removeAttrs xmtp-base.commonArgs [
+    "OPENSSL_NO_VENDOR"
+    "OPENSSL_DIR"
+    "OPENSSL_LIB_DIR"
+    "OPENSSL_INCLUDE_DIR"
+  ];
 
   # Build static (.a) and dynamic (.dylib) libraries for a single cross-compilation target.
   #
@@ -61,7 +73,7 @@ let
     let
       envSetup = iosEnv.envSetup target;
     in
-    xmtp.base.mkCargoArtifacts rust false {
+    xmtp-base.mkCargoArtifacts rust false {
       pname = "xmtpv3-deps-${target}";
       CARGO_BUILD_TARGET = target;
       __noChroot = true;

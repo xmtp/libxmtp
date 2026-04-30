@@ -1,5 +1,6 @@
 {
   xmtp,
+  xmtp-base,
   cacert,
   lib,
   stdenv,
@@ -44,18 +45,18 @@ let
     };
 
   commonArgs =
-    xmtp.base.commonArgs
+    xmtp-base.commonArgs
     // {
       inherit version;
     }
     // specialArgs;
 
-  cargoArtifacts = xmtp.base.mkCargoArtifacts rust test (
+  cargoArtifacts = xmtp-base.mkCargoArtifacts rust test (
     specialArgs
     // lib.optionalAttrs isGnu {
       # override everything for glibc compatibility
       preBuild = "export HOME=$TMPDIR";
-      nativeBuildInputs = xmtp.base.commonArgs.nativeBuildInputs ++ [ cargo-zigbuild ];
+      nativeBuildInputs = xmtp-base.commonArgs.nativeBuildInputs ++ [ cargo-zigbuild ];
       buildPhaseCargoCommand = "cargo zigbuild ${maybeTestFeature} --profile $CARGO_PROFILE --locked";
     }
   );

@@ -8,6 +8,7 @@
   llvmPackages,
   wasm-bindgen-cli,
   xmtp,
+  xmtp-base,
   chromedriver,
   google-chrome,
   chromium,
@@ -17,7 +18,7 @@
   test ? false,
 }:
 let
-  inherit (xmtp) craneLib base;
+  inherit (xmtp) craneLib;
   # Pinned Rust Version (must use mkToolchain to match the rest of the project)
   rust-toolchain =
     xmtp.mkNativeToolchain
@@ -31,7 +32,7 @@ let
     fileset = xmtp.filesets.forCrate ./../../bindings/wasm;
   };
 
-  commonArgs = base.commonArgs // {
+  commonArgs = xmtp-base.commonArgs // {
     meta.description = "WebAssembly Bindings";
     # EM_CACHE = "$TMPDIR/.emscripten_cache";
     # we need to set tmpdir for emscripten cache
@@ -43,7 +44,7 @@ let
       # export EM_CACHE=$TMPDIR
       # export EMCC_DEBUG=2
     '';
-    nativeBuildInputs = base.commonArgs.nativeBuildInputs ++ [
+    nativeBuildInputs = xmtp-base.commonArgs.nativeBuildInputs ++ [
       wasm-pack
       emscripten
       llvmPackages.lld
@@ -68,7 +69,7 @@ let
   };
 
   # enables caching all build time crates
-  cargoArtifacts = xmtp.base.mkCargoArtifacts rust test (
+  cargoArtifacts = xmtp-base.mkCargoArtifacts rust test (
     commonEnv
     // {
       buildPhaseCargoCommand = "cargo build --package bindings_wasm ${features} --profile $CARGO_PROFILE --locked";
