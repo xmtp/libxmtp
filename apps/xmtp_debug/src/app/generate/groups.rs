@@ -211,7 +211,7 @@ async fn create_group_on_network(
     );
     push_metrics("xdbg_debug").await;
 
-    let group_id = group.group_id.clone();
+    let group_id = group.group_id.clone().to_vec();
     drop(client_guard);
 
     Ok((group_id, create_secs))
