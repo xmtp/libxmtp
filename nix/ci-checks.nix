@@ -4,9 +4,11 @@
 #   - nextest: requires Docker services that aren't available in sandboxed builds.
 #     test-workspace.yml starts Docker first, then builds them directly via
 #     `nix build .#nextest.<system>.v3`.
-#   - xdbg-check: a clippy gate for the apps/xmtp_debug crate. It builds fine
-#     in the standard sandbox; it lives here so the per-PR test-xdbg.yml
-#     workflow can target it explicitly without enrolling it in `om ci run`.
+#   - cargo-clippy: per-crate clippy gates (currently just `xdbg`) that the
+#     existing workspace-wide lint job skips because their crates aren't in
+#     `default-members`. They build fine in the standard sandbox; they live
+#     here so the per-PR workflows (e.g. test-xdbg.yml) can target them
+#     explicitly without enrolling them in `om ci run`.
 { lib, withSystem, ... }:
 let
   systems = [
@@ -29,7 +31,13 @@ in
     )
   );
 
-  flake.xdbg-check = lib.genAttrs systems (
-    system: withSystem system ({ pkgs, ... }: pkgs.callPackage ./package/xdbg-check.nix { })
+  flake.cargo-clippy = lib.genAttrs systems (
+    system:
+    withSystem system (
+      { pkgs, ... }:
+      {
+        xdbg = pkgs.callPackage ./package/xdbg-check.nix { };
+      }
+    )
   );
 }

@@ -15,4 +15,4 @@ jobs:
           sccache: "false"
           with-warpbuild-cache: "false"
       - name: Check xdbg compiles
-        run: nix-fast-build --no-nom --flake .#xdbg-check.x86_64-linux
+        run: nix-fast-build --no-nom --flake .#cargo-clippy.x86_64-linux.xdbg
