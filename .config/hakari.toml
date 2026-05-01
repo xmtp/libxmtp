@@ -43,6 +43,11 @@ third-party = [
   { name = "tokio" },
   { name = "uniffi" },
   { name = "wasm-bindgen" },
+  # Excluded so workspace-hack does not unify libsqlite3-sys's
+  # `bundled-sqlcipher-vendored-openssl` feature into every workspace member,
+  # which would drag openssl-sys/openssl into builds (e.g. mls-validation-service)
+  # that have no need for SQLite.
+  { name = "libsqlite3-sys" },
 ]
 
 [final-excludes]
@@ -57,7 +62,8 @@ workspace-members = [
 ]
 third-party = [
   { name = "tonic" },
-  { name = "tonic" },
+  { name = "tokio" },
   { name = "uniffi" },
   { name = "wasm-bindgen" },
+  { name = "libsqlite3-sys" },
 ]

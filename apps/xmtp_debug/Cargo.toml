@@ -14,7 +14,7 @@ workspace = true
 vergen-gix = { workspace = true, features = ["build"] }
 
 [dependencies]
-alloy = { workspace = true, features = ["reqwest-rustls-tls"] }
+alloy.workspace = true
 chrono.workspace = true
 clap.workspace = true
 clap-verbosity-flag = { version = "3.0", features = ["tracing"] }
