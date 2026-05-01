@@ -79,7 +79,6 @@
             inherit (pkgs) napi-rs-cli wasm-bindgen-cli;
             wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { }).bin;
             wasm-bindings-test = (pkgs.callPackage ./nix/package/wasm.nix { test = true; }).bin;
-            xdbg-check = pkgs.callPackage ./nix/package/xdbg-check.nix { };
           }
           // lib.optionalAttrs pkgs.stdenv.isDarwin {
             # stdenvNoCC is passed to callPackage (for the aggregate derivation).
