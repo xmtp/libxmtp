@@ -15,4 +15,4 @@ jobs:
           sccache: "false"
           with-warpbuild-cache: "false"
       - name: Check xdbg compiles
-        run: nix-fast-build --no-nom --flake .#packages.x86_64-linux.xdbg-check --option sandbox relaxed
+        run: nix-fast-build --no-nom --flake .#packages.x86_64-linux.xdbg-check
