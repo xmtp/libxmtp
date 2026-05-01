@@ -57,7 +57,7 @@ workspace-members = [
 ]
 third-party = [
   { name = "tonic" },
-  { name = "tonic" },
+  { name = "tokio" },
   { name = "uniffi" },
   { name = "wasm-bindgen" },
 ]
