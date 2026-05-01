@@ -13,7 +13,8 @@ let
   inherit (xmtp) craneLib base;
   root = ./../..;
 
-  rust-toolchain = p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ "clippy-preview" ];
+  rust-toolchain =
+    p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ "clippy-preview" ];
   rust = craneLib.overrideToolchain rust-toolchain;
 
   # `workspace` covers every member so cargo --locked can resolve all manifests and targets.
