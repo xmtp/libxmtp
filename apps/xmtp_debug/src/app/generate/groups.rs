@@ -218,11 +218,7 @@ async fn create_group_on_network(
 }
 
 /// Check whether an invitee can see the group via sync_welcomes (read-your-own-writes).
-async fn check_member_visibility(
-    group_id: &Vec<u8>,
-    invitee: &Identity,
-    network: &args::BackendOpts,
-) {
+async fn check_member_visibility(group_id: &[u8], invitee: &Identity, network: &args::BackendOpts) {
     let reader_client = match app::client_from_identity(invitee, network) {
         Ok(c) => c,
         Err(_) => return,

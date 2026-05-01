@@ -170,7 +170,7 @@ impl GenerateMessages {
             .get(&group.created_by)
             .ok_or(eyre!("group has no owner"))?;
         let owner = owner.lock().await;
-        let owner_group = owner.group(&group.id.to_vec()).wrap_err(format!(
+        let owner_group = owner.group(group.id.as_ref()).wrap_err(format!(
             "owner {} of group {} failed to look up in sqlite db",
             hex::encode(group.created_by),
             hex::encode(group.id)

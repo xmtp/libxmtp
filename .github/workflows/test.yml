@@ -23,6 +23,7 @@ jobs:
       android: ${{ steps.filter.outputs.android }}
       bindings-check: ${{ steps.filter.outputs.bindings-check }}
       devcontainer: ${{ steps.filter.outputs.devcontainer }}
+      xdbg: ${{ steps.filter.outputs.xdbg }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -93,11 +94,28 @@ jobs:
             devcontainer:
               - '.devcontainer/**'
               - '.github/workflows/test-devcontainer*'
+            xdbg:
+              - 'apps/xmtp_debug/**'
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - 'rust-toolchain.toml'
+              - 'nix/**'
+              - 'flake.lock'
+              - '.github/workflows/test.yml'
+              - '.github/workflows/test-xdbg.yml'
 
   test-workspace:
     needs: detect-changes
     if: needs.detect-changes.outputs.workspace == 'true'
     uses: ./.github/workflows/test-workspace.yml
+    secrets: inherit
+
+  test-xdbg:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.xdbg == 'true'
+    uses: ./.github/workflows/test-xdbg.yml
     secrets: inherit
 
   test-node:
@@ -156,6 +174,7 @@ jobs:
     if: always()
     needs:
       - test-workspace
+      - test-xdbg
       - test-node
       - test-wasm
       # - test-ios TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
