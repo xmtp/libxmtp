@@ -1,4 +1,4 @@
-# Derivation that runs `cargo check -p xdbg`.
+# Derivation that runs `cargo clippy -p xdbg`.
 #
 # xdbg is excluded from default-members in the root Cargo.toml, so the
 # default per-PR Rust CI (clippy, nextest) skips it. This derivation is
@@ -13,7 +13,7 @@ let
   inherit (xmtp) craneLib base;
   root = ./../..;
 
-  rust-toolchain = p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ ];
+  rust-toolchain = p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ "clippy-preview" ];
   rust = craneLib.overrideToolchain rust-toolchain;
 
   # `workspace` covers every member so cargo --locked can resolve all manifests and targets.
@@ -24,13 +24,14 @@ let
 
   cargoArtifacts = base.mkCargoArtifacts rust false null;
 in
-rust.mkCargoDerivation (
+rust.cargoClippy (
   base.commonArgs
   // {
     inherit src cargoArtifacts;
-    pname = "xdbg-check";
+    pname = "xdbg";
     version = xmtp.mkVersion rust;
-    buildPhaseCargoCommand = "cargo check --locked --profile $CARGO_PROFILE -p xdbg";
+    cargoExtraArgs = "--locked --all-targets -p xdbg";
+    cargoClippyExtraArgs = "--no-deps -- -Dwarnings";
     doCheck = false;
     doInstallCargoArtifacts = false;
   }
