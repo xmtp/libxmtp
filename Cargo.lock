@@ -14131,7 +14131,6 @@ dependencies = [
  "k256",
  "libc",
  "libcrux-ed25519",
- "libsqlite3-sys",
  "log",
  "memchr",
  "nu-ansi-term",

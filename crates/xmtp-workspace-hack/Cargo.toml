@@ -205,7 +205,6 @@ diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
-libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
@@ -220,7 +219,6 @@ diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
-libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
@@ -235,7 +233,6 @@ getrandom = { version = "0.4", default-features = false, features = ["std", "sys
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 libc = { version = "0.2" }
-libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
@@ -252,7 +249,6 @@ getrandom = { version = "0.4", default-features = false, features = ["std", "sys
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 libc = { version = "0.2" }
-libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
@@ -267,7 +263,6 @@ getrandom = { version = "0.4", default-features = false, features = ["std", "sys
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 libc = { version = "0.2" }
-libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
@@ -284,7 +279,6 @@ getrandom = { version = "0.4", default-features = false, features = ["std", "sys
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
 libc = { version = "0.2" }
-libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
@@ -298,7 +292,6 @@ errno = { version = "0.3" }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
-libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
@@ -314,7 +307,6 @@ errno = { version = "0.3" }
 getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", default-features = false, features = ["client"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
-libsqlite3-sys = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
