@@ -16,11 +16,7 @@ let
   rust-toolchain = p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ ];
   rust = craneLib.overrideToolchain rust-toolchain;
 
-  # `workspace` is `libraries + binaries`, which covers every workspace
-  # member declared in the root Cargo.toml. cargo --locked needs every
-  # workspace member's manifest *and* enough source for cargo to
-  # resolve auto-discovered targets, otherwise it errors with either
-  # "cannot update lock file" or "no targets specified in the manifest".
+  # `workspace` covers every member so cargo --locked can resolve all manifests and targets.
   src = lib.fileset.toSource {
     inherit root;
     fileset = xmtp.filesets.workspace;
