@@ -69,6 +69,19 @@ pub enum BootstrapSynthesisError {
     /// crates rather than user-visible state.
     #[error("registry re-encode: {0}")]
     RegistryReEncode(#[from] ComponentRegistryError),
+
+    /// A `GROUP_MEMBERSHIP` `sequence_id` exceeded `i64::MAX` and so
+    /// can't be passed through to the identity-update API (whose query
+    /// surface is signed). Practically unreachable today (sequence ids
+    /// don't get within thirteen orders of magnitude of `i64::MAX`),
+    /// but a `as i64` cast would silently wrap to a negative value and
+    /// quietly query the wrong association state — surface it as a
+    /// terminal error rather than risk a deceptive partition of
+    /// `failed_installations`.
+    #[error(
+        "sequence_id {sequence_id} for inbox {inbox_id} exceeds i64::MAX; cannot query identity-update history"
+    )]
+    SequenceIdOverflow { inbox_id: String, sequence_id: u64 },
 }
 
 impl xmtp_common::retry::RetryableError for BootstrapSynthesisError {
@@ -82,7 +95,10 @@ impl xmtp_common::retry::RetryableError for BootstrapSynthesisError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::IdentityUpdateLookup { source, .. } => source.is_retryable(),
-            Self::Common(_) | Self::LegacyMembershipDecode(_) | Self::RegistryReEncode(_) => false,
+            Self::Common(_)
+            | Self::LegacyMembershipDecode(_)
+            | Self::RegistryReEncode(_)
+            | Self::SequenceIdOverflow { .. } => false,
         }
     }
 }
@@ -177,10 +193,15 @@ async fn build_partitioned_group_membership<C: XmtpSharedContext>(
     // into the serialized output.
     let mut install_owner: std::collections::HashMap<Vec<u8>, InboxId> =
         std::collections::HashMap::new();
-    for (inbox_id, _seq) in sequence_ids.iter() {
+    for (inbox_id, seq) in sequence_ids.iter() {
         let inbox_id_hex = inbox_id.to_hex();
+        let signed_seq =
+            i64::try_from(*seq).map_err(|_| BootstrapSynthesisError::SequenceIdOverflow {
+                inbox_id: inbox_id_hex.clone(),
+                sequence_id: *seq,
+            })?;
         let state = identity_updates
-            .get_association_state(&db, &inbox_id_hex, None)
+            .get_association_state(&db, &inbox_id_hex, Some(signed_seq))
             .await
             .map_err(|source| BootstrapSynthesisError::IdentityUpdateLookup {
                 inbox_id: inbox_id_hex.clone(),
@@ -400,6 +421,8 @@ mod tests {
         permissions_update_policy::{Kind as PermissionsKind, PermissionsBasePolicy},
     };
 
+    use xmtp_db::identity_update::QueryIdentityUpdates;
+
     use crate::{identity_updates::load_identity_updates, tester};
 
     /// Unwrap a `GroupMembershipEntry` envelope to its inner `V1`
@@ -490,10 +513,22 @@ mod tests {
             &[alix.inbox_id(), bo.inbox_id()],
         )
         .await?;
+        // GROUP_MEMBERSHIP sequence_ids are no longer synthetic: the
+        // synthesizer pins the per-inbox association-state lookup to
+        // the GMM's sequence_id, so the value must match an existing
+        // identity-update record.
+        let alix_seq = alix
+            .context
+            .db()
+            .get_latest_sequence_id_for_inbox(alix.inbox_id())? as u64;
+        let bo_seq = alix
+            .context
+            .db()
+            .get_latest_sequence_id_for_inbox(bo.inbox_id())? as u64;
 
         let mut members = HashMap::new();
-        members.insert(alix.inbox_id().to_string(), 7_u64);
-        members.insert(bo.inbox_id().to_string(), 42_u64);
+        members.insert(alix.inbox_id().to_string(), alix_seq);
+        members.insert(bo.inbox_id().to_string(), bo_seq);
         let exts = build_test_extensions(
             default_gmm(),
             GroupMembershipProto {
@@ -526,10 +561,18 @@ mod tests {
         let bo_install = bo.installation_id.to_vec();
         let alix_inbox = InboxId::from_hex(alix.inbox_id())?;
         let bo_inbox = InboxId::from_hex(bo.inbox_id())?;
+        let alix_seq = alix
+            .context
+            .db()
+            .get_latest_sequence_id_for_inbox(alix.inbox_id())? as u64;
+        let bo_seq = alix
+            .context
+            .db()
+            .get_latest_sequence_id_for_inbox(bo.inbox_id())? as u64;
 
         let mut members = HashMap::new();
-        members.insert(alix.inbox_id().to_string(), 7_u64);
-        members.insert(bo.inbox_id().to_string(), 42_u64);
+        members.insert(alix.inbox_id().to_string(), alix_seq);
+        members.insert(bo.inbox_id().to_string(), bo_seq);
         let exts = build_test_extensions(
             default_gmm(),
             GroupMembershipProto {
@@ -547,9 +590,9 @@ mod tests {
         assert_eq!(decoded.len(), 2);
         let v1_a = unwrap_v1(decoded.get(&alix_inbox).unwrap());
         let v1_b = unwrap_v1(decoded.get(&bo_inbox).unwrap());
-        assert_eq!(v1_a.sequence_id, 7);
+        assert_eq!(v1_a.sequence_id, alix_seq);
         assert_eq!(v1_a.failed_installations, vec![alix_install]);
-        assert_eq!(v1_b.sequence_id, 42);
+        assert_eq!(v1_b.sequence_id, bo_seq);
         assert_eq!(v1_b.failed_installations, vec![bo_install]);
     }
 
@@ -561,10 +604,14 @@ mod tests {
         load_identity_updates(alix.context.api(), &alix.context.db(), &[alix.inbox_id()]).await?;
 
         let alix_inbox = InboxId::from_hex(alix.inbox_id())?;
+        let alix_seq = alix
+            .context
+            .db()
+            .get_latest_sequence_id_for_inbox(alix.inbox_id())? as u64;
         let orphan_install = vec![0xDE; 32]; // not owned by any inbox
 
         let mut members = HashMap::new();
-        members.insert(alix.inbox_id().to_string(), 1_u64);
+        members.insert(alix.inbox_id().to_string(), alix_seq);
         let exts = build_test_extensions(
             default_gmm(),
             GroupMembershipProto {
@@ -606,5 +653,149 @@ mod tests {
         assert!(out.contains_key(&ComponentId::CONVERSATION_TYPE));
         assert!(!out.contains_key(&ComponentId::DM_MEMBERS));
         assert!(!out.contains_key(&ComponentId::ONESHOT_MESSAGE));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn synthesize_partitions_against_snapshotted_view_not_latest() {
+        // Two members, each with multiple installations; the group's
+        // recorded sequence_id captures a snapshot of identity history.
+        // After the snapshot, new installations are added to each
+        // member's chain WITHOUT a group-side resync. The bootstrap
+        // synthesizer pins per-inbox association-state lookups to the
+        // group's snapshotted sequence_id, so:
+        //  - installations live at the snapshot are partitioned to their
+        //    owning inbox
+        //  - installations added AFTER the snapshot have no owner at the
+        //    snapshotted state and are dropped from `failed_installations`
+        //  - bogus install ids that never belonged to anyone are dropped
+        //  - cross-inbox leakage doesn't happen
+        //  - re-running synthesis with the same input is byte-stable
+        //
+        // This is the exact "group has not refreshed yet, identity moved
+        // on" scenario every honest receiver will hit during a real
+        // bootstrap rollout.
+        use std::collections::BTreeSet;
+
+        tester!(alix);
+        let alix2 = alix.new_installation().await;
+        tester!(bo);
+        let bo2 = bo.new_installation().await;
+
+        // Refresh once so the synthesizer's local-DB read sees both
+        // inboxes' chains up through the second installation.
+        load_identity_updates(
+            alix.context.api(),
+            &alix.context.db(),
+            &[alix.inbox_id(), bo.inbox_id()],
+        )
+        .await?;
+
+        // Snapshot the group's view of each inbox here. The synthetic
+        // pre-flip GMM below uses these as its sequence_ids, so the
+        // synthesizer will pin its per-inbox lookups to this point in
+        // each chain.
+        let alix_snapshot_seq =
+            alix.context
+                .db()
+                .get_latest_sequence_id_for_inbox(alix.inbox_id())? as u64;
+        let bo_snapshot_seq = alix
+            .context
+            .db()
+            .get_latest_sequence_id_for_inbox(bo.inbox_id())? as u64;
+
+        let alix1_install = alix.installation_id.to_vec();
+        let alix2_install = alix2.installation_id.to_vec();
+        let bo1_install = bo.installation_id.to_vec();
+        let bo2_install = bo2.installation_id.to_vec();
+
+        // After the snapshot: each chain extends. The group has NOT
+        // resynced, so its recorded sequence_id stays put.
+        let alix3 = alix.new_installation().await;
+        let bo3 = bo.new_installation().await;
+        let alix3_install = alix3.installation_id.to_vec();
+        let bo3_install = bo3.installation_id.to_vec();
+
+        // Refresh local DB so post-snapshot updates are visible — the
+        // point of this test is that the synthesizer DOESN'T use them
+        // because it queries at the snapshotted seq_id, not latest.
+        load_identity_updates(
+            alix.context.api(),
+            &alix.context.db(),
+            &[alix.inbox_id(), bo.inbox_id()],
+        )
+        .await?;
+
+        let alix_inbox = InboxId::from_hex(alix.inbox_id())?;
+        let bo_inbox = InboxId::from_hex(bo.inbox_id())?;
+
+        // Bogus install id that has never belonged to any inbox — the
+        // legacy `failed_installations` proto is permissive enough that
+        // a malicious or buggy prior commit could have stuffed garbage
+        // in here.
+        let bogus_install = vec![0xCA; 32];
+
+        let mut members = HashMap::new();
+        members.insert(alix.inbox_id().to_string(), alix_snapshot_seq);
+        members.insert(bo.inbox_id().to_string(), bo_snapshot_seq);
+        let exts = build_test_extensions(
+            default_gmm(),
+            GroupMembershipProto {
+                members,
+                failed_installations: vec![
+                    alix1_install.clone(),
+                    alix2_install.clone(),
+                    alix3_install.clone(),
+                    bo1_install.clone(),
+                    bo2_install.clone(),
+                    bo3_install.clone(),
+                    bogus_install.clone(),
+                ],
+            },
+            default_metadata(alix.inbox_id().to_string()),
+        );
+
+        let out = synthesize_initial_component_values_from_extensions(&alix.context, &exts).await?;
+        let bytes = out.get(&ComponentId::GROUP_MEMBERSHIP).unwrap();
+        let decoded =
+            xmtp_mls_common::app_data::migration::decode_group_membership_delta(bytes).unwrap();
+
+        let alix_v1 = unwrap_v1(decoded.get(&alix_inbox).unwrap());
+        let bo_v1 = unwrap_v1(decoded.get(&bo_inbox).unwrap());
+
+        assert_eq!(alix_v1.sequence_id, alix_snapshot_seq);
+        assert_eq!(bo_v1.sequence_id, bo_snapshot_seq);
+
+        let alix_failed: BTreeSet<Vec<u8>> = alix_v1.failed_installations.iter().cloned().collect();
+        let bo_failed: BTreeSet<Vec<u8>> = bo_v1.failed_installations.iter().cloned().collect();
+
+        // Snapshot-visible installations partition to their owner.
+        assert!(alix_failed.contains(&alix1_install));
+        assert!(alix_failed.contains(&alix2_install));
+        assert!(bo_failed.contains(&bo1_install));
+        assert!(bo_failed.contains(&bo2_install));
+
+        // Post-snapshot installations have no owner at the snapshotted
+        // sequence_id and are dropped.
+        assert!(!alix_failed.contains(&alix3_install));
+        assert!(!bo_failed.contains(&alix3_install));
+        assert!(!alix_failed.contains(&bo3_install));
+        assert!(!bo_failed.contains(&bo3_install));
+
+        // Bogus install id is dropped — never belonged to any inbox.
+        assert!(!alix_failed.contains(&bogus_install));
+        assert!(!bo_failed.contains(&bogus_install));
+
+        // No cross-inbox leakage.
+        assert!(!alix_failed.contains(&bo1_install));
+        assert!(!alix_failed.contains(&bo2_install));
+        assert!(!bo_failed.contains(&alix1_install));
+        assert!(!bo_failed.contains(&alix2_install));
+
+        // Determinism: byte-identical output across calls. Validation
+        // peers byte-compare against this, so any non-determinism here
+        // would make every honest receiver reject the bootstrap commit.
+        let again =
+            synthesize_initial_component_values_from_extensions(&alix.context, &exts).await?;
+        assert_eq!(out, again, "bootstrap synthesis must be byte-stable");
     }
 }

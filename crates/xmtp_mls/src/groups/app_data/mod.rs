@@ -14,6 +14,7 @@
 // lint. The functions inside the module remain `pub(crate)`, so the wider
 // crate ecosystem still can't read or write arbitrary components — only
 // `GroupError` consumers see the error type.
+pub(crate) mod bootstrap_validator;
 pub mod component_source;
 pub mod migration;
 
