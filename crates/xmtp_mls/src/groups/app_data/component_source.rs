@@ -35,7 +35,10 @@ use openmls::{
 };
 use tls_codec::{Deserialize, Serialize, VLBytes};
 use xmtp_mls_common::{
-    app_data::{component_id::ComponentId, component_registry::ComponentOp},
+    app_data::{
+        component_id::ComponentId, component_registry::ComponentOp,
+        registry_table::lookup_component, typed::ComponentTypedError,
+    },
     group_mutable_metadata::{
         GroupMutableMetadata, GroupMutableMetadataError, MetadataField,
         find_mutable_metadata_extension,
@@ -137,6 +140,31 @@ impl ComponentSourceError {
                 component_id: id, ..
             } => Some(*id),
             _ => None,
+        }
+    }
+}
+
+impl From<ComponentTypedError> for ComponentSourceError {
+    /// Surface trait-layer errors at the dispatch boundary. The
+    /// dispatch layer adds `UnknownComponent` / `NotImplemented` /
+    /// `UnknownMetadataField` / `GroupMutableMetadata` for things the
+    /// trait can't see; the variants below are the trait's domain
+    /// and round-trip 1:1.
+    fn from(err: ComponentTypedError) -> Self {
+        match err {
+            ComponentTypedError::ImmutableUpdate(id) => Self::ImmutableUpdate(id),
+            ComponentTypedError::MismatchedMutation(id) => Self::MismatchedMutation(id),
+            ComponentTypedError::MalformedValue {
+                component_id,
+                reason,
+            } => Self::MalformedComponentValue {
+                component_id,
+                reason,
+            },
+            ComponentTypedError::InvalidInboxId(e) => Self::InvalidInboxId(e),
+            ComponentTypedError::TlsCodec(e) => Self::TlsCodec(e),
+            ComponentTypedError::TlsSetApply(e) => Self::TlsSetApply(e),
+            ComponentTypedError::TlsMapApply(e) => Self::TlsMapApply(e),
         }
     }
 }
@@ -559,56 +587,39 @@ pub(crate) fn expand_app_data_update_to_changes(
 ///   bytes.
 ///
 /// Immutable components are rejected with
-/// [`ComponentSourceError::ImmutableUpdate`] — the caller should not have
-/// sent an `Update` op for them in the first place.
+/// [`ComponentSourceError::ImmutableUpdate`] **only when a prior
+/// value already exists** — the bootstrap commit is the canonical
+/// first-insert path for immutable seeds, so this layer must allow
+/// an `Update` whose `old_value` is `None`. The bootstrap validator
+/// catches malicious initial values upstream via byte-compare.
 pub(crate) fn apply_app_data_update_payload(
     id: ComponentId,
     payload: &[u8],
     old_value: Option<&[u8]>,
 ) -> Result<Vec<u8>, ComponentSourceError> {
-    if id.is_immutable() {
+    // Immutability gate. Reject only on overwrite — a fresh insert
+    // (no prior value) is the bootstrap commit's first write of an
+    // immutable seed and must succeed for honest receivers to reach
+    // the migrated state. Steady-state immutables always have a prior
+    // (inserted at bootstrap), so a Byzantine peer trying to mutate
+    // them post-bootstrap still hits this branch and gets rejected.
+    if id.is_immutable() && old_value.is_some() {
         return Err(ComponentSourceError::ImmutableUpdate(id));
     }
 
-    // Bytes components are passed through — the old value doesn't matter.
-    if component_id_to_metadata_field(id).is_some() {
-        return Ok(payload.to_vec());
-    }
-
-    match id {
-        ComponentId::ADMIN_LIST | ComponentId::SUPER_ADMIN_LIST => {
-            let delta = TlsSetDelta::<InboxId>::tls_deserialize_exact(payload)?;
-            let mut set: TlsSet<InboxId> = match old_value {
-                Some(bytes) => TlsSet::<InboxId>::tls_deserialize_exact(bytes)?,
-                None => TlsSet::new(),
-            };
-            set.apply_delta(delta)?;
-            Ok(set.tls_serialize_detached()?)
+    // Immutable seeds without a Component impl (CONVERSATION_TYPE,
+    // CREATOR_INBOX_ID, ONESHOT_MESSAGE) — store the payload bytes
+    // verbatim. They have no decode/encode step because steady-state
+    // never updates them; the wire bytes ARE the value.
+    let Some(component) = lookup_component(id) else {
+        if id.is_immutable() {
+            return Ok(payload.to_vec());
         }
-        // Map components ship their updates as a `TlsMapDelta`. Apply
-        // it to the prior materialized `TlsMap` (or an empty map at
-        // bootstrap) and re-serialize the result. The dictionary stores
-        // the materialized snapshot; the wire stays delta-shaped.
-        ComponentId::COMPONENT_REGISTRY => {
-            let delta = TlsMapDelta::<ComponentId, VLBytes>::tls_deserialize_exact(payload)?;
-            let mut map: TlsMap<ComponentId, VLBytes> = match old_value {
-                Some(bytes) => TlsMap::<ComponentId, VLBytes>::tls_deserialize_exact(bytes)?,
-                None => TlsMap::new(),
-            };
-            map.apply_delta(delta)?;
-            Ok(map.tls_serialize_detached()?)
-        }
-        ComponentId::GROUP_MEMBERSHIP => {
-            let delta = TlsMapDelta::<InboxId, VLBytes>::tls_deserialize_exact(payload)?;
-            let mut map: TlsMap<InboxId, VLBytes> = match old_value {
-                Some(bytes) => TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(bytes)?,
-                None => TlsMap::new(),
-            };
-            map.apply_delta(delta)?;
-            Ok(map.tls_serialize_detached()?)
-        }
-        _ => Err(ComponentSourceError::UnknownComponent(id)),
-    }
+        return Err(ComponentSourceError::UnknownComponent(id));
+    };
+    component
+        .apply_update_payload(payload, old_value)
+        .map_err(Into::into)
 }
 
 /// Overlay AppData-dict component values onto a base [`GroupMutableMetadata`]
@@ -1367,11 +1378,27 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    fn test_apply_immutable_update_rejected() {
-        // An Update op against an immutable component must fail — the caller
-        // should be using Insert for first-write semantics.
-        let err = apply_app_data_update_payload(ComponentId::CONVERSATION_TYPE, b"junk", None)
-            .unwrap_err();
+    fn test_apply_immutable_first_insert_allowed() {
+        // Bootstrap-shape: an `Update(payload)` against an immutable
+        // component with no prior value is the bootstrap commit's
+        // first-write path. Apply must store the payload bytes
+        // verbatim — the bootstrap validator's byte-compare catches a
+        // peer that crafts a malicious initial value, so the apply
+        // layer doesn't need its own decode/check step.
+        let bytes =
+            apply_app_data_update_payload(ComponentId::CONVERSATION_TYPE, b"seed", None).unwrap();
+        assert_eq!(bytes, b"seed");
+    }
+
+    #[xmtp_common::test]
+    fn test_apply_immutable_overwrite_rejected() {
+        // Steady-state: an `Update(payload)` against an immutable
+        // component that already has a prior value must fail. This is
+        // the only path Byzantine peers have to mutate immutables
+        // post-bootstrap, and the apply layer is the gatekeeper.
+        let err =
+            apply_app_data_update_payload(ComponentId::CONVERSATION_TYPE, b"junk", Some(b"prior"))
+                .unwrap_err();
         assert!(matches!(err, ComponentSourceError::ImmutableUpdate(_)));
     }
 
