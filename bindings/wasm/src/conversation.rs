@@ -645,6 +645,19 @@ impl Conversation {
     Ok(())
   }
 
+  /// Enable AppData-proposal-based metadata updates on this group.
+  ///
+  /// Stages the bootstrap commit that migrates the group's metadata
+  /// from the legacy GroupContextExtensions shape into the OpenMLS
+  /// AppData dictionary. Hard-fails if any member's latest key
+  /// package doesn't advertise `ProposalType::AppDataUpdate`. One-
+  /// way: migrated groups cannot return to the legacy path.
+  #[wasm_bindgen(js_name = enableProposals)]
+  pub async fn enable_proposals(&self) -> Result<(), JsError> {
+    let group = self.to_mls_group();
+    group.enable_proposals().await.map_err(ErrorWrapper::js)
+  }
+
   #[wasm_bindgen(js_name = groupName)]
   pub fn group_name(&self) -> Result<String, JsError> {
     let group = self.to_mls_group();
