@@ -33,19 +33,18 @@ use openmls::{
     group::{GroupContext, MlsGroup as OpenMlsGroup},
     messages::proposals::AppDataUpdateOperation,
 };
-use tls_codec::{Deserialize, Serialize, VLBytes};
+use tls_codec::{Deserialize, Serialize};
 use xmtp_mls_common::{
     app_data::{
-        component_id::ComponentId, component_registry::ComponentOp,
-        registry_table::lookup_component, typed::ComponentTypedError,
+        component_id::ComponentId, registry_table::lookup_component, typed::ComponentTypedError,
     },
     group_mutable_metadata::{
         GroupMutableMetadata, GroupMutableMetadataError, MetadataField,
         find_mutable_metadata_extension,
     },
     inbox_id::{InboxId, InboxIdError},
-    tls_map::{TlsMap, TlsMapDelta, TlsMapError},
-    tls_set::{TlsKeyHash, TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
+    tls_map::TlsMapError,
+    tls_set::{TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
 };
 use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 
@@ -466,107 +465,11 @@ pub(crate) fn expand_app_data_update_to_changes(
     operation: &AppDataUpdateOperation,
     old_value: Option<&[u8]>,
 ) -> Result<Vec<ExpandedComponentChange>, ComponentSourceError> {
-    match operation {
-        AppDataUpdateOperation::Remove => Ok(vec![ExpandedComponentChange {
-            op: ComponentOp::Delete,
-            value: None,
-        }]),
-        AppDataUpdateOperation::Update(payload) => {
-            // Bytes-typed components: a single Update covering the whole value.
-            if component_id_to_metadata_field(component_id).is_some() {
-                return Ok(vec![ExpandedComponentChange {
-                    op: ComponentOp::Update,
-                    value: Some(payload.as_slice().to_vec()),
-                }]);
-            }
-
-            match component_id {
-                ComponentId::ADMIN_LIST | ComponentId::SUPER_ADMIN_LIST => {
-                    let delta = TlsSetDelta::<InboxId>::tls_deserialize_exact(payload.as_slice())?;
-
-                    // Lazily build a hash → InboxId index only if we
-                    // actually see a `RemoveByHash` in this delta. The
-                    // common case (Insert/Remove deltas) pays no decode
-                    // cost for the prior set, and the cost of the
-                    // deserialize + index build is paid once per
-                    // proposal, not per mutation.
-                    let needs_index = delta
-                        .mutations
-                        .iter()
-                        .any(|m| matches!(m, TlsSetMutation::RemoveByHash(_)));
-                    let hash_index: Option<std::collections::HashMap<TlsKeyHash, InboxId>> =
-                        if needs_index {
-                            match old_value {
-                                Some(bytes) => {
-                                    let prior = TlsSet::<InboxId>::tls_deserialize_exact(bytes)?;
-                                    let mut idx =
-                                        std::collections::HashMap::with_capacity(prior.len());
-                                    for key in prior.iter() {
-                                        // Defense-in-depth: a hash clash between two
-                                        // distinct keys in the prior set is cryptographically
-                                        // infeasible with SHA-256, but a bug in `Serialize`
-                                        // for `InboxId` (or a future key type) could produce
-                                        // the same bytes for distinct logical values. Refuse
-                                        // to build a silently-lossy index — this matches
-                                        // `TlsSet::apply_delta`'s `DuplicateHash` check at the
-                                        // apply step, so the expansion and apply paths agree
-                                        // on what constitutes a well-formed prior set.
-                                        if idx.insert(TlsKeyHash::of(key)?, *key).is_some() {
-                                            return Err(ComponentSourceError::TlsSetApply(
-                                                TlsSetError::DuplicateHash,
-                                            ));
-                                        }
-                                    }
-                                    Some(idx)
-                                }
-                                // No prior bytes → empty set → every
-                                // RemoveByHash trivially misses. Skip the
-                                // allocation and let each lookup return None.
-                                None => None,
-                            }
-                        } else {
-                            None
-                        };
-
-                    let mut out = Vec::with_capacity(delta.mutations.len());
-                    for mutation in delta.mutations {
-                        match mutation {
-                            TlsSetMutation::Insert(key) => out.push(ExpandedComponentChange {
-                                op: ComponentOp::Insert,
-                                value: Some(key.into_bytes().to_vec()),
-                            }),
-                            TlsSetMutation::Remove(key) => out.push(ExpandedComponentChange {
-                                op: ComponentOp::Delete,
-                                value: Some(key.into_bytes().to_vec()),
-                            }),
-                            // RemoveByHash carries a 32-byte hash of the
-                            // key's TLS encoding. Resolve it back to the
-                            // concrete InboxId via the prior-set index so
-                            // the validator sees the identity being
-                            // removed. A miss (or no prior set) leaves
-                            // `value: None` — the CRDT apply step will
-                            // fail with KeyNotFound in that case.
-                            TlsSetMutation::RemoveByHash(target) => {
-                                let resolved = hash_index
-                                    .as_ref()
-                                    .and_then(|idx| idx.get(&target))
-                                    .map(|id| id.as_bytes().to_vec());
-                                out.push(ExpandedComponentChange {
-                                    op: ComponentOp::Delete,
-                                    value: resolved,
-                                });
-                            }
-                        }
-                    }
-                    Ok(out)
-                }
-                ComponentId::GROUP_MEMBERSHIP => {
-                    Err(ComponentSourceError::NotImplemented(component_id))
-                }
-                _ => Err(ComponentSourceError::UnknownComponent(component_id)),
-            }
-        }
-    }
+    let component = lookup_component(component_id)
+        .ok_or(ComponentSourceError::UnknownComponent(component_id))?;
+    component
+        .expand_to_changes(operation, old_value)
+        .map_err(Into::into)
 }
 
 /// Decode an incoming `AppDataUpdateOperation::Update(bytes)` payload and
@@ -1001,7 +904,13 @@ fn encode_inbox_id_set_delta(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xmtp_mls_common::inbox_id::INBOX_ID_BYTE_LEN;
+    use tls_codec::VLBytes;
+    use xmtp_mls_common::{
+        app_data::component_registry::ComponentOp,
+        inbox_id::INBOX_ID_BYTE_LEN,
+        tls_map::{TlsMap, TlsMapDelta},
+        tls_set::TlsKeyHash,
+    };
 
     /// Build a deterministic 64-character hex inbox id from a tag byte. The
     /// tag is repeated 32 times, giving a unique inbox id per call without
