@@ -460,6 +460,11 @@ pub(crate) use xmtp_mls_common::app_data::typed::ExpandedComponentChange;
 ///
 /// Used on the receiver side to feed `validate_component_write` for each
 /// distinct change inside a single `AppDataUpdate` proposal.
+///
+/// The steady-state validator dispatches through `lookup_component`
+/// directly so it can also call `Component::validate_invariant`
+/// without a second binary search. This wrapper is retained for
+/// callers that don't need the invariant hook.
 pub(crate) fn expand_app_data_update_to_changes(
     component_id: ComponentId,
     operation: &AppDataUpdateOperation,

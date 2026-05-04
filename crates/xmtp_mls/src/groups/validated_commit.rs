@@ -1132,15 +1132,30 @@ pub(super) fn validate_one_app_data_update_with_old_value(
     registry: &xmtp_mls_common::app_data::component_registry::ComponentRegistry,
     old_value: Option<&[u8]>,
 ) -> Result<(), CommitValidationError> {
-    use super::app_data::component_source::expand_app_data_update_to_changes;
-    use xmtp_mls_common::app_data::validation::{ComponentChange, validate_component_write};
+    use xmtp_mls_common::app_data::{
+        registry_table::lookup_component,
+        validation::{ComponentChange, validate_component_write},
+    };
 
-    let changes =
-        expand_app_data_update_to_changes(component_id, operation, old_value).map_err(|e| {
+    // Single dispatch lookup serves both expansion and the per-element
+    // invariant hook below.
+    let Some(component) = lookup_component(component_id) else {
+        tracing::warn!(
+            proposer_inbox_id,
+            component_id = %component_id,
+            "AppDataUpdate proposal rejected: no Component impl for component id"
+        );
+        return Err(CommitValidationError::InsufficientPermissions);
+    };
+
+    let changes = component
+        .expand_to_changes(operation, old_value)
+        .map_err(|e| {
+            let wrapped = super::app_data::component_source::ComponentSourceError::from(e);
             tracing::warn!(
                 proposer_inbox_id,
                 component_id = %component_id,
-                error = %e,
+                error = %wrapped,
                 "AppDataUpdate proposal rejected: failed to expand payload"
             );
             CommitValidationError::InsufficientPermissions
@@ -1158,6 +1173,7 @@ pub(super) fn validate_one_app_data_update_with_old_value(
             .maybe_new_value(change.value.as_deref())
             .build();
 
+        // Layer 1: registry-based policy.
         if let Err(e) = validate_component_write(&cc, registry) {
             tracing::warn!(
                 proposer_inbox_id,
@@ -1165,6 +1181,19 @@ pub(super) fn validate_one_app_data_update_with_old_value(
                 op = %change.op,
                 error = %e,
                 "AppDataUpdate proposal rejected"
+            );
+            return Err(CommitValidationError::InsufficientPermissions);
+        }
+
+        // Layer 2: per-component invariants. Runs after the policy
+        // check so a denied actor can't trigger expensive invariants.
+        if let Err(e) = component.validate_invariant(&cc, registry) {
+            tracing::warn!(
+                proposer_inbox_id,
+                component_id = %component_id,
+                op = %change.op,
+                error = %e,
+                "AppDataUpdate proposal rejected: component invariant violated"
             );
             return Err(CommitValidationError::InsufficientPermissions);
         }
