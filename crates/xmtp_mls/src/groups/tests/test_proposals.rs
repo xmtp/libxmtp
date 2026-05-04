@@ -3212,3 +3212,182 @@ async fn test_accumulate_app_data_updates_chains_intra_batch() {
         "Bob missing from final set"
     );
 }
+
+// =============================================================================
+// Sender-path tests for `IntentKind::UpdateAdminList` and
+// `IntentKind::UpdatePermission`. The AppDataUpdate path activates on
+// migrated groups (`is_migrated_group(...)` true). Tests use
+// `with_permissive_registry` (the `TEST_REGISTRY_OVERRIDE` helper) so
+// we can exercise the path without running a full bootstrap commit.
+// =============================================================================
+
+/// `update_admin_list(Add, bo)` on a migrated group should publish an
+/// `AppDataUpdate(ADMIN_LIST, Update(TlsSetDelta::insert(bo)))` proposal,
+/// apply the new admin list into the OpenMLS AppData dictionary, and
+/// surface bo as an admin to peers via `mutable_metadata().admin_list`.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_admin_list_add_via_app_data_path_after_migration() {
+    use crate::groups::UpdateAdminListType;
+
+    with_permissive_registry(|| async {
+        tester!(alix);
+        tester!(bo);
+
+        let alix_group = alix
+            .create_group_with_members(&[bo.inbox_id()], None, None)
+            .await?;
+        let bo_groups = bo.sync_welcomes().await?;
+        let bo_group = bo_groups.first()?;
+        bo_group.sync().await?;
+
+        // Flip the capability extension. Combined with the
+        // permissive registry installed by `with_permissive_registry`,
+        // both halves of the `proposals_on && registry_populated`
+        // gate are true and the AppDataUpdate path activates.
+        alix_group.enable_proposals().await?;
+        bo_group.sync().await?;
+
+        // Promote bo to admin via the host-facing API. Internally
+        // queues `IntentKind::UpdateAdminList` which routes through
+        // change #10's dual-routing branch.
+        alix_group
+            .update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
+            .await?;
+        bo_group.sync().await?;
+
+        // Both sides should now see bo as an admin via the
+        // capability-aware `mutable_metadata` (which reads from the
+        // dict on migrated groups).
+        let alix_meta = alix_group.mutable_metadata()?;
+        assert!(
+            alix_meta.admin_list.contains(&bo.inbox_id().to_string()),
+            "alix should see bo as admin after AppDataUpdate(ADMIN_LIST) commits, \
+             admin_list={:?}",
+            alix_meta.admin_list,
+        );
+        let bo_meta = bo_group.mutable_metadata()?;
+        assert!(
+            bo_meta.admin_list.contains(&bo.inbox_id().to_string()),
+            "bo should see himself as admin via the dict overlay, admin_list={:?}",
+            bo_meta.admin_list,
+        );
+
+        Ok(())
+    })
+    .await;
+}
+
+// Round-trip Add+Remove cannot be tested under TEST_REGISTRY_OVERRIDE
+// alone today: after the first AppDataUpdate(ADMIN_LIST) write, the
+// dict has an entry, which makes `is_migrated_group` flip true, which
+// makes the second `update_admin_list` call's pre-flight `metadata()`
+// take the migrated read path — and that path requires CONVERSATION_TYPE
+// in the dict, which only the real bootstrap commit writes. The Add
+// test above proves the Insert mapping; the Remove half is symmetric
+// in the encoder (`TlsSetMutation::Remove` vs `Insert`) and is
+// exercised end-to-end by `apply_remove_against_existing_prior` and
+// the integration tests that run against a real bootstrap commit
+// (deferred follow-up driven by changes #12/#13).
+
+/// `update_admin_list(AddSuper, bo)` should target the SUPER_ADMIN_LIST
+/// component rather than ADMIN_LIST. Confirms the action→component
+/// mapping in the sender's match arm.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_super_admin_list_add_via_app_data_path_after_migration() {
+    use crate::groups::UpdateAdminListType;
+
+    with_permissive_registry(|| async {
+        tester!(alix);
+        tester!(bo);
+
+        let alix_group = alix
+            .create_group_with_members(&[bo.inbox_id()], None, None)
+            .await?;
+        let bo_groups = bo.sync_welcomes().await?;
+        let bo_group = bo_groups.first()?;
+        bo_group.sync().await?;
+
+        alix_group.enable_proposals().await?;
+        bo_group.sync().await?;
+
+        // AddSuper targets SUPER_ADMIN_LIST per change #10's mapping.
+        alix_group
+            .update_admin_list(UpdateAdminListType::AddSuper, bo.inbox_id().to_string())
+            .await?;
+        bo_group.sync().await?;
+
+        let alix_meta = alix_group.mutable_metadata()?;
+        assert!(
+            alix_meta
+                .super_admin_list
+                .contains(&bo.inbox_id().to_string()),
+            "alix should see bo as super admin, super_admin_list={:?}",
+            alix_meta.super_admin_list,
+        );
+        // ADMIN_LIST should NOT have changed — only SUPER_ADMIN_LIST.
+        // The naive `!contains(bo)` check is too weak (admin_list
+        // starts empty for a fresh group, so it would pass even if
+        // AddSuper routed nowhere). Assert the stronger
+        // `admin_list.is_empty()` invariant: AddSuper(bo) on a fresh
+        // group must leave ADMIN_LIST untouched, not merely "missing
+        // bo specifically." Catches a mapping bug where AddSuper
+        // accidentally writes a different inbox into ADMIN_LIST.
+        assert!(
+            alix_meta.admin_list.is_empty(),
+            "AddSuper should not have touched ADMIN_LIST, but admin_list={:?}",
+            alix_meta.admin_list,
+        );
+
+        Ok(())
+    })
+    .await;
+}
+
+// `test_permission_update_via_app_data_path_after_migration` requires
+// a real bootstrap commit to populate the COMPONENT_REGISTRY entry in
+// the dict before UpdatePermission can dispatch a Map::update against
+// it. With TEST_REGISTRY_OVERRIDE alone, the registry is fake-readable
+// but the dict has no actual COMPONENT_REGISTRY entry — so
+// `TlsMapDelta::update(GROUP_NAME, ...)` fails on the receiver
+// (Update against a non-existent key). Pinned by the unit tests
+// in `tls_map_components.rs` for the encoder shape; full e2e
+// coverage waits on real bootstrap (deferred follow-up).
+
+/// Sanity check: on an *unmigrated* group, the same admin-list update
+/// API still works through the legacy GCE path and produces the same
+/// observable state. Catches a regression where the dual-routing gate
+/// might mis-fire on unmigrated groups.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_admin_list_add_unchanged_on_unmigrated_group() {
+    use crate::groups::UpdateAdminListType;
+
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = bo_groups.first()?;
+    bo_group.sync().await?;
+
+    // Note: NO `enable_proposals()` and NO `with_permissive_registry()`.
+    // The dual-routing gate is closed; the legacy GCE path runs.
+    alix_group
+        .update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
+        .await?;
+    bo_group.sync().await?;
+
+    let alix_meta = alix_group.mutable_metadata()?;
+    assert!(
+        alix_meta.admin_list.contains(&bo.inbox_id().to_string()),
+        "legacy GCE admin-list update broke, admin_list={:?}",
+        alix_meta.admin_list,
+    );
+    let bo_meta = bo_group.mutable_metadata()?;
+    assert!(
+        bo_meta.admin_list.contains(&bo.inbox_id().to_string()),
+        "bo should see himself as admin via legacy GMM, admin_list={:?}",
+        bo_meta.admin_list,
+    );
+}
