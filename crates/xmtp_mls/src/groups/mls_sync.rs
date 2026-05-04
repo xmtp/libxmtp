@@ -320,13 +320,13 @@ impl RetryableError for IntentResolutionError {
 
 #[derive(Debug)]
 pub(crate) struct PublishIntentData {
-    staged_commit: Option<Vec<u8>>,
-    post_commit_action: Option<Vec<u8>>,
+    pub(crate) staged_commit: Option<Vec<u8>>,
+    pub(crate) post_commit_action: Option<Vec<u8>>,
     /// One or more payloads to publish. Most intents have a single payload (commit or message),
     /// but proposal intents may have multiple payloads (one per proposal).
-    payloads_to_publish: Vec<Vec<u8>>,
-    should_send_push_notification: bool,
-    group_epoch: u64,
+    pub(crate) payloads_to_publish: Vec<Vec<u8>>,
+    pub(crate) should_send_push_notification: bool,
+    pub(crate) group_epoch: u64,
 }
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -2797,12 +2797,43 @@ where
                 }))
             }
             IntentKind::UpdateAdminList => {
-                // ADMIN_LIST stays on the legacy GCE path: routing it
-                // through AppDataUpdate would let the GMM-backed validators
-                // in `validated_commit.rs` diverge from the dict until the
-                // migration is dual-write or complete.
                 let admin_list_update_intent =
                     UpdateAdminListIntentData::try_from(intent.data.clone())?;
+
+                // Mirror the MetadataUpdate dual-routing gate: only
+                // route through AppDataUpdate on groups whose AppData
+                // dict has the `COMPONENT_REGISTRY` entry (the
+                // bootstrap-commit marker). Otherwise stay on the
+                // legacy GCE path so unmigrated peers continue to
+                // validate via the legacy `GroupMutableMetadata`
+                // extension. Single shared predicate via
+                // `is_migrated_group` keeps every send/receive/validate
+                // path honest about what "migrated" means.
+                let is_migrated = super::app_data::is_migrated_group(openmls_group);
+                tracing::debug!(
+                    group_id = hex::encode(self.group_id.as_slice()),
+                    is_migrated,
+                    path = if is_migrated {
+                        "app_data_update"
+                    } else {
+                        "legacy_gce"
+                    },
+                    "UpdateAdminList intent routing"
+                );
+                if is_migrated {
+                    let signer = self.context.identity().installation_keys.clone();
+                    let publish =
+                        super::app_data::sender_intents::apply_update_admin_list_app_data_intent(
+                            &self.context,
+                            openmls_group,
+                            admin_list_update_intent,
+                            signer,
+                            intent.should_push,
+                        )?;
+                    return Ok(Some(publish));
+                }
+
+                // Legacy GCE path on unmigrated groups.
                 let mutable_metadata_extensions = build_extensions_for_admin_lists_update(
                     openmls_group,
                     admin_list_update_intent,
