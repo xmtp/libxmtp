@@ -288,6 +288,7 @@ async fn compute_publish_data_for_group_membership_update(
 ///   `build_group_membership_app_data_payload`.
 /// - `None` on unmigrated groups — fall back to a GCE proposal that
 ///   updates the legacy `GROUP_MEMBERSHIP_EXTENSION_ID` extension.
+#[allow(clippy::too_many_arguments)]
 #[tracing::instrument(level = "trace", skip_all)]
 async fn compute_publish_data_for_proposal_based_update(
     context: &impl XmtpSharedContext,

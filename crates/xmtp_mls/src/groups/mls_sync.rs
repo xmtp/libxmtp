@@ -2926,30 +2926,40 @@ where
                     return Err(GroupError::from(CommitValidationError::ProposalsNotEnabled));
                 }
 
-                // Defensive gate. The proposal-by-reference flow
-                // emits Add/Remove + GCE proposals updating the
-                // legacy GROUP_MEMBERSHIP_EXTENSION_ID extension. On
-                // migrated groups that extension is gone, so the
-                // GCE would re-add it and break the dict-as-source-
-                // of-truth invariant. Bail out the same way Task 7c
-                // (`apply_update_group_membership_intent`) does, via
-                // the same canonical `is_migrated_extensions`
-                // predicate.
-                if super::app_data::is_migrated_extensions(openmls_group.extensions()) {
-                    return Err(GroupError::UpdateGroupMembershipMigratedNotImplemented);
-                }
+                // Detect whether this is a migrated group. On
+                // migrated groups, in addition to the Add/Remove
+                // proposals below, we also emit an
+                // `AppDataUpdate(GROUP_MEMBERSHIP)` proposal carrying
+                // the membership delta. The subsequent
+                // `CommitPendingProposals` intent sweeps everything
+                // into a single commit. Bootstrap removed the legacy
+                // `GROUP_MEMBERSHIP_EXTENSION_ID` extension, so the
+                // legacy GCE proposal that `CommitPendingProposals`
+                // would otherwise emit is no-op on migrated groups —
+                // the AppData path carries the source of truth.
+                //
+                // Uses the canonical `is_migrated_group` predicate
+                // (presence of the `COMPONENT_REGISTRY` entry) to
+                // match every other send/receive/validate gate.
+                let is_migrated = super::app_data::is_migrated_group(openmls_group);
 
                 let intent_data = ProposeMemberUpdateIntentData::try_from(intent.data.as_slice())?;
                 let group_epoch = openmls_group.epoch().as_u64();
                 let signer = &self.context.identity().installation_keys;
                 let mut proposal_payloads = Vec::new();
 
+                // The membership the AppDataUpdate proposal will encode on
+                // migrated groups. We mutate this as we process adds/removes
+                // so it ends up reflecting only the inbox_ids that actually
+                // got Add proposals (i.e. had at least one key package that
+                // fetched successfully) plus any explicit removes — not the
+                // raw intent.
+                let extensions: Extensions<GroupContext> = openmls_group.extensions().clone();
+                let old_group_membership = extract_group_membership(&extensions)?;
+                let mut new_membership = old_group_membership.clone();
+
                 // Handle adds
                 if !intent_data.add_inbox_ids.is_empty() {
-                    // Get current group membership
-                    let extensions: Extensions<GroupContext> = openmls_group.extensions().clone();
-                    let old_group_membership = extract_group_membership(&extensions)?;
-
                     // Get latest sequence IDs for the inbox_ids to add
                     let inbox_ids_to_add: Vec<&str> = intent_data
                         .add_inbox_ids
@@ -2969,21 +2979,21 @@ where
                         .db()
                         .get_latest_sequence_id(&inbox_ids_to_add)?;
 
-                    // Build the new membership with the added inbox_ids
-                    let mut new_membership = old_group_membership.clone();
+                    // Build the projected membership for kp lookup.
+                    let mut projected = old_group_membership.clone();
                     for inbox_id in &intent_data.add_inbox_ids {
                         let sequence_id = latest_sequence_ids
                             .get(inbox_id.as_str())
                             .copied()
                             .ok_or(GroupError::MissingSequenceId)?;
-                        new_membership.add(inbox_id.clone(), sequence_id as u64);
+                        projected.add(inbox_id.clone(), sequence_id as u64);
                     }
 
                     // Get key packages for the installations to add
                     let changes_with_kps = calculate_membership_changes_with_keypackages(
                         &self.context,
                         &self.group_id,
-                        &new_membership,
+                        &projected,
                         &old_group_membership,
                     )
                     .await?;
@@ -2994,6 +3004,52 @@ where
                     {
                         return Err(GroupError::FailedToVerifyInstallations);
                     }
+
+                    // Compute the inbox_ids that actually got at least one
+                    // key package — those are the only ones that should
+                    // appear in the AppDataUpdate payload below. An
+                    // inbox_id whose installations all failed kp fetch has
+                    // no MLS leaf in the commit, so claiming membership
+                    // for it would diverge dict and tree state.
+                    let added_inbox_ids: HashSet<String> = changes_with_kps
+                        .new_key_packages
+                        .iter()
+                        .filter_map(|kp| {
+                            let credential =
+                                BasicCredential::try_from(kp.leaf_node().credential().clone())
+                                    .ok()?;
+                            parse_credential(credential.identity()).ok()
+                        })
+                        .collect();
+                    for inbox_id in &intent_data.add_inbox_ids {
+                        if !added_inbox_ids.contains(inbox_id) {
+                            continue;
+                        }
+                        let sequence_id = latest_sequence_ids
+                            .get(inbox_id.as_str())
+                            .copied()
+                            .ok_or(GroupError::MissingSequenceId)?;
+                        new_membership.add(inbox_id.clone(), sequence_id as u64);
+                    }
+
+                    // Carry forward the failed-installations set on
+                    // the local `new_membership`. On the legacy path
+                    // this drives the GCE proposal that
+                    // `CommitPendingProposals` emits against
+                    // GROUP_MEMBERSHIP_EXTENSION_ID, where
+                    // failed_installations is part of the wire form.
+                    // On the migrated path the AppDataUpdate payload
+                    // built by `build_group_membership_app_data_payload`
+                    // intentionally does NOT propagate
+                    // failed_installations (see that function's doc);
+                    // we still set it here so the equality check at
+                    // the AppDataUpdate emit site below
+                    // (`old_group_membership != new_membership`)
+                    // detects kp-failure-only deltas, and so the
+                    // unmigrated and migrated branches share one
+                    // `new_membership` value.
+                    new_membership.failed_installations =
+                        changes_with_kps.failed_installations.clone();
 
                     // Generate add proposals for each key package
                     for key_package in &changes_with_kps.new_key_packages {
@@ -3028,6 +3084,10 @@ where
                             .map_err(GroupError::ProposeRemoveMember)?;
                         proposal_payloads.push(proposal_msg.tls_serialize_detached()?);
                     }
+
+                    for inbox_id in &intent_data.remove_inbox_ids {
+                        new_membership.remove(inbox_id);
+                    }
                 }
 
                 if proposal_payloads.is_empty() {
@@ -3041,9 +3101,39 @@ where
                     return Ok(None);
                 }
 
+                // On migrated groups, emit a parallel
+                // `AppDataUpdate(GROUP_MEMBERSHIP)` proposal carrying
+                // the membership delta we computed above (filtered to
+                // kp-successful adds + explicit removes + carried-
+                // forward failed_installations). The subsequent
+                // `CommitPendingProposals` intent sweeps Add/Remove
+                // and AppDataUpdate proposals into one commit and
+                // skips the legacy GCE proposal (since the legacy
+                // GROUP_MEMBERSHIP_EXTENSION_ID is gone post-bootstrap).
+                if is_migrated && old_group_membership != new_membership {
+                    use crate::groups::mls_sync::update_group_membership::build_group_membership_app_data_payload;
+
+                    let payload = build_group_membership_app_data_payload(
+                        &old_group_membership,
+                        &new_membership,
+                    )?;
+                    let (proposal_msg, _) = openmls_group
+                        .propose_app_data_update(
+                            &self.context.mls_provider(),
+                            signer,
+                            xmtp_mls_common::app_data::component_id::ComponentId::GROUP_MEMBERSHIP
+                                .as_u16(),
+                            openmls::messages::proposals::AppDataUpdateOperation::Update(
+                                payload.into(),
+                            ),
+                        )
+                        .map_err(GroupError::Proposal)?;
+                    proposal_payloads.push(proposal_msg.tls_serialize_detached()?);
+                }
+
                 // Note: The GroupContextExtensions proposal to update membership is created
-                // by CommitPendingProposals, not here. This avoids issues with tracking
-                // multiple message hashes per intent.
+                // by CommitPendingProposals, not here (and is no-op on migrated groups since
+                // the legacy GROUP_MEMBERSHIP_EXTENSION_ID is gone).
 
                 Ok(Some(PublishIntentData {
                     payloads_to_publish: proposal_payloads,
@@ -3290,7 +3380,19 @@ where
                         }
                     });
 
-                if membership_changed && !has_pending_gce_with_membership {
+                // Detect migrated state. On migrated groups the legacy
+                // `GROUP_MEMBERSHIP_EXTENSION_ID` is gone; membership
+                // updates flow as AppDataUpdate proposals (already
+                // emitted by `ProposeMemberUpdate` and sitting in the
+                // pending queue). The GCE proposal that this branch
+                // would otherwise build to update the legacy extension
+                // is skipped — the commit just sweeps the pending
+                // AppDataUpdate alongside the Add/Remove proposals.
+                let is_migrated_for_commit =
+                    super::app_data::is_migrated_extensions(openmls_group.extensions());
+
+                if membership_changed && !has_pending_gce_with_membership && !is_migrated_for_commit
+                {
                     // === GCE needed: batch GCE proposal + commit in one publish ===
                     // Create GCE proposal and commit locally inside one
                     // generate_commit_with_rollback call, returning both payloads.
