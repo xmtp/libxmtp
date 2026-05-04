@@ -328,6 +328,11 @@ fn build_registry(
 /// bytes, while everything else is utf-8 text. Tagging the type here
 /// drives `new_component_metadata` to register the correct
 /// `ComponentType`.
+///
+/// The `(ComponentId, ComponentType)` pairs in this table must agree
+/// with the static dispatch table at
+/// [`super::registry_table::WELL_KNOWN`] — pinned by the unit test
+/// `metadata_field_mapping_agrees_with_dispatch_table` below.
 fn metadata_field_registry_mapping() -> &'static [(MetadataField, ComponentId, ComponentType)] {
     &[
         (
@@ -923,6 +928,26 @@ mod tests {
                 ))
             }
         );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn metadata_field_mapping_agrees_with_dispatch_table() {
+        // The `metadata_field_registry_mapping` table duplicates
+        // ComponentType info that `WELL_KNOWN` now also carries (one
+        // entry per `Component` impl). Pin the invariant: if a
+        // future change drifts one of the tables out of sync (e.g.
+        // changes a Bytes component to String only in WELL_KNOWN),
+        // this test catches it before any commit goes out.
+        use crate::app_data::registry_table::lookup_component;
+        for (_field, component_id, expected_type) in metadata_field_registry_mapping() {
+            let dispatched = lookup_component(*component_id)
+                .unwrap_or_else(|| panic!("WELL_KNOWN missing entry for {component_id}"));
+            assert_eq!(
+                dispatched.component_type(),
+                *expected_type,
+                "metadata_field_registry_mapping disagrees with WELL_KNOWN for {component_id}"
+            );
+        }
     }
 
     #[test]
