@@ -2862,6 +2862,35 @@ where
             IntentKind::UpdatePermission => {
                 let update_permissions_intent =
                     UpdatePermissionIntentData::try_from(intent.data.clone())?;
+
+                // Mirror the MetadataUpdate / UpdateAdminList dual-
+                // routing gate via the shared `is_migrated_group`
+                // predicate.
+                let is_migrated = super::app_data::is_migrated_group(openmls_group);
+                tracing::debug!(
+                    group_id = hex::encode(self.group_id.as_slice()),
+                    is_migrated,
+                    path = if is_migrated {
+                        "app_data_update"
+                    } else {
+                        "legacy_gce"
+                    },
+                    "UpdatePermission intent routing"
+                );
+                if is_migrated {
+                    let signer = self.context.identity().installation_keys.clone();
+                    let publish =
+                        super::app_data::sender_intents::apply_update_permission_app_data_intent(
+                            &self.context,
+                            openmls_group,
+                            update_permissions_intent,
+                            signer,
+                            intent.should_push,
+                        )?;
+                    return Ok(Some(publish));
+                }
+
+                // Legacy GCE path on unmigrated groups.
                 let group_permissions_extensions = build_extensions_for_permissions_update(
                     openmls_group,
                     update_permissions_intent,
