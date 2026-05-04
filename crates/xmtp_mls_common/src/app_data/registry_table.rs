@@ -63,17 +63,33 @@ pub static WELL_KNOWN: &[(ComponentId, &'static dyn ErasedComponent)] = &[
     (ComponentId::DM_MEMBERS, &DmMembersComponent),
 ];
 
-/// Look up the [`ErasedComponent`] for a well-known [`ComponentId`].
+/// Look up the [`ErasedComponent`] for a [`ComponentId`].
 ///
-/// Returns `None` for app-range custom IDs (those resolve via
-/// `app_data::custom` instead) and for IDs with no `Component` impl
-/// (e.g. the `0xBE0x` immutable seeds — handled by the bootstrap
-/// validator's byte-compare path, not the trait).
+/// The two sources are disjoint by construction — `WELL_KNOWN`
+/// entries all sit in the XMTP range (`0x8000-0xBFFF`) and runtime
+/// entries are gated to the app range (`0xC000-0xFEFF`) at
+/// registration time — so we route by id space and skip the wrong
+/// table entirely:
+///
+/// 1. XMTP range → binary-search the static `WELL_KNOWN` table.
+/// 2. App range → consult the process-global runtime registry
+///    ([`super::custom::lookup_runtime_component`]).
+/// 3. Reserved range (`0xFF00-0xFFFF`) → no dispatch.
+///
+/// Returns `None` if the id is in a known range but has no impl
+/// registered (e.g. the `0xBE0x` immutable seeds — handled by the
+/// bootstrap validator's byte-compare path rather than the trait).
 pub fn lookup_component(id: ComponentId) -> Option<&'static dyn ErasedComponent> {
-    WELL_KNOWN
-        .binary_search_by_key(&id.as_u16(), |(component_id, _)| component_id.as_u16())
-        .ok()
-        .map(|idx| WELL_KNOWN[idx].1)
+    if id.is_xmtp_range() {
+        return WELL_KNOWN
+            .binary_search_by_key(&id.as_u16(), |(component_id, _)| component_id.as_u16())
+            .ok()
+            .map(|idx| WELL_KNOWN[idx].1);
+    }
+    if id.is_app_range() {
+        return super::custom::lookup_runtime_component(id);
+    }
+    None
 }
 
 /// Compile-time check that [`WELL_KNOWN`] is strictly ascending by
