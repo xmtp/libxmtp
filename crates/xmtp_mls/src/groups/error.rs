@@ -108,19 +108,6 @@ pub enum GroupError {
     /// Group membership state is invalid. Not retryable.
     #[error("invalid group membership")]
     InvalidGroupMembership,
-    /// `IntentKind::UpdateGroupMembership` and
-    /// `IntentKind::ProposeMemberUpdate` aren't yet wired through the
-    /// AppDataUpdate path on migrated groups. Hosts that call
-    /// `enable_proposals()` and then try to update group membership
-    /// see this error rather than a commit that would re-add the
-    /// legacy `GROUP_MEMBERSHIP_EXTENSION_ID` extension that
-    /// bootstrap just removed.
-    // TODO(7c, 7d): wire GROUP_MEMBERSHIP through the AppDataUpdate
-    // path; the integration tests for membership-on-migrated-groups
-    // will drive the precise per-inbox `GroupMembershipEntryV1`
-    // partitioning and `failed_installations` propagation.
-    #[error("UpdateGroupMembership via AppDataUpdate is not yet implemented for migrated groups")]
-    UpdateGroupMembershipMigratedNotImplemented,
     /// Leave cannot be processed.
     ///
     /// Group leave validation failed. Not retryable.
@@ -628,8 +615,7 @@ impl RetryableError for GroupError {
             | Self::NoWelcomesToSend
             | Self::WelcomeDataNotFound(_)
             | Self::UninitializedField(_)
-            | Self::UninitializedResult
-            | Self::UpdateGroupMembershipMigratedNotImplemented => false,
+            | Self::UninitializedResult => false,
         }
     }
 }
