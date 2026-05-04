@@ -193,8 +193,11 @@ async fn test_welcome_commit_log() {
     );
 }
 
-// TODO(rich): Fix intent publishing on bad network conditions
-#[ignore]
+// Toxiproxy's `node-go` proxy speaks raw gRPC (localhost:6010 → node:5556).
+// WASM tests use the browser's `fetch`, which can only talk gRPC-Web — the
+// other toxiproxy test (`test_network`) sidesteps this by gating its entire
+// module on `cfg(not(target_arch = "wasm32"))`. We do the same per-test.
+#[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_retriable_error() {
     toxiproxy_test(async || {
@@ -225,8 +228,8 @@ async fn test_commit_log_retriable_error() {
         assert_eq!(b.local_commit_log().await?.len(), 1);
 
         bo.for_each_proxy(async |p| p.enable().await.unwrap()).await;
-        // This currently fails with error SyncFailedToWait, because the intent has been marked as 'published'
-        // despite not being published. We need to fix the intent publishing flow for this test to work.
+        // Now that the network is back, the pending intents should be
+        // publishable again — retriable failures must not have poisoned them.
         b.sync_until_last_intent_resolved().await?;
         a.sync().await?;
         // KeyUpdate should have been added to the commit log (SendMessage is not logged because it is not a commit)
