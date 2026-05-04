@@ -76,7 +76,7 @@ fn decode_be_i64(component_id: ComponentId, bytes: &[u8]) -> Result<i64, Compone
         .try_into()
         .map_err(|_| ComponentTypedError::MalformedValue {
             component_id,
-            reason: format!("expected 8 bytes (BE i64), got {}", bytes.len()),
+            reason: format!("expected 8 bytes (big-endian i64), got {}", bytes.len()),
         })?;
     Ok(i64::from_be_bytes(arr))
 }
@@ -411,10 +411,7 @@ mod tests {
             MessageDisappearInNsComponent::ID,
             ComponentId::MESSAGE_DISAPPEAR_IN_NS
         );
-        assert_eq!(
-            CommitLogSignerComponent::ID,
-            ComponentId::COMMIT_LOG_SIGNER
-        );
+        assert_eq!(CommitLogSignerComponent::ID, ComponentId::COMMIT_LOG_SIGNER);
     }
 
     #[xmtp_common::test(unwrap_try = true)]

@@ -67,9 +67,21 @@ fn expand_inbox_id_set_changes(
         AppDataUpdateOperation::Update(payload) => {
             let delta = TlsSetDelta::<InboxId>::tls_deserialize_exact(payload.as_slice())?;
 
-            // Lazily build a hash → InboxId index only if we actually
-            // see a `RemoveByHash` in this delta. Common case
-            // (Insert/Remove only) skips the prior-set decode.
+            // Build the hash → InboxId index ONCE up front for the
+            // whole delta — never inside the mutation loop. The
+            // mutation loop below stays a tight O(m) scan that does
+            // O(1) hash-index lookups; building the index inside the
+            // loop would degrade the resolve step from O(n+m) to
+            // O(n*m) and bite us once admin/super-admin lists grow.
+            //
+            // Conditional on `needs_index`: if the delta has zero
+            // `RemoveByHash` mutations, the prior set is never decoded
+            // and no index is allocated — common case (pure
+            // Insert/Remove deltas) pays nothing for the index path.
+            //
+            // Mirrors `TlsSet::apply_delta`'s "build once per call"
+            // discipline (see `tls_set.rs`'s `apply_delta` docs for
+            // the same O(n+m) argument).
             let needs_index = delta
                 .mutations
                 .iter()
@@ -83,9 +95,15 @@ fn expand_inbox_id_set_changes(
                             // A hash clash between two distinct keys
                             // is cryptographically infeasible with
                             // SHA-256, but defense-in-depth: reject
-                            // any silently-lossy index. Matches
-                            // `TlsSet::apply_delta`'s `DuplicateHash`
-                            // check at apply time.
+                            // any silently-lossy index. Matters if
+                            // SHA-256 is ever weakened or if a future
+                            // `Serialize` impl produces the same
+                            // bytes for distinct logical values — a
+                            // collision-tolerant index would silently
+                            // drop one of the entries and let
+                            // `RemoveByHash` resolve to the wrong
+                            // member. Matches `TlsSet::apply_delta`'s
+                            // `DuplicateHash` check at apply time.
                             if idx.insert(TlsKeyHash::of(key)?, *key).is_some() {
                                 return Err(ComponentTypedError::TlsSetApply(
                                     TlsSetError::DuplicateHash,
@@ -321,8 +339,7 @@ mod tests {
         let payload = AdminListComponent::encode_mutation(&delta).unwrap();
         let op = AppDataUpdateOperation::Update(payload.into());
 
-        let changes =
-            AdminListComponent::expand_to_changes(&op, Some(&prior_bytes)).unwrap();
+        let changes = AdminListComponent::expand_to_changes(&op, Some(&prior_bytes)).unwrap();
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].op, ComponentOp::Delete);
         assert_eq!(changes[0].value.as_deref(), Some(&target.as_bytes()[..]));
@@ -366,6 +383,9 @@ mod tests {
         let bytes = DmMembersComponent::encode_value(&set).unwrap();
         let decoded = DmMembersComponent::decode_value(&bytes).unwrap();
         assert!(decoded.contains(&fixture_inbox_id(42)));
-        assert_eq!(DmMembersComponent::COMPONENT_TYPE, ComponentType::TlsSetInboxId);
+        assert_eq!(
+            DmMembersComponent::COMPONENT_TYPE,
+            ComponentType::TlsSetInboxId
+        );
     }
 }

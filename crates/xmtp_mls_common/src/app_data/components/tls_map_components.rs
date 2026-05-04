@@ -80,6 +80,19 @@ where
 /// `prior` is currently unused — Map components don't have a
 /// `RemoveByHash` analogue (deletes carry the literal key on the
 /// wire). Kept in the signature for trait-shape uniformity.
+///
+/// **Why no payload validation here.** Beyond the TLS codec check
+/// (`tls_deserialize_exact` rejects truncated / oversized payloads
+/// and structurally-malformed deltas), this expansion does not
+/// validate the per-mutation contents — it just feeds them to the
+/// validator's per-element policy check. Authoritative semantic
+/// validation happens at apply time inside [`TlsMap::apply_delta`]
+/// (e.g. `Update`/`Delete` of an absent key returns `KeyNotFound`,
+/// duplicate `Insert` returns the appropriate map error). Validating
+/// here too would either duplicate that work or, worse, drift out of
+/// sync with the apply-time rules and reject things the apply step
+/// would happily accept. Keep it single-source: codec here, semantics
+/// at apply.
 fn expand_tls_map_changes<K>(
     op: &AppDataUpdateOperation,
     _prior: Option<&[u8]>,
@@ -341,8 +354,11 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn component_registry_round_trip() {
         let mut map: TlsMap<ComponentId, VLBytes> = TlsMap::new();
-        map.insert(ComponentId::ADMIN_LIST, VLBytes::new(b"meta-bytes".to_vec()))
-            .unwrap();
+        map.insert(
+            ComponentId::ADMIN_LIST,
+            VLBytes::new(b"meta-bytes".to_vec()),
+        )
+        .unwrap();
         let bytes = ComponentRegistryComponent::encode_value(&map).unwrap();
         let decoded = ComponentRegistryComponent::decode_value(&bytes).unwrap();
         assert_eq!(decoded.len(), 1);
@@ -356,12 +372,17 @@ mod tests {
     fn component_registry_apply_update_replaces_metadata() {
         let mut prior_map: TlsMap<ComponentId, VLBytes> = TlsMap::new();
         prior_map
-            .insert(ComponentId::GROUP_NAME, VLBytes::new(b"old-policy".to_vec()))
+            .insert(
+                ComponentId::GROUP_NAME,
+                VLBytes::new(b"old-policy".to_vec()),
+            )
             .unwrap();
         let prior_bytes = ComponentRegistryComponent::encode_value(&prior_map).unwrap();
 
-        let delta = TlsMapDelta::<ComponentId, VLBytes>::new()
-            .update(ComponentId::GROUP_NAME, VLBytes::new(b"new-policy".to_vec()));
+        let delta = TlsMapDelta::<ComponentId, VLBytes>::new().update(
+            ComponentId::GROUP_NAME,
+            VLBytes::new(b"new-policy".to_vec()),
+        );
         let payload = ComponentRegistryComponent::encode_mutation(&delta).unwrap();
         let new_bytes =
             ComponentRegistryComponent::apply_update_payload(&payload, Some(&prior_bytes)).unwrap();
@@ -396,8 +417,7 @@ mod tests {
         map.insert(fixture_inbox_id(1), VLBytes::new(b"v1".to_vec()))
             .unwrap();
         let raw_map_bytes = map.tls_serialize_detached().unwrap();
-        let err =
-            GroupMembershipComponent::apply_update_payload(&raw_map_bytes, None).unwrap_err();
+        let err = GroupMembershipComponent::apply_update_payload(&raw_map_bytes, None).unwrap_err();
         assert!(
             matches!(err, ComponentTypedError::TlsCodec(_)),
             "expected TlsCodec decode error for non-delta payload, got {err:?}"
