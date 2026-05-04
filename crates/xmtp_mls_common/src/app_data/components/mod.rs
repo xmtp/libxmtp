@@ -8,4 +8,6 @@
 //!   2. Add it to the `WELL_KNOWN` array in
 //!      [`super::registry_table`].
 
+pub mod inbox_id_set;
 pub mod metadata_attributes;
+pub mod tls_map_components;
