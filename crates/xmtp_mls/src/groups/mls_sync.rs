@@ -2926,6 +2926,19 @@ where
                     return Err(GroupError::from(CommitValidationError::ProposalsNotEnabled));
                 }
 
+                // Defensive gate. The proposal-by-reference flow
+                // emits Add/Remove + GCE proposals updating the
+                // legacy GROUP_MEMBERSHIP_EXTENSION_ID extension. On
+                // migrated groups that extension is gone, so the
+                // GCE would re-add it and break the dict-as-source-
+                // of-truth invariant. Bail out the same way Task 7c
+                // (`apply_update_group_membership_intent`) does, via
+                // the same canonical `is_migrated_extensions`
+                // predicate.
+                if super::app_data::is_migrated_extensions(openmls_group.extensions()) {
+                    return Err(GroupError::UpdateGroupMembershipMigratedNotImplemented);
+                }
+
                 let intent_data = ProposeMemberUpdateIntentData::try_from(intent.data.as_slice())?;
                 let group_epoch = openmls_group.epoch().as_u64();
                 let signer = &self.context.identity().installation_keys;
