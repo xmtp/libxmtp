@@ -18,23 +18,49 @@ use tracing_subscriber::{
     registry::LookupSpan, registry::Registry, reload, util::SubscriberInitExt,
 };
 
+// Default native log level used until `set_native_log_level` is called.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+const DEFAULT_NATIVE_LOG_LEVEL: FfiLogLevel = FfiLogLevel::Debug;
+
+// Native layers install on the global `Registry` (see `LOGGER`), so S is pinned
+// to `Registry` to give the reload handle a concrete, storable type.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+static LIBXMTP_FILTER_HANDLE: std::sync::OnceLock<
+    parking_lot::Mutex<reload::Handle<tracing_subscriber::EnvFilter, Registry>>,
+> = std::sync::OnceLock::new();
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn set_native_filter(level: &str) -> Result<(), FfiError> {
+    let handle = LIBXMTP_FILTER_HANDLE
+        .get()
+        .ok_or_else(|| crate::GenericError::Generic {
+            err: "native logger not initialized".to_string(),
+        })?;
+    let new_filter = xmtp_common::filter_directive(level);
+    handle.lock().reload(new_filter)?;
+    Ok(())
+}
+
 #[cfg(target_os = "android")]
 pub use android::*;
 #[cfg(target_os = "android")]
 mod android {
     use super::*;
-    pub fn native_layer<S>() -> impl Layer<S>
-    where
-        S: Subscriber + for<'a> LookupSpan<'a>,
-    {
-        use tracing_subscriber::EnvFilter;
+    use tracing_subscriber::EnvFilter;
+
+    pub fn native_layer() -> impl Layer<Registry> {
         let api_calls_filter = EnvFilter::builder().parse_lossy("xmtp_api=debug");
-        let libxmtp_filter = xmtp_common::filter_directive("debug");
+        let libxmtp_filter = xmtp_common::filter_directive(DEFAULT_NATIVE_LOG_LEVEL.to_str());
+        let (reloadable_filter, handle) = reload::Layer::new(libxmtp_filter);
+        // `native_layer` is invoked exactly once via the `LOGGER` LazyLock; if
+        // somehow called again (e.g. a stray test re-init), keep the original
+        // handle so `set_native_log_level` still drives the live filter.
+        let _ = LIBXMTP_FILTER_HANDLE.set(parking_lot::Mutex::new(handle));
 
         vec![
             paranoid_android::layer(env!("CARGO_PKG_NAME"))
                 .with_thread_names(true)
-                .with_filter(libxmtp_filter)
+                .with_filter(reloadable_filter)
                 .boxed(),
             tracing_android_trace::AndroidTraceAsyncLayer::new()
                 .with_filter(api_calls_filter)
@@ -49,15 +75,14 @@ pub use ios::*;
 mod ios {
     use super::*;
     use tracing_oslog::OsLogger;
-    use tracing_subscriber::EnvFilter;
 
-    pub fn native_layer<S>() -> impl Layer<S>
-    where
-        S: Subscriber + for<'a> LookupSpan<'a>,
-    {
-        let libxmtp_filter = xmtp_common::filter_directive("debug");
+    pub fn native_layer() -> impl Layer<Registry> {
+        let libxmtp_filter = xmtp_common::filter_directive(DEFAULT_NATIVE_LOG_LEVEL.to_str());
+        let (reloadable_filter, handle) = reload::Layer::new(libxmtp_filter);
+        // See android::native_layer for the rationale on ignoring the set result.
+        let _ = LIBXMTP_FILTER_HANDLE.set(parking_lot::Mutex::new(handle));
         let subsystem = format!("org.xmtp.{}", env!("CARGO_PKG_NAME"));
-        OsLogger::new(subsystem, "default").with_filter(libxmtp_filter)
+        OsLogger::new(subsystem, "default").with_filter(reloadable_filter)
     }
 }
 
@@ -90,6 +115,11 @@ mod other {
                 })
             })
             .with_filter(filter)
+    }
+
+    // Non-mobile builds have no reloadable native filter; the FFI call is a no-op.
+    pub(super) fn set_native_filter(_level: &str) -> Result<(), FfiError> {
+        Ok(())
     }
 }
 
@@ -348,6 +378,14 @@ pub fn init_logger() {
     let _ = *LOGGER;
 }
 
+/// Updates the log level of the native log layer (oslog on iOS, logcat on Android).
+/// Activity spans are emitted as os_signpost on iOS — set to `Trace` to see span
+/// activity in Console.app / Instruments. No-op on non-mobile builds.
+#[uniffi::export]
+pub fn set_native_log_level(log_level: FfiLogLevel) -> Result<(), FfiError> {
+    set_native_filter(log_level.to_str())
+}
+
 #[cfg(test)]
 pub use test_logger::*;
 
@@ -361,6 +399,11 @@ mod test_logger {
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
         xmtp_common::logger_layer()
+    }
+
+    // Test builds don't install a reloadable native filter; the FFI call is a no-op.
+    pub(super) fn set_native_filter(_level: &str) -> Result<(), FfiError> {
+        Ok(())
     }
 
     // _NOTE:_ this test **fails** if there are rogue loggers

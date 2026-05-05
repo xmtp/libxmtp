@@ -43,6 +43,7 @@ import uniffi.xmtpv3.inboxStateFromInboxIds
 import uniffi.xmtpv3.isConnected
 import uniffi.xmtpv3.revokeInstallations
 import java.io.File
+import uniffi.xmtpv3.setNativeLogLevel as ffiSetNativeLogLevel
 
 typealias PreEventCallback = suspend () -> Unit
 typealias ProcessType = FfiProcessType
@@ -194,6 +195,15 @@ class Client(
 
         fun deactivatePersistentLibXMTPLogWriter() {
             exitDebugWriter()
+        }
+
+        /**
+         * Sets the log level for the native log layer (logcat on Android). Use
+         * `FfiLogLevel.TRACE` to capture span/activity events. Independent of the
+         * persistent file log writer.
+         */
+        fun setLibXMTPNativeLogLevel(logLevel: FfiLogLevel) {
+            ffiSetNativeLogLevel(logLevel)
         }
 
         fun getXMTPLogFilePaths(appContext: Context): List<String> {

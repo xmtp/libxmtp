@@ -200,8 +200,8 @@ pub enum NotFound {
     /// MLS group not found.
     ///
     /// OpenMLS group not in local state. Retryable.
-    #[error("MLS Group Not Found")]
-    MlsGroup,
+    #[error("MLS Group {0} Not Found")]
+    MlsGroup(GroupId),
     /// Post-quantum private key not found.
     ///
     /// PQ key pair not in store. Retryable.
