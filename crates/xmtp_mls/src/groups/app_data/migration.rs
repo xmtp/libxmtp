@@ -24,6 +24,7 @@ use openmls::{
     storage::OpenMlsProvider,
 };
 use prost::Message as _;
+use tls_codec::{Serialize as _, VLBytes};
 use xmtp_mls_common::{
     app_data::{
         component_id::ComponentId,
@@ -31,6 +32,7 @@ use xmtp_mls_common::{
         migration::{self, CanonicalBootstrapExpectation, MigrationError as CommonMigrationError},
     },
     inbox_id::InboxId,
+    tls_map::TlsMapDelta,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     GroupMembership as GroupMembershipProto, GroupMembershipEntry,
@@ -82,6 +84,14 @@ pub enum BootstrapSynthesisError {
         "sequence_id {sequence_id} for inbox {inbox_id} exceeds i64::MAX; cannot query identity-update history"
     )]
     SequenceIdOverflow { inbox_id: String, sequence_id: u64 },
+
+    /// TLS-encoding the bootstrap wire delta for COMPONENT_REGISTRY
+    /// (or any other inline `TlsMapDelta`) failed. Surfaces a
+    /// `tls_codec::Error` from the underlying serializer. Practically
+    /// unreachable (we just constructed the delta in memory), but the
+    /// `?` operator needs a conversion.
+    #[error("wire delta encode: {0}")]
+    TlsCodec(#[from] tls_codec::Error),
 }
 
 impl xmtp_common::retry::RetryableError for BootstrapSynthesisError {
@@ -98,7 +108,8 @@ impl xmtp_common::retry::RetryableError for BootstrapSynthesisError {
             Self::Common(_)
             | Self::LegacyMembershipDecode(_)
             | Self::RegistryReEncode(_)
-            | Self::SequenceIdOverflow { .. } => false,
+            | Self::SequenceIdOverflow { .. }
+            | Self::TlsCodec(_) => false,
         }
     }
 }
@@ -136,20 +147,32 @@ pub async fn synthesize_initial_component_values_from_extensions<C: XmtpSharedCo
         out.insert(id, bytes);
     }
 
-    // COMPONENT_REGISTRY isn't carried in `strict` — the validator
-    // compares it per-entry via `expected_registry` (decoded
-    // `ComponentMetadata` compare) because byte-compare is brittle
-    // against future proto evolution. The bootstrap commit still has
-    // to *emit* a `COMPONENT_REGISTRY` payload, though, so re-encode
-    // the expected entries through `ComponentRegistry::to_bytes`
-    // here. Round-tripping via `set()` is the canonical sender path
-    // and produces bytes equivalent to the receiver-side
-    // `synthesize_registry_from_extensions` output.
+    // COMPONENT_REGISTRY wire payload: a `TlsMapDelta<ComponentId,
+    // VLBytes>` of all-`Insert` mutations (bootstrap = delta-from-
+    // empty). Built inline from `canonical.expected_registry` —
+    // there's no whole-registry wire encoder on `ComponentRegistry`
+    // because every steady-state caller emits only the few entries
+    // it touches, so a "to_wire_bytes" method would only ever be
+    // used here. Keeping it inline avoids adding a one-call-site
+    // helper. The receiver decodes via `decode_component_registry_delta`
+    // inside the bootstrap validator and via `apply_wire_bytes` for
+    // the dict write — both produce the same materialized state.
+    //
+    // Round-trip-validate each metadata entry through `ComponentRegistry::set`
+    // first so we surface a `ComponentRegistryError` here (rather than
+    // shipping bytes that fail per-entry validation on the receiver).
     let mut registry = ComponentRegistry::new();
-    for (id, meta) in canonical.expected_registry.into_iter() {
-        registry.set(id, meta)?;
+    for (id, meta) in canonical.expected_registry.iter() {
+        registry.set(*id, meta.clone())?;
     }
-    out.insert(ComponentId::COMPONENT_REGISTRY, registry.to_bytes()?);
+    let mut registry_delta: TlsMapDelta<ComponentId, VLBytes> = TlsMapDelta::new();
+    for (id, meta) in canonical.expected_registry.into_iter() {
+        registry_delta = registry_delta.insert(id, VLBytes::new(meta.encode_to_vec()));
+    }
+    out.insert(
+        ComponentId::COMPONENT_REGISTRY,
+        registry_delta.tls_serialize_detached()?,
+    );
 
     // Async GROUP_MEMBERSHIP: partition failed_installations by
     // owning inbox id via identity-update history.
@@ -289,6 +312,13 @@ pub enum BootstrapCommitError<StorageError: std::error::Error> {
     /// PROPOSAL_SUPPORT extension that bootstrap groups MUST carry.
     #[error("bootstrap precondition: new_extensions is missing PROPOSAL_SUPPORT")]
     MissingProposalSupport,
+    /// Sender-side `apply_app_data_update_payload` rejected one of
+    /// the synthesized component values when deriving dict bytes from
+    /// wire bytes. Indicates a bug in synthesis (the wire bytes don't
+    /// decode under the component's own apply rules) — fail loud here
+    /// rather than ship a commit with sender/receiver dict divergence.
+    #[error("bootstrap precondition: dict apply failed: {0}")]
+    DictApply(#[from] super::component_source::ComponentSourceError),
 }
 
 /// Build and stage the bootstrap migration commit.
@@ -378,14 +408,27 @@ pub fn stage_bootstrap_commit<Provider: OpenMlsProvider>(
 
     let mut stage = builder.load_psks(provider.storage())?;
 
-    // Mirror the proposal bag in the dict updater (full values, not
-    // deltas) so the receiver's `apply_app_data_update_proposals`
-    // check sees a matching set; mismatch fails confirmation-tag.
+    // The wire payload (above) is a delta; the dict stores the
+    // materialized state (a snapshot). Sender and receiver must
+    // converge on byte-identical dict bytes — the OpenMLS path-
+    // encryption AAD covers the post-commit GroupContext, which
+    // embeds the serialized AppDataDictionary, so any sender/receiver
+    // byte divergence here surfaces on the receiver as
+    // `UnableToDecrypt` and the bootstrap commit is rejected.
+    //
+    // Single source of truth: route each component's wire bytes
+    // through `apply_app_data_update_payload(id, wire, None)` to
+    // derive the dict bytes. The receiver runs the same function over
+    // the same wire bytes (with prior=None at bootstrap) and gets the
+    // same output, so dict byte-equality is guaranteed by construction.
     let mut updater = stage.app_data_dictionary_updater();
-    for (component_id, bytes) in component_values.iter() {
+    for (component_id, wire_bytes) in component_values.iter() {
+        let dict_bytes =
+            super::component_source::apply_app_data_update_payload(*component_id, wire_bytes, None)
+                .map_err(BootstrapCommitError::DictApply)?;
         updater.set(ComponentData::from_parts(
             component_id.as_u16(),
-            bytes.clone().into(),
+            dict_bytes.into(),
         ));
     }
     stage.with_app_data_dictionary_updates(updater.changes());

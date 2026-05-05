@@ -587,18 +587,35 @@ pub(crate) fn merge_app_data_into_mutable_metadata_from_extensions(
 
     for (field, id) in METADATA_FIELD_COMPONENT_MAP {
         if let Some(bytes) = dict.get(&id.as_u16()) {
-            // Bytes-typed components store their value as raw UTF-8 over
-            // the wire. Anything non-UTF-8 here is a wire-format violation
-            // by the sender, so surface it as a `MalformedComponentValue`
-            // (NOT an inbox-id error — these aren't inbox ids).
-            let s = std::str::from_utf8(bytes).map_err(|e| {
-                ComponentSourceError::MalformedComponentValue {
-                    component_id: *id,
-                    reason: format!("non-UTF-8 bytes: {e}"),
+            // Each typed `Component`'s wire shape decides how the dict
+            // bytes round-trip back into the legacy
+            // `GroupMutableMetadata.attributes` string map:
+            //
+            // - `MESSAGE_DISAPPEAR_*` are 8-byte BE `i64` on the wire;
+            //   format as a base-10 string for the legacy reader.
+            // - `COMMIT_LOG_SIGNER` is the raw 32-byte private key on
+            //   the wire; hex-encode for the legacy reader.
+            // - All other metadata-attribute components are UTF-8.
+            let legacy_value = match *id {
+                ComponentId::MESSAGE_DISAPPEAR_FROM_NS | ComponentId::MESSAGE_DISAPPEAR_IN_NS => {
+                    let arr: [u8; 8] = bytes.try_into().map_err(|_| {
+                        ComponentSourceError::MalformedComponentValue {
+                            component_id: *id,
+                            reason: format!("expected 8 bytes (BE i64), got {}", bytes.len()),
+                        }
+                    })?;
+                    i64::from_be_bytes(arr).to_string()
                 }
-            })?;
+                ComponentId::COMMIT_LOG_SIGNER => hex::encode(bytes),
+                _ => std::str::from_utf8(bytes)
+                    .map_err(|e| ComponentSourceError::MalformedComponentValue {
+                        component_id: *id,
+                        reason: format!("non-UTF-8 bytes: {e}"),
+                    })?
+                    .to_string(),
+            };
             base.attributes
-                .insert(field.as_str().to_string(), s.to_string());
+                .insert(field.as_str().to_string(), legacy_value);
         }
     }
 
@@ -820,7 +837,7 @@ pub(crate) fn read_group_membership_from_dict(
     extensions: &Extensions<GroupContext>,
 ) -> Result<Option<xmtp_proto::xmtp::mls::message_contents::GroupMembership>, ComponentSourceError>
 {
-    use xmtp_mls_common::app_data::migration::decode_group_membership_delta;
+    use xmtp_mls_common::app_data::migration::decode_group_membership_dict;
     use xmtp_proto::xmtp::mls::message_contents::GroupMembership as GroupMembershipProto;
 
     // Gate on the unified migration predicate so a stray
@@ -842,7 +859,7 @@ pub(crate) fn read_group_membership_from_dict(
         return Ok(None);
     };
 
-    let entries = decode_group_membership_delta(bytes).map_err(|e| {
+    let entries = decode_group_membership_dict(bytes).map_err(|e| {
         ComponentSourceError::MalformedComponentValue {
             component_id: ComponentId::GROUP_MEMBERSHIP,
             reason: format!("TlsMap decode: {e}"),
@@ -855,7 +872,7 @@ pub(crate) fn read_group_membership_from_dict(
     // for backward compat — we concatenate per-inbox failed lists for
     // callers that still read the flat list.
     //
-    // `decode_group_membership_delta` already rejects entries with
+    // `decode_group_membership_dict` already rejects entries with
     // `version: None` (`MigrationError::GroupMembershipEntryUnknownVersion`),
     // so the only legal post-decode shape today is `Some(Version::V1(_))`.
     // Anything else (a future Version variant we can't interpret) is a
@@ -1826,7 +1843,7 @@ mod tests {
     #[xmtp_common::test]
     fn read_group_membership_unmigrated_returns_none() {
         use std::collections::BTreeMap;
-        use xmtp_mls_common::app_data::migration::encode_group_membership_delta;
+        use xmtp_mls_common::app_data::migration::encode_group_membership_dict;
         use xmtp_proto::xmtp::mls::message_contents::{
             GroupMembershipEntry,
             group_membership_entry::{V1 as GroupMembershipEntryV1, Version},
@@ -1841,7 +1858,7 @@ mod tests {
                 })),
             },
         );
-        let bytes = encode_group_membership_delta(&entries).unwrap();
+        let bytes = encode_group_membership_dict(&entries).unwrap();
         let exts =
             extensions_with_entries(false, &[(ComponentId::GROUP_MEMBERSHIP.as_u16(), bytes)]);
         assert!(read_group_membership_from_dict(&exts).unwrap().is_none());
@@ -1850,7 +1867,7 @@ mod tests {
     #[xmtp_common::test]
     fn read_group_membership_happy_path_flattens_per_inbox() {
         use std::collections::BTreeMap;
-        use xmtp_mls_common::app_data::migration::encode_group_membership_delta;
+        use xmtp_mls_common::app_data::migration::encode_group_membership_dict;
         use xmtp_proto::xmtp::mls::message_contents::{
             GroupMembershipEntry,
             group_membership_entry::{V1 as GroupMembershipEntryV1, Version},
@@ -1874,7 +1891,7 @@ mod tests {
                 })),
             },
         );
-        let bytes = encode_group_membership_delta(&entries).unwrap();
+        let bytes = encode_group_membership_dict(&entries).unwrap();
         let exts =
             extensions_with_entries(true, &[(ComponentId::GROUP_MEMBERSHIP.as_u16(), bytes)]);
 

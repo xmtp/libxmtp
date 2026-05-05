@@ -27,8 +27,8 @@ use crate::{
     },
     group_mutable_metadata::MetadataField,
     inbox_id::{InboxId, InboxIdError},
-    tls_map::{TlsMapDelta, TlsMapMutation},
-    tls_set::TlsSet,
+    tls_map::{TlsMap, TlsMapDelta, TlsMapMutation},
+    tls_set::TlsSetDelta,
 };
 use xmtp_proto::xmtp::mls::message_contents::GroupMembershipEntry;
 /// Errors produced by the synthesis functions in this module.
@@ -108,12 +108,6 @@ pub enum MigrationError {
     #[error("GroupMembershipEntry envelope has unknown or unset version")]
     GroupMembershipEntryUnknownVersion,
 
-    /// A bootstrap-time `GROUP_MEMBERSHIP` delta carried a non-`Insert`
-    /// mutation. Bootstrap is "delta from empty," so anything but
-    /// `Insert` means the sender or fixture is malformed.
-    #[error("GROUP_MEMBERSHIP bootstrap delta carried a non-Insert mutation")]
-    GroupMembershipNonInsertBootstrapMutation,
-
     /// Legacy `GroupMembership.failed_installations` carried an entry
     /// whose length isn't 32 bytes (the Ed25519 installation-key size).
     /// Either the legacy state is corrupt or the wire shape changed —
@@ -121,6 +115,42 @@ pub enum MigrationError {
     /// installation ID into the validator's allow-set.
     #[error("legacy failed_installations entry has invalid length: expected 32, got {0}")]
     InvalidFailedInstallationLength(usize),
+
+    /// A bootstrap-time `GROUP_MEMBERSHIP` wire delta carried a
+    /// non-`Insert` mutation. Bootstrap is always "delta from empty,"
+    /// so anything but `Insert` means the sender is malformed.
+    #[error("GROUP_MEMBERSHIP bootstrap delta carried a non-Insert mutation")]
+    GroupMembershipNonInsertBootstrapMutation,
+
+    /// A bootstrap-time `GROUP_MEMBERSHIP` wire delta carried two
+    /// `Insert` mutations for the same inbox id. The wire shape is
+    /// `TlsMapDelta` which permits this in principle, but bootstrap
+    /// must be a deterministic snapshot — the duplicate would let the
+    /// sender's queue order diverge from honest receivers.
+    #[error("GROUP_MEMBERSHIP bootstrap delta has duplicate Insert for inbox {0}")]
+    GroupMembershipDuplicateInbox(String),
+
+    /// Legacy `MessageDisappearFromNS` / `MessageDisappearInNS` GMM
+    /// attribute didn't parse as a base-10 string of an `i64`. The
+    /// legacy reader at `MessageDisappearingSettings` returns
+    /// `MissingExtension` for this case; bootstrap synthesis fails
+    /// loud instead so the migrated dict can't silently drop a
+    /// configured value.
+    #[error("legacy {field} attribute is not a base-10 i64 string (got {value:?}): {reason}")]
+    InvalidDisappearingTimestamp {
+        field: &'static str,
+        value: String,
+        reason: String,
+    },
+
+    /// Legacy `CommitLogSigner` GMM attribute wasn't valid hex.
+    #[error("legacy CommitLogSigner attribute is not valid hex: {reason}")]
+    InvalidCommitLogSignerHex { reason: String },
+
+    /// Legacy `CommitLogSigner` decoded to the wrong number of bytes —
+    /// the AppData wire shape is the raw 32-byte Ed25519 private key.
+    #[error("legacy CommitLogSigner length: expected {expected}, got {actual}")]
+    InvalidCommitLogSignerLength { expected: usize, actual: usize },
 }
 
 /// Produce a populated [`ComponentRegistry`] from the legacy
@@ -516,26 +546,42 @@ pub fn synthesize_canonical_subset_from_extensions(
         expected_registry.insert(id, meta);
     }
 
-    // Bytes metadata attributes.
+    // Bytes/String metadata attributes. Skip fields that aren't set in
+    // the legacy GMM — the typed component encoders reject empty input
+    // for the fixed-length flavours (MESSAGE_DISAPPEAR_* expects 8 BE
+    // bytes, COMMIT_LOG_SIGNER expects 32) and emitting absent
+    // entries here would only pollute the dict with values readers
+    // would surface as `MissingExtension` anyway.
     for (field, component_id, _) in metadata_field_registry_mapping() {
-        let value = gmm
-            .attributes
-            .get(field.as_str())
-            .map(|s| s.as_bytes().to_vec())
-            .unwrap_or_default();
-        strict.insert(*component_id, (AppDataUpdateOperationType::Update, value));
+        if let Some(s) = gmm.attributes.get(field.as_str()) {
+            strict.insert(
+                *component_id,
+                (
+                    AppDataUpdateOperationType::Update,
+                    encode_metadata_attribute_value(*component_id, s)?,
+                ),
+            );
+        }
     }
 
-    // COMMIT_LOG_SIGNER lives in the same GMM attributes map.
-    let commit_log_signer = gmm
-        .attributes
-        .get(MetadataField::CommitLogSigner.as_str())
-        .map(|s| s.as_bytes().to_vec())
-        .unwrap_or_default();
-    strict.insert(
-        ComponentId::COMMIT_LOG_SIGNER,
-        (AppDataUpdateOperationType::Update, commit_log_signer),
-    );
+    // COMMIT_LOG_SIGNER lives in the same GMM attributes map. The
+    // legacy form is hex-encoded; the AppData wire form is the raw
+    // 32-byte private key.
+    if let Some(hex_str) = gmm.attributes.get(MetadataField::CommitLogSigner.as_str()) {
+        let raw = hex::decode(hex_str).map_err(|e| MigrationError::InvalidCommitLogSignerHex {
+            reason: e.to_string(),
+        })?;
+        if raw.len() != xmtp_cryptography::configuration::ED25519_KEY_LENGTH {
+            return Err(MigrationError::InvalidCommitLogSignerLength {
+                actual: raw.len(),
+                expected: xmtp_cryptography::configuration::ED25519_KEY_LENGTH,
+            });
+        }
+        strict.insert(
+            ComponentId::COMMIT_LOG_SIGNER,
+            (AppDataUpdateOperationType::Update, raw),
+        );
+    }
 
     // ADMIN_LIST / SUPER_ADMIN_LIST: hex-decode inbox-id strings and
     // serialize as TlsSet<InboxId> — matches the bridge encoder.
@@ -674,24 +720,80 @@ fn extract_legacy_group_membership(
     Ok(GroupMembershipProto::decode(bytes.as_slice())?)
 }
 
+/// Translate a legacy `GroupMutableMetadata` attribute string into the
+/// AppData wire bytes for that component.
+///
+/// - `MESSAGE_DISAPPEAR_FROM_NS` / `MESSAGE_DISAPPEAR_IN_NS`: the legacy
+///   attribute is a decimal-stringified `i64`; emit 8 big-endian bytes.
+/// - String-typed attributes (group name/description/url/app data/min
+///   version): emit the raw UTF-8 bytes unchanged.
+fn encode_metadata_attribute_value(
+    component_id: ComponentId,
+    legacy_value: &str,
+) -> Result<Vec<u8>, MigrationError> {
+    match component_id {
+        ComponentId::MESSAGE_DISAPPEAR_FROM_NS => {
+            parse_disappearing_i64("messageDisappearFromNS", legacy_value)
+        }
+        ComponentId::MESSAGE_DISAPPEAR_IN_NS => {
+            parse_disappearing_i64("messageDisappearInNS", legacy_value)
+        }
+        _ => Ok(legacy_value.as_bytes().to_vec()),
+    }
+}
+
+fn parse_disappearing_i64(
+    field: &'static str,
+    legacy_value: &str,
+) -> Result<Vec<u8>, MigrationError> {
+    let n: i64 = legacy_value
+        .parse()
+        .map_err(
+            |err: std::num::ParseIntError| MigrationError::InvalidDisappearingTimestamp {
+                field,
+                value: legacy_value.to_string(),
+                reason: err.to_string(),
+            },
+        )?;
+    Ok(n.to_be_bytes().to_vec())
+}
+
 /// Encode hex inbox ids as a `TlsSet<InboxId>`. Must stay byte-identical
 /// to the bridge's `encode_inbox_id_set` or byte-compare validation
 /// fails.
+/// Encode an inbox-id set as a **bootstrap wire delta**: a
+/// `TlsSetDelta<InboxId>` of all-`Insert` mutations. The wire is
+/// always a delta; bootstrap is the case where the prior set is
+/// empty, so every mutation is an `Insert`. The dict stores the
+/// materialized `TlsSet` snapshot; receivers translate wire → dict
+/// via [`apply_wire_bytes`].
 fn encode_inbox_id_set(inbox_ids_hex: &[String]) -> Result<Vec<u8>, MigrationError> {
     let ids: Vec<InboxId> = inbox_ids_hex
         .iter()
         .map(|s| InboxId::from_hex(s))
         .collect::<Result<Vec<_>, _>>()?;
-    let set: TlsSet<InboxId> = ids.into_iter().collect();
-    Ok(set.tls_serialize_detached()?)
+    // Sort so the wire bytes are deterministic across senders. The
+    // canonical-subset validator byte-compares this output against
+    // the actual proposal, so non-determinism here would let an
+    // honest sender's payload mismatch the validator's expectation.
+    let mut sorted_ids: Vec<InboxId> = ids;
+    sorted_ids.sort();
+    sorted_ids.dedup();
+    let mut delta: TlsSetDelta<InboxId> = TlsSetDelta::new();
+    for id in sorted_ids {
+        delta = delta.insert(id);
+    }
+    Ok(delta.tls_serialize_detached()?)
 }
 
-/// Encode the DM's two members as a `TlsSet<InboxId>` (the declared
-/// `ComponentType::TlsSetInboxId` for `DM_MEMBERS`).
+/// Encode the DM's two members as a **bootstrap wire delta**: a
+/// `TlsSetDelta<InboxId>` of all-`Insert` mutations. (DM_MEMBERS is
+/// declared as `ComponentType::TlsSetInboxId`; the dict stores the
+/// materialized `TlsSet` snapshot.)
 fn encode_dm_members(
     dm: &crate::group_metadata::DmMembers<xmtp_id::InboxId>,
 ) -> Result<Vec<u8>, MigrationError> {
-    // Decode first, then compare on bytes — hex strings can differ
+    // Decode first, then compare on InboxId — hex strings can differ
     // only in case ("ABC..." vs "abc...") and still represent the same
     // inbox id. Self-DMs would otherwise slip past a string-compare
     // and `TlsSet` would silently collapse to one element, losing
@@ -709,8 +811,10 @@ fn encode_dm_members(
             one.to_hex(),
         )));
     }
-    let set: TlsSet<InboxId> = [one, two].into_iter().collect();
-    Ok(set.tls_serialize_detached()?)
+    // Sort for deterministic wire bytes (validator byte-compare).
+    let (a, b) = if one <= two { (one, two) } else { (two, one) };
+    let delta = TlsSetDelta::<InboxId>::new().insert(a).insert(b);
+    Ok(delta.tls_serialize_detached()?)
 }
 
 /// `CONVERSATION_TYPE` payload codec: 4-byte big-endian `i32` matching
@@ -737,15 +841,16 @@ pub(crate) fn decode_conversation_type(bytes: &[u8]) -> Result<i32, MigrationErr
     Ok(i32::from_be_bytes(arr))
 }
 
-/// Encode the bootstrap-time `GROUP_MEMBERSHIP` payload as a
-/// `TlsMapDelta<InboxId, VLBytes>` of all-`Insert` mutations — one per
-/// inbox, each value a [`GroupMembershipEntry`] envelope (currently
-/// always wrapping a `V1`).
+/// Encode `GROUP_MEMBERSHIP` for the bootstrap **wire payload** as a
+/// `TlsMapDelta<InboxId, VLBytes>` of all-`Insert` mutations — one
+/// per inbox, each value a [`GroupMembershipEntry`] envelope
+/// (currently always wrapping a `V1`).
 ///
-/// Bootstrap is the first delta against an empty `TlsMap`, so all
-/// mutations are inserts. Post-bootstrap updates use the same
-/// `TlsMapDelta` wire format with mixed `Insert`/`Update`/`Delete`
-/// mutations — same encode/decode path, no snapshot vs. delta split.
+/// The wire is always a delta. Bootstrap is the case where the prior
+/// dict state is empty, so every mutation is an `Insert`. Steady-
+/// state updates use the same `TlsMapDelta` wire shape with mixed
+/// `Insert` / `Update` / `Delete` mutations describing only the
+/// inboxes that changed (see `update_group_membership.rs`).
 pub fn encode_group_membership_delta(
     entries: &BTreeMap<InboxId, GroupMembershipEntry>,
 ) -> Result<Vec<u8>, MigrationError> {
@@ -756,29 +861,69 @@ pub fn encode_group_membership_delta(
     Ok(delta.tls_serialize_detached()?)
 }
 
-/// Decode the bootstrap-time `GROUP_MEMBERSHIP` payload back to a
-/// `BTreeMap<InboxId, GroupMembershipEntryV1>` by walking the
-/// `TlsMapDelta` mutations. All mutations must be `Insert` (bootstrap
-/// is delta-from-empty); anything else surfaces
-/// [`MigrationError::GroupMembershipNonInsertBootstrapMutation`].
+/// Decode a `GROUP_MEMBERSHIP` **wire payload** (a
+/// `TlsMapDelta<InboxId, VLBytes>` of all-`Insert` mutations against
+/// an empty prior — bootstrap shape) back to a
+/// `BTreeMap<InboxId, GroupMembershipEntry>`. Used by the bootstrap
+/// validator to inspect the proposal payload.
 pub fn decode_group_membership_delta(
     bytes: &[u8],
 ) -> Result<BTreeMap<InboxId, GroupMembershipEntry>, MigrationError> {
     let delta = TlsMapDelta::<InboxId, VLBytes>::tls_deserialize_exact(bytes)?;
     let mut out: BTreeMap<InboxId, GroupMembershipEntry> = BTreeMap::new();
     for mutation in delta.mutations {
-        match mutation {
-            TlsMapMutation::Insert { key, value } => {
-                let envelope = GroupMembershipEntry::decode(value.as_slice())?;
-                if envelope.version.is_none() {
-                    return Err(MigrationError::GroupMembershipEntryUnknownVersion);
-                }
-                out.insert(key, envelope);
-            }
+        let (key, value) = match mutation {
+            TlsMapMutation::Insert { key, value } => (key, value),
             TlsMapMutation::Update { .. } | TlsMapMutation::Delete { .. } => {
                 return Err(MigrationError::GroupMembershipNonInsertBootstrapMutation);
             }
+        };
+        let envelope = GroupMembershipEntry::decode(value.as_slice())?;
+        if envelope.version.is_none() {
+            return Err(MigrationError::GroupMembershipEntryUnknownVersion);
         }
+        if out.insert(key, envelope).is_some() {
+            return Err(MigrationError::GroupMembershipDuplicateInbox(key.to_hex()));
+        }
+    }
+    Ok(out)
+}
+
+/// Encode `GROUP_MEMBERSHIP` **dict-storage bytes** as a
+/// `TlsMap<InboxId, VLBytes>` snapshot. The dict always holds the
+/// raw map as state; this encoder is the symmetric of
+/// [`decode_group_membership_dict`] and is used by tests and by
+/// callers that need to construct expected dict bytes (the runtime
+/// path goes through `apply_app_data_update_payload`, which produces
+/// the same snapshot from a wire delta).
+pub fn encode_group_membership_dict(
+    entries: &BTreeMap<InboxId, GroupMembershipEntry>,
+) -> Result<Vec<u8>, MigrationError> {
+    let mut map: TlsMap<InboxId, VLBytes> = TlsMap::new();
+    for (inbox_id, entry) in entries {
+        map.insert(*inbox_id, VLBytes::new(entry.encode_to_vec()))
+            .map_err(|e| {
+                MigrationError::TlsCodec(tls_codec::Error::EncodingError(e.to_string()))
+            })?;
+    }
+    Ok(map.tls_serialize_detached()?)
+}
+
+/// Decode `GROUP_MEMBERSHIP` **dict-storage bytes** (a
+/// `TlsMap<InboxId, VLBytes>` snapshot) back to a `BTreeMap<InboxId,
+/// GroupMembershipEntry>`. Used by readers walking the AppData
+/// dictionary post-bootstrap.
+pub fn decode_group_membership_dict(
+    bytes: &[u8],
+) -> Result<BTreeMap<InboxId, GroupMembershipEntry>, MigrationError> {
+    let snapshot = TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(bytes)?;
+    let mut out: BTreeMap<InboxId, GroupMembershipEntry> = BTreeMap::new();
+    for (key, value) in snapshot.into_iter() {
+        let envelope = GroupMembershipEntry::decode(value.as_slice())?;
+        if envelope.version.is_none() {
+            return Err(MigrationError::GroupMembershipEntryUnknownVersion);
+        }
+        out.insert(key, envelope);
     }
     Ok(out)
 }
@@ -1044,8 +1189,10 @@ mod tests {
                 )
             })
             .collect::<BTreeMap<_, _>>();
-        let bytes = encode_group_membership_delta(&entries).unwrap();
-        let decoded = decode_group_membership_delta(&bytes).unwrap();
+        // Wire round-trip: encode as bootstrap delta, decode as
+        // delta. Used by sender synthesis ↔ validator.
+        let wire_bytes = encode_group_membership_delta(&entries).unwrap();
+        let decoded = decode_group_membership_delta(&wire_bytes).unwrap();
         assert_eq!(decoded, entries);
     }
 
@@ -1068,28 +1215,13 @@ mod tests {
     }
 
     #[test]
-    fn decode_rejects_non_insert_bootstrap_mutation() {
-        // Hand-build a delta with a Delete mutation; bootstrap is
-        // delta-from-empty, so anything but Insert must surface as
-        // GroupMembershipNonInsertBootstrapMutation.
-        let mut delta: TlsMapDelta<InboxId, VLBytes> = TlsMapDelta::new();
-        delta = delta.delete(InboxId::from_bytes([0x03; 32]));
-        let bytes = delta.tls_serialize_detached().unwrap();
-        let err = decode_group_membership_delta(&bytes).unwrap_err();
-        assert!(matches!(
-            err,
-            MigrationError::GroupMembershipNonInsertBootstrapMutation
-        ));
-    }
-
-    #[test]
-    fn decode_rejects_unset_version() {
-        // Encode an envelope with `version: None` and verify the decoder
-        // surfaces GroupMembershipEntryUnknownVersion rather than
-        // silently treating the entry as empty.
+    fn decode_wire_rejects_unset_version() {
+        // Encode a wire delta with one Insert whose envelope carries
+        // `version: None`. The wire decoder must surface
+        // `GroupMembershipEntryUnknownVersion` rather than silently
+        // treating the entry as empty.
         let envelope = GroupMembershipEntry { version: None };
-        let mut delta: TlsMapDelta<InboxId, VLBytes> = TlsMapDelta::new();
-        delta = delta.insert(
+        let delta = TlsMapDelta::<InboxId, VLBytes>::new().insert(
             InboxId::from_bytes([0x04; 32]),
             VLBytes::new(envelope.encode_to_vec()),
         );
@@ -1099,6 +1231,41 @@ mod tests {
             err,
             MigrationError::GroupMembershipEntryUnknownVersion
         ));
+    }
+
+    #[test]
+    fn decode_wire_rejects_non_insert_mutation() {
+        // Bootstrap is delta-from-empty — `Update` or `Delete` against
+        // an empty prior is meaningless and must be rejected.
+        let delta = TlsMapDelta::<InboxId, VLBytes>::new().delete(InboxId::from_bytes([0x05; 32]));
+        let bytes = delta.tls_serialize_detached().unwrap();
+        let err = decode_group_membership_delta(&bytes).unwrap_err();
+        assert!(matches!(
+            err,
+            MigrationError::GroupMembershipNonInsertBootstrapMutation
+        ));
+    }
+
+    #[test]
+    fn decode_dict_round_trips() {
+        // Dict storage uses the materialized `TlsMap` snapshot, not
+        // the wire delta. Verify the dict decoder reads what the dict
+        // would actually contain post-apply.
+        let mut snapshot: TlsMap<InboxId, VLBytes> = TlsMap::new();
+        let inbox = InboxId::from_bytes([0x06; 32]);
+        let envelope = GroupMembershipEntry {
+            version: Some(GroupMembershipEntryVersion::V1(GroupMembershipEntryV1 {
+                sequence_id: 7,
+                failed_installations: vec![],
+            })),
+        };
+        snapshot
+            .insert(inbox, VLBytes::new(envelope.encode_to_vec()))
+            .unwrap();
+        let bytes = snapshot.tls_serialize_detached().unwrap();
+        let decoded = decode_group_membership_dict(&bytes).unwrap();
+        assert_eq!(decoded.len(), 1);
+        assert!(decoded.contains_key(&inbox));
     }
 
     // ========================================================================
@@ -1114,22 +1281,27 @@ mod tests {
     }
 
     #[test]
-    fn encode_inbox_id_set_uses_versioned_inbox_id_wire_format() {
-        // Two inbox ids → TlsSet<InboxId>. Each InboxId on the wire is
-        // `varint(0) || 32 raw bytes` = 33 bytes. TlsSet prefixes the
-        // payload with a tls_codec varint length, not a fixed-length
-        // prefix — so the exact total depends on that varint. Round-
-        // tripping through TlsSet::<InboxId>::tls_deserialize_exact is
-        // the authoritative shape check.
+    fn encode_inbox_id_set_emits_bootstrap_wire_delta() {
+        // Two inbox ids → `TlsSetDelta<InboxId>` of all-`Insert`
+        // mutations (bootstrap = delta-from-empty against an empty
+        // prior). The wire is always a delta; bootstrap is the case
+        // where every mutation happens to be an Insert. Each `InboxId`
+        // on the wire is `varint(0) || 32 raw bytes`.
+        use crate::tls_set::TlsSetMutation;
         let ids = vec![hex_inbox(0xAA), hex_inbox(0xBB)];
         let bytes = encode_inbox_id_set(&ids).unwrap();
-        let set: TlsSet<InboxId> =
-            TlsSet::<InboxId>::tls_deserialize_exact(&bytes).expect("decodes as TlsSet<InboxId>");
-        let decoded: Vec<InboxId> = set.iter().copied().collect();
-        assert_eq!(decoded.len(), 2);
-        // TlsSet preserves sorted order — both inputs sort as [0xAA, 0xBB].
-        assert_eq!(decoded[0].as_bytes(), &[0xAA; INBOX_ID_BYTE_LEN]);
-        assert_eq!(decoded[1].as_bytes(), &[0xBB; INBOX_ID_BYTE_LEN]);
+        let delta = TlsSetDelta::<InboxId>::tls_deserialize_exact(&bytes)
+            .expect("decodes as TlsSetDelta<InboxId>");
+        assert_eq!(delta.mutations.len(), 2);
+        // Sorted ascending so the wire bytes are deterministic.
+        for (mutation, expected_tag) in delta.mutations.iter().zip([0xAA, 0xBB]) {
+            match mutation {
+                TlsSetMutation::Insert(id) => {
+                    assert_eq!(id.as_bytes(), &[expected_tag; INBOX_ID_BYTE_LEN]);
+                }
+                other => panic!("expected Insert, got {other:?}"),
+            }
+        }
     }
 
     #[test]
@@ -1139,17 +1311,23 @@ mod tests {
     }
 
     #[test]
-    fn encode_dm_members_produces_two_element_tls_set() {
+    fn encode_dm_members_produces_two_insert_delta() {
+        use crate::tls_set::TlsSetMutation;
         let dm = crate::group_metadata::DmMembers {
             member_one_inbox_id: hex_inbox(0xCC),
             member_two_inbox_id: hex_inbox(0xDD),
         };
         let bytes = encode_dm_members(&dm).unwrap();
-        let set = TlsSet::<InboxId>::tls_deserialize_exact(&bytes).unwrap();
-        let ids: Vec<InboxId> = set.iter().copied().collect();
-        assert_eq!(ids.len(), 2);
-        assert_eq!(ids[0].as_bytes(), &[0xCC; INBOX_ID_BYTE_LEN]);
-        assert_eq!(ids[1].as_bytes(), &[0xDD; INBOX_ID_BYTE_LEN]);
+        let delta = TlsSetDelta::<InboxId>::tls_deserialize_exact(&bytes).unwrap();
+        assert_eq!(delta.mutations.len(), 2);
+        for (mutation, expected_tag) in delta.mutations.iter().zip([0xCC, 0xDD]) {
+            match mutation {
+                TlsSetMutation::Insert(id) => {
+                    assert_eq!(id.as_bytes(), &[expected_tag; INBOX_ID_BYTE_LEN]);
+                }
+                other => panic!("expected Insert, got {other:?}"),
+            }
+        }
     }
 
     #[test]
@@ -1304,19 +1482,34 @@ mod tests {
         );
         let subset = synthesize_canonical_subset_from_extensions(&exts).unwrap();
 
-        // Strict table contains every non-optional component, but NOT
+        // Strict table contains every always-present component, but NOT
         // COMPONENT_REGISTRY (which compares semantically via
         // `expected_registry`).
         assert!(!subset.strict.contains_key(&ComponentId::COMPONENT_REGISTRY));
-        assert!(subset.strict.contains_key(&ComponentId::GROUP_NAME));
         assert!(subset.strict.contains_key(&ComponentId::ADMIN_LIST));
         assert!(subset.strict.contains_key(&ComponentId::SUPER_ADMIN_LIST));
         assert!(subset.strict.contains_key(&ComponentId::CONVERSATION_TYPE));
         assert!(subset.strict.contains_key(&ComponentId::CREATOR_INBOX_ID));
 
-        // Optional seeds gated on presence.
+        // Optional seeds gated on presence:
+        // - DM_MEMBERS / ONESHOT_MESSAGE: only present for DM / oneshot groups.
+        // - The `GroupMutableMetadata`-backed bytes/string attributes
+        //   (GROUP_NAME, GROUP_DESCRIPTION, GROUP_IMAGE_URL,
+        //   MESSAGE_DISAPPEAR_*, COMMIT_LOG_SIGNER, APP_DATA,
+        //   MIN_SUPPORTED_PROTOCOL_VERSION) are seeded only when the
+        //   legacy GMM has a value for them. An empty GMM produces no
+        //   seed entries, matching the legacy reader semantics where
+        //   "absent" surfaces as `MissingExtension` rather than as an
+        //   empty value.
         assert!(!subset.strict.contains_key(&ComponentId::DM_MEMBERS));
         assert!(!subset.strict.contains_key(&ComponentId::ONESHOT_MESSAGE));
+        assert!(!subset.strict.contains_key(&ComponentId::GROUP_NAME));
+        assert!(
+            !subset
+                .strict
+                .contains_key(&ComponentId::MESSAGE_DISAPPEAR_FROM_NS)
+        );
+        assert!(!subset.strict.contains_key(&ComponentId::COMMIT_LOG_SIGNER));
 
         // The expected_registry must agree with the optional-seed
         // gating: no DM_MEMBERS / ONESHOT_MESSAGE entry, so the

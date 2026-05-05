@@ -1,4 +1,4 @@
-use crate::tls_map::{TlsMap, TlsMapDelta, TlsMapMutation};
+use crate::tls_map::TlsMap;
 use prost::Message;
 use tls_codec::{Deserialize, Serialize, VLBytes};
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -70,8 +70,6 @@ pub enum ComponentRegistryError {
     TlsCodecError(#[from] tls_codec::Error),
     #[error("constrained component {0} requires AllowIfAdmin or AllowIfSuperAdmin policies")]
     ConstrainedPolicyViolation(ComponentId),
-    #[error("COMPONENT_REGISTRY bootstrap delta carried a non-Insert mutation")]
-    NonInsertBootstrapMutation,
 }
 
 /// A component registry stored as a `TlsMap<ComponentId, VLBytes>` where each
@@ -190,73 +188,65 @@ impl ComponentRegistry {
         })
     }
 
-    /// Serialize the entire registry as the wire-format
-    /// `TlsMapDelta<ComponentId, VLBytes>` of all-`Insert` mutations.
+    /// Serialize the registry as the **dict-storage format**: the
+    /// raw `TlsMap<ComponentId, VLBytes>` snapshot.
     ///
-    /// `COMPONENT_REGISTRY` is a delta-shaped component (the proto
-    /// declares it as `TlsMapBytesBytes` with key-level insert/update/
-    /// delete). At bootstrap there is no prior state, so the on-the-wire
-    /// payload is "delta from empty" — every entry inserted. Post-
-    /// bootstrap updates use the same `TlsMapDelta` wire shape with
-    /// mixed `Insert`/`Update`/`Delete` mutations; bootstrap is just the
-    /// degenerate all-`Insert` case, keeping a single wire format.
+    /// The dict always holds the registry's natively-encoded state.
+    /// Wire-format encoding (a `TlsMapDelta` describing changes) is
+    /// done piecemeal at the call site — there is no whole-registry
+    /// wire encoder, because every steady-state update emits only the
+    /// few entries it touches, and the bootstrap encoder builds its
+    /// `TlsMapDelta`-from-empty inline at the synthesis site (see
+    /// `xmtp_mls::groups::app_data::migration::synthesize_initial_component_values`).
     pub fn to_bytes(&self) -> Result<Vec<u8>, ComponentRegistryError> {
-        let mut delta: TlsMapDelta<ComponentId, VLBytes> = TlsMapDelta::new();
-        for (id, raw) in self.inner.iter() {
-            delta = delta.insert(*id, raw.clone());
-        }
-        Ok(delta.tls_serialize_detached()?)
+        Ok(self.inner.tls_serialize_detached()?)
     }
 
-    /// Deserialize a component registry from a TLS-encoded
-    /// `TlsMapDelta<ComponentId, VLBytes>`.
-    ///
-    /// All mutations must be `Insert` (bootstrap is delta-from-empty);
-    /// `Update` or `Delete` at this entry point indicates a malformed
-    /// payload or a post-bootstrap delta routed through the wrong path
-    /// and surfaces [`ComponentRegistryError::NonInsertBootstrapMutation`].
+    /// Deserialize a component registry from its **dict-storage
+    /// format**: a raw `TlsMap<ComponentId, VLBytes>` snapshot.
     ///
     /// Validates that every key is in the component ID space, not
     /// reserved, and not hardcoded, and that every value decodes as a
-    /// valid [`ComponentMetadata`] — peers cannot send us a registry
-    /// with structurally invalid keys or malformed values, nor can they
-    /// smuggle in entries for hardcoded components (whose permissions
-    /// are enforced in code).
+    /// valid [`ComponentMetadata`]. The same validation is appropriate
+    /// at the wire boundary (validator path) and at the dict boundary
+    /// (load path) — peers cannot smuggle structurally invalid entries
+    /// in either direction.
     ///
     /// Immutability is intentionally not enforced here because it's a
     /// write-time concern, not a wire-format invariant.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, ComponentRegistryError> {
-        let delta = TlsMapDelta::<ComponentId, VLBytes>::tls_deserialize_exact(bytes)?;
+        let snapshot = TlsMap::<ComponentId, VLBytes>::tls_deserialize_exact(bytes)?;
         let mut inner: TlsMap<ComponentId, VLBytes> = TlsMap::new();
-        for mutation in delta.mutations {
-            let (id, raw) = match mutation {
-                TlsMapMutation::Insert { key, value } => (key, value),
-                TlsMapMutation::Update { .. } | TlsMapMutation::Delete { .. } => {
-                    return Err(ComponentRegistryError::NonInsertBootstrapMutation);
-                }
-            };
-            if !id.is_in_component_space() {
-                return Err(ComponentRegistryError::InvalidComponentId(id));
-            }
-            if id.is_reserved() {
-                return Err(ComponentRegistryError::ReservedRange(id));
-            }
-            if id.is_hardcoded() {
-                return Err(ComponentRegistryError::HardcodedComponent(id));
-            }
-            // Eagerly verify the value decodes AND is structurally valid —
-            // fail fast at the wire boundary so callers don't get a partial
-            // failure mid-iteration.
-            let meta = ComponentMetadata::decode(raw.as_slice()).map_err(|source| {
-                ComponentRegistryError::DecodeError {
-                    component_id: id,
-                    source,
-                }
-            })?;
-            Self::validate_metadata(&id, &meta)?;
+        for (id, raw) in snapshot.into_iter() {
+            Self::validate_entry(id, raw.as_slice())?;
             inner.set(id, raw);
         }
         Ok(Self { inner })
+    }
+
+    /// Validate one `(ComponentId, raw bytes)` entry against the
+    /// registry's invariants. Used by both the dict-decode path
+    /// ([`Self::from_bytes`]) and the wire-decode path used by the
+    /// bootstrap validator (which walks a `TlsMapDelta`'s mutations
+    /// directly so it can surface the `Insert`-only check before
+    /// per-entry validation).
+    pub fn validate_entry(id: ComponentId, raw: &[u8]) -> Result<(), ComponentRegistryError> {
+        if !id.is_in_component_space() {
+            return Err(ComponentRegistryError::InvalidComponentId(id));
+        }
+        if id.is_reserved() {
+            return Err(ComponentRegistryError::ReservedRange(id));
+        }
+        if id.is_hardcoded() {
+            return Err(ComponentRegistryError::HardcodedComponent(id));
+        }
+        let meta = ComponentMetadata::decode(raw).map_err(|source| {
+            ComponentRegistryError::DecodeError {
+                component_id: id,
+                source,
+            }
+        })?;
+        Self::validate_metadata(&id, &meta)
     }
 
     /// Validate that the registry entry for `id` can be inserted, updated,
@@ -801,13 +791,14 @@ mod tests {
         ));
     }
 
-    /// Build a TLS-encoded `TlsMapDelta<ComponentId, VLBytes>` containing
-    /// a single `Insert` mutation. Bypasses `ComponentRegistry::set` so
+    /// Build a TLS-encoded `TlsMap<ComponentId, VLBytes>` snapshot
+    /// containing a single entry. Bypasses `ComponentRegistry::set` so
     /// we can construct payloads that the public API would refuse to
     /// produce.
     fn raw_bytes_with_entry(id: ComponentId, value: Vec<u8>) -> Vec<u8> {
-        let delta = TlsMapDelta::<ComponentId, VLBytes>::new().insert(id, VLBytes::new(value));
-        delta.tls_serialize_detached().unwrap()
+        let mut map: TlsMap<ComponentId, VLBytes> = TlsMap::new();
+        map.insert(id, VLBytes::new(value)).unwrap();
+        map.tls_serialize_detached().unwrap()
     }
 
     #[xmtp_common::test]
