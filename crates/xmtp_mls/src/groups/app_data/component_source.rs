@@ -477,22 +477,10 @@ pub(crate) fn expand_app_data_update_to_changes(
         .map_err(Into::into)
 }
 
-/// Decode an incoming `AppDataUpdateOperation::Update(bytes)` payload and
-/// compute the new *full* value of the component, given its prior stored
-/// bytes.
-///
-/// **This function is `Update`-only.** The `AppDataUpdateOperation::Remove`
-/// variant has no payload to decode and is handled directly by the caller
-/// via `AppDataDictionaryUpdater::remove(&id)` — see
-/// `process_message_with_app_data` and `pending_app_data_updates`. Calling
-/// this function for a `Remove` op is not necessary and not supported;
-/// the function only takes the `Update` payload bytes as input.
-///
-/// - `Bytes` components return the payload verbatim.
-/// - Collection components (`ADMIN_LIST`, `SUPER_ADMIN_LIST`) parse the
-///   payload as a `TlsSetDelta<InboxId>`, apply it to the old value
-///   (parsed as a `TlsSet<InboxId>`), and return the re-serialized set
-///   bytes.
+/// Decode an incoming `AppDataUpdateOperation::Update(bytes)` payload
+/// and produce the new full bytes of the component, given the prior
+/// stored bytes (if any). `Update`-only — `Remove` carries no payload
+/// and is handled directly by the caller.
 ///
 /// Immutable components are rejected with
 /// [`ComponentSourceError::ImmutableUpdate`] **only when a prior

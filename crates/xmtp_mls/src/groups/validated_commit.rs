@@ -1243,15 +1243,9 @@ fn validate_one_app_data_update(
     )
 }
 
-/// Pure core of [`validate_one_app_data_update`] with the
-/// `&OpenMlsGroup` dependency lifted into an explicit `old_value`
-/// argument.
-///
-/// Split out so unit tests can exercise the expand → per-change policy
-/// loop without building a real MLS group. The wrapper just reads
-/// `old_value` from the group's AppData dictionary and forwards the
-/// rest unchanged; both paths must produce identical results, so if
-/// you're tempted to change one, change the other.
+/// Pure core of [`validate_one_app_data_update`] with `old_value`
+/// passed explicitly so unit tests can exercise the
+/// expand → per-change policy loop without a real MLS group.
 pub(super) fn validate_one_app_data_update_with_old_value(
     component_id: xmtp_mls_common::app_data::component_id::ComponentId,
     operation: &openmls::messages::proposals::AppDataUpdateOperation,
@@ -1290,10 +1284,6 @@ pub(super) fn validate_one_app_data_update_with_old_value(
         })?;
 
     for change in &changes {
-        // bon::Builder uses type-state encoding for set fields, so each
-        // `.field(_)` call returns a different builder type. We can't
-        // reassign back to the same binding, so the conditional `new_value`
-        // goes through `maybe_new_value` (which accepts `Option<&[u8]>`).
         let cc = ComponentChange::builder()
             .component_id(component_id)
             .op(change.op)
