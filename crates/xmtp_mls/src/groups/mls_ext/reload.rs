@@ -1,5 +1,6 @@
 use openmls::group::MlsGroup as OpenMlsGroup;
 use xmtp_db::{NotFound, StorageError, XmtpMlsStorageProvider};
+use xmtp_proto::types::GroupId;
 
 use crate::groups::mls_sync::GroupMessageProcessingError;
 
@@ -15,8 +16,9 @@ impl MlsGroupReload for OpenMlsGroup {
         &mut self,
         provider: &S,
     ) -> Result<(), GroupMessageProcessingError> {
-        *self = OpenMlsGroup::load(provider, self.group_id())?
-            .ok_or(StorageError::NotFound(NotFound::MlsGroup))?;
+        *self = OpenMlsGroup::load(provider, self.group_id())?.ok_or(StorageError::NotFound(
+            NotFound::MlsGroup(GroupId::from(self.group_id())),
+        ))?;
         Ok(())
     }
 }

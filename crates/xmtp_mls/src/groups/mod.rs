@@ -370,9 +370,10 @@ where
         // Acquire the lock synchronously using blocking_lock
         let _lock = self.mls_commit_lock.get_lock_sync(group_id.clone());
         // Load the MLS group
-        let mls_group = OpenMlsGroup::load(storage, &OpenMlsGroupId::from_slice(&self.group_id))
-            .map_err(|_| NotFound::MlsGroup)?
-            .ok_or(NotFound::MlsGroup)?;
+        let mls_group = OpenMlsGroup::load(storage, &self.group_id.to_openmls())
+            .inspect_err(|e| tracing::error!("openmls error while loading group {e}"))
+            .map_err(|_| NotFound::MlsGroup(self.group_id.clone()))?
+            .ok_or(NotFound::MlsGroup(self.group_id.clone()))?;
 
         // Perform the operation with the MLS group
         operation(mls_group)
@@ -767,7 +768,7 @@ where
     }
 
     /// Send a message on this users XMTP [`Client`](crate::client::Client).
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip_all, fields(who = self.context.inbox_id(), message = %String::from_utf8_lossy(&message[..message.len().min(100)]))))]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip_all, fields(who = self.context.inbox_id())))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip_all)

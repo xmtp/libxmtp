@@ -170,7 +170,7 @@ pub trait Worker: MaybeSend + MaybeSync + 'static {
                         tracing::debug!("pool disconnected. task will restart on reconnect");
                         break;
                     } else {
-                        tracing::error!("{:?} worker error: {:?}", self.kind(), err);
+                        tracing::error!("{:?} worker error: {}", self.kind(), err);
                         xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
                         tracing::info!("Restarting {:?} worker...", self.kind());
                     }

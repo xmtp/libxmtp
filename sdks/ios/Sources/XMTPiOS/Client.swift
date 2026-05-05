@@ -1233,6 +1233,9 @@ public extension Client {
 		case info
 		/// Debug level and above
 		case debug
+		/// Trace level — includes span/activity events (visible as
+		/// signposts in Console.app and Instruments).
+		case trace
 
 		fileprivate var ffiLogLevel: FfiLogLevel {
 			switch self {
@@ -1240,6 +1243,7 @@ public extension Client {
 			case .warn: .warn
 			case .info: .info
 			case .debug: .debug
+			case .trace: .trace
 			}
 		}
 	}
@@ -1344,6 +1348,20 @@ public extension Client {
 		} catch {
 			os_log(
 				"Failed to deactivate persistent log writer: %{public}@",
+				log: OSLog.default, type: .error, error.localizedDescription
+			)
+		}
+	}
+
+	/// Sets the log level for the native log layer (oslog on iOS).
+	/// Use `.trace` to surface tracing spans as os_signpost activities visible
+	/// in Console.app and Instruments. Independent of the persistent file log writer.
+	static func setLibXMTPNativeLogLevel(_ logLevel: LogLevel) {
+		do {
+			try setNativeLogLevel(logLevel: logLevel.ffiLogLevel)
+		} catch {
+			os_log(
+				"Failed to set native log level: %{public}@",
 				log: OSLog.default, type: .error, error.localizedDescription
 			)
 		}

@@ -78,7 +78,7 @@ pub enum Event {
     /// Attempted to sync on an inactive group.
     #[context(group_id, icon = "⏸️")]
     GroupSyncGroupInactive,
-    /// Intent failed to sync but did not error. This can happen for a variety of reasons.
+    /// Intent failed to sync and will be retried.
     #[context(group_id, intent_id, intent_kind, state, icon = "🔁")]
     GroupSyncIntentRetry,
     /// Intent was found to be in error after attempting to sync.
