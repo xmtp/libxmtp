@@ -96,7 +96,7 @@ time = { version = "0.3", features = ["formatting", "local-offset", "parsing"] }
 tokio-util = { version = "0.7", features = ["codec", "compat", "io"] }
 toml_datetime = { version = "1", features = ["serde"] }
 toml_parser = { version = "1" }
-tracing = { version = "0.1", features = ["log", "release_max_level_debug"] }
+tracing = { version = "0.1", features = ["log"] }
 tracing-core = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter", "json"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
@@ -190,7 +190,7 @@ time = { version = "0.3", features = ["formatting", "local-offset", "parsing"] }
 tokio-util = { version = "0.7", features = ["codec", "compat", "io"] }
 toml_datetime = { version = "1", features = ["serde"] }
 toml_parser = { version = "1" }
-tracing = { version = "0.1", features = ["log", "release_max_level_debug"] }
+tracing = { version = "0.1", features = ["log"] }
 tracing-core = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter", "json"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
