@@ -768,11 +768,7 @@ where
     }
 
     /// Send a message on this users XMTP [`Client`](crate::client::Client).
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", skip_all, fields(who = self.context.inbox_id())))]
-    #[cfg_attr(
-        not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip_all)
-    )]
+    #[tracing::instrument(level = "debug", skip_all, fields(who = self.context.inbox_id()))]
     pub async fn send_message(
         &self,
         message: &[u8],
