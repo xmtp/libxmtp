@@ -358,7 +358,7 @@ where
         Ok(out)
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_conversations(
         &self,
         conversation_type: Option<ConversationType>,
@@ -377,7 +377,7 @@ where
     }
 
     /// Stream conversations but decouple the lifetime of 'self' from the stream.
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_conversations_owned(
         &self,
         conversation_type: Option<ConversationType>,
@@ -434,7 +434,7 @@ where
         })
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_all_messages(
         &self,
         conversation_type: Option<ConversationType>,
@@ -450,7 +450,7 @@ where
         StreamAllMessages::new(&self.context, conversation_type, consent_state).await
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_all_messages_owned(
         &self,
         conversation_type: Option<ConversationType>,

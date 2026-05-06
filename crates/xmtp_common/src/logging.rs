@@ -1,6 +1,12 @@
+use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 pub fn filter_directive(level: &str) -> EnvFilter {
+    let level: LevelFilter = level
+        .parse()
+        .inspect_err(|_| tracing::error!("invalid level `{}`, defaulting to `INFO`", level))
+        .unwrap_or(LevelFilter::INFO);
+
     let filter = format!(
         "xmtp_mls={level},xmtp_mls_common={level},xmtp_id={level},\
         xmtp_api={level},xmtp_api_grpc={level},xmtp_proto={level},\
@@ -25,5 +31,6 @@ mod tests {
         filter_directive("INFO");
         filter_directive("DEBUG");
         filter_directive("TRACE");
+        filter_directive("INCORRECT_DOES_NOT_PANIC");
     }
 }

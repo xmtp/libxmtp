@@ -61,6 +61,9 @@ let
     hardeningDisable = [ "zerocallusedregs" ];
     CARGO_BUILD_TARGET = stdenv.hostPlatform.rust.rustcTarget;
     CARGO_PROFILE = "release";
+    # passes through to all build.rs scripts
+    NIX_GIT_SHA = xmtp.gitSha;
+    NIX_GIT_COMMIT_DATE = xmtp.gitCommitDate;
 
     # aws-lc-sys is tricky to x-compile, since it needs host CC to compile libraries to do host-side checks.
     # aws-lc-sys's build script resolves CC via TARGET_CC (set by Nix to the cross-compiler) and

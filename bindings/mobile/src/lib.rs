@@ -13,6 +13,7 @@ pub mod worker;
 mod builder_test;
 
 pub use crate::inbox_owner::SigningError;
+use log::level_filters::ParseLevelFilterError;
 pub use logger::{enter_debug_writer, exit_debug_writer};
 pub use message::*;
 pub use mls::*;
@@ -132,6 +133,9 @@ pub enum GenericError {
     #[error(transparent)]
     #[error_code(inherit)]
     Enrich(#[from] EnrichMessageError),
+    /// Log Level failed to parse because it was invalid
+    #[error(transparent)]
+    Level(#[from] ParseLevelFilterError),
 }
 
 // this impl allows us to gracefully handle unexpected errors from foreign code without panicking

@@ -1,5 +1,4 @@
 use crate::FfiError;
-use log::Subscriber;
 use log::level_filters::LevelFilter;
 use parking_lot::Mutex;
 use std::io::Write;
@@ -20,7 +19,7 @@ use tracing_subscriber::{
 
 // Default native log level used until `set_native_log_level` is called.
 #[cfg(any(target_os = "android", target_os = "ios"))]
-const DEFAULT_NATIVE_LOG_LEVEL: FfiLogLevel = FfiLogLevel::Trace;
+const DEFAULT_NATIVE_LOG_LEVEL: FfiLogLevel = FfiLogLevel::Info;
 
 // Native layers install on the global `Registry` (see `LOGGER`), so S is pinned
 // to `Registry` to give the reload handle a concrete, storable type.
@@ -31,13 +30,15 @@ static LIBXMTP_FILTER_HANDLE: std::sync::OnceLock<
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn set_native_filter(level: &str) -> Result<(), FfiError> {
+    use crate::GenericError;
+
     let handle = LIBXMTP_FILTER_HANDLE
         .get()
         .ok_or_else(|| crate::GenericError::Generic {
             err: "native logger not initialized".to_string(),
         })?;
-    let new_filter = xmtp_common::filter_directive(level);
-    handle.lock().reload(new_filter)?;
+    let filter = xmtp_common::filter_directive(level);
+    handle.lock().reload(filter)?;
     Ok(())
 }
 
@@ -92,6 +93,7 @@ pub use other::*;
 #[cfg(not(any(target_os = "ios", target_os = "android", test)))]
 mod other {
     use super::*;
+    use log::Subscriber;
 
     pub fn native_layer<S>() -> impl Layer<S>
     where
@@ -394,6 +396,7 @@ pub use test_logger::*;
 #[cfg(test)]
 mod test_logger {
     use super::*;
+    use log::Subscriber;
     use std::io::Read;
 
     pub fn native_layer<S>() -> impl Layer<S>
