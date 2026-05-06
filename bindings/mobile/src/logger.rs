@@ -20,7 +20,7 @@ use tracing_subscriber::{
 
 // Default native log level used until `set_native_log_level` is called.
 #[cfg(any(target_os = "android", target_os = "ios"))]
-const DEFAULT_NATIVE_LOG_LEVEL: FfiLogLevel = FfiLogLevel::Trace;
+const DEFAULT_NATIVE_LOG_LEVEL: FfiLogLevel = FfiLogLevel::Info;
 
 // Native layers install on the global `Registry` (see `LOGGER`), so S is pinned
 // to `Registry` to give the reload handle a concrete, storable type.
