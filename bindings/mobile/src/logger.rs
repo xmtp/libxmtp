@@ -11,8 +11,8 @@ use tracing_appender::non_blocking::NonBlockingBuilder;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::RollingFileAppender;
 use tracing_subscriber::fmt::MakeWriter;
-use tracing_subscriber::fmt::format::DefaultFields;
-use tracing_subscriber::fmt::format::Format;
+use tracing_subscriber::fmt::format::JsonFields;
+use tracing_subscriber::fmt::format::{Format, Json};
 use tracing_subscriber::{
     EnvFilter, Layer, filter::Filtered, fmt, layer::Layered, layer::SubscriberExt,
     registry::LookupSpan, registry::Registry, reload, util::SubscriberInitExt,
@@ -20,7 +20,7 @@ use tracing_subscriber::{
 
 // Default native log level used until `set_native_log_level` is called.
 #[cfg(any(target_os = "android", target_os = "ios"))]
-const DEFAULT_NATIVE_LOG_LEVEL: FfiLogLevel = FfiLogLevel::Debug;
+const DEFAULT_NATIVE_LOG_LEVEL: FfiLogLevel = FfiLogLevel::Trace;
 
 // Native layers install on the global `Registry` (see `LOGGER`), so S is pinned
 // to `Registry` to give the reload handle a concrete, storable type.
@@ -168,8 +168,8 @@ static LOGGER: LazyLock<
                 Filtered<
                     fmt::Layer<
                         Layered<Box<dyn Layer<Registry> + Send + Sync>, Registry>,
-                        DefaultFields,
-                        Format,
+                        JsonFields,
+                        Format<Json>,
                         EmptyOrFileWriter,
                     >,
                     EnvFilter,
@@ -184,6 +184,7 @@ static LOGGER: LazyLock<
     // just turn the layer off for now
     let fmt = fmt::Layer::default()
         .with_writer(EmptyOrFileWriter::default())
+        .json()
         .with_filter(
             EnvFilter::builder()
                 .with_default_directive(LevelFilter::OFF.into())
