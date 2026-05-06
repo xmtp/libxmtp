@@ -9,5 +9,21 @@ pub fn filter_directive(level: &str) -> EnvFilter {
         xmtp_user_preferences={level},xmtpv3={level},xmtp_db={level},\
         bindings_wasm={level},bindings_node={level},xdbg=error"
     );
-    EnvFilter::builder().parse_lossy(filter)
+    EnvFilter::builder()
+        .parse(filter)
+        .expect("Static filter must be correct")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[xmtp_common::test]
+    fn test_filter_correct() {
+        filter_directive("OFF");
+        filter_directive("ERROR");
+        filter_directive("WARN");
+        filter_directive("INFO");
+        filter_directive("DEBUG");
+        filter_directive("TRACE");
+    }
 }
