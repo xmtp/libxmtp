@@ -12,15 +12,20 @@
         darwinSdkVersion = "26";
         darwinMinVersion = "16";
         xcodeVer = "26.3";
-        useiOSPrebuilt = true; # source path — route through apple-sdk / propagate-inputs
+        # Wrap builder-host Xcode (iosSdkPkgs) instead of building the Darwin
+        # toolchain from source (~94 drvs vs ~2500). Comment out to fall back
+        # to the hermetic apple-sdk source path.
+        useiOSPrebuilt = true;
       };
       # Single source of truth: ABI name → target config
       iosTargets = {
         "aarch64-darwin" = {
           config = "arm64-apple-darwin";
+          xcodeVer = "26.3";
         };
         "x86_64-darwin" = {
           config = "x86_64-apple-darwin";
+          xcodeVer = "26.3";
         };
         "iphone64" = {
           config = "arm64-apple-ios";
@@ -49,8 +54,7 @@
       # Per-target dylibs keyed by ABI name
       iosDylibs = lib.mapAttrs (_: p: (mkIosBindings p { }).dylib) crossPkgs;
 
-      # Swift bindings from host build
-      inherit (mkIosBindings pkgs { }) swift-bindings;
+      inherit (mkIosBindings pkgs { }) swift-bindings version;
 
       fastAbi =
         if pkgs.stdenv.hostPlatform.isx86_64 then
@@ -59,6 +63,51 @@
           "aarch64-darwin"
         else
           throw "Unsupported host architecture for ios-libs-fast";
+
+      # xcframework derivations are host-side packaging tools — call them through
+      # the local cross-pkgs so darwin.xcode auto-resolves via crossSystem.xcodeVer.
+      hostPkgs = crossPkgs.${fastAbi};
+      xcode-tools = hostPkgs.callPackage ./lib/packages/xcode-tools.nix { };
+      xcframework = hostPkgs.callPackage ./package/ios-xcframework { inherit xcode-tools; };
+
+      allAbis = lib.attrNames iosDylibs;
+      fastAbis = [
+        fastAbi
+        "iphone64-simulator"
+      ];
+
+      ios-xcframework-static = xcframework.mkStatic {
+        abis = allAbis;
+        dylibs = iosDylibs;
+        swiftBindings = swift-bindings;
+        inherit version;
+      };
+      ios-xcframework-dynamic = xcframework.mkDynamic {
+        abis = allAbis;
+        dylibs = iosDylibs;
+        swiftBindings = swift-bindings;
+        inherit version;
+      };
+      ios-xcframework-static-fast = xcframework.mkStatic {
+        abis = fastAbis;
+        dylibs = iosDylibs;
+        swiftBindings = swift-bindings;
+        inherit version;
+      };
+
+      ios-release = xcframework.mkRelease {
+        static = ios-xcframework-static;
+        dynamic = ios-xcframework-dynamic;
+        swiftBindings = swift-bindings;
+        licenseFile = ../LICENSE;
+        inherit version;
+      };
+      ios-devFast = xcframework.mkDev {
+        static = ios-xcframework-static-fast;
+        dynamic = null;
+        swiftBindings = swift-bindings;
+        inherit version;
+      };
 
       # Build an xcframework-ready linkFarm from the given ABIs.
       mkLibs =
@@ -91,12 +140,19 @@
         );
 
       ios-libs-fast = mkLibs "xmtpv3-ios-fast" [ fastAbi ];
-      ios-libs = mkLibs "xmtpv3-ios" (lib.attrNames iosDylibs);
+      ios-libs = mkLibs "xmtpv3-ios" allAbis;
     in
     {
       packages = {
-        inherit ios-libs ios-libs-fast swift-bindings;
-
+        inherit
+          ios-libs
+          ios-libs-fast
+          swift-bindings
+          ios-xcframework-static
+          ios-xcframework-dynamic
+          ios-release
+          ios-devFast
+          ;
       }
       // lib.mapAttrs' (abi: dylib: {
         name = "ios-bindings-${abi}";

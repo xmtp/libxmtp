@@ -16,7 +16,7 @@ fi
 
 if [[ "${1:-}" == "--release" ]]; then
     echo "Building iOS xcframeworks (all targets)..."
-    nix build "${ROOT}#ios-xcframeworks" --out-link "${ROOT}/bindings/mobile/build/release"
+    nix build "${ROOT}#ios-release" --out-link "${ROOT}/bindings/mobile/build/release"
     rm -rf "$SWIFT_OUT"
     mkdir -p "$SWIFT_OUT"
     cp -rL "${ROOT}/bindings/mobile/build/release/LibXMTPSwiftFFI/LibXMTPSwiftFFI.xcframework" "$SWIFT_OUT/"
@@ -28,7 +28,7 @@ else
     echo "Building iOS xcframeworks (simulator + macOS only)..."
     # Materialize the xcframework instead of symlinking ---
     rm -rf "$SWIFT_OUT"
-    nix build "${ROOT}#ios-xcframeworks-fast" \
+    nix build "${ROOT}#ios-devFast" \
         --out-link "${ROOT}/bindings/mobile/build/nix-fast"
     mkdir -p "$SWIFT_OUT"
     cp -rL "${ROOT}/bindings/mobile/build/nix-fast/LibXMTPSwiftFFI.xcframework" "$SWIFT_OUT/"
