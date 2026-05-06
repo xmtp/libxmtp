@@ -234,6 +234,7 @@ impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
 }
 
 impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
+    #[tracing::instrument(level = "debug", skip_all)]
     fn get_refresh_state<EntityId: AsRef<[u8]>>(
         &self,
         entity_id: EntityId,
@@ -251,6 +252,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         Ok(res)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     fn get_last_cursor_for_originators<Id: AsRef<[u8]>>(
         &self,
         id: Id,
@@ -303,6 +305,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         Ok(result)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
         &self,
         ids: &[Id],
@@ -380,6 +383,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         Ok(num_updated >= 1)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     fn get_remote_log_cursors(
         &self,
         conversation_ids: &[&Vec<u8>],
@@ -398,6 +402,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         Ok(cursor_map)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     fn latest_cursor_for_id<Id: AsRef<[u8]>>(
         &self,
         entity_id: Id,
