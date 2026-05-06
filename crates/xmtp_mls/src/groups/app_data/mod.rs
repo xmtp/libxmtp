@@ -17,6 +17,7 @@
 pub(crate) mod bootstrap_validator;
 pub mod component_source;
 pub mod migration;
+pub(crate) mod typed_facade;
 
 use std::collections::BTreeMap;
 

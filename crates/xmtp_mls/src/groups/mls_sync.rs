@@ -2690,20 +2690,17 @@ where
             IntentKind::MetadataUpdate => {
                 let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
 
-                // Gate the AppDataUpdate path on both the capability flag
-                // AND a non-empty component registry. The registry check
-                // keeps unmigrated groups on the legacy path so a sender
-                // doesn't publish commits that the receiver would deny
-                // (`NoRegistryEntry`) against an empty registry.
+                // Gate the AppDataUpdate path on the capability flag
+                // AND a non-empty component registry. The registry
+                // check keeps unmigrated groups on the legacy path so
+                // a sender doesn't publish commits the receiver would
+                // deny against an empty registry. `load_component_registry`
+                // also consults `TEST_REGISTRY_OVERRIDE`, so tests that
+                // install a fake registry exercise this branch even
+                // before a real bootstrap commit lands.
                 let proposals_on = self.proposals_enabled(openmls_group);
                 let registry_populated =
                     !super::app_data::load_component_registry(openmls_group)?.is_empty();
-                // DEBUG-level routing trace so operators can see which
-                // groups are on which path during the rollout — especially
-                // useful if the migration ships only partially and we need
-                // to know how many groups are still on the legacy path.
-                // INFO would spam every metadata update; DEBUG keeps it
-                // opt-in for on-demand investigation.
                 tracing::debug!(
                     group_id = hex::encode(self.group_id.as_slice()),
                     proposals_enabled = proposals_on,
