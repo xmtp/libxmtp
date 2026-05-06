@@ -404,23 +404,11 @@ pub(crate) fn encode_app_data_update_payload(
     }
 }
 
-/// A single per-element view of an incoming `AppDataUpdate` proposal.
-///
-/// `Bytes` components produce exactly one entry; collection components
-/// produce one entry per delta mutation. The `op` mirrors the
-/// `ComponentOp` field on a [`ComponentChange`] so the validator can call
-/// `validate_component_write` directly.
-///
-/// `value` is `None` for `Delete` ops on collection components (the
-/// receiver removes the key without needing the new value), and `Some` for
-/// every other case.
-#[derive(Debug, Clone)]
-pub(crate) struct ExpandedComponentChange {
-    /// Whether this entry is an Insert, Update, or Delete.
-    pub(crate) op: ComponentOp,
-    /// The new value bytes for Insert/Update, or `None` for Delete.
-    pub(crate) value: Option<Vec<u8>>,
-}
+// `ExpandedComponentChange` lives in `xmtp_mls_common::app_data::typed`
+// so the `Component` trait there can return it. Re-exported here for
+// backward compatibility while the dispatch refactor (subsequent jj
+// changes) shifts call sites onto the trait directly.
+pub(crate) use xmtp_mls_common::app_data::typed::ExpandedComponentChange;
 
 /// Expand an `AppDataUpdate` proposal payload into the per-element changes
 /// that should be checked against the component registry.
