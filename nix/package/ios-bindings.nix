@@ -49,5 +49,5 @@ let
   };
 in
 {
-  inherit swift-bindings dylib;
+  inherit swift-bindings dylib version;
 }

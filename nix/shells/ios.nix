@@ -2,10 +2,6 @@
 # Provides the environment for `cargo build --target <ios-target>` from the CLI.
 # Uses shared config from nix/lib/ios-env.nix.
 #
-# Relationship to nix/package/ios.nix:
-#   - This file: interactive dev shell (`nix develop .#ios`)
-#   - package/ios.nix: CI/release build derivation (`nix build .#ios-libs`)
-# Both use ios-env.nix for shared cross-compilation config.
 {
   stdenv,
   darwin,
