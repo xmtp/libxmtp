@@ -375,7 +375,7 @@ pub fn exit_debug_writer() -> Result<(), FfiError> {
 }
 
 pub fn init_logger() {
-    let _ = *LOGGER;
+    let _ = LazyLock::force(&LOGGER);
 }
 
 /// Updates the log level of the native log layer (oslog on iOS, logcat on Android).
@@ -383,6 +383,7 @@ pub fn init_logger() {
 /// activity in Console.app / Instruments. No-op on non-mobile builds.
 #[uniffi::export]
 pub fn set_native_log_level(log_level: FfiLogLevel) -> Result<(), FfiError> {
+    init_logger();
     set_native_filter(log_level.to_str())
 }
 
