@@ -33,16 +33,18 @@ use openmls::{
     group::{GroupContext, MlsGroup as OpenMlsGroup},
     messages::proposals::AppDataUpdateOperation,
 };
-use tls_codec::{Deserialize, Serialize, VLBytes};
+use tls_codec::{Deserialize, Serialize};
 use xmtp_mls_common::{
-    app_data::{component_id::ComponentId, component_registry::ComponentOp},
+    app_data::{
+        component_id::ComponentId, registry_table::lookup_component, typed::ComponentTypedError,
+    },
     group_mutable_metadata::{
         GroupMutableMetadata, GroupMutableMetadataError, MetadataField,
         find_mutable_metadata_extension,
     },
     inbox_id::{InboxId, InboxIdError},
-    tls_map::{TlsMap, TlsMapDelta, TlsMapError},
-    tls_set::{TlsKeyHash, TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
+    tls_map::TlsMapError,
+    tls_set::{TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
 };
 use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 
@@ -137,6 +139,31 @@ impl ComponentSourceError {
                 component_id: id, ..
             } => Some(*id),
             _ => None,
+        }
+    }
+}
+
+impl From<ComponentTypedError> for ComponentSourceError {
+    /// Surface trait-layer errors at the dispatch boundary. The
+    /// dispatch layer adds `UnknownComponent` / `NotImplemented` /
+    /// `UnknownMetadataField` / `GroupMutableMetadata` for things the
+    /// trait can't see; the variants below are the trait's domain
+    /// and round-trip 1:1.
+    fn from(err: ComponentTypedError) -> Self {
+        match err {
+            ComponentTypedError::ImmutableUpdate(id) => Self::ImmutableUpdate(id),
+            ComponentTypedError::MismatchedMutation(id) => Self::MismatchedMutation(id),
+            ComponentTypedError::MalformedValue {
+                component_id,
+                reason,
+            } => Self::MalformedComponentValue {
+                component_id,
+                reason,
+            },
+            ComponentTypedError::InvalidInboxId(e) => Self::InvalidInboxId(e),
+            ComponentTypedError::TlsCodec(e) => Self::TlsCodec(e),
+            ComponentTypedError::TlsSetApply(e) => Self::TlsSetApply(e),
+            ComponentTypedError::TlsMapApply(e) => Self::TlsMapApply(e),
         }
     }
 }
@@ -438,107 +465,11 @@ pub(crate) fn expand_app_data_update_to_changes(
     operation: &AppDataUpdateOperation,
     old_value: Option<&[u8]>,
 ) -> Result<Vec<ExpandedComponentChange>, ComponentSourceError> {
-    match operation {
-        AppDataUpdateOperation::Remove => Ok(vec![ExpandedComponentChange {
-            op: ComponentOp::Delete,
-            value: None,
-        }]),
-        AppDataUpdateOperation::Update(payload) => {
-            // Bytes-typed components: a single Update covering the whole value.
-            if component_id_to_metadata_field(component_id).is_some() {
-                return Ok(vec![ExpandedComponentChange {
-                    op: ComponentOp::Update,
-                    value: Some(payload.as_slice().to_vec()),
-                }]);
-            }
-
-            match component_id {
-                ComponentId::ADMIN_LIST | ComponentId::SUPER_ADMIN_LIST => {
-                    let delta = TlsSetDelta::<InboxId>::tls_deserialize_exact(payload.as_slice())?;
-
-                    // Lazily build a hash → InboxId index only if we
-                    // actually see a `RemoveByHash` in this delta. The
-                    // common case (Insert/Remove deltas) pays no decode
-                    // cost for the prior set, and the cost of the
-                    // deserialize + index build is paid once per
-                    // proposal, not per mutation.
-                    let needs_index = delta
-                        .mutations
-                        .iter()
-                        .any(|m| matches!(m, TlsSetMutation::RemoveByHash(_)));
-                    let hash_index: Option<std::collections::HashMap<TlsKeyHash, InboxId>> =
-                        if needs_index {
-                            match old_value {
-                                Some(bytes) => {
-                                    let prior = TlsSet::<InboxId>::tls_deserialize_exact(bytes)?;
-                                    let mut idx =
-                                        std::collections::HashMap::with_capacity(prior.len());
-                                    for key in prior.iter() {
-                                        // Defense-in-depth: a hash clash between two
-                                        // distinct keys in the prior set is cryptographically
-                                        // infeasible with SHA-256, but a bug in `Serialize`
-                                        // for `InboxId` (or a future key type) could produce
-                                        // the same bytes for distinct logical values. Refuse
-                                        // to build a silently-lossy index — this matches
-                                        // `TlsSet::apply_delta`'s `DuplicateHash` check at the
-                                        // apply step, so the expansion and apply paths agree
-                                        // on what constitutes a well-formed prior set.
-                                        if idx.insert(TlsKeyHash::of(key)?, *key).is_some() {
-                                            return Err(ComponentSourceError::TlsSetApply(
-                                                TlsSetError::DuplicateHash,
-                                            ));
-                                        }
-                                    }
-                                    Some(idx)
-                                }
-                                // No prior bytes → empty set → every
-                                // RemoveByHash trivially misses. Skip the
-                                // allocation and let each lookup return None.
-                                None => None,
-                            }
-                        } else {
-                            None
-                        };
-
-                    let mut out = Vec::with_capacity(delta.mutations.len());
-                    for mutation in delta.mutations {
-                        match mutation {
-                            TlsSetMutation::Insert(key) => out.push(ExpandedComponentChange {
-                                op: ComponentOp::Insert,
-                                value: Some(key.into_bytes().to_vec()),
-                            }),
-                            TlsSetMutation::Remove(key) => out.push(ExpandedComponentChange {
-                                op: ComponentOp::Delete,
-                                value: Some(key.into_bytes().to_vec()),
-                            }),
-                            // RemoveByHash carries a 32-byte hash of the
-                            // key's TLS encoding. Resolve it back to the
-                            // concrete InboxId via the prior-set index so
-                            // the validator sees the identity being
-                            // removed. A miss (or no prior set) leaves
-                            // `value: None` — the CRDT apply step will
-                            // fail with KeyNotFound in that case.
-                            TlsSetMutation::RemoveByHash(target) => {
-                                let resolved = hash_index
-                                    .as_ref()
-                                    .and_then(|idx| idx.get(&target))
-                                    .map(|id| id.as_bytes().to_vec());
-                                out.push(ExpandedComponentChange {
-                                    op: ComponentOp::Delete,
-                                    value: resolved,
-                                });
-                            }
-                        }
-                    }
-                    Ok(out)
-                }
-                ComponentId::GROUP_MEMBERSHIP => {
-                    Err(ComponentSourceError::NotImplemented(component_id))
-                }
-                _ => Err(ComponentSourceError::UnknownComponent(component_id)),
-            }
-        }
-    }
+    let component = lookup_component(component_id)
+        .ok_or(ComponentSourceError::UnknownComponent(component_id))?;
+    component
+        .expand_to_changes(operation, old_value)
+        .map_err(Into::into)
 }
 
 /// Decode an incoming `AppDataUpdateOperation::Update(bytes)` payload and
@@ -559,56 +490,39 @@ pub(crate) fn expand_app_data_update_to_changes(
 ///   bytes.
 ///
 /// Immutable components are rejected with
-/// [`ComponentSourceError::ImmutableUpdate`] — the caller should not have
-/// sent an `Update` op for them in the first place.
+/// [`ComponentSourceError::ImmutableUpdate`] **only when a prior
+/// value already exists** — the bootstrap commit is the canonical
+/// first-insert path for immutable seeds, so this layer must allow
+/// an `Update` whose `old_value` is `None`. The bootstrap validator
+/// catches malicious initial values upstream via byte-compare.
 pub(crate) fn apply_app_data_update_payload(
     id: ComponentId,
     payload: &[u8],
     old_value: Option<&[u8]>,
 ) -> Result<Vec<u8>, ComponentSourceError> {
-    if id.is_immutable() {
+    // Immutability gate. Reject only on overwrite — a fresh insert
+    // (no prior value) is the bootstrap commit's first write of an
+    // immutable seed and must succeed for honest receivers to reach
+    // the migrated state. Steady-state immutables always have a prior
+    // (inserted at bootstrap), so a Byzantine peer trying to mutate
+    // them post-bootstrap still hits this branch and gets rejected.
+    if id.is_immutable() && old_value.is_some() {
         return Err(ComponentSourceError::ImmutableUpdate(id));
     }
 
-    // Bytes components are passed through — the old value doesn't matter.
-    if component_id_to_metadata_field(id).is_some() {
-        return Ok(payload.to_vec());
-    }
-
-    match id {
-        ComponentId::ADMIN_LIST | ComponentId::SUPER_ADMIN_LIST => {
-            let delta = TlsSetDelta::<InboxId>::tls_deserialize_exact(payload)?;
-            let mut set: TlsSet<InboxId> = match old_value {
-                Some(bytes) => TlsSet::<InboxId>::tls_deserialize_exact(bytes)?,
-                None => TlsSet::new(),
-            };
-            set.apply_delta(delta)?;
-            Ok(set.tls_serialize_detached()?)
+    // Immutable seeds without a Component impl (CONVERSATION_TYPE,
+    // CREATOR_INBOX_ID, ONESHOT_MESSAGE) — store the payload bytes
+    // verbatim. They have no decode/encode step because steady-state
+    // never updates them; the wire bytes ARE the value.
+    let Some(component) = lookup_component(id) else {
+        if id.is_immutable() {
+            return Ok(payload.to_vec());
         }
-        // Map components ship their updates as a `TlsMapDelta`. Apply
-        // it to the prior materialized `TlsMap` (or an empty map at
-        // bootstrap) and re-serialize the result. The dictionary stores
-        // the materialized snapshot; the wire stays delta-shaped.
-        ComponentId::COMPONENT_REGISTRY => {
-            let delta = TlsMapDelta::<ComponentId, VLBytes>::tls_deserialize_exact(payload)?;
-            let mut map: TlsMap<ComponentId, VLBytes> = match old_value {
-                Some(bytes) => TlsMap::<ComponentId, VLBytes>::tls_deserialize_exact(bytes)?,
-                None => TlsMap::new(),
-            };
-            map.apply_delta(delta)?;
-            Ok(map.tls_serialize_detached()?)
-        }
-        ComponentId::GROUP_MEMBERSHIP => {
-            let delta = TlsMapDelta::<InboxId, VLBytes>::tls_deserialize_exact(payload)?;
-            let mut map: TlsMap<InboxId, VLBytes> = match old_value {
-                Some(bytes) => TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(bytes)?,
-                None => TlsMap::new(),
-            };
-            map.apply_delta(delta)?;
-            Ok(map.tls_serialize_detached()?)
-        }
-        _ => Err(ComponentSourceError::UnknownComponent(id)),
-    }
+        return Err(ComponentSourceError::UnknownComponent(id));
+    };
+    component
+        .apply_update_payload(payload, old_value)
+        .map_err(Into::into)
 }
 
 /// Overlay AppData-dict component values onto a base [`GroupMutableMetadata`]
@@ -990,7 +904,13 @@ fn encode_inbox_id_set_delta(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xmtp_mls_common::inbox_id::INBOX_ID_BYTE_LEN;
+    use tls_codec::VLBytes;
+    use xmtp_mls_common::{
+        app_data::component_registry::ComponentOp,
+        inbox_id::INBOX_ID_BYTE_LEN,
+        tls_map::{TlsMap, TlsMapDelta},
+        tls_set::TlsKeyHash,
+    };
 
     /// Build a deterministic 64-character hex inbox id from a tag byte. The
     /// tag is repeated 32 times, giving a unique inbox id per call without
@@ -1367,11 +1287,27 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    fn test_apply_immutable_update_rejected() {
-        // An Update op against an immutable component must fail — the caller
-        // should be using Insert for first-write semantics.
-        let err = apply_app_data_update_payload(ComponentId::CONVERSATION_TYPE, b"junk", None)
-            .unwrap_err();
+    fn test_apply_immutable_first_insert_allowed() {
+        // Bootstrap-shape: an `Update(payload)` against an immutable
+        // component with no prior value is the bootstrap commit's
+        // first-write path. Apply must store the payload bytes
+        // verbatim — the bootstrap validator's byte-compare catches a
+        // peer that crafts a malicious initial value, so the apply
+        // layer doesn't need its own decode/check step.
+        let bytes =
+            apply_app_data_update_payload(ComponentId::CONVERSATION_TYPE, b"seed", None).unwrap();
+        assert_eq!(bytes, b"seed");
+    }
+
+    #[xmtp_common::test]
+    fn test_apply_immutable_overwrite_rejected() {
+        // Steady-state: an `Update(payload)` against an immutable
+        // component that already has a prior value must fail. This is
+        // the only path Byzantine peers have to mutate immutables
+        // post-bootstrap, and the apply layer is the gatekeeper.
+        let err =
+            apply_app_data_update_payload(ComponentId::CONVERSATION_TYPE, b"junk", Some(b"prior"))
+                .unwrap_err();
         assert!(matches!(err, ComponentSourceError::ImmutableUpdate(_)));
     }
 
