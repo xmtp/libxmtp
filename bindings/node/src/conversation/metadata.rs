@@ -55,6 +55,22 @@ impl Conversation {
     Ok(())
   }
 
+  /// Enable AppData-proposal-based metadata updates on this group.
+  ///
+  /// Stages the bootstrap commit that migrates the group's metadata
+  /// from the legacy GroupContextExtensions shape into the OpenMLS
+  /// AppData dictionary. Hard-fails if any member's latest key
+  /// package doesn't advertise `ProposalType::AppDataUpdate`. One-
+  /// way: migrated groups cannot return to the legacy path.
+  #[napi]
+  pub async fn enable_proposals(&self) -> Result<()> {
+    let group = self.create_mls_group();
+    group
+      .enable_proposals()
+      .await
+      .map_err(|e| ErrorWrapper::from(e).into())
+  }
+
   #[napi]
   pub fn group_description(&self) -> Result<String> {
     let group = self.create_mls_group();
