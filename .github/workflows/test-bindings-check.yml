@@ -4,6 +4,7 @@ on:
 jobs:
   check-swift:
     runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -26,6 +27,7 @@ jobs:
 
   check-android:
     runs-on: warp-ubuntu-latest-x64-16x
+    timeout-minutes: 30
     env:
       NIX_DEVSHELL: android
     steps:
