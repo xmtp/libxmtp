@@ -15018,6 +15018,17 @@ public func exitDebugWriter()throws   {try rustCallWithError(FfiConverterTypeFfi
 }
 }
 /**
+ * Updates the log level of the native log layer (oslog on iOS, logcat on Android).
+ * Activity spans are emitted as os_signpost on iOS — set to `Trace` to see span
+ * activity in Console.app / Instruments. No-op on non-mobile builds.
+ */
+public func setNativeLogLevel(logLevel: FfiLogLevel)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_xmtpv3_fn_func_set_native_log_level(
+        FfiConverterTypeFfiLogLevel_lower(logLevel),$0
+    )
+}
+}
+/**
  * * Static apply a signature request
  */
 public func applySignatureRequest(api: XmtpApiClient, signatureRequest: FfiSignatureRequest)async throws   {
@@ -15406,6 +15417,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_exit_debug_writer() != 22580) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_func_set_native_log_level() != 64849) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_apply_signature_request() != 41574) {
