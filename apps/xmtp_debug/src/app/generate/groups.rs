@@ -90,7 +90,7 @@ impl GenerateGroups {
                         .await;
 
                         if let Some(ref invitee) = first_invitee {
-                            check_member_visibility(&group_id, invitee, &network_clone).await;
+                            check_member_visibility(&group_id, invitee, &network_clone).await?;
                         }
 
                         // -- total group create + add latency --
@@ -218,10 +218,19 @@ async fn create_group_on_network(
 }
 
 /// Check whether an invitee can see the group via sync_welcomes (read-your-own-writes).
-async fn check_member_visibility(group_id: &[u8], invitee: &Identity, network: &args::BackendOpts) {
+async fn check_member_visibility(
+    group_id: &[u8],
+    invitee: &Identity,
+    network: &args::BackendOpts,
+) -> Result<()> {
     let reader_client = match app::client_from_identity(invitee, network) {
         Ok(c) => c,
-        Err(_) => return,
+        Err(e) => {
+            if crate::fail_on_error() {
+                return Err(e);
+            }
+            return Ok(());
+        }
     };
 
     let t_visibility = Instant::now();
@@ -231,6 +240,9 @@ async fn check_member_visibility(group_id: &[u8], invitee: &Identity, network: &
 
     loop {
         if let Err(e) = reader_client.sync_welcomes().await {
+            if crate::fail_on_error() {
+                return Err(eyre!("sync_welcomes failed during visibility poll: {e}"));
+            }
             tracing::warn!(error = %e, "sync_welcomes failed during visibility poll");
         }
         if reader_client.group(group_id).is_ok() {
@@ -260,4 +272,5 @@ async fn check_member_visibility(group_id: &[u8], invitee: &Identity, network: &
         &[("phase", "member_visibility"), ("success", vis_ok)],
     );
     push_metrics("xdbg_debug").await;
+    Ok(())
 }

@@ -195,6 +195,9 @@ impl Test {
                         }
                     }
                     Err(e) => {
+                        if crate::fail_on_error() {
+                            return Err(eyre!("Error receiving message: {:?}", e));
+                        }
                         warn!("Error receiving message: {:?}", e);
                     }
                 }

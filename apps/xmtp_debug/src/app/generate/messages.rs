@@ -271,6 +271,15 @@ impl GenerateMessages {
 
         if !errors.is_empty() {
             info!(errors = ?errors, "errors");
+            if crate::fail_on_error() {
+                let first = errors[0].to_string();
+                return Err(eyre!(
+                    "{} of {} send_message tasks failed (--fail-on-error): {}",
+                    errors.len(),
+                    res.len(),
+                    first
+                ));
+            }
         }
 
         let latencies: Vec<Duration> = res.into_iter().filter_map(|r| r.ok()).collect();
