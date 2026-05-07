@@ -89,8 +89,14 @@ impl GenerateGroups {
                         )
                         .await;
 
-                        if let Some(ref invitee) = first_invitee {
-                            check_member_visibility(&group_id, invitee, &network_clone).await?;
+                        if let Some(ref invitee) = first_invitee
+                            && let Err(e) =
+                                check_member_visibility(&group_id, invitee, &network_clone).await
+                        {
+                            if crate::fail_on_error() {
+                                return Err(e);
+                            }
+                            tracing::warn!(error = %e, "member visibility check failed");
                         }
 
                         // -- total group create + add latency --
@@ -231,12 +237,7 @@ async fn check_member_visibility(
     let mut visible = false;
 
     loop {
-        if let Err(e) = reader_client.sync_welcomes().await {
-            if crate::fail_on_error() {
-                return Err(eyre!("sync_welcomes failed during visibility poll: {e}"));
-            }
-            tracing::warn!(error = %e, "sync_welcomes failed during visibility poll");
-        }
+        reader_client.sync_welcomes().await?;
         if reader_client.group(group_id).is_ok() {
             visible = true;
             break;
