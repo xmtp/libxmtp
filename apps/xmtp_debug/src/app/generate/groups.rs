@@ -223,15 +223,7 @@ async fn check_member_visibility(
     invitee: &Identity,
     network: &args::BackendOpts,
 ) -> Result<()> {
-    let reader_client = match app::client_from_identity(invitee, network) {
-        Ok(c) => c,
-        Err(e) => {
-            if crate::fail_on_error() {
-                return Err(e);
-            }
-            return Ok(());
-        }
-    };
+    let reader_client = app::client_from_identity(invitee, network)?;
 
     let t_visibility = Instant::now();
     let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
