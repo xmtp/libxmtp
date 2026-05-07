@@ -3,9 +3,8 @@ use super::{
     MAX_GROUP_NAME_LENGTH,
     group_membership::{GroupMembership, MembershipDiff},
     group_permissions::{
-        GroupMutablePermissions, GroupMutablePermissionsError, MembershipPolicies,
-        MembershipPolicy, MetadataPolicy, PermissionsPolicies, PermissionsPolicy, PolicySet,
-        extract_group_permissions,
+        GroupMutablePermissions, GroupMutablePermissionsError, MembershipPolicy, MetadataPolicy,
+        PermissionsPolicy, PolicySet, extract_group_permissions,
     },
 };
 use crate::{
@@ -364,6 +363,7 @@ impl ValidatedCommit {
     pub async fn from_staged_commit(
         context: &impl XmtpSharedContext,
         staged_commit: &StagedCommit,
+        committer_leaf_index: LeafNodeIndex,
         openmls_group: &OpenMlsGroup,
     ) -> Result<Self, CommitValidationError> {
         let extensions = openmls_group.extensions();
@@ -426,6 +426,7 @@ impl ValidatedCommit {
         if super::app_data::bootstrap_validator::is_bootstrap_commit(staged_commit, extensions) {
             return Self::validate_bootstrap_and_build(
                 staged_commit,
+                committer_leaf_index,
                 openmls_group,
                 immutable_metadata,
                 mutable_metadata,
@@ -434,22 +435,19 @@ impl ValidatedCommit {
 
         let conn = context.db();
         // On migrated groups the legacy `GROUP_PERMISSIONS_EXTENSION_ID`
-        // is gone — permissions live in the AppData dictionary's
-        // COMPONENT_REGISTRY entry. Synthesize a stub here so the
-        // legacy code paths below (extract_permissions_changed,
-        // committer/proposer extraction) don't crash. The actual
-        // policy enforcement runs through
-        // `validate_app_data_update_proposals_in_commit` below, which
-        // is capability-aware and uses the registry directly.
+        // is gone — membership policy lives in the AppData
+        // dictionary's COMPONENT_REGISTRY entry under
+        // `GROUP_MEMBERSHIP`. Per-component AppDataUpdate enforcement
+        // runs separately in
+        // `validate_app_data_update_proposals_in_commit`, but the
+        // legacy code paths here (extract_permissions_changed +
+        // standalone Add/Remove proposer permission checks) still
+        // need a `GroupMutablePermissions` instance to evaluate
+        // against. We derive the membership-affecting bits from the
+        // registry so post-bootstrap commits enforce the same policy
+        // a pre-bootstrap GCE-extension lookup would.
         let group_permissions: GroupMutablePermissions = if is_migrated {
-            GroupMutablePermissions::new(PolicySet::new(
-                MembershipPolicies::allow_if_actor_super_admin(),
-                MembershipPolicies::allow_if_actor_super_admin(),
-                std::collections::HashMap::new(),
-                PermissionsPolicies::allow_if_actor_super_admin(),
-                PermissionsPolicies::allow_if_actor_super_admin(),
-                PermissionsPolicies::allow_if_actor_super_admin(),
-            ))
+            super::app_data::policy::membership_policy_set_from_registry(openmls_group)?
         } else {
             extensions.try_into()?
         };
@@ -531,6 +529,7 @@ impl ValidatedCommit {
         // proposals created by other members).
         let (actor, proposers) = extract_committer_and_proposers(
             staged_commit,
+            committer_leaf_index,
             openmls_group,
             &immutable_metadata,
             &mutable_metadata,
@@ -738,6 +737,7 @@ impl ValidatedCommit {
     /// installation-diff checks see a no-op.
     fn validate_bootstrap_and_build(
         staged_commit: &StagedCommit,
+        committer_leaf_index: LeafNodeIndex,
         openmls_group: &OpenMlsGroup,
         immutable_metadata: GroupMetadata,
         mutable_metadata: GroupMutableMetadata,
@@ -746,6 +746,7 @@ impl ValidatedCommit {
 
         let (actor, proposers) = extract_committer_and_proposers(
             staged_commit,
+            committer_leaf_index,
             openmls_group,
             &immutable_metadata,
             &mutable_metadata,
@@ -1674,25 +1675,28 @@ fn inbox_id_from_credential(
     Ok(decoded.inbox_id)
 }
 
-/// Takes a [`StagedCommit`] and extracts the committer (from path update) and all unique proposers.
-/// In the case of a self-update, which does not contain any proposals, this will come from the update_path.
-/// In the case of a commit with proposals, it collects all unique proposers from the proposals.
+/// Takes a [`StagedCommit`] and extracts the committer and all unique proposers.
+///
+/// `committer_leaf_index` is the verified sender of the commit message — for
+/// received commits, that's `ProcessedMessage::sender()` after OpenMLS has
+/// validated the framing signature against the leaf at that index; for our
+/// own commits being applied from an intent, that's `mls_group.own_leaf_index()`.
+/// Either way the cryptographic signature is the source of truth, so we
+/// don't need a path update to identify the committer.
 ///
 /// Returns (committer, proposers) where:
-/// - `committer` is the actor who created the commit (from path update or single proposer)
+/// - `committer` is the actor who created the commit
 /// - `proposers` is a list of all unique members who created proposals
 ///
-/// Note: The committer may differ from the proposers - this is valid when one member commits
-/// proposals created by other members.
+/// Note: The committer may differ from the proposers — this is valid when one
+/// member commits proposals created by other members.
 fn extract_committer_and_proposers(
     staged_commit: &StagedCommit,
+    committer_leaf_index: LeafNodeIndex,
     openmls_group: &OpenMlsGroup,
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
 ) -> Result<(CommitParticipant, Vec<CommitParticipant>), CommitValidationError> {
-    // If there was a path update, get the leaf node that was updated (this is the committer)
-    let path_update_leaf_node: Option<&LeafNode> = staged_commit.update_path_leaf_node();
-
     // Collect all unique proposers from the proposals
     let mut proposer_leaf_indices: Vec<&LeafNodeIndex> = Vec::new();
     for proposal in staged_commit.queued_proposals() {
@@ -1719,26 +1723,12 @@ fn extract_committer_and_proposers(
         proposers.push(participant);
     }
 
-    // Determine the committer:
-    // 1. If there's a path update, the committer is from the path update
-    // 2. Otherwise, if there are proposers, the committer is the single proposer (for backwards compat)
-    let committer = if let Some(path_update_leaf_node) = path_update_leaf_node {
-        CommitParticipant::from_leaf_node(
-            path_update_leaf_node,
-            immutable_metadata,
-            mutable_metadata,
-        )?
-    } else if proposer_leaf_indices.len() == 1 {
-        // Single proposer case - for backwards compatibility, use them as the committer
-        proposers[0].clone()
-    } else if proposer_leaf_indices.is_empty() {
-        // No path update and no proposals - this should be impossible
-        return Err(CommitValidationError::ActorCouldNotBeFound);
-    } else {
-        // Multiple proposers but no path update - this shouldn't happen in practice
-        // because commits with proposals should have a path update from the committer
-        return Err(CommitValidationError::ActorCouldNotBeFound);
-    };
+    let committer = extract_commit_participant(
+        &committer_leaf_index,
+        openmls_group,
+        immutable_metadata,
+        mutable_metadata,
+    )?;
 
     Ok((committer, proposers))
 }
