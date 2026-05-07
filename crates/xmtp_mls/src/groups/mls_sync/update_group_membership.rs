@@ -22,6 +22,24 @@ pub(crate) async fn apply_update_group_membership_intent(
     intent_data: UpdateGroupMembershipIntentData,
     signer: impl Signer,
 ) -> Result<Option<PublishIntentData>, GroupError> {
+    // Defensive gate. The full AppDataUpdate wiring for
+    // GROUP_MEMBERSHIP needs end-to-end integration coverage to pin
+    // the wire-shape decisions (per-inbox `GroupMembershipEntryV1`
+    // partitioning, `failed_installations` propagation across
+    // steady-state). Until that lands, fail fast on migrated groups
+    // so a host that prematurely calls `enable_proposals()` doesn't
+    // emit a GCE proposal that re-adds the legacy
+    // `GROUP_MEMBERSHIP_EXTENSION_ID` extension bootstrap just
+    // removed.
+    //
+    // Uses the canonical `is_migrated_extensions` predicate (presence
+    // of the `COMPONENT_REGISTRY` entry written by the bootstrap
+    // commit) so this gate agrees with every other send/receive/
+    // validate path in the migration.
+    if super::super::app_data::is_migrated_extensions(openmls_group.extensions()) {
+        return Err(GroupError::UpdateGroupMembershipMigratedNotImplemented);
+    }
+
     let extensions = openmls_group.extensions().clone();
     let old_group_membership = extract_group_membership(&extensions)?;
     let new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
