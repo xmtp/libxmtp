@@ -786,9 +786,13 @@ where
                         envelope.created_ns
                     );
 
+                    // We just published this commit ourselves, so the committer
+                    // is our own leaf — no need to consult the staged commit's
+                    // path update field.
                     let maybe_validated_commit = ValidatedCommit::from_staged_commit(
                         &self.context,
                         &staged_commit,
+                        mls_group.own_leaf_index(),
                         mls_group,
                     )
                     .await;
@@ -1085,9 +1089,25 @@ where
 
         let validated_commit = match &processed_message.content() {
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                let result =
-                    ValidatedCommit::from_staged_commit(&self.context, staged_commit, mls_group)
-                        .await;
+                // OpenMLS already verified the framing signature against the
+                // sender's leaf during `process_message`, and `extract_message_sender`
+                // above asserted `Sender::Member` — so this match is exhaustive
+                // for the cases that reach here.
+                let committer_leaf_index = match processed_message.sender() {
+                    openmls::prelude::Sender::Member(idx) => *idx,
+                    _ => {
+                        return Err(GroupMessageProcessingError::CommitValidation(
+                            CommitValidationError::ActorNotMember,
+                        ));
+                    }
+                };
+                let result = ValidatedCommit::from_staged_commit(
+                    &self.context,
+                    staged_commit,
+                    committer_leaf_index,
+                    mls_group,
+                )
+                .await;
 
                 let validated_commit = match result {
                     Err(e) if !e.is_retryable() => {
@@ -1136,17 +1156,17 @@ where
                 // for AppDataUpdate proposals.
                 let is_migrated = super::app_data::is_migrated_group(mls_group);
                 let policy_set = if is_migrated {
-                    use crate::groups::group_permissions::{
-                        GroupMutablePermissions, MembershipPolicies, PermissionsPolicies, PolicySet,
-                    };
-                    GroupMutablePermissions::new(PolicySet::new(
-                        MembershipPolicies::allow_if_actor_super_admin(),
-                        MembershipPolicies::allow_if_actor_super_admin(),
-                        std::collections::HashMap::new(),
-                        PermissionsPolicies::allow_if_actor_super_admin(),
-                        PermissionsPolicies::allow_if_actor_super_admin(),
-                        PermissionsPolicies::allow_if_actor_super_admin(),
-                    ))
+                    // Derive add/remove member policies from the
+                    // COMPONENT_REGISTRY's GROUP_MEMBERSHIP entry.
+                    // Insert/Delete in the dict map onto Add/Remove on
+                    // the MLS tree.
+                    match super::app_data::policy::membership_policy_set_from_registry(mls_group) {
+                        Ok(ps) => ps,
+                        Err(e) => {
+                            self.maybe_update_cursor(&self.context.db(), envelope)?;
+                            return Err(CommitValidationError::from(e).into());
+                        }
+                    }
                 } else {
                     match extract_group_permissions(mls_group) {
                         Ok(p) => p,

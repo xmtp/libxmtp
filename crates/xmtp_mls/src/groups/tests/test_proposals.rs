@@ -927,7 +927,6 @@ async fn test_proposer_can_commit_own_proposal() {
 /// Pattern: Alix proposes, Bo proposes, Caro (non-proposer) commits both.
 /// NOTE: Now proposers CAN commit their own proposals too - permissions are checked against proposer.
 #[xmtp_common::test(unwrap_try = true)]
-#[ignore = "post-bootstrap commit validation: extract_committer_and_proposers in validated_commit.rs returns ActorCouldNotBeFound on commits with no path update + multiple proposers, AND the migrated-group policy stub rejects non-super-admin proposers. Both addressed in a follow-on change."]
 async fn test_concurrent_proposals_from_different_members() {
     tester!(alix);
     tester!(bo);
@@ -1525,7 +1524,6 @@ async fn test_non_admin_commits_admin_proposals_in_admin_group() {
 /// 2. Each add is validated against its proposer, not the committer
 /// 3. The admin can then perform admin-only operations (group name update)
 #[xmtp_common::test(unwrap_try = true)]
-#[ignore = "post-bootstrap commit validation: see test_concurrent_proposals_from_different_members for the same root cause."]
 async fn test_multiple_non_admin_proposers_with_admin_committer() {
     tester!(alix);
     tester!(bo);
@@ -2307,7 +2305,6 @@ async fn test_add_members_direct_commit_when_proposals_disabled() {
 /// Test that commit_pending_proposals batches GCE and commit when proposals come from
 /// a different member (Bob proposes, Alice commits).
 #[xmtp_common::test(unwrap_try = true)]
-#[ignore = "post-bootstrap commit validation: see test_concurrent_proposals_from_different_members for the same root cause."]
 async fn test_commit_pending_proposals_batches_gce_and_commit() {
     tester!(alix);
     tester!(bo);
