@@ -1127,29 +1127,103 @@ where
                 // Validate the proposal before processing it
                 // This ensures that when we later commit pending proposals, they will succeed
                 let extensions = mls_group.extensions();
-                let policy_set = match extract_group_permissions(mls_group) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        self.maybe_update_cursor(&self.context.db(), envelope)?;
-                        return Err(CommitValidationError::from(e).into());
+                // Capability-aware reads: post-bootstrap groups have
+                // the legacy GroupMetadata / GroupMutableMetadata /
+                // GROUP_PERMISSIONS extensions stripped, so fall back
+                // to the AppData dictionary or a stub on migrated
+                // groups. Per-component permission enforcement runs
+                // through `validate_app_data_update_proposals_in_commit`
+                // for AppDataUpdate proposals.
+                let is_migrated = super::app_data::is_migrated_group(mls_group);
+                let policy_set = if is_migrated {
+                    use crate::groups::group_permissions::{
+                        GroupMutablePermissions, MembershipPolicies, PermissionsPolicies, PolicySet,
+                    };
+                    GroupMutablePermissions::new(PolicySet::new(
+                        MembershipPolicies::allow_if_actor_super_admin(),
+                        MembershipPolicies::allow_if_actor_super_admin(),
+                        std::collections::HashMap::new(),
+                        PermissionsPolicies::allow_if_actor_super_admin(),
+                        PermissionsPolicies::allow_if_actor_super_admin(),
+                        PermissionsPolicies::allow_if_actor_super_admin(),
+                    ))
+                } else {
+                    match extract_group_permissions(mls_group) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            self.maybe_update_cursor(&self.context.db(), envelope)?;
+                            return Err(CommitValidationError::from(e).into());
+                        }
                     }
                 };
-                // TODO(app-data-migration): these legacy extractors
-                // fail on post-bootstrap groups (GMM / GroupMetadata
-                // extensions are stripped). Unmigrated groups — the
-                // only ones in production today — are unaffected.
-                let immutable_metadata = match extract_group_metadata(extensions) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        self.maybe_update_cursor(&self.context.db(), envelope)?;
-                        return Err(CommitValidationError::from(e).into());
+                let immutable_metadata = if is_migrated {
+                    match super::app_data::component_source::read_group_metadata_from_dict(
+                        mls_group,
+                    ) {
+                        Ok(Some(seed)) => {
+                            use xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1 as GroupMetadataProto;
+                            let proto = GroupMetadataProto {
+                                conversation_type: seed.conversation_type,
+                                creator_inbox_id: seed.creator_inbox_id,
+                                creator_account_address: String::new(),
+                                dm_members: seed.dm_members,
+                                oneshot_message: seed.oneshot,
+                            };
+                            match xmtp_mls_common::group_metadata::GroupMetadata::try_from(proto) {
+                                Ok(m) => m,
+                                Err(e) => {
+                                    self.maybe_update_cursor(&self.context.db(), envelope)?;
+                                    return Err(CommitValidationError::from(e).into());
+                                }
+                            }
+                        }
+                        Ok(None) | Err(_) => {
+                            self.maybe_update_cursor(&self.context.db(), envelope)?;
+                            return Err(CommitValidationError::from(
+                                xmtp_mls_common::group_metadata::GroupMetadataError::MissingExtension,
+                            )
+                            .into());
+                        }
+                    }
+                } else {
+                    match extract_group_metadata(extensions) {
+                        Ok(m) => m,
+                        Err(e) => {
+                            self.maybe_update_cursor(&self.context.db(), envelope)?;
+                            return Err(CommitValidationError::from(e).into());
+                        }
                     }
                 };
-                let mutable_metadata = match extract_group_mutable_metadata(mls_group) {
-                    Ok(m) => m,
-                    Err(e) => {
+                let mutable_metadata = if is_migrated {
+                    // On migrated groups, build a GMM-shaped view by
+                    // overlaying dict entries on an empty base — same
+                    // shape as `MlsGroup::mutable_metadata()`.
+                    let mut metadata =
+                        xmtp_mls_common::group_mutable_metadata::GroupMutableMetadata::new(
+                            std::collections::HashMap::new(),
+                            Vec::new(),
+                            Vec::new(),
+                        );
+                    if let Err(e) =
+                        super::app_data::component_source::merge_app_data_into_mutable_metadata(
+                            &mut metadata,
+                            mls_group,
+                        )
+                    {
                         self.maybe_update_cursor(&self.context.db(), envelope)?;
-                        return Err(CommitValidationError::from(e).into());
+                        return Err(CommitValidationError::from(
+                            xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from(e),
+                        )
+                        .into());
+                    }
+                    metadata
+                } else {
+                    match extract_group_mutable_metadata(mls_group) {
+                        Ok(m) => m,
+                        Err(e) => {
+                            self.maybe_update_cursor(&self.context.db(), envelope)?;
+                            return Err(CommitValidationError::from(e).into());
+                        }
                     }
                 };
 

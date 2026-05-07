@@ -23,7 +23,7 @@ use openmls::{
     messages::proposals::{AppDataUpdateOperationType, Proposal},
 };
 use prost::Message as _;
-use tls_codec::{Deserialize, VLBytes};
+use tls_codec::Deserialize;
 use xmtp_configuration::{
     GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID,
     PROPOSAL_SUPPORT_EXTENSION_ID,
@@ -40,7 +40,8 @@ use xmtp_mls_common::{
     tls_map::{TlsMapDelta, TlsMapMutation},
 };
 use xmtp_proto::xmtp::mls::message_contents::{
-    GroupMembershipEntry, group_membership_entry::Version as GroupMembershipEntryVersion,
+    ComponentMetadata, GroupMembershipEntry,
+    group_membership_entry::Version as GroupMembershipEntryVersion,
 };
 
 use crate::groups::validated_commit::{
@@ -483,20 +484,46 @@ fn validate_component_registry_payload(
             ComponentId::COMPONENT_REGISTRY,
         ));
     }
-    let actual_registry = ComponentRegistry::from_bytes(bytes).map_err(|e| {
-        BootstrapValidationError::PayloadDecode {
+    // The wire payload for COMPONENT_REGISTRY at bootstrap is a
+    // `TlsMapDelta<ComponentId, VLBytes>` of all-`Insert` mutations
+    // (delta-from-empty). Walk it directly — `ComponentRegistry::from_bytes`
+    // is the dict-storage decoder (snapshot), not the wire decoder.
+    let delta = TlsMapDelta::<ComponentId, tls_codec::VLBytes>::tls_deserialize_exact(bytes)
+        .map_err(|e| BootstrapValidationError::PayloadDecode {
             component_id: ComponentId::COMPONENT_REGISTRY,
-            reason: format!("ComponentRegistry decode: {e}"),
-        }
-    })?;
-
-    let mut actual_entries: BTreeMap<ComponentId, _> = BTreeMap::new();
-    for entry in actual_registry.iter() {
-        let (id, meta) = entry.map_err(|e| BootstrapValidationError::PayloadDecode {
-            component_id: ComponentId::COMPONENT_REGISTRY,
-            reason: format!("ComponentRegistry entry decode: {e}"),
+            reason: format!("TlsMapDelta decode: {e}"),
         })?;
-        actual_entries.insert(id, meta);
+
+    let mut actual_entries: BTreeMap<ComponentId, ComponentMetadata> = BTreeMap::new();
+    for mutation in delta.mutations {
+        let (id, raw) = match mutation {
+            TlsMapMutation::Insert { key, value } => (key, value),
+            TlsMapMutation::Update { .. } | TlsMapMutation::Delete { .. } => {
+                return Err(BootstrapValidationError::PayloadDecode {
+                    component_id: ComponentId::COMPONENT_REGISTRY,
+                    reason: "COMPONENT_REGISTRY bootstrap delta carried a non-Insert mutation"
+                        .into(),
+                });
+            }
+        };
+        ComponentRegistry::validate_entry(id, raw.as_slice()).map_err(|e| {
+            BootstrapValidationError::PayloadDecode {
+                component_id: ComponentId::COMPONENT_REGISTRY,
+                reason: format!("ComponentRegistry entry validate: {e}"),
+            }
+        })?;
+        let meta = ComponentMetadata::decode(raw.as_slice()).map_err(|e| {
+            BootstrapValidationError::PayloadDecode {
+                component_id: ComponentId::COMPONENT_REGISTRY,
+                reason: format!("ComponentMetadata decode for {id}: {e}"),
+            }
+        })?;
+        if actual_entries.insert(id, meta).is_some() {
+            return Err(BootstrapValidationError::PayloadDecode {
+                component_id: ComponentId::COMPONENT_REGISTRY,
+                reason: format!("COMPONENT_REGISTRY bootstrap delta has duplicate Insert for {id}"),
+            });
+        }
     }
 
     for (id, expected_meta) in expected_registry.iter() {
@@ -533,12 +560,13 @@ fn validate_component_registry_payload(
 
 /// Hybrid validation for `GROUP_MEMBERSHIP`:
 /// - Payload must be present with op_type `Update`.
-/// - Deserialize as `TlsMapDelta<InboxId, VLBytes>` (bootstrap is
-///   delta-from-empty, so every mutation must be `Insert`); each value
-///   prost-decodes as a `GroupMembershipEntry` envelope and we read
-///   its `V1` variant.
+/// - Deserialize as `TlsMapDelta<InboxId, VLBytes>` (the wire is
+///   always a delta; bootstrap is the case where every mutation is
+///   an `Insert` against an empty prior). Each value prost-decodes
+///   as a `GroupMembershipEntry` envelope and we read its `V1`
+///   variant.
 /// - Inbox-id set must equal the pre-flip membership (no extras,
-///   nothing missing); duplicate inserts surface as decode errors.
+///   nothing missing); duplicate Inserts surface as decode errors.
 /// - Each entry's `sequence_id` must equal the pre-flip value.
 /// - `failed_installations` is sender-authoritative on which subset to
 ///   carry per inbox, but the *universe* of legal install ids is
@@ -567,12 +595,13 @@ fn validate_group_membership_payload(
         ));
     }
 
-    let delta = TlsMapDelta::<InboxId, VLBytes>::tls_deserialize_exact(bytes).map_err(|e| {
-        BootstrapValidationError::PayloadDecode {
-            component_id: ComponentId::GROUP_MEMBERSHIP,
-            reason: format!("TlsMapDelta decode: {e}"),
-        }
-    })?;
+    let delta =
+        TlsMapDelta::<InboxId, tls_codec::VLBytes>::tls_deserialize_exact(bytes).map_err(|e| {
+            BootstrapValidationError::PayloadDecode {
+                component_id: ComponentId::GROUP_MEMBERSHIP,
+                reason: format!("TlsMapDelta decode: {e}"),
+            }
+        })?;
 
     let mut seen: std::collections::BTreeSet<InboxId> = std::collections::BTreeSet::new();
     for mutation in delta.mutations {
@@ -581,8 +610,7 @@ fn validate_group_membership_payload(
             TlsMapMutation::Update { .. } | TlsMapMutation::Delete { .. } => {
                 return Err(BootstrapValidationError::PayloadDecode {
                     component_id: ComponentId::GROUP_MEMBERSHIP,
-                    reason: "GROUP_MEMBERSHIP bootstrap delta carried a non-Insert mutation"
-                        .to_string(),
+                    reason: "GROUP_MEMBERSHIP bootstrap delta carried a non-Insert mutation".into(),
                 });
             }
         };
@@ -651,30 +679,13 @@ fn validate_group_membership_payload(
         }
     }
 
-    // Every expected inbox must be in the actual payload.
+    // Every expected inbox must be in the snapshot.
     for inbox_id in expected_sequence_ids.keys() {
         if !seen.contains(inbox_id) {
             return Err(BootstrapValidationError::MissingMember(
                 inbox_id.as_bytes().to_vec(),
             ));
         }
-    }
-
-    // Belt-and-suspenders: existence in both directions implies set
-    // equality only if the sets have equal size. The duplicate-Insert
-    // guard above keeps `seen` deduplicated, but a future change there
-    // could regress silently — assert the cardinality so any divergence
-    // surfaces as a decode failure rather than a missed inbox.
-    if seen.len() != expected_sequence_ids.len() {
-        return Err(BootstrapValidationError::PayloadDecode {
-            component_id: ComponentId::GROUP_MEMBERSHIP,
-            reason: format!(
-                "GROUP_MEMBERSHIP delta cardinality mismatch: payload carries {} inboxes, \
-                 pre-flip state has {}",
-                seen.len(),
-                expected_sequence_ids.len()
-            ),
-        });
     }
 
     Ok(())
@@ -1037,7 +1048,7 @@ mod tests {
     #[test]
     fn component_registry_empty_round_trips() {
         // Empty `expected_registry` + empty COMPONENT_REGISTRY proposal
-        // round-trips through TlsMapDelta decode and passes. Exercises
+        // round-trips through TlsMap snapshot decode and passes. Exercises
         // the registry decode path without needing the full
         // ComponentMetadata-construction infrastructure (covered in
         // integration tests where a real ComponentRegistry is built).

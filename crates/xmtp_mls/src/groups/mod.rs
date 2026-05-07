@@ -492,8 +492,19 @@ where
     /// - Not all existing members support proposals
     /// - The group context extension update fails
     pub async fn enable_proposals(&self) -> Result<(), GroupError> {
-        // Check support AND build extensions in a single lock acquisition to avoid
-        // a race where membership changes between the check and the build.
+        // Build the bootstrap-target extensions in a single lock
+        // acquisition to avoid races. The bootstrap commit produced by
+        // `IntentKind::BootstrapMigration` will:
+        // - add `PROPOSAL_SUPPORT` to GCE
+        // - REMOVE the four legacy XMTP extensions (mutable metadata,
+        //   group permissions, group membership, ImmutableMetadata)
+        // - update RequiredCapabilities to add `PROPOSAL_SUPPORT` and
+        //   drop the four legacy extension types
+        // - emit one `AppDataUpdate(component_id, Update(bytes))`
+        //   proposal per well-known component, seeding the dict
+        // All in a single commit, so the migration is atomic on-the-
+        // wire: receivers either see the migrated state (bootstrap
+        // commit accepted) or the legacy state (commit rejected).
         let new_extensions = self
             .load_mls_group_with_lock_async(async |mls_group| {
                 if !self.all_members_support_proposals(&mls_group).await? {
@@ -503,45 +514,41 @@ where
                     ));
                 }
                 let mut extensions: Extensions<GroupContext> = mls_group.extensions().clone();
+
+                // 1. Add proposal-support extension.
                 extensions.add_or_replace(build_proposals_enabled_extension())?;
-                update_required_capabilities_for_proposals(&mut extensions, true)?;
+
+                // 2. Remove the four legacy XMTP extensions. The
+                //    bootstrap commit's job is to eliminate them so
+                //    the dict becomes the sole source of truth.
+                extensions.remove(ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID));
+                extensions.remove(ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID));
+                extensions.remove(ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID));
+                extensions.remove(ExtensionType::ImmutableMetadata);
+
+                // 3. Update RequiredCapabilities: add PROPOSAL_SUPPORT
+                //    and drop the four legacy extension types so
+                //    receivers don't reject the commit for missing
+                //    required extensions.
+                update_required_capabilities_for_bootstrap(&mut extensions)?;
+
                 Ok(extensions)
             })
             .await?;
 
-        // Queue and publish the GCE proposal
         use openmls::prelude::tls_codec::Serialize;
         let extensions_bytes = new_extensions.tls_serialize_detached()?;
 
+        // Queue the bootstrap intent. The handler synthesizes
+        // per-component dict seeds and bundles the GCE proposal +
+        // every AppDataUpdate proposal into one self-contained
+        // commit. No follow-up CommitPendingProposals needed.
         let intent_data = intents::ProposeGroupContextExtensionsIntentData::new(extensions_bytes);
-        let proposal_intent = intents::QueueIntent::propose_group_context_extensions()
+        let bootstrap_intent = intents::QueueIntent::bootstrap_migration()
             .data(intent_data)
             .queue(self)?;
 
-        self.sync_until_intent_resolved(proposal_intent.id).await?;
-
-        // Re-verify after sync: incoming messages processed during sync may have
-        // changed group membership (e.g. a member was added who doesn't support
-        // proposals). Abort before committing if support no longer holds.
-        let still_supported = self
-            .load_mls_group_with_lock_async(async |mls_group| {
-                self.all_members_support_proposals(&mls_group).await
-            })
-            .await?;
-
-        if !still_supported {
-            return Err(GroupError::ProposalsNotSupported(
-                "Cannot enable proposals: group membership changed and not all members support the proposal extension"
-                    .to_string(),
-            ));
-        }
-
-        // Commit the pending proposals to apply the extension
-        let commit_intent = intents::QueueIntent::commit_pending_proposals()
-            .data(intents::CommitPendingProposalsIntentData::new())
-            .queue(self)?;
-
-        self.sync_until_intent_resolved(commit_intent.id).await?;
+        self.sync_until_intent_resolved(bootstrap_intent.id).await?;
 
         let enabled = self
             .load_mls_group_with_lock_async(async |mls_group| {
@@ -2790,6 +2797,47 @@ pub fn update_required_capabilities_for_proposals(
     Ok(())
 }
 
+/// Update RequiredCapabilities for the bootstrap commit:
+///   - Add `PROPOSAL_SUPPORT` to the required extension types.
+///   - Remove the four legacy XMTP extension types
+///     (`MUTABLE_METADATA`, `GROUP_PERMISSIONS`, `GROUP_MEMBERSHIP`,
+///     `ImmutableMetadata`) since the bootstrap commit also removes
+///     those extensions from the group context.
+///
+/// Per MLS RFC 9420 §7.2, every extension present in the group
+/// context must also be in `required_capabilities.extension_types`,
+/// so the two changes have to land together.
+pub fn update_required_capabilities_for_bootstrap(
+    extensions: &mut Extensions<GroupContext>,
+) -> Result<(), GroupError> {
+    let proposal_ext_type = ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID);
+    let to_remove: &[ExtensionType] = &[
+        ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
+        ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
+        ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
+        ExtensionType::ImmutableMetadata,
+    ];
+
+    if let Some(required_caps) = extensions.required_capabilities() {
+        let mut ext_types: Vec<ExtensionType> = required_caps
+            .extension_types()
+            .iter()
+            .copied()
+            .filter(|t| !to_remove.contains(t))
+            .collect();
+        if !ext_types.contains(&proposal_ext_type) {
+            ext_types.push(proposal_ext_type);
+        }
+        let new_required = Extension::RequiredCapabilities(RequiredCapabilitiesExtension::new(
+            &ext_types,
+            required_caps.proposal_types(),
+            required_caps.credential_types(),
+        ));
+        extensions.add_or_replace(new_required)?;
+    }
+    Ok(())
+}
+
 /// Build extensions with updated group membership for a GroupContextExtensions proposal.
 /// This is used when proposing to add or remove members to include the membership update
 /// alongside the Add/Remove proposals.
@@ -2820,8 +2868,9 @@ pub(crate) fn build_group_config(
     ];
 
     // Extensions the creator's leaf node advertises support for (superset of required).
-    // Optional extensions like PROPOSAL_SUPPORT are listed here so the group can use
-    // them, but are NOT in required_extension_types so members without support can join.
+    // Optional extensions like PROPOSAL_SUPPORT and AppDataDictionary are listed here so
+    // the group can use them, but are NOT in required_extension_types so members without
+    // support can join.
     let mut creator_capability_extensions = required_extension_types.to_vec();
     creator_capability_extensions.push(ExtensionType::Unknown(
         WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
@@ -2829,6 +2878,12 @@ pub(crate) fn build_group_config(
     creator_capability_extensions.push(ExtensionType::Unknown(
         WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
     ));
+    // AppDataDictionary capability — needed for the bootstrap commit
+    // and steady-state AppDataUpdate proposals. Required-vs-supported
+    // is enforced by RequiredCapabilities (which adds it only after
+    // bootstrap), so advertising here unconditionally is safe and lets
+    // a fresh group's creator be the migration trigger.
+    creator_capability_extensions.push(ExtensionType::AppDataDictionary);
     if BROADCAST_PROPOSAL_SUPPORT {
         creator_capability_extensions.push(ExtensionType::Unknown(PROPOSAL_SUPPORT_EXTENSION_ID));
     }

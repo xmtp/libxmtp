@@ -837,6 +837,16 @@ impl XmtpKeyPackageBuilder {
             ExtensionType::LastResort,
             ExtensionType::ApplicationId,
             ExtensionType::ImmutableMetadata,
+            // Advertise AppDataDictionary so the bootstrap commit
+            // (and later AppDataUpdate proposals) are accepted —
+            // OpenMLS rejects commits whose new extension set isn't
+            // covered by every leaf's capabilities. The extension is
+            // optional pre-bootstrap (groups that never call
+            // `enable_proposals` won't carry the dict) but advertising
+            // unconditionally is the simplest path: required-vs-
+            // supported is enforced by RequiredCapabilities, not by
+            // this leaf-node list.
+            ExtensionType::AppDataDictionary,
             ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
             ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
             ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
