@@ -200,3 +200,6 @@ docs/plans
 
 # Firecrawl
 .firecrawl
+
+# Claude Code
+.claude/scheduled_tasks.lock
