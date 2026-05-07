@@ -89,8 +89,14 @@ impl GenerateGroups {
                         )
                         .await;
 
-                        if let Some(ref invitee) = first_invitee {
-                            check_member_visibility(&group_id, invitee, &network_clone).await;
+                        if let Some(ref invitee) = first_invitee
+                            && let Err(e) =
+                                check_member_visibility(&group_id, invitee, &network_clone).await
+                        {
+                            if crate::fail_fast() {
+                                return Err(e);
+                            }
+                            tracing::warn!(error = %e, "member visibility check failed");
                         }
 
                         // -- total group create + add latency --
@@ -218,11 +224,12 @@ async fn create_group_on_network(
 }
 
 /// Check whether an invitee can see the group via sync_welcomes (read-your-own-writes).
-async fn check_member_visibility(group_id: &[u8], invitee: &Identity, network: &args::BackendOpts) {
-    let reader_client = match app::client_from_identity(invitee, network) {
-        Ok(c) => c,
-        Err(_) => return,
-    };
+async fn check_member_visibility(
+    group_id: &[u8],
+    invitee: &Identity,
+    network: &args::BackendOpts,
+) -> Result<()> {
+    let reader_client = app::client_from_identity(invitee, network)?;
 
     let t_visibility = Instant::now();
     let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
@@ -230,9 +237,7 @@ async fn check_member_visibility(group_id: &[u8], invitee: &Identity, network: &
     let mut visible = false;
 
     loop {
-        if let Err(e) = reader_client.sync_welcomes().await {
-            tracing::warn!(error = %e, "sync_welcomes failed during visibility poll");
-        }
+        reader_client.sync_welcomes().await?;
         if reader_client.group(group_id).is_ok() {
             visible = true;
             break;
@@ -260,4 +265,5 @@ async fn check_member_visibility(group_id: &[u8], invitee: &Identity, network: &
         &[("phase", "member_visibility"), ("success", vis_ok)],
     );
     push_metrics("xdbg_debug").await;
+    Ok(())
 }
