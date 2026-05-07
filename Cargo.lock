@@ -14646,6 +14646,7 @@ dependencies = [
  "bon",
  "const-hex",
  "openmls",
+ "parking_lot",
  "proptest",
  "prost",
  "serde",
