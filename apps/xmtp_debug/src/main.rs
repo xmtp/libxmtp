@@ -12,12 +12,12 @@ use color_eyre::eyre::Result;
 use std::sync::{Arc, OnceLock};
 use xmtp_mls::context::XmtpMlsLocalContext;
 
-static FAIL_ON_ERROR: OnceLock<bool> = OnceLock::new();
+static FAIL_FAST: OnceLock<bool> = OnceLock::new();
 
-/// Whether `--fail-on-error` was passed at the CLI. Returns `false` when
+/// Whether `--fail-fast` was passed at the CLI. Returns `false` when
 /// uninitialized (unit tests, early init paths).
-pub fn fail_on_error() -> bool {
-    FAIL_ON_ERROR.get().copied().unwrap_or(false)
+pub fn fail_fast() -> bool {
+    FAIL_FAST.get().copied().unwrap_or(false)
 }
 
 pub type MlsContext =
@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
     let mut logger = logger::Logger::from(&opts.log);
     logger.init()?;
     metrics::init_metrics(opts.metrics);
-    let _ = FAIL_ON_ERROR.set(opts.fail_on_error);
+    let _ = FAIL_FAST.set(opts.fail_fast);
 
     if opts.version {
         info!("Version: {0}", get_version());

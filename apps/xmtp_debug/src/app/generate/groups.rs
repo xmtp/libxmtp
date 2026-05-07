@@ -93,7 +93,7 @@ impl GenerateGroups {
                             && let Err(e) =
                                 check_member_visibility(&group_id, invitee, &network_clone).await
                         {
-                            if crate::fail_on_error() {
+                            if crate::fail_fast() {
                                 return Err(e);
                             }
                             tracing::warn!(error = %e, "member visibility check failed");

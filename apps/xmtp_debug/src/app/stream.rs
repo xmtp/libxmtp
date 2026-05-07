@@ -62,7 +62,7 @@ impl Stream {
             Box::new(BufWriter::new(std::io::stdout()))
         };
 
-        let fail_on_error = crate::fail_on_error();
+        let fail_fast = crate::fail_fast();
         match kind {
             args::StreamKind::Conversations => {
                 let s = client.stream_conversations(None, false).await?;
@@ -70,7 +70,7 @@ impl Stream {
                 while let Some(item) = s.as_mut().next().await {
                     let group = match item {
                         Ok(g) => g,
-                        Err(e) if fail_on_error => return Err(e.into()),
+                        Err(e) if fail_fast => return Err(e.into()),
                         Err(e) => {
                             tracing::warn!(error = %e, "stream_conversations item error");
                             continue;
@@ -100,7 +100,7 @@ impl Stream {
                 while let Some(next) = s.as_mut().next().await {
                     let message = match next {
                         Ok(m) => m,
-                        Err(e) if fail_on_error => return Err(e.into()),
+                        Err(e) if fail_fast => return Err(e.into()),
                         Err(e) => {
                             tracing::warn!(error = %e, "stream_all_messages item error");
                             continue;
