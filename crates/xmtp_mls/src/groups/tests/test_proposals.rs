@@ -474,7 +474,6 @@ async fn test_propose_invalid_member_operations(#[case] is_add: bool) {
 /// This verifies that the SendMessage handler automatically queues a CommitPendingProposals
 /// intent and retries, ensuring seamless messaging even with pending proposals.
 #[xmtp_common::test(unwrap_try = true)]
-#[ignore = "post-bootstrap welcome receive: welcomes for migrated groups fail because the welcome receiver path (groups/welcomes/xmtp_welcome.rs) calls extract_group_metadata / extract_group_mutable_metadata which read the legacy ImmutableMetadata + MUTABLE_METADATA extensions that bootstrap strips. extract_group_membership is already capability-aware (reads dict first); these are not. Follow-on PR: make these two extractors capability-aware (add dict-reader fallback), then drop these ignores. See TODO(app-data-migration) markers in xmtp_welcome.rs:326,368 and mls_sync.rs:1921."]
 async fn test_message_auto_commits_pending_proposals() {
     tester!(alix);
     tester!(bo);
@@ -683,7 +682,6 @@ async fn test_multiple_add_proposals_before_commit() {
 /// Test creating both add and remove proposals before committing.
 /// Pattern: Alix proposes add+remove, Bo commits both.
 #[xmtp_common::test(unwrap_try = true)]
-#[ignore = "post-bootstrap welcome receive: welcomes for migrated groups fail because the welcome receiver path (groups/welcomes/xmtp_welcome.rs) calls extract_group_metadata / extract_group_mutable_metadata which read the legacy ImmutableMetadata + MUTABLE_METADATA extensions that bootstrap strips. extract_group_membership is already capability-aware (reads dict first); these are not. Follow-on PR: make these two extractors capability-aware (add dict-reader fallback), then drop these ignores. See TODO(app-data-migration) markers in xmtp_welcome.rs:326,368 and mls_sync.rs:1921."]
 async fn test_mixed_add_remove_proposals_before_commit() {
     tester!(alix);
     tester!(bo);
@@ -929,7 +927,7 @@ async fn test_proposer_can_commit_own_proposal() {
 /// Pattern: Alix proposes, Bo proposes, Caro (non-proposer) commits both.
 /// NOTE: Now proposers CAN commit their own proposals too - permissions are checked against proposer.
 #[xmtp_common::test(unwrap_try = true)]
-#[ignore = "post-bootstrap welcome receive: welcomes for migrated groups fail because the welcome receiver path (groups/welcomes/xmtp_welcome.rs) calls extract_group_metadata / extract_group_mutable_metadata which read the legacy ImmutableMetadata + MUTABLE_METADATA extensions that bootstrap strips. extract_group_membership is already capability-aware (reads dict first); these are not. Follow-on PR: make these two extractors capability-aware (add dict-reader fallback), then drop these ignores. See TODO(app-data-migration) markers in xmtp_welcome.rs:326,368 and mls_sync.rs:1921."]
+#[ignore = "post-bootstrap commit validation: extract_committer_and_proposers in validated_commit.rs returns ActorCouldNotBeFound on commits with no path update + multiple proposers, AND the migrated-group policy stub rejects non-super-admin proposers. Both addressed in a follow-on change."]
 async fn test_concurrent_proposals_from_different_members() {
     tester!(alix);
     tester!(bo);
@@ -1381,7 +1379,6 @@ async fn test_build_extensions_for_membership_update() {
 /// It also verifies that `extract_committer_and_proposers` correctly identifies the committer
 /// from the path update leaf node when multiple proposals are pending.
 #[xmtp_common::test(unwrap_try = true)]
-#[ignore = "post-bootstrap welcome receive: welcomes for migrated groups fail because the welcome receiver path (groups/welcomes/xmtp_welcome.rs) calls extract_group_metadata / extract_group_mutable_metadata which read the legacy ImmutableMetadata + MUTABLE_METADATA extensions that bootstrap strips. extract_group_membership is already capability-aware (reads dict first); these are not. Follow-on PR: make these two extractors capability-aware (add dict-reader fallback), then drop these ignores. See TODO(app-data-migration) markers in xmtp_welcome.rs:326,368 and mls_sync.rs:1921."]
 async fn test_non_admin_commits_admin_proposals_in_admin_group() {
     use crate::groups::group_permissions::PreconfiguredPolicies;
 
@@ -1528,7 +1525,7 @@ async fn test_non_admin_commits_admin_proposals_in_admin_group() {
 /// 2. Each add is validated against its proposer, not the committer
 /// 3. The admin can then perform admin-only operations (group name update)
 #[xmtp_common::test(unwrap_try = true)]
-#[ignore = "post-bootstrap welcome receive: welcomes for migrated groups fail because the welcome receiver path (groups/welcomes/xmtp_welcome.rs) calls extract_group_metadata / extract_group_mutable_metadata which read the legacy ImmutableMetadata + MUTABLE_METADATA extensions that bootstrap strips. extract_group_membership is already capability-aware (reads dict first); these are not. Follow-on PR: make these two extractors capability-aware (add dict-reader fallback), then drop these ignores. See TODO(app-data-migration) markers in xmtp_welcome.rs:326,368 and mls_sync.rs:1921."]
+#[ignore = "post-bootstrap commit validation: see test_concurrent_proposals_from_different_members for the same root cause."]
 async fn test_multiple_non_admin_proposers_with_admin_committer() {
     tester!(alix);
     tester!(bo);
@@ -2194,7 +2191,6 @@ async fn test_non_super_admin_gce_permission_change_rejected() {
 /// When proposals_enabled is true, UpdateGroupMembership should create Add proposals + GCE + commit
 /// in a single publish, rather than a direct commit.
 #[xmtp_common::test(unwrap_try = true)]
-#[ignore = "post-bootstrap welcome receive: welcomes for migrated groups fail because the welcome receiver path (groups/welcomes/xmtp_welcome.rs) calls extract_group_metadata / extract_group_mutable_metadata which read the legacy ImmutableMetadata + MUTABLE_METADATA extensions that bootstrap strips. extract_group_membership is already capability-aware (reads dict first); these are not. Follow-on PR: make these two extractors capability-aware (add dict-reader fallback), then drop these ignores. See TODO(app-data-migration) markers in xmtp_welcome.rs:326,368 and mls_sync.rs:1921."]
 async fn test_add_members_batched_when_proposals_enabled() {
     tester!(alix);
     tester!(bo);
@@ -2311,7 +2307,7 @@ async fn test_add_members_direct_commit_when_proposals_disabled() {
 /// Test that commit_pending_proposals batches GCE and commit when proposals come from
 /// a different member (Bob proposes, Alice commits).
 #[xmtp_common::test(unwrap_try = true)]
-#[ignore = "post-bootstrap welcome receive: welcomes for migrated groups fail because the welcome receiver path (groups/welcomes/xmtp_welcome.rs) calls extract_group_metadata / extract_group_mutable_metadata which read the legacy ImmutableMetadata + MUTABLE_METADATA extensions that bootstrap strips. extract_group_membership is already capability-aware (reads dict first); these are not. Follow-on PR: make these two extractors capability-aware (add dict-reader fallback), then drop these ignores. See TODO(app-data-migration) markers in xmtp_welcome.rs:326,368 and mls_sync.rs:1921."]
+#[ignore = "post-bootstrap commit validation: see test_concurrent_proposals_from_different_members for the same root cause."]
 async fn test_commit_pending_proposals_batches_gce_and_commit() {
     tester!(alix);
     tester!(bo);
@@ -2475,7 +2471,6 @@ async fn test_sequence_id_bump_triggers_gce_with_proposals_enabled() {
 /// This verifies that compute_publish_data_for_proposal_based_update correctly compares
 /// the full GroupMembership (including sequence IDs) when deciding whether a GCE is needed.
 #[xmtp_common::test(unwrap_try = true)]
-#[ignore = "post-bootstrap welcome receive: welcomes for migrated groups fail because the welcome receiver path (groups/welcomes/xmtp_welcome.rs) calls extract_group_metadata / extract_group_mutable_metadata which read the legacy ImmutableMetadata + MUTABLE_METADATA extensions that bootstrap strips. extract_group_membership is already capability-aware (reads dict first); these are not. Follow-on PR: make these two extractors capability-aware (add dict-reader fallback), then drop these ignores. See TODO(app-data-migration) markers in xmtp_welcome.rs:326,368 and mls_sync.rs:1921."]
 async fn test_add_member_after_sequence_id_bump_with_proposals_enabled() {
     use crate::groups::validated_commit::extract_group_membership;
 

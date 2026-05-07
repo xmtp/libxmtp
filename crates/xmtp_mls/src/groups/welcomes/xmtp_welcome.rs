@@ -323,9 +323,6 @@ where
                 welcome.cursor,
             )?;
         }
-        // TODO(app-data-migration): post-bootstrap groups have no legacy
-        // GroupMetadata extension; route through a capability-aware
-        // helper before the bootstrap commit lands.
         let metadata =
             extract_group_metadata(staged_welcome.public_group().group_context().extensions())
                 .map_err(MetadataPermissionsError::from)?;
