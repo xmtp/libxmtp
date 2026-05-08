@@ -494,11 +494,6 @@ impl ConnectionExt for NativeDbConnection {
         Self: Sized,
     {
         if let Some(pool) = &*self.pool.load() {
-            tracing::trace!(
-                "pulling connection from pool, idle={}, total={}",
-                pool.state().idle_connections,
-                pool.state().connections
-            );
             let mut conn = pool.get()?;
             fun(&mut conn).map_err(ConnectionError::from)
         } else {

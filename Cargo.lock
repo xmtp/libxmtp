@@ -14008,6 +14008,7 @@ dependencies = [
  "vergen-gix",
  "xmtp_api_d14n",
  "xmtp_api_grpc",
+ "xmtp_common",
  "xmtp_configuration",
  "xmtp_cryptography",
  "xmtp_db",
