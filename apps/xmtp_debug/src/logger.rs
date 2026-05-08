@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use color_eyre::eyre;
 use owo_colors::OwoColorize;
-use tracing::{Dispatch, Level};
+use tracing::Dispatch;
 use tracing::{Event, Subscriber};
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::{EnvFilter, prelude::*};
@@ -14,6 +14,7 @@ use tracing_subscriber::{
     fmt::{FmtContext, FormatEvent, FormatFields, format, format::Writer},
     registry::LookupSpan,
 };
+use xmtp_mls::common::filter_directive;
 
 use crate::args::{LogFormat, LogOptions};
 
@@ -54,7 +55,7 @@ impl Logger {
             ref mut guards,
         } = *self;
 
-        let verbosity = verbosity.tracing_level().unwrap_or(Level::INFO);
+        let verbosity = verbosity.tracing_level_filter();
 
         // prefer `RUST_LOG` variable if set
         // otherwise passed-in level filter
@@ -65,11 +66,7 @@ impl Logger {
                     .expect("filter is static")
             })
         };
-        let file_filter = || {
-            EnvFilter::builder().parse(
-                "xmtp_api_d14n=DEBUG,xmtp_api=DEBUG,xmtp_mls=DEBUG,xmtp_id=DEBUG,xmtp_cryptography=DEBUG,xmtp_api_grpc=DEBUG,xdbg=ERROR",
-            ).expect("filter is static")
-        };
+        let file_filter = || filter_directive(&verbosity.to_string());
         let subscriber = tracing_subscriber::registry();
         let now = chrono::Local::now();
         let log_file_name = PathBuf::from(format!("./{}-xdbg", now));
