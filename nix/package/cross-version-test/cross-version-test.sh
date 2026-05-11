@@ -146,9 +146,20 @@ cmd_pick_versions() {
     # random nightly tags. Nightlies are tagged daily off main, so each
     # picked sha7 resolves to a real commit reachable from main without
     # walking git log. sample_size=0 reduces to the 3-version base set.
+    #
+    # HEAD's label embeds the current ref name so locally-run plans show
+    # something more useful than empty (e.g. `HEAD@feature-branch`). In CI
+    # the checkout is detached so `--abbrev-ref` returns `HEAD`; we elide
+    # the redundant suffix in that case.
+    local head_ref head_label="HEAD"
+    head_ref=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "HEAD")
+    if [ -n "$head_ref" ] && [ "$head_ref" != "HEAD" ]; then
+        head_label="HEAD@${head_ref}"
+    fi
+
     local -a shas=("$newest_sha" "$next_sha" "$head_sha")
     local -a branches_for_sha=("release/${newest_branch}" "release/${next_branch}" "")
-    local -a labels_for_sha=("" "" "")
+    local -a labels_for_sha=("" "" "$head_label")
 
     if [ "$sample_size" -gt 0 ]; then
         # nightly_tag_candidates emits newest-first; `head -n` takes the
@@ -259,13 +270,23 @@ cmd_pick_versions() {
             END { print "\n]" }'
 }
 
-# Build the flake reference for a sha. Centralizes the github:xmtp/libxmtp
-# path so probe + info + real invocations can't silently diverge.
+# Build the flake reference for a (kind, sha) pair.
+#
+# For kind=head the local working-tree flake (`.#xdbg`) is used, so:
+#   - CI doesn't need HEAD pushed to github before run-sequence executes
+#     (it always is in practice, but this avoids a 404 race),
+#   - local `just cross-test` works against unpushed working-copy commits.
+# All other kinds (stable, nightly) resolve via github:xmtp/libxmtp/<sha>.
 xdbg_flake_ref() {
-    printf 'github:xmtp/libxmtp/%s#xdbg' "$1"
+    local kind="$1" sha="$2"
+    if [ "$kind" = "head" ]; then
+        printf '.#xdbg'
+    else
+        printf 'github:xmtp/libxmtp/%s#xdbg' "$sha"
+    fi
 }
 
-# Resolve the path to the built xdbg binary for a sha.
+# Resolve the path to the built xdbg binary for a (kind, sha) pair.
 #
 # Uses `nix build --no-link --print-out-paths` so we get the store path
 # without leaving a `result` symlink in CWD. Caller is expected to have
@@ -273,9 +294,9 @@ xdbg_flake_ref() {
 # here). Echoes the absolute path of `xdbg` binary on stdout, returns
 # non-zero on any failure.
 xdbg_binary_path() {
-    local sha="$1"
+    local kind="$1" sha="$2"
     local out_path
-    out_path=$(nix build --no-link --print-out-paths "$(xdbg_flake_ref "$sha")" 2>&1) || {
+    out_path=$(nix build --no-link --print-out-paths "$(xdbg_flake_ref "$kind" "$sha")" 2>&1) || {
         printf '%s\n' "$out_path" >&2
         return 1
     }
@@ -295,13 +316,14 @@ xdbg_sandbox_env_args() {
     printf 'XDBG_DB_ROOT=%s\n' "$XVT_DB_ROOT"
 }
 
-# Probe whether xdbg is exposed and (optionally) builds for this sha.
+# Probe whether xdbg is exposed and (optionally) builds for this entry.
 #
-# Args: mode sha
+# Args: mode kind sha
 #   mode=dry  → `nix build --dry-run` (evaluates, doesn't build).
 #   mode=full → `nix build` (compiles xdbg). Used for entries that the
 #               caller wants to verify CAN build, so a downstream
 #               failure can be classified as compile-error.
+#   kind      → "head" uses local .#xdbg, else uses github:xmtp/libxmtp/<sha>.
 #
 # Returns:
 #   0 — attribute present (and built, if mode=full).
@@ -312,10 +334,10 @@ xdbg_sandbox_env_args() {
 #       (compile error, broken interface vs current deps). Caller decides
 #       whether to skip (nightly) or fail (required entry).
 xdbg_probe_available() {
-    local mode="$1" sha="$2"
+    local mode="$1" kind="$2" sha="$3"
     local short="${sha:0:7}"
     local probe_out probe_rc=0
-    local nix_args=("$(xdbg_flake_ref "$sha")")
+    local nix_args=("$(xdbg_flake_ref "$kind" "$sha")")
     if [ "$mode" = "dry" ]; then
         nix_args=(--dry-run "${nix_args[@]}")
     elif [ "$mode" != "full" ]; then
@@ -346,9 +368,10 @@ xdbg_probe_available() {
 # tested sha now carries the --fail-fast flag, so non-zero rc IS the
 # failure signal — no log-file scanning needed.
 #
-# Args: base_dir sha cmd_args...
+# Args: base_dir kind sha cmd_args...
 # base_dir is the parent under which per-call subdirs are minted so xdbg's
 # second-precision log filenames can't collide between rapid invocations.
+# kind selects local-flake vs github-flake via xdbg_flake_ref.
 #
 # The built xdbg binary is exec'd via `env XDBG_DB_ROOT=$XVT_DB_ROOT` so
 # every tested version shares one redb/sqlite.
@@ -356,16 +379,25 @@ xdbg_probe_available() {
 # Globals read: BACKEND, XVT_DB_ROOT.
 # Echoes combined stdout+stderr; returns 0 on success, non-zero on failure.
 run_xdbg_real() {
-    local base_dir="$1" sha="$2"; shift 2
+    local base_dir="$1" kind="$2" sha="$3"; shift 3
     local short="${sha:0:7}"
     local bin out rc
-    bin=$(xdbg_binary_path "$sha") || {
+    bin=$(xdbg_binary_path "$kind" "$sha") || {
         echo "::error::xdbg@${short} could not resolve binary path" >&2
         return 1
     }
 
     local -a env_args
     mapfile -t env_args < <(xdbg_sandbox_env_args)
+
+    # Caller-supplied global flags (verbosity etc.) splice in BEFORE the
+    # harness's own `-b ... --json --fail-fast`. Space-separated; empty by
+    # default. Useful for `just cross-test -vvvv` style debugging.
+    local -a xtra_flags=()
+    if [ -n "${XVT_XDBG_FLAGS:-}" ]; then
+        # shellcheck disable=SC2206  # word-split is the intent
+        xtra_flags=(${XVT_XDBG_FLAGS})
+    fi
 
     local call_dir
     call_dir=$(mktemp -d "${base_dir}/xvt-call-XXXXXX")
@@ -375,7 +407,7 @@ run_xdbg_real() {
     # the option change to the caller and breaks loops.
     rc=0
     out=$(cd "$call_dir" && env "${env_args[@]}" "$bin" \
-            -b "$BACKEND" --json --fail-fast "$@" 2>&1) || rc=$?
+            "${xtra_flags[@]}" -b "$BACKEND" --json --fail-fast "$@" 2>&1) || rc=$?
 
     printf '%s\n' "$out"
     if [ $rc -ne 0 ]; then
@@ -387,13 +419,14 @@ run_xdbg_real() {
 
 # Run an informative xdbg command (e.g. --version) without --fail-fast/--json.
 # Same sandboxed-env mechanism as run_xdbg_real.
+# Args: kind sha cmd_args...
 run_xdbg_info() {
-    local sha="$1"; shift
+    local kind="$1" sha="$2"; shift 2
     local short="${sha:0:7}"
     echo "::group::xdbg@${short} (info) $*" >&2
     local rc=0
     local bin
-    bin=$(xdbg_binary_path "$sha") || {
+    bin=$(xdbg_binary_path "$kind" "$sha") || {
         echo "::endgroup::" >&2
         echo "::error::xdbg@${short} could not resolve binary path" >&2
         return 1
@@ -506,15 +539,26 @@ cmd_run_sequence() {
             exit 2
         fi
 
-        # Classify entry. label non-empty → nightly. branch non-empty → stable.
-        # Both empty → HEAD (also required).
-        if [ -n "$label" ]; then
-            kind="nightly"
-        elif [ -n "$branch" ]; then
-            kind="stable"
-        else
-            kind="head"
-        fi
+        # Classify entry by label/branch:
+        #   label starts with "nightly." → nightly
+        #   label starts with "HEAD"     → head (carries ref name like HEAD@<branch>)
+        #   branch non-empty              → stable release branch
+        #   neither                       → head (legacy: empty-label HEAD)
+        case "$label" in
+            nightly.*) kind="nightly" ;;
+            HEAD*)     kind="head" ;;
+            "")
+                if [ -n "$branch" ]; then
+                    kind="stable"
+                else
+                    kind="head"
+                fi
+                ;;
+            *)
+                echo "::warning::unrecognized plan label '$label'; treating as nightly" >&2
+                kind="nightly"
+                ;;
+        esac
         local is_required=1
         if [ "$kind" = "nightly" ]; then
             is_required=0
@@ -530,7 +574,7 @@ cmd_run_sequence() {
         fi
 
         probe_rc=0
-        xdbg_probe_available "$probe_mode" "$sha" || probe_rc=$?
+        xdbg_probe_available "$probe_mode" "$kind" "$sha" || probe_rc=$?
         case "$probe_rc" in
             0) ;;                                        # present (built if full)
             3)
@@ -557,7 +601,7 @@ cmd_run_sequence() {
                 ;;
         esac
 
-        run_xdbg_info "$sha" --version || true
+        run_xdbg_info "$kind" "$sha" --version || true
 
         # If the planned creator slot is still empty (e.g. earlier entries
         # were all skipped), promote this entry to creator. Only required
@@ -572,14 +616,14 @@ cmd_run_sequence() {
         local entry_rc=0
         if [ "$effective_role" = "creator" ]; then
             echo "::group::creator@${sha:0:7} setup" >&2
-            run_xdbg_real "$out_dir" "$sha" generate --entity identity -a "$n" \
+            run_xdbg_real "$out_dir" "$kind" "$sha" generate --entity identity -a "$n" \
                 || entry_rc=$?
             if [ "$entry_rc" -eq 0 ]; then
-                run_xdbg_real "$out_dir" "$sha" generate --entity group -a 1 --invite "$n" \
+                run_xdbg_real "$out_dir" "$kind" "$sha" generate --entity group -a 1 --invite "$n" \
                     || entry_rc=$?
             fi
             if [ "$entry_rc" -eq 0 ]; then
-                run_xdbg_real "$out_dir" "$sha" generate --entity message -a 1 \
+                run_xdbg_real "$out_dir" "$kind" "$sha" generate --entity message -a 1 \
                     || entry_rc=$?
             fi
             echo "::endgroup::" >&2
@@ -598,10 +642,10 @@ cmd_run_sequence() {
         else
             rand=$(( (RANDOM % 6) + 5 ))   # 5..10 inclusive
             echo "::group::sender@${sha:0:7} (${rand} msgs + change-description)" >&2
-            run_xdbg_real "$out_dir" "$sha" generate --entity group -a 1 --invite "$n" \
+            run_xdbg_real "$out_dir" "$kind" "$sha" generate --entity group -a 1 --invite "$n" \
                 || entry_rc=$?
             if [ "$entry_rc" -eq 0 ]; then
-                run_xdbg_real "$out_dir" "$sha" generate --entity message -a "$rand" --change-description \
+                run_xdbg_real "$out_dir" "$kind" "$sha" generate --entity message -a "$rand" --change-description \
                     || entry_rc=$?
             fi
             echo "::endgroup::" >&2
