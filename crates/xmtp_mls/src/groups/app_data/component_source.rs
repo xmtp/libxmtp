@@ -381,8 +381,15 @@ pub(crate) fn read_from_app_data_dict(
 /// For `GroupMutableMetadata`-backed bytes components this returns the
 /// attribute's UTF-8 bytes. For `ADMIN_LIST` / `SUPER_ADMIN_LIST` it
 /// re-encodes the legacy `Vec<String>` of hex inbox ids as a
-/// `TlsSet<InboxId>`. For `GROUP_MEMBERSHIP` this is currently a stub
-/// returning [`ComponentSourceError::NotImplemented`] — see §3 of the plan.
+/// `TlsSet<InboxId>`.
+///
+/// `GROUP_MEMBERSHIP` is intentionally unsupported here and returns
+/// [`ComponentSourceError::NotImplemented`]: unmigrated groups read
+/// membership via the dedicated `GROUP_MEMBERSHIP_EXTENSION_ID`
+/// GroupContext extension (see [`extract_group_membership`]), not as
+/// an AppData component. Migrated groups use the dict directly.
+///
+/// [`extract_group_membership`]: crate::groups::group_membership::extract_group_membership
 fn read_from_legacy(
     id: ComponentId,
     extensions: &Extensions<GroupContext>,
