@@ -106,7 +106,7 @@ use xmtp_db::{
 };
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_mls_common::group_metadata::extract_group_metadata;
-use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
+use xmtp_mls_common::group_mutable_metadata::MetadataField;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::{
@@ -1214,38 +1214,19 @@ where
                         }
                     }
                 };
-                let mutable_metadata = if is_migrated {
-                    // On migrated groups, build a GMM-shaped view by
-                    // overlaying dict entries on an empty base — same
-                    // shape as `MlsGroup::mutable_metadata()`.
-                    let mut metadata =
-                        xmtp_mls_common::group_mutable_metadata::GroupMutableMetadata::new(
-                            std::collections::HashMap::new(),
-                            Vec::new(),
-                            Vec::new(),
-                        );
-                    if let Err(e) =
-                        super::app_data::component_source::merge_app_data_into_mutable_metadata(
-                            &mut metadata,
-                            mls_group,
-                        )
-                    {
-                        self.maybe_update_cursor(&self.context.db(), envelope)?;
-                        return Err(CommitValidationError::from(
-                            xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from(e),
-                        )
-                        .into());
-                    }
-                    metadata
-                } else {
-                    match extract_group_mutable_metadata(mls_group) {
+                let mutable_metadata =
+                    match super::app_data::component_source::extract_group_mutable_metadata_capability_aware(
+                        mls_group,
+                    ) {
                         Ok(m) => m,
                         Err(e) => {
                             self.maybe_update_cursor(&self.context.db(), envelope)?;
-                            return Err(CommitValidationError::from(e).into());
+                            return Err(CommitValidationError::from(
+                                xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from(e),
+                            )
+                            .into());
                         }
-                    }
-                };
+                    };
 
                 let validation_result = validate_proposal(
                     queued_proposal,
@@ -1938,10 +1919,11 @@ where
     }
 
     fn get_message_expire_at_ns(mls_group: &OpenMlsGroup) -> Option<i64> {
-        // TODO(app-data-migration): on post-bootstrap groups the legacy
-        // GMM extension is gone; `.ok()?` will silently disable
-        // message-disappear settings.
-        let mutable_metadata = extract_group_mutable_metadata(mls_group).ok()?;
+        let mutable_metadata =
+            super::app_data::component_source::extract_group_mutable_metadata_capability_aware(
+                mls_group,
+            )
+            .ok()?;
         let group_disappearing_settings =
             Self::conversation_message_disappearing_settings_from_extensions(&mutable_metadata)
                 .ok()?;
