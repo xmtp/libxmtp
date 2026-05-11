@@ -99,6 +99,34 @@ _test-crate +crates:
   args=""; for c in {{crates}}; do args="$args -p $c"; done; \
   {{cargo_test}} $args
 
+# `just cross-test`, `just cross-test stable`, `just cross-test nightly`, `just cross-test nightly 5`
+[script("bash")]
+cross-test profile="stable" *args="":
+  just _cross-test-{{profile}} {{args}}
+
+# `just cross-test stable` → stable HEADs + repo HEAD only (sample-size 0).
+# Same shape the workflow's stable-only job runs. Strict failure mode.
+[private]
+[script("bash")]
+_cross-test-stable *args="":
+  set -euo pipefail
+  plan=$(mktemp -t xvt-plan-XXXXXX.json)
+  nix run .#cross-version-test -- pick-versions --sample-size 0 {{args}} > "$plan"
+  jq . "$plan"
+  nix run .#cross-version-test -- run-sequence "$plan"
+
+# `just cross-test nightly` (default 3) or `just cross-test nightly 5`.
+# Includes the N most-recent nightlies. Lenient — nightly runtime failures
+# warn + continue instead of failing the run.
+[private]
+[script("bash")]
+_cross-test-nightly n="3" *args="":
+  set -euo pipefail
+  plan=$(mktemp -t xvt-plan-XXXXXX.json)
+  nix run .#cross-version-test -- pick-versions --sample-size {{n}} {{args}} > "$plan"
+  jq . "$plan"
+  nix run .#cross-version-test -- run-sequence --lenient-nightlies "$plan"
+
 # --- BACKEND ---
 
 # `just backend up`, `just backend down`

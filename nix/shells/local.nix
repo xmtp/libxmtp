@@ -106,6 +106,7 @@ mkShell (
         # Misc dev
         mktemp
         diesel-cli
+        xmtp.cross-version-test
       ]
       # Wasm, cargo, CI, proto, lint tools
       ++ shellCommon.wasmTools
