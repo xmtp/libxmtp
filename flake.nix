@@ -4,9 +4,13 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     fenix = {
       url = "github:nix-community/fenix";
-      inputs = { nixpkgs.follows = "nixpkgs"; };
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+      };
     };
-    flake-parts = { url = "github:hercules-ci/flake-parts"; };
+    flake-parts = {
+      url = "github:hercules-ci/flake-parts";
+    };
     foundry.url = "github:shazow/foundry.nix/stable";
     crane = {
       url = "github:ipetkov/crane";
@@ -23,12 +27,13 @@
   };
 
   outputs =
-    inputs @ { self
-    , flake-parts
-    , fenix
-    , crane
-    , foundry
-    , ...
+    inputs@{
+      self,
+      flake-parts,
+      fenix,
+      crane,
+      foundry,
+      ...
     }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = [
@@ -40,15 +45,20 @@
         flake-parts.flakeModules.easyOverlay
       ];
       perSystem =
-        { pkgs
-        , system
-        , ...
+        {
+          pkgs,
+          system,
+          ...
         }:
         let
           pkgConfig = {
             inherit system;
             # Rust Overlay
-            overlays = [ fenix.overlays.default foundry.overlay self.overlays.default ];
+            overlays = [
+              fenix.overlays.default
+              foundry.overlay
+              self.overlays.default
+            ];
             config = {
               android_sdk.accept_license = true;
               allowUnfree = true;
@@ -68,8 +78,10 @@
             # the environment bindings_wasm is built in
             wasm = (pkgs.callPackage ./nix/package/wasm.nix { craneLib = crane.mkLib pkgs; }).devShell;
           };
-          packages.wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { craneLib = crane.mkLib pkgs; }).bin;
+          packages.wasm-bindings =
+            (pkgs.callPackage ./nix/package/wasm.nix { craneLib = crane.mkLib pkgs; }).bin;
           packages.wasm-bindgen-cli = pkgs.callPackage ./nix/lib/packages/wasm-bindgen-cli.nix { };
+          packages.xdbg = pkgs.callPackage ./nix/package/xdbg.nix { craneLib = crane.mkLib pkgs; };
         };
     };
 }

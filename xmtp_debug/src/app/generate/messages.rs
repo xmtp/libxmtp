@@ -251,6 +251,15 @@ impl GenerateMessages {
 
         if !errors.is_empty() {
             info!(errors = ?errors, "errors");
+            if crate::fail_fast() {
+                let first = errors[0].to_string();
+                return Err(eyre!(
+                    "{} of {} send_message tasks failed (--fail-fast): {}",
+                    errors.len(),
+                    res.len(),
+                    first
+                ));
+            }
         }
 
         let msgs_sent = res

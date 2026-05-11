@@ -31,6 +31,11 @@ pub struct AppOpts {
     /// Runs at the end of execution, so operations will still be carried out
     #[arg(long)]
     pub clear: bool,
+    /// Exit non-zero on the first per-operation error instead of logging
+    /// and continuing. Useful in `git bisect run` sessions where a single
+    /// failed send/sync should mark the commit bad.
+    #[arg(long)]
+    pub fail_fast: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -542,5 +547,27 @@ mod tests {
             "http://localhost:5052",
         ]);
         assert!(opts.is_err());
+    }
+
+    #[test]
+    fn fail_fast_defaults_false() {
+        let opts = AppOpts::try_parse_from(["xdbg"]).expect("parses with no args");
+        assert!(!opts.fail_fast, "--fail-fast should default to false");
+    }
+
+    #[test]
+    fn fail_fast_parses_when_present() {
+        let opts =
+            AppOpts::try_parse_from(["xdbg", "--fail-fast"]).expect("parses with --fail-fast");
+        assert!(opts.fail_fast);
+    }
+
+    #[test]
+    fn fail_fast_has_no_short_alias() {
+        // Asserts that we don't allocate `-f` (or any short) for this flag,
+        // so future subcommands remain free to use short flags. `xdbg -f`
+        // should fail to parse.
+        let opts = AppOpts::try_parse_from(["xdbg", "-f"]);
+        assert!(opts.is_err(), "--fail-fast should not have a short alias");
     }
 }

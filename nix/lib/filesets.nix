@@ -1,5 +1,6 @@
-{ lib
-, craneLib
+{
+  lib,
+  craneLib,
 }:
 let
   inherit (craneLib.fileset) commonCargoSources;
@@ -29,6 +30,7 @@ let
     ./../../xmtp_proto/src/gen/proto_descriptor.bin
     ./../../bindings_ffi/Makefile
     ./../../webdriver.json
+    ../../.cargo/config.toml
   ];
   binaries = lib.fileset.unions [
     (commonCargoSources ./../../examples/cli)
@@ -39,15 +41,22 @@ let
     (commonCargoSources ./../../bindings_ffi)
     (commonCargoSources ./../../xmtp_debug)
   ];
-  forCrate = crate: lib.fileset.unions [
-    workspace
-    crate
-  ];
+  forCrate =
+    crate:
+    lib.fileset.unions [
+      workspace
+      crate
+    ];
   workspace = lib.fileset.unions [
     binaries
     libraries
   ];
 in
 {
-  inherit libraries binaries forCrate workspace;
+  inherit
+    libraries
+    binaries
+    forCrate
+    workspace
+    ;
 }

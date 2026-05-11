@@ -1,19 +1,20 @@
-{ emscripten
-, stdenv
-, lib
-, fenix
-, wasm-pack
-, binaryen
-, zstd
-, craneLib
-, mkShell
-, sqlite
-, llvmPackages
-, wasm-bindgen-cli
-, xmtp
-, geckodriver
-, firefox
-, corepack
+{
+  emscripten,
+  stdenv,
+  lib,
+  fenix,
+  wasm-pack,
+  binaryen,
+  zstd,
+  craneLib,
+  mkShell,
+  sqlite,
+  llvmPackages,
+  wasm-bindgen-cli,
+  xmtp,
+  geckodriver,
+  firefox,
+  corepack,
 }:
 let
   # Pinned Rust Version
@@ -43,45 +44,74 @@ let
       # export EMCC_DEBUG=2
     '';
 
-    nativeBuildInputs = [ wasm-pack emscripten llvmPackages.lld binaryen wasm-bindgen-cli ];
-    buildInputs = [ zstd sqlite ];
+    nativeBuildInputs = [
+      wasm-pack
+      emscripten
+      llvmPackages.lld
+      binaryen
+      wasm-bindgen-cli
+    ];
+    buildInputs = [
+      zstd
+      sqlite
+    ];
     doCheck = false;
     cargoExtraArgs = "--workspace --exclude xmtpv3 --exclude bindings_node --exclude xmtp_cli --exclude xdbg --exclude mls_validation_service --exclude xmtp_api_grpc --exclude benches";
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
-    hardeningDisable = [ "zerocallusedregs" "stackprotector" ];
+    hardeningDisable = [
+      "zerocallusedregs"
+      "stackprotector"
+    ];
     NIX_DEBUG = 1;
     # SQLITE_WASM_RS_UPDATE_PREBUILD = 1;
-  } // lib.optionalAttrs stdenv.isDarwin {
+  }
+  // lib.optionalAttrs stdenv.isDarwin {
     CC_wasm32_unknown_unknown = "${llvmPackages.libcxxClang}/bin/clang";
     AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
   };
 
   # enables caching all build time crates
-  cargoArtifacts = rust.buildDepsOnly (commonArgs // {
-    doCheck = false;
-  });
+  cargoArtifacts = rust.buildDepsOnly (
+    commonArgs
+    // {
+      doCheck = false;
+    }
+  );
 
-  bin = rust.buildPackage
-    (commonArgs // {
+  bin = rust.buildPackage (
+    commonArgs
+    // {
       inherit cargoArtifacts;
       src = workspaceFileset;
-      inherit (rust.crateNameFromCargoToml {
-        cargoToml = ./../../bindings_wasm/Cargo.toml;
-      }) pname;
-      inherit (rust.crateNameFromCargoToml {
-        cargoToml = ./../../Cargo.toml;
-      }) version;
+      inherit
+        (rust.crateNameFromCargoToml {
+          cargoToml = ./../../bindings_wasm/Cargo.toml;
+        })
+        pname
+        ;
+      inherit
+        (rust.crateNameFromCargoToml {
+          cargoToml = ./../../Cargo.toml;
+        })
+        version
+        ;
       buildPhaseCargoCommand = ''
         mkdir -p $out/dist
         cargoBuildLog=$(mktemp cargoBuildLogXXXX.json)
 
         HOME=$(mktemp -d fake-homeXXXX) wasm-pack --verbose build --target web --out-dir $out/dist --no-pack --release ./bindings_wasm -- --message-format json-render-diagnostics > "$cargoBuildLog"
       '';
-    });
-  devShell = mkShell
-    {
+    }
+  );
+  devShell =
+    mkShell {
       inherit (commonArgs) nativeBuildInputs;
-      buildInputs = commonArgs.buildInputs ++ [ rust-toolchain firefox geckodriver corepack ];
+      buildInputs = commonArgs.buildInputs ++ [
+        rust-toolchain
+        firefox
+        geckodriver
+        corepack
+      ];
       CC_wasm32_unknown_unknown = "${llvmPackages.clang-unwrapped}/bin/clang";
       AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
       SQLITE = "${sqlite.dev}";
@@ -94,12 +124,9 @@ let
       RSTEST_TIMEOUT = 90;
       CARGO_PROFILE_TEST_DEBUG = 0;
       WASM_BINDGEN_TEST_WEBDRIVER_JSON = ./../../webdriver.json;
-    } // commonArgs;
+    }
+    // commonArgs;
 in
 {
   inherit bin devShell;
 }
-
-
-
-
