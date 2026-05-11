@@ -169,11 +169,22 @@ impl From<ComponentTypedError> for ComponentSourceError {
 }
 
 impl From<ComponentSourceError> for GroupMutableMetadataError {
-    /// Preserve the offending `component_id` when it's available so
-    /// downstream consumers (bindings, error-mapping) can match on it
-    /// structurally. Variants without one surface as `component_id:
-    /// None`; the display string stays the authoritative diagnostic.
+    /// Preserve structure where possible. If the source already wraps a
+    /// `GroupMutableMetadataError` (e.g. `MissingExtension` raised by the
+    /// legacy `TryFrom<&OpenMlsGroup>` path on an unmigrated group),
+    /// unwrap and return that inner variant verbatim so callers can
+    /// match on `MissingExtension` / `MissingMetadataField` / etc.
+    ///
+    /// For every other variant, surface as `MalformedComponent` and
+    /// preserve the offending `component_id` when it's available so
+    /// downstream consumers (bindings, error-mapping) can match
+    /// structurally on it. Variants without one surface as
+    /// `component_id: None`; the display string stays the
+    /// authoritative diagnostic.
     fn from(err: ComponentSourceError) -> Self {
+        if let ComponentSourceError::GroupMutableMetadata(inner) = err {
+            return inner;
+        }
         let component_id = err.component_id();
         GroupMutableMetadataError::MalformedComponent {
             component_id,
@@ -553,6 +564,41 @@ pub(crate) fn merge_app_data_into_mutable_metadata(
     mls_group: &OpenMlsGroup,
 ) -> Result<(), ComponentSourceError> {
     merge_app_data_into_mutable_metadata_from_extensions(base, mls_group.extensions())
+}
+
+/// Capability-aware [`GroupMutableMetadata`] extractor.
+///
+/// On migrated groups the legacy `GroupMutableMetadata` group context
+/// extension is stripped by the bootstrap commit, so the static
+/// [`xmtp_mls_common::group_mutable_metadata::extract_group_mutable_metadata`]
+/// returns `MissingExtension` and any caller that swallows the error
+/// with `.ok()` silently defaults every metadata field (notably:
+/// disappearing-message settings and `MinimumSupportedProtocolVersion`
+/// — the latter is what gates the XIP §3 pause-on-version-bump flow).
+///
+/// This helper returns the same `GroupMutableMetadata` shape but reads
+/// from the right source per migration state:
+///
+/// - **Migrated** ([`super::is_migrated_group`] returns `true`): starts
+///   from an empty composite and overlays every field from the AppData
+///   dictionary via [`merge_app_data_into_mutable_metadata`].
+/// - **Unmigrated**: parses the legacy GMM extension via
+///   `GroupMutableMetadata::try_from(&OpenMlsGroup)`, matching the
+///   legacy static helper byte-for-byte.
+pub(crate) fn extract_group_mutable_metadata_capability_aware(
+    mls_group: &OpenMlsGroup,
+) -> Result<GroupMutableMetadata, ComponentSourceError> {
+    if super::is_migrated_group(mls_group) {
+        let mut base = GroupMutableMetadata::new(
+            std::collections::HashMap::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        merge_app_data_into_mutable_metadata(&mut base, mls_group)?;
+        Ok(base)
+    } else {
+        Ok(GroupMutableMetadata::try_from(mls_group)?)
+    }
 }
 
 /// Extensions-only variant of [`merge_app_data_into_mutable_metadata`].
