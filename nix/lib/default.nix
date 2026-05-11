@@ -166,6 +166,7 @@
           toNapiTarget = import ./napiTarget.nix;
           gitSha = self.shortRev or self.dirtyShortRev or "unknown";
           gitCommitDate = self.lastModifiedDate or "";
+          cross-version-test = pkgs.callPackage ./../package/cross-version-test { };
         };
         wasm-bindgen-cli = pkgs.callPackage ./packages/wasm-bindgen-cli.nix { };
         napi-rs-cli = pkgs.callPackage ./packages/napi-rs-cli { };
