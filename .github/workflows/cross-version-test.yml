@@ -66,7 +66,7 @@ concurrency:
 jobs:
   compat:
     name: ${{ matrix.profile }}
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-16x
     strategy:
       # Both profiles always run; one is independently meaningful even if
       # the other fails (e.g. nightly breakage doesn't mask stable signal).
@@ -81,13 +81,46 @@ jobs:
             sample-size: ""
             lenient: "--lenient-nightlies"
     steps:
+      # Shallow clone of just the PR ref, with NO tags. The repo carries
+      # ~1500 tags (per-commit cli/binding tags) that otherwise dominate
+      # checkout time (~75s). We only need:
+      #   - release/* branches (fetched in the next step)
+      #   - *-nightly.* tags (fetched in the step after that)
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+          fetch-tags: false
 
-      - name: Fetch release branches explicitly
+      - name: Fetch release branches + nightly tags
         run: |
-          git fetch origin '+refs/heads/release/*:refs/remotes/origin/release/*' --no-tags
+          set -euo pipefail
+          # Stable branches for last_two_stable_branches() resolution.
+          git fetch origin \
+            '+refs/heads/release/*:refs/remotes/origin/release/*' \
+            --no-tags --depth=1
+
+          # Nightly tags only (skip ~1500 cli/kotlin/swift/ios per-commit
+          # tags that dominate fetch time). `git fetch` refspecs reject
+          # mid-pattern globs, so list remote tags first, filter to the
+          # nightly-binding patterns the script's regex actually matches,
+          # then fetch by exact name.
+          mapfile -t nightly_tags < <(
+            git ls-remote --tags --refs origin \
+              | awk '{print $2}' \
+              | sed 's|^refs/tags/||' \
+              | grep -E '^(node-bindings|wasm-bindings|android|ios)-.*-nightly\.[0-9]{8}\.[0-9a-f]{7}$'
+          )
+          if [ "${#nightly_tags[@]}" -eq 0 ]; then
+            echo "::warning::no nightly tags matched; nightly sampling will be empty"
+          else
+            echo "Fetching ${#nightly_tags[@]} nightly tags"
+            # Build refspec list: refs/tags/<name>:refs/tags/<name>
+            refspecs=()
+            for t in "${nightly_tags[@]}"; do
+              refspecs+=("refs/tags/${t}:refs/tags/${t}")
+            done
+            git fetch origin --no-tags --depth=1 "${refspecs[@]}"
+          fi
 
       - uses: ./.github/actions/setup-nix
         with:
@@ -142,13 +175,37 @@ jobs:
           # shellcheck disable=SC2086  # LENIENT is either empty or a single flag
           nix run .#cross-version-test -- run-sequence $LENIENT plan.json
 
+      # xdbg's NDJSON log files are named "YYYY-MM-DD HH:MM:SS.json".
+      # actions/upload-artifact rejects filenames with `:`, `<`, `>`, etc.
+      # Rename to ISO-safe form before upload so the archive succeeds.
+      - name: Sanitize log filenames
+        # Belt-and-suspenders: require out_dir to be set AND look like one
+        # of our temp dirs so a bug elsewhere can't expand the glob into
+        # an absolute root path (`/**/*.json`).
+        if: always() && steps.run.outputs.out_dir != '' && contains(steps.run.outputs.out_dir, 'xvt-out')
+        env:
+          OUT_DIR: ${{ steps.run.outputs.out_dir }}
+        run: |
+          set -euo pipefail
+          find "$OUT_DIR" -type f -name '*.json' | while IFS= read -r f; do
+            base=$(basename "$f")
+            sanitized=${base//:/-}
+            sanitized=${sanitized// /T}
+            if [ "$base" != "$sanitized" ]; then
+              mv -- "$f" "$(dirname "$f")/$sanitized"
+            fi
+          done
+
       # Only upload if `Run sequence` actually executed and produced an
       # out_dir. Without this guard, a cancelled or skipped run leaves
       # steps.run.outputs.out_dir empty and the glob expands to absolute
       # `/**/*.json` — which then tries to scan the entire filesystem and
       # fails with permission errors on /boot/efi etc.
       - name: Upload plan + summary
-        if: always() && steps.run.outputs.out_dir != ''
+        # Belt-and-suspenders: require out_dir to be set AND look like one
+        # of our temp dirs so a bug elsewhere can't expand the glob into
+        # an absolute root path (`/**/*.json`).
+        if: always() && steps.run.outputs.out_dir != '' && contains(steps.run.outputs.out_dir, 'xvt-out')
         uses: actions/upload-artifact@v7
         with:
           name: cross-version-test-${{ matrix.profile }}-summary-${{ github.run_id }}
@@ -159,7 +216,10 @@ jobs:
           retention-days: 30
 
       - name: Upload libxmtp NDJSON logs
-        if: always() && steps.run.outputs.out_dir != ''
+        # Belt-and-suspenders: require out_dir to be set AND look like one
+        # of our temp dirs so a bug elsewhere can't expand the glob into
+        # an absolute root path (`/**/*.json`).
+        if: always() && steps.run.outputs.out_dir != '' && contains(steps.run.outputs.out_dir, 'xvt-out')
         uses: actions/upload-artifact@v7
         with:
           name: cross-version-test-${{ matrix.profile }}-libxmtp-logs-${{ github.run_id }}

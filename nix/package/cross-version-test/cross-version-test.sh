@@ -479,7 +479,8 @@ cmd_run_sequence() {
         printf '%s\n' "${plan_lines[@]:1}"
     } | column -t -s '|' >&2
 
-    # Per-version status accumulation. Each entry: "STATUS|short|sha|kind|label"
+    # Per-version status accumulation. Each entry:
+    #   "STATUS|short|sha|kind|branch|label"
     # STATUS values:
     #   PASS         — ran successfully
     #   FAIL         — runtime failure (or build failure on required entry)
@@ -535,12 +536,12 @@ cmd_run_sequence() {
             3)
                 if [ "$is_required" -eq 0 ]; then
                     echo "::warning::xdbg@${sha:0:7} nightly $label fails to build; skipping" >&2
-                    results+=("SKIP-BUILD|${sha:0:7}|$sha|$kind|$label")
+                    results+=("SKIP-BUILD|${sha:0:7}|$sha|$kind|$branch|$label")
                     nightly_failure=1
                     continue
                 fi
                 echo "::error::run-sequence: required version ${sha:0:7} ($branch) fails to build" >&2
-                results+=("FAIL|${sha:0:7}|$sha|$kind|$label")
+                results+=("FAIL|${sha:0:7}|$sha|$kind|$branch|$label")
                 required_failure=1
                 # Required build failure is fatal; record remaining entries
                 # as NOT-RUN so the summary still lists every planned version.
@@ -549,7 +550,7 @@ cmd_run_sequence() {
                 ;;
             *)
                 echo "::error::run-sequence: aborting on probe failure for ${sha:0:7} (rc=$probe_rc)" >&2
-                results+=("FAIL|${sha:0:7}|$sha|$kind|$label")
+                results+=("FAIL|${sha:0:7}|$sha|$kind|$branch|$label")
                 required_failure=1
                 _record_not_run_remaining=1
                 break
@@ -584,12 +585,12 @@ cmd_run_sequence() {
             echo "::endgroup::" >&2
             if [ "$entry_rc" -eq 0 ]; then
                 creator_done=1
-                results+=("PASS|${sha:0:7}|$sha|$kind|$label")
+                results+=("PASS|${sha:0:7}|$sha|$kind|$branch|$label")
             else
                 # Creator is load-bearing: senders have nothing to read.
                 # Always fatal regardless of leniency.
                 echo "::error::xdbg@${sha:0:7} creator failed (rc=$entry_rc); cannot continue" >&2
-                results+=("FAIL|${sha:0:7}|$sha|$kind|$label")
+                results+=("FAIL|${sha:0:7}|$sha|$kind|$branch|$label")
                 required_failure=1
                 _record_not_run_remaining=1
                 break
@@ -607,9 +608,9 @@ cmd_run_sequence() {
 
             if [ "$entry_rc" -eq 0 ]; then
                 sender_done=1
-                results+=("PASS|${sha:0:7}|$sha|$kind|$label")
+                results+=("PASS|${sha:0:7}|$sha|$kind|$branch|$label")
             else
-                results+=("FAIL|${sha:0:7}|$sha|$kind|$label")
+                results+=("FAIL|${sha:0:7}|$sha|$kind|$branch|$label")
                 if [ "$is_required" -eq 0 ]; then
                     echo "::warning::xdbg@${sha:0:7} nightly $label runtime failure (rc=$entry_rc); continuing so later versions (incl. HEAD) still run" >&2
                     nightly_failure=1
@@ -640,7 +641,7 @@ cmd_run_sequence() {
             else
                 _r_kind="head"
             fi
-            results+=("SKIP-NOT-RUN|${_r_sha:0:7}|$_r_sha|$_r_kind|$_r_label")
+            results+=("SKIP-NOT-RUN|${_r_sha:0:7}|$_r_sha|$_r_kind|$_r_branch|$_r_label")
         done
     fi
 
@@ -649,7 +650,7 @@ cmd_run_sequence() {
     #   - markdown table appended to $GITHUB_STEP_SUMMARY if set
     #   - JSON file at $out_dir/summary.json for tool/artifact consumption
     local summary_json="$out_dir/summary.json"
-    local r status short_sha full_sha r_kind r_label glyph md_glyph
+    local r status short_sha full_sha r_kind r_branch r_label glyph md_glyph display
 
     # Stderr plain table.
     {
@@ -657,7 +658,7 @@ cmd_run_sequence() {
         echo "=== cross-version-test summary ==="
         printf 'STATUS|KIND|SHORT|SHA|LABEL\n'
         for r in "${results[@]}"; do
-            IFS='|' read -r status short_sha full_sha r_kind r_label <<< "$r"
+            IFS='|' read -r status short_sha full_sha r_kind r_branch r_label <<< "$r"
             case "$status" in
                 PASS)          glyph="✓ PASS" ;;
                 FAIL)          glyph="✗ FAIL" ;;
@@ -665,7 +666,10 @@ cmd_run_sequence() {
                 SKIP-NOT-RUN)  glyph="⊘ SKIP (not run — earlier required failure)" ;;
                 *)             glyph="? $status" ;;
             esac
-            printf '%s|%s|%s|%s|%s\n' "$glyph" "$r_kind" "$short_sha" "$full_sha" "$r_label"
+            # Display: nightly tag label if present, else release branch
+            # (stable rows), else empty (HEAD).
+            display="${r_label:-$r_branch}"
+            printf '%s|%s|%s|%s|%s\n' "$glyph" "$r_kind" "$short_sha" "$full_sha" "$display"
         done
     } | column -t -s '|' >&2
 
@@ -679,11 +683,11 @@ cmd_run_sequence() {
         printf '  "results": [\n'
         local first=1
         for r in "${results[@]}"; do
-            IFS='|' read -r status short_sha full_sha r_kind r_label <<< "$r"
+            IFS='|' read -r status short_sha full_sha r_kind r_branch r_label <<< "$r"
             if [ "$first" -eq 0 ]; then printf ',\n'; fi
             first=0
-            printf '    {"status":"%s","short":"%s","sha":"%s","kind":"%s","label":"%s"}' \
-                "$status" "$short_sha" "$full_sha" "$r_kind" "$r_label"
+            printf '    {"status":"%s","short":"%s","sha":"%s","kind":"%s","branch":"%s","label":"%s"}' \
+                "$status" "$short_sha" "$full_sha" "$r_kind" "$r_branch" "$r_label"
         done
         printf '\n  ]\n}\n'
     } > "$summary_json"
@@ -699,10 +703,10 @@ cmd_run_sequence() {
         {
             echo "## cross-version-test results"
             echo ""
-            echo "| Status | Kind | Short | Label | SHA |"
+            echo "| Status | Kind | Short | Label / Branch | SHA |"
             echo "|---|---|---|---|---|"
             for r in "${results[@]}"; do
-                IFS='|' read -r status short_sha full_sha r_kind r_label <<< "$r"
+                IFS='|' read -r status short_sha full_sha r_kind r_branch r_label <<< "$r"
                 case "$status" in
                     PASS)          md_glyph="✅ PASS" ;;
                     FAIL)          md_glyph="❌ FAIL" ;;
@@ -710,9 +714,12 @@ cmd_run_sequence() {
                     SKIP-NOT-RUN)  md_glyph="⊘ SKIP (not run — earlier required failure)" ;;
                     *)             md_glyph="❓ $status" ;;
                 esac
+                # Nightly rows carry a label (nightly.YYYYMMDD); stable rows
+                # carry a branch (release/X); HEAD has neither.
+                display="${r_label:-${r_branch:--}}"
                 # shellcheck disable=SC2016  # backticks in template are markdown, not subshells
                 printf '| %s | %s | `%s` | %s | `%s` |\n' \
-                    "$md_glyph" "$r_kind" "$short_sha" "${r_label:--}" "$full_sha"
+                    "$md_glyph" "$r_kind" "$short_sha" "$display" "$full_sha"
             done
             echo ""
             echo "**creator_done=$creator_done sender_done=$sender_done required_failure=$required_failure nightly_failure=$nightly_failure lenient=$lenient_nightlies**"
