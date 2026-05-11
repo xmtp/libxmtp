@@ -3230,3 +3230,90 @@ async fn test_admin_list_add_unchanged_on_unmigrated_group() {
         bo_meta.admin_list,
     );
 }
+
+/// XIP §3 welcome-time pause path: when a new member is welcomed into a
+/// fully-migrated group whose AppData dict carries a
+/// `MIN_SUPPORTED_PROTOCOL_VERSION` higher than the joiner's pkg_version,
+/// the joiner MUST land in `paused_for_version` directly from
+/// `sync_welcomes`.
+///
+/// Sibling of `test_enable_proposals_pauses_old_client_via_legacy_gmm_bump`
+/// (sync-time pause via the legacy GMM bump, the pre-bootstrap
+/// rollout-safety step). This one pins the WELCOME-time pause via the
+/// AppData dict on a fully-migrated group — the post-bootstrap
+/// steady-state path. Without `oruw`'s capability-aware welcome read,
+/// the legacy GMM extension is gone on migrated groups so
+/// `extract_group_mutable_metadata` returned `MissingExtension`,
+/// `.ok()` swallowed it, and the welcomed group admitted the member
+/// unpaused — fork hazard for clients below the dict's floor version.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_welcome_on_migrated_group_pauses_below_min_version() {
+    use crate::builder::ClientBuilder;
+    use crate::groups::tests::increment_patch_version;
+    use crate::utils::VersionInfo;
+    use xmtp_cryptography::utils::generate_local_wallet;
+
+    // Alix runs at a newer version. Before migrating, she bumps the
+    // legacy GMM's `MinimumSupportedProtocolVersion` to her pkg_version
+    // so the bootstrap synthesis carries that floor into the AppData
+    // dict (synthesis reads `gmm.attributes` to seed dict entries).
+    let mut alix_version = VersionInfo::default();
+    alix_version.test_update_version(
+        increment_patch_version(alix_version.pkg_version())
+            .unwrap()
+            .as_str(),
+    );
+    let alix_pkg_version = alix_version.pkg_version().to_string();
+    let alix =
+        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), alix_version.clone())
+            .await;
+
+    // Bo joins PRE-migration so alix's bootstrap synthesis has resolved
+    // member identities to work with. He's at the floor version so the
+    // pre-migration min-version bump pauses him via legacy GMM — not
+    // the subject of this test.
+    tester!(bo);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.context.identity.inbox_id()]).await?;
+
+    // Bump min-version in legacy GMM (the only place to write it
+    // before migration). Bootstrap synthesis will pull this value
+    // forward into the AppData dict.
+    alix_group.update_group_min_version_to_match_self().await?;
+    alix_group.sync().await?;
+
+    // Alix migrates. Post-migration the legacy GMM is stripped and the
+    // floor lives in the AppData dict only.
+    alix_group.enable_proposals().await?;
+    let alix_migrated = alix_group
+        .load_mls_group_with_lock_async(async |g| {
+            Ok::<bool, crate::groups::GroupError>(alix_group.proposals_enabled(&g))
+        })
+        .await?;
+    assert!(
+        alix_migrated,
+        "alix must be migrated post-enable_proposals (precondition for this test)"
+    );
+
+    // Carol joins POST-migration at the default (older) pkg_version.
+    // Her welcome carries the migrated GroupContext — no legacy GMM,
+    // floor only in the AppData dict. This is the path `oruw` fixes:
+    // the welcome-time read MUST find the floor in the dict and pause
+    // the welcomed group at welcome-application time.
+    tester!(carol);
+    alix_group.add_members(&[carol.context.identity.inbox_id()]).await?;
+
+    let carol_groups = carol.sync_welcomes().await?;
+    let carol_group = carol_groups
+        .iter()
+        .find(|g| g.group_id == alix_group.group_id)
+        .expect("carol should receive a welcome for alix_group");
+
+    let paused = carol_group.paused_for_version()?;
+    assert_eq!(
+        paused.as_deref(),
+        Some(alix_pkg_version.as_str()),
+        "carol must be paused at alix's pkg_version directly from sync_welcomes; \
+         the floor lives only in the AppData dict at this point"
+    );
+}

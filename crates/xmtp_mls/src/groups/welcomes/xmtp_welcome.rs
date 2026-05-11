@@ -32,9 +32,9 @@ use xmtp_db::{
     prelude::*,
     refresh_state::EntityKind,
 };
-use xmtp_mls_common::{
-    group_metadata::extract_group_metadata, group_mutable_metadata::extract_group_mutable_metadata,
-};
+use xmtp_mls_common::group_metadata::extract_group_metadata;
+
+use crate::groups::app_data::component_source::extract_group_mutable_metadata_capability_aware;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, GroupUpdated, group_updated::Inbox};
 
@@ -362,11 +362,32 @@ where
         )?;
         let dm_members = metadata.dm_members;
         let conversation_type = metadata.conversation_type;
-        // TODO(app-data-migration): same caveat as the `metadata`
-        // extraction above — `.ok()` swallows the missing-GMM error
-        // on post-bootstrap groups, silently defaulting downstream
-        // disappearing / min-protocol reads.
-        let mutable_metadata = extract_group_mutable_metadata(&mls_group).ok();
+        // Capability-aware: on migrated groups the legacy GMM
+        // extension is gone, so read from the AppData dictionary
+        // overlay. Otherwise this read silently defaults
+        // disappearing-message settings AND paused_for_version,
+        // breaking the XIP §3 pause-on-min-version-bump rollout path.
+        //
+        // `MissingExtension` on an unmigrated group is the soft-skip
+        // path the legacy code relied on (welcomes from very old
+        // clients can lack a GMM extension); anything else indicates
+        // wire corruption from the welcomer and is worth surfacing in
+        // logs so it can be triaged without breaking the welcome.
+        let mutable_metadata = match extract_group_mutable_metadata_capability_aware(&mls_group) {
+            Ok(metadata) => Some(metadata),
+            Err(crate::groups::app_data::component_source::ComponentSourceError::GroupMutableMetadata(
+                xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::MissingExtension,
+            )) => None,
+            Err(e) => {
+                tracing::warn!(
+                    group_id = hex::encode(&group_id),
+                    error = ?e,
+                    "welcome-time GroupMutableMetadata read failed; \
+                     disappearing-settings and paused_for_version will fall back to defaults"
+                );
+                None
+            }
+        };
         let disappearing_settings = mutable_metadata.as_ref().and_then(|metadata| {
             MlsGroup::<C>::conversation_message_disappearing_settings_from_extensions(metadata).ok()
         });
