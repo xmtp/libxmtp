@@ -158,9 +158,13 @@ cmd_pick_versions() {
         if [ -n "$picked" ]; then
             local date sha7 full
             while IFS=$'\t' read -r date sha7; do
-                # Resolve sha7 to a full sha; rev-parse fails loudly if the
-                # short sha is ambiguous or missing (e.g. pruned branch).
-                full=$(git rev-parse "$sha7^{commit}")
+                # Resolve sha7 to a full sha. Fails loudly with a labelled
+                # message if the short sha is ambiguous (multiple matches)
+                # or missing (e.g. tag points at a pruned/gc'd commit).
+                if ! full=$(git rev-parse --verify "$sha7^{commit}" 2>/dev/null); then
+                    echo "pick-versions: failed to resolve nightly sha7 '$sha7' (ambiguous or missing); skipping nightly.${date}" >&2
+                    continue
+                fi
                 shas+=("$full")
                 branches_for_sha+=("")
                 labels_for_sha+=("nightly.${date}")
@@ -338,17 +342,16 @@ xdbg_probe_available() {
     return 2
 }
 
-# Run a non-informative xdbg command. Always tries --json --fail-fast first;
-# on clap "unexpected argument" (old sha without --fail-fast), retries
-# without it and scans the per-call JSON log file(s) for level == ERROR.
+# Run a non-informative xdbg command with `--json --fail-fast`. Every
+# tested sha now carries the --fail-fast flag, so non-zero rc IS the
+# failure signal — no log-file scanning needed.
 #
 # Args: base_dir sha cmd_args...
 # base_dir is the parent under which per-call subdirs are minted so xdbg's
 # second-precision log filenames can't collide between rapid invocations.
 #
 # The built xdbg binary is exec'd via `env XDBG_DB_ROOT=$XVT_DB_ROOT` so
-# every tested version shares one redb/sqlite. Pre-XDBG_DB_ROOT xdbg
-# versions are skipped via the probe step.
+# every tested version shares one redb/sqlite.
 #
 # Globals read: BACKEND, XVT_DB_ROOT.
 # Echoes combined stdout+stderr; returns 0 on success, non-zero on failure.
@@ -374,65 +377,12 @@ run_xdbg_real() {
     out=$(cd "$call_dir" && env "${env_args[@]}" "$bin" \
             -b "$BACKEND" --json --fail-fast "$@" 2>&1) || rc=$?
 
-    if [ $rc -eq 0 ]; then
-        printf '%s\n' "$out"
-        return 0
-    fi
-
-    # clap v4 emits "unexpected argument '<flag>' found" on unknown flags;
-    # if the message format ever changes, fall through to genuine-failure.
-    if grep -qE "unexpected argument" <<< "$out"; then
-        echo "::notice::xdbg@${short} lacks --fail-fast; retrying without flag and scanning JSON logs for ERROR" >&2
-        local retry_dir
-        retry_dir=$(mktemp -d "${base_dir}/xvt-call-XXXXXX")
-        rc=0
-        out=$(cd "$retry_dir" && env "${env_args[@]}" "$bin" \
-                -b "$BACKEND" --json "$@" 2>&1) || rc=$?
-
-        if [ $rc -ne 0 ]; then
-            printf '%s\n' "$out"
-            echo "::error::xdbg@${short} failed even without --fail-fast: rc=$rc" >&2
-            return 1
-        fi
-
-        # xdbg's --json writes ndJSON to a file in CWD
-        # (apps/xmtp_debug/src/logger.rs: File::create_new("{now}-xdbg.json")),
-        # NOT to stdout. Scan every .json file in retry_dir for level==ERROR.
-        # `try fromjson` per line tolerates non-JSON lines without aborting jq.
-        local json_files
-        json_files=$(find "$retry_dir" -maxdepth 1 -name '*.json' -type f 2>/dev/null)
-        if [ -z "$json_files" ]; then
-            printf '%s\n' "$out"
-            echo "::warning::xdbg@${short} produced no JSON log file in $retry_dir; legacy fallback cannot scan for ERROR" >&2
-            if printf '%s\n' "$out" \
-                    | jq -Rr 'try fromjson | select(.level == "ERROR") | true' \
-                      2>/dev/null \
-                    | grep -q .; then
-                echo "::error::xdbg@${short} produced ERROR log lines (legacy --fail-fast fallback, stdout scan)" >&2
-                return 1
-            fi
-            return 0
-        fi
-
-        local f
-        while IFS= read -r f; do
-            if jq -Rr 'try fromjson | select(.level == "ERROR") | true' \
-                    < "$f" 2>/dev/null \
-                    | grep -q .; then
-                printf '%s\n' "$out"
-                echo "::error::xdbg@${short} produced ERROR log lines in $f (legacy --fail-fast fallback)" >&2
-                jq -c 'select(.level == "ERROR")' < "$f" 2>/dev/null | head -20 >&2 || true
-                return 1
-            fi
-        done <<< "$json_files"
-
-        printf '%s\n' "$out"
-        return 0
-    fi
-
     printf '%s\n' "$out"
-    echo "::error::xdbg@${short} failed: rc=$rc" >&2
-    return 1
+    if [ $rc -ne 0 ]; then
+        echo "::error::xdbg@${short} failed: rc=$rc" >&2
+        return 1
+    fi
+    return 0
 }
 
 # Run an informative xdbg command (e.g. --version) without --fail-fast/--json.
@@ -506,14 +456,17 @@ cmd_run_sequence() {
     # IFS=$'\t' treats tabs as whitespace and collapses consecutive ones,
     # losing empty-branch entries (nightlies have empty branch + non-empty
     # label). `|` is non-whitespace so consecutive separators preserve
-    # empty fields. Aborts under set -e if jq can't parse the plan.
-    local -a plan_lines
-    if ! mapfile -t plan_lines < <(
-        jq -r 'length, (.[] | [.role, .short, .sha, (.branch // ""), (.label // "")] | join("|"))' "$plan"
-    ); then
+    # empty fields. Capture jq output into a variable first so jq failures
+    # propagate — `mapfile < <(jq …)` swallows jq's exit status via the
+    # process substitution and leaves plan_lines empty without erroring.
+    local jq_out jq_rc=0
+    jq_out=$(jq -r 'length, (.[] | [.role, .short, .sha, (.branch // ""), (.label // "")] | join("|"))' "$plan") || jq_rc=$?
+    if [ "$jq_rc" -ne 0 ]; then
         echo "run-sequence: failed to parse plan: $plan" >&2
         exit 2
     fi
+    local -a plan_lines
+    mapfile -t plan_lines <<< "$jq_out"
     local n="${plan_lines[0]}"
     if [ "$n" -lt 2 ]; then
         echo "run-sequence: plan must have at least 2 entries; got $n" >&2
