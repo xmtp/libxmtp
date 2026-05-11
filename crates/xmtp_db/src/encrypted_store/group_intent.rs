@@ -339,7 +339,7 @@ where
 }
 
 impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
-    #[tracing::instrument(level = "trace", skip(self))]
+    #[tracing::instrument(level = "debug", skip(self))]
     fn insert_group_intent(
         &self,
         to_save: NewGroupIntent,
@@ -352,7 +352,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     }
 
     // Query for group_intents by group_id, optionally filtering by state and kind
-    #[tracing::instrument(level = "trace", skip(self), fields(group_id = hex::encode(group_id.as_ref())))]
+    #[tracing::instrument(level = "debug", skip(self), fields(group_id = hex::encode(group_id.as_ref())))]
     fn find_group_intents<Id: AsRef<[u8]>>(
         &self,
         group_id: Id,
@@ -379,6 +379,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
 
     // Set the intent with the given ID to `Published` and set the payload hash. Optionally add
     // `post_commit_data`
+    #[tracing::instrument(level = "debug", skip(self, payload_hash), fields(id = intent_id, payload_hash = hex::encode(payload_hash)))]
     fn set_group_intent_published(
         &self,
         intent_id: ID,
@@ -420,6 +421,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     }
 
     // Set the intent with the given ID to `Committed`
+    #[tracing::instrument(level = "debug", skip(self))]
     fn set_group_intent_committed(
         &self,
         intent_id: ID,
@@ -448,6 +450,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     }
 
     // Set the intent with the given ID to `Committed`
+    #[tracing::instrument(level = "debug", skip(self))]
     fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError> {
         let rows_changed = self.raw_query(|conn| {
             diesel::update(dsl::group_intents)
@@ -466,6 +469,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
 
     // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and
     // `post_commit_data`
+    #[tracing::instrument(level = "debug", skip(self))]
     fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError> {
         let rows_changed = self.raw_query(|conn| {
             diesel::update(dsl::group_intents)
@@ -491,7 +495,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     }
 
     /// Set the intent with the given ID to `Error`
-    #[tracing::instrument(level = "trace", skip(self))]
+    #[tracing::instrument(level = "debug", skip(self))]
     fn set_group_intent_error(&self, intent_id: ID) -> Result<(), StorageError> {
         let rows_changed = self.raw_query(|conn| {
             diesel::update(dsl::group_intents)
@@ -510,8 +514,8 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     // Simple lookup of intents by payload hash, meant to be used when processing messages off the
     // network
     #[tracing::instrument(
-        level = "trace",
-        skip_all,
+        level = "debug",
+        skip(self),
         fields(payload_hash = hex::encode(payload_hash))
     )]
     fn find_group_intent_by_payload_hash(
@@ -530,6 +534,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
 
     /// Find the commit message refresh state for each intent by payload hash.
     /// Returns a map from payload hash to a vector of dependencies (one per originator).
+    #[tracing::instrument(level = "debug", skip_all)]
     fn find_dependant_commits<P: AsRef<[u8]>>(
         &self,
         payload_hashes: &[P],
@@ -594,6 +599,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
         Ok(map)
     }
 
+    #[tracing::instrument(level = "debug", skip(self))]
     fn increment_intent_publish_attempt_count(&self, intent_id: ID) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             diesel::update(dsl::group_intents)
@@ -605,6 +611,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all, fields(id = %intent.id, kind = %intent.kind, group_id = %intent.group_id))]
     fn set_group_intent_error_and_fail_msg(
         &self,
         intent: &StoredGroupIntent,

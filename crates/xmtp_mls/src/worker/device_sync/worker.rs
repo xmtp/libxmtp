@@ -136,7 +136,7 @@ where
     async fn run_internal(&mut self) -> Result<(), DeviceSyncError> {
         while let Ok(event) = self.receiver.recv().await {
             if matches!(event, SyncWorkerEvent::Tick) {
-                tracing::debug!(
+                tracing::trace!(
                     "[{}] New event: {event:?}",
                     self.client.context.installation_id()
                 );

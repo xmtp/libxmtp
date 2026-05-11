@@ -659,6 +659,7 @@ where
         Ok(group)
     }
 
+    #[tracing::instrument(level = "debug", skip_all, fields(who = self.context.inbox_id(), size = inbox_ids.len()))]
     pub async fn create_group_with_members(
         &self,
         inbox_ids: &[impl AsIdRef],
@@ -674,6 +675,7 @@ where
     }
 
     /// Create a new Direct Message with the default settings
+    #[tracing::instrument(level = "debug", skip_all, fields(who = self.context.inbox_id(), with = target_inbox_id))]
     async fn create_dm_by_inbox_id(
         &self,
         target_inbox_id: InboxId,
@@ -1054,7 +1056,7 @@ where
     }
 
     /// Fetches the current key package from the network for each of the `installation_id`s specified
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(skip_all)]
     pub async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
@@ -1070,7 +1072,7 @@ where
 
     /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
     /// Returns any new groups created in the operation
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(skip_all)]
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
         self.ensure_identity_ready()?;
         WelcomeService::new(self.context.clone())

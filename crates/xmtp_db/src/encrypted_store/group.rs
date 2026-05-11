@@ -560,6 +560,7 @@ where
 
 impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     /// Return regular `Purpose::Conversation` groups with additional optional filters
+    #[tracing::instrument(level = "debug", skip_all)]
     fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,

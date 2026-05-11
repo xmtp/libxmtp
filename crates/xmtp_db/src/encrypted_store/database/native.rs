@@ -487,7 +487,6 @@ impl NativeDbConnection {
 }
 
 impl ConnectionExt for NativeDbConnection {
-    #[tracing::instrument(level = "trace", skip_all)]
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,

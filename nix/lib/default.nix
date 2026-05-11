@@ -164,6 +164,8 @@
           shellCommon = pkgs.callPackage ./shell-common.nix { };
           mkVersion = import ./mkVersion.nix;
           toNapiTarget = import ./napiTarget.nix;
+          gitSha = self.shortRev or self.dirtyShortRev or "unknown";
+          gitCommitDate = self.lastModifiedDate or "";
         };
         wasm-bindgen-cli = pkgs.callPackage ./packages/wasm-bindgen-cli.nix { };
         napi-rs-cli = pkgs.callPackage ./packages/napi-rs-cli { };

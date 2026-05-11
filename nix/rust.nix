@@ -1,5 +1,6 @@
 # Rust Binaries to expose in nix flake
-_: {
+{ self, ... }:
+{
   perSystem =
     {
       self',

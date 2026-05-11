@@ -1,5 +1,4 @@
 use crate::FfiError;
-use log::Subscriber;
 use log::level_filters::LevelFilter;
 use parking_lot::Mutex;
 use std::io::Write;
@@ -11,8 +10,8 @@ use tracing_appender::non_blocking::NonBlockingBuilder;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::RollingFileAppender;
 use tracing_subscriber::fmt::MakeWriter;
-use tracing_subscriber::fmt::format::DefaultFields;
-use tracing_subscriber::fmt::format::Format;
+use tracing_subscriber::fmt::format::JsonFields;
+use tracing_subscriber::fmt::format::{Format, Json};
 use tracing_subscriber::{
     EnvFilter, Layer, filter::Filtered, fmt, layer::Layered, layer::SubscriberExt,
     registry::LookupSpan, registry::Registry, reload, util::SubscriberInitExt,
@@ -20,7 +19,7 @@ use tracing_subscriber::{
 
 // Default native log level used until `set_native_log_level` is called.
 #[cfg(any(target_os = "android", target_os = "ios"))]
-const DEFAULT_NATIVE_LOG_LEVEL: FfiLogLevel = FfiLogLevel::Debug;
+const DEFAULT_NATIVE_LOG_LEVEL: FfiLogLevel = FfiLogLevel::Info;
 
 // Native layers install on the global `Registry` (see `LOGGER`), so S is pinned
 // to `Registry` to give the reload handle a concrete, storable type.
@@ -31,13 +30,15 @@ static LIBXMTP_FILTER_HANDLE: std::sync::OnceLock<
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn set_native_filter(level: &str) -> Result<(), FfiError> {
+    use crate::GenericError;
+
     let handle = LIBXMTP_FILTER_HANDLE
         .get()
         .ok_or_else(|| crate::GenericError::Generic {
             err: "native logger not initialized".to_string(),
         })?;
-    let new_filter = xmtp_common::filter_directive(level);
-    handle.lock().reload(new_filter)?;
+    let filter = xmtp_common::filter_directive(level);
+    handle.lock().reload(filter)?;
     Ok(())
 }
 
@@ -92,6 +93,7 @@ pub use other::*;
 #[cfg(not(any(target_os = "ios", target_os = "android", test)))]
 mod other {
     use super::*;
+    use log::Subscriber;
 
     pub fn native_layer<S>() -> impl Layer<S>
     where
@@ -168,8 +170,8 @@ static LOGGER: LazyLock<
                 Filtered<
                     fmt::Layer<
                         Layered<Box<dyn Layer<Registry> + Send + Sync>, Registry>,
-                        DefaultFields,
-                        Format,
+                        JsonFields,
+                        Format<Json>,
                         EmptyOrFileWriter,
                     >,
                     EnvFilter,
@@ -184,6 +186,7 @@ static LOGGER: LazyLock<
     // just turn the layer off for now
     let fmt = fmt::Layer::default()
         .with_writer(EmptyOrFileWriter::default())
+        .json()
         .with_filter(
             EnvFilter::builder()
                 .with_default_directive(LevelFilter::OFF.into())
@@ -375,7 +378,7 @@ pub fn exit_debug_writer() -> Result<(), FfiError> {
 }
 
 pub fn init_logger() {
-    let _ = *LOGGER;
+    let _ = LazyLock::force(&LOGGER);
 }
 
 /// Updates the log level of the native log layer (oslog on iOS, logcat on Android).
@@ -383,6 +386,7 @@ pub fn init_logger() {
 /// activity in Console.app / Instruments. No-op on non-mobile builds.
 #[uniffi::export]
 pub fn set_native_log_level(log_level: FfiLogLevel) -> Result<(), FfiError> {
+    init_logger();
     set_native_filter(log_level.to_str())
 }
 
@@ -392,6 +396,7 @@ pub use test_logger::*;
 #[cfg(test)]
 mod test_logger {
     use super::*;
+    use log::Subscriber;
     use std::io::Read;
 
     pub fn native_layer<S>() -> impl Layer<S>
