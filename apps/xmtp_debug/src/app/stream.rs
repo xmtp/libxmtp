@@ -62,11 +62,20 @@ impl Stream {
             Box::new(BufWriter::new(std::io::stdout()))
         };
 
+        let fail_fast = crate::fail_fast();
         match kind {
             args::StreamKind::Conversations => {
                 let s = client.stream_conversations(None, false).await?;
                 tokio::pin!(s);
-                while let Some(Ok(group)) = s.as_mut().next().await {
+                while let Some(item) = s.as_mut().next().await {
+                    let group = match item {
+                        Ok(g) => g,
+                        Err(e) if fail_fast => return Err(e.into()),
+                        Err(e) => {
+                            tracing::warn!(error = %e, "stream_conversations item error");
+                            continue;
+                        }
+                    };
                     let stored: StoredGroup = group.load()?;
                     let item = Conversation {
                         group_id: hex::encode(&stored.id),
@@ -88,7 +97,15 @@ impl Stream {
             args::StreamKind::Messages => {
                 let s = client.stream_all_messages(None, None).await?;
                 tokio::pin!(s);
-                while let Some(Ok(message)) = s.as_mut().next().await {
+                while let Some(next) = s.as_mut().next().await {
+                    let message = match next {
+                        Ok(m) => m,
+                        Err(e) if fail_fast => return Err(e.into()),
+                        Err(e) => {
+                            tracing::warn!(error = %e, "stream_all_messages item error");
+                            continue;
+                        }
+                    };
                     let item = Message {
                         contents: String::from_utf8_lossy(&message.decrypted_message_bytes)
                             .to_string(),
