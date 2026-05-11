@@ -1,7 +1,3 @@
-// `expect` (not `allow`) so the compiler reminds us to drop this
-// attribute when the first production caller wires in.
-#![expect(dead_code)]
-
 //! Typed read facade over an OpenMLS group's AppData dictionary.
 //!
 //! [`MlsGroupAppData`] borrows an `&OpenMlsGroup` and exposes typed,
@@ -50,12 +46,6 @@ impl<'g> MlsGroupAppData<'g> {
             group,
             proposals_enabled,
         }
-    }
-
-    /// `true` if this group has completed its bootstrap commit and the
-    /// AppData dictionary is the authoritative source for components.
-    pub(crate) fn is_migrated(&self) -> bool {
-        self.proposals_enabled
     }
 
     /// Read the typed value of a [`Component`] from this group.

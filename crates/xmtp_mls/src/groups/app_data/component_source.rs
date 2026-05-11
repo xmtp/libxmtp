@@ -20,12 +20,15 @@
 //! the short version is `varint(version) || 32-byte payload`, with
 //! version 0 producing a 33-byte encoding.
 
-// Several helpers here are scaffolding for the migration PR that follows
-// this one (see `docs/plans/2026-04-10-app-data-migration-plan.md`). They
-// have no production callers yet but are referenced by tests and by the
-// follow-up PR's intent handlers. `expect` (not `allow`) so when the
-// migration lands and these go live, the compiler flags this attribute as
-// unfulfilled and we remember to drop it.
+// `ComponentMutation`, `component_type`, and the standalone
+// `expand_app_data_update_to_changes` entry point are scaffolding for
+// the standalone proposal-by-reference flow (`IntentKind::ProposeAppDataUpdate`)
+// described in XIP §1.5.2 / §3.4. They have unit-test coverage but no
+// production caller yet — the inline path goes through
+// `apply_app_data_update_payload` instead. `expect` (not `allow`) so the
+// compiler trips this when standalone-propose wiring lands, and we
+// either drop the attribute or trim whichever scaffolding the new path
+// supersedes.
 #![expect(dead_code)]
 
 use openmls::{
