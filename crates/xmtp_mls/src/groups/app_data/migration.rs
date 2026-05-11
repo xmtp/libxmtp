@@ -417,15 +417,25 @@ pub fn stage_bootstrap_commit<Provider: OpenMlsProvider>(
     // `UnableToDecrypt` and the bootstrap commit is rejected.
     //
     // Single source of truth: route each component's wire bytes
-    // through `apply_app_data_update_payload(id, wire, None)` to
+    // through `apply_app_data_update_payload(id, wire, None, &reg)` to
     // derive the dict bytes. The receiver runs the same function over
     // the same wire bytes (with prior=None at bootstrap) and gets the
     // same output, so dict byte-equality is guaranteed by construction.
+    //
+    // The empty `ComponentRegistry` here is intentional: bootstrap
+    // only writes well-known components, each of which has a per-id
+    // `Component` impl, so the type-aware fallback branch in
+    // `apply_app_data_update_payload` is never consulted.
+    let empty_registry = xmtp_mls_common::app_data::component_registry::ComponentRegistry::new();
     let mut updater = stage.app_data_dictionary_updater();
     for (component_id, wire_bytes) in component_values.iter() {
-        let dict_bytes =
-            super::component_source::apply_app_data_update_payload(*component_id, wire_bytes, None)
-                .map_err(BootstrapCommitError::DictApply)?;
+        let dict_bytes = super::component_source::apply_app_data_update_payload(
+            *component_id,
+            wire_bytes,
+            None,
+            &empty_registry,
+        )
+        .map_err(BootstrapCommitError::DictApply)?;
         updater.set(ComponentData::from_parts(
             component_id.as_u16(),
             dict_bytes.into(),

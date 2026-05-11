@@ -270,6 +270,17 @@ pub enum ComponentTypedError {
     /// full value of a Map component from an incoming delta.
     #[error("tls map apply error: {0}")]
     TlsMapApply(#[from] TlsMapError),
+
+    /// The component's registered [`ComponentType`] is
+    /// [`ComponentType::Unspecified`] (a proto-default sentinel). The
+    /// type-aware fallback in
+    /// [`super::components::type_dispatch::apply_update_payload_for_type`]
+    /// has no decoder for this — the registry entry is malformed or
+    /// was written by a peer that does not know the type yet.
+    ///
+    /// [`ComponentType`]: xmtp_proto::xmtp::mls::message_contents::ComponentType
+    #[error("component {0} has no registered ComponentType (unspecified)")]
+    UnspecifiedType(ComponentId),
 }
 
 /// Errors surfaced by [`Component::validate_invariant`].

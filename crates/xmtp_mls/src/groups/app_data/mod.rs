@@ -101,6 +101,16 @@ where
 {
     let mut in_batch: BTreeMap<openmls::component::ComponentId, Option<Vec<u8>>> = BTreeMap::new();
 
+    // Load the pre-commit registry once. It supplies the
+    // `ComponentType` tag the type-aware dispatcher in
+    // `apply_app_data_update_payload` uses when an unknown component id
+    // arrives. Registry updates that land in the same commit don't
+    // retroactively change this snapshot — the typed path would need
+    // an in-batch registry overlay to handle the corner case where the
+    // very same commit both registers a new component and writes to
+    // it.
+    let registry = load_component_registry(mls_group)?;
+
     for (openmls_id, operation) in proposals {
         let xmtp_id = ComponentId::from(openmls_id);
         match operation {
@@ -117,14 +127,18 @@ where
                         xmtp_id,
                         payload.as_slice(),
                         Some(bytes.as_slice()),
+                        &registry,
                     ),
-                    Some(None) => apply_app_data_update_payload(xmtp_id, payload.as_slice(), None),
+                    Some(None) => {
+                        apply_app_data_update_payload(xmtp_id, payload.as_slice(), None, &registry)
+                    }
                     None => {
                         let from_dict = read_from_app_data_dict(xmtp_id, mls_group);
                         apply_app_data_update_payload(
                             xmtp_id,
                             payload.as_slice(),
                             from_dict.as_deref(),
+                            &registry,
                         )
                     }
                 }

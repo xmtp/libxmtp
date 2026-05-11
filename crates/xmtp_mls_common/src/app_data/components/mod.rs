@@ -11,3 +11,4 @@
 pub mod inbox_id_set;
 pub mod metadata_attributes;
 pub mod tls_map_components;
+pub mod type_dispatch;

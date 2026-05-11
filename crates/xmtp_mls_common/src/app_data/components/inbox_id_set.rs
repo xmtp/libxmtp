@@ -33,8 +33,12 @@ use crate::{
 /// always carries a delta describing the change. This function is
 /// the one boundary that translates between them.
 ///
-/// Shared between the three inbox-id-set impls.
-fn apply_inbox_id_set_delta(
+/// Shared between the three inbox-id-set impls, and reachable from the
+/// type-aware fallback in
+/// [`super::type_dispatch::apply_update_payload_for_type`] for any
+/// future `TlsSetInboxId` component an old client does not yet have a
+/// per-id `Component` impl for.
+pub(crate) fn apply_inbox_id_set_delta(
     payload: &[u8],
     prior: Option<&[u8]>,
 ) -> Result<Vec<u8>, ComponentTypedError> {
@@ -55,7 +59,7 @@ fn apply_inbox_id_set_delta(
 /// implementation in `xmtp_mls::groups::app_data::component_source`
 /// (which #7 will retire). `RemoveByHash` mutations resolve back to
 /// the underlying `InboxId` via a hash index built from the prior set.
-fn expand_inbox_id_set_changes(
+pub(crate) fn expand_inbox_id_set_changes(
     op: &AppDataUpdateOperation,
     prior: Option<&[u8]>,
 ) -> Result<Vec<ExpandedComponentChange>, ComponentTypedError> {
