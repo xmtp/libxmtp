@@ -266,7 +266,7 @@ pub enum GroupError {
     ///
     /// Failed to build or stage a commit that bundles an inline AppDataUpdate
     /// proposal. Wraps the structured `GroupAppDataError` from
-    /// [`stage_inline_app_data_commit`] so the underlying OpenMLS create/stage
+    /// [`stage_app_data_propose_and_commit`] so the underlying OpenMLS create/stage
     /// failure is preserved instead of being string-flattened.
     #[error("app data commit error: {0}")]
     AppDataCommit(#[from] super::app_data::GroupAppDataError<sql_key_store::SqlKeyStoreError>),
@@ -565,7 +565,7 @@ impl RetryableError for GroupError {
             Self::CommitToPendingProposals(e) => e.is_retryable(),
             Self::ProposalsNotSupported(_) => false,
             Self::ComponentSource(_) => false,
-            Self::AppDataCommit(_) => false,
+            Self::AppDataCommit(e) => e.is_retryable(),
             // Bootstrap synthesis can fail on a transient identity-update
             // API blip — delegate to the inner error so we retry on
             // network errors and stay non-retryable on deterministic

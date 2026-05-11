@@ -361,7 +361,7 @@ pub(crate) fn read_component_bytes(
 /// into [`expand_app_data_update_to_changes`] as `old_value` — the
 /// validator uses that to resolve `RemoveByHash` mutations back to
 /// their underlying inbox id. The parent `app_data` module also uses
-/// it from `process_message_with_app_data`, `stage_inline_app_data_commit`,
+/// it from `process_message_with_app_data`, `stage_app_data_propose_and_commit`,
 /// and `pending_app_data_updates`.
 pub(crate) fn read_from_app_data_dict(
     id: ComponentId,

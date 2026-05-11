@@ -25,8 +25,8 @@ use std::collections::BTreeMap;
 
 use openmls::{
     component::ComponentData,
-    framing::{ProcessedMessage, ProtocolMessage},
-    group::{AppDataUpdates, MlsGroup as OpenMlsGroup, ProcessMessageError},
+    framing::{MlsMessageOut, ProcessedMessage, ProtocolMessage},
+    group::{AppDataUpdates, MlsGroup as OpenMlsGroup, ProcessMessageError, ProposalError},
     messages::proposals::{AppDataUpdateOperation, Proposal},
     messages::proposals_in::{ProposalIn, ProposalOrRefIn},
     // `CommitMessageBundle` lives in `prelude` because the natural path
@@ -243,63 +243,78 @@ pub(crate) fn process_message_with_app_data<Provider: OpenMlsProvider>(
     )?)
 }
 
-/// Stage a commit that bundles a single inline `AppDataUpdate(Update)`
-/// proposal AND the resulting AppDataDictionary update.
+/// Stage a standalone `AppDataUpdate(Update)` proposal AND a follow-up
+/// commit that references it from the OpenMLS proposal store.
 ///
-/// This is the shape used by the per-field intent handlers
-/// (`MetadataUpdate`, `UpdateAdminList`, …) when `proposals_enabled` is
-/// on. Unlike `propose_app_data_update` (which produces a
-/// proposal-by-reference that has to be committed in a follow-up sync),
-/// this builds a self-contained commit so the propose-and-apply happens in
-/// a single network round trip — preserving the "metadata update completes
-/// in one sync" semantics that the legacy GCE path provides.
+/// This is the shape XIP §1.5.2 / §3.4 prescribes for post-migration
+/// metadata updates: separate proposal and commit MLS messages, so the
+/// commit message carries only a `ProposalRef` (hash) rather than the
+/// AppDataUpdate payload bytes. Smaller commits, smaller proposal-
+/// processing hot paths, identical end state.
+///
+/// Returns `(proposal_msg, commit_bundle)`. The caller MUST publish
+/// `proposal_msg` and `commit_bundle.commit()` together in one
+/// `payloads_to_publish` batch (proposal first) so receivers see the
+/// proposal in the same network round trip before processing the
+/// commit that references it.
 ///
 /// The caller is expected to wrap this inside `generate_commit_with_rollback`
 /// so the staged commit can be extracted and persisted alongside the
 /// intent.
-pub(crate) fn stage_inline_app_data_commit<Provider: OpenMlsProvider>(
+pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
     mls_group: &mut OpenMlsGroup,
     provider: &Provider,
     signer: &impl openmls_traits::signatures::Signer,
     component_id: ComponentId,
     payload: Vec<u8>,
-) -> Result<CommitMessageBundle, GroupAppDataError<Provider::StorageError>> {
-    use openmls::messages::proposals::AppDataUpdateProposal;
-
+) -> Result<(MlsMessageOut, CommitMessageBundle), GroupAppDataError<Provider::StorageError>> {
+    // Lazy-batching: we deliberately do NOT block on pre-existing
+    // pending proposals. This helper queues a new `AppDataUpdate` then
+    // commits via `consume_proposal_store(true)`, sweeping whatever
+    // else is in the store — concurrent `AppDataUpdate`s (accumulated
+    // into the dict by step 2), leaf-node `Update`s, membership
+    // `Add` / `Remove` / `SelfRemove`, PSK, etc. — all into one
+    // commit. That's the design: minimize commit count, let the
+    // producers of those proposals decide if they need to force their
+    // own commit (because they want to send a message right now or
+    // grant access immediately). MLS guarantees consistent state
+    // convergence on the wire regardless of which commit body carries
+    // which proposal; the sender's intent ledger may carry less
+    // information than the on-wire commit, but the producer of each
+    // folded-in proposal already accepted that outcome by leaving it
+    // pending instead of issuing its own commit.
     let openmls_id = component_id.as_u16();
+    let operation = AppDataUpdateOperation::Update(payload.into());
 
-    // The commit builder defaults to `consume_proposal_store(true)` (see
-    // openmls's `Initial::default()`), matching the legacy GCE metadata-
-    // update path's behavior. So any pending `AppDataUpdate` proposals
-    // sitting in the store at the moment this runs will ALSO be swept
-    // into the commit — we account for their effects by chaining them
-    // with our own inline proposal through `accumulate_app_data_updates`
-    // below. Otherwise OpenMLS's `apply_app_data_update_proposals` would
-    // silently drop the pending proposals' dict writes.
+    // Step 1: publish a standalone proposal. This adds the proposal to
+    // the local pending-proposal store AND returns the wire-form
+    // MlsMessageOut for the proposal so the caller can broadcast it.
+    let (proposal_msg, _proposal_ref) = mls_group
+        .propose_app_data_update(provider, signer, openmls_id, operation)
+        .map_err(GroupAppDataError::Propose)?;
+
+    // Step 2: compute the per-component dict updates by sweeping every
+    // `AppDataUpdate` proposal currently in the store. The store may
+    // contain pre-existing `AppDataUpdate` proposals queued by earlier
+    // intents (e.g. two members each issuing a `GROUP_MEMBERSHIP`
+    // update, or a queued `update_group_name` that hasn't been
+    // committed yet); the accumulator chains them via the in-batch
+    // map so the final dict bytes match what
+    // `process_message_with_app_data` produces on the receive side.
     //
-    // Compute `AppDataUpdates` BEFORE we hand the proposal off to the
-    // commit builder. The receiver does the same dance via
-    // `process_message_with_app_data`, so both sides must end up with
-    // identical dict bytes — otherwise the commit's confirmation tag
-    // won't match across peers.
+    // Non-`AppDataUpdate` proposals (Add/Remove/Update/PSK/etc.) also
+    // get swept by `consume_proposal_store(true)` at step 3 — they
+    // ride into the commit natively via OpenMLS and don't contribute
+    // to AppData dict updates, so we don't include them in this
+    // iteration.
     //
-    // The ordering (pending first, inline last) mirrors OpenMLS's commit
-    // builder (`group_proposal_store_queue.chain(own_proposals)`) so
-    // that if a pending proposal and the inline proposal both target
-    // the same component, the inline one wins the final value.
-    //
-    // Failure mode if OpenMLS ever changes that chain order: the sender
-    // and receiver will each compute a different final dict value for the
-    // same component, so the commit's confirmation tag won't match across
-    // peers. That is an *observable* failure (receivers reject the commit
-    // with `WrongConfirmationTag`) — not a silent one — and the E2E tests
-    // in `groups/tests/test_proposals.rs` under the AppDataUpdate section
-    // would fail loudly on any openmls bump that reordered the chain. A
-    // dedicated "pending-vs-inline ordering" test belongs in the migration
-    // PR that wires a public standalone-proposal path — without that path
-    // there's no public API today to pre-populate the pending store with
-    // an AppDataUpdate proposal to test against.
-    let inline_operation = AppDataUpdateOperation::Update(payload.clone().into());
+    // Failure mode if OpenMLS ever changes `consume_proposal_store(true)`'s
+    // sweep behavior or `pending_proposals()` ordering: sender and
+    // receiver compute different final dict bytes for the same
+    // component, the commit's confirmation tag mismatches, and
+    // receivers reject the commit with `WrongConfirmationTag`. The E2E
+    // tests in `groups/tests/test_proposals.rs` under the AppDataUpdate
+    // section will fail loudly on any OpenMLS bump that breaks this.
     let pending_tuples: Vec<(openmls::component::ComponentId, AppDataUpdateOperation)> = mls_group
         .pending_proposals()
         .filter_map(|q| match q.proposal() {
@@ -307,23 +322,23 @@ pub(crate) fn stage_inline_app_data_commit<Provider: OpenMlsProvider>(
             _ => None,
         })
         .collect();
-    let chained = pending_tuples
-        .iter()
-        .map(|(id, op)| (*id, op))
-        .chain(std::iter::once((openmls_id, &inline_operation)));
-    let app_data_updates = accumulate_app_data_updates(mls_group, chained).inspect_err(|e| {
-        tracing::error!(
-            component_id = %component_id,
-            error = %e,
-            "Failed to compute AppDataUpdates for inline commit"
-        );
-    })?;
+    let pending_iter = pending_tuples.iter().map(|(id, op)| (*id, op));
+    let app_data_updates =
+        accumulate_app_data_updates(mls_group, pending_iter).inspect_err(|e| {
+            tracing::error!(
+                component_id = %component_id,
+                error = %e,
+                "Failed to compute AppDataUpdates for standalone propose+commit"
+            );
+        })?;
 
+    // Step 3: build a commit that consumes the proposal store (picks up
+    // the just-queued proposal). No `add_proposal` call — the proposal
+    // is encoded as a `ProposalRef` because it comes from the store, not
+    // from inline staging.
     let mut stage = mls_group
         .commit_builder()
-        .add_proposal(Proposal::AppDataUpdate(Box::new(
-            AppDataUpdateProposal::update(openmls_id, payload),
-        )))
+        .consume_proposal_store(true)
         .load_psks(provider.storage())?;
     stage.with_app_data_dictionary_updates(app_data_updates);
 
@@ -331,10 +346,10 @@ pub(crate) fn stage_inline_app_data_commit<Provider: OpenMlsProvider>(
         .build(provider.rand(), provider.crypto(), signer, |_| true)?
         .stage_commit(provider)?;
 
-    Ok(bundle)
+    Ok((proposal_msg, bundle))
 }
 
-/// Errors surfaced by [`stage_inline_app_data_commit`].
+/// Errors surfaced by [`stage_app_data_propose_and_commit`].
 ///
 /// Wrapped into `GroupError` via the `#[from]` impl on
 /// `GroupError::AppDataCommit` so the structured source is preserved at
@@ -343,6 +358,10 @@ pub(crate) fn stage_inline_app_data_commit<Provider: OpenMlsProvider>(
 /// the public `GroupError` enum.
 #[derive(Debug, thiserror::Error)]
 pub enum GroupAppDataError<StorageError: std::error::Error> {
+    /// `propose_app_data_update(…)` failed when staging the standalone
+    /// proposal that precedes the commit.
+    #[error("propose error: {0}")]
+    Propose(#[from] ProposalError<StorageError>),
     /// `commit_builder().load_psks(…).build(…)` failed.
     #[error("commit create error: {0}")]
     CreateCommit(#[from] openmls::group::CreateCommitError),
@@ -356,6 +375,33 @@ pub enum GroupAppDataError<StorageError: std::error::Error> {
     /// tag mismatch on the wire if it ever escaped.
     #[error("apply payload error: {0}")]
     ApplyPayload(#[from] self::component_source::ComponentSourceError),
+}
+
+// Specialize to the concrete SqlKeyStoreError because that's the only
+// storage instantiation used (see `GroupError::AppDataCommit` at
+// error.rs). It also lets us delegate to `RetryableError<Mls>` impls
+// already defined in `xmtp_db::errors` for the inner OpenMLS error
+// types — sibling pattern to `GroupError::Proposal(e) => e.is_retryable()`
+// — so SQLite-busy storage faults retry instead of permanently failing
+// the intent.
+impl xmtp_common::RetryableError for GroupAppDataError<xmtp_db::sql_key_store::SqlKeyStoreError> {
+    fn is_retryable(&self) -> bool {
+        match self {
+            // Delegate to the inner OpenMLS error's retryability so
+            // SQLite-busy storage faults during propose / stage retry
+            // rather than permanently fail the intent. The matching
+            // upstream impls live in `xmtp_db::errors`
+            // (`RetryableError<Mls>` for `ProposalError` /
+            // `CommitBuilderStageError`).
+            Self::Propose(e) => xmtp_common::retryable!(e),
+            Self::StageCommit(e) => xmtp_common::retryable!(e),
+            // Deterministic shape / staging-precondition failures —
+            // CreateCommit is upstream-`false`, and ApplyPayload is a
+            // sender-side encode failure that won't get better on
+            // retry.
+            Self::CreateCommit(_) | Self::ApplyPayload(_) => false,
+        }
+    }
 }
 
 /// Compute the [`AppDataUpdates`] required to commit any pending
