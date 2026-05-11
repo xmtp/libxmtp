@@ -2732,10 +2732,10 @@ async fn test_update_group_description_via_app_data_update() {
 /// Pins the bug fixed by routing `get_message_expire_at_ns` through
 /// the capability-aware `extract_group_mutable_metadata_capability_aware`
 /// helper: before the fix, the static
-/// `extract_group_mutable_metadata` swallowed `MissingExtension` on
-/// migrated groups, so `get_message_expire_at_ns` returned `None` and
-/// every message stored post-bootstrap had `expire_at_ns = None` — no
-/// expiry, silently disabling disappearing messages.
+/// `extract_legacy_group_mutable_metadata` swallowed `MissingExtension`
+/// on migrated groups, so `get_message_expire_at_ns` returned `None`
+/// and every message stored post-bootstrap had `expire_at_ns = None` —
+/// no expiry, silently disabling disappearing messages.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_disappearing_settings_survive_bootstrap() {
     use xmtp_db::group_message::MsgQueryArgs;
@@ -3338,7 +3338,7 @@ async fn test_admin_list_add_unchanged_on_unmigrated_group() {
 /// AppData dict on a fully-migrated group — the post-bootstrap
 /// steady-state path. Without `oruw`'s capability-aware welcome read,
 /// the legacy GMM extension is gone on migrated groups so
-/// `extract_group_mutable_metadata` returned `MissingExtension`,
+/// `extract_legacy_group_mutable_metadata` returned `MissingExtension`,
 /// `.ok()` swallowed it, and the welcomed group admitted the member
 /// unpaused — fork hazard for clients below the dict's floor version.
 #[xmtp_common::test(unwrap_try = true)]
@@ -3369,7 +3369,9 @@ async fn test_welcome_on_migrated_group_pauses_below_min_version() {
     // the subject of this test.
     tester!(bo);
     let alix_group = alix.create_group(None, None)?;
-    alix_group.add_members(&[bo.context.identity.inbox_id()]).await?;
+    alix_group
+        .add_members(&[bo.context.identity.inbox_id()])
+        .await?;
 
     // Bump min-version in legacy GMM (the only place to write it
     // before migration). Bootstrap synthesis will pull this value
@@ -3396,7 +3398,9 @@ async fn test_welcome_on_migrated_group_pauses_below_min_version() {
     // the welcome-time read MUST find the floor in the dict and pause
     // the welcomed group at welcome-application time.
     tester!(carol);
-    alix_group.add_members(&[carol.context.identity.inbox_id()]).await?;
+    alix_group
+        .add_members(&[carol.context.identity.inbox_id()])
+        .await?;
 
     let carol_groups = carol.sync_welcomes().await?;
     let carol_group = carol_groups

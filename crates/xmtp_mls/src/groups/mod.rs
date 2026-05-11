@@ -2056,13 +2056,27 @@ where
                 // the group" case and remains the soft-skip → empty
                 // Vec contract.
                 let metadata =
-                    match xmtp_mls_common::group_mutable_metadata::extract_group_mutable_metadata(
+                    match xmtp_mls_common::group_mutable_metadata::extract_legacy_group_mutable_metadata(
                         &mls_group,
                     ) {
                         Ok(m) => Some(m),
                         Err(
                             xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::MissingExtension,
-                        ) => None,
+                        ) => {
+                            // Expected on very old groups created before
+                            // the legacy GMM extension existed; logged at
+                            // debug to give operators visibility without
+                            // spamming warn on a legitimate state. An
+                            // empty list is the contract callers expect
+                            // (admin_list / super_admin_list return
+                            // `Ok(vec![])` here, not `Err`).
+                            tracing::debug!(
+                                group_id = hex::encode(self.group_id.as_slice()),
+                                kind = ?kind,
+                                "unmigrated group has no legacy GroupMutableMetadata extension; returning empty admin set"
+                            );
+                            None
+                        }
                         Err(e) => {
                             return Err(GroupError::MetadataPermissionsError(
                                 MetadataPermissionsError::Mutable(e),

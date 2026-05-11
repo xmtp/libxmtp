@@ -377,8 +377,25 @@ where
             Ok(metadata) => Some(metadata),
             Err(crate::groups::app_data::component_source::ComponentSourceError::GroupMutableMetadata(
                 xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::MissingExtension,
-            )) => None,
+            )) => {
+                // Expected on welcomes from very old clients (no GMM
+                // extension on the group context). Logged at debug
+                // rather than dropped silently so an operator can
+                // distinguish "legitimately old group" from "fresh
+                // welcome that should have had GMM" when triaging.
+                tracing::debug!(
+                    group_id = hex::encode(&group_id),
+                    "welcome carries no legacy GroupMutableMetadata extension; \
+                     disappearing-settings and paused_for_version fall back to defaults"
+                );
+                None
+            }
             Err(e) => {
+                // Wire corruption from the welcomer (malformed legacy
+                // GMM bytes, dict decode failure on a migrated group).
+                // Warn-level so operators see this in production logs
+                // — the welcome still completes with default settings
+                // rather than failing the join.
                 tracing::warn!(
                     group_id = hex::encode(&group_id),
                     error = ?e,

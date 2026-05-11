@@ -573,7 +573,7 @@ pub(crate) fn merge_app_data_into_mutable_metadata(
 ///
 /// On migrated groups the legacy `GroupMutableMetadata` group context
 /// extension is stripped by the bootstrap commit, so the static
-/// [`xmtp_mls_common::group_mutable_metadata::extract_group_mutable_metadata`]
+/// [`xmtp_mls_common::group_mutable_metadata::extract_legacy_group_mutable_metadata`]
 /// returns `MissingExtension` and any caller that swallows the error
 /// with `.ok()` silently defaults every metadata field (notably:
 /// disappearing-message settings and `MinimumSupportedProtocolVersion`
@@ -592,11 +592,8 @@ pub(crate) fn extract_group_mutable_metadata_capability_aware(
     mls_group: &OpenMlsGroup,
 ) -> Result<GroupMutableMetadata, ComponentSourceError> {
     if super::is_migrated_group(mls_group) {
-        let mut base = GroupMutableMetadata::new(
-            std::collections::HashMap::new(),
-            Vec::new(),
-            Vec::new(),
-        );
+        let mut base =
+            GroupMutableMetadata::new(std::collections::HashMap::new(), Vec::new(), Vec::new());
         merge_app_data_into_mutable_metadata(&mut base, mls_group)?;
         Ok(base)
     } else {
