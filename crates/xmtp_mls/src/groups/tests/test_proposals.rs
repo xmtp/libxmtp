@@ -2727,6 +2727,101 @@ async fn test_update_group_description_via_app_data_update() {
     );
 }
 
+/// Disappearing-message settings MUST survive the bootstrap commit.
+///
+/// Pins the bug fixed by routing `get_message_expire_at_ns` through
+/// the capability-aware `extract_group_mutable_metadata_capability_aware`
+/// helper: before the fix, the static
+/// `extract_group_mutable_metadata` swallowed `MissingExtension` on
+/// migrated groups, so `get_message_expire_at_ns` returned `None` and
+/// every message stored post-bootstrap had `expire_at_ns = None` — no
+/// expiry, silently disabling disappearing messages.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_disappearing_settings_survive_bootstrap() {
+    use xmtp_db::group_message::MsgQueryArgs;
+    use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
+
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = bo_groups.first()?;
+    bo_group.sync().await?;
+
+    // Configure disappearing messages on the unmigrated group. Both
+    // `from_ns` and `in_ns` must be > 0 —
+    // `MessageDisappearingSettings::is_enabled` is the gate that flips
+    // on the expire_at_ns plumbing. `from_ns = 1` is a sentinel-low
+    // value (not a real "from" timestamp); the test only needs `> 0`
+    // to satisfy `is_enabled`.
+    const DISAPPEAR_IN_NS: i64 = 3_600_000_000_000; // 1 hour
+    let settings = MessageDisappearingSettings::new(1, DISAPPEAR_IN_NS);
+    alix_group
+        .update_conversation_message_disappearing_settings(settings)
+        .await?;
+    bo_group.sync().await?;
+
+    // Send a pre-bootstrap message. Stored expire_at_ns should be set
+    // to roughly `now_ns + DISAPPEAR_IN_NS`.
+    let pre_send_ns = xmtp_common::time::now_ns();
+    alix_group
+        .send_message(b"before-bootstrap", SendMessageOpts::default())
+        .await?;
+    bo_group.sync().await?;
+    let bo_pre_msgs = bo_group.find_messages(&MsgQueryArgs::default())?;
+    let pre_msg = bo_pre_msgs
+        .iter()
+        .find(|m| m.decrypted_message_bytes == b"before-bootstrap")
+        .expect("bo should have decrypted the pre-bootstrap message");
+    let pre_expire = pre_msg.expire_at_ns.expect(
+        "pre-bootstrap message should carry an expire_at_ns derived from disappearing settings",
+    );
+    assert!(
+        pre_expire > pre_send_ns,
+        "pre-bootstrap expire_at_ns ({pre_expire}) must be in the future of send ts ({pre_send_ns})"
+    );
+    assert!(
+        pre_expire < pre_send_ns + 2 * DISAPPEAR_IN_NS,
+        "pre-bootstrap expire_at_ns ({pre_expire}) must be within 2x the disappear window of send ts ({pre_send_ns}); \
+         catches a regression that stores `Some(now_ns())` (zero-duration) or `Some(garbage)`"
+    );
+
+    // Run the real bootstrap commit — strips the legacy GMM extension.
+    alix_group.enable_proposals().await?;
+    bo_group.sync().await?;
+
+    // Send a post-bootstrap message. Before the capability-aware fix,
+    // `get_message_expire_at_ns` returned None here because it read
+    // the (now-absent) legacy GMM extension. After the fix, the dict
+    // overlay supplies the disappearing settings and expire_at_ns is
+    // populated.
+    let post_send_ns = xmtp_common::time::now_ns();
+    alix_group
+        .send_message(b"after-bootstrap", SendMessageOpts::default())
+        .await?;
+    bo_group.sync().await?;
+    let bo_post_msgs = bo_group.find_messages(&MsgQueryArgs::default())?;
+    let post_msg = bo_post_msgs
+        .iter()
+        .find(|m| m.decrypted_message_bytes == b"after-bootstrap")
+        .expect("bo should have decrypted the post-bootstrap message");
+    let post_expire = post_msg.expire_at_ns.expect(
+        "post-bootstrap message MUST carry an expire_at_ns — disappearing settings must survive the legacy GMM strip",
+    );
+    assert!(
+        post_expire > post_send_ns,
+        "post-bootstrap expire_at_ns ({post_expire}) must be in the future of send ts ({post_send_ns})"
+    );
+    assert!(
+        post_expire < post_send_ns + 2 * DISAPPEAR_IN_NS,
+        "post-bootstrap expire_at_ns ({post_expire}) must be within 2x the disappear window of send ts ({post_send_ns}); \
+         catches a regression that stores `Some(now_ns())` or `Some(garbage)`"
+    );
+}
+
 // NOTE: Three E2E tests are deliberately missing from phase 1. Each is
 // tracked here so a future PR can tick them off once the underlying
 // callpath exists.
