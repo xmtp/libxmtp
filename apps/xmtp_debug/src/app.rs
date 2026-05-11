@@ -87,8 +87,12 @@ impl App {
         Ok(Arc::new(redb::Database::create(Self::redb()?)?))
     }
 
-    /// All data stored here
+    /// All data stored here.
+    /// Respects `XDBG_DB_ROOT` env var for overriding the default data directory.
     fn data_directory() -> Result<PathBuf> {
+        if let Ok(root) = std::env::var("XDBG_DB_ROOT") {
+            return Ok(PathBuf::from(root));
+        }
         let data = if let Some(dir) = ProjectDirs::from("org", "xmtp", "xdbg") {
             Ok::<_, eyre::Report>(dir.data_dir().to_path_buf())
         } else {
