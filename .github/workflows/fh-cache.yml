@@ -57,6 +57,13 @@ jobs:
         run: nix build .#validation-service-image-aarch64-unknown-linux-musl
       - name: Pin to cachix
         if: github.ref_name == 'main'
-        run: cachix pin xmtp validation-service-image-aarch64 ./result
+        # Push synchronously before pinning. The cachix-action watch-store
+        # daemon uploads paths in the background, so a bare `cachix pin`
+        # races against it and fails with HTTP 400 when the path has not
+        # yet been pushed. `cachix push` is idempotent — a no-op if the
+        # path is already in the cache — so it is safe to always run.
+        run: |
+          cachix push xmtp ./result
+          cachix pin xmtp validation-service-image-aarch64 ./result
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
