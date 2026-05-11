@@ -18,6 +18,11 @@ use xmtp_mls::common::filter_directive;
 
 use crate::args::{LogFormat, LogOptions};
 
+/// Env var whose value is appended (comma-separated) to the file-log
+/// EnvFilter directives. Lets callers add targets like `openmls=trace`
+/// without having to override the whole filter via `RUST_LOG`.
+const FILE_LOG_EXTRA_ENV: &str = "XDBG_FILE_LOG_EXTRA";
+
 #[derive(Default)]
 pub struct Logger {
     log_format: LogFormat,
@@ -66,7 +71,20 @@ impl Logger {
                     .expect("filter is static")
             })
         };
-        let file_filter = || filter_directive(&verbosity.to_string());
+        let file_filter = || {
+            let mut filter = filter_directive(&verbosity.to_string());
+            if let Ok(extra) = std::env::var(FILE_LOG_EXTRA_ENV) {
+                for piece in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                    match piece.parse() {
+                        Ok(directive) => filter = filter.add_directive(directive),
+                        Err(e) => eprintln!(
+                            "warning: ignoring invalid {FILE_LOG_EXTRA_ENV} directive {piece:?}: {e}"
+                        ),
+                    }
+                }
+            }
+            filter
+        };
         let subscriber = tracing_subscriber::registry();
         let now = chrono::Local::now();
         let log_file_name = PathBuf::from(format!("./{}-xdbg", now));
