@@ -296,7 +296,7 @@ xdbg_flake_ref() {
 xdbg_binary_path() {
     local kind="$1" sha="$2"
     local out_path
-    out_path=$(nix build --no-link --print-out-paths "$(xdbg_flake_ref "$kind" "$sha")" 2>&1) || {
+    out_path=$(nix build -L --no-link --print-out-paths "$(xdbg_flake_ref "$kind" "$sha")" 2>&1) || {
         printf '%s\n' "$out_path" >&2
         return 1
     }
@@ -345,7 +345,7 @@ xdbg_probe_available() {
         return 2
     fi
 
-    probe_out=$(nix build "${nix_args[@]}" 2>&1) || probe_rc=$?
+    probe_out=$(nix build -L "${nix_args[@]}" 2>&1) || probe_rc=$?
     if [ $probe_rc -eq 0 ]; then
         return 0
     fi
