@@ -76,6 +76,11 @@ jobs:
         with:
           tool: wasm-bindgen@0.2.108
 
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+
       - name: Setup node
         uses: ./.github/actions/setup-node
         with:
