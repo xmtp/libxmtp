@@ -19,9 +19,7 @@ use xmtp_mls::common::filter_directive;
 
 use crate::args::{LogFormat, LogOptions};
 
-/// Env var whose value is appended (comma-separated) to the file-log
-/// EnvFilter directives. Lets callers add targets like `openmls=trace`
-/// without having to override the whole filter via `RUST_LOG`.
+/// Comma-separated EnvFilter directives appended to file-log filter. Bypasses RUST_LOG override.
 const FILE_LOG_EXTRA_ENV: &str = "XDBG_FILE_LOG_EXTRA";
 
 #[derive(Default)]
@@ -32,6 +30,7 @@ pub struct Logger {
     human: bool,
     logfmt: bool,
     verbosity: Verbosity<InfoLevel>,
+    trace_openmls_kv: bool,
     guards: Vec<tracing_appender::non_blocking::WorkerGuard>,
 }
 
@@ -44,6 +43,7 @@ impl<'a> From<&'a LogOptions> for Logger {
             show_fields: options.show_fields,
             verbosity: options.verbose,
             human: options.human,
+            trace_openmls_kv: options.trace_openmls_kv,
             guards: Vec::new(),
         }
     }
@@ -58,6 +58,7 @@ impl Logger {
             human,
             logfmt,
             ref verbosity,
+            trace_openmls_kv,
             ref mut guards,
         } = *self;
 
@@ -79,8 +80,14 @@ impl Logger {
                     .parse()
                     .expect("static directive must be correct"),
             );
+            if trace_openmls_kv {
+                filter = filter.add_directive(
+                    format!("{}=trace", xmtp_configuration::OPENMLS_KV_TARGET)
+                        .parse()
+                        .expect("static directive must be correct"),
+                );
+            }
             if let Ok(extra) = std::env::var(FILE_LOG_EXTRA_ENV) {
-                println!("adding {}", extra);
                 for piece in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
                     match piece.parse() {
                         Ok(directive) => filter = filter.add_directive(directive),
@@ -90,7 +97,6 @@ impl Logger {
                     }
                 }
             }
-            println!("full filter = {}", filter);
             filter
         };
         // capture logs as tracing events from crates which use `log` (openmls)

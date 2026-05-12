@@ -364,6 +364,37 @@ xdbg_probe_available() {
     return 2
 }
 
+# Per-binary cache of which optional flags an xdbg build supports.
+# Key: "$kind:$sha:$flag". Value: 0 (supported), 1 (absent). Populated
+# lazily by xdbg_supports_flag via a single `--help` probe per binary.
+declare -A XDBG_FLAG_CACHE=()
+
+# Check whether the xdbg binary for ($kind, $sha) advertises $flag in its
+# top-level --help output. Returns 0 if present, 1 otherwise.
+# Cached so repeated calls (one per xdbg invocation in run-sequence) don't
+# re-exec the binary.
+xdbg_supports_flag() {
+    local kind="$1" sha="$2" flag="$3"
+    local key="${kind}:${sha}:${flag}"
+    if [ -n "${XDBG_FLAG_CACHE[$key]:-}" ]; then
+        return "${XDBG_FLAG_CACHE[$key]}"
+    fi
+    local bin help_out rc=0
+    bin=$(xdbg_binary_path "$kind" "$sha") || {
+        XDBG_FLAG_CACHE[$key]=1
+        return 1
+    }
+    local -a env_args
+    mapfile -t env_args < <(xdbg_sandbox_env_args)
+    help_out=$(env "${env_args[@]}" "$bin" --help 2>&1) || rc=$?
+    if [ "$rc" -eq 0 ] && grep -qF -- "$flag" <<<"$help_out"; then
+        XDBG_FLAG_CACHE[$key]=0
+        return 0
+    fi
+    XDBG_FLAG_CACHE[$key]=1
+    return 1
+}
+
 # Run a non-informative xdbg command with `--json --fail-fast`. Every
 # tested sha now carries the --fail-fast flag, so non-zero rc IS the
 # failure signal — no log-file scanning needed.
@@ -397,6 +428,12 @@ run_xdbg_real() {
     if [ -n "${XVT_XDBG_FLAGS:-}" ]; then
         # shellcheck disable=SC2206  # word-split is the intent
         xtra_flags=(${XVT_XDBG_FLAGS})
+    fi
+    # `--trace-openmls-kv` lands on xdbg after the openmls_kv instrumentation
+    # PR. Probe --help once per binary so newer stables/nightlies pick it up
+    # without code changes here, but older builds don't get rejected.
+    if xdbg_supports_flag "$kind" "$sha" "--trace-openmls-kv"; then
+        xtra_flags+=(--trace-openmls-kv)
     fi
 
     local call_dir
