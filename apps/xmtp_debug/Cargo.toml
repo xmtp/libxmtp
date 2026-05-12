@@ -50,6 +50,7 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 tokio-stream.workspace = true
 tracing = { workspace = true, features = ["valuable"] }
 tracing-appender = "0.2"
+tracing-log = "0.2"
 tracing-logfmt.workspace = true
 tracing-subscriber = { workspace = true, features = [
   "time",

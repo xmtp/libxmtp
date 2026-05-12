@@ -59,6 +59,8 @@ impl Logger {
             ref verbosity,
             ref mut guards,
         } = *self;
+        // capture logs as tracing events from crates which use `log` (openmls)
+        LogTracer::init()?;
 
         let verbosity = verbosity.tracing_level_filter();
 
@@ -74,6 +76,7 @@ impl Logger {
         let file_filter = || {
             let mut filter = filter_directive(&verbosity.to_string());
             if let Ok(extra) = std::env::var(FILE_LOG_EXTRA_ENV) {
+                println!("adding {}", extra);
                 for piece in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
                     match piece.parse() {
                         Ok(directive) => filter = filter.add_directive(directive),
@@ -83,6 +86,7 @@ impl Logger {
                     }
                 }
             }
+            println!("full filter = {}", filter);
             filter
         };
         let subscriber = tracing_subscriber::registry();

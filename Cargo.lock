@@ -14001,6 +14001,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "tracing-appender",
+ "tracing-log",
  "tracing-logfmt",
  "tracing-subscriber",
  "url",
