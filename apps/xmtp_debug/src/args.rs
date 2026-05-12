@@ -308,6 +308,9 @@ pub struct LogOptions {
     /// Specify verbosity of logs, default ERROR
     #[command(flatten)]
     pub verbose: Verbosity<InfoLevel>,
+    /// Append `openmls_kv=trace` to file-log filter to capture SqlKeyStore K/V spans.
+    #[arg(long)]
+    pub trace_openmls_kv: bool,
 }
 
 /// Specify which backend to use

@@ -7,6 +7,7 @@ use color_eyre::eyre;
 use owo_colors::OwoColorize;
 use tracing::Dispatch;
 use tracing::{Event, Subscriber};
+use tracing_log::LogTracer;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::{EnvFilter, prelude::*};
 use tracing_subscriber::{
@@ -18,6 +19,9 @@ use xmtp_mls::common::filter_directive;
 
 use crate::args::{LogFormat, LogOptions};
 
+/// Comma-separated EnvFilter directives appended to file-log filter. Bypasses RUST_LOG override.
+const FILE_LOG_EXTRA_ENV: &str = "XDBG_FILE_LOG_EXTRA";
+
 #[derive(Default)]
 pub struct Logger {
     log_format: LogFormat,
@@ -26,6 +30,7 @@ pub struct Logger {
     human: bool,
     logfmt: bool,
     verbosity: Verbosity<InfoLevel>,
+    trace_openmls_kv: bool,
     guards: Vec<tracing_appender::non_blocking::WorkerGuard>,
 }
 
@@ -38,6 +43,7 @@ impl<'a> From<&'a LogOptions> for Logger {
             show_fields: options.show_fields,
             verbosity: options.verbose,
             human: options.human,
+            trace_openmls_kv: options.trace_openmls_kv,
             guards: Vec::new(),
         }
     }
@@ -52,6 +58,7 @@ impl Logger {
             human,
             logfmt,
             ref verbosity,
+            trace_openmls_kv,
             ref mut guards,
         } = *self;
 
@@ -66,7 +73,35 @@ impl Logger {
                     .expect("filter is static")
             })
         };
-        let file_filter = || filter_directive(&verbosity.to_string());
+        let file_filter = || {
+            let mut filter = filter_directive(&verbosity.to_string());
+            filter = filter.add_directive(
+                format!("openmls={verbosity}")
+                    .parse()
+                    .expect("static directive must be correct"),
+            );
+            if trace_openmls_kv {
+                filter = filter.add_directive(
+                    format!("{}=trace", xmtp_configuration::OPENMLS_KV_TARGET)
+                        .parse()
+                        .expect("static directive must be correct"),
+                );
+            }
+            if let Ok(extra) = std::env::var(FILE_LOG_EXTRA_ENV) {
+                for piece in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                    match piece.parse() {
+                        Ok(directive) => filter = filter.add_directive(directive),
+                        Err(e) => eprintln!(
+                            "warning: ignoring invalid {FILE_LOG_EXTRA_ENV} directive {piece:?}: {e}"
+                        ),
+                    }
+                }
+            }
+            filter
+        };
+        // capture logs as tracing events from crates which use `log` (openmls)
+        LogTracer::init()?;
+
         let subscriber = tracing_subscriber::registry();
         let now = chrono::Local::now();
         let log_file_name = PathBuf::from(format!("./{}-xdbg", now));

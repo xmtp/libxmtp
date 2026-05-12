@@ -50,6 +50,7 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 tokio-stream.workspace = true
 tracing = { workspace = true, features = ["valuable"] }
 tracing-appender = "0.2"
+tracing-log = "0.2"
 tracing-logfmt.workspace = true
 tracing-subscriber = { workspace = true, features = [
   "time",
@@ -58,6 +59,7 @@ tracing-subscriber = { workspace = true, features = [
   "env-filter",
   "valuable",
   "ansi",
+  "tracing-log",
 ] }
 url.workspace = true
 valuable = { version = "0.1", features = ["derive"] }
@@ -71,3 +73,8 @@ xmtp_id.workspace = true
 xmtp_mls.workspace = true
 xmtp_proto.workspace = true
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+[features]
+default = ["deserialize-paths"]
+# Forward bincode field-path debug to xmtp_db. Runtime-gated on `openmls_kv` target enabled.
+deserialize-paths = ["xmtp_db/deserialize-paths"]
