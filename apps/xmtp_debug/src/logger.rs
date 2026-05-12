@@ -7,6 +7,7 @@ use color_eyre::eyre;
 use owo_colors::OwoColorize;
 use tracing::Dispatch;
 use tracing::{Event, Subscriber};
+use tracing_log::LogTracer;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::{EnvFilter, prelude::*};
 use tracing_subscriber::{
@@ -59,8 +60,6 @@ impl Logger {
             ref verbosity,
             ref mut guards,
         } = *self;
-        // capture logs as tracing events from crates which use `log` (openmls)
-        LogTracer::init()?;
 
         let verbosity = verbosity.tracing_level_filter();
 
@@ -75,6 +74,11 @@ impl Logger {
         };
         let file_filter = || {
             let mut filter = filter_directive(&verbosity.to_string());
+            filter = filter.add_directive(
+                format!("openmls={verbosity}")
+                    .parse()
+                    .expect("static directive must be correct"),
+            );
             if let Ok(extra) = std::env::var(FILE_LOG_EXTRA_ENV) {
                 println!("adding {}", extra);
                 for piece in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
@@ -89,6 +93,9 @@ impl Logger {
             println!("full filter = {}", filter);
             filter
         };
+        // capture logs as tracing events from crates which use `log` (openmls)
+        LogTracer::init()?;
+
         let subscriber = tracing_subscriber::registry();
         let now = chrono::Local::now();
         let log_file_name = PathBuf::from(format!("./{}-xdbg", now));

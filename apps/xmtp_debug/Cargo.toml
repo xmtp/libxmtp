@@ -59,6 +59,7 @@ tracing-subscriber = { workspace = true, features = [
   "env-filter",
   "valuable",
   "ansi",
+  "tracing-log",
 ] }
 url.workspace = true
 valuable = { version = "0.1", features = ["derive"] }
