@@ -64,7 +64,7 @@ use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 /// [`GroupError`]: super::super::error::GroupError
 #[derive(Debug, thiserror::Error)]
 pub enum ComponentSourceError {
-    /// The component is not in the well-known XMTP range that phase 1 handles.
+    /// The component id is outside the well-known XMTP range.
     #[error("unknown component {0}")]
     UnknownComponent(ComponentId),
 
@@ -249,7 +249,7 @@ impl ComponentMutation<'_> {
 
 /// Hardcoded logical type of a well-known component. Returns `None` for
 /// app-range components (`0xC000-0xFEFF`) and for any well-known id that
-/// phase 1 has not yet mapped.
+/// is not yet wired into this match.
 pub(crate) fn component_type(id: ComponentId) -> Option<ComponentType> {
     match id {
         // Hardcoded registry / list components. ComponentRegistry itself is a
@@ -274,8 +274,8 @@ pub(crate) fn component_type(id: ComponentId) -> Option<ComponentType> {
         | ComponentId::MESSAGE_DISAPPEAR_IN_NS
         | ComponentId::COMMIT_LOG_SIGNER => Some(ComponentType::Bytes),
 
-        // Immutable metadata (not flowable through AppDataUpdate writes in
-        // phase 1, but we still advertise the type for completeness).
+        // Immutable metadata (not flowable through AppDataUpdate writes,
+        // but we still advertise the type for completeness).
         ComponentId::CONVERSATION_TYPE
         | ComponentId::CREATOR_INBOX_ID
         | ComponentId::ONESHOT_MESSAGE => Some(ComponentType::Bytes),

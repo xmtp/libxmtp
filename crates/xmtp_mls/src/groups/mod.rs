@@ -2420,8 +2420,8 @@ where
     ///
     /// Intentionally distinct from `proposals_enabled`: a group can
     /// have `proposals_enabled == true` but not yet have completed
-    /// its bootstrap commit (the foundation-PR window). During that
-    /// window the legacy GMM is still authoritative.
+    /// its bootstrap commit, during which window the legacy GMM is
+    /// still authoritative.
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
         use self::app_data::component_source::ComponentSourceError;
         self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
