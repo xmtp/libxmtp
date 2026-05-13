@@ -8,7 +8,7 @@ use crate::{app::types::*, constants::STORAGE_PREFIX};
 use super::{Database, MetadataStore};
 
 pub const MODULE: &str = "groups";
-pub const VERSION: u16 = 1;
+pub const VERSION: u16 = 2;
 pub const NAMESPACE: &str = const_format::concatcp!(STORAGE_PREFIX, ":", VERSION, "//", MODULE);
 
 /// Mapping of [`GroupKey`] to a bare-minimum serialized [`Group`]

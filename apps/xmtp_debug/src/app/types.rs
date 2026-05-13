@@ -5,7 +5,7 @@ use alloy::signers::local::PrivateKeySigner;
 use color_eyre::eyre::{self, Result};
 use ecdsa::SigningKey;
 use openmls::{credentials::BasicCredential, prelude::Credential};
-use prost::Message;
+use prost::Message as _;
 use speedy::{Readable, Writable};
 
 use xmtp_cryptography::XmtpInstallationCredential;
@@ -14,6 +14,28 @@ use xmtp_proto::xmtp::identity::MlsCredential;
 
 /// An InboxId represented as fixed bytes
 pub type InboxId = [u8; 32];
+
+/// Max bytes for the recorded `version_string` field on `Identity`. 64
+/// fits `<cargo-pkg-version>-<vergen-output>` with room to spare;
+/// chosen so `Identity` stays a fixed-width redb value.
+pub const VERSION_STRING_LEN: usize = 64;
+
+/// Right-zero-pad a version string into the fixed-width buffer.
+/// Errors if the string exceeds the buffer size (rather than silently
+/// truncating — a too-long version means the cap is wrong and we
+/// should bump VERSION_STRING_LEN).
+fn pack_version_string(s: &str) -> Result<[u8; VERSION_STRING_LEN]> {
+    let bytes = s.as_bytes();
+    if bytes.len() > VERSION_STRING_LEN {
+        return Err(eyre::eyre!(
+            "version string '{s}' is {} bytes; exceeds VERSION_STRING_LEN={VERSION_STRING_LEN}",
+            bytes.len()
+        ));
+    }
+    let mut out = [0u8; VERSION_STRING_LEN];
+    out[..bytes.len()].copy_from_slice(bytes);
+    Ok(out)
+}
 
 #[derive(Clone, Debug)]
 pub struct EthereumWallet(SigningKey<k256::Secp256k1>);
@@ -57,6 +79,11 @@ pub struct Identity {
     pub inbox_id: [u8; 32],
     pub installation_key: [u8; 32],
     eth_key: [u8; 32],
+    pub version_hash: u64,
+    /// `crate::get_version()` output of the xdbg binary that created
+    /// this identity. Right-zero-padded UTF-8. Use
+    /// `Identity::version_string` to decode.
+    pub version_string: [u8; VERSION_STRING_LEN],
 }
 
 impl std::fmt::Display for Identity {
@@ -89,6 +116,8 @@ impl Identity {
             inbox_id,
             installation_key: identity.installation_keys.private_bytes(),
             eth_key,
+            version_hash: crate::app::App::current_version_hash(),
+            version_string: pack_version_string(&crate::get_version())?,
         })
     }
 
@@ -96,11 +125,47 @@ impl Identity {
         EthereumWallet::from_bytes(self.eth_key).address()
     }
 
+    /// Decode the recorded version string (UTF-8 with trailing NUL
+    /// padding stripped). Errors if the bytes aren't valid UTF-8.
+    pub fn version_string(&self) -> Result<&str> {
+        let end = self
+            .version_string
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(VERSION_STRING_LEN);
+        std::str::from_utf8(&self.version_string[..end])
+            .map_err(|e| eyre::eyre!("invalid utf-8 in version_string: {e}"))
+    }
+
     /// SQLite database path for this identity
     pub fn db_path(&self, network: impl Into<u64> + Copy) -> Result<std::path::PathBuf> {
         let dir = crate::app::App::db_directory(network)?;
         let db_name = format!("{}:{}.db3", hex::encode(self.inbox_id), network.into());
         Ok(dir.join(db_name))
+    }
+
+    /// SQLite path for this identity, addressing a specific
+    /// `version_hash` partition. Used when loading an identity that
+    /// was written by a different xdbg version (non-strict mode).
+    pub fn db_path_for(
+        &self,
+        network: impl Into<u64> + Copy,
+        version_hash: u64,
+    ) -> Result<std::path::PathBuf> {
+        let dir = crate::app::App::db_directory_for(network, version_hash)?;
+        let db_name = format!("{}:{}.db3", hex::encode(self.inbox_id), network.into());
+        Ok(dir.join(db_name))
+    }
+
+    #[cfg(test)]
+    pub fn dummy_for_test() -> Identity {
+        Identity {
+            inbox_id: [0u8; 32],
+            installation_key: [0u8; 32],
+            eth_key: [0u8; 32],
+            version_hash: 0,
+            version_string: [0u8; VERSION_STRING_LEN],
+        }
     }
 }
 
@@ -187,6 +252,31 @@ pub struct Group {
     pub member_size: u32,
     /// members by inbox id
     pub members: Vec<InboxId>,
+    /// `crate::get_version()` of the xdbg binary that created this
+    /// group, right-zero-padded UTF-8. Same shape as
+    /// `Identity::version_string`. Decode via `Group::version_string`.
+    pub version_string: [u8; VERSION_STRING_LEN],
+}
+
+impl Group {
+    /// Decode the recorded version string (UTF-8 with trailing NUL
+    /// padding stripped). Errors if the bytes aren't valid UTF-8.
+    pub fn version_string(&self) -> Result<&str> {
+        let end = self
+            .version_string
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(VERSION_STRING_LEN);
+        std::str::from_utf8(&self.version_string[..end])
+            .map_err(|e| eyre::eyre!("invalid utf-8 in version_string: {e}"))
+    }
+
+    /// Pack the current xdbg version into the fixed-width
+    /// `version_string` slot. Use this at every `Group { ... }` site
+    /// so groups get stamped with their creator's binary version.
+    pub fn pack_current_version() -> Result<[u8; VERSION_STRING_LEN]> {
+        pack_version_string(&crate::get_version())
+    }
 }
 
 impl std::fmt::Display for Group {
@@ -227,5 +317,68 @@ impl redb::Value for Group {
 
     fn type_name() -> redb::TypeName {
         redb::TypeName::new("group")
+    }
+}
+
+/// Message recorded for a single healthcheck `SendMessage` op.
+/// Persisted to redb so the `NoMissingMessages` validator has an
+/// authoritative source of truth across runs and versions.
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Readable, Writable)]
+pub struct Message {
+    /// MLS message id (sha-256-derived hash from libxmtp's
+    /// `calculate_message_id`). Always 32 bytes.
+    pub id: [u8; 32],
+    /// Group this message belongs to.
+    pub group_id: [u8; 16],
+    /// Sender's inbox_id (32-byte form, same convention as `Identity`).
+    pub sender_inbox_id: InboxId,
+    /// Wall-clock at the sending op's call site. libxmtp doesn't surface
+    /// its internal envelope timestamp at `send_message` return, so this
+    /// is best-effort for diagnostics. Not used by the validator.
+    pub sent_at_ns: i64,
+    /// UUID of the healthcheck run that sent this message.
+    pub op_run_id: [u8; 16],
+    /// `crate::get_version()` output of the sending xdbg binary.
+    pub xdbg_version: String,
+}
+
+impl std::fmt::Display for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", hex::encode(self.id))
+    }
+}
+
+impl redb::Value for Message {
+    type SelfType<'a>
+        = Message
+    where
+        Self: 'a;
+
+    type AsBytes<'a>
+        = Vec<u8>
+    where
+        Self: 'a;
+
+    fn fixed_width() -> Option<usize> {
+        None
+    }
+
+    fn from_bytes<'a>(data: &'a [u8]) -> Self::SelfType<'a>
+    where
+        Self: 'a,
+    {
+        Message::read_from_buffer(data).unwrap()
+    }
+
+    fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> Self::AsBytes<'a>
+    where
+        Self: 'a,
+        Self: 'b,
+    {
+        value.write_to_vec().unwrap()
+    }
+
+    fn type_name() -> redb::TypeName {
+        redb::TypeName::new("message")
     }
 }

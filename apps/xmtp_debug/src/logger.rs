@@ -62,7 +62,7 @@ impl Logger {
         });
         let file_filter = || {
             EnvFilter::builder().parse(
-                "xmtp_api_d14n=DEBUG,xmtp_api=DEBUG,xmtp_mls=DEBUG,xmtp_id=DEBUG,xmtp_cryptography=DEBUG,xmtp_api_grpc=DEBUG,xdbg=ERROR",
+                "xmtp_api_d14n=DEBUG,xmtp_api=DEBUG,xmtp_mls=DEBUG,xmtp_id=DEBUG,xmtp_cryptography=DEBUG,xmtp_api_grpc=DEBUG,xdbg=ERROR,healthcheck=TRACE",
             ).expect("filter is static")
         };
         let subscriber = tracing_subscriber::registry();

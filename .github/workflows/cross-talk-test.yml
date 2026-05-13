@@ -1,0 +1,92 @@
+name: cross-talk-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'apps/xmtp_debug/**'
+      - 'nix/package/cross-talk-test/**'
+      - 'nix/package/cross-version-test/**'
+      - 'flake.nix'
+      - 'nix/lib/default.nix'
+      - 'nix/shells/local.nix'
+      - 'justfile'
+      - '.github/workflows/cross-talk-test.yml'
+
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Run profile (stable or nightly)"
+        required: false
+        default: "stable"
+        type: choice
+        options:
+          - stable
+          - nightly
+      sample_size:
+        description: "Nightly sample size (ignored for stable profile)"
+        required: false
+        default: "3"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cross-talk-test:
+    name: cross-talk-test (${{ matrix.profile }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Stable runs on every PR + push. Nightly runs only on
+        # workflow_dispatch / scheduled triggers.
+        profile:
+          - stable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v33
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            substituters = https://cache.nixos.org https://nix-community.cachix.org
+            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=
+
+      - name: Build cross-talk-test
+        run: nix build -L .#cross-talk-test
+
+      - name: Run cross-talk-test (stable)
+        if: matrix.profile == 'stable'
+        id: run_stable
+        env:
+          BACKEND: dev
+        run: |
+          plan=$(mktemp -t ctt-plan-XXXXXX.json)
+          nix run .#cross-talk-test -- pick-versions --sample-size 0 > "$plan"
+          jq . "$plan"
+          nix run .#cross-talk-test -- run-sequence "$plan"
+
+      - name: Upload summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-talk-test-${{ matrix.profile }}-summary-${{ github.run_id }}
+          path: ${{ steps.run_stable.outputs.out_dir }}/summary.json
+          if-no-files-found: ignore
+
+      - name: Upload libxmtp NDJSON logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-talk-test-${{ matrix.profile }}-libxmtp-logs-${{ github.run_id }}
+          path: ${{ steps.run_stable.outputs.out_dir }}/*.json
+          if-no-files-found: ignore

@@ -4600,6 +4600,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "inventory"
+version = "0.3.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4f0c30c76f2f4ccee3fe55a2435f691ca00c0e4bd87abe4f4a851b1d4dac39b"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9671,9 +9680,11 @@ dependencies = [
 
 [[package]]
 name = "xdbg"
-version = "0.1.0"
+version = "1.10.0"
 dependencies = [
  "alloy",
+ "async-trait",
+ "bitflags 2.10.0",
  "chrono",
  "clap",
  "clap-verbosity-flag",
@@ -9688,6 +9699,7 @@ dependencies = [
  "futures",
  "humantime",
  "indicatif",
+ "inventory",
  "itertools 0.14.0",
  "k256",
  "lipsum",
@@ -9720,6 +9732,7 @@ dependencies = [
  "xmtp_db",
  "xmtp_id",
  "xmtp_mls",
+ "xmtp_mls_common",
  "xmtp_proto",
  "xxhash-rust",
 ]

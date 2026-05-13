@@ -6,6 +6,8 @@ mod clients;
 mod export;
 /// Generate functionality
 mod generate;
+/// E2E health check across all protocol ops
+mod health;
 /// Information about this app
 mod info;
 /// Inspect data on the XMTP Network
@@ -20,17 +22,25 @@ mod send;
 mod store;
 /// Message/Conversation Streaming
 mod stream;
+/// Sync loaded identities against the network and reconcile redb
+mod sync;
 /// Types shared between App Functions
 mod types;
 
 use clap::CommandFactory;
 use color_eyre::eyre::{self, Result};
 use directories::ProjectDirs;
-use redb::DatabaseError;
-use std::{fs, path::PathBuf, sync::Arc};
+use redb::{DatabaseError, ReadableDatabase, TableHandle};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+    sync::OnceLock,
+};
 use xmtp_db::EncryptedMessageStore;
 use xmtp_id::InboxOwner;
 use xmtp_mls::identity::IdentityStrategy;
+use xxhash_rust::xxh3;
 
 use crate::args::{self, AppOpts};
 
@@ -46,6 +56,7 @@ impl App {
     pub fn new(opts: AppOpts) -> Result<Self> {
         fs::create_dir_all(&Self::data_directory()?)?;
         fs::create_dir_all(&Self::db_directory(&opts.backend)?)?;
+        Self::detect_legacy_db(&Self::redb()?)?;
         debug!(
             directory = %Self::data_directory()?.display(),
             sqlite_stores = %Self::db_directory(&opts.backend)?.display(),
@@ -101,10 +112,32 @@ impl App {
         Ok(data)
     }
 
-    /// Directory for all SQLite files
+    /// Hash of `crate::get_version()`'s raw output, used as the version
+    /// dimension of `IdentityKey` and as the SQLite-path version
+    /// segment. Computed once per process.
+    pub fn current_version_hash() -> u64 {
+        static CACHE: OnceLock<u64> = OnceLock::new();
+        *CACHE.get_or_init(|| xxh3::xxh3_64(crate::get_version().as_bytes()))
+    }
+
+    /// Directory for SQLite files belonging to the *current* binary
+    /// version. Always version-bucketed via `current_version_hash`.
+    /// Same shape in both strict and non-strict mode — the
+    /// `--strict-versioning` flag does not influence path construction.
     fn db_directory(network: impl Into<u64>) -> Result<PathBuf> {
+        Self::db_directory_for(network, Self::current_version_hash())
+    }
+
+    /// Directory for SQLite files belonging to a specific
+    /// `version_hash`. Used by non-strict reads that load identities
+    /// written by another xdbg binary version. Most callers should use
+    /// `db_directory(network)` instead.
+    fn db_directory_for(network: impl Into<u64>, version_hash: u64) -> Result<PathBuf> {
         let data = Self::data_directory()?;
-        let dir = data.join("sqlite").join(network.into().to_string());
+        let dir = data
+            .join("sqlite")
+            .join(network.into().to_string())
+            .join(format!("{version_hash:016x}"));
         Ok(dir)
     }
 
@@ -116,6 +149,37 @@ impl App {
         Ok(dir)
     }
 
+    /// Refuse to run against a redb file written by an xdbg version
+    /// whose `Identity` value layout is incompatible with the current
+    /// binary. Each schema bump renames the table namespace
+    /// (`xdbg:N//identity`); presence of any old namespace (v1, v2)
+    /// triggers abort. v3 adds a fixed-width `version_string` field
+    /// to `Identity`.
+    ///
+    /// Called by `App::new` before any other DB activity.
+    pub fn detect_legacy_db(redb_path: &Path) -> Result<()> {
+        if !redb_path.exists() {
+            return Ok(());
+        }
+        let db = redb::Database::open(redb_path)?;
+        let r = db.begin_read()?;
+        const LEGACY_NAMESPACES: &[&str] = &[
+            const_format::concatcp!(crate::constants::STORAGE_PREFIX, ":1//identity"),
+            const_format::concatcp!(crate::constants::STORAGE_PREFIX, ":2//identity"),
+        ];
+        for handle in r.list_tables()? {
+            if LEGACY_NAMESPACES.contains(&handle.name()) {
+                eyre::bail!(
+                    "this XDBG_DB_ROOT was written by an older xdbg with an \
+                     incompatible IdentityStore schema ({}). Run `xdbg --clear` \
+                     to remove all xdbg state, or use a different XDBG_DB_ROOT.",
+                    handle.name()
+                );
+            }
+        }
+        Ok(())
+    }
+
     pub async fn run(self) -> Result<()> {
         let App { opts } = self;
         use args::Commands::*;
@@ -123,6 +187,7 @@ impl App {
             cmd,
             backend,
             clear,
+            strict_versioning,
             ..
         } = opts;
         debug!(fdlimit = get_fdlimit(), "setting fdlimit");
@@ -134,7 +199,11 @@ impl App {
 
         if let Some(cmd) = cmd {
             match cmd {
-                Generate(g) => generate::Generate::new(g, backend).run().await,
+                Generate(g) => {
+                    generate::Generate::new(g, backend, strict_versioning)
+                        .run()
+                        .await
+                }
                 Send(s) => send::Send::new(s, backend)?.run().await,
                 Inspect(i) => inspect::Inspect::new(i, backend)?.run().await,
                 Query(q) => query::Query::new(q, backend)?.run().await,
@@ -142,6 +211,12 @@ impl App {
                 Export(e) => export::Export::new(e, backend)?.run(),
                 Modify(m) => modify::Modify::new(m, backend)?.run().await,
                 Stream(s) => stream::Stream::new(s, backend)?.run().await,
+                Healthcheck(h) => {
+                    health::Health::new(h, backend, strict_versioning)
+                        .run()
+                        .await
+                }
+                Sync(s) => sync::Sync::new(s, backend, strict_versioning).run().await,
             }?;
         }
 
@@ -156,6 +231,136 @@ impl App {
 
 fn generate_wallet() -> types::EthereumWallet {
     types::EthereumWallet::default()
+}
+
+#[cfg(test)]
+mod app_version_hash_tests {
+    use super::App;
+
+    #[test]
+    fn current_version_hash_is_stable() {
+        let a = App::current_version_hash();
+        let b = App::current_version_hash();
+        assert_eq!(a, b, "version hash must be stable within a process");
+    }
+
+    #[test]
+    fn current_version_hash_is_nonzero() {
+        // xxh3_64 of any non-empty string is overwhelmingly non-zero
+        assert_ne!(App::current_version_hash(), 0);
+    }
+}
+
+#[cfg(test)]
+mod app_db_directory_tests {
+    use super::App;
+    use std::sync::Mutex;
+
+    // Tests in this module mutate XDBG_DB_ROOT. Run them serialized so
+    // they don't observe each other's env state.
+    static ENV_GUARD: Mutex<()> = Mutex::new(());
+
+    fn with_db_root<R>(f: impl FnOnce(&std::path::Path) -> R) -> R {
+        let _g = ENV_GUARD.lock().unwrap();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let prev = std::env::var("XDBG_DB_ROOT").ok();
+        // SAFETY: serialized via ENV_GUARD; restored before unlock.
+        unsafe {
+            std::env::set_var("XDBG_DB_ROOT", tmp.path());
+        }
+        let out = f(tmp.path());
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("XDBG_DB_ROOT", v),
+                None => std::env::remove_var("XDBG_DB_ROOT"),
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn db_directory_includes_version_hash_segment() {
+        with_db_root(|root| {
+            let net = 42u64;
+            let dir = App::db_directory(net).expect("db_directory");
+            let vh_hex = format!("{:016x}", App::current_version_hash());
+            let expected = root.join("sqlite").join(net.to_string()).join(&vh_hex);
+            assert_eq!(dir, expected);
+        });
+    }
+
+    #[test]
+    fn db_directory_for_uses_provided_version_hash() {
+        with_db_root(|root| {
+            let net = 1u64;
+            let vh: u64 = 0xDEAD_BEEF_FEED_FACE;
+            let dir = App::db_directory_for(net, vh).expect("db_directory_for");
+            let vh_hex = format!("{vh:016x}");
+            let expected = root.join("sqlite").join(net.to_string()).join(&vh_hex);
+            assert_eq!(dir, expected);
+        });
+    }
+
+    #[test]
+    fn db_directory_matches_db_directory_for_current_version() {
+        with_db_root(|_root| {
+            let net = 7u64;
+            let a = App::db_directory(net).expect("db_directory");
+            let b =
+                App::db_directory_for(net, App::current_version_hash()).expect("db_directory_for");
+            assert_eq!(a, b);
+        });
+    }
+}
+
+#[cfg(test)]
+mod legacy_detection_tests {
+    use redb::TableDefinition;
+
+    fn seed_table_named(path: &std::path::Path, name: &'static str) {
+        let db = redb::Database::create(path).unwrap();
+        let table: TableDefinition<&[u8], &[u8]> = TableDefinition::new(name);
+        let w = db.begin_write().unwrap();
+        {
+            let mut t = w.open_table(table).unwrap();
+            t.insert(b"k".as_slice(), b"v".as_slice()).unwrap();
+        }
+        w.commit().unwrap();
+    }
+
+    #[test]
+    fn legacy_detection_aborts_on_v1_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("xdbg.redb");
+        seed_table_named(&path, "xdbg:1//identity");
+        let err = super::App::detect_legacy_db(&path).expect_err("must abort");
+        assert!(format!("{err:#}").contains("--clear"));
+    }
+
+    #[test]
+    fn legacy_detection_aborts_on_v2_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("xdbg.redb");
+        seed_table_named(&path, "xdbg:2//identity");
+        let err = super::App::detect_legacy_db(&path).expect_err("must abort");
+        assert!(format!("{err:#}").contains("--clear"));
+    }
+
+    #[test]
+    fn legacy_detection_passes_on_fresh_db() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("xdbg.redb");
+        // Path doesn't exist; detect_legacy_db must be a no-op.
+        super::App::detect_legacy_db(&path).expect("fresh DB ok");
+    }
+
+    #[test]
+    fn legacy_detection_passes_on_current_table_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("xdbg.redb");
+        seed_table_named(&path, "xdbg:3//identity");
+        super::App::detect_legacy_db(&path).expect("only-current-table must pass");
+    }
 }
 
 static FDLIMIT: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
