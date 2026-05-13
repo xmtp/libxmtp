@@ -1274,6 +1274,29 @@ public protocol FfiConversationProtocol: AnyObject, Sendable {
     
     func dmPeerInboxId()  -> String?
     
+    /**
+     * Enable AppData-proposal-based metadata updates on this group.
+     *
+     * Builds and stages the bootstrap commit that migrates this
+     * group's per-field metadata, admin lists, permissions, and
+     * membership from the legacy `GroupContextExtensions` shape into
+     * the unified OpenMLS `AppDataDictionary`. After it returns
+     * successfully, all subsequent metadata updates flow as
+     * `AppDataUpdate` proposals rather than GCE proposals.
+     *
+     * **Requires**: every existing member's latest key package must
+     * advertise `ProposalType::AppDataUpdate`. Hosts should ramp
+     * adoption with the migration code shipped before flipping any
+     * group; the call hard-fails with `ProposalsNotSupported` if
+     * any member lags. (The error currently surfaces a static
+     * message; structured per-inbox lag info is a future
+     * enhancement.)
+     *
+     * **One-way**: a migrated group cannot return to the legacy
+     * path. Operationally treated as a flag day per group.
+     */
+    func enableProposals() async throws 
+    
     func findDuplicateDms() async throws  -> [FfiConversation]
     
     func findEnrichedMessages(opts: FfiListMessagesOptions) throws  -> [FfiDecodedMessage]
@@ -1593,6 +1616,44 @@ open func dmPeerInboxId() -> String?  {
             self.uniffiCloneHandle(),$0
     )
 })
+}
+    
+    /**
+     * Enable AppData-proposal-based metadata updates on this group.
+     *
+     * Builds and stages the bootstrap commit that migrates this
+     * group's per-field metadata, admin lists, permissions, and
+     * membership from the legacy `GroupContextExtensions` shape into
+     * the unified OpenMLS `AppDataDictionary`. After it returns
+     * successfully, all subsequent metadata updates flow as
+     * `AppDataUpdate` proposals rather than GCE proposals.
+     *
+     * **Requires**: every existing member's latest key package must
+     * advertise `ProposalType::AppDataUpdate`. Hosts should ramp
+     * adoption with the migration code shipped before flipping any
+     * group; the call hard-fails with `ProposalsNotSupported` if
+     * any member lags. (The error currently surfaces a static
+     * message; structured per-inbox lag info is a future
+     * enhancement.)
+     *
+     * **One-way**: a migrated group cannot return to the legacy
+     * path. Operationally treated as a flag day per group.
+     */
+open func enableProposals()async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtpv3_fn_method_fficonversation_enable_proposals(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_xmtpv3_rust_future_poll_void,
+            completeFunc: ffi_xmtpv3_rust_future_complete_void,
+            freeFunc: ffi_xmtpv3_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
 }
     
 open func findDuplicateDms()async throws  -> [FfiConversation]  {
@@ -15018,6 +15079,17 @@ public func exitDebugWriter()throws   {try rustCallWithError(FfiConverterTypeFfi
 }
 }
 /**
+ * Updates the log level of the native log layer (oslog on iOS, logcat on Android).
+ * Activity spans are emitted as os_signpost on iOS — set to `Trace` to see span
+ * activity in Console.app / Instruments. No-op on non-mobile builds.
+ */
+public func setNativeLogLevel(logLevel: FfiLogLevel)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_xmtpv3_fn_func_set_native_log_level(
+        FfiConverterTypeFfiLogLevel_lower(logLevel),$0
+    )
+}
+}
+/**
  * * Static apply a signature request
  */
 public func applySignatureRequest(api: XmtpApiClient, signatureRequest: FfiSignatureRequest)async throws   {
@@ -15408,6 +15480,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_func_exit_debug_writer() != 22580) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtpv3_checksum_func_set_native_log_level() != 64849) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtpv3_checksum_func_apply_signature_request() != 41574) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -15625,6 +15700,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_dm_peer_inbox_id() != 2891) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_fficonversation_enable_proposals() != 57516) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_find_duplicate_dms() != 57431) {
