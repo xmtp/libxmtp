@@ -20,6 +20,7 @@ mod update_message_disappearing;
 mod update_admin_list;
 mod update_permission_policy;
 mod update_app_data;
+mod update_commit_log_signer;
 
 #[async_trait]
 pub trait HealthOp: Send + Sync {
@@ -45,5 +46,6 @@ pub fn registry() -> Vec<Box<dyn HealthOp>> {
         Box::new(update_admin_list::UpdateAdminList),
         Box::new(update_permission_policy::UpdatePermissionPolicy),
         Box::new(update_app_data::UpdateAppData),
+        Box::new(update_commit_log_signer::UpdateCommitLogSigner),
     ]
 }
