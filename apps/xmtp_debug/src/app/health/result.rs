@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use owo_colors::OwoColorize;
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Status {
     Pass,
     Fail,

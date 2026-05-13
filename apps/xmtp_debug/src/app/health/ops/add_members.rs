@@ -5,12 +5,13 @@
 //! - `AddPrimaryToExistingGroups`: for every group in `ctx.existing_groups`,
 //!   primary is added by an active member of that group.
 
-use crate::app::health::context::{HealthContext, inbox_id_to_bytes};
+use crate::app::health::context::{HealthContext, group_id_bytes, inbox_id_to_bytes};
 use crate::app::health::ops::HealthOp;
 use crate::app::health::result::{OpResult, Status};
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 use std::time::{Duration, Instant};
+use xmtp_mls::groups::UpdateAdminListType;
 
 pub struct AddMembersToNewGroup;
 
@@ -59,20 +60,29 @@ impl HealthOp for AddMembersToNewGroup {
         inbox_ids.push(ctx.transient_identity.inbox_id().to_string());
 
         let start = Instant::now();
-        let outcome = group.add_members(&inbox_ids).await;
+        let outcome: color_eyre::eyre::Result<()> = async {
+            group
+                .add_members(&inbox_ids)
+                .await
+                .map_err(color_eyre::eyre::Report::from)?;
+            // Mirror the new membership to redb so subsequent runs see
+            // the full member list, not just the creator.
+            let id_bytes = group_id_bytes(&new_group_id)?;
+            let mut members = vec![inbox_id_to_bytes(ctx.primary.inbox_id())];
+            members.extend(inbox_ids.iter().map(|s| inbox_id_to_bytes(s)));
+            ctx.update_group_members(id_bytes, members);
+            Ok(())
+        }
+        .await;
         let (status, error) = match outcome {
-            Ok(_) => {
-                // Mirror the new membership to redb so subsequent runs
-                // see the full member list, not just the creator.
-                if let Ok(id_bytes) = <[u8; 16]>::try_from(new_group_id.as_slice()) {
-                    let mut members = vec![inbox_id_to_bytes(ctx.primary.inbox_id())];
-                    members.extend(inbox_ids.iter().map(|s| inbox_id_to_bytes(s)));
-                    ctx.update_group_members(id_bytes, members);
-                }
-                (Status::Pass, None)
-            }
-            Err(e) => (Status::Fail, Some(eyre!("{e}"))),
+            Ok(_) => (Status::Pass, None),
+            Err(e) => (Status::Fail, Some(e)),
         };
+        // Welcomes aren't auto-pulled mid-run — sync so newly-added clients
+        // can `client.group(...)` immediately in downstream ops.
+        if status == Status::Pass {
+            ctx.sync_welcomes_fanout("AddMembersToNewGroup").await;
+        }
         vec![OpResult {
             op_name: self.name(),
             target: Some(format!("{new_group_id}")),
@@ -103,32 +113,57 @@ impl HealthOp for AddPrimaryToExistingGroups {
         for gid in &ctx.existing_groups {
             let start = Instant::now();
             let outcome: color_eyre::eyre::Result<()> = async {
-                let group = ctx
-                    .existing_clients
-                    .values()
-                    .filter_map(|c| c.group(gid.as_slice()).ok())
-                    .find(|g| g.is_active().unwrap_or(false))
+                let id_bytes = group_id_bytes(gid)?;
+                // Prefer the persisted creator (super-admin) so we can also
+                // promote primary below. Fall back to any active member if
+                // the creator isn't available locally — the add will still
+                // succeed but the promote will be skipped.
+                let creator = ctx.persisted_creator(id_bytes);
+                let adder = creator
+                    .and_then(|c| ctx.existing_clients.get(&c))
+                    .and_then(|c| c.group(gid.as_slice()).ok())
+                    .filter(|g| g.is_active().unwrap_or(false));
+                let group = adder
+                    .or_else(|| {
+                        ctx.existing_clients
+                            .values()
+                            .filter_map(|c| c.group(gid.as_slice()).ok())
+                            .find(|g| g.is_active().unwrap_or(false))
+                    })
                     .ok_or_else(|| eyre!("no active member found for group"))?;
                 group
                     .add_members(std::slice::from_ref(&primary_inbox))
                     .await
                     .map_err(color_eyre::eyre::Report::from)?;
+                // Promote primary to super-admin so downstream metadata ops
+                // (UpdateAdminList, UpdateMessageDisappearing,
+                // UpdatePermissionPolicy) can run on this prior-version
+                // group. Best-effort: if the adder isn't super-admin, this
+                // fails and we log but don't abort the run.
+                if let Err(e) = group
+                    .update_admin_list(UpdateAdminListType::AddSuper, primary_inbox.clone())
+                    .await
+                {
+                    tracing::warn!(
+                        target: "healthcheck",
+                        group = %gid,
+                        error = %e,
+                        "failed to promote primary to super-admin on existing group; \
+                         metadata ops requiring admin will fail on this group",
+                    );
+                }
+                let mut members = ctx.persisted_members(id_bytes);
+                let primary_bytes = inbox_id_to_bytes(&primary_inbox);
+                if !members.contains(&primary_bytes) {
+                    members.push(primary_bytes);
+                }
+                ctx.update_group_members(id_bytes, members);
                 Ok(())
             }
             .await;
 
             let (status, error) = match outcome {
-                Ok(_) => {
-                    if let Ok(id_bytes) = <[u8; 16]>::try_from(gid.as_slice()) {
-                        let mut members = ctx.persisted_members(id_bytes);
-                        let primary_bytes = inbox_id_to_bytes(&primary_inbox);
-                        if !members.contains(&primary_bytes) {
-                            members.push(primary_bytes);
-                        }
-                        ctx.update_group_members(id_bytes, members);
-                    }
-                    (Status::Pass, None)
-                }
+                Ok(_) => (Status::Pass, None),
                 Err(e) => (Status::Fail, Some(e)),
             };
             out.push(OpResult {
@@ -138,6 +173,12 @@ impl HealthOp for AddPrimaryToExistingGroups {
                 duration: start.elapsed(),
                 error,
             });
+        }
+
+        // Welcomes aren't auto-pulled mid-run — sync primary + observers so
+        // downstream metadata reads on these groups succeed.
+        if out.iter().any(|r| r.status == Status::Pass) {
+            ctx.sync_welcomes_fanout("AddPrimaryToExistingGroups").await;
         }
 
         out

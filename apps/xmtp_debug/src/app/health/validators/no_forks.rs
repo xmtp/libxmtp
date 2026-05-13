@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 use std::time::Instant;
 use xmtp_db::prelude::QueryGroup;
+use xmtp_proto::types::GroupId;
 
 pub struct NoForkedGroups;
 
@@ -29,28 +30,26 @@ impl Validator for NoForkedGroups {
     async fn validate(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let mut out = Vec::new();
         for client in ctx.all_clients() {
+            let is_transient = ctx.is_transient(&client);
             let db = client.db();
-            for gid in ctx.all_groups() {
-                // Skip clients that don't have a local record of this
-                // group: they were never members, or they left and the
-                // group row was purged. Either way, fork status is N/A.
-                match db.find_group(gid) {
-                    Ok(Some(_)) => {}
-                    Ok(None) => continue,
-                    Err(e) => {
-                        tracing::debug!(
-                            target: "healthcheck",
-                            inbox = client.inbox_id(),
-                            group = %gid,
-                            error = %e,
-                            "skipping fork check: find_group returned error (group likely purged after leave/remove)",
-                        );
-                        continue;
-                    }
-                }
+            // Transient is only added to new_groups (see AddMembersToNewGroup);
+            // skip existing_groups for transient.
+            let check = |gid: &GroupId, out: &mut Vec<OpResult>| {
                 let start = Instant::now();
-                let outcome = db.get_group_commit_log_forked_status(gid);
-                let (status, error) = match outcome {
+                // Transient may have its group row purged on LeaveGroup
+                // depending on libxmtp version — skip with a debug log so
+                // unexpected non-leave errors don't slip past silently.
+                if is_transient && let Err(e) = client.group(gid.as_slice()) {
+                    tracing::debug!(
+                        target: "healthcheck",
+                        inbox = client.inbox_id(),
+                        group = %gid,
+                        error = %e,
+                        "skip fork check: transient missing group locally",
+                    );
+                    return;
+                }
+                let (status, error) = match db.get_group_commit_log_forked_status(gid) {
                     Ok(Some(true)) => (Status::Fail, Some(eyre!("group forked"))),
                     Ok(_) => (Status::Pass, None),
                     Err(e) => (Status::Fail, Some(eyre!("{e}"))),
@@ -62,6 +61,14 @@ impl Validator for NoForkedGroups {
                     duration: start.elapsed(),
                     error,
                 });
+            };
+            if !is_transient {
+                for gid in &ctx.existing_groups {
+                    check(gid, &mut out);
+                }
+            }
+            for gid in &ctx.new_groups {
+                check(gid, &mut out);
             }
         }
         out

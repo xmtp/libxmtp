@@ -5,7 +5,7 @@ use crate::app::store::{Database, GroupStore, IdentityStore};
 use crate::app::types::{Group, Identity, InboxId};
 use crate::app::{self, App};
 use crate::args;
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, eyre};
 use std::collections::HashMap;
 use std::sync::Arc;
 use xmtp_proto::types::GroupId;
@@ -197,6 +197,21 @@ impl HealthContext {
             .unwrap_or_default()
     }
 
+    /// Read the persisted `created_by` for a group. Returns `None` when no
+    /// row exists or `created_by` is the all-zero placeholder written by
+    /// `update_group_members` for groups created before persistence was
+    /// added.
+    pub fn persisted_creator(&self, id: [u8; 16]) -> Option<InboxId> {
+        let group_store: GroupStore<'static> = redb_or_panic("persisted_creator").into();
+        let net_key = u64::from(&self.network);
+        let key = crate::app::store::NetworkKey::new(net_key, id);
+        group_store
+            .get(key)
+            .expect("redb GroupStore::get failed")
+            .map(|g| g.created_by)
+            .filter(|c| c != &[0u8; 32])
+    }
+
     /// Every client involved in this run: primary + transient + every
     /// entry in `existing_clients`. The two run-scoped clients are
     /// returned first so consumers can match on inbox_id if needed.
@@ -213,6 +228,31 @@ impl HealthContext {
     pub fn all_groups(&self) -> impl Iterator<Item = &GroupId> {
         self.existing_groups.iter().chain(self.new_groups.iter())
     }
+
+    pub fn is_transient(&self, client: &DbgClient) -> bool {
+        client.inbox_id() == self.transient_identity.inbox_id()
+    }
+
+    /// Concurrently sync welcomes on every client involved in the run.
+    /// Failures are logged but never propagated — `sync_welcomes` is
+    /// best-effort plumbing, not a validation step.
+    pub async fn sync_welcomes_fanout(&self, label: &'static str) {
+        let syncs = std::iter::once(self.transient_identity.as_ref())
+            .chain(std::iter::once(self.primary.as_ref()))
+            .chain(self.existing_clients.values().map(|c| c.as_ref()))
+            .map(|c| async move {
+                if let Err(e) = c.sync_welcomes().await {
+                    tracing::warn!(
+                        target: "healthcheck",
+                        inbox = c.inbox_id(),
+                        error = %e,
+                        label,
+                        "sync_welcomes fanout failed",
+                    );
+                }
+            });
+        futures::future::join_all(syncs).await;
+    }
 }
 
 /// Decode the libxmtp hex inbox_id into the 32-byte form xdbg's redb uses
@@ -224,11 +264,23 @@ pub fn inbox_id_to_bytes(hex_inbox: &str) -> InboxId {
     out
 }
 
+/// Convert a libxmtp `GroupId` to the 16-byte form xdbg's redb uses as a
+/// key. libxmtp's MLS group ids are always 16 bytes; an unexpected length
+/// is an invariant violation, surfaced as an op-level error so the run
+/// reports the divergence instead of silently skipping the redb write.
+pub fn group_id_bytes(gid: &GroupId) -> color_eyre::eyre::Result<[u8; 16]> {
+    <[u8; 16]>::try_from(gid.as_slice()).map_err(|_| {
+        eyre!(
+            "expected 16-byte group_id, got {} bytes",
+            gid.as_slice().len()
+        )
+    })
+}
+
 /// Open the xdbg redb database or abort the process. Failure here means
 /// xdbg's state directory is broken — not an op-level failure — so
 /// trying to keep going would produce misleading healthcheck results.
 fn redb_or_panic(caller: &str) -> Arc<redb::Database> {
-    App::db().unwrap_or_else(|e| {
-        panic!("healthcheck::{caller}: failed to open redb database: {e:#}")
-    })
+    App::db()
+        .unwrap_or_else(|e| panic!("healthcheck::{caller}: failed to open redb database: {e:#}"))
 }

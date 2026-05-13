@@ -7,7 +7,7 @@
 //! pre-existing clients). If none is available, the op fails with a
 //! reason.
 
-use crate::app::health::context::{HealthContext, inbox_id_to_bytes};
+use crate::app::health::context::{HealthContext, group_id_bytes, inbox_id_to_bytes};
 use crate::app::health::ops::HealthOp;
 use crate::app::health::result::{OpResult, Status};
 use async_trait::async_trait;
@@ -61,16 +61,13 @@ impl HealthOp for RemoveMember {
                 .remove_members(&[victim_inbox.as_str()])
                 .await
                 .map_err(color_eyre::eyre::Report::from)?;
+            let id_bytes = group_id_bytes(&gid)?;
+            drop_member_from_persisted_group(ctx, id_bytes, &victim_inbox);
             Ok(())
         }
         .await;
         let (status, error) = match outcome {
-            Ok(_) => {
-                if let Ok(id_bytes) = <[u8; 16]>::try_from(gid.as_slice()) {
-                    drop_member_from_persisted_group(ctx, id_bytes, &victim_inbox);
-                }
-                (Status::Pass, None)
-            }
+            Ok(_) => (Status::Pass, None),
             Err(e) => (Status::Fail, Some(e)),
         };
         vec![OpResult {
