@@ -27,5 +27,6 @@ pub fn registry() -> Vec<Box<dyn HealthOp>> {
         Box::new(create_identity::CreateIdentity),
         Box::new(create_group::CreateGroup),
         Box::new(add_members::AddMembersToNewGroup),
+        Box::new(add_members::AddPrimaryToExistingGroups),
     ]
 }

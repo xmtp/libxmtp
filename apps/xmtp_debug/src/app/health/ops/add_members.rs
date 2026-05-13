@@ -1,9 +1,9 @@
 //! Ops that exercise membership changes against groups.
 //!
 //! - `AddMembersToNewGroup`: primary adds every existing identity to the
-//!   newly-created group (the one pushed into `ctx.new_groups` by
-//!   `CreateGroup`).
-//! - `AddPrimaryToExistingGroups`: filled in by Task 9.
+//!   newly-created group.
+//! - `AddPrimaryToExistingGroups`: for every group in `ctx.existing_groups`,
+//!   primary is added by an active member of that group.
 
 use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
@@ -69,7 +69,6 @@ impl HealthOp for AddMembersToNewGroup {
     }
 }
 
-/// Stub for Task 9. Currently emits no results.
 pub struct AddPrimaryToExistingGroups;
 
 #[async_trait]
@@ -78,8 +77,45 @@ impl HealthOp for AddPrimaryToExistingGroups {
         "AddPrimaryToExistingGroups"
     }
 
-    async fn execute(&self, _ctx: &mut HealthContext) -> Vec<OpResult> {
-        Vec::new()
+    async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
+        let mut out = Vec::new();
+        let primary_inbox = ctx.primary.inbox_id().to_string();
+
+        for gid in &ctx.existing_groups {
+            let start = Instant::now();
+            let outcome: color_eyre::eyre::Result<()> = async {
+                // Find a client that is an active member of this group.
+                let mut adder = None;
+                for client in ctx.existing_clients.values() {
+                    let Ok(g) = client.group(gid) else { continue };
+                    if g.is_active().map_err(|e| eyre!("{e}"))? {
+                        adder = Some(g);
+                        break;
+                    }
+                }
+                let group = adder.ok_or_else(|| eyre!("no active member found for group"))?;
+                group
+                    .add_members(&[primary_inbox.clone()])
+                    .await
+                    .map_err(|e| eyre!("{e}"))?;
+                Ok(())
+            }
+            .await;
+
+            let (status, error) = match outcome {
+                Ok(_) => (Status::Pass, None),
+                Err(e) => (Status::Fail, Some(e)),
+            };
+            out.push(OpResult {
+                op_name: self.name(),
+                target: Some(hex::encode(gid)),
+                status,
+                duration: start.elapsed(),
+                error,
+            });
+        }
+
+        out
     }
 }
 
