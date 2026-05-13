@@ -49,5 +49,6 @@ pub fn registry() -> Vec<Box<dyn HealthOp>> {
         Box::new(update_app_data::UpdateAppData),
         Box::new(update_commit_log_signer::UpdateCommitLogSigner),
         Box::new(update_consent_state::UpdateConsentState),
+        Box::new(update_consent_state::UpdateConsentStateQuiet),
     ]
 }
