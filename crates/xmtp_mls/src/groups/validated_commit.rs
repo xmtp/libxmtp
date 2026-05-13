@@ -1260,29 +1260,53 @@ pub(super) fn validate_one_app_data_update_with_old_value(
         validation::{ComponentChange, validate_component_write},
     };
 
-    // Single dispatch lookup serves both expansion and the per-element
-    // invariant hook below.
-    let Some(component) = lookup_component(component_id) else {
-        tracing::warn!(
-            proposer_inbox_id,
-            component_id = %component_id,
-            "AppDataUpdate proposal rejected: no Component impl for component id"
-        );
-        return Err(CommitValidationError::InsufficientPermissions);
+    // Two dispatch shapes:
+    //
+    // - **Known component**: expand via the per-id `Component` impl
+    //   (decodes Set/Map deltas into per-element changes) and run both
+    //   layers — registry policy AND per-component invariant.
+    //
+    // - **Unknown component** (no per-id impl on this client; the
+    //   sender shipped a newer release): look the component's
+    //   registered [`ComponentType`] up in the registry and run the
+    //   type-aware expansion. Same per-element change list a typed
+    //   client would produce, fed through the same policy loop. The
+    //   per-component invariant hook is skipped — there's no per-id
+    //   trait method to call — but registry-policy enforcement still
+    //   gates the write, so deny-by-default applies.
+    let component = lookup_component(component_id);
+    let changes = if let Some(component) = component {
+        component
+            .expand_to_changes(operation, old_value)
+            .map_err(|e| {
+                let wrapped = super::app_data::component_source::ComponentSourceError::from(e);
+                tracing::warn!(
+                    proposer_inbox_id,
+                    component_id = %component_id,
+                    error = %wrapped,
+                    "AppDataUpdate proposal rejected: failed to expand payload"
+                );
+                CommitValidationError::InsufficientPermissions
+            })?
+    } else {
+        match super::app_data::component_source::expand_app_data_update_to_changes(
+            component_id,
+            operation,
+            old_value,
+            registry,
+        ) {
+            Ok(changes) => changes,
+            Err(err) => {
+                tracing::warn!(
+                    proposer_inbox_id,
+                    component_id = %component_id,
+                    error = %err,
+                    "AppDataUpdate proposal rejected"
+                );
+                return Err(CommitValidationError::InsufficientPermissions);
+            }
+        }
     };
-
-    let changes = component
-        .expand_to_changes(operation, old_value)
-        .map_err(|e| {
-            let wrapped = super::app_data::component_source::ComponentSourceError::from(e);
-            tracing::warn!(
-                proposer_inbox_id,
-                component_id = %component_id,
-                error = %wrapped,
-                "AppDataUpdate proposal rejected: failed to expand payload"
-            );
-            CommitValidationError::InsufficientPermissions
-        })?;
 
     for change in &changes {
         let cc = ComponentChange::builder()
@@ -1292,7 +1316,9 @@ pub(super) fn validate_one_app_data_update_with_old_value(
             .maybe_new_value(change.value.as_deref())
             .build();
 
-        // Layer 1: registry-based policy.
+        // Layer 1: registry-based policy. Applies to both known and
+        // unknown components — every component requires a registry
+        // entry (deny by default).
         if let Err(e) = validate_component_write(&cc, registry) {
             tracing::warn!(
                 proposer_inbox_id,
@@ -1304,9 +1330,13 @@ pub(super) fn validate_one_app_data_update_with_old_value(
             return Err(CommitValidationError::InsufficientPermissions);
         }
 
-        // Layer 2: per-component invariants. Runs after the policy
-        // check so a denied actor can't trigger expensive invariants.
-        if let Err(e) = component.validate_invariant(&cc, registry) {
+        // Layer 2: per-component invariants. Only available for known
+        // components — unknown ids have nothing to invoke. Skipping
+        // the invariant is the cost of forward compatibility (see
+        // module-level docstring).
+        if let Some(component) = component
+            && let Err(e) = component.validate_invariant(&cc, registry)
+        {
             tracing::warn!(
                 proposer_inbox_id,
                 component_id = %component_id,

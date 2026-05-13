@@ -35,14 +35,14 @@ use crate::app_data::{
 
 /// Apply a passthrough Update payload — no delta math, the payload is
 /// the new full value bytes.
-fn apply_passthrough(payload: &[u8]) -> Result<Vec<u8>, ComponentTypedError> {
+pub(crate) fn apply_passthrough(payload: &[u8]) -> Result<Vec<u8>, ComponentTypedError> {
     Ok(payload.to_vec())
 }
 
 /// Expand an `AppDataUpdate` proposal for a passthrough component:
 /// `Update` produces one `Update` change carrying the payload bytes;
 /// `Remove` produces one `Delete` change with no value.
-fn expand_passthrough(
+pub(crate) fn expand_passthrough(
     op: &AppDataUpdateOperation,
 ) -> Result<Vec<ExpandedComponentChange>, ComponentTypedError> {
     match op {
@@ -60,7 +60,10 @@ fn expand_passthrough(
 /// Decode UTF-8 bytes into a `String`, surfacing a structured
 /// [`ComponentTypedError::MalformedValue`] on invalid input rather than
 /// the bare `Utf8Error`.
-fn decode_utf8(component_id: ComponentId, bytes: &[u8]) -> Result<String, ComponentTypedError> {
+pub(crate) fn decode_utf8(
+    component_id: ComponentId,
+    bytes: &[u8],
+) -> Result<String, ComponentTypedError> {
     std::str::from_utf8(bytes)
         .map(str::to_owned)
         .map_err(|err| ComponentTypedError::MalformedValue {

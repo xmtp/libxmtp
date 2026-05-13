@@ -418,3 +418,205 @@ fn proposer_leaf_new_member_proposal_rejected() {
         "expected ActorNotMember, got {err:?}"
     );
 }
+
+// ------------------------------------------------------------------------
+// validate_one_app_data_update_with_old_value — unknown-component
+// tolerance (XIP §2.2)
+//
+// These pin the relaxed-rejection branch added in jj `lmtv`. The
+// receive-side accepts unknown ids inside the XMTP/application range
+// opaquely (registry-policy still gates writes; per-component invariants
+// are skipped because the receiver has no `Component` impl to consult).
+// Reserved range `0xFF00+` still rejects.
+// ------------------------------------------------------------------------
+
+/// Unknown id with no registry entry: registry-policy validation runs
+/// (deny-by-default) and rejects. The relaxation does NOT bypass
+/// permissions — it only allows the validator to skip the per-component
+/// invariant hook when no `Component` impl exists.
+#[test]
+fn unknown_component_in_xmtp_range_rejected_without_registry_entry() {
+    let reg = ComponentRegistry::new();
+    let op = AppDataUpdateOperation::Update(b"opaque".to_vec().into());
+    let err = validate_one_app_data_update_with_old_value(
+        ComponentId::new(0x8FFF),
+        &op,
+        super_admin(),
+        "inbox_alice",
+        &reg,
+        None,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(err, CommitValidationError::InsufficientPermissions),
+        "deny-by-default must fire for unknown ids without a registry entry, got {err:?}"
+    );
+}
+
+/// Unknown id with a permissive registry entry: validation passes.
+/// This is the "graceful unknown" path — old clients learn the new
+/// component exists via the registry write that newer clients ship
+/// alongside the component, and policy gates the write the same way it
+/// would for a known component.
+#[test]
+fn unknown_component_in_xmtp_range_allowed_when_registry_permits() {
+    let reg = registry_with(
+        ComponentId::new(0x8FFF),
+        allow(),
+        allow(),
+        allow(),
+        ComponentType::Bytes,
+    );
+    let op = AppDataUpdateOperation::Update(b"opaque".to_vec().into());
+    let result = validate_one_app_data_update_with_old_value(
+        ComponentId::new(0x8FFF),
+        &op,
+        member(),
+        "inbox_alice",
+        &reg,
+        None,
+    );
+    assert!(
+        result.is_ok(),
+        "unknown id with permissive registry must pass, got {result:?}"
+    );
+}
+
+/// Same as the prior case but in the app range (`0xC000-0xFCFF`).
+/// Confirms the type-aware dispatch is range-agnostic across the
+/// XMTP / application id space.
+#[test]
+fn unknown_component_in_app_range_allowed_when_registry_permits() {
+    let reg = registry_with(
+        ComponentId::new(0xC123),
+        allow(),
+        allow(),
+        allow(),
+        ComponentType::Bytes,
+    );
+    let op = AppDataUpdateOperation::Update(b"opaque".to_vec().into());
+    let result = validate_one_app_data_update_with_old_value(
+        ComponentId::new(0xC123),
+        &op,
+        member(),
+        "inbox_alice",
+        &reg,
+        None,
+    );
+    assert!(
+        result.is_ok(),
+        "unknown app-range id with permissive registry must pass, got {result:?}"
+    );
+}
+
+/// Reserved range `0xFF00+` is NOT in the tolerance predicate. The
+/// validator falls through to the catch-all rejection path — these
+/// slots are protocol-level and have no graceful-degrade story. We
+/// can't construct a registry entry for a reserved-range id
+/// (`ComponentRegistry::set` rejects them at construction), so this
+/// only exercises the "no registry + reserved id" path. That's the
+/// only production path anyway: a malicious sender can put a reserved
+/// id on the wire, but they can't get a registry entry to back it.
+#[test]
+fn unknown_component_in_reserved_range_rejected_with_empty_registry() {
+    let reg = ComponentRegistry::new();
+    let op = AppDataUpdateOperation::Update(b"x".to_vec().into());
+    let err = validate_one_app_data_update_with_old_value(
+        ComponentId::new(0xFF00),
+        &op,
+        super_admin(),
+        "inbox_alice",
+        &reg,
+        None,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(err, CommitValidationError::InsufficientPermissions),
+        "reserved-range ids must be rejected, got {err:?}"
+    );
+}
+
+/// Unknown id Remove with no prior value: registry-delete policy
+/// gates this the same way as for known components.
+#[test]
+fn unknown_component_remove_with_no_prior_rejected_without_registry_entry() {
+    let reg = ComponentRegistry::new();
+    let op = AppDataUpdateOperation::Remove;
+    let err = validate_one_app_data_update_with_old_value(
+        ComponentId::new(0x8FFF),
+        &op,
+        super_admin(),
+        "inbox_alice",
+        &reg,
+        None,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(err, CommitValidationError::InsufficientPermissions),
+        "deny-by-default applies to Remove on unknown ids, got {err:?}"
+    );
+}
+
+/// Unknown id Remove with permissive delete policy passes — same
+/// contract as known components. Pins that the validator doesn't
+/// require `old_value` to be present for the unknown-Remove path.
+#[test]
+fn unknown_component_remove_allowed_when_registry_permits_delete() {
+    let reg = registry_with(
+        ComponentId::new(0x8FFF),
+        allow(),
+        allow(),
+        allow(),
+        ComponentType::Bytes,
+    );
+    let op = AppDataUpdateOperation::Remove;
+    let result = validate_one_app_data_update_with_old_value(
+        ComponentId::new(0x8FFF),
+        &op,
+        member(),
+        "inbox_alice",
+        &reg,
+        None,
+    );
+    assert!(
+        result.is_ok(),
+        "Remove on unknown id with permissive delete-policy must pass, got {result:?}"
+    );
+}
+
+/// Unknown `TlsSet`-typed component with a well-formed delta payload
+/// but a malformed prior snapshot in the dict: the type-aware expander
+/// fails when it tries to decode `old_value` as a `TlsSet`. Surfaces
+/// as `InsufficientPermissions` (the validator's catch-all rejection
+/// for any expand-time failure) and produces a log line tagged with
+/// the component id so triage can distinguish "bad payload" from
+/// "bad prior."
+#[test]
+fn unknown_component_update_with_malformed_prior_rejected() {
+    use tls_codec::VLBytes;
+    let id = ComponentId::new(0x8FFF);
+    let reg = registry_with(id, allow(), allow(), allow(), ComponentType::TlsSetBytes);
+    let delta = TlsSetDelta::<VLBytes>::new()
+        .remove_by_hash(TlsKeyHash::of(&VLBytes::new(b"x".to_vec())).unwrap());
+    let payload = delta.tls_serialize_detached().unwrap();
+    let op = AppDataUpdateOperation::Update(payload.into());
+
+    // Prior bytes don't decode as a `TlsSet<VLBytes>` — the
+    // RemoveByHash arm builds the prior hash index, which tls-codec
+    // rejects.
+    let corrupt_prior = b"\xDE\xAD\xBE\xEF";
+
+    let err = validate_one_app_data_update_with_old_value(
+        id,
+        &op,
+        super_admin(),
+        "inbox_alice",
+        &reg,
+        Some(corrupt_prior),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(err, CommitValidationError::InsufficientPermissions),
+        "malformed prior on unknown id must reject, got {err:?}"
+    );
+}

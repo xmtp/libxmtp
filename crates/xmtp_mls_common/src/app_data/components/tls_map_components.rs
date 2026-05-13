@@ -43,8 +43,11 @@ use crate::{
 /// the one boundary that translates between them.
 ///
 /// Generic over the key type so both `InboxId`-keyed and
-/// `ComponentId`-keyed maps share the same body.
-fn apply_tls_map_delta<K>(
+/// `ComponentId`-keyed maps share the same body. Also reachable from the
+/// type-aware fallback in
+/// [`super::type_dispatch::apply_update_payload_for_type`] (with
+/// `K = VLBytes` for the `TlsMapBytesBytes` shape).
+pub(crate) fn apply_tls_map_delta<K>(
     payload: &[u8],
     prior: Option<&[u8]>,
 ) -> Result<Vec<u8>, ComponentTypedError>
@@ -93,7 +96,7 @@ where
 /// sync with the apply-time rules and reject things the apply step
 /// would happily accept. Keep it single-source: codec here, semantics
 /// at apply.
-fn expand_tls_map_changes<K>(
+pub(crate) fn expand_tls_map_changes<K>(
     op: &AppDataUpdateOperation,
     _prior: Option<&[u8]>,
 ) -> Result<Vec<ExpandedComponentChange>, ComponentTypedError>
