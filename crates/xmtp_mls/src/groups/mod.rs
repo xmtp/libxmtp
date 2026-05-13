@@ -504,6 +504,118 @@ where
     /// - Not all existing members support proposals
     /// - The group context extension update fails
     pub async fn enable_proposals(&self) -> Result<(), GroupError> {
+        // Two-step migration so old clients (any peer running a
+        // libxmtp release predating this code's `pkg_version`) get a
+        // pause hint they can read BEFORE the legacy
+        // GroupMutableMetadata extension that carries it is stripped
+        // by the bootstrap commit. XIP §3.2.
+        //
+        // Step A: bump MIN_SUPPORTED_PROTOCOL_VERSION in legacy GMM to
+        // `pkg_version()`. Pre-bootstrap groups have no AppData
+        // dictionary registry, so the `MetadataUpdate` handler's
+        // migrated branch is false and the write goes through the
+        // legacy GCE path — exactly the extension old clients know how
+        // to read for `paused_for_version`. Any peer below the version
+        // floor processes this commit, sees the version mismatch in
+        // `validate_one_commit`, and lands in `paused_for_version`. It
+        // never observes step B.
+        //
+        // Step B: bootstrap commit. Strips legacy extensions, seeds
+        // the dict, adds `PROPOSAL_SUPPORT` to RequiredCapabilities.
+        // Fires only for the still-active (above-floor) members.
+        //
+        // The safety primitive here is **server-side commit ordering**:
+        // peers see step A's commit before step B's because the server
+        // linearizes them. `sync_until_intent_resolved` confirms only
+        // the migrator's local Processed state — it does NOT wait for
+        // peer pickup. Server linearization is what guarantees
+        // below-floor peers pause before they could ever see the
+        // bootstrap commit.
+        //
+        // Pre-flight: read all three gating signals under one lock so
+        // a concurrent migrator's bootstrap commit can't land between
+        // our reads. Without the single-lock pass:
+        //   * member-support check passes, then a concurrent migrator's
+        //     bootstrap commit lands locally, then the legacy-GMM read
+        //     returns `None` (extension stripped), then `needs_bump`
+        //     becomes `true`, then step A publishes a legacy GCE bump
+        //     against a group whose legacy extensions are gone — fails
+        //     mid-flight with a confusing error.
+        // Reading all three together collapses that race window: if
+        // `proposals_enabled` flipped to true under us, we early-return
+        // and never publish step A.
+        //
+        // (1) `all_members_support_proposals` ensures every peer can
+        // process the bootstrap commit so we don't ship step A — the
+        // legacy GMM bump — for a migration that's about to fail at
+        // step B and leave below-floor peers permanently paused.
+        // (2) `proposals_enabled` early-exits if the group is already
+        // migrated; calling `enable_proposals()` twice is a user error
+        // and we don't want to publish a redundant legacy GMM bump on
+        // a group that no longer has a legacy GMM.
+        // (3) `needs_min_version_bump` decides whether step A is
+        // necessary. Semver comparison, NOT string equality. A
+        // concurrent migrator at a higher version (or this very
+        // migrator on retry) may have already set a floor >= ours; in
+        // that case re-bumping with a lower string value would
+        // downgrade the floor and silently unpause peers between the
+        // lower and the higher version. Skip step A when the current
+        // floor already covers our pkg_version.
+        let pkg_version = self.context.version_info().pkg_version().to_string();
+        let (already_migrated, needs_min_version_bump) = self
+            .load_mls_group_with_lock_async(async |mls_group| {
+                if !self.all_members_support_proposals(&mls_group).await? {
+                    return Err(GroupError::ProposalsNotSupported(
+                        "Cannot enable proposals: not all members support the proposal extension"
+                            .to_string(),
+                    ));
+                }
+                if self.proposals_enabled(&mls_group) {
+                    return Ok::<(bool, bool), GroupError>((true, false));
+                }
+                let metadata =
+                    xmtp_mls_common::group_mutable_metadata::extract_legacy_group_mutable_metadata(
+                        &mls_group,
+                    )
+                    .ok();
+                let current = metadata.and_then(|m| Self::min_protocol_version_from_extensions(&m));
+                let needs_bump = match current.as_deref() {
+                    None => true,
+                    Some(current_str) => {
+                        let current_v = LibXMTPVersion::parse(current_str).map_err(|e| {
+                            GroupError::ProposalsNotSupported(format!(
+                                "parsing legacy GMM MinimumSupportedProtocolVersion '{current_str}': {e}"
+                            ))
+                        })?;
+                        let target_v = LibXMTPVersion::parse(&pkg_version).map_err(|e| {
+                            GroupError::ProposalsNotSupported(format!(
+                                "parsing this binary's pkg_version '{pkg_version}': {e}"
+                            ))
+                        })?;
+                        current_v < target_v
+                    }
+                };
+                Ok::<(bool, bool), GroupError>((false, needs_bump))
+            })
+            .await?;
+
+        if already_migrated {
+            return Ok(());
+        }
+
+        if needs_min_version_bump {
+            let min_version_intent_data: Vec<u8> =
+                intents::UpdateMetadataIntentData::new_update_group_min_version_to_match_self(
+                    pkg_version,
+                )
+                .into();
+            let min_version_intent = intents::QueueIntent::metadata_update()
+                .data(min_version_intent_data)
+                .queue(self)?;
+            self.sync_until_intent_resolved(min_version_intent.id)
+                .await?;
+        }
+
         // Build the bootstrap-target extensions in a single lock
         // acquisition to avoid races. The bootstrap commit produced by
         // `IntentKind::BootstrapMigration` will:
@@ -517,6 +629,12 @@ where
         // All in a single commit, so the migration is atomic on-the-
         // wire: receivers either see the migrated state (bootstrap
         // commit accepted) or the legacy state (commit rejected).
+        //
+        // The `all_members_support_proposals` re-check on this read
+        // pass is a defense-in-depth: pre-flight ran above before step
+        // A, but a peer could join between then and now. The intent
+        // dispatch reads live group state at publish time, so step B
+        // must observe the same predicate it gated step A with.
         let new_extensions = self
             .load_mls_group_with_lock_async(async |mls_group| {
                 if !self.all_members_support_proposals(&mls_group).await? {

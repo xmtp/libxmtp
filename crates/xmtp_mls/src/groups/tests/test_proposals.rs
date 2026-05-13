@@ -2808,6 +2808,108 @@ async fn test_disappearing_settings_survive_bootstrap() {
     );
 }
 
+/// XIP §3.2: a libxmtp client running below the migrator's pkg_version
+/// MUST land in `paused_for_version` rather than fork or fail when the
+/// migrator calls `enable_proposals()`. The two-step bootstrap in
+/// `enable_proposals()` makes this work by writing
+/// MIN_SUPPORTED_PROTOCOL_VERSION to legacy GMM **before** the
+/// bootstrap commit strips that extension — old clients can still read
+/// the version-bump from the legacy GCE path, pause on it, and never
+/// process the (legacy-extension-stripping) bootstrap commit they
+/// wouldn't understand.
+///
+/// ## What this test covers and doesn't cover
+///
+/// Covered: Bo (running the SAME binary as Alix but at the older
+/// pkg_version) processes step A's legacy GCE bump, hits the
+/// version-mismatch arm of `validate_one_commit`, and lands in
+/// `paused_for_version`. He never applies step B.
+///
+/// NOT covered: a TRULY pre-AppData binary processing step B and
+/// failing because the bootstrap commit strips extensions it requires.
+/// That code path is impossible to exercise in-tree (the only client
+/// is the current binary), so the test confirms the pause hint is
+/// reachable via the legacy reader — that's the contract that lets
+/// a pre-AppData binary pause without ever opening step B.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_enable_proposals_pauses_old_client_via_legacy_gmm_bump() {
+    use crate::builder::ClientBuilder;
+    use crate::groups::tests::increment_patch_version;
+    use crate::utils::VersionInfo;
+    use xmtp_cryptography::utils::generate_local_wallet;
+
+    let mut alix_version = VersionInfo::default();
+    alix_version.test_update_version(
+        increment_patch_version(alix_version.pkg_version())
+            .unwrap()
+            .as_str(),
+    );
+    let alix_pkg_version = alix_version.pkg_version().to_string();
+    // Alix is on the newer version; bo is on the default (older).
+    let alix =
+        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), alix_version).await;
+
+    tester!(bo);
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group
+        .add_members(&[bo.context.identity.inbox_id()])
+        .await?;
+
+    // Bo joins the group at his current (older) version. No min-version
+    // requirement yet, so the welcome itself doesn't pause him.
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = bo_groups.first()?;
+    bo_group.sync().await?;
+    assert!(
+        bo_group.paused_for_version()?.is_none(),
+        "Bo should not be paused before alix calls enable_proposals"
+    );
+
+    // Alix migrates. The two-step bootstrap publishes:
+    //   1. A legacy GCE commit bumping MIN_SUPPORTED_PROTOCOL_VERSION
+    //      in the still-present legacy GMM extension.
+    //   2. The bootstrap commit (strips legacy extensions, seeds dict).
+    alix_group.enable_proposals().await?;
+
+    // Bo syncs. He processes commit (1), sees min_version > his own,
+    // lands in `paused_for_version`, and stops processing — commit (2)
+    // is never applied locally.
+    bo_group.sync().await?;
+
+    let paused = bo_group.paused_for_version()?;
+    assert_eq!(
+        paused.as_deref(),
+        Some(alix_pkg_version.as_str()),
+        "Bo must be paused at alix's pkg_version — the legacy GMM bump is the pause hint old clients can read"
+    );
+
+    // Bo's group must NOT show as migrated. The bootstrap commit
+    // strips legacy GMM and seeds the AppData dict; if Bo applied it
+    // he'd be migrated but unable to ever read the pause hint.
+    let bo_migrated = bo_group
+        .load_mls_group_with_lock_async(async |g| {
+            Ok::<bool, crate::groups::GroupError>(bo_group.proposals_enabled(&g))
+        })
+        .await?;
+    assert!(
+        !bo_migrated,
+        "Bo must not have processed the bootstrap commit — it ships after the pause-triggering legacy bump"
+    );
+
+    // Alix is at the floor version, so she runs both commits and ends
+    // up migrated as normal.
+    let alix_migrated = alix_group
+        .load_mls_group_with_lock_async(async |g| {
+            Ok::<bool, crate::groups::GroupError>(alix_group.proposals_enabled(&g))
+        })
+        .await?;
+    assert!(
+        alix_migrated,
+        "Alix should be migrated post-enable_proposals"
+    );
+}
+
 /// Sanity check the legacy path: a group with `proposals_enabled = false`
 /// (the default for fresh groups) should still produce a normal GCE commit
 /// for `update_group_name`, with no AppDataUpdate involvement. Confirms
