@@ -1,0 +1,91 @@
+//! Health-check ops registry.
+//!
+//! Every op exercises one user-visible libxmtp operation. Each op lives in
+//! its own submodule and self-registers via `inventory::submit!`. The
+//! `registry()` function returns ops topologically sorted by their
+//! declared `depends_on` relationships.
+
+use crate::app::health::context::HealthContext;
+use crate::app::health::registry::{self, RegistryEntry};
+use crate::app::health::result::OpResult;
+use async_trait::async_trait;
+
+mod add_members;
+mod create_dm;
+mod create_group;
+mod create_identity;
+mod get_mutable_metadata;
+mod leave_group;
+mod remove_member;
+mod send_message;
+mod update_admin_list;
+mod update_app_data;
+mod update_commit_log_signer;
+mod update_consent_state;
+mod update_group_description;
+mod update_group_image_url;
+mod update_group_name;
+mod update_message_disappearing;
+mod update_permission_policy;
+mod upload_key_package;
+
+pub mod tree;
+
+#[async_trait]
+pub trait HealthOp: Send + Sync {
+    fn name(&self) -> &'static str;
+    async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult>;
+}
+
+/// Self-registration entry for an op. Each op submits one of these from
+/// its own module via `inventory::submit!`.
+pub struct OpEntry {
+    pub op_name: &'static str,
+    /// Names of ops that must complete before this one runs.
+    pub depends_on: &'static [&'static str],
+    pub make: fn() -> Box<dyn HealthOp>,
+}
+
+inventory::collect!(OpEntry);
+
+impl RegistryEntry for OpEntry {
+    type Item = dyn HealthOp;
+    const KIND: &'static str = "op";
+
+    fn name(&self) -> &'static str {
+        self.op_name
+    }
+    fn depends_on(&self) -> &'static [&'static str] {
+        self.depends_on
+    }
+    fn make(&self) -> Box<dyn HealthOp> {
+        (self.make)()
+    }
+}
+
+/// Topologically-sorted list of every registered op.
+pub fn registry() -> Vec<Box<dyn HealthOp>> {
+    registry::topo_sort::<OpEntry>(inventory::iter::<OpEntry>)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every `inventory::submit!` block carries a string `op_name`; the
+    /// implementing struct carries its own `HealthOp::name()`. Assert
+    /// they agree so the two can't drift silently. Doesn't cover the
+    /// third copy (the `fields(op = "...")` on `#[tracing::instrument]`),
+    /// which the proc-macro requires as a string literal.
+    #[test]
+    fn entry_name_matches_op_name() {
+        for entry in inventory::iter::<OpEntry> {
+            let op = (entry.make)();
+            assert_eq!(
+                entry.op_name,
+                op.name(),
+                "OpEntry::op_name disagrees with HealthOp::name() for one op",
+            );
+        }
+    }
+}

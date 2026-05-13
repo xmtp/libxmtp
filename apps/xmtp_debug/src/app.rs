@@ -6,6 +6,8 @@ mod clients;
 mod export;
 /// Generate functionality
 mod generate;
+/// E2E health check across all protocol ops
+mod health;
 /// Information about this app
 mod info;
 /// Inspect data on the XMTP Network
@@ -145,6 +147,7 @@ impl App {
                 Modify(m) => modify::Modify::new(m, backend)?.run().await,
                 Stream(s) => stream::Stream::new(s, backend)?.run().await,
                 Test(t) => test::Test::new(t, backend).run().await,
+                Healthcheck(h) => health::Health::new(h, backend).run().await,
             }?;
         }
 
@@ -157,7 +160,7 @@ impl App {
     }
 }
 
-fn generate_wallet() -> types::EthereumWallet {
+pub(super) fn generate_wallet() -> types::EthereumWallet {
     types::EthereumWallet::default()
 }
 

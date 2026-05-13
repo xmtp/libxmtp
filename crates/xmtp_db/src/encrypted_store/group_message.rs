@@ -525,6 +525,16 @@ pub trait QueryGroupMessage {
         args: &MsgQueryArgs,
     ) -> Result<i64, crate::ConnectionError>;
 
+    /// Return all `Application`-kind messages stored locally for `group_id`
+    /// whose `sequence_id` is NOT in the provided list. Used by tools that
+    /// compare local state against an authoritative set of sequence ids
+    /// (e.g. xdbg's healthcheck validator).
+    fn missing_messages(
+        &self,
+        group_id: &GroupId,
+        sequence_ids: &[u64],
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
+
     fn group_messages_paged(
         &self,
         args: &MsgQueryArgs,
@@ -648,6 +658,14 @@ where
         args: &MsgQueryArgs,
     ) -> Result<i64, crate::ConnectionError> {
         (**self).count_group_messages(group_id, args)
+    }
+
+    fn missing_messages(
+        &self,
+        group_id: &GroupId,
+        sequence_ids: &[u64],
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+        (**self).missing_messages(group_id, sequence_ids)
     }
 
     fn group_messages_paged(
@@ -920,6 +938,25 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             self.raw_query(|conn| query.select(diesel::dsl::count_star()).first::<i64>(conn))?;
 
         Ok(count)
+    }
+
+    fn missing_messages(
+        &self,
+        group_id: &GroupId,
+        sequence_ids: &[u64],
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+        use crate::schema::group_messages::{self, dsl};
+        use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+
+        let sequence_ids: Vec<i64> = sequence_ids.iter().copied().map(|id| id as i64).collect();
+        let query = dsl::group_messages
+            .filter(dsl::group_id.eq(group_id))
+            .filter(dsl::sequence_id.is_not_null())
+            .filter(group_messages::sequence_id.ne_all(sequence_ids))
+            .filter(group_messages::kind.eq(GroupMessageKind::Application))
+            .order(group_messages::sequence_id.asc());
+
+        self.raw_query(|conn| query.load(conn))
     }
 
     fn group_messages_paged(

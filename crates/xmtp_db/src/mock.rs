@@ -389,6 +389,12 @@ mock! {
             args: &crate::group_message::MsgQueryArgs,
         ) -> Result<i64, crate::ConnectionError>;
 
+        fn missing_messages(
+            &self,
+            group_id: &GroupId,
+            sequence_ids: &[u64],
+        ) -> Result<Vec<crate::group_message::StoredGroupMessage>, crate::ConnectionError>;
+
         fn group_messages_paged(
             &self,
             args: &crate::group_message::MsgQueryArgs,

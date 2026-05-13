@@ -13,7 +13,7 @@ pub fn filter_directive(level: &str) -> EnvFilter {
         xmtp_common={level},xmtp_api_d14n={level},\
         xmtp_content_types={level},xmtp_cryptography={level},\
         xmtp_user_preferences={level},xmtpv3={level},xmtp_db={level},\
-        bindings_wasm={level},bindings_node={level},xdbg=error"
+        bindings_wasm={level},bindings_node={level}"
     );
     EnvFilter::builder()
         .parse(filter)

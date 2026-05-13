@@ -53,6 +53,7 @@ pub enum Commands {
     Export(ExportOpts),
     Stream(StreamOpts),
     Test(TestOpts),
+    Healthcheck(HealthcheckOpts),
 }
 
 /// Send Data on the network
@@ -556,6 +557,12 @@ pub enum TestScenario {
     /// Validate wallet continuity: V3 data readable on V4 with same wallet
     WalletContinuity,
 }
+
+/// Cross-version libxmtp health check.
+/// Runs every user-visible protocol op against the local xdbg state,
+/// validates that all clients converge, and exits non-zero on any failure.
+#[derive(Args, Debug)]
+pub struct HealthcheckOpts {}
 
 #[cfg(test)]
 mod tests {
