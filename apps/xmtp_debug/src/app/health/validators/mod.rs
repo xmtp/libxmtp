@@ -6,6 +6,7 @@ use crate::app::health::result::OpResult;
 use async_trait::async_trait;
 
 mod no_forks;
+mod no_missing_messages;
 
 #[async_trait]
 pub trait Validator: Send + Sync {
@@ -14,5 +15,8 @@ pub trait Validator: Send + Sync {
 }
 
 pub fn registry() -> Vec<Box<dyn Validator>> {
-    vec![Box::new(no_forks::NoForkedGroups)]
+    vec![
+        Box::new(no_forks::NoForkedGroups),
+        Box::new(no_missing_messages::NoMissingMessages),
+    ]
 }
