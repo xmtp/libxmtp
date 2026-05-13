@@ -6,6 +6,8 @@ mod clients;
 mod export;
 /// Generate functionality
 mod generate;
+/// E2E health check across all protocol ops
+mod health;
 /// Information about this app
 mod info;
 /// Inspect data on the XMTP Network
@@ -142,6 +144,7 @@ impl App {
                 Export(e) => export::Export::new(e, backend)?.run(),
                 Modify(m) => modify::Modify::new(m, backend)?.run().await,
                 Stream(s) => stream::Stream::new(s, backend)?.run().await,
+                Healthcheck(h) => health::Health::new(h, backend).run().await,
             }?;
         }
 

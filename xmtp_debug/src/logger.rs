@@ -59,7 +59,7 @@ impl Logger {
             .unwrap_or_else(|_| EnvFilter::builder().parse_lossy(format!("xdbg={verbosity}")));
         let file_filter = || {
             EnvFilter::builder().parse_lossy(
-                "xmtp_api_d14n=DEBUG,xmtp_api=DEBUG,xmtp_mls=DEBUG,xmtp_id=DEBUG,xmtp_cryptography=DEBUG,xmtp_api_grpc=DEBUG",
+                "xmtp_api_d14n=DEBUG,xmtp_api=DEBUG,xmtp_mls=DEBUG,xmtp_id=DEBUG,xmtp_cryptography=DEBUG,xmtp_api_grpc=DEBUG,healthcheck=TRACE",
             )
         };
         let subscriber = tracing_subscriber::registry();

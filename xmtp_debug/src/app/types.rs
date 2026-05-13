@@ -5,7 +5,7 @@ use alloy::signers::local::PrivateKeySigner;
 use color_eyre::eyre::{self, Result};
 use ecdsa::SigningKey;
 use openmls::{credentials::BasicCredential, prelude::Credential};
-use prost::Message;
+use prost::Message as _;
 use speedy::{Readable, Writable};
 
 use xmtp_cryptography::XmtpInstallationCredential;
@@ -221,5 +221,68 @@ impl redb::Value for Group {
 
     fn type_name() -> redb::TypeName {
         redb::TypeName::new("group")
+    }
+}
+
+/// Message recorded for a single healthcheck `SendMessage` op.
+/// Persisted to redb so the `NoMissingMessages` validator has an
+/// authoritative source of truth across runs and versions.
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Readable, Writable)]
+pub struct Message {
+    /// MLS message id (sha-256-derived hash from libxmtp's
+    /// `calculate_message_id`). Always 32 bytes.
+    pub id: [u8; 32],
+    /// Group this message belongs to.
+    pub group_id: [u8; 16],
+    /// Sender's inbox_id (32-byte form, same convention as `Identity`).
+    pub sender_inbox_id: InboxId,
+    /// Wall-clock at the sending op's call site. libxmtp doesn't surface
+    /// its internal envelope timestamp at `send_message` return, so this
+    /// is best-effort for diagnostics. Not used by the validator.
+    pub sent_at_ns: i64,
+    /// UUID of the healthcheck run that sent this message.
+    pub op_run_id: [u8; 16],
+    /// `crate::get_version()` output of the sending xdbg binary.
+    pub xdbg_version: String,
+}
+
+impl std::fmt::Display for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", hex::encode(self.id))
+    }
+}
+
+impl redb::Value for Message {
+    type SelfType<'a>
+        = Message
+    where
+        Self: 'a;
+
+    type AsBytes<'a>
+        = Vec<u8>
+    where
+        Self: 'a;
+
+    fn fixed_width() -> Option<usize> {
+        None
+    }
+
+    fn from_bytes<'a>(data: &'a [u8]) -> Self::SelfType<'a>
+    where
+        Self: 'a,
+    {
+        Message::read_from_buffer(data).unwrap()
+    }
+
+    fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> Self::AsBytes<'a>
+    where
+        Self: 'a,
+        Self: 'b,
+    {
+        value.write_to_vec().unwrap()
+    }
+
+    fn type_name() -> redb::TypeName {
+        redb::TypeName::new("message")
     }
 }
