@@ -49,7 +49,14 @@ pub enum Commands {
     Info(InfoOpts),
     Export(ExportOpts),
     Stream(StreamOpts),
+    Healthcheck(HealthcheckOpts),
 }
+
+/// Cross-version libxmtp health check.
+/// Runs every user-visible protocol op against the local xdbg state,
+/// validates that all clients converge, and exits non-zero on any failure.
+#[derive(Args, Debug)]
+pub struct HealthcheckOpts {}
 
 /// Send Data on the network
 #[derive(Args, Debug)]

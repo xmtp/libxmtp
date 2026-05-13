@@ -13,6 +13,7 @@ vergen-git2 = { workspace = true, features = ["build"] }
 
 [dependencies]
 alloy.workspace = true
+async-trait.workspace = true
 chrono.workspace = true
 clap.workspace = true
 clap-verbosity-flag = "3.0"
@@ -27,6 +28,7 @@ futures.workspace = true
 hex.workspace = true
 humantime = "2.3"
 indicatif.workspace = true
+inventory = "0.3"
 itertools.workspace = true
 k256 = "0.13"
 lipsum = "0.9"
@@ -64,5 +66,6 @@ xmtp_cryptography = { workspace = true, features = ["exposed-keys"] }
 xmtp_db.workspace = true
 xmtp_id.workspace = true
 xmtp_mls.workspace = true
+xmtp_mls_common.workspace = true
 xmtp_proto.workspace = true
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
