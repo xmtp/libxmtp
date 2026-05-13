@@ -1,12 +1,13 @@
 //! Health-check ops registry.
 //!
 //! Every op exercises one user-visible libxmtp operation. Each op lives in
-//! its own submodule and self-registers via `inventory::submit!`. The
-//! `registry()` function returns ops topologically sorted by their
-//! declared `depends_on` relationships.
+//! its own submodule and self-registers via `inventory::submit!` with a
+//! `&'static` reference to its (zero-sized) impl. The `registry()` function
+//! returns ops topologically sorted by their declared `depends_on`
+//! relationships.
 
 use crate::app::health::context::HealthContext;
-use crate::app::health::registry::{self, RegistryEntry};
+use crate::app::health::registry::{self, Named, RegistryEntry};
 use crate::app::health::result::OpResult;
 use async_trait::async_trait;
 
@@ -37,13 +38,21 @@ pub trait HealthOp: Send + Sync {
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult>;
 }
 
+impl Named for dyn HealthOp {
+    fn name(&self) -> &'static str {
+        HealthOp::name(self)
+    }
+}
+
 /// Self-registration entry for an op. Each op submits one of these from
-/// its own module via `inventory::submit!`.
+/// its own module via `inventory::submit!`. The name lives on the op's own
+/// `HealthOp::name()` impl — no duplication on the entry.
 pub struct OpEntry {
-    pub op_name: &'static str,
     /// Names of ops that must complete before this one runs.
     pub depends_on: &'static [&'static str],
-    pub make: fn() -> Box<dyn HealthOp>,
+    /// `&'static` reference to the op's impl. Ops are zero-sized unit
+    /// structs, so `&MyOp` is `'static`-promotable in a `static` context.
+    pub op: &'static (dyn HealthOp + Sync),
 }
 
 inventory::collect!(OpEntry);
@@ -52,40 +61,15 @@ impl RegistryEntry for OpEntry {
     type Item = dyn HealthOp;
     const KIND: &'static str = "op";
 
-    fn name(&self) -> &'static str {
-        self.op_name
-    }
     fn depends_on(&self) -> &'static [&'static str] {
         self.depends_on
     }
-    fn make(&self) -> Box<dyn HealthOp> {
-        (self.make)()
+    fn value(&self) -> &'static dyn HealthOp {
+        self.op
     }
 }
 
 /// Topologically-sorted list of every registered op.
-pub fn registry() -> Vec<Box<dyn HealthOp>> {
+pub fn registry() -> Vec<&'static dyn HealthOp> {
     registry::topo_sort::<OpEntry>(inventory::iter::<OpEntry>)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Every `inventory::submit!` block carries a string `op_name`; the
-    /// implementing struct carries its own `HealthOp::name()`. Assert
-    /// they agree so the two can't drift silently. Doesn't cover the
-    /// third copy (the `fields(op = "...")` on `#[tracing::instrument]`),
-    /// which the proc-macro requires as a string literal.
-    #[test]
-    fn entry_name_matches_op_name() {
-        for entry in inventory::iter::<OpEntry> {
-            let op = (entry.make)();
-            assert_eq!(
-                entry.op_name,
-                op.name(),
-                "OpEntry::op_name disagrees with HealthOp::name() for one op",
-            );
-        }
-    }
 }

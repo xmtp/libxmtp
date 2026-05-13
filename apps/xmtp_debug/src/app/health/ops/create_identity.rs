@@ -47,8 +47,7 @@ mod tests {
 
 inventory::submit! {
     crate::app::health::ops::OpEntry {
-        op_name: "CreateIdentity",
         depends_on: &[],
-        make: || Box::new(CreateIdentity),
+        op: &CreateIdentity,
     }
 }

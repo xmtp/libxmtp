@@ -65,8 +65,7 @@ mod tests {
 
 inventory::submit! {
     crate::app::health::ops::OpEntry {
-        op_name: "UpdateCommitLogSigner",
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
-        make: || Box::new(UpdateCommitLogSigner),
+        op: &UpdateCommitLogSigner,
     }
 }

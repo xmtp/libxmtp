@@ -395,6 +395,32 @@ xdbg_supports_flag() {
     return 1
 }
 
+# Probe whether `xdbg <subcommand> --help` succeeds at this kind/sha.
+# Used to require `healthcheck` on every tested version. Cached.
+# Args: kind sha subcommand
+# Returns 0 if supported, 1 otherwise.
+xdbg_supports_subcommand() {
+    local kind="$1" sha="$2" sub="$3"
+    local key="${kind}:${sha}:sub:${sub}"
+    if [ -n "${XDBG_FLAG_CACHE[$key]:-}" ]; then
+        return "${XDBG_FLAG_CACHE[$key]}"
+    fi
+    local bin rc=0
+    bin=$(xdbg_binary_path "$kind" "$sha") || {
+        XDBG_FLAG_CACHE[$key]=1
+        return 1
+    }
+    local -a env_args
+    mapfile -t env_args < <(xdbg_sandbox_env_args)
+    env "${env_args[@]}" "$bin" "$sub" --help >/dev/null 2>&1 || rc=$?
+    if [ "$rc" -eq 0 ]; then
+        XDBG_FLAG_CACHE[$key]=0
+        return 0
+    fi
+    XDBG_FLAG_CACHE[$key]=1
+    return 1
+}
+
 # Run a non-informative xdbg command with `--json --fail-fast`. Every
 # tested sha now carries the --fail-fast flag, so non-zero rc IS the
 # failure signal — no log-file scanning needed.
@@ -560,12 +586,11 @@ cmd_run_sequence() {
     #   SKIP         — generic skip (reserved)
     # kind: stable | nightly | head
     local -a results=()
-    local creator_done=0
-    local sender_done=0
+    local completed_count=0
     local nightly_failure=0
     local required_failure=0
     local _record_not_run_remaining=0
-    local sha role rand probe_rc probe_mode kind
+    local sha role probe_rc probe_mode kind
     local entry _short branch label
     local plan_idx=0
     for entry in "${plan_lines[@]:1}"; do
@@ -640,69 +665,40 @@ cmd_run_sequence() {
 
         run_xdbg_info "$kind" "$sha" --version || true
 
-        # If the planned creator slot is still empty (e.g. earlier entries
-        # were all skipped), promote this entry to creator. Only required
-        # entries (stable / HEAD) get promoted — a nightly is allowed to
-        # fail and we don't want a single failing nightly to take down the
-        # whole sequence by being the creator.
-        local effective_role="$role"
-        if [ "$creator_done" -eq 0 ] && [ "$is_required" -eq 1 ]; then
-            effective_role="creator"
+        # Require the `healthcheck` subcommand on every tested version.
+        # Versions without it cannot drive the cross-version sequence —
+        # the old `generate identity/group/message` path is gone.
+        if ! xdbg_supports_subcommand "$kind" "$sha" healthcheck; then
+            if [ "$is_required" -eq 0 ]; then
+                echo "::warning::xdbg@${sha:0:7} nightly $label lacks 'healthcheck' subcommand; skipping" >&2
+                results+=("SKIP-NO-HEALTHCHECK|${sha:0:7}|$sha|$kind|$branch|$label")
+                nightly_failure=1
+                continue
+            fi
+            echo "::error::xdbg@${sha:0:7} required version ($branch) lacks 'healthcheck' subcommand; cannot continue" >&2
+            results+=("FAIL|${sha:0:7}|$sha|$kind|$branch|$label")
+            required_failure=1
+            _record_not_run_remaining=1
+            break
         fi
 
         local entry_rc=0
-        if [ "$effective_role" = "creator" ]; then
-            echo "::group::creator@${sha:0:7} setup" >&2
-            run_xdbg_real "$out_dir" "$kind" "$sha" generate --entity identity -a "$n" \
-                || entry_rc=$?
-            if [ "$entry_rc" -eq 0 ]; then
-                run_xdbg_real "$out_dir" "$kind" "$sha" generate --entity group -a 1 --invite "$n" \
-                    || entry_rc=$?
-            fi
-            if [ "$entry_rc" -eq 0 ]; then
-                run_xdbg_real "$out_dir" "$kind" "$sha" generate --entity message -a 1 \
-                    || entry_rc=$?
-            fi
-            echo "::endgroup::" >&2
-            if [ "$entry_rc" -eq 0 ]; then
-                creator_done=1
-                results+=("PASS|${sha:0:7}|$sha|$kind|$branch|$label")
-            else
-                # Creator is load-bearing: senders have nothing to read.
-                # Always fatal regardless of leniency.
-                echo "::error::xdbg@${sha:0:7} creator failed (rc=$entry_rc); cannot continue" >&2
-                results+=("FAIL|${sha:0:7}|$sha|$kind|$branch|$label")
-                required_failure=1
-                _record_not_run_remaining=1
-                break
-            fi
-        else
-            rand=$(( (RANDOM % 6) + 5 ))   # 5..10 inclusive
-            echo "::group::sender@${sha:0:7} (${rand} msgs + change-description)" >&2
-            run_xdbg_real "$out_dir" "$kind" "$sha" generate --entity group -a 1 --invite "$n" \
-                || entry_rc=$?
-            if [ "$entry_rc" -eq 0 ]; then
-                run_xdbg_real "$out_dir" "$kind" "$sha" generate --entity message -a "$rand" --change-description \
-                    || entry_rc=$?
-            fi
-            echo "::endgroup::" >&2
+        echo "::group::healthcheck@${sha:0:7} ($kind $label)" >&2
+        run_xdbg_real "$out_dir" "$kind" "$sha" healthcheck || entry_rc=$?
+        echo "::endgroup::" >&2
 
-            if [ "$entry_rc" -eq 0 ]; then
-                sender_done=1
-                results+=("PASS|${sha:0:7}|$sha|$kind|$branch|$label")
-            else
-                results+=("FAIL|${sha:0:7}|$sha|$kind|$branch|$label")
-                if [ "$is_required" -eq 0 ]; then
-                    echo "::warning::xdbg@${sha:0:7} nightly $label runtime failure (rc=$entry_rc); continuing so later versions (incl. HEAD) still run" >&2
-                    nightly_failure=1
-                    continue
-                fi
-                # Required sender failure — record but keep running so
-                # remaining entries (including HEAD) still get a chance.
-                # The required_failure flag will cause non-zero exit at end.
-                echo "::error::xdbg@${sha:0:7} required sender ($kind) runtime failure (rc=$entry_rc); continuing to remaining entries" >&2
-                required_failure=1
+        if [ "$entry_rc" -eq 0 ]; then
+            completed_count=$((completed_count + 1))
+            results+=("PASS|${sha:0:7}|$sha|$kind|$branch|$label")
+        else
+            results+=("FAIL|${sha:0:7}|$sha|$kind|$branch|$label")
+            if [ "$is_required" -eq 0 ]; then
+                echo "::warning::xdbg@${sha:0:7} nightly $label healthcheck failure (rc=$entry_rc); continuing so later versions (incl. HEAD) still run" >&2
+                nightly_failure=1
+                continue
             fi
+            echo "::error::xdbg@${sha:0:7} required version ($kind) healthcheck failure (rc=$entry_rc); continuing to remaining entries" >&2
+            required_failure=1
         fi
     done
 
@@ -741,11 +737,12 @@ cmd_run_sequence() {
         for r in "${results[@]}"; do
             IFS='|' read -r status short_sha full_sha r_kind r_branch r_label <<< "$r"
             case "$status" in
-                PASS)          glyph="✓ PASS" ;;
-                FAIL)          glyph="✗ FAIL" ;;
-                SKIP-BUILD)    glyph="⊘ SKIP (build failed)" ;;
-                SKIP-NOT-RUN)  glyph="⊘ SKIP (not run — earlier required failure)" ;;
-                *)             glyph="? $status" ;;
+                PASS)               glyph="✓ PASS" ;;
+                FAIL)               glyph="✗ FAIL" ;;
+                SKIP-BUILD)         glyph="⊘ SKIP (build failed)" ;;
+                SKIP-NOT-RUN)       glyph="⊘ SKIP (not run — earlier required failure)" ;;
+                SKIP-NO-HEALTHCHECK) glyph="⊘ SKIP (no healthcheck subcommand)" ;;
+                *)                  glyph="? $status" ;;
             esac
             # Display: nightly tag label if present, else release branch
             # (stable rows), else empty (HEAD).
@@ -756,8 +753,7 @@ cmd_run_sequence() {
 
     # JSON summary.
     {
-        printf '{\n  "creator_done": %s,\n' "$creator_done"
-        printf '  "sender_done": %s,\n' "$sender_done"
+        printf '{\n  "completed_count": %s,\n' "$completed_count"
         printf '  "nightly_failure": %s,\n' "$nightly_failure"
         printf '  "required_failure": %s,\n' "$required_failure"
         printf '  "lenient_nightlies": %s,\n' "$lenient_nightlies"
@@ -789,11 +785,12 @@ cmd_run_sequence() {
             for r in "${results[@]}"; do
                 IFS='|' read -r status short_sha full_sha r_kind r_branch r_label <<< "$r"
                 case "$status" in
-                    PASS)          md_glyph="✅ PASS" ;;
-                    FAIL)          md_glyph="❌ FAIL" ;;
-                    SKIP-BUILD)    md_glyph="⊘ SKIP (build failed)" ;;
-                    SKIP-NOT-RUN)  md_glyph="⊘ SKIP (not run — earlier required failure)" ;;
-                    *)             md_glyph="❓ $status" ;;
+                    PASS)               md_glyph="✅ PASS" ;;
+                    FAIL)               md_glyph="❌ FAIL" ;;
+                    SKIP-BUILD)         md_glyph="⊘ SKIP (build failed)" ;;
+                    SKIP-NOT-RUN)       md_glyph="⊘ SKIP (not run — earlier required failure)" ;;
+                    SKIP-NO-HEALTHCHECK) md_glyph="⊘ SKIP (no healthcheck subcommand)" ;;
+                    *)                  md_glyph="❓ $status" ;;
                 esac
                 # Nightly rows carry a label (nightly.YYYYMMDD); stable rows
                 # carry a branch (release/X); HEAD has neither.
@@ -803,15 +800,17 @@ cmd_run_sequence() {
                     "$md_glyph" "$r_kind" "$short_sha" "$display" "$full_sha"
             done
             echo ""
-            echo "**creator_done=$creator_done sender_done=$sender_done required_failure=$required_failure nightly_failure=$nightly_failure lenient=$lenient_nightlies**"
+            echo "**completed_count=$completed_count required_failure=$required_failure nightly_failure=$nightly_failure lenient=$lenient_nightlies**"
             echo ""
             echo "**libxmtp NDJSON log files captured: ${log_count}** (download the run artifact to inspect)"
         } >> "$GITHUB_STEP_SUMMARY"
     fi
 
-    # Cross-version compat requires at least one creator AND one sender.
-    if [ "$creator_done" -eq 0 ] || [ "$sender_done" -eq 0 ]; then
-        echo "::error::run-sequence: insufficient cross-version coverage (creator=$creator_done, sender=$sender_done); need at least one creator + one sender" >&2
+    # Cross-version compat requires at least two versions to successfully
+    # complete `xdbg healthcheck` against the shared state, otherwise the
+    # run did not actually exercise inter-version compatibility.
+    if [ "$completed_count" -lt 2 ]; then
+        echo "::error::run-sequence: insufficient cross-version coverage (completed=$completed_count); need at least 2 successful healthcheck runs" >&2
         exit 1
     fi
 

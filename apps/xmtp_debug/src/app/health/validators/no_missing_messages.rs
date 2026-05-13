@@ -63,6 +63,24 @@ impl Validator for NoMissingMessages {
                         continue;
                     }
                 };
+                // Skip clients that left or were removed: their local view
+                // is intentionally frozen at the moment of removal and will
+                // not see post-removal commits. The MLS group's
+                // `is_active()` returns false for those clients.
+                let active = client
+                    .group(group_id.as_slice())
+                    .ok()
+                    .and_then(|g| g.is_active().ok())
+                    .unwrap_or(false);
+                if !active {
+                    tracing::debug!(
+                        target: "healthcheck",
+                        inbox = client.inbox_id(),
+                        group = %group_id,
+                        "skipping inactive client (left or removed)",
+                    );
+                    continue;
+                }
                 let msgs = match db.get_group_messages(group_id, &MsgQueryArgs::default()) {
                     Ok(m) => m,
                     Err(e) => {
@@ -139,8 +157,7 @@ mod tests {
 
 inventory::submit! {
     crate::app::health::validators::ValidatorEntry {
-        name: "NoMissingMessages",
         depends_on: &[],
-        make: || Box::new(NoMissingMessages),
+        validator: &NoMissingMessages,
     }
 }
