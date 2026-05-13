@@ -18,6 +18,7 @@ mod update_group_description;
 mod update_group_image_url;
 mod update_message_disappearing;
 mod update_admin_list;
+mod update_permission_policy;
 
 #[async_trait]
 pub trait HealthOp: Send + Sync {
@@ -41,5 +42,6 @@ pub fn registry() -> Vec<Box<dyn HealthOp>> {
         Box::new(update_message_disappearing::UpdateMessageDisappearing),
         Box::new(update_message_disappearing::RemoveMessageDisappearing),
         Box::new(update_admin_list::UpdateAdminList),
+        Box::new(update_permission_policy::UpdatePermissionPolicy),
     ]
 }
