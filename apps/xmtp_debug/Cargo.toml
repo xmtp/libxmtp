@@ -72,6 +72,7 @@ xmtp_cryptography = { workspace = true, features = ["exposed-keys"] }
 xmtp_db.workspace = true
 xmtp_id.workspace = true
 xmtp_mls.workspace = true
+xmtp_mls_common.workspace = true
 xmtp_proto.workspace = true
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
