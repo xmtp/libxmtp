@@ -5,6 +5,7 @@
 //! `docs/superpowers/specs/2026-05-13-xdbg-healthcheck-design.md`.
 
 mod context;
+pub use context::HealthContext;
 mod ops;
 mod result;
 mod validators;
