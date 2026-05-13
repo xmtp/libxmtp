@@ -38,5 +38,6 @@ pub fn registry() -> Vec<Box<dyn HealthOp>> {
         Box::new(update_group_description::UpdateGroupDescription),
         Box::new(update_group_image_url::UpdateGroupImageUrlSquare),
         Box::new(update_message_disappearing::UpdateMessageDisappearing),
+        Box::new(update_message_disappearing::RemoveMessageDisappearing),
     ]
 }
