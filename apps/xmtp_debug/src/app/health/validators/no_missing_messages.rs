@@ -31,7 +31,11 @@ impl Validator for NoMissingMessages {
         "NoMissingMessages"
     }
 
-    #[tracing::instrument(target = "healthcheck.validator", skip_all, fields(op = "NoMissingMessages"))]
+    #[tracing::instrument(
+        target = "healthcheck.validator",
+        skip_all,
+        fields(op = "NoMissingMessages")
+    )]
     async fn validate(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let mut out = Vec::new();
         let clients = ctx.all_clients();

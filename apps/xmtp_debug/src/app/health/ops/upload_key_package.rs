@@ -21,21 +21,24 @@ impl HealthOp for UploadKeyPackage {
     #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "UploadKeyPackage"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let name = self.name();
-        let tasks = ctx.existing_clients.iter().map(|(inbox_id, client)| async move {
-            let start = Instant::now();
-            let outcome = client.rotate_and_upload_key_package().await;
-            let (status, error) = match outcome {
-                Ok(_) => (Status::Pass, None),
-                Err(e) => (Status::Fail, Some(eyre!("{e}"))),
-            };
-            OpResult {
-                op_name: name,
-                target: Some(hex::encode(inbox_id)),
-                status,
-                duration: start.elapsed(),
-                error,
-            }
-        });
+        let tasks = ctx
+            .existing_clients
+            .iter()
+            .map(|(inbox_id, client)| async move {
+                let start = Instant::now();
+                let outcome = client.rotate_and_upload_key_package().await;
+                let (status, error) = match outcome {
+                    Ok(_) => (Status::Pass, None),
+                    Err(e) => (Status::Fail, Some(eyre!("{e}"))),
+                };
+                OpResult {
+                    op_name: name,
+                    target: Some(hex::encode(inbox_id)),
+                    status,
+                    duration: start.elapsed(),
+                    error,
+                }
+            });
         join_all(tasks).await
     }
 }

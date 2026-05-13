@@ -147,4 +147,3 @@ impl HealthContext {
         self.existing_groups.iter().chain(self.new_groups.iter())
     }
 }
-
