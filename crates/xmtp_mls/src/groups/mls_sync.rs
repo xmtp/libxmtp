@@ -2789,16 +2789,17 @@ where
                     "MetadataUpdate intent routing"
                 );
                 if proposals_on && registry_populated {
-                    // Bundle the AppDataUpdate proposal and its resulting
-                    // dict update into a single commit so propose-and-apply
-                    // stays atomic — matching the legacy GCE path's
-                    // "metadata update completes in one sync" semantics.
+                    // Publish a STANDALONE AppDataUpdate proposal followed
+                    // by a commit that references it (XIP §1.5.2 / §3.4).
+                    // Both wire messages go in one publish batch — the
+                    // proposal comes first so the receiver has it in its
+                    // pending store before processing the commit.
                     use super::app_data::{
                         component_source::{
                             ComponentMutation, ComponentSourceError,
                             encode_app_data_update_payload, metadata_field_to_component_id,
                         },
-                        stage_inline_app_data_commit,
+                        stage_app_data_propose_and_commit,
                     };
 
                     let component_id = metadata_field_to_component_id(&metadata_intent.field_name)
@@ -2814,19 +2815,20 @@ where
                     })?;
 
                     let signer = self.context.identity().installation_keys.clone();
-                    let (bundle, staged_commit, group_epoch) = generate_commit_with_rollback(
-                        storage,
-                        openmls_group,
-                        move |group, provider| -> Result<_, GroupError> {
-                            Ok(stage_inline_app_data_commit(
-                                group,
-                                provider,
-                                &signer,
-                                component_id,
-                                payload,
-                            )?)
-                        },
-                    )?;
+                    let ((proposal_msg, bundle), staged_commit, group_epoch) =
+                        generate_commit_with_rollback(
+                            storage,
+                            openmls_group,
+                            move |group, provider| -> Result<_, GroupError> {
+                                Ok(stage_app_data_propose_and_commit(
+                                    group,
+                                    provider,
+                                    &signer,
+                                    component_id,
+                                    payload,
+                                )?)
+                            },
+                        )?;
 
                     let (commit, welcome, _group_info) = bundle.into_messages();
                     // A metadata-only AppDataUpdate commit has no add/remove
@@ -2838,7 +2840,10 @@ where
                         "MetadataUpdate via AppDataUpdate must not produce a welcome"
                     );
                     return Ok(Some(PublishIntentData {
-                        payloads_to_publish: vec![commit.tls_serialize_detached()?],
+                        payloads_to_publish: vec![
+                            proposal_msg.tls_serialize_detached()?,
+                            commit.tls_serialize_detached()?,
+                        ],
                         staged_commit,
                         post_commit_action: None,
                         should_send_push_notification: intent.should_push,

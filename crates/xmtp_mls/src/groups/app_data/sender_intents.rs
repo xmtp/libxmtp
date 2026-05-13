@@ -31,7 +31,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use super::component_source::{ComponentSourceError, metadata_field_to_component_id};
-use super::{load_component_registry, stage_inline_app_data_commit};
+use super::{load_component_registry, stage_app_data_propose_and_commit};
 use crate::{
     context::XmtpSharedContext,
     groups::{
@@ -86,11 +86,11 @@ pub(crate) fn apply_update_admin_list_app_data_intent(
     }
     .map_err(|e| GroupError::ComponentSource(ComponentSourceError::from(e)))?;
 
-    let (bundle, staged_commit, group_epoch) = generate_commit_with_rollback(
+    let ((proposal_msg, bundle), staged_commit, group_epoch) = generate_commit_with_rollback(
         storage,
         openmls_group,
         move |group, provider| -> Result<_, GroupError> {
-            Ok(stage_inline_app_data_commit(
+            Ok(stage_app_data_propose_and_commit(
                 group,
                 provider,
                 &signer,
@@ -106,7 +106,10 @@ pub(crate) fn apply_update_admin_list_app_data_intent(
         "UpdateAdminList via AppDataUpdate must not produce a welcome"
     );
     Ok(PublishIntentData {
-        payloads_to_publish: vec![commit.tls_serialize_detached()?],
+        payloads_to_publish: vec![
+            proposal_msg.tls_serialize_detached()?,
+            commit.tls_serialize_detached()?,
+        ],
         staged_commit,
         post_commit_action: None,
         should_send_push_notification,
@@ -196,11 +199,11 @@ pub(crate) fn apply_update_permission_app_data_intent(
     let payload = <ComponentRegistryComponent as Component>::encode_mutation(&delta)
         .map_err(|e| GroupError::ComponentSource(ComponentSourceError::from(e)))?;
 
-    let (bundle, staged_commit, group_epoch) = generate_commit_with_rollback(
+    let ((proposal_msg, bundle), staged_commit, group_epoch) = generate_commit_with_rollback(
         storage,
         openmls_group,
         move |group, provider| -> Result<_, GroupError> {
-            Ok(stage_inline_app_data_commit(
+            Ok(stage_app_data_propose_and_commit(
                 group,
                 provider,
                 &signer,
@@ -216,7 +219,10 @@ pub(crate) fn apply_update_permission_app_data_intent(
         "UpdatePermission via AppDataUpdate must not produce a welcome"
     );
     Ok(PublishIntentData {
-        payloads_to_publish: vec![commit.tls_serialize_detached()?],
+        payloads_to_publish: vec![
+            proposal_msg.tls_serialize_detached()?,
+            commit.tls_serialize_detached()?,
+        ],
         staged_commit,
         post_commit_action: None,
         should_send_push_notification,

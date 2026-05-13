@@ -3,7 +3,7 @@
 //! [`MlsGroupAppData`] borrows an `&OpenMlsGroup` and exposes typed,
 //! per-component reads via [`MlsGroupAppData::get`]. Write paths
 //! continue to use the existing intent infrastructure (`mls_sync.rs`)
-//! plus `stage_inline_app_data_commit`; this facade is for callers
+//! plus `stage_app_data_propose_and_commit`; this facade is for callers
 //! that need a single typed value (e.g. permissions checks, registry
 //! lookups, custom-component reads).
 //!
