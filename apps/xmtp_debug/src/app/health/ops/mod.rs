@@ -8,6 +8,8 @@ use crate::app::health::context::HealthContext;
 use crate::app::health::result::OpResult;
 use async_trait::async_trait;
 
+mod upload_key_package;
+
 #[async_trait]
 pub trait HealthOp: Send + Sync {
     fn name(&self) -> &'static str;
@@ -17,5 +19,5 @@ pub trait HealthOp: Send + Sync {
 /// Ordered registry of every op in the run.
 /// Populated incrementally by Tasks 5–23.
 pub fn registry() -> Vec<Box<dyn HealthOp>> {
-    Vec::new()
+    vec![Box::new(upload_key_package::UploadKeyPackage)]
 }
