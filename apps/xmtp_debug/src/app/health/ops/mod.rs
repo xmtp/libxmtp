@@ -24,6 +24,7 @@ mod update_commit_log_signer;
 mod update_consent_state;
 mod get_mutable_metadata;
 mod create_dm;
+mod leave_group;
 
 #[async_trait]
 pub trait HealthOp: Send + Sync {
@@ -54,5 +55,6 @@ pub fn registry() -> Vec<Box<dyn HealthOp>> {
         Box::new(update_consent_state::UpdateConsentStateQuiet),
         Box::new(get_mutable_metadata::GetMutableMetadata),
         Box::new(create_dm::CreateDm),
+        Box::new(leave_group::LeaveGroup),
     ]
 }
