@@ -5,6 +5,8 @@ use crate::app::health::context::HealthContext;
 use crate::app::health::result::OpResult;
 use async_trait::async_trait;
 
+mod no_forks;
+
 #[async_trait]
 pub trait Validator: Send + Sync {
     fn name(&self) -> &'static str;
@@ -12,5 +14,5 @@ pub trait Validator: Send + Sync {
 }
 
 pub fn registry() -> Vec<Box<dyn Validator>> {
-    Vec::new()
+    vec![Box::new(no_forks::NoForkedGroups)]
 }
