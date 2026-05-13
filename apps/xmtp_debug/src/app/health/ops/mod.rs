@@ -9,6 +9,7 @@ use crate::app::health::result::OpResult;
 use async_trait::async_trait;
 
 mod upload_key_package;
+mod create_identity;
 
 #[async_trait]
 pub trait HealthOp: Send + Sync {
@@ -19,5 +20,8 @@ pub trait HealthOp: Send + Sync {
 /// Ordered registry of every op in the run.
 /// Populated incrementally by Tasks 5–23.
 pub fn registry() -> Vec<Box<dyn HealthOp>> {
-    vec![Box::new(upload_key_package::UploadKeyPackage)]
+    vec![
+        Box::new(upload_key_package::UploadKeyPackage),
+        Box::new(create_identity::CreateIdentity),
+    ]
 }
