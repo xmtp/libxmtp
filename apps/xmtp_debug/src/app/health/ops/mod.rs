@@ -12,6 +12,7 @@ mod upload_key_package;
 mod create_identity;
 mod create_group;
 mod add_members;
+mod send_message;
 
 #[async_trait]
 pub trait HealthOp: Send + Sync {
@@ -28,5 +29,6 @@ pub fn registry() -> Vec<Box<dyn HealthOp>> {
         Box::new(create_group::CreateGroup),
         Box::new(add_members::AddMembersToNewGroup),
         Box::new(add_members::AddPrimaryToExistingGroups),
+        Box::new(send_message::SendMessage),
     ]
 }
