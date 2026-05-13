@@ -375,7 +375,20 @@ pub fn find_mutable_metadata_extension(extensions: &Extensions<GroupContext>) ->
     })
 }
 
-pub fn extract_group_mutable_metadata(
+/// Read `GroupMutableMetadata` from the **legacy** group-context
+/// extension only.
+///
+/// Use only when the caller is certain the group is unmigrated — on
+/// post-bootstrap groups the legacy extension is gone and this returns
+/// [`GroupMutableMetadataError::MissingExtension`].
+///
+/// For capability-aware reads that handle both legacy and migrated
+/// groups, use `extract_group_mutable_metadata_capability_aware` in
+/// the `xmtp_mls` crate at
+/// `xmtp_mls::groups::app_data::component_source`.
+/// (`xmtp_mls_common` cannot rustdoc-link to it because the dependency
+/// direction is one-way — this comment is the pointer.)
+pub fn extract_legacy_group_mutable_metadata(
     group: &OpenMlsGroup,
 ) -> Result<GroupMutableMetadata, GroupMutableMetadataError> {
     find_mutable_metadata_extension(group.extensions())
