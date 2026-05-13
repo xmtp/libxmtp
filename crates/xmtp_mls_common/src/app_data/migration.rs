@@ -157,7 +157,7 @@ pub enum MigrationError {
 /// [`PolicySetProto`]. Deterministic: every honest peer synthesizes
 /// bit-identical output from the same input.
 ///
-/// Mapping summary (see the migration plan for the full table):
+/// Mapping summary:
 ///
 /// - Mutable scalar components pull insert/update from
 ///   `update_metadata_policy[field_name]` (default Allow); delete is

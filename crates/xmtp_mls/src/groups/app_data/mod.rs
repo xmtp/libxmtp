@@ -438,11 +438,10 @@ pub(crate) fn pending_app_data_updates(
 /// migrated.
 ///
 /// This is intentionally distinct from [`MlsGroup::proposals_enabled`]:
-/// a group can have `proposals_enabled == true` without having
-/// completed a bootstrap commit yet (the foundation-PR window).
-/// Read accessors key off this helper instead so they correctly fall
-/// back to the legacy GMM extension on proposals-enabled-but-
-/// unbootstrapped groups.
+/// a group can have `proposals_enabled == true` without having yet
+/// completed its bootstrap commit. Read accessors key off this helper
+/// instead so they correctly fall back to the legacy GMM extension on
+/// proposals-enabled-but-unbootstrapped groups.
 pub(crate) fn is_migrated_group(mls_group: &OpenMlsGroup) -> bool {
     is_migrated_extensions(mls_group.extensions())
 }
@@ -579,7 +578,7 @@ pub(crate) fn load_component_registry_from_extensions(
 mod tests {
     //! Unit coverage for the migration-marker predicate —
     //! [`is_migrated_extensions`]. These pin the three read-side
-    //! invariants from the PR review:
+    //! invariants:
     //!   (a) registry empty / dict missing => legacy-authoritative,
     //!   (b) overlay no-op on unmigrated groups (even if `TEST_REGISTRY_OVERRIDE`
     //!       is set but the dict is empty),

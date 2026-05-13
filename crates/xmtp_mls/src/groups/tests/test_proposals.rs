@@ -2611,25 +2611,11 @@ async fn test_app_data_update_advertised_but_not_required() {
 // AppDataUpdate Path Tests
 // =============================================================================
 //
-// These tests exercise the new app-data-update flow that activates when a
+// These tests exercise the app-data-update flow that activates when a
 // group has flipped `proposals_enabled`. They confirm that:
 // 1. `update_group_name` and friends still work end-to-end (sender → receiver)
 // 2. The capability-gated read accessors return the new value
 // 3. The legacy path is unchanged for groups without `proposals_enabled`
-//
-// The component registry is empty in phase 1, so the receiver-side validator
-// denies-by-default for non-hardcoded components. These tests inject a
-// permissive registry for the duration of the test by scoping
-// `TEST_REGISTRY_OVERRIDE` (a tokio task-local) around the test body,
-// mirroring how production code will eventually load a populated registry
-// from the AppData dictionary.
-
-// `TEST_REGISTRY_OVERRIDE` is no longer wrapped from these tests.
-// `enable_proposals()` now fires the real `IntentKind::BootstrapMigration`
-// commit, which writes a proper `COMPONENT_REGISTRY` entry and the
-// immutable seeds to the AppData dictionary. The override mechanism
-// itself stays in `app_data/mod.rs` for any future synthetic-registry
-// unit tests, but no integration test needs it now.
 
 /// `update_group_name` on a group with `proposals_enabled` should:
 /// - publish a commit containing an `AppDataUpdate(GROUP_NAME)` proposal,
@@ -2821,33 +2807,6 @@ async fn test_disappearing_settings_survive_bootstrap() {
          catches a regression that stores `Some(now_ns())` or `Some(garbage)`"
     );
 }
-
-// NOTE: Three E2E tests are deliberately missing from phase 1. Each is
-// tracked here so a future PR can tick them off once the underlying
-// callpath exists.
-//
-// 1. **ADMIN_LIST via AppDataUpdate.** The new collection-component path
-//    for ADMIN_LIST is disabled (see the TODO in
-//    `IntentKind::UpdateAdminList`) until either dual-write or full
-//    migration ships, because the legacy validator and the new dict path
-//    otherwise diverge. Once that's in place, mirror
-//    `test_update_group_name_via_app_data_update` against
-//    `update_admin_list(UpdateAdminListType::Add, …)`.
-//
-// 2. **Standalone `validate_proposal` arm for `AppDataUpdate`.** Today
-//    libxmtp always bundles an `AppDataUpdate` inline with a commit via
-//    `stage_inline_app_data_commit`; there is no public API producing a
-//    standalone proposal-by-reference `AppDataUpdate` message. Structural
-//    coverage comes from the inline-path tests below — both the commit-
-//    time path and the standalone path delegate to the shared
-//    `validate_one_app_data_update` helper, so a regression that broke
-//    permission enforcement would trip either entry point.
-//
-// 3. **`RemoveByHash` resolution through the validator.** No production
-//    code path emits `RemoveByHash` in this PR (the admin-list path that
-//    would is disabled per note 1). Unit coverage for resolution lives in
-//    `crates/xmtp_mls/src/groups/app_data/component_source.rs` under
-//    `test_expand_remove_by_hash_*`.
 
 /// Sanity check the legacy path: a group with `proposals_enabled = false`
 /// (the default for fresh groups) should still produce a normal GCE commit
