@@ -1,0 +1,64 @@
+//! Op: primary creates one new group with default policy and metadata.
+//! The new group's id is appended to `ctx.new_groups` so downstream ops
+//! and validators see it.
+
+use crate::app::health::context::HealthContext;
+use crate::app::health::ops::HealthOp;
+use crate::app::health::result::{OpResult, Status};
+use async_trait::async_trait;
+use color_eyre::eyre::eyre;
+use std::time::Instant;
+
+pub struct CreateGroup;
+
+#[async_trait]
+impl HealthOp for CreateGroup {
+    fn name(&self) -> &'static str {
+        "CreateGroup"
+    }
+
+    async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
+        let start = Instant::now();
+        let outcome = ctx.primary.create_group(None, None);
+        let (status, target, error) = match outcome {
+            Ok(group) => {
+                let id_bytes: [u8; 16] = match group.group_id.as_slice().try_into() {
+                    Ok(b) => b,
+                    Err(_) => {
+                        return vec![OpResult {
+                            op_name: self.name(),
+                            target: Some(hex::encode(&group.group_id)),
+                            status: Status::Fail,
+                            duration: start.elapsed(),
+                            error: Some(eyre!(
+                                "expected 16-byte group_id, got {} bytes",
+                                group.group_id.len()
+                            )),
+                        }];
+                    }
+                };
+                let hex_id = hex::encode(id_bytes);
+                ctx.new_groups.push(id_bytes);
+                (Status::Pass, Some(hex_id), None)
+            }
+            Err(e) => (Status::Fail, None, Some(eyre!("{e}"))),
+        };
+        vec![OpResult {
+            op_name: self.name(),
+            target,
+            status,
+            duration: start.elapsed(),
+            error,
+        }]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn name_is_stable() {
+        assert_eq!(CreateGroup.name(), "CreateGroup");
+    }
+}

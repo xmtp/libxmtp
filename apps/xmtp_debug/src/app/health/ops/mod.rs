@@ -10,6 +10,7 @@ use async_trait::async_trait;
 
 mod upload_key_package;
 mod create_identity;
+mod create_group;
 
 #[async_trait]
 pub trait HealthOp: Send + Sync {
@@ -23,5 +24,6 @@ pub fn registry() -> Vec<Box<dyn HealthOp>> {
     vec![
         Box::new(upload_key_package::UploadKeyPackage),
         Box::new(create_identity::CreateIdentity),
+        Box::new(create_group::CreateGroup),
     ]
 }
