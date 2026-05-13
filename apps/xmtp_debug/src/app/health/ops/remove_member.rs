@@ -1,10 +1,11 @@
-//! Op: transient identity self-removes from the newly-created group via
-//! MLS `leave_group`. Uses the transient instead of the primary so the
-//! persisted primary stays in every group across runs.
-//! Must run last so prior ops are not invalidated by the membership change.
+//! Op: primary admin-removes a peer from the newly-created group via
+//! `MlsGroup::remove_members`. Distinct from `LeaveGroup` which exercises
+//! the MLS self-remove path. Both code paths produce a remove commit but
+//! follow different intent + validation flows in libxmtp.
 //!
-//! Distinct from `RemoveMember` which exercises the admin-remove path
-//! (one identity removes another via `remove_members`).
+//! Victim is the first existing identity (i.e. one of the bootstrap or
+//! pre-existing clients). If none is available, the op fails with a
+//! reason.
 
 use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
@@ -13,15 +14,15 @@ use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 use std::time::{Duration, Instant};
 
-pub struct LeaveGroup;
+pub struct RemoveMember;
 
 #[async_trait]
-impl HealthOp for LeaveGroup {
+impl HealthOp for RemoveMember {
     fn name(&self) -> &'static str {
-        "LeaveGroup"
+        "RemoveMember"
     }
 
-    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "LeaveGroup"))]
+    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "RemoveMember"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let Some(gid) = ctx.new_groups.first().cloned() else {
             return vec![OpResult {
@@ -29,25 +30,35 @@ impl HealthOp for LeaveGroup {
                 target: None,
                 status: Status::Fail,
                 duration: Duration::ZERO,
-                error: Some(eyre!("no new group to leave")),
+                error: Some(eyre!("no new group to remove from")),
+            }];
+        };
+
+        let primary_inbox = ctx.primary.inbox_id().to_string();
+        let transient_inbox = ctx.transient_identity.inbox_id().to_string();
+        let Some(victim_inbox) = ctx
+            .existing_clients
+            .values()
+            .map(|c| c.inbox_id().to_string())
+            .find(|id| id != &primary_inbox && id != &transient_inbox)
+        else {
+            return vec![OpResult {
+                op_name: self.name(),
+                target: Some(format!("{gid}")),
+                status: Status::Fail,
+                duration: Duration::ZERO,
+                error: Some(eyre!("no existing identity available as remove target")),
             }];
         };
 
         let start = Instant::now();
         let outcome: color_eyre::eyre::Result<()> = async {
-            // Transient must see the welcome for this group before it can
-            // load + leave it. The add happened earlier in the run but is
-            // only visible after a sync.
-            ctx.transient_identity
-                .sync_welcomes()
-                .await
-                .map_err(color_eyre::eyre::Report::from)?;
             let group = ctx
-                .transient_identity
+                .primary
                 .group(gid.as_slice())
                 .map_err(color_eyre::eyre::Report::from)?;
             group
-                .leave_group()
+                .remove_members(&[victim_inbox.as_str()])
                 .await
                 .map_err(color_eyre::eyre::Report::from)?;
             Ok(())
@@ -59,7 +70,7 @@ impl HealthOp for LeaveGroup {
         };
         vec![OpResult {
             op_name: self.name(),
-            target: Some(format!("{gid}")),
+            target: Some(format!("group={gid} victim={victim_inbox}")),
             status,
             duration: start.elapsed(),
             error,
@@ -73,13 +84,13 @@ mod tests {
 
     #[test]
     fn name_is_stable() {
-        assert_eq!(LeaveGroup.name(), "LeaveGroup");
+        assert_eq!(RemoveMember.name(), "RemoveMember");
     }
 }
 
 inventory::submit! {
     crate::app::health::ops::OpEntry {
-        op_name: "LeaveGroup",
+        op_name: "RemoveMember",
         depends_on: &[
             "SendMessage",
             "UpdateGroupName",
@@ -93,6 +104,6 @@ inventory::submit! {
             "UpdateConsentStateQuiet",
             "GetMutableMetadata",
         ],
-        make: || Box::new(LeaveGroup),
+        make: || Box::new(RemoveMember),
     }
 }

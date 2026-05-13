@@ -16,6 +16,7 @@ impl HealthOp for CreateIdentity {
         "CreateIdentity"
     }
 
+    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "CreateIdentity"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let start = Instant::now();
         let inbox_id = ctx.primary.inbox_id().to_string();
@@ -41,5 +42,13 @@ mod tests {
     #[test]
     fn name_is_stable() {
         assert_eq!(CreateIdentity.name(), "CreateIdentity");
+    }
+}
+
+inventory::submit! {
+    crate::app::health::ops::OpEntry {
+        op_name: "CreateIdentity",
+        depends_on: &[],
+        make: || Box::new(CreateIdentity),
     }
 }

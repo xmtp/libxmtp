@@ -7,11 +7,21 @@ use crate::app::health::result::{OpResult, Status};
 use crate::app::health::validators::Validator;
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
+use xmtp_db::group::QueryGroup;
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_db::prelude::QueryGroupMessage;
-use xmtp_proto::types::GroupId;
+
+/// Per-(client, group) state cached while inspecting a single group.
+struct ClientGroupState {
+    inbox: String,
+    /// Sequence_ids this client has stored locally for this group.
+    seqs: HashSet<i64>,
+    /// Authoritative join time: `StoredGroup::created_at_ns` (the welcome
+    /// timestamp for invited members, group creation for the creator).
+    join_at_ns: i64,
+}
 
 pub struct NoMissingMessages;
 
@@ -21,74 +31,88 @@ impl Validator for NoMissingMessages {
         "NoMissingMessages"
     }
 
+    #[tracing::instrument(target = "healthcheck.validator", skip_all, fields(op = "NoMissingMessages"))]
     async fn validate(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let mut out = Vec::new();
-
-        let mut all_groups: Vec<[u8; 16]> = ctx.existing_groups.clone();
-        all_groups.extend(ctx.new_groups.iter().copied());
-
         let clients = ctx.all_clients();
 
-        for gid_bytes in &all_groups {
-            let group_id = GroupId::from(gid_bytes.as_slice());
+        for group_id in ctx.all_groups() {
+            // Members of this group only — skip clients that aren't part of it.
+            let mut per_client: Vec<ClientGroupState> = Vec::new();
+            // Authoritative seq → sent_at_ns map across every member's
+            // local store. Built once, consulted by every per-client diff.
+            let mut sent_at: HashMap<i64, i64> = HashMap::new();
 
-            // (client, sequence_ids, earliest_ts) per member.
-            let mut per_client: Vec<(String, HashSet<i64>, Option<i64>)> = Vec::new();
             for client in &clients {
                 let db = client.db();
-                let msgs = match db.get_group_messages(&group_id, &MsgQueryArgs::default()) {
-                    Ok(m) => m,
-                    Err(_) => continue,
-                };
-                let mut seqs = HashSet::new();
-                let mut earliest: Option<i64> = None;
-                for m in msgs {
-                    seqs.insert(m.sequence_id);
-                    earliest = Some(match earliest {
-                        None => m.sent_at_ns,
-                        Some(e) => e.min(m.sent_at_ns),
-                    });
-                }
-                per_client.push((client.inbox_id().to_string(), seqs, earliest));
-            }
-
-            for (i, (inbox, _own, earliest)) in per_client.iter().enumerate() {
-                let mut union_others: HashSet<i64> = HashSet::new();
-                for (j, (_, seqs, _)) in per_client.iter().enumerate() {
-                    if i == j {
+                let stored = match db.find_group(group_id) {
+                    Ok(Some(g)) => g,
+                    Ok(None) => continue,
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "healthcheck",
+                            inbox = client.inbox_id(),
+                            group = %group_id,
+                            error = %e,
+                            "skipping client/group: find_group failed",
+                        );
                         continue;
                     }
-                    union_others.extend(seqs.iter());
-                }
-                let union_vec: Vec<u64> = union_others.into_iter().map(|s| s as u64).collect();
-
-                let Some(client) = clients.iter().find(|c| c.inbox_id() == inbox.as_str()) else {
-                    continue;
                 };
-
-                let start = Instant::now();
-                let outcome = client.db().missing_messages(&group_id, &union_vec);
-                let (status, error) = match outcome {
-                    Ok(missing) => {
-                        let join_floor = earliest.unwrap_or(i64::MIN);
-                        let real_missing: Vec<_> = missing
-                            .into_iter()
-                            .filter(|m| m.sent_at_ns >= join_floor)
-                            .collect();
-                        if real_missing.is_empty() {
-                            (Status::Pass, None)
-                        } else {
-                            (
-                                Status::Fail,
-                                Some(eyre!("{} missing messages", real_missing.len())),
-                            )
-                        }
+                let msgs = match db.get_group_messages(group_id, &MsgQueryArgs::default()) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "healthcheck",
+                            inbox = client.inbox_id(),
+                            group = %group_id,
+                            error = %e,
+                            "skipping client/group: get_group_messages failed",
+                        );
+                        continue;
                     }
-                    Err(e) => (Status::Fail, Some(eyre!("{e}"))),
+                };
+                let mut seqs = HashSet::new();
+                for m in msgs {
+                    seqs.insert(m.sequence_id);
+                    // First writer wins — sent_at_ns is invariant per seq.
+                    sent_at.entry(m.sequence_id).or_insert(m.sent_at_ns);
+                }
+                per_client.push(ClientGroupState {
+                    inbox: client.inbox_id().to_string(),
+                    seqs,
+                    join_at_ns: stored.created_at_ns,
+                });
+            }
+
+            // Union of every member's seqs. A client is missing seq `s` iff
+            // `s ∈ global_union \ client.seqs` AND `sent_at[s] >= client.join_at_ns`.
+            let global_union: HashSet<i64> = per_client
+                .iter()
+                .flat_map(|s| s.seqs.iter().copied())
+                .collect();
+
+            for state in &per_client {
+                let start = Instant::now();
+                let missing_count = global_union
+                    .difference(&state.seqs)
+                    .filter(|seq| match sent_at.get(seq) {
+                        Some(&ts) => ts >= state.join_at_ns,
+                        None => false,
+                    })
+                    .count();
+
+                let (status, error) = if missing_count == 0 {
+                    (Status::Pass, None)
+                } else {
+                    (
+                        Status::Fail,
+                        Some(eyre!("{missing_count} missing messages")),
+                    )
                 };
                 out.push(OpResult {
                     op_name: self.name(),
-                    target: Some(format!("inbox={} group={}", inbox, hex::encode(gid_bytes))),
+                    target: Some(format!("inbox={} group={group_id}", state.inbox)),
                     status,
                     duration: start.elapsed(),
                     error,
@@ -106,5 +130,13 @@ mod tests {
     #[test]
     fn name_is_stable() {
         assert_eq!(NoMissingMessages.name(), "NoMissingMessages");
+    }
+}
+
+inventory::submit! {
+    crate::app::health::validators::ValidatorEntry {
+        name: "NoMissingMessages",
+        depends_on: &[],
+        make: || Box::new(NoMissingMessages),
     }
 }

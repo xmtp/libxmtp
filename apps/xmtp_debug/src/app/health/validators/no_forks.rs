@@ -12,7 +12,6 @@ use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 use std::time::Instant;
 use xmtp_db::prelude::QueryGroup;
-use xmtp_proto::types::GroupId;
 
 pub struct NoForkedGroups;
 
@@ -22,18 +21,18 @@ impl Validator for NoForkedGroups {
         "NoForkedGroups"
     }
 
+    #[tracing::instrument(
+        target = "healthcheck.validator",
+        skip_all,
+        fields(op = "NoForkedGroups")
+    )]
     async fn validate(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let mut out = Vec::new();
-
-        let mut all_groups: Vec<[u8; 16]> = ctx.existing_groups.clone();
-        all_groups.extend(ctx.new_groups.iter().copied());
-
         for client in ctx.all_clients() {
             let db = client.db();
-            for gid_bytes in &all_groups {
+            for gid in ctx.all_groups() {
                 let start = Instant::now();
-                let gid = GroupId::from(gid_bytes.as_slice());
-                let outcome = db.get_group_commit_log_forked_status(&gid);
+                let outcome = db.get_group_commit_log_forked_status(gid);
                 let (status, error) = match outcome {
                     Ok(Some(true)) => (Status::Fail, Some(eyre!("group forked"))),
                     Ok(_) => (Status::Pass, None),
@@ -41,11 +40,7 @@ impl Validator for NoForkedGroups {
                 };
                 out.push(OpResult {
                     op_name: self.name(),
-                    target: Some(format!(
-                        "inbox={} group={}",
-                        client.inbox_id(),
-                        hex::encode(gid_bytes)
-                    )),
+                    target: Some(format!("inbox={} group={gid}", client.inbox_id())),
                     status,
                     duration: start.elapsed(),
                     error,
@@ -63,5 +58,13 @@ mod tests {
     #[test]
     fn name_is_stable() {
         assert_eq!(NoForkedGroups.name(), "NoForkedGroups");
+    }
+}
+
+inventory::submit! {
+    crate::app::health::validators::ValidatorEntry {
+        name: "NoForkedGroups",
+        depends_on: &[],
+        make: || Box::new(NoForkedGroups),
     }
 }

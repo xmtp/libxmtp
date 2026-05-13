@@ -160,7 +160,7 @@ impl App {
     }
 }
 
-fn generate_wallet() -> types::EthereumWallet {
+pub(super) fn generate_wallet() -> types::EthereumWallet {
     types::EthereumWallet::default()
 }
 

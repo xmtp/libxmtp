@@ -7,7 +7,6 @@ use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
 use crate::app::health::result::{OpResult, Status};
 use async_trait::async_trait;
-use color_eyre::eyre::eyre;
 use std::time::Instant;
 use xmtp_db::consent_record::ConsentState;
 
@@ -19,18 +18,19 @@ impl HealthOp for UpdateConsentState {
         "UpdateConsentState"
     }
 
+    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "UpdateConsentState"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let mut out = Vec::new();
-        let mut all_groups: Vec<[u8; 16]> = ctx.existing_groups.clone();
-        all_groups.extend(ctx.new_groups.iter().copied());
-
-        for gid in &all_groups {
+        for gid in ctx.all_groups() {
             let start = Instant::now();
             let outcome: color_eyre::eyre::Result<()> = (|| {
-                let group = ctx.primary.group(gid).map_err(|e| eyre!("{e}"))?;
+                let group = ctx
+                    .primary
+                    .group(gid.as_slice())
+                    .map_err(color_eyre::eyre::Report::from)?;
                 group
                     .update_consent_state(ConsentState::Allowed)
-                    .map_err(|e| eyre!("{e}"))?;
+                    .map_err(color_eyre::eyre::Report::from)?;
                 Ok(())
             })();
             let (status, error) = match outcome {
@@ -39,7 +39,7 @@ impl HealthOp for UpdateConsentState {
             };
             out.push(OpResult {
                 op_name: self.name(),
-                target: Some(hex::encode(gid)),
+                target: Some(format!("{gid}")),
                 status,
                 duration: start.elapsed(),
                 error,
@@ -57,19 +57,24 @@ impl HealthOp for UpdateConsentStateQuiet {
         "UpdateConsentStateQuiet"
     }
 
+    #[tracing::instrument(
+        target = "healthcheck.op",
+        skip_all,
+        fields(op = "UpdateConsentStateQuiet")
+    )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let mut out = Vec::new();
-        let mut all_groups: Vec<[u8; 16]> = ctx.existing_groups.clone();
-        all_groups.extend(ctx.new_groups.iter().copied());
-
         let db = ctx.primary.db();
-        for gid in &all_groups {
+        for gid in ctx.all_groups() {
             let start = Instant::now();
             let outcome: color_eyre::eyre::Result<()> = (|| {
-                let group = ctx.primary.group(gid).map_err(|e| eyre!("{e}"))?;
+                let group = ctx
+                    .primary
+                    .group(gid.as_slice())
+                    .map_err(color_eyre::eyre::Report::from)?;
                 group
                     .quietly_update_consent_state(ConsentState::Allowed, &db)
-                    .map_err(|e| eyre!("{e}"))?;
+                    .map_err(color_eyre::eyre::Report::from)?;
                 Ok(())
             })();
             let (status, error) = match outcome {
@@ -78,7 +83,7 @@ impl HealthOp for UpdateConsentStateQuiet {
             };
             out.push(OpResult {
                 op_name: self.name(),
-                target: Some(hex::encode(gid)),
+                target: Some(format!("{gid}")),
                 status,
                 duration: start.elapsed(),
                 error,
@@ -96,5 +101,21 @@ mod tests {
     fn names_are_stable() {
         assert_eq!(UpdateConsentState.name(), "UpdateConsentState");
         assert_eq!(UpdateConsentStateQuiet.name(), "UpdateConsentStateQuiet");
+    }
+}
+
+inventory::submit! {
+    crate::app::health::ops::OpEntry {
+        op_name: "UpdateConsentState",
+        depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
+        make: || Box::new(UpdateConsentState),
+    }
+}
+
+inventory::submit! {
+    crate::app::health::ops::OpEntry {
+        op_name: "UpdateConsentStateQuiet",
+        depends_on: &["UpdateConsentState"],
+        make: || Box::new(UpdateConsentStateQuiet),
     }
 }

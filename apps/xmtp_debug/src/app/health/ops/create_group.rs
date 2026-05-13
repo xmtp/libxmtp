@@ -8,6 +8,7 @@ use crate::app::health::result::{OpResult, Status};
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 use std::time::Instant;
+use xmtp_proto::types::GroupId;
 
 pub struct CreateGroup;
 
@@ -17,28 +18,15 @@ impl HealthOp for CreateGroup {
         "CreateGroup"
     }
 
+    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "CreateGroup"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let start = Instant::now();
         let outcome = ctx.primary.create_group(None, None);
         let (status, target, error) = match outcome {
             Ok(group) => {
-                let id_bytes: [u8; 16] = match group.group_id.as_slice().try_into() {
-                    Ok(b) => b,
-                    Err(_) => {
-                        return vec![OpResult {
-                            op_name: self.name(),
-                            target: Some(hex::encode(&group.group_id)),
-                            status: Status::Fail,
-                            duration: start.elapsed(),
-                            error: Some(eyre!(
-                                "expected 16-byte group_id, got {} bytes",
-                                group.group_id.len()
-                            )),
-                        }];
-                    }
-                };
-                let hex_id = hex::encode(id_bytes);
-                ctx.new_groups.push(id_bytes);
+                let new_group_id = GroupId::from(group.group_id.as_slice());
+                let hex_id = format!("{new_group_id}");
+                ctx.new_groups.push(new_group_id);
                 (Status::Pass, Some(hex_id), None)
             }
             Err(e) => (Status::Fail, None, Some(eyre!("{e}"))),
@@ -60,5 +48,13 @@ mod tests {
     #[test]
     fn name_is_stable() {
         assert_eq!(CreateGroup.name(), "CreateGroup");
+    }
+}
+
+inventory::submit! {
+    crate::app::health::ops::OpEntry {
+        op_name: "CreateGroup",
+        depends_on: &["CreateIdentity"],
+        make: || Box::new(CreateGroup),
     }
 }

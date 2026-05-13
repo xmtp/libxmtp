@@ -8,10 +8,14 @@ use crate::args;
 use color_eyre::eyre::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
+use xmtp_proto::types::GroupId;
+
+/// Number of identities to create when the redb identity store is empty.
+/// 3 is the minimum that lets us exercise group ops (one creator + two
+/// others) and DM ops (primary ↔ peer with at least one extra identity).
+const BOOTSTRAP_IDENTITY_COUNT: usize = 3;
 
 pub struct HealthContext {
-    pub network: args::BackendOpts,
-
     /// The single new identity created for this run. Persisted to the
     /// redb identity store so future runs see it as an existing identity.
     pub primary: Arc<DbgClient>,
@@ -21,22 +25,18 @@ pub struct HealthContext {
     /// without losing the run-stable `primary`.
     pub transient_identity: Arc<DbgClient>,
 
-    /// Extra new identities created only when the redb identity store
-    /// was empty at startup. Empty on a non-fresh run.
-    pub bootstrap_clients: Vec<Arc<DbgClient>>,
-
     /// Identities loaded from the redb `IdentityStore` for this network.
-    /// On a fresh run, contains the registered `bootstrap_clients`.
+    /// On a fresh run, contains the freshly-bootstrapped identities.
     pub existing_clients: HashMap<InboxId, Arc<DbgClient>>,
 
     /// Group IDs loaded from the redb `GroupStore` for this network.
     /// Stored as the raw 16-byte ids as produced by libxmtp.
-    pub existing_groups: Vec<[u8; 16]>,
+    pub existing_groups: Vec<GroupId>,
 
     /// Groups created by ops during this run. Ops receive `&mut
     /// HealthContext` and mutate this directly — execution is sequential
     /// so no synchronization is needed.
-    pub new_groups: Vec<[u8; 16]>,
+    pub new_groups: Vec<GroupId>,
 }
 
 impl HealthContext {
@@ -54,22 +54,23 @@ impl HealthContext {
             .map(|iter| iter.count())
             .unwrap_or(0);
 
-        let mut bootstrap_clients: Vec<Arc<DbgClient>> = Vec::new();
         let mut existing_clients: HashMap<InboxId, Arc<DbgClient>> = HashMap::new();
 
         if identity_count == 0 {
-            tracing::info!("redb identity store empty; creating 3 bootstrap identities");
+            tracing::info!(
+                target: "healthcheck",
+                count = BOOTSTRAP_IDENTITY_COUNT,
+                "redb identity store empty; creating bootstrap identities",
+            );
             let mut fresh_identities: Vec<Identity> = Vec::new();
-            for _ in 0..3 {
+            for _ in 0..BOOTSTRAP_IDENTITY_COUNT {
                 let wallet = app::generate_wallet();
                 let client = app::new_unregistered_client(&network, Some(&wallet)).await?;
                 let identity = Identity::from_libxmtp(client.identity(), wallet.clone())?;
                 app::register_client(&client, wallet.into_alloy()).await?;
                 let inbox_id = identity.inbox_id;
-                let arc = Arc::new(client);
                 fresh_identities.push(identity);
-                bootstrap_clients.push(arc.clone());
-                existing_clients.insert(inbox_id, arc);
+                existing_clients.insert(inbox_id, Arc::new(client));
             }
             id_store.set_all(fresh_identities.as_slice(), net_key)?;
         } else {
@@ -107,51 +108,43 @@ impl HealthContext {
         // 4. Existing groups from redb.
         let existing_groups = group_store
             .load(net_key)?
-            .map(|iter| iter.map(|g| g.value().id).collect::<Vec<_>>())
+            .map(|iter| {
+                iter.map(|g| GroupId::from(g.value().id.as_slice()))
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
 
         tracing::info!(
+            target: "healthcheck",
             existing_identities = existing_clients.len(),
             existing_groups = existing_groups.len(),
-            bootstrap = bootstrap_clients.len(),
             "health context bootstrapped"
         );
 
         Ok(Self {
-            network,
             primary,
             transient_identity,
-            bootstrap_clients,
             existing_clients,
             existing_groups,
             new_groups: Vec::new(),
         })
     }
 
-    /// Iterate every client involved in this run: primary + transient +
-    /// bootstrap + existing. Bootstrap clients are also in
-    /// `existing_clients` (same `Arc`); de-duplicate by inbox_id.
+    /// Every client involved in this run: primary + transient + every
+    /// entry in `existing_clients`. The two run-scoped clients are
+    /// returned first so consumers can match on inbox_id if needed.
     pub fn all_clients(&self) -> Vec<Arc<DbgClient>> {
-        let mut seen: HashMap<InboxId, Arc<DbgClient>> = HashMap::new();
-        seen.insert(inbox_id_bytes(&self.primary), self.primary.clone());
-        seen.insert(
-            inbox_id_bytes(&self.transient_identity),
-            self.transient_identity.clone(),
-        );
-        for c in &self.bootstrap_clients {
-            seen.insert(inbox_id_bytes(c), c.clone());
-        }
-        for (id, c) in &self.existing_clients {
-            seen.insert(*id, c.clone());
-        }
-        seen.into_values().collect()
+        let mut out = Vec::with_capacity(self.existing_clients.len() + 2);
+        out.push(self.primary.clone());
+        out.push(self.transient_identity.clone());
+        out.extend(self.existing_clients.values().cloned());
+        out
+    }
+
+    /// Every group this run cares about: existing (loaded from redb)
+    /// followed by new groups created by ops in this run.
+    pub fn all_groups(&self) -> impl Iterator<Item = &GroupId> {
+        self.existing_groups.iter().chain(self.new_groups.iter())
     }
 }
 
-/// Decode the client's hex `inbox_id` into the 32-byte form used as the
-/// `HashMap` key. The hex form is guaranteed valid by libxmtp.
-fn inbox_id_bytes(client: &DbgClient) -> InboxId {
-    let mut out = [0u8; 32];
-    hex::decode_to_slice(client.inbox_id(), &mut out).expect("inbox_id is 32-byte hex");
-    out
-}

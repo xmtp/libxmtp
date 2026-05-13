@@ -71,8 +71,8 @@ impl Default for Report {
 }
 
 impl OpResult {
-    /// Print a one-line `[✓]`/`[✗]` summary to stdout and emit a structured
-    /// tracing event on the `healthcheck.op` target.
+    /// Print a one-line `[✓]`/`[✗]` summary to stdout. Use [`Self::emit`]
+    /// to additionally fire a structured `tracing` event.
     pub fn print(&self) {
         let mark = match self.status {
             Status::Pass => "[✓]".green().to_string(),
@@ -88,22 +88,28 @@ impl OpResult {
             "{mark} {name:<32} ({duration_ms:>5}ms) {target}{err}",
             name = self.op_name
         );
+    }
 
+    /// Emit a structured `tracing` event for this result on the
+    /// `healthcheck` target. Independent of [`Self::print`] so log sinks
+    /// and stdout can be controlled separately.
+    pub fn emit(&self) {
+        let duration_ms = self.duration.as_millis() as u64;
         match self.status {
             Status::Pass => tracing::info!(
-                target: "healthcheck.op",
+                target: "healthcheck",
                 op = self.op_name,
                 status = "pass",
                 target = %self.target.as_deref().unwrap_or(""),
-                duration_ms = duration_ms as u64,
+                duration_ms,
                 "op passed"
             ),
             Status::Fail => tracing::error!(
-                target: "healthcheck.op",
+                target: "healthcheck",
                 op = self.op_name,
                 status = "fail",
                 target = %self.target.as_deref().unwrap_or(""),
-                duration_ms = duration_ms as u64,
+                duration_ms,
                 error = ?self.error,
                 "op failed"
             ),

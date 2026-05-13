@@ -4,7 +4,6 @@ use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
 use crate::app::health::result::{OpResult, Status};
 use async_trait::async_trait;
-use color_eyre::eyre::eyre;
 use std::time::Instant;
 use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
 
@@ -16,21 +15,26 @@ impl HealthOp for UpdateMessageDisappearing {
         "UpdateMessageDisappearing"
     }
 
+    #[tracing::instrument(
+        target = "healthcheck.op",
+        skip_all,
+        fields(op = "UpdateMessageDisappearing")
+    )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let mut out = Vec::new();
-        let mut all_groups: Vec<[u8; 16]> = ctx.existing_groups.clone();
-        all_groups.extend(ctx.new_groups.iter().copied());
-
-        for gid in &all_groups {
+        for gid in ctx.all_groups() {
             let start = Instant::now();
             let outcome: color_eyre::eyre::Result<()> = async {
-                let group = ctx.primary.group(gid).map_err(|e| eyre!("{e}"))?;
+                let group = ctx
+                    .primary
+                    .group(gid.as_slice())
+                    .map_err(color_eyre::eyre::Report::from)?;
                 group
                     .update_conversation_message_disappearing_settings(
                         MessageDisappearingSettings::new(1, 86_400_000_000_000),
                     )
                     .await
-                    .map_err(|e| eyre!("{e}"))?;
+                    .map_err(color_eyre::eyre::Report::from)?;
                 Ok(())
             }
             .await;
@@ -40,7 +44,7 @@ impl HealthOp for UpdateMessageDisappearing {
             };
             out.push(OpResult {
                 op_name: self.name(),
-                target: Some(hex::encode(gid)),
+                target: Some(format!("{gid}")),
                 status,
                 duration: start.elapsed(),
                 error,
@@ -58,19 +62,24 @@ impl HealthOp for RemoveMessageDisappearing {
         "RemoveMessageDisappearing"
     }
 
+    #[tracing::instrument(
+        target = "healthcheck.op",
+        skip_all,
+        fields(op = "RemoveMessageDisappearing")
+    )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let mut out = Vec::new();
-        let mut all_groups: Vec<[u8; 16]> = ctx.existing_groups.clone();
-        all_groups.extend(ctx.new_groups.iter().copied());
-
-        for gid in &all_groups {
+        for gid in ctx.all_groups() {
             let start = Instant::now();
             let outcome: color_eyre::eyre::Result<()> = async {
-                let group = ctx.primary.group(gid).map_err(|e| eyre!("{e}"))?;
+                let group = ctx
+                    .primary
+                    .group(gid.as_slice())
+                    .map_err(color_eyre::eyre::Report::from)?;
                 group
                     .remove_conversation_message_disappearing_settings()
                     .await
-                    .map_err(|e| eyre!("{e}"))?;
+                    .map_err(color_eyre::eyre::Report::from)?;
                 Ok(())
             }
             .await;
@@ -80,7 +89,7 @@ impl HealthOp for RemoveMessageDisappearing {
             };
             out.push(OpResult {
                 op_name: self.name(),
-                target: Some(hex::encode(gid)),
+                target: Some(format!("{gid}")),
                 status,
                 duration: start.elapsed(),
                 error,
@@ -103,5 +112,21 @@ mod tests {
             RemoveMessageDisappearing.name(),
             "RemoveMessageDisappearing"
         );
+    }
+}
+
+inventory::submit! {
+    crate::app::health::ops::OpEntry {
+        op_name: "UpdateMessageDisappearing",
+        depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
+        make: || Box::new(UpdateMessageDisappearing),
+    }
+}
+
+inventory::submit! {
+    crate::app::health::ops::OpEntry {
+        op_name: "RemoveMessageDisappearing",
+        depends_on: &["UpdateMessageDisappearing"],
+        make: || Box::new(RemoveMessageDisappearing),
     }
 }

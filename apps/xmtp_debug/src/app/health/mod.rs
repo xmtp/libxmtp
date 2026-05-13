@@ -6,6 +6,7 @@
 
 mod context;
 mod ops;
+mod registry;
 mod result;
 mod validators;
 
@@ -27,14 +28,22 @@ impl Health {
     }
 
     pub async fn run(self) -> Result<()> {
+        // Print the resolved op execution order before bootstrap so it's
+        // visible even if bootstrap fails.
+        print!("{}", ops::tree::render_order_tree());
+
         let mut ctx = HealthContext::bootstrap(self.network).await?;
         let mut report = result::Report::new();
 
-        // Ops phase.
+        // Ops phase. Each op's `execute` is annotated with
+        // `#[tracing::instrument]` carrying the op name as a span field, so
+        // structured log consumers (--json / --logfmt) can correlate events
+        // to ops.
         for op in ops::registry() {
             let results = op.execute(&mut ctx).await;
             for r in results {
                 r.print();
+                r.emit();
                 report.push(r);
             }
         }
@@ -47,6 +56,7 @@ impl Health {
             let results = v.validate(&mut ctx).await;
             for r in results {
                 r.print();
+                r.emit();
                 report.push(r);
             }
         }
@@ -76,6 +86,7 @@ async fn sync_all(ctx: &HealthContext, report: &mut result::Report) {
             error,
         };
         r.print();
+        r.emit();
         report.push(r);
     }
 }

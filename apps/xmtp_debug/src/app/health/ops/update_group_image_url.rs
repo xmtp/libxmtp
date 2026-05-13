@@ -4,7 +4,6 @@ use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
 use crate::app::health::result::{OpResult, Status};
 use async_trait::async_trait;
-use color_eyre::eyre::eyre;
 use std::time::Instant;
 
 pub struct UpdateGroupImageUrlSquare;
@@ -15,19 +14,24 @@ impl HealthOp for UpdateGroupImageUrlSquare {
         "UpdateGroupImageUrlSquare"
     }
 
+    #[tracing::instrument(
+        target = "healthcheck.op",
+        skip_all,
+        fields(op = "UpdateGroupImageUrlSquare")
+    )]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let mut out = Vec::new();
-        let mut all_groups: Vec<[u8; 16]> = ctx.existing_groups.clone();
-        all_groups.extend(ctx.new_groups.iter().copied());
-
-        for gid in &all_groups {
+        for gid in ctx.all_groups() {
             let start = Instant::now();
             let outcome: color_eyre::eyre::Result<()> = async {
-                let group = ctx.primary.group(gid).map_err(|e| eyre!("{e}"))?;
+                let group = ctx
+                    .primary
+                    .group(gid.as_slice())
+                    .map_err(color_eyre::eyre::Report::from)?;
                 group
                     .update_group_image_url_square("https://example.invalid/img.png".into())
                     .await
-                    .map_err(|e| eyre!("{e}"))?;
+                    .map_err(color_eyre::eyre::Report::from)?;
                 Ok(())
             }
             .await;
@@ -37,7 +41,7 @@ impl HealthOp for UpdateGroupImageUrlSquare {
             };
             out.push(OpResult {
                 op_name: self.name(),
-                target: Some(hex::encode(gid)),
+                target: Some(format!("{gid}")),
                 status,
                 duration: start.elapsed(),
                 error,
@@ -56,5 +60,13 @@ mod tests {
             UpdateGroupImageUrlSquare.name(),
             "UpdateGroupImageUrlSquare"
         );
+    }
+}
+
+inventory::submit! {
+    crate::app::health::ops::OpEntry {
+        op_name: "UpdateGroupImageUrlSquare",
+        depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
+        make: || Box::new(UpdateGroupImageUrlSquare),
     }
 }

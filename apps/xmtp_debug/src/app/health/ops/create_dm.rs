@@ -5,7 +5,6 @@ use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
 use crate::app::health::result::{OpResult, Status};
 use async_trait::async_trait;
-use color_eyre::eyre::eyre;
 use std::time::Instant;
 use xmtp_mls::groups::send_message_opts::SendMessageOpts;
 
@@ -17,6 +16,7 @@ impl HealthOp for CreateDm {
         "CreateDm"
     }
 
+    #[tracing::instrument(target = "healthcheck.op", skip_all, fields(op = "CreateDm"))]
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let mut out = Vec::new();
         let primary_inbox = ctx.primary.inbox_id().to_string();
@@ -34,10 +34,10 @@ impl HealthOp for CreateDm {
                     .primary
                     .find_or_create_dm(peer_inbox.as_str(), None)
                     .await
-                    .map_err(|e| eyre!("{e}"))?;
+                    .map_err(color_eyre::eyre::Report::from)?;
                 dm.send_message(b"hi from primary", SendMessageOpts::default())
                     .await
-                    .map_err(|e| eyre!("{e}"))?;
+                    .map_err(color_eyre::eyre::Report::from)?;
                 Ok(())
             }
             .await;
@@ -58,14 +58,14 @@ impl HealthOp for CreateDm {
             let dir_b: color_eyre::eyre::Result<()> = async {
                 peer.sync_all_welcomes_and_groups(None)
                     .await
-                    .map_err(|e| eyre!("{e}"))?;
+                    .map_err(color_eyre::eyre::Report::from)?;
                 let dm = peer
                     .find_or_create_dm(primary_inbox.as_str(), None)
                     .await
-                    .map_err(|e| eyre!("{e}"))?;
+                    .map_err(color_eyre::eyre::Report::from)?;
                 dm.send_message(b"hi from peer", SendMessageOpts::default())
                     .await
-                    .map_err(|e| eyre!("{e}"))?;
+                    .map_err(color_eyre::eyre::Report::from)?;
                 Ok(())
             }
             .await;
@@ -92,5 +92,13 @@ mod tests {
     #[test]
     fn name_is_stable() {
         assert_eq!(CreateDm.name(), "CreateDm");
+    }
+}
+
+inventory::submit! {
+    crate::app::health::ops::OpEntry {
+        op_name: "CreateDm",
+        depends_on: &["CreateIdentity"],
+        make: || Box::new(CreateDm),
     }
 }

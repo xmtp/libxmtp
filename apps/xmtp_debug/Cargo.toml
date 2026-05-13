@@ -30,6 +30,7 @@ futures.workspace = true
 hex.workspace = true
 humantime = "2.3"
 indicatif.workspace = true
+inventory = "0.3"
 itertools.workspace = true
 k256 = "0.13"
 lipsum = "0.9"

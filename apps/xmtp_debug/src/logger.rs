@@ -80,6 +80,13 @@ impl Logger {
                     .parse()
                     .expect("static directive must be correct"),
             );
+            filter =
+                filter.add_directive("xdbg=error".to_string().parse().expect("static directive"));
+            filter = filter.add_directive(
+                format!("healthcheck={verbosity}")
+                    .parse()
+                    .expect("static directive"),
+            );
             if trace_openmls_kv {
                 filter = filter.add_directive(
                     format!("{}=trace", xmtp_configuration::OPENMLS_KV_TARGET)
