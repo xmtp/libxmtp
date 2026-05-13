@@ -7,7 +7,7 @@
 //! pre-existing clients). If none is available, the op fails with a
 //! reason.
 
-use crate::app::health::context::HealthContext;
+use crate::app::health::context::{HealthContext, inbox_id_to_bytes};
 use crate::app::health::ops::HealthOp;
 use crate::app::health::result::{OpResult, Status};
 use async_trait::async_trait;
@@ -65,7 +65,12 @@ impl HealthOp for RemoveMember {
         }
         .await;
         let (status, error) = match outcome {
-            Ok(_) => (Status::Pass, None),
+            Ok(_) => {
+                if let Ok(id_bytes) = <[u8; 16]>::try_from(gid.as_slice()) {
+                    drop_member_from_persisted_group(ctx, id_bytes, &victim_inbox);
+                }
+                (Status::Pass, None)
+            }
             Err(e) => (Status::Fail, Some(e)),
         };
         vec![OpResult {
@@ -76,6 +81,23 @@ impl HealthOp for RemoveMember {
             error,
         }]
     }
+}
+
+/// Read the persisted group's members from redb, drop `victim_inbox`,
+/// and write back. Panics if redb is unreachable — a redb failure
+/// indicates an xdbg state-directory issue, not an op-level failure.
+fn drop_member_from_persisted_group(
+    ctx: &HealthContext,
+    group_id_bytes: [u8; 16],
+    victim_inbox: &str,
+) {
+    let victim_bytes = inbox_id_to_bytes(victim_inbox);
+    let members: Vec<_> = ctx
+        .persisted_members(group_id_bytes)
+        .into_iter()
+        .filter(|m| m != &victim_bytes)
+        .collect();
+    ctx.update_group_members(group_id_bytes, members);
 }
 
 #[cfg(test)]
@@ -90,7 +112,6 @@ mod tests {
 
 inventory::submit! {
     crate::app::health::ops::OpEntry {
-        op_name: "RemoveMember",
         depends_on: &[
             "SendMessage",
             "UpdateGroupName",
@@ -104,6 +125,6 @@ inventory::submit! {
             "UpdateConsentStateQuiet",
             "GetMutableMetadata",
         ],
-        make: || Box::new(RemoveMember),
+        op: &RemoveMember,
     }
 }

@@ -31,6 +31,23 @@ impl Validator for NoForkedGroups {
         for client in ctx.all_clients() {
             let db = client.db();
             for gid in ctx.all_groups() {
+                // Skip clients that don't have a local record of this
+                // group: they were never members, or they left and the
+                // group row was purged. Either way, fork status is N/A.
+                match db.find_group(gid) {
+                    Ok(Some(_)) => {}
+                    Ok(None) => continue,
+                    Err(e) => {
+                        tracing::debug!(
+                            target: "healthcheck",
+                            inbox = client.inbox_id(),
+                            group = %gid,
+                            error = %e,
+                            "skipping fork check: find_group returned error (group likely purged after leave/remove)",
+                        );
+                        continue;
+                    }
+                }
                 let start = Instant::now();
                 let outcome = db.get_group_commit_log_forked_status(gid);
                 let (status, error) = match outcome {
@@ -63,8 +80,7 @@ mod tests {
 
 inventory::submit! {
     crate::app::health::validators::ValidatorEntry {
-        name: "NoForkedGroups",
         depends_on: &[],
-        make: || Box::new(NoForkedGroups),
+        validator: &NoForkedGroups,
     }
 }

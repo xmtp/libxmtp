@@ -1,41 +1,46 @@
 //! Generic topo-sort over self-registered entries.
 //!
 //! Both ops and validators share the same shape: a `*Entry` struct with a
-//! name, a list of dependency names, and a `make` function pointer that
-//! materializes a `Box<dyn Trait>`. This module factors out the sort so
-//! each registry consumer just provides the entry → name/deps/make
-//! projections via the `RegistryEntry` trait.
+//! dependency list and a `&'static` reference to the trait object that
+//! implements the work. Ops and validators are unit structs, so a single
+//! `static` per impl lets us cheaply name and use them without boxing.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-/// Projection trait. The `Kind` associated type lets the trait describe
+/// Projection trait. The `KIND` associated constant lets the trait describe
 /// itself in panic messages ("op", "validator").
+///
+/// `Item` is the trait the ops/validators implement (e.g. `dyn HealthOp`).
+/// `value()` returns a `'static` reference so callers can use the resulting
+/// trait object without allocating.
 pub trait RegistryEntry: 'static {
-    /// Trait object materialized by `make`.
-    type Item: ?Sized;
+    type Item: ?Sized + 'static;
 
     /// Human label for panic messages, e.g. `"op"` or `"validator"`.
     const KIND: &'static str;
 
-    fn name(&self) -> &'static str;
     fn depends_on(&self) -> &'static [&'static str];
-    fn make(&self) -> Box<Self::Item>;
+    fn value(&self) -> &'static Self::Item;
 }
 
 /// Topologically sort a stream of entries by their `depends_on` edges.
 ///
-/// Ties (entries with the same satisfied-dep set) are broken alphabetically
-/// by `name()` for deterministic output across runs.
+/// Each entry must implement `Named` (via `value()`) so the sort can read
+/// names through the trait object. Ties (entries with the same satisfied-
+/// dep set) are broken alphabetically by name.
 ///
-/// Panics on dependency cycles or unknown `depends_on` references.
-pub fn topo_sort<E>(stream: impl IntoIterator<Item = &'static E>) -> Vec<Box<E::Item>>
+/// Panics on dependency cycles, unknown `depends_on` references, or
+/// duplicate names.
+pub fn topo_sort<E>(stream: impl IntoIterator<Item = &'static E>) -> Vec<&'static E::Item>
 where
     E: RegistryEntry,
+    E::Item: Named,
 {
     let mut entries: BTreeMap<&'static str, &'static E> = BTreeMap::new();
     for e in stream {
-        if entries.insert(e.name(), e).is_some() {
-            panic!("duplicate {} name '{}'", E::KIND, e.name());
+        let n = e.value().name();
+        if entries.insert(n, e).is_some() {
+            panic!("duplicate {} name '{}'", E::KIND, n);
         }
     }
 
@@ -46,7 +51,7 @@ where
                 panic!(
                     "{} '{}' depends on unknown {} '{}'",
                     E::KIND,
-                    e.name(),
+                    e.value().name(),
                     E::KIND,
                     dep
                 );
@@ -56,7 +61,7 @@ where
 
     let mut in_degree: BTreeMap<&'static str, usize> = entries.keys().map(|n| (*n, 0)).collect();
     for e in entries.values() {
-        *in_degree.get_mut(e.name()).unwrap() = e.depends_on().len();
+        *in_degree.get_mut(e.value().name()).unwrap() = e.depends_on().len();
     }
 
     // BTreeSet keeps the ready set sorted for stable output.
@@ -72,10 +77,10 @@ where
         order.push(name);
         for e in entries.values() {
             if e.depends_on().contains(&name) {
-                let d = in_degree.get_mut(e.name()).unwrap();
+                let d = in_degree.get_mut(e.value().name()).unwrap();
                 *d -= 1;
                 if *d == 0 {
-                    ready.insert(e.name());
+                    ready.insert(e.value().name());
                 }
             }
         }
@@ -90,18 +95,20 @@ where
         panic!("{} dependency cycle among: {remaining:?}", E::KIND);
     }
 
-    order.into_iter().map(|n| entries[n].make()).collect()
+    order.into_iter().map(|n| entries[n].value()).collect()
+}
+
+/// Items materialized through a `RegistryEntry` must expose a static name.
+/// Both `HealthOp` and `Validator` already declare a `fn name()` method;
+/// declaring the requirement here lets `topo_sort` read names from the
+/// trait object without the entry struct duplicating the string.
+pub trait Named {
+    fn name(&self) -> &'static str;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Stand-in trait object so we can name the topo-sort output without
-    /// dragging in `HealthOp`/`Validator`.
-    trait Named {
-        fn name(&self) -> &'static str;
-    }
 
     struct TestItem(&'static str);
 
@@ -112,28 +119,31 @@ mod tests {
     }
 
     struct TestEntry {
-        name: &'static str,
+        item: &'static TestItem,
         deps: &'static [&'static str],
     }
 
     impl RegistryEntry for TestEntry {
-        type Item = dyn Named;
+        type Item = TestItem;
         const KIND: &'static str = "test";
 
-        fn name(&self) -> &'static str {
-            self.name
-        }
         fn depends_on(&self) -> &'static [&'static str] {
             self.deps
         }
-        fn make(&self) -> Box<dyn Named> {
-            Box::new(TestItem(self.name))
+        fn value(&self) -> &'static TestItem {
+            self.item
         }
     }
 
-    fn names(out: Vec<Box<dyn Named>>) -> Vec<&'static str> {
-        out.iter().map(|b| b.name()).collect()
+    fn names(out: Vec<&'static TestItem>) -> Vec<&'static str> {
+        out.iter().map(|i| i.name()).collect()
     }
+
+    static A_ITEM: TestItem = TestItem("A");
+    static B_ITEM: TestItem = TestItem("B");
+    static C_ITEM: TestItem = TestItem("C");
+    static D_ITEM: TestItem = TestItem("D");
+    static Z_ITEM: TestItem = TestItem("Z");
 
     #[test]
     fn empty_input_returns_empty() {
@@ -144,7 +154,7 @@ mod tests {
     #[test]
     fn single_root_no_deps() {
         static A: TestEntry = TestEntry {
-            name: "A",
+            item: &A_ITEM,
             deps: &[],
         };
         let out = topo_sort::<TestEntry>(vec![&A]);
@@ -154,18 +164,17 @@ mod tests {
     #[test]
     fn linear_chain_orders_by_dependency() {
         static A: TestEntry = TestEntry {
-            name: "A",
+            item: &A_ITEM,
             deps: &[],
         };
         static B: TestEntry = TestEntry {
-            name: "B",
+            item: &B_ITEM,
             deps: &["A"],
         };
         static C: TestEntry = TestEntry {
-            name: "C",
+            item: &C_ITEM,
             deps: &["B"],
         };
-        // Out-of-order input — sort must respect deps regardless.
         let out = topo_sort::<TestEntry>(vec![&C, &A, &B]);
         assert_eq!(names(out), vec!["A", "B", "C"]);
     }
@@ -173,34 +182,33 @@ mod tests {
     #[test]
     fn diamond_dag_orders_correctly() {
         static A: TestEntry = TestEntry {
-            name: "A",
+            item: &A_ITEM,
             deps: &[],
         };
         static B: TestEntry = TestEntry {
-            name: "B",
+            item: &B_ITEM,
             deps: &["A"],
         };
         static C: TestEntry = TestEntry {
-            name: "C",
+            item: &C_ITEM,
             deps: &["A"],
         };
         static D: TestEntry = TestEntry {
-            name: "D",
+            item: &D_ITEM,
             deps: &["B", "C"],
         };
         let out = names(topo_sort::<TestEntry>(vec![&A, &B, &C, &D]));
-        // A first, D last, B and C in between in alphabetical tie order.
         assert_eq!(out, vec!["A", "B", "C", "D"]);
     }
 
     #[test]
     fn ties_break_alphabetically() {
         static A: TestEntry = TestEntry {
-            name: "A",
+            item: &A_ITEM,
             deps: &[],
         };
         static Z: TestEntry = TestEntry {
-            name: "Z",
+            item: &Z_ITEM,
             deps: &[],
         };
         let out = names(topo_sort::<TestEntry>(vec![&Z, &A]));
@@ -211,11 +219,11 @@ mod tests {
     #[should_panic(expected = "duplicate test name 'A'")]
     fn duplicate_name_panics() {
         static A1: TestEntry = TestEntry {
-            name: "A",
+            item: &A_ITEM,
             deps: &[],
         };
         static A2: TestEntry = TestEntry {
-            name: "A",
+            item: &A_ITEM,
             deps: &[],
         };
         let _ = topo_sort::<TestEntry>(vec![&A1, &A2]);
@@ -225,7 +233,7 @@ mod tests {
     #[should_panic(expected = "depends on unknown test 'X'")]
     fn unknown_dep_panics() {
         static A: TestEntry = TestEntry {
-            name: "A",
+            item: &A_ITEM,
             deps: &["X"],
         };
         let _ = topo_sort::<TestEntry>(vec![&A]);
@@ -235,11 +243,11 @@ mod tests {
     #[should_panic(expected = "test dependency cycle")]
     fn cycle_panics() {
         static A: TestEntry = TestEntry {
-            name: "A",
+            item: &A_ITEM,
             deps: &["B"],
         };
         static B: TestEntry = TestEntry {
-            name: "B",
+            item: &B_ITEM,
             deps: &["A"],
         };
         let _ = topo_sort::<TestEntry>(vec![&A, &B]);

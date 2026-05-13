@@ -55,8 +55,7 @@ mod tests {
 
 inventory::submit! {
     crate::app::health::ops::OpEntry {
-        op_name: "UploadKeyPackage",
         depends_on: &[],
-        make: || Box::new(UploadKeyPackage),
+        op: &UploadKeyPackage,
     }
 }

@@ -106,16 +106,14 @@ mod tests {
 
 inventory::submit! {
     crate::app::health::ops::OpEntry {
-        op_name: "UpdateConsentState",
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
-        make: || Box::new(UpdateConsentState),
+        op: &UpdateConsentState,
     }
 }
 
 inventory::submit! {
     crate::app::health::ops::OpEntry {
-        op_name: "UpdateConsentStateQuiet",
         depends_on: &["UpdateConsentState"],
-        make: || Box::new(UpdateConsentStateQuiet),
+        op: &UpdateConsentStateQuiet,
     }
 }

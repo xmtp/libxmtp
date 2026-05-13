@@ -5,14 +5,14 @@
 //! has length N. Ops in the same stage can run in any order (they have no
 //! mutual dependencies). Stages run sequentially.
 
-use super::OpEntry;
+use super::{HealthOp, OpEntry};
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
 pub fn render_order_tree() -> String {
     let entries: BTreeMap<&'static str, &'static OpEntry> = inventory::iter::<OpEntry>
         .into_iter()
-        .map(|e| (e.op_name, e))
+        .map(|e| (HealthOp::name(e.op), e))
         .collect();
 
     // stage[name] = longest dep-chain length from any root, computed via

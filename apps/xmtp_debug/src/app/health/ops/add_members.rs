@@ -5,7 +5,7 @@
 //! - `AddPrimaryToExistingGroups`: for every group in `ctx.existing_groups`,
 //!   primary is added by an active member of that group.
 
-use crate::app::health::context::HealthContext;
+use crate::app::health::context::{HealthContext, inbox_id_to_bytes};
 use crate::app::health::ops::HealthOp;
 use crate::app::health::result::{OpResult, Status};
 use async_trait::async_trait;
@@ -61,7 +61,16 @@ impl HealthOp for AddMembersToNewGroup {
         let start = Instant::now();
         let outcome = group.add_members(&inbox_ids).await;
         let (status, error) = match outcome {
-            Ok(_) => (Status::Pass, None),
+            Ok(_) => {
+                // Mirror the new membership to redb so subsequent runs
+                // see the full member list, not just the creator.
+                if let Ok(id_bytes) = <[u8; 16]>::try_from(new_group_id.as_slice()) {
+                    let mut members = vec![inbox_id_to_bytes(ctx.primary.inbox_id())];
+                    members.extend(inbox_ids.iter().map(|s| inbox_id_to_bytes(s)));
+                    ctx.update_group_members(id_bytes, members);
+                }
+                (Status::Pass, None)
+            }
             Err(e) => (Status::Fail, Some(eyre!("{e}"))),
         };
         vec![OpResult {
@@ -109,7 +118,17 @@ impl HealthOp for AddPrimaryToExistingGroups {
             .await;
 
             let (status, error) = match outcome {
-                Ok(_) => (Status::Pass, None),
+                Ok(_) => {
+                    if let Ok(id_bytes) = <[u8; 16]>::try_from(gid.as_slice()) {
+                        let mut members = ctx.persisted_members(id_bytes);
+                        let primary_bytes = inbox_id_to_bytes(&primary_inbox);
+                        if !members.contains(&primary_bytes) {
+                            members.push(primary_bytes);
+                        }
+                        ctx.update_group_members(id_bytes, members);
+                    }
+                    (Status::Pass, None)
+                }
                 Err(e) => (Status::Fail, Some(e)),
             };
             out.push(OpResult {
@@ -141,16 +160,14 @@ mod tests {
 
 inventory::submit! {
     crate::app::health::ops::OpEntry {
-        op_name: "AddMembersToNewGroup",
         depends_on: &["CreateGroup"],
-        make: || Box::new(AddMembersToNewGroup),
+        op: &AddMembersToNewGroup,
     }
 }
 
 inventory::submit! {
     crate::app::health::ops::OpEntry {
-        op_name: "AddPrimaryToExistingGroups",
         depends_on: &["CreateIdentity"],
-        make: || Box::new(AddPrimaryToExistingGroups),
+        op: &AddPrimaryToExistingGroups,
     }
 }

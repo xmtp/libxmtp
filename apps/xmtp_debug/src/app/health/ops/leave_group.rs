@@ -6,7 +6,7 @@
 //! Distinct from `RemoveMember` which exercises the admin-remove path
 //! (one identity removes another via `remove_members`).
 
-use crate::app::health::context::HealthContext;
+use crate::app::health::context::{HealthContext, inbox_id_to_bytes};
 use crate::app::health::ops::HealthOp;
 use crate::app::health::result::{OpResult, Status};
 use async_trait::async_trait;
@@ -54,7 +54,18 @@ impl HealthOp for LeaveGroup {
         }
         .await;
         let (status, error) = match outcome {
-            Ok(_) => (Status::Pass, None),
+            Ok(_) => {
+                if let Ok(id_bytes) = <[u8; 16]>::try_from(gid.as_slice()) {
+                    let transient_bytes = inbox_id_to_bytes(ctx.transient_identity.inbox_id());
+                    let members: Vec<_> = ctx
+                        .persisted_members(id_bytes)
+                        .into_iter()
+                        .filter(|m| m != &transient_bytes)
+                        .collect();
+                    ctx.update_group_members(id_bytes, members);
+                }
+                (Status::Pass, None)
+            }
             Err(e) => (Status::Fail, Some(e)),
         };
         vec![OpResult {
@@ -79,7 +90,6 @@ mod tests {
 
 inventory::submit! {
     crate::app::health::ops::OpEntry {
-        op_name: "LeaveGroup",
         depends_on: &[
             "SendMessage",
             "UpdateGroupName",
@@ -93,6 +103,6 @@ inventory::submit! {
             "UpdateConsentStateQuiet",
             "GetMutableMetadata",
         ],
-        make: || Box::new(LeaveGroup),
+        op: &LeaveGroup,
     }
 }

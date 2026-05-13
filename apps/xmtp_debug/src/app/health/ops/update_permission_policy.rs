@@ -67,8 +67,7 @@ mod tests {
 
 inventory::submit! {
     crate::app::health::ops::OpEntry {
-        op_name: "UpdatePermissionPolicy",
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
-        make: || Box::new(UpdatePermissionPolicy),
+        op: &UpdatePermissionPolicy,
     }
 }

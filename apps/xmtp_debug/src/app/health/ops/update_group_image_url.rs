@@ -65,8 +65,7 @@ mod tests {
 
 inventory::submit! {
     crate::app::health::ops::OpEntry {
-        op_name: "UpdateGroupImageUrlSquare",
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
-        make: || Box::new(UpdateGroupImageUrlSquare),
+        op: &UpdateGroupImageUrlSquare,
     }
 }
