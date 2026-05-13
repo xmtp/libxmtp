@@ -95,7 +95,13 @@ mod tests {
     use super::*;
     #[test]
     fn names_are_stable() {
-        assert_eq!(UpdateMessageDisappearing.name(), "UpdateMessageDisappearing");
-        assert_eq!(RemoveMessageDisappearing.name(), "RemoveMessageDisappearing");
+        assert_eq!(
+            UpdateMessageDisappearing.name(),
+            "UpdateMessageDisappearing"
+        );
+        assert_eq!(
+            RemoveMessageDisappearing.name(),
+            "RemoveMessageDisappearing"
+        );
     }
 }

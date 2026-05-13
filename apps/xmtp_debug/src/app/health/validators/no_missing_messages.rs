@@ -88,11 +88,7 @@ impl Validator for NoMissingMessages {
                 };
                 out.push(OpResult {
                     op_name: self.name(),
-                    target: Some(format!(
-                        "inbox={} group={}",
-                        inbox,
-                        hex::encode(gid_bytes)
-                    )),
+                    target: Some(format!("inbox={} group={}", inbox, hex::encode(gid_bytes))),
                     status,
                     duration: start.elapsed(),
                     error,

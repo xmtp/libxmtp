@@ -90,8 +90,7 @@ impl HealthContext {
         // 2. Primary new identity. Also persisted to redb so subsequent
         //    healthcheck runs see it as an existing identity.
         let primary_wallet = app::generate_wallet();
-        let primary_client =
-            app::new_unregistered_client(&network, Some(&primary_wallet)).await?;
+        let primary_client = app::new_unregistered_client(&network, Some(&primary_wallet)).await?;
         let primary_identity =
             Identity::from_libxmtp(primary_client.identity(), primary_wallet.clone())?;
         app::register_client(&primary_client, primary_wallet.into_alloy()).await?;

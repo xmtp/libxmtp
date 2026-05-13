@@ -52,6 +52,9 @@ mod tests {
     use super::*;
     #[test]
     fn name_is_stable() {
-        assert_eq!(UpdateGroupImageUrlSquare.name(), "UpdateGroupImageUrlSquare");
+        assert_eq!(
+            UpdateGroupImageUrlSquare.name(),
+            "UpdateGroupImageUrlSquare"
+        );
     }
 }

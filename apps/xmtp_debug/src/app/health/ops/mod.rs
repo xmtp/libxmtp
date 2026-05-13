@@ -8,23 +8,23 @@ use crate::app::health::context::HealthContext;
 use crate::app::health::result::OpResult;
 use async_trait::async_trait;
 
-mod upload_key_package;
-mod create_identity;
-mod create_group;
 mod add_members;
+mod create_dm;
+mod create_group;
+mod create_identity;
+mod get_mutable_metadata;
+mod leave_group;
 mod send_message;
-mod update_group_name;
-mod update_group_description;
-mod update_group_image_url;
-mod update_message_disappearing;
 mod update_admin_list;
-mod update_permission_policy;
 mod update_app_data;
 mod update_commit_log_signer;
 mod update_consent_state;
-mod get_mutable_metadata;
-mod create_dm;
-mod leave_group;
+mod update_group_description;
+mod update_group_image_url;
+mod update_group_name;
+mod update_message_disappearing;
+mod update_permission_policy;
+mod upload_key_package;
 
 #[async_trait]
 pub trait HealthOp: Send + Sync {

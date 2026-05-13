@@ -126,6 +126,9 @@ mod tests {
     #[test]
     fn names_are_stable() {
         assert_eq!(AddMembersToNewGroup.name(), "AddMembersToNewGroup");
-        assert_eq!(AddPrimaryToExistingGroups.name(), "AddPrimaryToExistingGroups");
+        assert_eq!(
+            AddPrimaryToExistingGroups.name(),
+            "AddPrimaryToExistingGroups"
+        );
     }
 }

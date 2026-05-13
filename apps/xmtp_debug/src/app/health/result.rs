@@ -33,7 +33,9 @@ impl Report {
     }
 
     pub fn has_failures(&self) -> bool {
-        self.results.iter().any(|r| matches!(r.status, Status::Fail))
+        self.results
+            .iter()
+            .any(|r| matches!(r.status, Status::Fail))
     }
 
     pub fn counts(&self) -> (usize, usize) {

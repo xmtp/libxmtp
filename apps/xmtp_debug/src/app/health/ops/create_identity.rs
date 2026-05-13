@@ -19,7 +19,11 @@ impl HealthOp for CreateIdentity {
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let start = Instant::now();
         let inbox_id = ctx.primary.inbox_id().to_string();
-        let status = if inbox_id.is_empty() { Status::Fail } else { Status::Pass };
+        let status = if inbox_id.is_empty() {
+            Status::Fail
+        } else {
+            Status::Pass
+        };
         vec![OpResult {
             op_name: self.name(),
             target: Some(inbox_id),
