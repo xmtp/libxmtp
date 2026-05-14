@@ -574,15 +574,6 @@ async fn test_message_auto_commits_pending_proposals() {
 }
 
 // =============================================================================
-// Enable Proposals Flow Tests
-// =============================================================================
-
-// NOTE: The GCE (Group Context Extensions) proposal flow tests are currently
-// failing because CommitPendingProposals doesn't properly apply GCE proposals.
-// This needs investigation in mls_sync.rs CommitPendingProposals handling.
-// The tests below verify intent creation works; full E2E flow is TODO.
-
-// =============================================================================
 // Multiple Proposals Tests
 // =============================================================================
 
@@ -2611,11 +2602,15 @@ async fn test_app_data_update_advertised_but_not_required() {
 // AppDataUpdate Path Tests
 // =============================================================================
 //
-// These tests exercise the app-data-update flow that activates when a
-// group has flipped `proposals_enabled`. They confirm that:
+// These tests exercise the AppDataUpdate flow that activates after
+// `enable_proposals()` fires the bootstrap commit. They confirm that:
 // 1. `update_group_name` and friends still work end-to-end (sender → receiver)
 // 2. The capability-gated read accessors return the new value
-// 3. The legacy path is unchanged for groups without `proposals_enabled`
+// 3. The legacy path is unchanged for unmigrated groups
+//
+// `TEST_REGISTRY_OVERRIDE` stays in `app_data/mod.rs` for synthetic-
+// registry unit tests but no integration test in this file needs it —
+// bootstrap writes a real `COMPONENT_REGISTRY` entry.
 
 /// `update_group_name` on a group with `proposals_enabled` should:
 /// - publish a commit containing an `AppDataUpdate(GROUP_NAME)` proposal,
@@ -2910,6 +2905,27 @@ async fn test_enable_proposals_pauses_old_client_via_legacy_gmm_bump() {
     );
 }
 
+// Two areas still rely on indirect coverage:
+//
+// 1. **Standalone-proposal `validate_proposal` arm.** PR-C (standalone
+//    proposal-by-reference flow) now publishes `AppDataUpdate` proposals
+//    as separate MLS messages preceding the commit, so the
+//    `Proposal::AppDataUpdate` arm of `validate_proposal` (the path
+//    that handles a proposal received *outside* a commit) is reachable
+//    by any update via `update_group_name` / `update_admin_list` /
+//    `update_permissions`. The end-to-end tests above exercise it via
+//    the receiver's normal commit-processing pipeline, which routes
+//    standalone proposals into the same `validate_one_app_data_update`
+//    helper as the inline-bundled path; a regression that broke
+//    permission enforcement would trip either entry point.
+//
+// 2. **`RemoveByHash` resolution through the validator.** No production
+//    code path currently emits `RemoveByHash` (admin-list paths use
+//    explicit `Remove(inbox_id)` mutations). Unit coverage for the
+//    resolver lives in
+//    `crates/xmtp_mls/src/groups/app_data/component_source.rs` under
+//    `test_expand_remove_by_hash_*`; revisit if a future caller starts
+//    emitting hash-based deletes.
 /// Sanity check the legacy path: a group with `proposals_enabled = false`
 /// (the default for fresh groups) should still produce a normal GCE commit
 /// for `update_group_name`, with no AppDataUpdate involvement. Confirms

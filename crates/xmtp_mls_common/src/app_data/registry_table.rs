@@ -38,6 +38,72 @@ use crate::app_data::{
 ///
 /// Order is enforced by [`assert_table_is_sorted_and_unique`] at
 /// compile time. Tests further pin specific lookup expectations.
+///
+/// # Change control
+///
+/// Component-id ranges in play (mirror of [`lookup_component`] below):
+///
+/// | Range            | Purpose                                       |
+/// |------------------|-----------------------------------------------|
+/// | `0x8000-0xBFFF`  | XMTP-allocated well-known ids (this table)    |
+/// | `0xC000-0xFEFF`  | Application-range `RuntimeComponent` ids      |
+/// | `0xFF00-0xFFFF`  | Reserved (hard-rejected, no graceful-degrade) |
+///
+/// Adding a new well-known entry here changes the protocol's
+/// receiver-side acceptance set. Old clients (released before the new
+/// entry) handle the new id via the **type-aware unknown-component
+/// tolerance** path in:
+///   - `apply_app_data_update_payload`
+///   - `expand_app_data_update_to_changes`
+///   - `validate_one_app_data_update_with_old_value`
+///
+/// That path looks the unknown id up in the on-dict
+/// [`ComponentRegistry`](crate::app_data::component_registry::ComponentRegistry),
+/// pulls its registered [`ComponentType`], and dispatches through the
+/// type-level decoder. The closed type universe covers every shape:
+/// Bytes / String pass-through, `TlsSet<InboxId>` / `TlsSet<bytes>` /
+/// `TlsMap<InboxId, bytes>` / `TlsMap<bytes, bytes>` apply their deltas
+/// element-wise — old and new clients converge on the same dict bytes.
+/// The tolerance path covers the XMTP range (`0x8000-0xBFFF`) and the
+/// application range (`0xC000-0xFEFF`); the reserved range
+/// (`0xFF00-0xFFFF`) is **still hard-rejected** — those slots are
+/// protocol-level and have no graceful-degrade story. Do not allocate
+/// new ids there.
+///
+/// **Requirements when adding a new well-known component:**
+/// - The component MUST be reachable through one of the six
+///   [`ComponentType`] variants. The wire codec for each is fixed; an
+///   old client decodes it the same way a typed client would.
+/// - The component MUST NOT carry receive-side invariants beyond
+///   registry policy. Old (type-dispatched) clients lack the per-id
+///   `Component::validate_invariant` hook — diverging invariant
+///   behavior would fork the dict.
+/// - Read-side accessors surface **the default value for the
+///   component's type** on old clients (empty `Bytes` / `String` /
+///   `TlsSet` / `TlsMap`). The "absent" state is indistinguishable
+///   from "explicitly cleared" on old clients — design semantics
+///   accordingly and document that degradation at the accessor
+///   boundary.
+/// - The component MUST land in the registry **before or with** the
+///   first commit that writes to it. Old clients consult the
+///   pre-commit registry snapshot, so a same-commit registration
+///   followed by a same-commit write fails to dispatch.
+///
+/// Two ergonomic patterns for shipping a new component without
+/// editing `WELL_KNOWN`:
+///
+/// 1. **Application-range `RuntimeComponent`.** Components in
+///    `0xC000-0xFCFF` registered at runtime via the
+///    `RuntimeComponent` facility (see `app_data::custom`) ship
+///    without touching `WELL_KNOWN` — only the host that registered
+///    the component decodes its payload, while old clients
+///    type-dispatch via the registry the same way.
+/// 2. **Coordinated protocol-version bump.** Required only when the
+///    new component must reject specific bytes that the type-level
+///    codec would otherwise accept (e.g. a per-id invariant beyond
+///    type shape).
+///
+/// [`ComponentType`]: xmtp_proto::xmtp::mls::message_contents::ComponentType
 pub static WELL_KNOWN: &[(ComponentId, &'static dyn ErasedComponent)] = &[
     (ComponentId::COMPONENT_REGISTRY, &ComponentRegistryComponent),
     (ComponentId::SUPER_ADMIN_LIST, &SuperAdminListComponent),

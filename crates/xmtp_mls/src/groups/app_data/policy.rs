@@ -10,10 +10,12 @@
 //! - `GROUP_MEMBERSHIP.delete_policy` → `remove_member_policy`
 //!
 //! Other slots on the synthesized `PolicySet` (metadata field updates,
-//! admin add/remove, permissions update) keep the conservative
-//! "super admin only" stub — the AppDataUpdate path enforces those
-//! per-component when a real change comes through, and the legacy
-//! callers only consult them as part of structural sanity checks.
+//! admin add/remove, permissions update) are structural placeholders
+//! filled with the conservative "super admin only" policy. The
+//! AppDataUpdate proposal validator is the authoritative gate for
+//! those component writes; the slots here only exist because the
+//! legacy GCE-shaped callers expect a populated `PolicySet` for
+//! sanity checks unrelated to the per-component policy lookup.
 
 use openmls::group::MlsGroup as OpenMlsGroup;
 use xmtp_mls_common::app_data::component_id::ComponentId;
@@ -58,8 +60,9 @@ fn metadata_policy_to_membership(p: &MetadataPolicyProto) -> MembershipPolicies 
 
 /// Build a `GroupMutablePermissions` whose `add_member_policy` /
 /// `remove_member_policy` reflect the registry's `GROUP_MEMBERSHIP`
-/// policies. Everything else is a stub — the AppDataUpdate validation
-/// path is the authoritative gate for non-membership components.
+/// policies. Other slots are structural placeholders — the
+/// AppDataUpdate validation path is the authoritative gate for
+/// non-membership components.
 pub(crate) fn membership_policy_set_from_registry(
     mls_group: &OpenMlsGroup,
 ) -> Result<GroupMutablePermissions, ComponentSourceError> {
@@ -119,12 +122,13 @@ pub(crate) fn membership_policy_set_from_registry(
         }
     };
 
-    // Non-membership slots stay on the conservative super-admin stub:
-    // metadata field updates, admin add/remove, and permissions update
-    // are all enforced per-component by
-    // `validate_app_data_update_proposals_in_commit` when a real change
-    // comes through. Legacy callers only consult these slots as part
-    // of structural sanity checks, so super-admin-only is safe.
+    // Non-membership slots are structural placeholders, filled with
+    // super-admin-only. Metadata field updates, admin add/remove, and
+    // permissions update are all gated per-component by
+    // `validate_app_data_update_proposals_in_commit` when a real
+    // change comes through; legacy callers only consult these slots
+    // for sanity checks unrelated to the per-component permission
+    // policy.
     Ok(GroupMutablePermissions::new(PolicySet::new(
         add_policy,
         remove_policy,
