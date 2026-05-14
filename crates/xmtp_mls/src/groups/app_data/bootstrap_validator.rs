@@ -326,6 +326,7 @@ fn proposal_type_name(proposal: &Proposal) -> &'static str {
         Proposal::AppDataUpdate(_) => "AppDataUpdate",
         Proposal::SelfRemove => "SelfRemove",
         Proposal::AppEphemeral(_) => "AppEphemeral",
+        Proposal::_AppAck => "_AppAck",
         Proposal::Custom(_) => "Custom",
     }
 }
