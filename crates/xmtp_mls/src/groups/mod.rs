@@ -1799,10 +1799,12 @@ where
     /// * `version` - The libxmtp version to update the group min version to.
     ///   This is a semver-formatted string matching the Cargo.toml in the
     ///   libxmtp dependency, and does not match mobile or web release versions.
-    ///   Do NOT include pre-release metadata like "1.0.0-alpha",
-    ///   "1.0.0-beta", etc, as the version comparison may not match what
-    ///   is expected. For historical reasons, "1.0.0-alpha" is considered to be
-    ///   > "1.0.0", so it is better to just specify "1.0.0".
+    ///   Comparison is done via the [`semver`] crate's `Ord` impl, so
+    ///   pre-release identifiers (e.g. `"1.0.0-rc.1"`) sort BEFORE the
+    ///   corresponding release (`"1.0.0"`) per semver 2.0 §11. Build
+    ///   metadata (`+...`) parses but is included in ordering by the
+    ///   semver crate — avoid passing it unless you understand the
+    ///   total-ordering implication.
     ///
     /// # Returns
     /// A `Result` indicating success or failure of the operation.
