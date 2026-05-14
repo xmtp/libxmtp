@@ -3562,3 +3562,94 @@ async fn test_welcome_on_migrated_group_pauses_below_min_version() {
          the floor lives only in the AppData dict at this point"
     );
 }
+
+/// XIP §3 steady-state pause path: when an already-migrated client bumps
+/// `MIN_SUPPORTED_PROTOCOL_VERSION` on an already-migrated group, the
+/// floor flows as an `AppDataUpdate(MIN_SUPPORTED_PROTOCOL_VERSION)`
+/// proposal carried inside a regular commit. The legacy GMM extension
+/// is gone post-bootstrap so the validator can't diff it — instead it
+/// must read the post-commit floor from the dict overlay (current dict
+/// + any staged AppDataUpdate proposals targeting the component) and
+/// raise `ProtocolVersionTooLow` against the receiver's pkg_version.
+/// `mls_sync` then writes `paused_for_version`.
+///
+/// Sibling of `test_welcome_on_migrated_group_pauses_below_min_version`
+/// (welcome-time pause) and `test_enable_proposals_pauses_old_client_via_legacy_gmm_bump`
+/// (pre-bootstrap legacy GMM bump). Pre-fix, the migrated branch of
+/// `ValidatedCommit::from_staged_commit` set
+/// `MutableMetadataValidationInfo::default()` unconditionally — so
+/// `minimum_supported_protocol_version` was always `None`, the
+/// validator's version arm never fired on migrated groups, and a
+/// below-floor receiver silently kept processing commits.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
+    use crate::groups::tests::increment_patch_version;
+
+    // Both alix and bo at the default pkg_version so both can apply the
+    // bootstrap commit cleanly. `enable_proposals`' step-A legacy GMM
+    // bump sets the floor to alix's pkg_version (== bo's pkg_version),
+    // so neither is paused by the legacy path, and both migrate.
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group
+        .add_members(&[bo.context.identity.inbox_id()])
+        .await?;
+
+    let bo_groups = bo.sync_welcomes().await?;
+    let bo_group = bo_groups
+        .iter()
+        .find(|g| g.group_id == alix_group.group_id)
+        .expect("bo should receive a welcome for alix_group");
+    bo_group.sync().await?;
+
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+    bo_group.sync().await?;
+
+    for (label, group) in [("alix", &alix_group), ("bo", bo_group)] {
+        let migrated = group
+            .load_mls_group_with_lock_async(async |g| {
+                Ok::<bool, crate::groups::GroupError>(group.proposals_enabled(&g))
+            })
+            .await?;
+        assert!(migrated, "{label} must be migrated post-enable_proposals");
+        assert!(
+            group.paused_for_version()?.is_none(),
+            "{label} must not be paused after migration (test_default floor is 0.0.0)"
+        );
+    }
+
+    // Alix raises the floor above both members' pkg_version. On the
+    // migrated group this flows as an
+    // `AppDataUpdate(MIN_SUPPORTED_PROTOCOL_VERSION)` proposal inside a
+    // commit — the legacy GMM extension is gone, so the dict is the
+    // only path the floor can ride on. Alix's call may return Ok (her
+    // local sync resolves the intent before her validator re-applies
+    // the commit against the new floor) or Err (her local replay hits
+    // `ProtocolVersionTooLow` since her pkg_version is also below the
+    // new floor). Either way, the commit reaches the server. Log the
+    // error instead of swallowing it silently so a non-version-pause
+    // failure mode (network, intent rejection) would surface in test
+    // output if this assumption stopped holding.
+    let pkg = alix.version_info().pkg_version().to_string();
+    let bumped = increment_patch_version(&pkg).expect("patch bump");
+    if let Err(e) = alix_group.update_group_min_version(&bumped).await {
+        tracing::debug!(
+            "expected: alix's update_group_min_version surfaced an error \
+             (her pkg_version is below the new floor): {e}"
+        );
+    }
+
+    bo_group.sync().await?;
+    let paused = bo_group.paused_for_version()?;
+    assert_eq!(
+        paused.as_deref(),
+        Some(bumped.as_str()),
+        "bo must be paused at the new floor via the AppDataUpdate-driven path; \
+         post-bootstrap the legacy GMM extension is gone so the dict overlay is the \
+         only floor signal the validator can read"
+    );
+}
