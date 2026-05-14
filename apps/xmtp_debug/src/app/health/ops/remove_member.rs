@@ -1,19 +1,18 @@
-//! Op: primary admin-removes a peer from the newly-created group via
-//! `MlsGroup::remove_members`. Distinct from `LeaveGroup` which exercises
-//! the MLS self-remove path. Both code paths produce a remove commit but
-//! follow different intent + validation flows in libxmtp.
+//! Op: primary admin-removes a freshly-created throwaway identity from
+//! the newly-created group via `MlsGroup::remove_members`. The transient
+//! victim is created inside this op so nothing persisted gets disturbed
+//! (avoids the cross-run "removed-and-stays-around" fork-noise pattern).
 //!
-//! Victim is the first existing identity (i.e. one of the bootstrap or
-//! pre-existing clients). If none is available, the op fails with a
-//! reason.
+//! Distinct from `LeaveGroup` which exercises the MLS self-remove path.
+//! Both produce a remove commit but follow different intent + validation
+//! flows in libxmtp.
 
-use crate::app::health::context::{HealthContext, inbox_id_to_bytes};
+use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
 use crate::app::health::result::{OpResult, Status};
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 use std::time::{Duration, Instant};
-use xmtp_proto::types::GroupId;
 
 pub struct RemoveMember;
 
@@ -35,34 +34,27 @@ impl HealthOp for RemoveMember {
             }];
         };
 
-        let primary_inbox = ctx.primary.inbox_id().to_string();
-        let transient_inbox = ctx.transient_identity.inbox_id().to_string();
-        let Some(victim_inbox) = ctx
-            .existing_clients
-            .values()
-            .map(|c| c.inbox_id().to_string())
-            .find(|id| id != &primary_inbox && id != &transient_inbox)
-        else {
-            return vec![OpResult {
-                op_name: self.name(),
-                target: Some(format!("{gid}")),
-                status: Status::Fail,
-                duration: Duration::ZERO,
-                error: Some(eyre!("no existing identity available as remove target")),
-            }];
-        };
-
         let start = Instant::now();
+        let mut victim_label = String::from("(uncreated)");
         let outcome: color_eyre::eyre::Result<()> = async {
-            let group = ctx
+            let victim = ctx.create_transient().await?;
+            let victim_inbox = victim.inbox_id().to_string();
+            victim_label = victim_inbox.clone();
+
+            // Primary adds the victim, then admin-removes them via
+            // `remove_members`. Both commits go through primary.
+            let primary_group = ctx
                 .primary
                 .group(gid.as_slice())
                 .map_err(color_eyre::eyre::Report::from)?;
-            group
+            primary_group
+                .add_members(std::slice::from_ref(&victim_inbox))
+                .await
+                .map_err(color_eyre::eyre::Report::from)?;
+            primary_group
                 .remove_members(&[victim_inbox.as_str()])
                 .await
                 .map_err(color_eyre::eyre::Report::from)?;
-            drop_member_from_persisted_group(ctx, &gid, &victim_inbox);
             Ok(())
         }
         .await;
@@ -72,25 +64,12 @@ impl HealthOp for RemoveMember {
         };
         vec![OpResult {
             op_name: self.name(),
-            target: Some(format!("group={gid} victim={victim_inbox}")),
+            target: Some(format!("group={gid} victim={victim_label}")),
             status,
             duration: start.elapsed(),
             error,
         }]
     }
-}
-
-/// Read the persisted group's members from redb, drop `victim_inbox`,
-/// and write back. Panics if redb is unreachable — a redb failure
-/// indicates an xdbg state-directory issue, not an op-level failure.
-fn drop_member_from_persisted_group(ctx: &HealthContext, group_id: &GroupId, victim_inbox: &str) {
-    let victim_bytes = inbox_id_to_bytes(victim_inbox);
-    let members: Vec<_> = ctx
-        .persisted_members(group_id)
-        .into_iter()
-        .filter(|m| m != &victim_bytes)
-        .collect();
-    ctx.update_group_members(group_id, members);
 }
 
 #[cfg(test)]

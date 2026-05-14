@@ -70,14 +70,7 @@ impl HealthOp for SendMessage {
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let mut out = Vec::new();
         for client in ctx.all_clients() {
-            // Transient is only added to new_groups, so existing_groups skip
-            // is by design — see AddMembersToNewGroup.
-            if !ctx.is_transient(&client) {
-                for gid in &ctx.existing_groups {
-                    out.push(send_one(self.name(), ctx, &client, gid).await);
-                }
-            }
-            for gid in &ctx.new_groups {
+            for gid in ctx.all_groups() {
                 out.push(send_one(self.name(), ctx, &client, gid).await);
             }
         }

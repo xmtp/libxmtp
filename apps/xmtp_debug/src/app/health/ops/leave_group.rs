@@ -1,12 +1,12 @@
-//! Op: transient identity self-removes from the newly-created group via
-//! MLS `leave_group`. Uses the transient instead of the primary so the
-//! persisted primary stays in every group across runs.
-//! Must run last so prior ops are not invalidated by the membership change.
+//! Op: a freshly-created throwaway identity self-removes from the
+//! newly-created group via MLS `leave_group`. The transient is created
+//! by this op so nothing else in the run is disturbed by the membership
+//! change.
 //!
 //! Distinct from `RemoveMember` which exercises the admin-remove path
 //! (one identity removes another via `remove_members`).
 
-use crate::app::health::context::{HealthContext, inbox_id_to_bytes};
+use crate::app::health::context::HealthContext;
 use crate::app::health::ops::HealthOp;
 use crate::app::health::result::{OpResult, Status};
 use async_trait::async_trait;
@@ -35,28 +35,32 @@ impl HealthOp for LeaveGroup {
 
         let start = Instant::now();
         let outcome: color_eyre::eyre::Result<()> = async {
-            // Transient must see the welcome for this group before it can
-            // load + leave it. The add happened earlier in the run but is
-            // only visible after a sync.
-            ctx.transient_identity
+            // Fresh single-use identity. Created locally so it doesn't
+            // appear in `ctx.all_clients()` and isn't held to validator
+            // convergence checks after the leave.
+            let transient = ctx.create_transient().await?;
+
+            // Primary adds the transient to the group, then transient
+            // syncs the welcome and leaves.
+            let primary_group = ctx
+                .primary
+                .group(gid.as_slice())
+                .map_err(color_eyre::eyre::Report::from)?;
+            primary_group
+                .add_members(&[transient.inbox_id().to_string()])
+                .await
+                .map_err(color_eyre::eyre::Report::from)?;
+            transient
                 .sync_welcomes()
                 .await
                 .map_err(color_eyre::eyre::Report::from)?;
-            let group = ctx
-                .transient_identity
+            let transient_group = transient
                 .group(gid.as_slice())
                 .map_err(color_eyre::eyre::Report::from)?;
-            group
+            transient_group
                 .leave_group()
                 .await
                 .map_err(color_eyre::eyre::Report::from)?;
-            let transient_bytes = inbox_id_to_bytes(ctx.transient_identity.inbox_id());
-            let members: Vec<_> = ctx
-                .persisted_members(&gid)
-                .into_iter()
-                .filter(|m| m != &transient_bytes)
-                .collect();
-            ctx.update_group_members(&gid, members);
             Ok(())
         }
         .await;

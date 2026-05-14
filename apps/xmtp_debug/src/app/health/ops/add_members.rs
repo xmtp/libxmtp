@@ -50,14 +50,11 @@ impl HealthOp for AddMembersToNewGroup {
             }
         };
 
-        let mut inbox_ids: Vec<String> = ctx
+        let inbox_ids: Vec<String> = ctx
             .existing_clients
             .values()
             .map(|c| c.inbox_id().to_string())
             .collect();
-        // Include transient so `LeaveGroup` has a member to remove without
-        // disturbing the run-stable primary.
-        inbox_ids.push(ctx.transient_identity.inbox_id().to_string());
 
         let start = Instant::now();
         let outcome: color_eyre::eyre::Result<()> = async {

@@ -14152,7 +14152,7 @@ dependencies = [
  "hyper-util",
  "idna",
  "indexmap 2.14.0",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "k256",
  "libc",
  "libcrux-ed25519",

@@ -25,11 +25,6 @@ pub struct HealthContext {
     /// redb identity store so future runs see it as an existing identity.
     pub primary: Arc<DbgClient>,
 
-    /// Single-run identity used by destructive ops (e.g. `LeaveGroup`).
-    /// Not persisted to redb — exists only to be removed from groups
-    /// without losing the run-stable `primary`.
-    pub transient_identity: Arc<DbgClient>,
-
     /// Identities loaded from the redb `IdentityStore` for this network.
     /// On a fresh run, contains the freshly-bootstrapped identities.
     pub existing_clients: HashMap<InboxId, Arc<DbgClient>>,
@@ -118,14 +113,7 @@ impl HealthContext {
         id_store.set(primary_identity, net_key)?;
         let primary = Arc::new(primary_client);
 
-        // 3. Transient identity for destructive ops. Not persisted.
-        let transient_wallet = app::generate_wallet();
-        let transient_client =
-            app::new_unregistered_client(&network, Some(&transient_wallet)).await?;
-        app::register_client(&transient_client, transient_wallet.into_alloy()).await?;
-        let transient_identity = Arc::new(transient_client);
-
-        // 4. Existing groups from redb.
+        // 3. Existing groups from redb.
         let existing_groups = group_store
             .load(net_key)?
             .map(|iter| {
@@ -147,7 +135,6 @@ impl HealthContext {
         Ok(Self {
             network,
             primary,
-            transient_identity,
             existing_clients,
             existing_groups,
             new_groups: Vec::new(),
@@ -155,6 +142,18 @@ impl HealthContext {
             xdbg_version,
             network_key: net_key,
         })
+    }
+
+    /// Register a fresh single-use identity. Not persisted to redb. Used
+    /// by ops that need a victim/leaver they own end-to-end — e.g.
+    /// `LeaveGroup` adds + leaves; `RemoveMember` adds + admin-removes.
+    /// The returned `Arc<DbgClient>` is owned by the caller; once dropped,
+    /// nothing in the run references it.
+    pub async fn create_transient(&self) -> Result<Arc<DbgClient>> {
+        let wallet = app::generate_wallet();
+        let client = app::new_unregistered_client(&self.network, Some(&wallet)).await?;
+        app::register_client(&client, wallet.into_alloy()).await?;
+        Ok(Arc::new(client))
     }
 
     /// Persist a newly-created group to redb's `GroupStore` so subsequent
@@ -245,13 +244,12 @@ impl HealthContext {
             .filter(|c| c != &[0u8; 32])
     }
 
-    /// Every client involved in this run: primary + transient + every
-    /// entry in `existing_clients`. The two run-scoped clients are
-    /// returned first so consumers can match on inbox_id if needed.
+    /// Every persisted client involved in this run: primary + every
+    /// entry in `existing_clients`. Run-scoped throwaway transients
+    /// created by ops are NOT included — they're op-local.
     pub fn all_clients(&self) -> Vec<Arc<DbgClient>> {
-        let mut out = Vec::with_capacity(self.existing_clients.len() + 2);
+        let mut out = Vec::with_capacity(self.existing_clients.len() + 1);
         out.push(self.primary.clone());
-        out.push(self.transient_identity.clone());
         out.extend(self.existing_clients.values().cloned());
         out
     }
@@ -262,16 +260,11 @@ impl HealthContext {
         self.existing_groups.iter().chain(self.new_groups.iter())
     }
 
-    pub fn is_transient(&self, client: &DbgClient) -> bool {
-        client.inbox_id() == self.transient_identity.inbox_id()
-    }
-
     /// Concurrently sync welcomes on every client involved in the run.
     /// Failures are logged but never propagated — `sync_welcomes` is
     /// best-effort plumbing, not a validation step.
     pub async fn sync_welcomes_fanout(&self, label: &'static str) {
-        let syncs = std::iter::once(self.transient_identity.as_ref())
-            .chain(std::iter::once(self.primary.as_ref()))
+        let syncs = std::iter::once(self.primary.as_ref())
             .chain(self.existing_clients.values().map(|c| c.as_ref()))
             .map(|c| async move {
                 if let Err(e) = c.sync_welcomes().await {
