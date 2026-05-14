@@ -1295,7 +1295,7 @@ public protocol FfiConversationProtocol: AnyObject, Sendable {
      * **One-way**: a migrated group cannot return to the legacy
      * path. Operationally treated as a flag day per group.
      */
-    func enableProposals() async throws 
+    func enableProposals(options: FfiEnableProposalsOptions) async throws 
     
     func findDuplicateDms() async throws  -> [FfiConversation]
     
@@ -1639,13 +1639,13 @@ open func dmPeerInboxId() -> String?  {
      * **One-way**: a migrated group cannot return to the legacy
      * path. Operationally treated as a flag day per group.
      */
-open func enableProposals()async throws   {
+open func enableProposals(options: FfiEnableProposalsOptions)async throws   {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_xmtpv3_fn_method_fficonversation_enable_proposals(
-                    self.uniffiCloneHandle()
-                    
+                    self.uniffiCloneHandle(),
+                    FfiConverterTypeFfiEnableProposalsOptions_lower(options)
                 )
             },
             pollFunc: ffi_xmtpv3_rust_future_poll_void,
@@ -7428,6 +7428,82 @@ public func FfiConverterTypeFfiDeletedMessage_lift(_ buf: RustBuffer) throws -> 
 #endif
 public func FfiConverterTypeFfiDeletedMessage_lower(_ value: FfiDeletedMessage) -> RustBuffer {
     return FfiConverterTypeFfiDeletedMessage.lower(value)
+}
+
+
+/**
+ * Options for [`FfiConversation::enable_proposals`]. Mirrors
+ * [`xmtp_mls::groups::EnableProposalsOptions`].
+ */
+public struct FfiEnableProposalsOptions: Equatable, Hashable {
+    /**
+     * Skip the pre-flight key-package capability check. Post-d14n
+     * every client supports proposals by version floor alone; set
+     * `true` to bypass the per-member scan in that environment.
+     */
+    public var force: Bool?
+    /**
+     * Override the `MIN_SUPPORTED_PROTOCOL_VERSION` floor. `None`
+     * defaults to `xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`.
+     */
+    public var minVersion: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Skip the pre-flight key-package capability check. Post-d14n
+         * every client supports proposals by version floor alone; set
+         * `true` to bypass the per-member scan in that environment.
+         */force: Bool?, 
+        /**
+         * Override the `MIN_SUPPORTED_PROTOCOL_VERSION` floor. `None`
+         * defaults to `xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`.
+         */minVersion: String?) {
+        self.force = force
+        self.minVersion = minVersion
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiEnableProposalsOptions: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiEnableProposalsOptions: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiEnableProposalsOptions {
+        return
+            try FfiEnableProposalsOptions(
+                force: FfiConverterOptionBool.read(from: &buf), 
+                minVersion: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiEnableProposalsOptions, into buf: inout [UInt8]) {
+        FfiConverterOptionBool.write(value.force, into: &buf)
+        FfiConverterOptionString.write(value.minVersion, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiEnableProposalsOptions_lift(_ buf: RustBuffer) throws -> FfiEnableProposalsOptions {
+    return try FfiConverterTypeFfiEnableProposalsOptions.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiEnableProposalsOptions_lower(_ value: FfiEnableProposalsOptions) -> RustBuffer {
+    return FfiConverterTypeFfiEnableProposalsOptions.lower(value)
 }
 
 
@@ -15702,7 +15778,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_fficonversation_dm_peer_inbox_id() != 2891) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_enable_proposals() != 57516) {
+    if (uniffi_xmtpv3_checksum_method_fficonversation_enable_proposals() != 40008) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_find_duplicate_dms() != 57431) {
