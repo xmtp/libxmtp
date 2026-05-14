@@ -12,7 +12,6 @@ use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 use std::time::Instant;
 use xmtp_db::prelude::QueryGroup;
-use xmtp_proto::types::GroupId;
 
 pub struct NoForkedGroups;
 
@@ -30,25 +29,20 @@ impl Validator for NoForkedGroups {
     async fn validate(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let mut out = Vec::new();
         for client in ctx.all_clients() {
-            let is_transient = ctx.is_transient(&client);
             let db = client.db();
-            // Transient is only added to new_groups (see AddMembersToNewGroup);
-            // skip existing_groups for transient.
-            let check = |gid: &GroupId, out: &mut Vec<OpResult>| {
-                let start = Instant::now();
-                // Transient may have its group row purged on LeaveGroup
-                // depending on libxmtp version — skip with a debug log so
-                // unexpected non-leave errors don't slip past silently.
-                if is_transient && let Err(e) = client.group(gid.as_slice()) {
-                    tracing::debug!(
-                        target: "healthcheck",
-                        inbox = client.inbox_id(),
-                        group = %gid,
-                        error = %e,
-                        "skip fork check: transient missing group locally",
-                    );
-                    return;
+            for gid in ctx.all_groups() {
+                // Skip clients that aren't active members. A removed
+                // client's frozen local commit-log diverges from the
+                // live one by design; that's not a fork worth flagging.
+                let is_active = client
+                    .group(gid.as_slice())
+                    .ok()
+                    .and_then(|g| g.is_active().ok())
+                    .unwrap_or(false);
+                if !is_active {
+                    continue;
                 }
+                let start = Instant::now();
                 let (status, error) = match db.get_group_commit_log_forked_status(gid) {
                     Ok(Some(true)) => (Status::Fail, Some(eyre!("group forked"))),
                     Ok(_) => (Status::Pass, None),
@@ -61,14 +55,6 @@ impl Validator for NoForkedGroups {
                     duration: start.elapsed(),
                     error,
                 });
-            };
-            if !is_transient {
-                for gid in &ctx.existing_groups {
-                    check(gid, &mut out);
-                }
-            }
-            for gid in &ctx.new_groups {
-                check(gid, &mut out);
             }
         }
         out

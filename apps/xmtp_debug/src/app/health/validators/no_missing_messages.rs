@@ -1,27 +1,15 @@
-//! Validator: every client must have every message every other client has,
-//! filtered by the join-time floor (messages sent before a client joined a
-//! group are not expected to be present on that client).
+//! Validator: every active member of a group must have every message that
+//! redb's `MessageStore` recorded for that group. Cross-version,
+//! authoritative — independent of any single client's local libxmtp DB.
 
 use crate::app::health::context::HealthContext;
 use crate::app::health::result::{OpResult, Status};
 use crate::app::health::validators::Validator;
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
-use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 use xmtp_db::group::QueryGroup;
-use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_db::prelude::QueryGroupMessage;
-
-/// Per-(client, group) state cached while inspecting a single group.
-struct ClientGroupState {
-    inbox: String,
-    /// Sequence_ids this client has stored locally for this group.
-    seqs: HashSet<i64>,
-    /// Authoritative join time: `StoredGroup::created_at_ns` (the welcome
-    /// timestamp for invited members, group creation for the creator).
-    join_at_ns: i64,
-}
 
 pub struct NoMissingMessages;
 
@@ -39,107 +27,131 @@ impl Validator for NoMissingMessages {
     async fn validate(&self, ctx: &mut HealthContext) -> Vec<OpResult> {
         let mut out = Vec::new();
         let clients = ctx.all_clients();
+        // Load everything once — `recorded_messages` per-group would
+        // rescan the whole network per iteration.
+        let by_group = ctx.recorded_messages_by_group();
 
+        // Collect every (client, group, active_mls_group) we'll inspect.
+        // Inactive clients (left/removed) aren't held to convergence.
+        let mut pairs = Vec::new();
         for group_id in ctx.all_groups() {
-            // Members of this group only — skip clients that aren't part of it.
-            let mut per_client: Vec<ClientGroupState> = Vec::new();
-            // Authoritative seq → sent_at_ns map across every member's
-            // local store. Built once, consulted by every per-client diff.
-            let mut sent_at: HashMap<i64, i64> = HashMap::new();
-
+            let Some(expected) = by_group.get(group_id) else {
+                continue;
+            };
+            if expected.is_empty() {
+                continue;
+            }
             for client in &clients {
-                let db = client.db();
-                let stored = match db.find_group(group_id) {
-                    Ok(Some(g)) => g,
-                    Ok(None) => continue,
-                    Err(e) => {
-                        tracing::warn!(
-                            target: "healthcheck",
-                            inbox = client.inbox_id(),
-                            group = %group_id,
-                            error = %e,
-                            "skipping client/group: find_group failed",
-                        );
-                        continue;
-                    }
+                let Ok(mls_group) = client.group(group_id.as_slice()) else {
+                    continue;
                 };
-                // Skip clients that left or were removed: their local view
-                // is intentionally frozen at the moment of removal and will
-                // not see post-removal commits. The MLS group's
-                // `is_active()` returns false for those clients.
-                let active = client
-                    .group(group_id.as_slice())
-                    .ok()
-                    .and_then(|g| g.is_active().ok())
-                    .unwrap_or(false);
-                if !active {
+                if !mls_group.is_active().unwrap_or(false) {
+                    continue;
+                }
+                pairs.push((client.clone(), group_id, mls_group, expected));
+            }
+        }
+
+        // Pre-sync every pair in parallel so we don't false-positive on
+        // commits that haven't reached the local DB yet (own sends and
+        // concurrent peer sends both qualify).
+        futures::future::join_all(pairs.iter().map(
+            |(client, group_id, mls_group, _)| async move {
+                if let Err(e) = mls_group.sync_with_conn().await {
                     tracing::debug!(
                         target: "healthcheck",
                         inbox = client.inbox_id(),
                         group = %group_id,
-                        "skipping inactive client (left or removed)",
+                        error = %e,
+                        "sync_with_conn before NoMissingMessages check failed",
+                    );
+                }
+            },
+        ))
+        .await;
+
+        for (client, group_id, _mls_group, expected) in &pairs {
+            let start = Instant::now();
+            let db = client.db();
+            // Authoritative join floor: messages older than the group's
+            // local `created_at_ns` were sent before this client joined
+            // and aren't expected to appear in their store.
+            let join_at_ns = match db.find_group(group_id) {
+                Ok(Some(g)) => g.created_at_ns,
+                Ok(None) => {
+                    tracing::debug!(
+                        target: "healthcheck",
+                        inbox = client.inbox_id(),
+                        group = %group_id,
+                        "skipping NoMissingMessages: client has no local group row",
                     );
                     continue;
                 }
-                let msgs = match db.get_group_messages(group_id, &MsgQueryArgs::default()) {
-                    Ok(m) => m,
+                Err(e) => {
+                    tracing::warn!(
+                        target: "healthcheck",
+                        inbox = client.inbox_id(),
+                        group = %group_id,
+                        error = %e,
+                        "find_group failed; skipping client/group",
+                    );
+                    continue;
+                }
+            };
+
+            let mut expected_after_join = 0usize;
+            let mut missing = 0usize;
+            for msg in *expected {
+                if msg.sent_at_ns < join_at_ns {
+                    continue;
+                }
+                expected_after_join += 1;
+                match db.get_group_message(msg.id) {
+                    Ok(Some(_)) => {}
+                    Ok(None) => {
+                        missing += 1;
+                        tracing::warn!(
+                            target: "healthcheck",
+                            inbox = client.inbox_id(),
+                            group = %group_id,
+                            message_id = %hex::encode(msg.id),
+                            sender = %hex::encode(msg.sender_inbox_id),
+                            sent_at_ns = msg.sent_at_ns,
+                            recorded_by_version = %msg.xdbg_version,
+                            "missing recorded message in local DB",
+                        );
+                    }
                     Err(e) => {
                         tracing::warn!(
                             target: "healthcheck",
                             inbox = client.inbox_id(),
                             group = %group_id,
                             error = %e,
-                            "skipping client/group: get_group_messages failed",
+                            message_id = %hex::encode(msg.id),
+                            "get_group_message error; counting as missing",
                         );
-                        continue;
+                        missing += 1;
                     }
-                };
-                let mut seqs = HashSet::new();
-                for m in msgs {
-                    seqs.insert(m.sequence_id);
-                    // First writer wins — sent_at_ns is invariant per seq.
-                    sent_at.entry(m.sequence_id).or_insert(m.sent_at_ns);
                 }
-                per_client.push(ClientGroupState {
-                    inbox: client.inbox_id().to_string(),
-                    seqs,
-                    join_at_ns: stored.created_at_ns,
-                });
             }
 
-            // Union of every member's seqs. A client is missing seq `s` iff
-            // `s ∈ global_union \ client.seqs` AND `sent_at[s] >= client.join_at_ns`.
-            let global_union: HashSet<i64> = per_client
-                .iter()
-                .flat_map(|s| s.seqs.iter().copied())
-                .collect();
-
-            for state in &per_client {
-                let start = Instant::now();
-                let missing_count = global_union
-                    .difference(&state.seqs)
-                    .filter(|seq| match sent_at.get(seq) {
-                        Some(&ts) => ts >= state.join_at_ns,
-                        None => false,
-                    })
-                    .count();
-
-                let (status, error) = if missing_count == 0 {
-                    (Status::Pass, None)
-                } else {
-                    (
-                        Status::Fail,
-                        Some(eyre!("{missing_count} missing messages")),
-                    )
-                };
-                out.push(OpResult {
-                    op_name: self.name(),
-                    target: Some(format!("inbox={} group={group_id}", state.inbox)),
-                    status,
-                    duration: start.elapsed(),
-                    error,
-                });
-            }
+            let (status, error) = if missing == 0 {
+                (Status::Pass, None)
+            } else {
+                (
+                    Status::Fail,
+                    Some(eyre!(
+                        "{missing}/{expected_after_join} expected messages missing"
+                    )),
+                )
+            };
+            out.push(OpResult {
+                op_name: self.name(),
+                target: Some(format!("inbox={} group={group_id}", client.inbox_id())),
+                status,
+                duration: start.elapsed(),
+                error,
+            });
         }
         out
     }
