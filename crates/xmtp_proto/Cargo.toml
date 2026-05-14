@@ -52,6 +52,7 @@ tonic = { workspace = true, features = ["channel", "codegen"] }
 wasm-bindgen-test.workspace = true
 
 [dev-dependencies]
+bincode.workspace = true
 mockall.workspace = true
 rstest.workspace = true
 tokio = { workspace = true }

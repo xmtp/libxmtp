@@ -27,7 +27,7 @@ impl HealthOp for UpdateMessageDisappearing {
             let outcome: color_eyre::eyre::Result<()> = async {
                 let group = ctx
                     .primary
-                    .group(gid.as_slice())
+                    .group(gid)
                     .map_err(color_eyre::eyre::Report::from)?;
                 group
                     .update_conversation_message_disappearing_settings(
@@ -74,7 +74,7 @@ impl HealthOp for RemoveMessageDisappearing {
             let outcome: color_eyre::eyre::Result<()> = async {
                 let group = ctx
                     .primary
-                    .group(gid.as_slice())
+                    .group(gid)
                     .map_err(color_eyre::eyre::Report::from)?;
                 group
                     .remove_conversation_message_disappearing_settings()

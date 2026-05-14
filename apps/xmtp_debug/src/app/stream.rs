@@ -78,7 +78,7 @@ impl Stream {
                     };
                     let stored: StoredGroup = group.load()?;
                     let item = Conversation {
-                        group_id: hex::encode(&stored.id),
+                        group_id: hex::encode(stored.id),
                         dm_id: stored.dm_id.unwrap_or("".to_string()),
                         conversation_type: stored.conversation_type as i32,
                         created_at: stored.created_at_ns,
@@ -114,7 +114,7 @@ impl Stream {
                         timestamp: message.sent_at_ns,
                         sequence_id: message.sequence_id,
                         originator_id: message.originator_id,
-                        group_id: hex::encode(&message.group_id),
+                        group_id: hex::encode(message.group_id),
                         expire_at: message.expire_at_ns.unwrap_or(0),
                         content_type: message.content_type as i32,
                         version_major: message.version_major,

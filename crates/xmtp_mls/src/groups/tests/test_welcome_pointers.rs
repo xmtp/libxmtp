@@ -138,7 +138,7 @@ async fn test_welcome_pointer_round_trip(
 
     // Create a group with alix as the creator
     let alix_group = alix.create_group(None, None).unwrap();
-    tracing::info!("Alix group id: {}", hex::encode(&alix_group.group_id));
+    tracing::info!("Alix group id: {}", hex::encode(alix_group.group_id));
     alix_group.sync().await.unwrap();
 
     // Add bola to the group - this should trigger welcome message creation
@@ -647,7 +647,7 @@ async fn test_welcome_pointer_task_retry_resolution() {
         .unwrap();
     match event {
         crate::subscriptions::LocalEvents::NewGroup(id) => {
-            assert_eq!(id, group.group_id.clone());
+            assert_eq!(id, group.group_id);
         }
         e => panic!("Expected NewGroup event, got {:?}", e),
     }

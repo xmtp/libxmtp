@@ -53,10 +53,11 @@ mod tests {
         // Commit and application msg
         assert_eq!(alix_msgs.len(), 2);
 
+        let dm_group_id_vec = alix_bo_dm.group_id.to_vec();
         clear_all_messages_confirmed(
             &alix.db(),
             None,
-            Some(std::slice::from_ref(&alix_bo_dm.group_id)),
+            Some(std::slice::from_ref(&dm_group_id_vec)),
         )?;
         let alix_msgs = alix_bo_dm.find_messages(&MsgQueryArgs::default())?;
         // Commit and application msg

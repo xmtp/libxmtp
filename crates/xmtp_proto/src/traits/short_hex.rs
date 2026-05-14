@@ -50,7 +50,7 @@ mod tests {
     fn test_short_hex_group_id() {
         let hex = "5bf078bd83995fe83092d93c5655f059";
         let bytes = hex::decode(hex).unwrap();
-        let group_id = GroupId::from(bytes);
+        let group_id = GroupId::try_from(bytes).unwrap();
         assert_eq!(group_id.short_hex(), &hex[..SHORT_LEN * 2]);
     }
 }

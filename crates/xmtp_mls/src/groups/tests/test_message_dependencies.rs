@@ -7,7 +7,7 @@ use crate::utils::test::MlsGroupExt;
 use crate::{context::XmtpSharedContext, tester};
 
 // gets all messages on a group topic
-async fn get_messages(context: &impl XmtpSharedContext, group_id: &[u8]) -> XmtpEnvelope {
+async fn get_messages(context: &impl XmtpSharedContext, group_id: &GroupId) -> XmtpEnvelope {
     context
         .api()
         .query_at(TopicKind::GroupMessagesV1.create(group_id), None)
@@ -28,8 +28,8 @@ fn message_debug(env: &XmtpEnvelope) -> String {
     )
 }
 
-fn db_message_debug(db: impl QueryGroupMessage, id: &[u8]) -> String {
-    db.get_group_messages(&GroupId::from(id), &Default::default())
+fn db_message_debug(db: impl QueryGroupMessage, id: &GroupId) -> String {
+    db.get_group_messages(id, &Default::default())
         .unwrap()
         .into_iter()
         .enumerate()
@@ -87,7 +87,7 @@ async fn messages_have_dependencies() {
     tester!(bo);
 
     let alix_group = alix.create_group(None, None)?;
-    let group_id = alix_group.group_id.clone();
+    let group_id = alix_group.group_id;
     alix_group.invite(&bo).await?;
     let messages = get_messages(&alix.context, &group_id).await;
     // no messages have been sent in group yet. alix about to process first commit alix
@@ -112,7 +112,7 @@ async fn messages_dependencies_out_of_order_invites() {
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None) // message 0
         .await?;
-    let group_id = alix_group.group_id.clone();
+    let group_id = alix_group.group_id;
     let messages = get_messages(&alix.context, &group_id).await;
     assert_no_dependant(&messages, 0);
     let bo_group = bo.sync_welcomes().await?.pop()?;

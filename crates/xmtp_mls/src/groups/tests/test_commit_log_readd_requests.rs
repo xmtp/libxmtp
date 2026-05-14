@@ -39,32 +39,23 @@ async fn test_request_readd() {
     let c_conn = caro.context.db();
     // Simulate a fork
     a_conn
-        .set_group_commit_log_forked_status(&GroupId::from(group.group_id.as_slice()), Some(true))
+        .set_group_commit_log_forked_status(&group.group_id, Some(true))
         .unwrap();
 
     // No readd requests yet
     assert!(
         !a_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         !b_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         !c_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
 
@@ -80,50 +71,32 @@ async fn test_request_readd() {
     // Only Alix and Bo are superadmins, so only they should have recorded a readd request
     assert!(
         a_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         b_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         !c_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         !a_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                bo.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, bo.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         !b_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                bo.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, bo.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         !c_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                bo.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, bo.context.installation_id().as_slice(),)
             .unwrap()
     );
 }
@@ -148,24 +121,18 @@ async fn test_request_readd_dm() {
     let b_conn = bo.context.db();
     // Simulate a fork
     a_conn
-        .set_group_commit_log_forked_status(&GroupId::from(dm.group_id.as_slice()), Some(true))
+        .set_group_commit_log_forked_status(&dm.group_id, Some(true))
         .unwrap();
 
     // No readd requests yet
     assert!(
         !a_conn
-            .is_awaiting_readd(
-                &GroupId::from(dm.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&dm.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         !b_conn
-            .is_awaiting_readd(
-                &GroupId::from(dm.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&dm.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
 
@@ -179,34 +146,22 @@ async fn test_request_readd_dm() {
 
     assert!(
         a_conn
-            .is_awaiting_readd(
-                &GroupId::from(dm.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&dm.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         b_conn
-            .is_awaiting_readd(
-                &GroupId::from(dm.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&dm.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         !a_conn
-            .is_awaiting_readd(
-                &GroupId::from(dm.group_id.as_slice()),
-                bo.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&dm.group_id, bo.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         !b_conn
-            .is_awaiting_readd(
-                &GroupId::from(dm.group_id.as_slice()),
-                bo.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&dm.group_id, bo.context.installation_id().as_slice(),)
             .unwrap()
     );
 }
@@ -297,32 +252,23 @@ async fn test_readd_bookkeeping() {
     let d_conn = devon.context.db();
     // Simulate a fork
     a_conn
-        .set_group_commit_log_forked_status(&GroupId::from(group.group_id.as_slice()), Some(true))
+        .set_group_commit_log_forked_status(&group.group_id, Some(true))
         .unwrap();
 
     // No readd requests yet
     assert!(
         !a_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         !b_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         !c_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
 
@@ -337,34 +283,22 @@ async fn test_readd_bookkeeping() {
     // Everyone except Devon (non-superadmin) sees Alix as awaiting readd
     assert!(
         a_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         b_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         c_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         !d_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
 
@@ -378,36 +312,24 @@ async fn test_readd_bookkeeping() {
     // Everyone should see that Alix is no longer awaiting readd
     assert!(
         !b_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         !c_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
     assert!(
         !d_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
 
     alix.sync_welcomes().await.unwrap();
     assert!(
         !a_conn
-            .is_awaiting_readd(
-                &GroupId::from(group.group_id.as_slice()),
-                alix.context.installation_id().as_slice(),
-            )
+            .is_awaiting_readd(&group.group_id, alix.context.installation_id().as_slice(),)
             .unwrap()
     );
 }
@@ -424,9 +346,9 @@ async fn test_request_readd_with_allowlisted_groups() {
         .await
         .unwrap();
 
-    let group_id = group.group_id.to_vec();
-    let group_id_typed: GroupId = group_id.clone().into();
-    let group_id_hex = hex::encode(&group_id);
+    let group_id = group.group_id;
+    let group_id_typed: GroupId = group_id;
+    let group_id_hex = hex::encode(group_id);
     let unnormalized_group_id = "0x".to_owned() + &group_id_hex.to_uppercase();
 
     // Step 2: Create Alix with that group ID in the allowlist
@@ -460,7 +382,7 @@ async fn test_request_readd_with_allowlisted_groups() {
 
     // Simulate a fork
     a_conn
-        .set_group_commit_log_forked_status(&GroupId::from(group_id.as_slice()), Some(true))
+        .set_group_commit_log_forked_status(&group_id, Some(true))
         .unwrap();
 
     // No readd requests yet

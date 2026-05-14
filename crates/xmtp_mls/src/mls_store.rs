@@ -75,12 +75,12 @@ where
     /// found in the local database
     pub(crate) async fn query_group_messages(
         &self,
-        group_id: &[u8],
+        group_id: GroupId,
     ) -> Result<Vec<GroupMessage>, MlsStoreError> {
         let messages = self
             .context
             .sync_api()
-            .query_group_messages(group_id.into())
+            .query_group_messages(group_id)
             .await?;
 
         Ok(messages)
@@ -149,9 +149,9 @@ where
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
-    pub fn group(&self, group_id: &[u8]) -> Result<MlsGroup<Context>, MlsStoreError> {
+    pub fn group(&self, group_id: &GroupId) -> Result<MlsGroup<Context>, MlsStoreError> {
         let conn = self.context.db();
-        let stored_group: Option<StoredGroup> = conn.fetch(&GroupId::from(group_id))?;
+        let stored_group: Option<StoredGroup> = conn.fetch(group_id)?;
         stored_group
             .map(|g| {
                 MlsGroup::new(
@@ -162,7 +162,7 @@ where
                     g.created_at_ns,
                 )
             })
-            .ok_or(NotFound::GroupById(GroupId::from(group_id)))
+            .ok_or(NotFound::GroupById(*group_id))
             .map_err(Into::into)
     }
 }

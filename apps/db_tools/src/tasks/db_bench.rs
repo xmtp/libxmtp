@@ -316,17 +316,17 @@ where
         bench!(self, primary_sync_group())?;
         bench!(self, find_group(&group.id))?;
         bench!(self, find_sync_group(&group.id))?;
-        bench!(self, get_rotated_at_ns(group.id.clone()))?;
-        bench!(self, update_rotated_at_ns(group.id.clone()))?;
-        bench!(self, get_installations_time_checked(group.id.clone()))?;
-        bench!(self, update_installations_time_checked(group.id.clone()))?;
+        bench!(self, get_rotated_at_ns(&group.id))?;
+        bench!(self, update_rotated_at_ns(&group.id))?;
+        bench!(self, get_installations_time_checked(&group.id))?;
+        bench!(self, update_installations_time_checked(&group.id))?;
         bench!(
             self,
-            update_message_disappearing_from_ns(group.id.clone(), Some(1000))
+            update_message_disappearing_from_ns(&group.id, Some(1000))
         )?;
         bench!(
             self,
-            update_message_disappearing_in_ns(group.id.clone(), Some(1000))
+            update_message_disappearing_in_ns(&group.id, Some(1000))
         )?;
 
         // Fork status queries
@@ -347,7 +347,7 @@ where
         let Some(group) = self.group_or_dm() else {
             bail!("No group to lookup DMs on");
         };
-        let group_id = hex::encode(&group.id);
+        let group_id = hex::encode(group.id);
 
         let new_consent = StoredConsentRecord {
             consented_at_ns: 0,
@@ -471,7 +471,7 @@ where
         )?;
 
         // Get last cursor for IDs
-        let ids = vec![group.id.clone()];
+        let ids = vec![group.id];
         let entities = vec![EntityKind::ApplicationMessage, EntityKind::CommitMessage];
         bench!(self, get_last_cursor_for_ids(&ids, &entities))?;
 
@@ -479,7 +479,7 @@ where
         bench!(
             self,
             update_cursor(
-                group.id.clone(),
+                group.id,
                 EntityKind::ApplicationMessage,
                 Cursor::new(0, 0u32)
             )
@@ -489,7 +489,8 @@ where
         bench!(self, latest_cursor_for_id(&group.id, &entities, None))?;
 
         // Get remote log cursors
-        let conv_ids = vec![&group.id];
+        let conv_id_vec = group.id.to_vec();
+        let conv_ids = vec![&conv_id_vec];
         bench!(self, get_remote_log_cursors(&conv_ids))?;
 
         Ok(())

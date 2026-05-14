@@ -37,7 +37,7 @@ impl HealthOp for AddMembersToNewGroup {
             }];
         };
 
-        let group = match ctx.primary.group(new_group_id.as_slice()) {
+        let group = match ctx.primary.group(&new_group_id) {
             Ok(g) => g,
             Err(e) => {
                 return vec![OpResult {
@@ -121,13 +121,13 @@ impl HealthOp for AddPrimaryToExistingGroups {
                 let creator = ctx.persisted_creator(id_bytes);
                 let adder = creator
                     .and_then(|c| ctx.existing_clients.get(&c))
-                    .and_then(|c| c.group(gid.as_slice()).ok())
+                    .and_then(|c| c.group(gid).ok())
                     .filter(|g| g.is_active().unwrap_or(false));
                 let group = adder
                     .or_else(|| {
                         ctx.existing_clients
                             .values()
-                            .filter_map(|c| c.group(gid.as_slice()).ok())
+                            .filter_map(|c| c.group(gid).ok())
                             .find(|g| g.is_active().unwrap_or(false))
                     })
                     .ok_or_else(|| eyre!("no active member found for group"))?;

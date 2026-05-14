@@ -53,7 +53,7 @@ impl IceboxOrphans for OrphanedEnvelope {
 
 impl From<OrphanedEnvelope> for Icebox {
     fn from(value: OrphanedEnvelope) -> Self {
-        let group_id = value.group_id.clone();
+        let group_id = value.group_id;
         Icebox {
             sequence_id: value.cursor.sequence_id as i64,
             originator_id: value.cursor.originator_id as i64,

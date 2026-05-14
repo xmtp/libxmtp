@@ -8,7 +8,6 @@ use crate::app::health::result::{OpResult, Status};
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 use std::time::Instant;
-use xmtp_proto::types::GroupId;
 
 pub struct CreateGroup;
 
@@ -24,7 +23,7 @@ impl HealthOp for CreateGroup {
         let outcome = ctx.primary.create_group(None, None);
         let (status, target, error) = match outcome {
             Ok(group) => {
-                let new_group_id = GroupId::from(group.group_id.as_slice());
+                let new_group_id = group.group_id;
                 let hex_id = format!("{new_group_id}");
                 match group_id_bytes(&new_group_id) {
                     Ok(id_bytes) => {

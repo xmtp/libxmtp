@@ -21,7 +21,7 @@ pub struct SerializableGroup {
 
 impl SerializableGroup {
     pub async fn from<Context: XmtpSharedContext>(group: &MlsGroup<Context>) -> Self {
-        let group_id = hex::encode(group.group_id.clone());
+        let group_id = hex::encode(group.group_id);
         let members = group
             .members()
             .await

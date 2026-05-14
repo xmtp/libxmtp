@@ -65,7 +65,7 @@ impl EnvelopeVisitor<'_> for MessageMetadataExtractor {
             Cursor::v3_messages(v1_message.id)
         };
 
-        let group_id: GroupId = v1_message.group_id.clone().into();
+        let group_id: GroupId = v1_message.group_id.as_slice().try_into()?;
 
         let metadata = GroupMessageMetadata::builder()
             .created_ns(DateTime::from_timestamp_nanos(v1_message.created_ns as i64))

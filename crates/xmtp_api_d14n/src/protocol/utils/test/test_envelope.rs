@@ -150,7 +150,7 @@ impl Envelope<'_> for TestEnvelope {
             .cursor(self.cursor())
             .depends_on(self.depends_on())
             .payload(buf)
-            .group_id(vec![0, 1, 2])
+            .group_id([0u8; 16])
             .build()?)
     }
 }

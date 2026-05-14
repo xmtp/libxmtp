@@ -452,6 +452,7 @@ impl Conversations {
     #[wasm_bindgen(js_name = groupId)] group_id: String,
   ) -> Result<Conversation, JsError> {
     let group_id = hex::decode(group_id).map_err(ErrorWrapper::js)?;
+    let group_id = xmtp_proto::types::GroupId::try_from(group_id).map_err(ErrorWrapper::js)?;
 
     let group = self
       .inner_client

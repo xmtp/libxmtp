@@ -204,7 +204,7 @@ mod tests {
     #[xmtp_common::test]
     async fn d14n_request_latest_group_message() {
         let client = create_d14n_client();
-        let id: GroupId = GroupId::from(vec![]);
+        let id: GroupId = GroupId::from([0u8; 16]);
         let response = client.query_latest_group_message(id).await;
         match response {
             Err(e) => {

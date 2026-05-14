@@ -97,6 +97,8 @@ pub enum CommitLogError {
     CryptoError(#[from] openmls_traits::types::CryptoError),
     #[error("try from slice error: {0}")]
     TryFromSliceError(#[from] std::array::TryFromSliceError),
+    #[error("conversion error: {0}")]
+    Conversion(#[from] xmtp_proto::ConversionError),
     #[error("Group did not pass readd validation: {0}")]
     GroupReaddValidationError(String),
     #[error("sync error: {0}")]
@@ -117,6 +119,7 @@ impl RetryableError for CommitLogError {
             Self::GroupError(group_error) => group_error.is_retryable(),
             Self::CryptoError(_crypto_error) => false,
             Self::TryFromSliceError(_try_from_slice_error) => false,
+            Self::Conversion(_) => false,
             Self::GroupReaddValidationError(_group_readd_validation_error) => false,
             Self::SyncError(sync_error) => sync_error.is_retryable(),
             Self::GenericError(_generic_error) => false,
@@ -136,6 +139,7 @@ impl NeedsDbReconnect for CommitLogError {
             Self::GroupError(_group_error) => false,       // TODO(rich): What does this method do?
             Self::CryptoError(_crypto_error) => false,
             Self::TryFromSliceError(_try_from_slice_error) => false,
+            Self::Conversion(_) => false,
             Self::GroupReaddValidationError(_group_readd_validation_error) => false,
             Self::SyncError(_sync_error) => false,
             Self::GenericError(_generic_error) => false,
@@ -304,7 +308,7 @@ where
                 .unwrap_or(0);
             let published_commit_log_cursor = conn
                 .get_last_cursor_for_originator(
-                    &conversation.id,
+                    conversation.id,
                     xmtp_db::refresh_state::EntityKind::CommitLogUpload,
                     Originators::REMOTE_COMMIT_LOG,
                 )
@@ -356,7 +360,7 @@ where
         let Some(private_key) = get_or_create_signing_key(&self.context, conversation)? else {
             tracing::warn!(
                 "No signing key available for group {:?}",
-                hex::encode(&conversation.id)
+                hex::encode(conversation.id)
             );
             return Ok(vec![]);
         };
@@ -460,15 +464,14 @@ where
         commit_log_response: QueryCommitLogResponse,
         consensus_public_key: Option<Vec<u8>>,
     ) -> Result<usize, CommitLogError> {
-        let group_id = commit_log_response.group_id;
+        let group_id = GroupId::try_from(commit_log_response.group_id)?;
         let mut num_entries_saved = 0;
         // From the stored remote commit log, fetch the following info:
         // 1. The latest applied epoch authenticator
         // 2. The latest applied epoch number
         // 3. The latest stored sequence id
         if let Some(consensus_public_key) = consensus_public_key {
-            let mut latest_saved_remote_log =
-                conn.get_latest_remote_log_for_group(&GroupId::from(group_id.as_slice()))?;
+            let mut latest_saved_remote_log = conn.get_latest_remote_log_for_group(&group_id)?;
             for commit_log_entry in &commit_log_response.commit_log_entries {
                 let log_entry = match PlaintextCommitLogEntry::decode(
                     commit_log_entry.serialized_commit_log_entry.as_slice(),
@@ -484,7 +487,7 @@ where
                     }
                 };
                 if self.should_skip_remote_commit_log_entry(
-                    &group_id,
+                    group_id.as_slice(),
                     latest_saved_remote_log.clone(),
                     commit_log_entry,
                     &log_entry,
@@ -493,10 +496,11 @@ where
                     continue;
                 }
 
+                let log_entry_group_id = GroupId::try_from(log_entry.group_id.as_slice())?;
                 num_entries_saved += 1;
                 NewRemoteCommitLog {
                     log_sequence_id: commit_log_entry.sequence_id as i64,
-                    group_id: GroupId::from(log_entry.group_id.as_slice()),
+                    group_id: log_entry_group_id,
                     commit_sequence_id: log_entry.commit_sequence_id as i64,
                     commit_result: CommitResult::from(
                         ProtoCommitResult::try_from(log_entry.commit_result)
@@ -510,7 +514,7 @@ where
                 latest_saved_remote_log = Some(RemoteCommitLog {
                     rowid: 0,
                     log_sequence_id: commit_log_entry.sequence_id as i64,
-                    group_id: GroupId::from(log_entry.group_id),
+                    group_id: log_entry_group_id,
                     commit_sequence_id: log_entry.commit_sequence_id as i64,
                     commit_result: CommitResult::from(
                         ProtoCommitResult::try_from(log_entry.commit_result)
@@ -523,7 +527,7 @@ where
         }
         if let Some(last_entry) = commit_log_response.commit_log_entries.last() {
             conn.update_cursor(
-                &group_id,
+                group_id,
                 xmtp_db::refresh_state::EntityKind::CommitLogDownload,
                 Cursor::commit_log(last_entry.sequence_id),
             )?;
@@ -594,15 +598,13 @@ where
             self.context.db().get_conversation_ids_for_fork_check()?;
 
         for conversation_id in conversation_ids_for_forked_state_check {
+            let conversation_id = GroupId::try_from(conversation_id)?;
             self.context.mls_provider().storage().transaction(|conn| {
                 let key_store = conn.key_store();
                 let db = key_store.db();
                 let is_forked = self.check_conversation_fork_state(&db, &conversation_id)?;
                 // Persist the fork status to the database
-                db.set_group_commit_log_forked_status(
-                    &GroupId::from(conversation_id.as_slice()),
-                    is_forked,
-                )?;
+                db.set_group_commit_log_forked_status(&conversation_id, is_forked)?;
                 Ok::<(), CommitLogError>(())
             })?;
             tokio::task::yield_now().await;
@@ -613,7 +615,7 @@ where
 
     /// Returns the list of permitted readders for a group
     /// Note: Does not return self - self is always a permitted readder
-    async fn permitted_readders(&self, group_id: &[u8]) -> Result<Vec<String>, CommitLogError> {
+    async fn permitted_readders(&self, group_id: &GroupId) -> Result<Vec<String>, CommitLogError> {
         let (group, stored_group) = MlsGroup::new_cached(self.context.clone(), group_id)?;
         if stored_group.conversation_type == ConversationType::Dm {
             let Some(dm_id) = stored_group.dm_id.clone() else {
@@ -633,18 +635,17 @@ where
     ) -> Result<(), CommitLogError> {
         let conn = self.context.db();
         let group_id = group_info.group_id;
-        let group_id_typed = GroupId::from(group_id.as_slice());
 
         // Check if a readd request has already been sent for this group
-        if conn.is_awaiting_readd(&group_id_typed, self.context.installation_id().as_slice())? {
+        if conn.is_awaiting_readd(&group_id, self.context.installation_id().as_slice())? {
             tracing::debug!(
-                group_id = hex::encode(&group_id),
+                group_id = hex::encode(group_id),
                 "Skipping readd request for group because it has already been requested"
             );
             return Ok(());
         }
 
-        tracing::info!(group_id = hex::encode(&group_id), "Sending readd request");
+        tracing::info!(group_id = hex::encode(group_id), "Sending readd request");
 
         // Send oneshot message with readd request to super admins
         let latest_commit_sequence_id =
@@ -652,7 +653,7 @@ where
                 .latest_commit_sequence_id
                 .ok_or(CommitLogError::GenericError(format!(
                     "No latest commit sequence id found for forked group {}",
-                    hex::encode(&group_id)
+                    hex::encode(group_id)
                 )))?;
         let oneshot_message = OneshotMessage {
             message_type: Some(MessageType::ReaddRequest(ReaddRequest {
@@ -660,25 +661,25 @@ where
                 latest_commit_sequence_id: latest_commit_sequence_id as u64,
             })),
         };
-        let readders = self.permitted_readders(group_id.as_ref()).await?;
+        let readders = self.permitted_readders(&group_id).await?;
         tracing::info!(
-            group_id = hex::encode(&group_id),
+            group_id = hex::encode(group_id),
             "Sending readd request to {:?}",
             readders
         );
         Oneshot::send_message(self.context.clone(), readders, oneshot_message).await?;
 
-        tracing::info!(group_id = hex::encode(&group_id), "Sent readd request",);
+        tracing::info!(group_id = hex::encode(group_id), "Sent readd request",);
 
         // Mark readd as requested
         conn.update_requested_at_sequence_id(
-            &group_id_typed,
+            &group_id,
             self.context.installation_id().as_slice(),
             latest_commit_sequence_id as i64,
         )?;
 
         tracing::info!(
-            group_id = hex::encode(&group_id),
+            group_id = hex::encode(group_id),
             sequence_id = latest_commit_sequence_id,
             "Updated requested readd sequence id",
         );
@@ -709,23 +710,23 @@ where
                 "Forked groups: {:?}, allowlisted groups for sending recovery requests: {:?}",
                 forked_groups
                     .iter()
-                    .map(|group_info| hex::encode(&group_info.group_id))
+                    .map(|group_info| hex::encode(group_info.group_id))
                     .collect::<Vec<String>>(),
                 groups_to_request_recovery
             );
             forked_groups.retain(|group_info| {
                 groups_to_request_recovery
-                    .contains(&hex::encode(&group_info.group_id).normalize_hex())
+                    .contains(&hex::encode(group_info.group_id).normalize_hex())
             });
         }
 
         for group_info in forked_groups {
-            let group_id = group_info.group_id.clone();
+            let group_id = group_info.group_id;
 
             // Process the readd request and log any errors
             if let Err(e) = self.request_readd(group_info).await {
                 tracing::error!(
-                    group_id = hex::encode(&group_id),
+                    group_id = hex::encode(group_id),
                     error = ?e,
                     "Failed to send readd request for group"
                 );
@@ -757,7 +758,7 @@ where
                     }
                     let mls_group = MlsGroup::new(
                         self.context.clone(),
-                        GroupId::from(group.group_id.as_slice()),
+                        group.group_id,
                         group.dm_id.clone(),
                         group.conversation_type,
                         group.created_at_ns,
@@ -770,18 +771,18 @@ where
                 }
                 Err(e) => {
                     tracing::warn!(
-                        group_id = hex::encode(&group.group_id),
+                        group_id = hex::encode(group.group_id),
                         "Failed to validate readd requests for group: {}",
                         e
                     );
                     if !e.is_retryable() {
                         tracing::warn!(
-                            group_id = hex::encode(&group.group_id),
+                            group_id = hex::encode(group.group_id),
                             "Deleting readd statuses for group because it failed validation: {}",
                             e
                         );
                         conn.delete_other_readd_statuses(
-                            &GroupId::from(group.group_id.as_slice()),
+                            &group.group_id,
                             self.context.installation_id().as_slice(),
                         )?;
                     }
@@ -800,7 +801,7 @@ where
     ) -> Result<HashSet<Vec<u8>>, CommitLogError> {
         let (mls_group, _) = MlsGroup::new_cached(self.context.clone(), &group.group_id)?;
         tracing::debug!(
-            group_id = hex::encode(&mls_group.group_id),
+            group_id = hex::encode(mls_group.group_id),
             "Processing readd requests for group"
         );
 
@@ -830,14 +831,14 @@ where
             ));
         } else if fork_state.is_none() {
             tracing::info!(
-                group_id = hex::encode(&mls_group.group_id),
+                group_id = hex::encode(mls_group.group_id),
                 "Local commit log ahead of remote, skipping group"
             );
             return Ok(HashSet::new());
         }
 
         let readd_statuses = conn.get_readds_awaiting_response(
-            &GroupId::from(mls_group.group_id.as_slice()),
+            &mls_group.group_id,
             self.context.installation_id().as_slice(),
         )?;
         let mut unverified = readd_statuses
@@ -858,12 +859,12 @@ where
             })
             .await?;
         tracing::debug!(
-            group_id = hex::encode(&mls_group.group_id),
+            group_id = hex::encode(mls_group.group_id),
             "{} readd requests were for non-members, while {} were for members",
             unverified.len(),
             verified.len()
         );
-        conn.delete_readd_statuses(&GroupId::from(mls_group.group_id.as_slice()), unverified)?;
+        conn.delete_readd_statuses(&mls_group.group_id, unverified)?;
 
         Ok(verified)
     }
@@ -871,7 +872,7 @@ where
     fn check_conversation_fork_state(
         &self,
         conn: &impl DbQuery,
-        conversation_id: &[u8],
+        conversation_id: &GroupId,
     ) -> Result<Option<bool>, CommitLogError> {
         // Get cursors for this conversation
         let fork_check_local_cursor = conn.get_last_cursor_for_originator(
@@ -886,21 +887,20 @@ where
         )?;
 
         // Get local and remote commit logs
-        let conversation_id_typed = GroupId::from(conversation_id);
         let local_logs = conn.get_local_commit_log_after_cursor(
-            &conversation_id_typed,
+            conversation_id,
             fork_check_local_cursor.sequence_id as i64,
             LocalCommitLogOrder::DescendingByRowid,
         )?;
         let remote_logs = conn.get_remote_commit_log_after_cursor(
-            &conversation_id_typed,
+            conversation_id,
             fork_check_remote_cursor.sequence_id as i64,
             RemoteCommitLogOrder::DescendingByRowid,
         )?;
 
         // If there are no new commits to check, preserve the existing fork status
         if local_logs.is_empty() {
-            return Ok(conn.get_group_commit_log_forked_status(&conversation_id_typed)?);
+            return Ok(conn.get_group_commit_log_forked_status(conversation_id)?);
         }
 
         let mut is_remote_log_up_to_date = true;

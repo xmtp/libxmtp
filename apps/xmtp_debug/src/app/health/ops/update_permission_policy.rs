@@ -27,7 +27,7 @@ impl HealthOp for UpdatePermissionPolicy {
             let outcome: color_eyre::eyre::Result<()> = async {
                 let group = ctx
                     .primary
-                    .group(gid.as_slice())
+                    .group(gid)
                     .map_err(color_eyre::eyre::Report::from)?;
                 group
                     .update_permission_policy(

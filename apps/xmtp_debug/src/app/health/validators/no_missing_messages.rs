@@ -68,7 +68,7 @@ impl Validator for NoMissingMessages {
                 // not see post-removal commits. The MLS group's
                 // `is_active()` returns false for those clients.
                 let active = client
-                    .group(group_id.as_slice())
+                    .group(group_id)
                     .ok()
                     .and_then(|g| g.is_active().ok())
                     .unwrap_or(false);

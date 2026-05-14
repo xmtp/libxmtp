@@ -24,7 +24,7 @@ async fn test_stream_all_messages_changing_group_list() {
     let caro = ClientBuilder::new_test_client_vanilla(&caro_wallet).await;
 
     let alix_group = alix.create_group(None, None).unwrap();
-    tracing::info!("Created alix group {}", hex::encode(&alix_group.group_id));
+    tracing::info!("Created alix group {}", hex::encode(alix_group.group_id));
     alix_group.add_members(&[caro.inbox_id()]).await.unwrap();
 
     let stream = caro.stream_all_messages(None, None).await.unwrap();
@@ -299,7 +299,7 @@ async fn test_stream_all_messages_detached_group_changes() {
             new_group.add_members(&[caro]).await.unwrap();
             tracing::info!(
                 "\n\n HALE SENDING {i} to group {}\n\n",
-                hex::encode(&new_group.group_id)
+                hex::encode(new_group.group_id)
             );
             new_group
                 .send_message(b"spam from new group", SendMessageOpts::default())
@@ -318,7 +318,7 @@ async fn test_stream_all_messages_detached_group_changes() {
                         message_id = hex::encode(&msg.id),
                         sender_inbox_id = msg.sender_inbox_id,
                         sender_installation_id = hex::encode(&msg.sender_installation_id),
-                        group_id = hex::encode(&msg.group_id),
+                        group_id = hex::encode(msg.group_id),
                         "GOT MESSAGE {}, text={}",
                         messages.len(),
                         String::from_utf8_lossy(msg.decrypted_message_bytes.as_slice())

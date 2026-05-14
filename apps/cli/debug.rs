@@ -36,10 +36,10 @@ fn format_timestamp(timestamp_ns: u64) -> String {
 
 pub async fn debug_group_messages(client: &crate::Client, group_id: Vec<u8>) -> Result<(), String> {
     let api_client = client.context.api();
-    let envelopes = api_client
-        .query_group_messages(group_id.into())
-        .await
-        .unwrap();
+    let group_id: xmtp_proto::types::GroupId = group_id
+        .try_into()
+        .map_err(|e: xmtp_proto::ConversionError| e.to_string())?;
+    let envelopes = api_client.query_group_messages(group_id).await.unwrap();
     for envelope in envelopes {
         let body = match envelope.message {
             ProtocolMessage::PrivateMessage(message) => message,

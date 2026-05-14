@@ -12,7 +12,6 @@ use xmtp_proto::xmtp::device_sync::{
     },
 };
 
-use xmtp_proto::types::GroupId;
 #[xmtp_common::async_trait]
 impl BackupRecordProvider for GroupSave {
     const BATCH_SIZE: i64 = 100;
@@ -43,7 +42,7 @@ impl BackupRecordProvider for GroupSave {
                 if record.conversation_type.is_virtual() {
                     return None;
                 }
-                let group_id = GroupId::from(record.id.as_slice());
+                let group_id = record.id;
                 let mls_group = MlsGroup::load(&storage, &group_id.to_openmls()).ok()??;
                 let immutable = mls_group.extensions().immutable_metadata()?;
 

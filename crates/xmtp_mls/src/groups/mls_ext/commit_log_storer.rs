@@ -77,7 +77,7 @@ impl CommitLogStorer for MlsGroup {
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
-                group_id: mls_group.group_id().into(),
+                group_id: mls_group.group_id().try_into()?,
                 commit_sequence_id: 0,
                 last_epoch_authenticator: vec![],
                 commit_result: CommitResult::Success,
@@ -115,7 +115,7 @@ impl CommitLogStorer for MlsGroup {
             // It is safe to log this stubbed encryption state, because we will not upload anything
             // to the remote commit log with a sequence ID of 0.
             NewLocalCommitLog {
-                group_id: mls_group.group_id().into(),
+                group_id: mls_group.group_id().try_into()?,
                 commit_sequence_id: 0,
                 last_epoch_authenticator: vec![],
                 commit_result: CommitResult::Success,
@@ -143,7 +143,7 @@ impl CommitLogStorer for MlsGroup {
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
-                group_id: mls_group.group_id().into(),
+                group_id: mls_group.group_id().try_into()?,
                 // TODO(rich): Replace with the cursor sequence ID of the welcome once implemented
                 commit_sequence_id: 0,
                 last_epoch_authenticator: vec![],
@@ -173,7 +173,7 @@ impl CommitLogStorer for MlsGroup {
 
         if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
-                group_id: self.group_id().into(),
+                group_id: self.group_id().try_into()?,
                 commit_sequence_id: sequence_id,
                 last_epoch_authenticator,
                 commit_result: CommitResult::Success,
@@ -200,7 +200,7 @@ impl CommitLogStorer for MlsGroup {
         if !xmtp_configuration::ENABLE_COMMIT_LOG {
             return Ok(());
         }
-        let group_id: GroupId = self.group_id().into();
+        let group_id: GroupId = self.group_id().try_into()?;
         let last_epoch_number = self.epoch();
         let last_epoch_authenticator = self.epoch_authenticator();
         let conn = provider.key_store().db();

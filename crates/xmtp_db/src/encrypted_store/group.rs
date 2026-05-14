@@ -821,7 +821,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         })?;
 
         last_ts.ok_or(StorageError::NotFound(NotFound::InstallationTimeForGroup(
-            group_id.clone(),
+            *group_id,
         )))
     }
 
@@ -846,7 +846,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                 .optional()
         })?;
 
-        last_ts.ok_or(NotFound::InstallationTimeForGroup(group_id.clone()).into())
+        last_ts.ok_or(NotFound::InstallationTimeForGroup(*group_id).into())
     }
 
     /// Updates the 'last time checked' we checked for new installations.
@@ -1357,7 +1357,7 @@ pub(crate) mod tests {
         state: Option<GroupMembershipState>,
         created_at_ns: i64,
     ) -> StoredGroup {
-        let id = rand_vec::<24>();
+        let id = GroupId::from(xmtp_common::rand_array::<16>());
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
         StoredGroup::builder()
             .id(id)
@@ -1373,7 +1373,7 @@ pub(crate) mod tests {
         state: Option<GroupMembershipState>,
         welcome_id: Option<i64>,
     ) -> StoredGroup {
-        let id = rand_vec::<24>();
+        let id = GroupId::from(xmtp_common::rand_array::<16>());
         let created_at_ns = now_ns();
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
         StoredGroup::builder()
@@ -1439,7 +1439,7 @@ pub(crate) mod tests {
             let test_group = generate_group(Some(GroupMembershipState::Pending));
 
             test_group.store(conn).unwrap();
-            conn.update_group_membership(&test_group.id, GroupMembershipState::Rejected)
+            conn.update_group_membership(test_group.id, GroupMembershipState::Rejected)
                 .unwrap();
 
             let updated_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
@@ -1608,19 +1608,19 @@ pub(crate) mod tests {
             let test_group_1_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
-                hex::encode(test_group_1.id.clone()),
+                hex::encode(test_group_1.id),
             );
             test_group_1_consent.store(conn).unwrap();
             let test_group_2_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Denied,
-                hex::encode(test_group_2.id.clone()),
+                hex::encode(test_group_2.id),
             );
             test_group_2_consent.store(conn).unwrap();
             let test_group_3_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
-                hex::encode(test_group_3.id.clone()),
+                hex::encode(test_group_3.id),
             );
             test_group_3_consent.store(conn).unwrap();
 
@@ -1723,14 +1723,14 @@ pub(crate) mod tests {
             let allowed_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
-                hex::encode(allowed_group.id.clone()),
+                hex::encode(allowed_group.id),
             );
             allowed_consent.store(conn).unwrap();
 
             let denied_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Denied,
-                hex::encode(denied_group.id.clone()),
+                hex::encode(denied_group.id),
             );
             denied_consent.store(conn).unwrap();
 
@@ -1758,7 +1758,7 @@ pub(crate) mod tests {
             generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
-                hex::encode(group1.id.clone()),
+                hex::encode(group1.id),
             )
             .store(conn)?;
             group2.should_publish_commit_log = true;
@@ -1769,7 +1769,7 @@ pub(crate) mod tests {
             generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
-                hex::encode(group3.id.clone()),
+                hex::encode(group3.id),
             )
             .store(conn)?;
             group4.should_publish_commit_log = false;
@@ -1810,14 +1810,14 @@ pub(crate) mod tests {
             let allowed_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
-                hex::encode(allowed_group.id.clone()),
+                hex::encode(allowed_group.id),
             );
             allowed_consent.store(conn).unwrap();
 
             let denied_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Denied,
-                hex::encode(denied_group.id.clone()),
+                hex::encode(denied_group.id),
             );
             denied_consent.store(conn).unwrap();
 
@@ -1848,7 +1848,7 @@ pub(crate) mod tests {
             let sync_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
-                hex::encode(sync_group.id.clone()),
+                hex::encode(sync_group.id),
             );
             sync_consent.store(conn).unwrap();
 
@@ -1856,14 +1856,14 @@ pub(crate) mod tests {
             let allowed_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Allowed,
-                hex::encode(allowed_group.id.clone()),
+                hex::encode(allowed_group.id),
             );
             allowed_consent.store(conn).unwrap();
 
             let denied_consent = generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Denied,
-                hex::encode(denied_group.id.clone()),
+                hex::encode(denied_group.id),
             );
             denied_consent.store(conn).unwrap();
 
@@ -1878,12 +1878,12 @@ pub(crate) mod tests {
     fn test_get_conversation_ids_for_responding_readds() {
         with_connection(|conn| {
             // Create test groups
-            let group_id_1: GroupId = vec![1, 2, 3].into();
-            let group_id_2: GroupId = vec![4, 5, 6].into();
-            let group_id_3: GroupId = vec![7, 8, 9].into();
+            let group_id_1: GroupId = [1u8; 16].into();
+            let group_id_2: GroupId = [2u8; 16].into();
+            let group_id_3: GroupId = [3u8; 16].into();
 
             let group1 = StoredGroup::builder()
-                .id(group_id_1.clone())
+                .id(group_id_1)
                 .created_at_ns(1000)
                 .membership_state(GroupMembershipState::Allowed)
                 .added_by_inbox_id("placeholder_address")
@@ -1892,7 +1892,7 @@ pub(crate) mod tests {
             group1.store(conn).unwrap();
 
             let group2 = StoredGroup::builder()
-                .id(group_id_2.clone())
+                .id(group_id_2)
                 .created_at_ns(2000)
                 .membership_state(GroupMembershipState::Allowed)
                 .added_by_inbox_id("placeholder_address")
@@ -1901,7 +1901,7 @@ pub(crate) mod tests {
             group2.store(conn).unwrap();
 
             let group3 = StoredGroup::builder()
-                .id(group_id_3.clone())
+                .id(group_id_3)
                 .created_at_ns(3000)
                 .membership_state(GroupMembershipState::Allowed)
                 .added_by_inbox_id("placeholder_address")
@@ -1913,35 +1913,35 @@ pub(crate) mod tests {
             let test_cases = vec![
                 // Case 1: Pending readd (requested_at > responded_at)
                 ReaddStatus {
-                    group_id: group_id_1.clone(),
+                    group_id: group_id_1,
                     installation_id: vec![1],
                     requested_at_sequence_id: Some(10),
                     responded_at_sequence_id: Some(5),
                 },
                 // Case 2: Pending readd (responded_at is None)
                 ReaddStatus {
-                    group_id: group_id_1.clone(),
+                    group_id: group_id_1,
                     installation_id: vec![2],
                     requested_at_sequence_id: Some(8),
                     responded_at_sequence_id: None,
                 },
                 // Case 4: Not pending (requested_at < responded_at)
                 ReaddStatus {
-                    group_id: group_id_2.clone(),
+                    group_id: group_id_2,
                     installation_id: vec![4],
                     requested_at_sequence_id: Some(12),
                     responded_at_sequence_id: Some(15),
                 },
                 // Case 5: Not pending (requested_at is None)
                 ReaddStatus {
-                    group_id: group_id_2.clone(),
+                    group_id: group_id_2,
                     installation_id: vec![5],
                     requested_at_sequence_id: None,
                     responded_at_sequence_id: Some(20),
                 },
                 // Case 6: Pending readd (requested_at == responded_at, should be pending)
                 ReaddStatus {
-                    group_id: group_id_3.clone(),
+                    group_id: group_id_3,
                     installation_id: vec![6],
                     requested_at_sequence_id: Some(25),
                     responded_at_sequence_id: Some(25),
@@ -1961,8 +1961,7 @@ pub(crate) mod tests {
             assert_eq!(result.len(), 2);
 
             // Results should be sorted by group_id (since we used distinct())
-            let mut result_group_ids: Vec<GroupId> =
-                result.iter().map(|r| r.group_id.clone()).collect();
+            let mut result_group_ids: Vec<GroupId> = result.iter().map(|r| r.group_id).collect();
             result_group_ids.sort();
 
             assert_eq!(result_group_ids[0], group_id_1);

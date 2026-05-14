@@ -113,7 +113,7 @@ impl std::fmt::Debug for StoredGroupIntent {
         write!(
             f,
             "group_id: {}, ",
-            fmt::truncate_hex(hex::encode(&self.group_id))
+            fmt::truncate_hex(hex::encode(self.group_id))
         )?;
         write!(f, "data: {}, ", fmt::truncate_hex(hex::encode(&self.data)))?;
         write!(f, "state: {:?}, ", self.state)?;
@@ -561,13 +561,13 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
                     refresh_state::originator_id,
                     dsl::group_id,
                 ))
-                .load_iter::<(Vec<u8>, i64, i32, Vec<u8>), DefaultLoadingMode>(conn)?
+                .load_iter::<(Vec<u8>, i64, i32, GroupId), DefaultLoadingMode>(conn)?
                 .map_ok(|(hash, sequence_id, originator_id, group_id)| {
                     (
                         PayloadHash::from(hash),
                         IntentDependency {
                             cursor: Cursor::new(sequence_id as u64, originator_id as u32),
-                            group_id: group_id.into(),
+                            group_id,
                         },
                     )
                 })
@@ -581,7 +581,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
                     return Err(GroupIntentError::MoreThanOneDependency {
                         payload_hash: hash.clone(),
                         cursors: d.iter().map(|d| d.cursor).collect(),
-                        group_id: d[0].group_id.clone(),
+                        group_id: d[0].group_id,
                     }
                     .into());
                 }
@@ -693,7 +693,7 @@ pub(crate) mod tests {
     };
     use xmtp_common::rand_vec;
 
-    fn insert_group<C: ConnectionExt>(conn: &DbConnection<C>, group_id: Vec<u8>) {
+    fn insert_group<C: ConnectionExt>(conn: &DbConnection<C>, group_id: GroupId) {
         StoredGroup::builder()
             .id(group_id)
             .created_at_ns(100)
@@ -710,13 +710,13 @@ pub(crate) mod tests {
         // state
         pub fn new_test(
             kind: IntentKind,
-            group_id: Vec<u8>,
+            group_id: GroupId,
             data: Vec<u8>,
             state: IntentState,
         ) -> Self {
             Self {
                 kind,
-                group_id: group_id.into(),
+                group_id,
                 data,
                 state,
                 should_push: false,
@@ -726,7 +726,7 @@ pub(crate) mod tests {
 
     fn find_first_intent<C: ConnectionExt>(
         conn: &DbConnection<C>,
-        group_id: Vec<u8>,
+        group_id: GroupId,
     ) -> StoredGroupIntent {
         conn.raw_query(|raw_conn| {
             dsl::group_intents
@@ -738,21 +738,21 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     fn test_store_and_fetch() {
-        let group_id = rand_vec::<24>();
+        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
         let data = rand_vec::<24>();
         let kind = IntentKind::UpdateGroupMembership;
         let state = IntentState::ToPublish;
 
-        let to_insert = NewGroupIntent::new_test(kind, group_id.clone(), data.clone(), state);
+        let to_insert = NewGroupIntent::new_test(kind, group_id, data.clone(), state);
 
         with_connection(|conn| {
             // Group needs to exist or FK constraint will fail
-            insert_group(conn, group_id.clone());
+            insert_group(conn, group_id);
 
             to_insert.store(conn).unwrap();
 
             let results = conn
-                .find_group_intents(group_id.clone(), Some(vec![IntentState::ToPublish]), None)
+                .find_group_intents(group_id, Some(vec![IntentState::ToPublish]), None)
                 .unwrap();
 
             assert_eq!(results.len(), 1);
@@ -770,24 +770,24 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     fn test_query() {
-        let group_id = rand_vec::<24>();
+        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
 
         let test_intents: Vec<NewGroupIntent> = vec![
             NewGroupIntent::new_test(
                 IntentKind::UpdateGroupMembership,
-                group_id.clone(),
+                group_id,
                 rand_vec::<24>(),
                 IntentState::ToPublish,
             ),
             NewGroupIntent::new_test(
                 IntentKind::KeyUpdate,
-                group_id.clone(),
+                group_id,
                 rand_vec::<24>(),
                 IntentState::Published,
             ),
             NewGroupIntent::new_test(
                 IntentKind::KeyUpdate,
-                group_id.clone(),
+                group_id,
                 rand_vec::<24>(),
                 IntentState::Committed,
             ),
@@ -795,7 +795,7 @@ pub(crate) mod tests {
 
         with_connection(|conn| {
             // Group needs to exist or FK constraint will fail
-            insert_group(conn, group_id.clone());
+            insert_group(conn, group_id);
 
             for case in test_intents {
                 case.store(conn).unwrap();
@@ -804,7 +804,7 @@ pub(crate) mod tests {
             // Can query for multiple states
             let mut results = conn
                 .find_group_intents(
-                    group_id.clone(),
+                    group_id,
                     Some(vec![IntentState::ToPublish, IntentState::Published]),
                     None,
                 )
@@ -814,14 +814,14 @@ pub(crate) mod tests {
 
             // Can query by kind
             results = conn
-                .find_group_intents(group_id.clone(), None, Some(vec![IntentKind::KeyUpdate]))
+                .find_group_intents(group_id, None, Some(vec![IntentKind::KeyUpdate]))
                 .unwrap();
             assert_eq!(results.len(), 2);
 
             // Can query by kind and state
             results = conn
                 .find_group_intents(
-                    group_id.clone(),
+                    group_id,
                     Some(vec![IntentState::Committed]),
                     Some(vec![IntentKind::KeyUpdate]),
                 )
@@ -832,7 +832,7 @@ pub(crate) mod tests {
             // Can get no results
             results = conn
                 .find_group_intents(
-                    group_id.clone(),
+                    group_id,
                     Some(vec![IntentState::Committed]),
                     Some(vec![IntentKind::SendMessage]),
                 )
@@ -848,15 +848,15 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     fn find_by_payload_hash() {
-        let group_id = rand_vec::<24>();
+        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
 
         with_connection(|conn| {
-            insert_group(conn, group_id.clone());
+            insert_group(conn, group_id);
 
             // Store the intent
             NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
-                group_id.clone(),
+                group_id,
                 rand_vec::<24>(),
                 false,
             )
@@ -864,7 +864,7 @@ pub(crate) mod tests {
             .unwrap();
 
             // Find the intent with the ID populated
-            let intent = find_first_intent(conn, group_id.clone());
+            let intent = find_first_intent(conn, group_id);
 
             // Set the payload hash
             let payload_hash = rand_vec::<24>();
@@ -890,22 +890,22 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     fn test_happy_path_state_transitions() {
-        let group_id = rand_vec::<24>();
+        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
 
         with_connection(|conn| {
-            insert_group(conn, group_id.clone());
+            insert_group(conn, group_id);
 
             // Store the intent
             NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
-                group_id.clone(),
+                group_id,
                 rand_vec::<24>(),
                 false,
             )
             .store(conn)
             .unwrap();
 
-            let mut intent = find_first_intent(conn, group_id.clone());
+            let mut intent = find_first_intent(conn, group_id);
 
             // Set to published
             let payload_hash = rand_vec::<24>();
@@ -936,22 +936,22 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     fn test_republish_state_transition() {
-        let group_id = rand_vec::<24>();
+        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
 
         with_connection(|conn| {
-            insert_group(conn, group_id.clone());
+            insert_group(conn, group_id);
 
             // Store the intent
             NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
-                group_id.clone(),
+                group_id,
                 rand_vec::<24>(),
                 false,
             )
             .store(conn)
             .unwrap();
 
-            let mut intent = find_first_intent(conn, group_id.clone());
+            let mut intent = find_first_intent(conn, group_id);
 
             // Set to published
             let payload_hash = rand_vec::<24>();
@@ -980,22 +980,22 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     fn test_invalid_state_transition() {
-        let group_id = rand_vec::<24>();
+        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
 
         with_connection(|conn| {
-            insert_group(conn, group_id.clone());
+            insert_group(conn, group_id);
 
             // Store the intent
             NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
-                group_id.clone(),
+                group_id,
                 rand_vec::<24>(),
                 false,
             )
             .store(conn)
             .unwrap();
 
-            let intent = find_first_intent(conn, group_id.clone());
+            let intent = find_first_intent(conn, group_id);
 
             let commit_result = conn.set_group_intent_committed(intent.id, Cursor::default());
             assert!(commit_result.is_err());
@@ -1015,27 +1015,27 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     fn test_increment_publish_attempts() {
-        let group_id = rand_vec::<24>();
+        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
         with_connection(|conn| {
-            insert_group(conn, group_id.clone());
+            insert_group(conn, group_id);
             NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
-                group_id.clone(),
+                group_id,
                 rand_vec::<24>(),
                 false,
             )
             .store(conn)
             .unwrap();
 
-            let mut intent = find_first_intent(conn, group_id.clone());
+            let mut intent = find_first_intent(conn, group_id);
             assert_eq!(intent.publish_attempts, 0);
             conn.increment_intent_publish_attempt_count(intent.id)
                 .unwrap();
-            intent = find_first_intent(conn, group_id.clone());
+            intent = find_first_intent(conn, group_id);
             assert_eq!(intent.publish_attempts, 1);
             conn.increment_intent_publish_attempt_count(intent.id)
                 .unwrap();
-            intent = find_first_intent(conn, group_id.clone());
+            intent = find_first_intent(conn, group_id);
             assert_eq!(intent.publish_attempts, 2);
         })
     }
@@ -1043,46 +1043,30 @@ pub(crate) mod tests {
     fn test_find_dependant_commits() {
         use crate::encrypted_store::refresh_state::{EntityKind, QueryRefreshState};
 
-        let group_id = rand_vec::<24>();
+        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
         let payload_hash1 = rand_vec::<24>();
         let payload_hash2 = rand_vec::<24>();
 
         with_connection(|conn| {
-            insert_group(conn, group_id.clone());
-            NewGroupIntent::new(
-                IntentKind::SendMessage,
-                group_id.clone(),
-                rand_vec::<24>(),
-                false,
-            )
-            .store(conn)
-            .unwrap();
+            insert_group(conn, group_id);
+            NewGroupIntent::new(IntentKind::SendMessage, group_id, rand_vec::<24>(), false)
+                .store(conn)
+                .unwrap();
 
-            let intent1 = find_first_intent(conn, group_id.clone());
+            let intent1 = find_first_intent(conn, group_id);
             conn.set_group_intent_published(intent1.id, &payload_hash1, None, None, 1)
                 .unwrap();
 
-            NewGroupIntent::new(
-                IntentKind::KeyUpdate,
-                group_id.clone(),
-                rand_vec::<24>(),
-                false,
-            )
-            .store(conn)
-            .unwrap();
-            let intents = conn
-                .find_group_intents(group_id.clone(), None, None)
+            NewGroupIntent::new(IntentKind::KeyUpdate, group_id, rand_vec::<24>(), false)
+                .store(conn)
                 .unwrap();
+            let intents = conn.find_group_intents(group_id, None, None).unwrap();
             let intent2 = intents.iter().find(|i| i.id != intent1.id).unwrap();
             conn.set_group_intent_published(intent2.id, &payload_hash2, None, None, 1)
                 .unwrap();
 
-            conn.update_cursor(
-                group_id.clone(),
-                EntityKind::CommitMessage,
-                Cursor::new(100, 42u32),
-            )
-            .unwrap();
+            conn.update_cursor(group_id, EntityKind::CommitMessage, Cursor::new(100, 42u32))
+                .unwrap();
 
             let result = conn
                 .find_dependant_commits(&[&payload_hash1, &payload_hash2])
@@ -1110,18 +1094,18 @@ pub(crate) mod tests {
         // Exercises both the i32 → IntentKind::BootstrapMigration arm
         // and the Display impl. Cheap coverage for the new variant
         // that would otherwise sit dead until end-to-end migration tests.
-        let group_id = rand_vec::<24>();
+        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
         let data = rand_vec::<24>();
         let kind = IntentKind::BootstrapMigration;
         let to_insert =
-            NewGroupIntent::new_test(kind, group_id.clone(), data.clone(), IntentState::ToPublish);
+            NewGroupIntent::new_test(kind, group_id, data.clone(), IntentState::ToPublish);
 
         with_connection(|conn| {
-            insert_group(conn, group_id.clone());
+            insert_group(conn, group_id);
             to_insert.store(conn).unwrap();
 
             let results = conn
-                .find_group_intents(group_id.clone(), Some(vec![IntentState::ToPublish]), None)
+                .find_group_intents(group_id, Some(vec![IntentState::ToPublish]), None)
                 .unwrap();
 
             assert_eq!(results.len(), 1);

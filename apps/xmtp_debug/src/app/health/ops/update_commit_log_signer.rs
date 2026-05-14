@@ -27,7 +27,7 @@ impl HealthOp for UpdateCommitLogSigner {
             let outcome: color_eyre::eyre::Result<()> = async {
                 let group = ctx
                     .primary
-                    .group(gid.as_slice())
+                    .group(gid)
                     .map_err(color_eyre::eyre::Report::from)?;
                 let signer: Secret = vec![0u8; 32].into();
                 group

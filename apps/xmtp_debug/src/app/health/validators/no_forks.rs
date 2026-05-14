@@ -39,7 +39,7 @@ impl Validator for NoForkedGroups {
                 // Transient may have its group row purged on LeaveGroup
                 // depending on libxmtp version — skip with a debug log so
                 // unexpected non-leave errors don't slip past silently.
-                if is_transient && let Err(e) = client.group(gid.as_slice()) {
+                if is_transient && let Err(e) = client.group(gid) {
                     tracing::debug!(
                         target: "healthcheck",
                         inbox = client.inbox_id(),

@@ -170,11 +170,13 @@ impl GenerateMessages {
             .get(&group.created_by)
             .ok_or(eyre!("group has no owner"))?;
         let owner = owner.lock().await;
-        let owner_group = owner.group(group.id.as_ref()).wrap_err(format!(
-            "owner {} of group {} failed to look up in sqlite db",
-            hex::encode(group.created_by),
-            hex::encode(group.id)
-        ))?;
+        let owner_group = owner
+            .group(&xmtp_proto::types::GroupId::from(group.id))
+            .wrap_err(format!(
+                "owner {} of group {} failed to look up in sqlite db",
+                hex::encode(group.created_by),
+                hex::encode(group.id)
+            ))?;
         owner_group
             .add_members(&[hex::encode(not_in_group)])
             .await
@@ -211,7 +213,7 @@ impl GenerateMessages {
                 .ok_or(eyre!("client does not exist"))?;
             let client = client.lock().await;
             client.sync_welcomes().await?;
-            let mls_group = client.group(&group.id)?;
+            let mls_group = client.group(&xmtp_proto::types::GroupId::from(group.id))?;
             mls_group.sync_with_conn().await?;
             mls_group.maybe_update_installations(None).await?;
             let words = rng.random_range(0..10);
@@ -309,7 +311,7 @@ impl GenerateMessages {
                 .ok_or(eyre!("client does not exist"))?;
             let client = client.lock().await;
             client.sync_welcomes().await?;
-            let group = client.group(&group.id)?;
+            let group = client.group(&xmtp_proto::types::GroupId::from(group.id))?;
             group.sync_with_conn().await?;
             group.maybe_update_installations(None).await?;
             let words = rng.random_range(0..*max_message_size);

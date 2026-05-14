@@ -224,7 +224,7 @@ async fn test_is_connected_after_connect() {
     .unwrap();
     let result = api
         .wrapper
-        .query_group_messages(xmtp_common::rand_vec::<16>().into())
+        .query_group_messages(xmtp_common::rand_array::<16>().into())
         .await;
     assert!(result.is_err(), "Expected connection to fail");
 }

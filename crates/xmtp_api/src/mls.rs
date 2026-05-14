@@ -69,7 +69,7 @@ impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    #[tracing::instrument(level = "trace", skip_all, fields(group_id = hex::encode(&group_id)))]
+    #[tracing::instrument(level = "trace", skip_all, fields(group_id = hex::encode(group_id)))]
     pub async fn query_group_messages(&self, group_id: GroupId) -> Result<Vec<GroupMessage>> {
         self.api_client
             .query_group_messages(group_id)
@@ -79,9 +79,9 @@ where
 
     /// Query for the latest message on a group
     #[tracing::instrument(level = "trace", skip_all, fields(group_id = hex::encode(group_id)))]
-    pub async fn query_latest_group_message<Id: AsRef<[u8]> + Copy>(
+    pub async fn query_latest_group_message(
         &self,
-        group_id: Id,
+        group_id: GroupId,
     ) -> Result<Option<GroupMessage>> {
         tracing::debug!(
             group_id = hex::encode(group_id),
@@ -89,7 +89,7 @@ where
             "query latest group message"
         );
         self.api_client
-            .query_latest_group_message(group_id.as_ref().into())
+            .query_latest_group_message(group_id)
             .await
             .map_err(crate::dyn_err)
     }
@@ -341,7 +341,7 @@ where
         let metadata_map = res
             .into_iter()
             .flatten()
-            .filter_map(|response| response.map(|msg| (msg.group_id.clone(), msg)))
+            .filter_map(|response| response.map(|msg| (msg.group_id, msg)))
             .collect();
 
         Ok(metadata_map)
@@ -379,6 +379,7 @@ pub mod tests {
         welcome_message_input::{V1 as WelcomeV1, Version as WelcomeVersion},
     };
     use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
+    use xmtp_proto::types::GroupId;
     use xmtp_proto::xmtp::mls::api::v1::group_message::{
         V1 as GroupMessageV1, Version as GroupMessageVersion,
     };
@@ -498,7 +499,7 @@ pub mod tests {
         let wrapper = ApiClientWrapper::new(v3_client, exponential().build());
 
         let result = wrapper
-            .query_group_messages(group_id_clone.into())
+            .query_group_messages(group_id_clone.try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(result.len(), 10);
@@ -535,7 +536,7 @@ pub mod tests {
         let wrapper = ApiClientWrapper::new(v3_client, exponential().build());
 
         let result = wrapper
-            .query_group_messages(group_id_clone.into())
+            .query_group_messages(group_id_clone.try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(result.len(), 100);
@@ -545,7 +546,7 @@ pub mod tests {
     async fn test_read_topic_multi_page() {
         let mock_api = MockNetworkClient::new();
         let mut v3_client = V3Client::new(mock_api, NoCursorStore);
-        let group_id = vec![1, 2, 3, 4];
+        let group_id = vec![1u8; 16];
         let group_id_clone = group_id.clone();
         let group_id_clone2 = group_id.clone();
         // Set expectation for first request with no cursor
@@ -604,7 +605,7 @@ pub mod tests {
         let wrapper = ApiClientWrapper::new(v3_client, exponential().build());
 
         let result = wrapper
-            .query_group_messages(group_id_clone2.into())
+            .query_group_messages(group_id_clone2.try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(result.len(), 200);
@@ -661,9 +662,9 @@ pub mod tests {
             .unwrap();
         let d14n = D14nClient::new(rw, NoCursorStore).unwrap();
         let wrapper = ApiClientWrapper::new(d14n, Retry::default());
-        let _first = wrapper.query_group_messages(vec![0, 0].into()).await;
+        let _first = wrapper.query_group_messages(GroupId::from([0u8; 16])).await;
         let now = std::time::Instant::now();
-        let _second = wrapper.query_group_messages(vec![0, 0].into()).await;
+        let _second = wrapper.query_group_messages(GroupId::from([0u8; 16])).await;
         assert!(now.elapsed() > std::time::Duration::from_secs(60));
     }
 

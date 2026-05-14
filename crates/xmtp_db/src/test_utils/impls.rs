@@ -75,7 +75,7 @@ impl Distribution<NotFound> for StandardUniform {
             ),
             11 => NotFound::CipherSalt("random salt for testing".into()),
             12 => NotFound::SyncGroup(xmtp_common::rand_array::<32>().into()),
-            13 => NotFound::MlsGroup(GroupId::from(xmtp_common::rand_array::<16>().to_vec())),
+            13 => NotFound::MlsGroup(GroupId::from(xmtp_common::rand_array::<16>())),
             _ => unreachable!(),
         }
     }

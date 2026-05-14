@@ -136,7 +136,7 @@ pub mod update_group_membership;
 pub enum GroupMessageProcessingError {
     #[error("intent already processed")]
     IntentAlreadyProcessed,
-    #[error("message with cursor [{}] for group [{}] already processed", _0.cursor, xmtp_common::fmt::debug_hex(&_0.group_id)
+    #[error("message with cursor [{}] for group [{}] already processed", _0.cursor, xmtp_common::fmt::debug_hex(_0.group_id)
     )]
     MessageAlreadyProcessed(MessageIdentifier),
     #[error("message identifier not found")]
@@ -217,6 +217,8 @@ pub enum GroupMessageProcessingError {
     EnrichMessage(#[from] EnrichMessageError),
     #[error("pre-commit proposal phase complete, re-queuing intent")]
     PreCommitProposalPhaseComplete,
+    #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
 }
 
 impl RetryableError for GroupMessageProcessingError {
@@ -261,6 +263,7 @@ impl RetryableError for GroupMessageProcessingError {
             | Self::OldEpoch(_, _)
             | Self::PreCommitProposalPhaseComplete => false,
             Self::Builder(_) => false,
+            Self::Conversion(_) => false,
         }
     }
 }
@@ -380,7 +383,7 @@ where
 
     fn handle_group_paused(&self) -> Result<(), GroupError> {
         // Check if group is paused and try to unpause if version requirements are met
-        let group_id_typed = self.group_id.clone();
+        let group_id_typed = self.group_id;
         if let Some(required_min_version_str) = self
             .context
             .db()
@@ -398,7 +401,7 @@ where
                 tracing::info!(
                     "Unpausing group since version requirements are met. \
                      Group ID: {}",
-                    hex::encode(&self.group_id),
+                    hex::encode(self.group_id),
                 );
                 self.context.db().unpause_group(&group_id_typed)?;
             } else {
@@ -407,7 +410,7 @@ where
                     Group ID: {}, \
                     Required version: {}, \
                     Current version: {}",
-                    hex::encode(&self.group_id),
+                    hex::encode(self.group_id),
                     required_min_version_str,
                     current_version_str
                 );
@@ -485,7 +488,7 @@ where
     )]
     pub(crate) async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
         let intents = self.context.db().find_group_intents(
-            self.group_id.clone(),
+            self.group_id,
             Some(vec![IntentState::ToPublish, IntentState::Published]),
             None,
         )?;
@@ -725,7 +728,7 @@ where
                         tracing::warn!(
                             inbox_id = self.context.inbox_id(),
                             installation_id = %self.context.installation_id(),
-                            group_id = hex::encode(&self.group_id),
+                            group_id = hex::encode(self.group_id),
                             cursor = %cursor,
                             intent.id,
                             intent.kind = %intent.kind,
@@ -766,7 +769,7 @@ where
                             tracing::error!(
                                 inbox_id = self.context.inbox_id(),
                                 installation_id = %self.context.installation_id(),
-                                group_id = hex::encode(&self.group_id),
+                                group_id = hex::encode(self.group_id),
                                 cursor = %cursor,
                                 intent_id = intent.id,
                                 intent.kind = %intent.kind,
@@ -802,7 +805,7 @@ where
                             tracing::error!(
                                 inbox_id = self.context.inbox_id(),
                                 installation_id = %self.context.installation_id(),
-                                group_id = hex::encode(&self.group_id),
+                                group_id = hex::encode(self.group_id),
                                 cursor = %cursor,
                                 intent.id,
                                 intent.kind = %intent.kind,
@@ -893,13 +896,13 @@ where
         tracing::debug!(
             inbox_id = self.context.inbox_id(),
             installation_id = %self.context.installation_id(),
-            group_id = hex::encode(&self.group_id),
+            group_id = hex::encode(self.group_id),
             cursor = %cursor,
             intent.id,
             intent.kind = %intent.kind,
             "[{}]-[{}] processing own message for intent {} / {}, message_epoch: {}",
             self.context.inbox_id(),
-            hex::encode(self.group_id.clone()),
+            hex::encode(self.group_id),
             intent.id,
             intent.kind,
             message_epoch.clone()
@@ -1077,7 +1080,7 @@ where
             inbox_id = self.context.inbox_id(),
             installation_id = %self.context.installation_id(),sender_inbox_id = sender_inbox_id,
             sender_installation_id = hex::encode(&sender_installation_id),
-            group_id = hex::encode(&self.group_id),
+            group_id = hex::encode(self.group_id),
             current_epoch = mls_group.epoch().as_u64(),
             msg_epoch = processed_message.epoch().as_u64(),
             msg_group_id = hex::encode(processed_message.group_id().as_slice()),
@@ -1136,7 +1139,7 @@ where
                 {
                     tracing::warn!(
                         inbox_id = self.context.inbox_id(),
-                        group_id = hex::encode(&self.group_id),
+                        group_id = hex::encode(self.group_id),
                         ?proposal_type,
                         "Received proposal but proposals are not enabled on this group"
                     );
@@ -1240,7 +1243,7 @@ where
                     tracing::warn!(
                         inbox_id = self.context.inbox_id(),
                         installation_id = %self.context.installation_id(),
-                        group_id = hex::encode(&self.group_id),
+                        group_id = hex::encode(self.group_id),
                         proposal_type = ?queued_proposal.proposal().proposal_type(),
                         error = %e,
                         "Received invalid proposal, rejecting"
@@ -1263,7 +1266,7 @@ where
             tracing::debug!(
                 inbox_id = self.context.inbox_id(),
                 installation_id = %self.context.installation_id(),
-                group_id = hex::encode(&self.group_id),
+                group_id = hex::encode(self.group_id),
                 current_epoch = mls_group.epoch().as_u64(),
                 msg_epoch = processed_message.epoch().as_u64(),
                 cursor = ?cursor,
@@ -1281,7 +1284,7 @@ where
                     *cursor
                 );
                 let current_cursor = db
-                    .get_last_cursor_for_originator(&envelope.group_id, envelope.entity_kind(), envelope.originator_id())?;
+                    .get_last_cursor_for_originator(envelope.group_id, envelope.entity_kind(), envelope.originator_id())?;
                 current_cursor.sequence_id < envelope.cursor.sequence_id
             };
             if !requires_processing {
@@ -1290,7 +1293,7 @@ where
                 // has already been processed, has the potential to result in forks.
                 tracing::debug!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
                     envelope.cursor,
-                    xmtp_common::fmt::debug_hex(&envelope.group_id),
+                    xmtp_common::fmt::debug_hex(envelope.group_id),
                     envelope.created_ns
                  );
                 identifier.previously_processed(true);
@@ -1364,13 +1367,13 @@ where
                         content,
                     })) => {
                         let message_id =
-                            calculate_message_id(&self.group_id, &content, &idempotency_key);
+                            calculate_message_id(self.group_id, &content, &idempotency_key);
                         let queryable_content_fields =
                             Self::extract_queryable_content_fields(&content);
 
                         let message = StoredGroupMessage {
                             id: message_id.clone(),
-                            group_id: self.group_id.clone(),
+                            group_id: self.group_id,
                             decrypted_message_bytes: content,
                             sent_at_ns: envelope_timestamp_ns,
                             kind: GroupMessageKind::Application,
@@ -1431,7 +1434,7 @@ where
                 tracing::debug!(
                     inbox_id = self.context.inbox_id(),
                     installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(&self.group_id),
+                    group_id = hex::encode(self.group_id),
                     proposal_type = ?proposal_ptr.proposal().proposal_type(),
                     "Received and storing proposal in proposal store"
                 );
@@ -1592,12 +1595,12 @@ where
         if message.sender_inbox_id == current_inbox_id {
             storage
                 .db()
-                .update_group_membership(&self.group_id, GroupMembershipState::PendingRemove)?;
+                .update_group_membership(self.group_id, GroupMembershipState::PendingRemove)?;
         }
 
         // put the user in the pending-remove list
         PendingRemove {
-            group_id: message.group_id.clone(),
+            group_id: message.group_id,
             inbox_id: message.sender_inbox_id.clone(),
             message_id: message.id.clone(),
         }
@@ -1655,7 +1658,7 @@ where
                 tracing::warn!(
                     "Cross-group deletion attempt: message {} from group {}",
                     delete_msg.message_id,
-                    hex::encode(&original_msg.group_id)
+                    hex::encode(original_msg.group_id)
                 );
                 return Ok(());
             }
@@ -1698,7 +1701,7 @@ where
 
         let deletion = StoredMessageDeletion {
             id: message.id.clone(),
-            group_id: self.group_id.clone(),
+            group_id: self.group_id,
             deleted_message_id: target_message_id.clone(),
             deleted_by_inbox_id: message.sender_inbox_id.clone(),
             is_super_admin_deletion,
@@ -1755,7 +1758,7 @@ where
         }
         let pending_remove_users = storage
             .db()
-            .get_pending_remove_users(&GroupId::from(mls_group.group_id().as_slice()))?;
+            .get_pending_remove_users(&GroupId::try_from(mls_group.group_id())?)?;
         if pending_remove_users.is_empty() {
             return Ok(());
         }
@@ -1788,14 +1791,14 @@ where
         {
             Ok(_) => {
                 tracing::info!(
-                    group_id = hex::encode(&self.group_id),
+                    group_id = hex::encode(self.group_id),
                     removed_inboxes = ?removed_inbox_ids,
                     "Successfully removed left/removed members from pending_remove list"
                 );
             }
             Err(e) => {
                 tracing::info!(
-                    group_id = hex::encode(&self.group_id),
+                    group_id = hex::encode(self.group_id),
                     removed_inboxes = ?removed_inbox_ids,
                     error = %e,
                     "Failed to clean pending_remove list for removed members"
@@ -1831,10 +1834,11 @@ where
 
         if was_promoted {
             // Promoted to super_admin: check if there are pending remove users
-            match storage
-                .db()
-                .get_pending_remove_users(&GroupId::from(mls_group.group_id().as_slice()))
-            {
+            let Ok(group_id) = GroupId::try_from(mls_group.group_id()) else {
+                tracing::warn!("Invalid group_id length while handling super-admin promotion");
+                return;
+            };
+            match storage.db().get_pending_remove_users(&group_id) {
                 Ok(pending_remove_users) => {
                     if !pending_remove_users.is_empty()
                         && !pending_remove_users.contains(&current_inbox_id)
@@ -1844,7 +1848,7 @@ where
                 }
                 Err(e) => {
                     tracing::info!(
-                        group_id = hex::encode(&self.group_id),
+                        group_id = hex::encode(self.group_id),
                         inbox_id = %current_inbox_id,
                         error = %e,
                         "Failed to get pending remove users after promotion"
@@ -1865,7 +1869,7 @@ where
         // This is where we would mark the group as having/not having pending remove requests
         if has_pending_removes {
             tracing::info!(
-                group_id = hex::encode(&self.group_id),
+                group_id = hex::encode(self.group_id),
                 inbox_id = %self.context.inbox_id(),
                 "Group has pending remove requests requiring admin action"
             );
@@ -1877,13 +1881,13 @@ where
                 tracing::error!(
                     error = %e,
                     operation = "set_group_pending_status",
-                    group_id = hex::encode(&self.group_id),
+                    group_id = hex::encode(self.group_id),
                     "Failed to mark group as having pending leave requests"
                 );
             }
         } else {
             tracing::debug!(
-                group_id = hex::encode(&self.group_id),
+                group_id = hex::encode(self.group_id),
                 inbox_id = %self.context.inbox_id(),
                 "Group has no pending remove requests"
             );
@@ -1894,7 +1898,7 @@ where
             {
                 tracing::error!(
                     operation = "set_group_pending_status",
-                    group_id = hex::encode(&self.group_id),
+                    group_id = hex::encode(self.group_id),
                     "Failed to mark group as not having pending leave requests {}",
                     e,
                 );
@@ -1957,7 +1961,7 @@ where
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         if trust_message_order {
             let last_cursor = self.context.db().get_last_cursor_for_originator(
-                &envelope.group_id,
+                envelope.group_id,
                 envelope.entity_kind(),
                 envelope.originator_id(),
             )?;
@@ -1966,7 +1970,7 @@ where
                 tracing::info!(
                     inbox_id = self.context.inbox_id(),
                     installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(&envelope.group_id),
+                    group_id = hex::encode(envelope.group_id),
                     "Message already processed: skipped cursor:[{}] last cursor in db: [{}]",
                     envelope.cursor,
                     last_cursor
@@ -2021,7 +2025,7 @@ where
             .map_err(GroupMessageProcessingError::Storage)?;
 
         let group_cursor = db.get_last_cursor_for_originator(
-            &self.group_id,
+            self.group_id,
             envelope.entity_kind(),
             envelope.originator_id(),
         )?;
@@ -2037,7 +2041,7 @@ where
         tracing::info!(
             inbox_id = self.context.inbox_id(),
             installation_id = %self.context.installation_id(),
-            group_id = hex::encode(&self.group_id),
+            group_id = hex::encode(self.group_id),
             cursor = %envelope.cursor,
             "Processing envelope with hash {}, cursor = {}, is_own_intent={}",
             hex::encode(&envelope.payload_hash),
@@ -2053,7 +2057,7 @@ where
                 tracing::info!(
                     inbox_id = self.context.inbox_id(),
                     installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(&self.group_id),
+                    group_id = hex::encode(self.group_id),
                     cursor = %envelope.cursor,
                     intent_id,
                     intent.kind = %intent.kind,
@@ -2081,13 +2085,13 @@ where
                             cursor
                         );
                         let current_cursor = db
-                            .get_last_cursor_for_originator(&envelope.group_id, envelope.entity_kind(), envelope.originator_id())?;
+                            .get_last_cursor_for_originator(envelope.group_id, envelope.entity_kind(), envelope.originator_id())?;
                         current_cursor.sequence_id < envelope.sequence_id()
                     };
                     if !requires_processing {
                         tracing::debug!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
                             envelope.cursor,
-                            xmtp_common::fmt::debug_hex(&envelope.group_id),
+                            xmtp_common::fmt::debug_hex(envelope.group_id),
                             envelope.created_ns
                         );
 
@@ -2153,7 +2157,7 @@ where
                 tracing::info!(
                     inbox_id = self.context.inbox_id(),
                     installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(&self.group_id),
+                    group_id = hex::encode(self.group_id),
                     cursor = %envelope.cursor,
                     "client [{}] is about to process external envelope [{}]",
                     self.context.inbox_id(),
@@ -2257,7 +2261,7 @@ where
                     .set_group_paused(&self.group_id, &min_version)?;
                 tracing::warn!(
                     "Group [{}] paused due to minimum protocol version requirement",
-                    hex::encode(&self.group_id)
+                    hex::encode(self.group_id)
                 );
                 Err(GroupMessageProcessingError::GroupPaused)
             }
@@ -2342,7 +2346,7 @@ where
                 Err(GroupMessageProcessingError::GroupPaused) => {
                     tracing::info!(
                         "Group [{}] is paused, skip syncing remaining messages",
-                        hex::encode(&self.group_id),
+                        hex::encode(self.group_id),
                     );
                     return summary;
                 }
@@ -2373,7 +2377,7 @@ where
     #[tracing::instrument(skip_all, level = "trace")]
     pub async fn receive(&self) -> Result<ProcessSummary, GroupError> {
         let messages = MlsStore::new(self.context.clone())
-            .query_group_messages(&self.group_id)
+            .query_group_messages(self.group_id)
             .await?;
 
         let summary = self.process_messages(messages).await;
@@ -2386,7 +2390,7 @@ where
         db: &impl DbQuery,
         message: &xmtp_proto::types::GroupMessage,
     ) -> Result<bool, StorageError> {
-        let updated = db.update_cursor(&message.group_id, message.entity_kind(), message.cursor)?;
+        let updated = db.update_cursor(message.group_id, message.entity_kind(), message.cursor)?;
         if updated {
             log_event!(
                 Event::GroupCursorUpdate,
@@ -2422,7 +2426,7 @@ where
         encoded_payload.encode(&mut encoded_payload_bytes)?;
 
         let message_id = calculate_message_id(
-            &self.group_id,
+            self.group_id,
             encoded_payload_bytes.as_slice(),
             &timestamp_ns.to_string(),
         );
@@ -2446,7 +2450,7 @@ where
 
         let msg = StoredGroupMessage {
             id: message_id,
-            group_id: self.group_id.clone(),
+            group_id: self.group_id,
             decrypted_message_bytes: encoded_payload_bytes,
             sent_at_ns: timestamp_ns as i64,
             kind: GroupMessageKind::MembershipChange,
@@ -2546,7 +2550,7 @@ where
             tracing::error!(
                 inbox_id = self.context.inbox_id(),
                 installation_id = %self.context.installation_id(),
-                group_id = hex::encode(&self.group_id),
+                group_id = hex::encode(self.group_id),
                 original_error = error.to_string(),
                 fork_details
             );
@@ -2565,7 +2569,7 @@ where
         let db = self.context.db();
         self.load_mls_group_with_lock_async(async |mut mls_group| {
             let intents = db.find_group_intents(
-                self.group_id.clone(),
+                self.group_id,
                 Some(vec![IntentState::ToPublish]),
                 None,
             )?;
@@ -2587,7 +2591,7 @@ where
                                 intent.id,
                                 intent.kind = %intent.kind,
                                 inbox_id = self.context.inbox_id(),
-                                installation_id = %self.context.installation_id(),group_id = hex::encode(&self.group_id),
+                                installation_id = %self.context.installation_id(),group_id = hex::encode(self.group_id),
                                 "intent {} has reached max publish attempts", intent.id);
                             // TODO: Eventually clean up errored attempts
                             let id = utils::id::calculate_message_id_for_intent(&intent)?;
@@ -2629,7 +2633,7 @@ where
                             installation_id = %self.context.installation_id(),
                             intent.id,
                             intent.kind = %intent.kind,
-                            group_id = hex::encode(&self.group_id),
+                            group_id = hex::encode(self.group_id),
                             "[{}] set stored intent [{}] with hash [{}] to state `published`",
                             self.context.inbox_id(),
                             intent.id,
@@ -3174,7 +3178,7 @@ where
                 if proposal_payloads.is_empty() {
                     tracing::debug!(
                         inbox_id = self.context.inbox_id(),
-                        group_id = hex::encode(&self.group_id),
+                        group_id = hex::encode(self.group_id),
                         add_inbox_ids = ?intent_data.add_inbox_ids,
                         remove_inbox_ids = ?intent_data.remove_inbox_ids,
                         "ProposeMemberUpdate produced no proposals (members may already be in desired state)"
@@ -3659,11 +3663,8 @@ where
     #[tracing::instrument(skip_all)]
     pub(crate) async fn post_commit(&self) -> Result<(), GroupError> {
         let db = self.context.db();
-        let intents = db.find_group_intents(
-            self.group_id.clone(),
-            Some(vec![IntentState::Committed]),
-            None,
-        )?;
+        let intents =
+            db.find_group_intents(self.group_id, Some(vec![IntentState::Committed]), None)?;
 
         for intent in intents {
             if let Some(post_commit_data) = intent.post_commit_data {
@@ -3693,9 +3694,7 @@ where
     ) -> Result<(), GroupError> {
         let db = self.context.db();
         let Some(stored_group) = db.find_group(&self.group_id)? else {
-            return Err(GroupError::NotFound(NotFound::GroupById(
-                self.group_id.clone(),
-            )));
+            return Err(GroupError::NotFound(NotFound::GroupById(self.group_id)));
         };
         if stored_group.conversation_type.is_virtual() {
             return Ok(());
@@ -4128,7 +4127,7 @@ fn extract_message_sender(
 
 async fn calculate_membership_changes_with_keypackages<'a>(
     context: &impl XmtpSharedContext,
-    group_id: &[u8],
+    group_id: &GroupId,
     new_group_membership: &'a GroupMembership,
     old_group_membership: &'a GroupMembership,
 ) -> Result<MembershipDiffWithKeyPackages, GroupError> {
@@ -4497,7 +4496,7 @@ pub(crate) mod tests {
         let intent = StoredGroupIntent {
             id: 42,
             kind: IntentKind::SendMessage,
-            group_id: GroupId::from(xmtp_common::rand_vec::<16>()),
+            group_id: GroupId::from(xmtp_common::rand_array::<16>()),
             data: Vec::new(),
             state: IntentState::Published,
             payload_hash: Some(xmtp_common::rand_vec::<32>()),
@@ -4538,7 +4537,7 @@ pub(crate) mod tests {
         // Create a message with completely invalid EncodedContent proto
         let malformed_message = xmtp_db::group_message::StoredGroupMessage {
             id: vec![1, 2, 3],
-            group_id: alix_group.group_id.clone(),
+            group_id: alix_group.group_id,
             decrypted_message_bytes: vec![0xFF, 0xFE, 0xFD], // Invalid protobuf
             sent_at_ns: xmtp_common::time::now_ns(),
             kind: GroupMessageKind::Application,
@@ -4605,7 +4604,7 @@ pub(crate) mod tests {
 
         let malformed_message = xmtp_db::group_message::StoredGroupMessage {
             id: vec![4, 5, 6],
-            group_id: alix_group.group_id.clone(),
+            group_id: alix_group.group_id,
             decrypted_message_bytes: encoded_bytes,
             sent_at_ns: xmtp_common::time::now_ns(),
             kind: GroupMessageKind::Application,
@@ -4679,7 +4678,7 @@ pub(crate) mod tests {
 
         let message_with_bad_hex = xmtp_db::group_message::StoredGroupMessage {
             id: vec![7, 8, 9],
-            group_id: alix_group.group_id.clone(),
+            group_id: alix_group.group_id,
             decrypted_message_bytes: encoded_bytes,
             sent_at_ns: xmtp_common::time::now_ns(),
             kind: GroupMessageKind::Application,

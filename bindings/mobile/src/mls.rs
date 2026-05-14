@@ -248,8 +248,11 @@ pub async fn get_newest_message_metadata(
     api: Arc<XmtpApiClient>,
     group_ids: Vec<Vec<u8>>,
 ) -> Result<HashMap<Vec<u8>, FfiMessageMetadata>, FfiError> {
-    let group_ids: Vec<xmtp_proto::types::GroupId> =
-        group_ids.into_iter().map(Into::into).collect();
+    let group_ids: Vec<xmtp_proto::types::GroupId> = group_ids
+        .into_iter()
+        .map(xmtp_proto::types::GroupId::try_from)
+        .collect::<Result<_, _>>()
+        .map_err(|e| FfiError::generic(e.to_string()))?;
 
     let metadata = api.wrapper.get_newest_message_metadata(&group_ids).await?;
 
@@ -618,6 +621,8 @@ impl FfiXmtpClient {
 
     #[tracing::instrument(skip_all)]
     pub fn conversation(&self, conversation_id: Vec<u8>) -> Result<FfiConversation, FfiError> {
+        let conversation_id = xmtp_proto::types::GroupId::try_from(conversation_id)
+            .map_err(|e| FfiError::generic(e.to_string()))?;
         self.inner_client
             .stitched_group(&conversation_id)
             .map(Into::into)
@@ -2859,7 +2864,7 @@ impl FfiConversation {
         let close_cb = message_callback.clone();
         let handle = MlsGroup::stream_with_callback(
             self.inner.context.clone(),
-            self.inner.group_id.clone(),
+            self.inner.group_id,
             move |message| match message {
                 Ok(m) => message_callback.on_message(m.into()),
                 Err(e) => message_callback.on_error(e.into()),

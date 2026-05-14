@@ -45,7 +45,7 @@ impl Modify {
             hex::encode(local_group.created_by)
         ))?;
         let admin = app::client_from_identity(&identity, &network)?;
-        let group = admin.group(local_group.id.as_ref())?;
+        let group = admin.group(&xmtp_proto::types::GroupId::from(local_group.id))?;
         match action {
             Remove => {
                 if inbox_id.is_none() {

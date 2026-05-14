@@ -59,13 +59,13 @@ type DeletionMap = HashMap<Vec<u8>, StoredMessageDeletion>;
 pub(crate) fn is_deletion_valid(
     deletion: &StoredMessageDeletion,
     message: &StoredGroupMessage,
-    group_id: &[u8],
+    group_id: &GroupId,
 ) -> bool {
     if deletion.deleted_message_id != message.id {
         return false;
     }
 
-    if deletion.group_id.as_slice() != group_id || message.group_id.as_slice() != group_id {
+    if deletion.group_id != *group_id || message.group_id != *group_id {
         return false;
     }
 
@@ -79,7 +79,7 @@ pub(crate) fn is_deletion_valid(
 
 pub fn enrich_messages(
     conn: impl DbQuery,
-    group_id: &[u8],
+    group_id: &GroupId,
     messages: Vec<StoredGroupMessage>,
 ) -> Result<Vec<DecodedMessage>, EnrichMessageError> {
     let initial_message_ids: Vec<&[u8]> = messages.iter().map(|m| m.id.as_ref()).collect();
@@ -171,7 +171,7 @@ pub fn enrich_messages(
 
 fn get_relations(
     conn: impl DbQuery,
-    group_id: &[u8],
+    group_id: &GroupId,
     message_ids: &[&[u8]],
     reference_ids: &[&[u8]],
 ) -> Result<GetRelationsResults, EnrichMessageError> {
@@ -194,12 +194,10 @@ fn get_relations(
         .build()
         .unwrap_or_default();
 
-    let group_id_typed = GroupId::from(group_id);
-    let reactions =
-        conn.get_inbound_relations(&group_id_typed, message_ids, reactions_relations_query)?;
-    let referenced_messages = conn.get_outbound_relations(&group_id_typed, reference_ids)?;
+    let reactions = conn.get_inbound_relations(group_id, message_ids, reactions_relations_query)?;
+    let referenced_messages = conn.get_outbound_relations(group_id, reference_ids)?;
     let reply_counts =
-        conn.get_inbound_relation_counts(&group_id_typed, message_ids, replies_count_query)?;
+        conn.get_inbound_relation_counts(group_id, message_ids, replies_count_query)?;
 
     // Get deletions for all messages AND referenced messages in a single batch query.
     // This ensures that if a reply references a deleted message, we can properly show

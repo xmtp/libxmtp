@@ -53,6 +53,7 @@ use xmtp_mls::{
     group_mutable_metadata::MetadataField as XmtpMetadataField,
   },
 };
+use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 #[derive(Clone, Serialize, Deserialize, Tsify)]
@@ -112,7 +113,7 @@ pub struct GroupMember {
 #[derive(Clone)]
 pub struct Conversation {
   inner_group: RustMlsGroup,
-  group_id: Vec<u8>,
+  group_id: GroupId,
   dm_id: Option<String>,
   created_at_ns: i64,
 }
@@ -120,7 +121,7 @@ pub struct Conversation {
 impl Conversation {
   pub fn new(
     inner_group: RustMlsGroup,
-    group_id: Vec<u8>,
+    group_id: GroupId,
     dm_id: Option<String>,
     created_at_ns: i64,
   ) -> Self {
@@ -135,7 +136,7 @@ impl Conversation {
   pub fn to_mls_group(&self) -> RustMlsGroup {
     MlsGroup::new(
       self.inner_group.context.clone(),
-      self.group_id.clone().into(),
+      self.group_id,
       self.dm_id.clone(),
       self.inner_group.conversation_type,
       self.created_at_ns,
@@ -146,7 +147,7 @@ impl Conversation {
 impl From<RustMlsGroup> for Conversation {
   fn from(mls_group: RustMlsGroup) -> Self {
     Conversation {
-      group_id: mls_group.group_id.to_vec(),
+      group_id: mls_group.group_id,
       dm_id: mls_group.dm_id.clone(),
       created_at_ns: mls_group.created_at_ns,
       inner_group: mls_group,
@@ -158,7 +159,7 @@ impl From<RustMlsGroup> for Conversation {
 impl Conversation {
   #[wasm_bindgen]
   pub fn id(&self) -> String {
-    hex::encode(self.group_id.clone())
+    hex::encode(self.group_id)
   }
 
   #[wasm_bindgen]
@@ -744,7 +745,7 @@ impl Conversation {
     let on_close_cb = callback.clone();
     let stream_closer = MlsGroup::stream_with_callback(
       self.inner_group.context.clone(),
-      self.group_id.clone().into(),
+      self.group_id,
       move |message| match message {
         Ok(item) => callback.on_message(item.into()),
         Err(e) => callback.on_error(JsError::from(e)),
@@ -988,7 +989,7 @@ mod tests {
   fn test_group_message_to_object() {
     let stored_message = StoredGroupMessage {
       id: xmtp_common::rand_vec::<32>(),
-      group_id: xmtp_common::rand_vec::<32>().into(),
+      group_id: xmtp_common::rand_array::<16>().into(),
       decrypted_message_bytes: xmtp_common::rand_vec::<32>(),
       sent_at_ns: 1738354508964432000,
       inserted_at_ns: 1738354508964432000,

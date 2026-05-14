@@ -113,7 +113,7 @@ impl HealthContext {
         let existing_groups = group_store
             .load(net_key)?
             .map(|iter| {
-                iter.map(|g| GroupId::from(g.value().id.as_slice()))
+                iter.map(|g| GroupId::from(g.value().id))
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();

@@ -44,7 +44,7 @@ impl HealthOp for LeaveGroup {
                 .map_err(color_eyre::eyre::Report::from)?;
             let group = ctx
                 .transient_identity
-                .group(gid.as_slice())
+                .group(&gid)
                 .map_err(color_eyre::eyre::Report::from)?;
             group
                 .leave_group()

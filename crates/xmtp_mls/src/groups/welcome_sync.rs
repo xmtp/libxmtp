@@ -207,10 +207,7 @@ where
         let db = self.context.db();
         let api = self.context.api();
 
-        let group_ids: Vec<GroupId> = groups
-            .iter()
-            .map(|group| GroupId::from(group.group_id.as_slice()))
-            .collect();
+        let group_ids: Vec<GroupId> = groups.iter().map(|group| group.group_id).collect();
         let id_slices: Vec<&[u8]> = group_ids.iter().map(|id| id.as_ref()).collect();
         let last_synced_cursors = db.get_last_cursor_for_ids(
             &id_slices,
@@ -763,7 +760,7 @@ mod tests {
     }
 
     fn make_message_metadata(
-        group_id: Vec<u8>,
+        group_id: GroupId,
         originator_id: u32,
         sequence_id: u64,
     ) -> GroupMessageMetadata {
@@ -778,59 +775,59 @@ mod tests {
 
     #[xmtp_common::test]
     fn filter_groups_with_new_messages_basic_behavior() {
-        let group_id_1 = vec![1, 2, 3];
-        let group_id_2 = vec![4, 5, 6];
+        let group_id_1 = GroupId::from([0x01u8; 16]);
+        let group_id_2 = GroupId::from([0x02u8; 16]);
         let originator = 100;
 
         let mut last_synced = HashMap::new();
-        last_synced.insert(group_id_1.clone(), make_cursor(originator, 5));
-        last_synced.insert(group_id_2.clone(), make_cursor(originator, 10));
+        last_synced.insert(group_id_1.to_vec(), make_cursor(originator, 5));
+        last_synced.insert(group_id_2.to_vec(), make_cursor(originator, 10));
 
         let mut latest = HashMap::new();
         latest.insert(
-            group_id_1.clone().into(),
-            make_message_metadata(group_id_1.clone(), originator, 10), // New: 10 > 5
+            group_id_1,
+            make_message_metadata(group_id_1, originator, 10), // New: 10 > 5
         );
         latest.insert(
-            group_id_2.clone().into(),
-            make_message_metadata(group_id_2.clone(), originator, 8), // No new: 8 < 10
+            group_id_2,
+            make_message_metadata(group_id_2, originator, 8), // No new: 8 < 10
         );
 
         let result = filter_groups_with_new_messages(last_synced, latest);
 
         assert_eq!(result.len(), 1);
-        assert!(result.contains(&GroupId::from(group_id_1.as_slice())));
+        assert!(result.contains(&group_id_1));
     }
 
     #[xmtp_common::test]
     fn filter_groups_includes_never_synced_and_excludes_up_to_date() {
-        let group_synced = vec![1, 2, 3];
-        let group_never_synced = vec![4, 5, 6];
+        let group_synced = GroupId::from([0x01u8; 16]);
+        let group_never_synced = GroupId::from([0x02u8; 16]);
         let originator = 100;
 
         let mut last_synced = HashMap::new();
-        last_synced.insert(group_synced.clone(), make_cursor(originator, 5));
+        last_synced.insert(group_synced.to_vec(), make_cursor(originator, 5));
         // group_never_synced has no entry
 
         let mut latest = HashMap::new();
         latest.insert(
-            group_synced.clone().into(),
-            make_message_metadata(group_synced.clone(), originator, 3), // Already synced
+            group_synced,
+            make_message_metadata(group_synced, originator, 3), // Already synced
         );
         latest.insert(
-            group_never_synced.clone().into(),
-            make_message_metadata(group_never_synced.clone(), originator, 1),
+            group_never_synced,
+            make_message_metadata(group_never_synced, originator, 1),
         );
 
         let result = filter_groups_with_new_messages(last_synced, latest);
 
         assert_eq!(result.len(), 1);
-        assert!(result.contains(&GroupId::from(group_never_synced.as_slice())));
+        assert!(result.contains(&group_never_synced));
     }
 
     #[xmtp_common::test]
     fn filter_groups_handles_multiple_originators() {
-        let group_id = vec![1, 2, 3];
+        let group_id = GroupId::from([0x01u8; 16]);
         let orig_1 = 100;
         let orig_2 = 200;
 
@@ -838,37 +835,37 @@ mod tests {
         let mut cursor_map = GlobalCursor::default();
         cursor_map.insert(orig_1, 10);
         cursor_map.insert(orig_2, 20);
-        last_synced.insert(group_id.clone(), cursor_map);
+        last_synced.insert(group_id.to_vec(), cursor_map);
 
         let mut latest = HashMap::new();
         latest.insert(
-            group_id.clone().into(),
-            make_message_metadata(group_id.clone(), orig_2, 25), // New from orig_2
+            group_id,
+            make_message_metadata(group_id, orig_2, 25), // New from orig_2
         );
 
         let result = filter_groups_with_new_messages(last_synced, latest);
 
         assert_eq!(result.len(), 1);
-        assert!(result.contains(&GroupId::from(group_id.as_slice())));
+        assert!(result.contains(&group_id));
     }
 
     #[xmtp_common::test]
     fn filter_groups_treats_unknown_originator_as_new() {
-        let group_id = vec![1, 2, 3];
+        let group_id = GroupId::from([0x01u8; 16]);
 
         let mut last_synced = HashMap::new();
-        last_synced.insert(group_id.clone(), make_cursor(100, 10));
+        last_synced.insert(group_id.to_vec(), make_cursor(100, 10));
 
         let mut latest = HashMap::new();
         latest.insert(
-            group_id.clone().into(),
-            make_message_metadata(group_id.clone(), 200, 5), // Unknown originator defaults to 0
+            group_id,
+            make_message_metadata(group_id, 200, 5), // Unknown originator defaults to 0
         );
 
         let result = filter_groups_with_new_messages(last_synced, latest);
 
         assert_eq!(result.len(), 1);
-        assert!(result.contains(&GroupId::from(group_id.as_slice())));
+        assert!(result.contains(&group_id));
     }
 
     // I have no idea why this test is specifically failing on WASM
@@ -877,11 +874,12 @@ mod tests {
     #[case(HashMap::new(), HashMap::new())] // Empty inputs
     #[case({
         let mut m = HashMap::new();
-        m.insert(vec![1], make_cursor(100, 10));
+        m.insert(GroupId::from([0x01u8; 16]).to_vec(), make_cursor(100, 10));
         m
     }, {
         let mut m = HashMap::new();
-        m.insert(vec![1].into(), make_message_metadata(vec![1], 100, 10));
+        let gid = GroupId::from([0x01u8; 16]);
+        m.insert(gid, make_message_metadata(gid, 100, 10));
         m
     })] // Equal cursors
     #[xmtp_common::test]
@@ -895,40 +893,28 @@ mod tests {
 
     #[xmtp_common::test]
     fn filter_groups_comprehensive_mixed_states() {
-        let g1 = vec![1];
-        let g2 = vec![2];
-        let g3 = vec![3];
-        let g4 = vec![4];
+        let g1 = GroupId::from([0x01u8; 16]);
+        let g2 = GroupId::from([0x02u8; 16]);
+        let g3 = GroupId::from([0x03u8; 16]);
+        let g4 = GroupId::from([0x04u8; 16]);
         let orig = 100;
 
         let mut last_synced = HashMap::new();
-        last_synced.insert(g1.clone(), make_cursor(orig, 5)); // Will have new
-        last_synced.insert(g2.clone(), make_cursor(orig, 15)); // Already synced
-        last_synced.insert(g3.clone(), make_cursor(orig, 10)); // Equal
+        last_synced.insert(g1.to_vec(), make_cursor(orig, 5)); // Will have new
+        last_synced.insert(g2.to_vec(), make_cursor(orig, 15)); // Already synced
+        last_synced.insert(g3.to_vec(), make_cursor(orig, 10)); // Equal
         // g4 never synced
 
         let mut latest = HashMap::new();
-        latest.insert(
-            g1.clone().into(),
-            make_message_metadata(g1.clone(), orig, 10),
-        );
-        latest.insert(
-            g2.clone().into(),
-            make_message_metadata(g2.clone(), orig, 12),
-        );
-        latest.insert(
-            g3.clone().into(),
-            make_message_metadata(g3.clone(), orig, 10),
-        );
-        latest.insert(
-            g4.clone().into(),
-            make_message_metadata(g4.clone(), orig, 1),
-        );
+        latest.insert(g1, make_message_metadata(g1, orig, 10));
+        latest.insert(g2, make_message_metadata(g2, orig, 12));
+        latest.insert(g3, make_message_metadata(g3, orig, 10));
+        latest.insert(g4, make_message_metadata(g4, orig, 1));
 
         let result = filter_groups_with_new_messages(last_synced, latest);
 
         assert_eq!(result.len(), 2);
-        assert!(result.contains(&GroupId::from(g1.as_slice())));
-        assert!(result.contains(&GroupId::from(g4.as_slice())));
+        assert!(result.contains(&g1));
+        assert!(result.contains(&g4));
     }
 }

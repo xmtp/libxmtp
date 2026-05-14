@@ -86,7 +86,7 @@ impl XmtpdCli {
                 format!(
                     "--http-address={}://{}",
                     cfg.public_scheme,
-                    cfg.address_mode.hostname(&node.name())
+                    cfg.address_mode.hostname(node.name())
                 )
             },
         ];

@@ -154,8 +154,10 @@ impl<C: ConnectionExt> DbConnection<C> {
                                         row.sequence_id as SequenceId,
                                         row.originator_id as OriginatorId,
                                     ))
-                                    .payload(payload)
-                                    .group_id(group_id);
+                                    .payload(payload);
+                                if let Ok(gid) = GroupId::try_from(group_id) {
+                                    builder.group_id(gid);
+                                }
                                 builder
                             },
                             |mut acc, _key, row| {
@@ -366,10 +368,10 @@ mod tests {
 
     use super::*;
 
-    fn create_test_group(conn: &impl crate::DbQuery) -> Vec<u8> {
-        let group_id = xmtp_common::rand_vec::<24>();
+    fn create_test_group(conn: &impl crate::DbQuery) -> GroupId {
+        let group_id = GroupId::from(xmtp_common::rand_array::<16>());
         let group = StoredGroup {
-            id: group_id.clone().into(),
+            id: group_id,
             created_at_ns: 0,
             membership_state: GroupMembershipState::Allowed,
             installations_last_checked: 0,
@@ -394,20 +396,20 @@ mod tests {
         group_id
     }
 
-    fn iced(group_id: Vec<u8>) -> Vec<OrphanedEnvelope> {
+    fn iced(group_id: GroupId) -> Vec<OrphanedEnvelope> {
         vec![
             OrphanedEnvelope::builder()
                 .cursor(Cursor::new(41, 1u32))
                 .depending_on(Cursor::new(40, 1u32))
                 .payload(vec![1, 2, 3])
-                .group_id(group_id.clone())
+                .group_id(group_id)
                 .build()
                 .unwrap(),
             OrphanedEnvelope::builder()
                 .cursor(Cursor::new(40, 1u32))
                 .depending_on(Cursor::new(39, 2u32))
                 .payload(vec![1, 2, 3])
-                .group_id(group_id.clone())
+                .group_id(group_id)
                 .build()
                 .unwrap(),
             OrphanedEnvelope::builder()
@@ -454,7 +456,7 @@ mod tests {
         with_connection(|conn| {
             let group_id = create_test_group(conn);
             // Break the chain by changing the originator
-            let mut orphans = iced(group_id.clone());
+            let mut orphans = iced(group_id);
             // Change envelope (39, 2) to (39, 1), breaking the chain
             orphans[2] = OrphanedEnvelope::builder()
                 .cursor(Cursor::new(39, 1u32))
@@ -487,7 +489,7 @@ mod tests {
         with_connection(|conn| {
             let group_id = create_test_group(conn);
             // Break the chain by changing the sequence_id to a non-conflicting value
-            let mut orphans = iced(group_id.clone());
+            let mut orphans = iced(group_id);
             // Change envelope (39, 2) to (100, 2), breaking the chain
             orphans[2] = OrphanedEnvelope::builder()
                 .cursor(Cursor::new(100, 2u32))
@@ -526,7 +528,7 @@ mod tests {
                     .cursor(Cursor::new(1, 100u32))
                     .depending_on(Cursor::new(10, 0u32))
                     .payload(vec![1; 5])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
                 OrphanedEnvelope::builder()
@@ -567,14 +569,14 @@ mod tests {
                     .cursor(Cursor::new(1, 100u32))
                     .depending_on(Cursor::new(3, 0u32))
                     .payload(vec![1])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
                 OrphanedEnvelope::builder()
                     .cursor(Cursor::new(2, 100u32))
                     .depending_on(Cursor::new(3, 0u32))
                     .payload(vec![1])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
                 OrphanedEnvelope::builder()
@@ -678,35 +680,35 @@ mod tests {
                     .cursor(Cursor::new(10, 1u32))
                     .depending_on(Cursor::new(9, 1u32))
                     .payload(vec![1, 2, 3])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
                 OrphanedEnvelope::builder()
                     .cursor(Cursor::new(20, 1u32))
                     .depending_on(Cursor::new(19, 1u32))
                     .payload(vec![4, 5, 6])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
                 OrphanedEnvelope::builder()
                     .cursor(Cursor::new(30, 1u32))
                     .depending_on(Cursor::new(29, 1u32))
                     .payload(vec![7, 8, 9])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
                 OrphanedEnvelope::builder()
                     .cursor(Cursor::new(10, 10u32))
                     .depending_on(Cursor::new(1, 1u32))
                     .payload(vec![1, 2, 3])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
             ];
             conn.ice(orphans)?;
 
             RefreshState {
-                entity_id: group_id.clone(),
+                entity_id: group_id.to_vec(),
                 entity_kind: EntityKind::ApplicationMessage,
                 sequence_id: 20,
                 originator_id: 1,
@@ -745,21 +747,21 @@ mod tests {
                     .cursor(Cursor::new(50, 1u32))
                     .depending_on(Cursor::new(49, 1u32))
                     .payload(vec![1, 2, 3])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
                 OrphanedEnvelope::builder()
                     .cursor(Cursor::new(60, 1u32))
                     .depending_on(Cursor::new(59, 1u32))
                     .payload(vec![4, 5, 6])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
             ];
             conn.ice(orphans)?;
 
             RefreshState {
-                entity_id: group_id.clone(),
+                entity_id: group_id.to_vec(),
                 entity_kind: EntityKind::ApplicationMessage,
                 sequence_id: 40,
                 originator_id: 1,
@@ -788,14 +790,14 @@ mod tests {
                     .cursor(Cursor::new(10, 1u32))
                     .depending_on(Cursor::new(9, 1u32))
                     .payload(vec![1, 2, 3])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
             ];
             conn.ice(orphans)?;
 
             RefreshState {
-                entity_id: group_id.clone(),
+                entity_id: group_id.to_vec(),
                 entity_kind: EntityKind::Welcome,
                 sequence_id: 100,
                 originator_id: 1,
@@ -824,7 +826,7 @@ mod tests {
                     .cursor(Cursor::new(10, 1u32))
                     .depending_on(Cursor::new(9, 1u32))
                     .payload(vec![1, 2, 3])
-                    .group_id(group_id.clone())
+                    .group_id(group_id)
                     .build()
                     .unwrap(),
             ];
@@ -840,7 +842,7 @@ mod tests {
             assert_eq!(deps.len(), 1);
 
             RefreshState {
-                entity_id: group_id.clone(),
+                entity_id: group_id.to_vec(),
                 entity_kind: EntityKind::ApplicationMessage,
                 sequence_id: 10,
                 originator_id: 1,

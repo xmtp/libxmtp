@@ -16,9 +16,7 @@ pub struct SendMessage;
 async fn send_one(op_name: &'static str, client: &Arc<DbgClient>, gid: &GroupId) -> OpResult {
     let start = Instant::now();
     let outcome: color_eyre::eyre::Result<()> = async {
-        let group = client
-            .group(gid.as_slice())
-            .map_err(color_eyre::eyre::Report::from)?;
+        let group = client.group(gid).map_err(color_eyre::eyre::Report::from)?;
         if !group.is_active().map_err(color_eyre::eyre::Report::from)? {
             return Ok(());
         }

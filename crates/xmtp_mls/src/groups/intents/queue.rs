@@ -205,7 +205,7 @@ impl QueueIntent {
 
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             intent_kind,
-            group.group_id.clone(),
+            group.group_id,
             intent_data,
             should_push,
         ))?;
@@ -244,16 +244,17 @@ mod tests {
     use std::{iter, sync::Arc};
     use tokio::sync::Mutex;
     use xmtp_db::group::{GroupMembershipState, StoredGroup};
+    use xmtp_proto::types::GroupId;
 
     use crate::test::mock::{NewMockContext, context};
 
     use super::*;
     use rstest::*;
 
-    fn group<C: XmtpSharedContext>(context: &C, id: Option<Vec<u8>>) -> MlsGroup<&C> {
-        let id = id.unwrap_or(xmtp_common::rand_vec::<2>());
+    fn group<C: XmtpSharedContext>(context: &C, id: Option<GroupId>) -> MlsGroup<&C> {
+        let id = id.unwrap_or_else(|| GroupId::from(xmtp_common::rand_array::<16>()));
         StoredGroup::builder()
-            .id(id.clone())
+            .id(id)
             .created_at_ns(1)
             .membership_state(GroupMembershipState::Allowed)
             .added_by_inbox_id("bob")
@@ -264,7 +265,7 @@ mod tests {
             .unwrap();
 
         MlsGroup {
-            group_id: id.into(),
+            group_id: id,
             dm_id: None,
             created_at_ns: 1,
             context,
@@ -289,7 +290,7 @@ mod tests {
     #[rstest]
     #[xmtp_common::test]
     async fn only_queues_for_unique(context: NewMockContext) {
-        let groups = iter::repeat_n(group(&context, Some(vec![0])), 10);
+        let groups = iter::repeat_n(group(&context, Some(GroupId::from([0u8; 16]))), 10);
 
         let stored = QueueIntent::update_group_membership()
             .data(vec![0, 1, 2])

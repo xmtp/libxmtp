@@ -7,6 +7,7 @@ use futures::{StreamExt, TryFutureExt};
 use std::time::Duration;
 use thiserror::Error;
 use xmtp_db::{StorageError, prelude::*};
+use xmtp_proto::types::GroupId;
 
 /// Interval at which the PendingSelfRemoveWorker runs to remove the members want requested SelfRemove.
 pub const INTERVAL_DURATION: Duration = Duration::from_secs(2);
@@ -108,7 +109,7 @@ where
         mls_group: &MlsGroup<Context>,
     ) -> Result<(), PendingSelfRemoveWorkerError> {
         tracing::info!(
-            group_id = hex::encode(&mls_group.group_id),
+            group_id = hex::encode(mls_group.group_id),
             "Processing pending leave requests for group"
         );
         mls_group.remove_members_pending_removal().await?;
@@ -123,6 +124,10 @@ where
         match db.get_groups_have_pending_leave_request() {
             Ok(groups) => {
                 for group_id in groups {
+                    let Ok(group_id) = GroupId::try_from(group_id) else {
+                        tracing::warn!("skipping malformed group_id in pending leave request list");
+                        continue;
+                    };
                     match self.mls_store.group(&group_id) {
                         Ok(mls_group) => {
                             if let Err(e) = self
@@ -130,7 +135,7 @@ where
                                 .await
                             {
                                 tracing::error!(
-                                    group_id = hex::encode(&group_id),
+                                    group_id = hex::encode(group_id),
                                     error = %e,
                                     "Failed to process pending leave request for group"
                                 );
@@ -138,7 +143,7 @@ where
                         }
                         Err(e) => {
                             tracing::error!(
-                                group_id = hex::encode(&group_id),
+                                group_id = hex::encode(group_id),
                                 error = %e,
                                 "Failed to load MLS group from store"
                             );

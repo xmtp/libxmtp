@@ -23,7 +23,7 @@ impl HealthOp for GetMutableMetadata {
             let outcome: color_eyre::eyre::Result<()> = (|| {
                 let group = ctx
                     .primary
-                    .group(gid.as_slice())
+                    .group(gid)
                     .map_err(color_eyre::eyre::Report::from)?;
                 let _ = group
                     .mutable_metadata()

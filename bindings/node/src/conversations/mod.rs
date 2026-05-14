@@ -150,6 +150,7 @@ impl Conversations {
   #[napi]
   pub fn get_conversation_by_id(&self, group_id: String) -> Result<Conversation> {
     let group_id = hex::decode(group_id).map_err(ErrorWrapper::from)?;
+    let group_id = xmtp_proto::types::GroupId::try_from(group_id).map_err(ErrorWrapper::from)?;
 
     let group = self
       .inner_client
