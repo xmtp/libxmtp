@@ -1144,6 +1144,28 @@ impl From<FfiVisibilityConfirmationOptions>
     }
 }
 
+/// Options for [`FfiConversation::enable_proposals`]. Mirrors
+/// [`xmtp_mls::groups::EnableProposalsOptions`].
+#[derive(uniffi::Record, Default, Clone, Debug)]
+pub struct FfiEnableProposalsOptions {
+    /// Skip the pre-flight key-package capability check. Post-d14n
+    /// every client supports proposals by version floor alone; set
+    /// `true` to bypass the per-member scan in that environment.
+    pub force: Option<bool>,
+    /// Override the `MIN_SUPPORTED_PROTOCOL_VERSION` floor. `None`
+    /// defaults to `xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`.
+    pub min_version: Option<String>,
+}
+
+impl From<FfiEnableProposalsOptions> for xmtp_mls::groups::EnableProposalsOptions {
+    fn from(opts: FfiEnableProposalsOptions) -> Self {
+        xmtp_mls::groups::EnableProposalsOptions {
+            force: opts.force.unwrap_or(false),
+            min_version: opts.min_version,
+        }
+    }
+}
+
 /// Signature kind used in identity operations
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]
 pub enum FfiSignatureKind {
@@ -2674,8 +2696,14 @@ impl FfiConversation {
     /// **One-way**: a migrated group cannot return to the legacy
     /// path. Operationally treated as a flag day per group.
     #[tracing::instrument(level = "debug", skip_all)]
-    pub async fn enable_proposals(&self) -> Result<(), FfiError> {
-        self.inner.enable_proposals().await.map_err(Into::into)
+    pub async fn enable_proposals(
+        &self,
+        options: FfiEnableProposalsOptions,
+    ) -> Result<(), FfiError> {
+        self.inner
+            .enable_proposals(options.into())
+            .await
+            .map_err(Into::into)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]

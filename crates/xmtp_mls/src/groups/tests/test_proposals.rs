@@ -7,7 +7,7 @@
 
 use crate::{
     groups::{
-        build_proposals_enabled_extension,
+        EnableProposalsOptions, build_proposals_enabled_extension,
         intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData},
         send_message_opts::SendMessageOpts,
     },
@@ -200,7 +200,9 @@ async fn test_e2e_propose_add_member_flow() {
     assert_eq!(initial_members.len(), 2);
 
     // Enable proposals so members can send/receive them
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     // 2. Alix proposes to add caro
@@ -301,7 +303,9 @@ async fn test_e2e_propose_remove_member_flow() {
     assert_eq!(initial_members.len(), 3);
 
     // Enable proposals
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
     caro_group.sync().await?;
 
@@ -422,7 +426,10 @@ async fn test_propose_invalid_member_operations(#[case] is_add: bool) {
     assert_eq!(members.len(), 2);
 
     // Enable proposals
-    alix_group.enable_proposals().await.unwrap();
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await
+        .unwrap();
     bo_group.sync().await.unwrap();
 
     let db = alix_group.context.db();
@@ -500,7 +507,9 @@ async fn test_message_auto_commits_pending_proposals() {
     assert!(has_message);
 
     // Enable proposals
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     // Alix proposes to add caro
@@ -595,7 +604,9 @@ async fn test_multiple_add_proposals_before_commit() {
     bo_group.sync().await?;
 
     // Enable proposals
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     // Alix proposes to add caro
@@ -697,7 +708,9 @@ async fn test_mixed_add_remove_proposals_before_commit() {
     assert_eq!(initial_members.len(), 3, "Should start with 3 members");
 
     // Enable proposals
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
     caro_group.sync().await?;
 
@@ -827,7 +840,9 @@ async fn test_proposer_can_commit_own_proposal() {
     assert_eq!(initial_members.len(), 2);
 
     // Enable proposals
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     let initial_epoch = alix_group.epoch().await?;
@@ -939,7 +954,9 @@ async fn test_concurrent_proposals_from_different_members() {
     caro_group.sync().await?;
 
     // Enable proposals
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
     caro_group.sync().await?;
 
@@ -1050,7 +1067,9 @@ async fn test_non_admin_proposal_rejected_in_admin_only_group() {
     );
 
     // Enable proposals
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     // Bo (non-admin) attempts to propose adding Caro
@@ -1120,7 +1139,9 @@ async fn test_admin_proposal_accepted_in_admin_only_group() {
     bo_group.sync().await?;
 
     // Enable proposals
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     // Alix (admin) proposes to add Caro
@@ -1176,7 +1197,9 @@ async fn test_enable_proposals_and_proposals_enabled() {
     assert!(!enabled_before, "Proposals should not be enabled initially");
 
     // Enable proposals
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
 
     // Verify proposals_enabled returns true (tests proto decode + version > 0 path)
     let enabled_after = alix_group
@@ -1228,7 +1251,9 @@ async fn test_enable_proposals_fails_without_support() {
             assert!(!all_support, "Not all members should support proposals");
 
             // enable_proposals should fail
-            let result = alix_group.enable_proposals().await;
+            let result = alix_group
+                .enable_proposals(EnableProposalsOptions::test_default())
+                .await;
             assert!(
                 result.is_err(),
                 "enable_proposals should fail when not all members support it"
@@ -1259,7 +1284,9 @@ async fn test_adding_unsupported_member_rejected_when_proposals_enabled() {
     bo.sync_welcomes().await?;
 
     // Enable proposals (alix + bo both support it)
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
 
     let enabled = alix_group
         .load_mls_group_with_lock_async(async |mls_group| {
@@ -1411,7 +1438,9 @@ async fn test_non_admin_commits_admin_proposals_in_admin_group() {
     );
 
     // Enable proposals
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
     caro_group.sync().await?;
 
@@ -1539,7 +1568,9 @@ async fn test_multiple_non_admin_proposers_with_admin_committer() {
     assert_eq!(initial_members.len(), 3);
 
     // Enable proposals
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
     caro_group.sync().await?;
 
@@ -1668,7 +1699,9 @@ async fn test_remove_proposal_validation_in_admin_group() {
     caro_group.sync().await?;
 
     // Enable proposals
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     // Scenario A: Bo (non-admin) proposes removing Caro → should be rejected by Alix
@@ -1757,7 +1790,9 @@ async fn test_admin_proposes_remove_committed_by_non_admin() {
     caro_group.sync().await?;
 
     // Enable proposals
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
     caro_group.sync().await?;
 
@@ -2195,7 +2230,9 @@ async fn test_add_members_batched_when_proposals_enabled() {
     bo_group.sync().await?;
 
     // Enable proposals on the group
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     // Verify proposals are enabled
@@ -2311,7 +2348,9 @@ async fn test_commit_pending_proposals_batches_gce_and_commit() {
     bo_group.sync().await?;
 
     // Enable proposals
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     // Bo proposes to add Caro
@@ -2409,7 +2448,9 @@ async fn test_sequence_id_bump_triggers_gce_with_proposals_enabled() {
     bo_group.sync().await?;
 
     // Enable proposals
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     // Capture bo's sequence ID before the bump
@@ -2476,7 +2517,9 @@ async fn test_add_member_after_sequence_id_bump_with_proposals_enabled() {
     bo_group.sync().await?;
 
     // Enable proposals
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     // Bo creates a second installation, bumping his sequence ID
@@ -2632,7 +2675,9 @@ async fn test_update_group_name_via_app_data_update() {
 
     // Run the real bootstrap commit so the dict carries the
     // registry, immutable seeds, and admin lists.
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     // Sanity check the flag actually flipped from both sides.
@@ -2693,7 +2738,9 @@ async fn test_update_group_description_via_app_data_update() {
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     alix_group
@@ -2771,7 +2818,9 @@ async fn test_disappearing_settings_survive_bootstrap() {
     );
 
     // Run the real bootstrap commit — strips the legacy GMM extension.
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     // Send a post-bootstrap message. Before the capability-aware fix,
@@ -2865,7 +2914,15 @@ async fn test_enable_proposals_pauses_old_client_via_legacy_gmm_bump() {
     //   1. A legacy GCE commit bumping MIN_SUPPORTED_PROTOCOL_VERSION
     //      in the still-present legacy GMM extension.
     //   2. The bootstrap commit (strips legacy extensions, seeds dict).
-    alix_group.enable_proposals().await?;
+    // Pass alix's pkg_version as the floor explicitly: the test
+    // default's "0.0.0" floor would skip the step-A pause hint that's
+    // the whole subject of this test.
+    alix_group
+        .enable_proposals(EnableProposalsOptions {
+            force: false,
+            min_version: Some(alix_pkg_version.clone()),
+        })
+        .await?;
 
     // Bo syncs. He processes commit (1), sees min_version > his own,
     // lands in `paused_for_version`, and stops processing — commit (2)
@@ -3020,7 +3077,9 @@ async fn test_inline_app_data_update_denied_by_registry_policy() {
 
     // Bootstrap and tighten GROUP_NAME's update policy to Deny so
     // any subsequent update_group_name is rejected by the validator.
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
     alix_group
         .update_permission_policy(
@@ -3170,7 +3229,9 @@ async fn test_admin_list_add_via_app_data_path_after_migration() {
     // Run the real bootstrap commit. After this the dict carries
     // the registry, the immutable seeds, and the admin lists, and
     // the legacy XMTP extensions are gone.
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     // Promote bo to admin via the host-facing API. Internally queues
@@ -3221,7 +3282,9 @@ async fn test_admin_list_remove_via_app_data_path_after_migration() {
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     alix_group
@@ -3261,7 +3324,9 @@ async fn test_super_admin_list_add_via_app_data_path_after_migration() {
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     // AddSuper targets SUPER_ADMIN_LIST per the sender's mapping.
@@ -3317,7 +3382,9 @@ async fn test_permission_update_via_app_data_path_after_migration() {
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     bo_group.sync().await?;
 
     // Tighten GROUP_NAME's update_policy from `Allow` (the default
@@ -3458,7 +3525,9 @@ async fn test_welcome_on_migrated_group_pauses_below_min_version() {
 
     // Alix migrates. Post-migration the legacy GMM is stripped and the
     // floor lives in the AppData dict only.
-    alix_group.enable_proposals().await?;
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
     let alix_migrated = alix_group
         .load_mls_group_with_lock_async(async |g| {
             Ok::<bool, crate::groups::GroupError>(alix_group.proposals_enabled(&g))

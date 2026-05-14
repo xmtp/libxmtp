@@ -244,12 +244,25 @@ public struct Group: Identifiable, Equatable, Hashable {
 	/// image URL, admin list, permissions) flow through the proposal-based
 	/// path instead of GCE commits.
 	///
-	/// Hard-fails with `ProposalsNotSupported` if any member's latest key
-	/// package doesn't advertise `ProposalType::AppDataUpdate`. The
-	/// migration is one-way — a migrated group cannot return to the
-	/// legacy path.
-	public func enableProposals() async throws {
-		try await ffiGroup.enableProposals()
+	/// - Parameters:
+	///   - force: Skip the pre-flight key-package capability check.
+	///     Post-d14n every client supports proposals by version floor
+	///     alone, so the per-member scan stops adding signal. Set
+	///     `true` to bypass it. Callers using this MUST be confident
+	///     every member is at `>= minVersion`. Defaults to `false`.
+	///   - minVersion: Override the `MIN_SUPPORTED_PROTOCOL_VERSION`
+	///     floor. `nil` defaults to libxmtp's
+	///     `PROPOSALS_MIN_PROTOCOL_VERSION` — the release where
+	///     proposals support first ships.
+	///
+	/// Hard-fails with `ProposalsNotSupported` if `force == false` and
+	/// any member's latest key package doesn't advertise
+	/// `ProposalType::AppDataUpdate`. The migration is one-way — a
+	/// migrated group cannot return to the legacy path.
+	public func enableProposals(force: Bool = false, minVersion: String? = nil) async throws {
+		try await ffiGroup.enableProposals(
+			options: FfiEnableProposalsOptions(force: force, minVersion: minVersion)
+		)
 	}
 
 	public func updateAddMemberPermission(newPermissionOption: PermissionOption)
