@@ -6,7 +6,7 @@
 //! Distinct from `RemoveMember` which exercises the admin-remove path
 //! (one identity removes another via `remove_members`).
 
-use crate::app::health::context::{HealthContext, group_id_bytes, inbox_id_to_bytes};
+use crate::app::health::context::{HealthContext, inbox_id_to_bytes};
 use crate::app::health::ops::HealthOp;
 use crate::app::health::result::{OpResult, Status};
 use async_trait::async_trait;
@@ -50,14 +50,13 @@ impl HealthOp for LeaveGroup {
                 .leave_group()
                 .await
                 .map_err(color_eyre::eyre::Report::from)?;
-            let id_bytes = group_id_bytes(&gid)?;
             let transient_bytes = inbox_id_to_bytes(ctx.transient_identity.inbox_id());
             let members: Vec<_> = ctx
-                .persisted_members(id_bytes)
+                .persisted_members(&gid)
                 .into_iter()
                 .filter(|m| m != &transient_bytes)
                 .collect();
-            ctx.update_group_members(id_bytes, members);
+            ctx.update_group_members(&gid, members);
             Ok(())
         }
         .await;

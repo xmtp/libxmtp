@@ -5,7 +5,7 @@
 //! - `AddPrimaryToExistingGroups`: for every group in `ctx.existing_groups`,
 //!   primary is added by an active member of that group.
 
-use crate::app::health::context::{HealthContext, group_id_bytes, inbox_id_to_bytes};
+use crate::app::health::context::{HealthContext, inbox_id_to_bytes};
 use crate::app::health::ops::HealthOp;
 use crate::app::health::result::{OpResult, Status};
 use async_trait::async_trait;
@@ -67,10 +67,9 @@ impl HealthOp for AddMembersToNewGroup {
                 .map_err(color_eyre::eyre::Report::from)?;
             // Mirror the new membership to redb so subsequent runs see
             // the full member list, not just the creator.
-            let id_bytes = group_id_bytes(&new_group_id)?;
             let mut members = vec![inbox_id_to_bytes(ctx.primary.inbox_id())];
             members.extend(inbox_ids.iter().map(|s| inbox_id_to_bytes(s)));
-            ctx.update_group_members(id_bytes, members);
+            ctx.update_group_members(&new_group_id, members);
             Ok(())
         }
         .await;
@@ -113,12 +112,11 @@ impl HealthOp for AddPrimaryToExistingGroups {
         for gid in &ctx.existing_groups {
             let start = Instant::now();
             let outcome: color_eyre::eyre::Result<()> = async {
-                let id_bytes = group_id_bytes(gid)?;
                 // Prefer the persisted creator (super-admin) so we can also
                 // promote primary below. Fall back to any active member if
                 // the creator isn't available locally — the add will still
                 // succeed but the promote will be skipped.
-                let creator = ctx.persisted_creator(id_bytes);
+                let creator = ctx.persisted_creator(gid);
                 let adder = creator
                     .and_then(|c| ctx.existing_clients.get(&c))
                     .and_then(|c| c.group(gid.as_slice()).ok())
@@ -152,12 +150,12 @@ impl HealthOp for AddPrimaryToExistingGroups {
                          metadata ops requiring admin will fail on this group",
                     );
                 }
-                let mut members = ctx.persisted_members(id_bytes);
+                let mut members = ctx.persisted_members(gid);
                 let primary_bytes = inbox_id_to_bytes(&primary_inbox);
                 if !members.contains(&primary_bytes) {
                     members.push(primary_bytes);
                 }
-                ctx.update_group_members(id_bytes, members);
+                ctx.update_group_members(gid, members);
                 Ok(())
             }
             .await;
