@@ -14629,6 +14629,7 @@ dependencies = [
  "reqwest 0.13.3",
  "rstest",
  "rstest_reuse",
+ "semver 1.0.28",
  "serde",
  "serde_json",
  "sha2 0.10.9",

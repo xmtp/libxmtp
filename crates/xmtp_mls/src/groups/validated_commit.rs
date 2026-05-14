@@ -98,8 +98,6 @@ pub enum CommitValidationError {
     StorageError(#[from] StorageError),
     #[error("Exceeded max characters for this field. Must be under: {length}")]
     TooManyCharacters { length: usize },
-    #[error("Version part missing")]
-    VersionMissing,
     #[error("Proposer could not be determined for inbox change in proposal-enabled group")]
     ProposerNotFound,
     #[error("Proposals are not enabled on this group")]
@@ -265,52 +263,36 @@ impl MetadataFieldChange {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct LibXMTPVersion {
-    major: u32,
-    minor: u32,
-    patch: u32,
-    suffix: Option<String>,
-}
+/// Wrapper around [`semver::Version`] used for the
+/// `MIN_SUPPORTED_PROTOCOL_VERSION` floor and related min-version checks.
+///
+/// Delegates parsing and ordering to the [`semver`] crate so behavior
+/// matches the semver 2.0 spec — most importantly:
+///
+/// * Pre-release versions sort *before* the release: `1.0.0-alpha <
+///   1.0.0-beta < 1.0.0`. The previous hand-rolled implementation got
+///   this backwards (`1.0.0 < 1.0.0-alpha`), which would silently
+///   pause clients running release builds against any group floor set
+///   by a caller passing a pre-release string.
+/// * Pre-release identifiers compare numerically when all-digits, so
+///   `rc2 < rc10` instead of lexicographic `rc10 < rc2`.
+/// * Multi-segment pre-release tags like `1.0.0-alpha.1` parse cleanly
+///   instead of failing with `InvalidVersionFormat`.
+/// * Build metadata (after `+`) parses cleanly. Note: the [`semver`]
+///   crate's `Ord` impl deliberately *includes* build metadata for
+///   total-ordering / `Hash` consistency, deviating from semver 2.0
+///   §10 ("build metadata MUST be ignored when determining version
+///   precedence"). Irrelevant in practice — `CARGO_PKG_VERSION` and
+///   the application-facing `update_group_min_version` callers never
+///   pass `+`-suffixed input.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LibXMTPVersion(semver::Version);
 
 impl LibXMTPVersion {
     pub fn parse(version_str: &str) -> Result<Self, CommitValidationError> {
-        let parts: Vec<&str> = version_str.split('.').collect();
-        if parts.len() != 3 {
-            return Err(CommitValidationError::InvalidVersionFormat(
-                version_str.to_string(),
-            ));
-        }
-
-        let major = parts
-            .first()
-            .ok_or(CommitValidationError::VersionMissing)?
-            .parse()
-            .map_err(|_| CommitValidationError::InvalidVersionFormat(version_str.to_string()))?;
-        let minor = parts
-            .get(1)
-            .ok_or(CommitValidationError::VersionMissing)?
-            .parse()
-            .map_err(|_| CommitValidationError::InvalidVersionFormat(version_str.to_string()))?;
-
-        let patch_and_suffix = parts
-            .get(2)
-            .ok_or(CommitValidationError::VersionMissing)?
-            .split('-')
-            .collect::<Vec<_>>();
-
-        let patch = patch_and_suffix
-            .first()
-            .ok_or(CommitValidationError::VersionMissing)?
-            .parse()
-            .map_err(|_| CommitValidationError::InvalidVersionFormat(version_str.to_string()))?;
-
-        Ok(LibXMTPVersion {
-            major,
-            minor,
-            patch,
-            suffix: patch_and_suffix.get(1).map(ToString::to_string),
-        })
+        semver::Version::parse(version_str)
+            .map(Self)
+            .map_err(|_| CommitValidationError::InvalidVersionFormat(version_str.to_string()))
     }
 }
 
