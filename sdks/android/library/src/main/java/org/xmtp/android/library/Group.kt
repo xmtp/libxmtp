@@ -592,6 +592,26 @@ class Group(
             }
         }
 
+    /**
+     * Migrate this group's metadata from the legacy GroupContextExtensions
+     * shape onto OpenMLS `AppDataUpdate` proposals. After this returns
+     * successfully, subsequent metadata writes (group name, description,
+     * image URL, admin list, permissions) flow through the proposal-based
+     * path instead of GCE commits.
+     *
+     * Hard-fails if any member's latest key package doesn't advertise
+     * `ProposalType.AppDataUpdate`. The migration is one-way — a migrated
+     * group cannot return to the legacy path.
+     */
+    suspend fun enableProposals() =
+        withContext(Dispatchers.IO) {
+            try {
+                libXMTPGroup.enableProposals()
+            } catch (e: Exception) {
+                throw XMTPException("Unable to enable proposals on group", e)
+            }
+        }
+
     suspend fun clearDisappearingMessageSettings() =
         withContext(Dispatchers.IO) {
             try {
