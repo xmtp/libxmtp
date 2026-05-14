@@ -36,6 +36,13 @@ pub struct AppOpts {
     /// failed send/sync should mark the commit bad.
     #[arg(long)]
     pub fail_fast: bool,
+    /// Hide identities created by other xdbg binary versions. By default
+    /// every identity (regardless of which xdbg version created it) is
+    /// visible. With this flag, only identities created by this exact
+    /// binary version are visible. Writes are always partitioned by
+    /// version regardless of the flag.
+    #[arg(long)]
+    pub strict_versioning: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -50,6 +57,7 @@ pub enum Commands {
     Export(ExportOpts),
     Stream(StreamOpts),
     Healthcheck(HealthcheckOpts),
+    Sync(SyncOpts),
 }
 
 /// Cross-version libxmtp health check.
@@ -57,6 +65,16 @@ pub enum Commands {
 /// validates that all clients converge, and exits non-zero on any failure.
 #[derive(Args, Debug)]
 pub struct HealthcheckOpts {}
+
+/// Walk identities loaded from redb, run `sync_welcomes` + per-group
+/// `sync` on each, and reconcile redb's `GroupStore` / `MessageStore`
+/// against libxmtp's SQLite. Useful for catching up local state when
+/// other xdbg invocations have mutated the network.
+///
+/// Honors `--strict-versioning` — only syncs identities visible to
+/// the current binary version when the flag is set.
+#[derive(Args, Debug)]
+pub struct SyncOpts {}
 
 /// Send Data on the network
 #[derive(Args, Debug)]
@@ -130,12 +148,22 @@ pub struct Modify {
     /// group to modify
     pub group_id: GroupId,
 
-    /// InboxID to add or remove
+    /// InboxID to add or remove (ignored for `add-from-redb`)
     #[arg(long, short)]
     pub inbox_id: Option<InboxId>,
+
+    /// For `add-from-redb`: which version_hash partitions to pull
+    /// identities from.
+    #[arg(long, value_enum, default_value_t = IncludeVersions::All)]
+    pub include_versions: IncludeVersions,
+
+    /// For `add-from-redb`: also promote each newly-added inbox to
+    /// super-admin via `update_admin_list(AddSuper, inbox)`.
+    #[arg(long)]
+    pub promote_super_admin: bool,
 }
 
-#[derive(ValueEnum, Debug, Clone)]
+#[derive(ValueEnum, Debug, Clone, PartialEq, Eq)]
 pub enum MemberModificationKind {
     /// Remove a member from a group
     Remove,
@@ -143,6 +171,30 @@ pub enum MemberModificationKind {
     AddRandom,
     /// Add an external id the group
     AddExternal,
+    /// Add identities loaded from redb. Uses `--include-versions` and
+    /// `--promote-super-admin`. The positional `--inbox-id` is ignored.
+    AddFromRedb,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IncludeVersions {
+    /// Only identities created by this exact xdbg binary version.
+    #[value(name = "self")]
+    Self_,
+    /// Every version EXCEPT this binary's version.
+    Other,
+    /// All versions (default).
+    All,
+}
+
+impl std::fmt::Display for IncludeVersions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IncludeVersions::Self_ => write!(f, "self"),
+            IncludeVersions::Other => write!(f, "other"),
+            IncludeVersions::All => write!(f, "all"),
+        }
+    }
 }
 
 /// Inspect Local State
@@ -576,5 +628,80 @@ mod tests {
         // should fail to parse.
         let opts = AppOpts::try_parse_from(["xdbg", "-f"]);
         assert!(opts.is_err(), "--fail-fast should not have a short alias");
+    }
+
+    #[test]
+    fn parses_with_strict_versioning() {
+        let opts = AppOpts::try_parse_from(["xdbg", "--strict-versioning"])
+            .expect("parses with --strict-versioning");
+        assert!(
+            opts.strict_versioning,
+            "strict_versioning flag should be set"
+        );
+    }
+
+    #[test]
+    fn strict_versioning_defaults_off() {
+        let opts = AppOpts::try_parse_from(["xdbg"]).expect("parses with no args");
+        assert!(
+            !opts.strict_versioning,
+            "strict_versioning should default to false"
+        );
+    }
+
+    #[test]
+    fn strict_versioning_has_no_short_alias() {
+        // `-s` is the natural short for `strict_versioning` but is taken by
+        // `--show-fields`. Confirm that `-s` does NOT set `strict_versioning`
+        // (i.e. `--strict-versioning` has no short alias of its own).
+        let opts = AppOpts::try_parse_from(["xdbg", "-s"]).expect("-s parses via --show-fields");
+        assert!(
+            !opts.strict_versioning,
+            "--strict-versioning should not have a short alias"
+        );
+    }
+
+    #[test]
+    fn parses_sync_subcommand() {
+        let opts = AppOpts::try_parse_from(["xdbg", "sync"]).expect("parses `xdbg sync`");
+        assert!(matches!(opts.cmd, Some(Commands::Sync(_))));
+    }
+
+    #[test]
+    fn parses_modify_add_from_redb() {
+        let opts = AppOpts::try_parse_from([
+            "xdbg",
+            "modify",
+            "add-from-redb",
+            "aabbccddeeff00112233445566778899",
+            "--include-versions",
+            "other",
+            "--promote-super-admin",
+        ])
+        .expect("parses modify add-from-redb");
+        if let Some(Commands::Modify(m)) = &opts.cmd {
+            assert!(matches!(m.action, MemberModificationKind::AddFromRedb));
+            assert_eq!(m.include_versions, IncludeVersions::Other);
+            assert!(m.promote_super_admin);
+        } else {
+            panic!("expected Modify variant");
+        }
+    }
+
+    #[test]
+    fn include_versions_defaults_to_all() {
+        let opts = AppOpts::try_parse_from([
+            "xdbg",
+            "modify",
+            "add-from-redb",
+            "aabbccddeeff00112233445566778899",
+        ])
+        .expect("parses without --include-versions");
+        if let Some(Commands::Modify(m)) = &opts.cmd {
+            assert_eq!(m.include_versions, IncludeVersions::All);
+            assert!(!m.promote_super_admin);
+        } else {
+            panic!("expected Modify variant");
+        }
     }
 }

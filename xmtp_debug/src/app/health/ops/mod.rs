@@ -14,6 +14,7 @@ mod add_members;
 mod create_dm;
 mod create_group;
 mod create_identity;
+mod ensure_per_version_membership;
 mod get_mutable_metadata;
 mod leave_group;
 mod remove_member;
@@ -37,6 +38,9 @@ pub trait HealthOp: Send + Sync {
     async fn execute(&self, ctx: &mut HealthContext) -> Vec<OpResult>;
 }
 
+use crate::app::health::conditions::Conditions;
+use crate::app::health::registry::RegistryBuild;
+
 /// Self-registration entry for an op. Each op submits one of these from
 /// its own module via `inventory::submit!`.
 pub struct OpEntry {
@@ -44,6 +48,9 @@ pub struct OpEntry {
     /// Names of ops that must complete before this one runs.
     pub depends_on: &'static [&'static str],
     pub make: fn() -> Box<dyn HealthOp>,
+    /// Condition bits this op needs to be runnable. `Conditions::ALWAYS`
+    /// = always runnable.
+    pub requires: Conditions,
 }
 
 inventory::collect!(OpEntry);
@@ -61,9 +68,13 @@ impl RegistryEntry for OpEntry {
     fn make(&self) -> Box<dyn HealthOp> {
         (self.make)()
     }
+    fn requires(&self) -> Conditions {
+        self.requires
+    }
 }
 
-/// Topologically-sorted list of every registered op.
-pub fn registry() -> Vec<Box<dyn HealthOp>> {
-    registry::topo_sort::<OpEntry>(inventory::iter::<OpEntry>)
+/// Build the op registry against an active condition set. Returns the
+/// topo-sorted runnable ops plus a skip log for filtered entries.
+pub fn registry(active: Conditions) -> RegistryBuild<dyn HealthOp> {
+    registry::topo_sort::<OpEntry>(inventory::iter::<OpEntry>, active)
 }

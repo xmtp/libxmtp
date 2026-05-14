@@ -96,5 +96,6 @@ inventory::submit! {
         op_name: "SendMessage",
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         make: || Box::new(SendMessage),
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

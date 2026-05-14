@@ -16,15 +16,21 @@ pub struct GenerateGroups {
     group_store: GroupStore<'static>,
     identity_store: IdentityStore<'static>,
     network: args::BackendOpts,
+    strict_versioning: bool,
 }
 
 impl GenerateGroups {
-    pub fn new(db: Arc<redb::Database>, network: args::BackendOpts) -> Self {
+    pub fn new(
+        db: Arc<redb::Database>,
+        network: args::BackendOpts,
+        strict_versioning: bool,
+    ) -> Self {
         Self {
             group_store: db.clone().into(),
             identity_store: db.clone().into(),
             // metadata_store: db.clone().into(),
             network,
+            strict_versioning,
         }
     }
 
@@ -49,7 +55,7 @@ impl GenerateGroups {
         );
         let bar = ProgressBar::new(n as u64).with_style(style.unwrap());
 
-        let clients = load_n_identities(&self.identity_store, network, n)?;
+        let clients = load_n_identities(&self.identity_store, network, n, self.strict_versioning)?;
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
         let groups = stream::iter(clients.iter())
@@ -101,6 +107,7 @@ impl GenerateGroups {
                             member_size: members.len() as u32,
                             members,
                             created_by: owner,
+                            version_string: Group::pack_current_version()?,
                         })
                     }
                 })

@@ -18,10 +18,16 @@ pub trait Validator: Send + Sync {
     async fn validate(&self, ctx: &mut HealthContext) -> Vec<OpResult>;
 }
 
+use crate::app::health::conditions::Conditions;
+use crate::app::health::registry::RegistryBuild;
+
 pub struct ValidatorEntry {
     pub name: &'static str,
     pub depends_on: &'static [&'static str],
     pub make: fn() -> Box<dyn Validator>,
+    /// Condition bits this validator needs to be runnable.
+    /// `Conditions::ALWAYS` = always runnable.
+    pub requires: Conditions,
 }
 
 inventory::collect!(ValidatorEntry);
@@ -39,8 +45,11 @@ impl RegistryEntry for ValidatorEntry {
     fn make(&self) -> Box<dyn Validator> {
         (self.make)()
     }
+    fn requires(&self) -> Conditions {
+        self.requires
+    }
 }
 
-pub fn registry() -> Vec<Box<dyn Validator>> {
-    registry::topo_sort::<ValidatorEntry>(inventory::iter::<ValidatorEntry>)
+pub fn registry(active: Conditions) -> RegistryBuild<dyn Validator> {
+    registry::topo_sort::<ValidatorEntry>(inventory::iter::<ValidatorEntry>, active)
 }

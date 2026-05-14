@@ -175,5 +175,6 @@ inventory::submit! {
         name: "NoMissingMessages",
         depends_on: &[],
         make: || Box::new(NoMissingMessages),
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

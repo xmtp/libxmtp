@@ -113,6 +113,7 @@ impl GenerateMessages {
         network: args::BackendOpts,
         opts: args::MessageGenerateOpts,
         concurrency: usize,
+        strict_versioning: bool,
     ) -> Result<Self> {
         // Always open write-capable redb so we can mirror sent messages
         // into `MessageStore`. add_member/change_description already
@@ -123,7 +124,7 @@ impl GenerateMessages {
         let identity_store: IdentityStore<'static> = db.clone().into();
         let group_store: GroupStore<'static> = db.clone().into();
         let message_store: MessageStore<'static> = db.into();
-        let identities = load_all_identities(&identity_store, &network)?;
+        let identities = load_all_identities(&identity_store, &network, strict_versioning)?;
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
 
         Ok(Self {

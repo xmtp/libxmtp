@@ -46,7 +46,7 @@ rust.buildPackage (
   // {
     inherit cargoArtifacts;
     src = workspaceFileset;
-    pname = "xmtp-debug";
+    pname = "xdbg";
     version = "1.9.2";
     cargoExtraArgs = "-p xdbg";
   }

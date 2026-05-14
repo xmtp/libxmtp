@@ -111,6 +111,7 @@ inventory::submit! {
         op_name: "UpdateConsentState",
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         make: || Box::new(UpdateConsentState),
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }
 
@@ -119,5 +120,6 @@ inventory::submit! {
         op_name: "UpdateConsentStateQuiet",
         depends_on: &["UpdateConsentState"],
         make: || Box::new(UpdateConsentStateQuiet),
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

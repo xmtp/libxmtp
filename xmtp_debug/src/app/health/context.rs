@@ -28,6 +28,11 @@ pub struct HealthContext {
     /// On a fresh run, contains the registered `bootstrap_clients`.
     pub existing_clients: HashMap<InboxId, Arc<DbgClient>>,
 
+    /// Identities we do not have a client for (different
+    /// `version_hash` partition), but which member-add ops should
+    /// still include so cross-version groups stay in sync.
+    pub other_identities: Vec<InboxId>,
+
     /// Group IDs loaded from the redb `GroupStore` for this network.
     /// Stored as the raw 16-byte ids as produced by libxmtp.
     pub existing_groups: Vec<GroupId>,
@@ -56,17 +61,28 @@ pub struct HealthContext {
 impl HealthContext {
     /// Build the full context: load existing state, bootstrap on fresh DB,
     /// create the primary identity. Hard-fails on infrastructure errors.
-    pub async fn bootstrap(network: args::BackendOpts) -> Result<Self> {
+    pub async fn bootstrap(network: args::BackendOpts, strict_versioning: bool) -> Result<Self> {
         let redb = App::db()?;
         let id_store: IdentityStore<'static> = redb.clone().into();
         let group_store: GroupStore<'static> = redb.into();
         let net_key = u64::from(&network);
 
-        // 1. Existing identities.
-        let identity_count = id_store
+        // 1. Existing identities. Walk the full id_store once to count
+        //    and to collect non-current-version inboxes (those we won't
+        //    build clients for, but which member-add ops still include).
+        let current_vh = App::current_version_hash();
+        let (identity_count, other_identities) = id_store
             .load(net_key)?
-            .map(|iter| iter.count())
-            .unwrap_or(0);
+            .map(|iter| {
+                iter.fold((0usize, Vec::<InboxId>::new()), |(n, mut others), guard| {
+                    let id = guard.value();
+                    if id.version_hash != current_vh {
+                        others.push(id.inbox_id);
+                    }
+                    (n + 1, others)
+                })
+            })
+            .unwrap_or((0, Vec::new()));
 
         let mut bootstrap_clients: Vec<Arc<DbgClient>> = Vec::new();
         let mut existing_clients: HashMap<InboxId, Arc<DbgClient>> = HashMap::new();
@@ -87,7 +103,7 @@ impl HealthContext {
             }
             id_store.set_all(fresh_identities.as_slice(), net_key)?;
         } else {
-            let loaded = app::load_all_identities(&id_store, &network)?;
+            let loaded = app::load_all_identities(&id_store, &network, strict_versioning)?;
             let map = Arc::try_unwrap(loaded).map_err(|arc| {
                 color_eyre::eyre::eyre!(
                     "load_all_identities returned multiply-owned Arc (strong={}, weak={}). \
@@ -123,6 +139,7 @@ impl HealthContext {
         tracing::info!(
             target: "healthcheck",
             existing_identities = existing_clients.len(),
+            other_identities = other_identities.len(),
             existing_groups = existing_groups.len(),
             bootstrap = bootstrap_clients.len(),
             "health context bootstrapped"
@@ -133,6 +150,7 @@ impl HealthContext {
             primary,
             bootstrap_clients,
             existing_clients,
+            other_identities,
             existing_groups,
             new_groups: Vec::new(),
             op_run_id: rand::random(),
@@ -151,6 +169,7 @@ impl HealthContext {
             created_by,
             member_size: members.len() as u32,
             members,
+            version_string: Group::pack_current_version().expect("stamp xdbg version on Group"),
         };
         group_store
             .set(group, u64::from(&self.network))
@@ -172,6 +191,7 @@ impl HealthContext {
             created_by,
             member_size: members.len() as u32,
             members,
+            version_string: Group::pack_current_version().expect("stamp xdbg version on Group"),
         };
         group_store
             .set(group, net_key)

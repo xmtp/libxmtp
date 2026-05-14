@@ -101,5 +101,6 @@ inventory::submit! {
         op_name: "CreateDm",
         depends_on: &["CreateIdentity"],
         make: || Box::new(CreateDm),
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

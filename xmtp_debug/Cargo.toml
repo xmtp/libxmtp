@@ -2,7 +2,7 @@
 name = "xdbg"
 description = "Debug and Inspection Tool for the XMTP Network"
 edition = "2024"
-version = "0.1.0"
+version.workspace = true
 license.workspace = true
 
 [lints]
@@ -14,6 +14,7 @@ vergen-git2 = { workspace = true, features = ["build"] }
 [dependencies]
 alloy.workspace = true
 async-trait.workspace = true
+bitflags = "2"
 chrono.workspace = true
 clap.workspace = true
 clap-verbosity-flag = "3.0"

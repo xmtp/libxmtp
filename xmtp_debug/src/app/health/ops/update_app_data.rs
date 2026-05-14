@@ -63,5 +63,6 @@ inventory::submit! {
         op_name: "UpdateAppData",
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         make: || Box::new(UpdateAppData),
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

@@ -8516,10 +8516,11 @@ dependencies = [
 
 [[package]]
 name = "xdbg"
-version = "0.1.0"
+version = "1.9.2-rc2"
 dependencies = [
  "alloy",
  "async-trait",
+ "bitflags 2.10.0",
  "chrono",
  "clap",
  "clap-verbosity-flag",

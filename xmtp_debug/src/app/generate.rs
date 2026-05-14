@@ -13,16 +13,25 @@ use color_eyre::eyre::Result;
 pub struct Generate {
     opts: args::Generate,
     network: args::BackendOpts,
+    strict_versioning: bool,
 }
 
 impl Generate {
-    pub fn new(opts: args::Generate, network: args::BackendOpts) -> Self {
-        Self { opts, network }
+    pub fn new(opts: args::Generate, network: args::BackendOpts, strict_versioning: bool) -> Self {
+        Self {
+            opts,
+            network,
+            strict_versioning,
+        }
     }
 
     pub async fn run(self) -> Result<()> {
         use args::EntityKind::*;
-        let Generate { opts, network } = self;
+        let Generate {
+            opts,
+            network,
+            strict_versioning,
+        } = self;
         let args::Generate {
             entity,
             amount,
@@ -38,14 +47,14 @@ impl Generate {
         match entity {
             Group => {
                 let db = App::db()?;
-                GenerateGroups::new(db, network)
+                GenerateGroups::new(db, network, strict_versioning)
                     .create_groups(amount, invite.unwrap_or(0), *concurrency)
                     .await?;
                 info!("groups generated");
                 Ok(())
             }
             Message => {
-                GenerateMessages::new(network, message_opts, *concurrency)?
+                GenerateMessages::new(network, message_opts, *concurrency, strict_versioning)?
                     .run(amount)
                     .await?;
                 info!("messages generated");

@@ -61,5 +61,6 @@ inventory::submit! {
         op_name: "GetMutableMetadata",
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         make: || Box::new(GetMutableMetadata),
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

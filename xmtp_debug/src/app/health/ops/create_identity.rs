@@ -50,5 +50,6 @@ inventory::submit! {
         op_name: "CreateIdentity",
         depends_on: &[],
         make: || Box::new(CreateIdentity),
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

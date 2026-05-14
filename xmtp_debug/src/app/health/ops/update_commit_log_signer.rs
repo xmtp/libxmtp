@@ -70,5 +70,6 @@ inventory::submit! {
         op_name: "UpdateCommitLogSigner",
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         make: || Box::new(UpdateCommitLogSigner),
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

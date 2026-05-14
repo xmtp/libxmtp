@@ -83,5 +83,6 @@ inventory::submit! {
         name: "NoForkedGroups",
         depends_on: &[],
         make: || Box::new(NoForkedGroups),
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

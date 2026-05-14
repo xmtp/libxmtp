@@ -7,13 +7,30 @@ use std::{borrow::Borrow, sync::Arc};
 
 use color_eyre::eyre::{self, Result, eyre};
 use rand::{Rng, seq::IteratorRandom};
-use redb::{AccessGuard, ReadTransaction, ReadableDatabase, WriteTransaction};
+use redb::{AccessGuard, ReadTransaction, ReadableDatabase, TableDefinition, WriteTransaction};
 use speedy::{Readable, Writable};
 
 pub use groups::*;
 pub use identity::*;
 pub use messages::*;
 pub use metadata::*;
+
+/// Open a read-only table, treating `TableDoesNotExist` as a legitimate
+/// empty case (returns `Ok(None)`). Any other table error is propagated.
+fn open_table_optional<'r, K, V>(
+    r: &'r ReadTransaction,
+    def: TableDefinition<'_, K, V>,
+) -> Result<Option<redb::ReadOnlyTable<K, V>>>
+where
+    K: redb::Key + 'static,
+    V: redb::Value + 'static,
+{
+    match r.open_table(def) {
+        Ok(t) => Ok(Some(t)),
+        Err(redb::TableError::TableDoesNotExist(_)) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
 
 #[derive(Debug, Copy, Clone)]
 pub struct NetworkKey<const N: usize> {
@@ -118,6 +135,144 @@ impl<const N: usize> redb::Value for NetworkKey<N> {
 impl<const N: usize> redb::Key for NetworkKey<N> {
     fn compare(data1: &[u8], data2: &[u8]) -> std::cmp::Ordering {
         data1.cmp(data2)
+    }
+}
+
+/// Three-tuple key for the IdentityStore.
+///
+/// Identities are partitioned by (network, version_hash). Reads under
+/// `--strict-versioning` constrain to a single (network, version_hash);
+/// reads without the flag iterate every version under one network.
+///
+/// On-disk byte layout (fixed-width = 48 bytes):
+/// ```text
+/// network_le_bytes (8) ‖ version_hash_le_bytes (8) ‖ inbox (32)
+/// ```
+///
+/// `Key::compare` decodes each element back to its native type before
+/// comparing, so ordering is numeric on network, numeric on
+/// version_hash, then bytewise on inbox. Matches redb's built-in tuple
+/// `Key` semantics for `(u64, u64, [u8; 32])` while keeping a named
+/// struct with explicit fields throughout the codebase.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct IdentityKey {
+    pub network: u64,
+    pub version_hash: u64,
+    pub inbox: [u8; 32],
+}
+
+impl IdentityKey {
+    #[allow(dead_code)]
+    pub fn new(network: u64, version_hash: u64, inbox: [u8; 32]) -> Self {
+        Self {
+            network,
+            version_hash,
+            inbox,
+        }
+    }
+
+    /// Lower bound for a range scan covering every version of `network`.
+    /// Used by non-strict reads.
+    pub fn low_all_versions(network: u64) -> Self {
+        Self {
+            network,
+            version_hash: 0,
+            inbox: [0u8; 32],
+        }
+    }
+
+    /// Upper bound for a range scan covering every version of `network`.
+    /// Used by non-strict reads. Inclusive — use with `range(lo..=hi)`.
+    pub fn high_all_versions(network: u64) -> Self {
+        Self {
+            network,
+            version_hash: u64::MAX,
+            inbox: [u8::MAX; 32],
+        }
+    }
+
+    /// Lower bound for a range scan covering one (network, version_hash).
+    /// Used by strict reads.
+    pub fn low_one_version(network: u64, version_hash: u64) -> Self {
+        Self {
+            network,
+            version_hash,
+            inbox: [0u8; 32],
+        }
+    }
+
+    /// Upper bound for a range scan covering one (network, version_hash).
+    /// Used by strict reads. Inclusive — use with `range(lo..=hi)`.
+    pub fn high_one_version(network: u64, version_hash: u64) -> Self {
+        Self {
+            network,
+            version_hash,
+            inbox: [u8::MAX; 32],
+        }
+    }
+}
+
+impl redb::Value for IdentityKey {
+    type SelfType<'a> = IdentityKey;
+    type AsBytes<'a> = [u8; 48];
+
+    fn fixed_width() -> Option<usize> {
+        Some(48)
+    }
+
+    fn from_bytes<'a>(data: &'a [u8]) -> IdentityKey
+    where
+        Self: 'a,
+    {
+        let network = u64::from_le_bytes(data[0..8].try_into().unwrap());
+        let version_hash = u64::from_le_bytes(data[8..16].try_into().unwrap());
+        let mut inbox = [0u8; 32];
+        inbox.copy_from_slice(&data[16..48]);
+        IdentityKey {
+            network,
+            version_hash,
+            inbox,
+        }
+    }
+
+    fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> [u8; 48]
+    where
+        Self: 'a,
+        Self: 'b,
+    {
+        let mut out = [0u8; 48];
+        out[0..8].copy_from_slice(&value.network.to_le_bytes());
+        out[8..16].copy_from_slice(&value.version_hash.to_le_bytes());
+        out[16..48].copy_from_slice(&value.inbox);
+        out
+    }
+
+    fn type_name() -> redb::TypeName {
+        let crate_name = env!("CARGO_CRATE_NAME");
+        redb::TypeName::new(&format!("{crate_name}-identity-key"))
+    }
+}
+
+impl redb::Key for IdentityKey {
+    fn compare(data1: &[u8], data2: &[u8]) -> std::cmp::Ordering {
+        // Match redb's built-in tuple Key semantics: decode each element
+        // back to its native type, compare numerically, fall through on
+        // equality. Avoids the LE-byte-lex pitfall that NetworkKey<N>
+        // accidentally relies on (it works only because NetworkKey scans
+        // always fix the network prefix).
+        let net1 = u64::from_le_bytes(data1[0..8].try_into().unwrap());
+        let net2 = u64::from_le_bytes(data2[0..8].try_into().unwrap());
+        match net1.cmp(&net2) {
+            std::cmp::Ordering::Equal => {}
+            other => return other,
+        }
+        let v1 = u64::from_le_bytes(data1[8..16].try_into().unwrap());
+        let v2 = u64::from_le_bytes(data2[8..16].try_into().unwrap());
+        match v1.cmp(&v2) {
+            std::cmp::Ordering::Equal => {}
+            other => return other,
+        }
+        data1[16..48].cmp(&data2[16..48])
     }
 }
 
@@ -299,7 +454,9 @@ where
 
     fn get(&self, key: NetworkKey<N>) -> Result<Option<Value>> {
         let op = |r: &ReadTransaction| -> Result<Option<Value>> {
-            let table = r.open_table(Self::table())?;
+            let Some(table) = open_table_optional(r, Self::table())? else {
+                return Ok(None);
+            };
             Ok(table.get(key)?.map(|v| v.value()))
         };
         self.apply_read(op)
@@ -313,14 +470,14 @@ where
         Value: redb::Value + 'static,
     {
         self.apply_read(|r| {
-            if let Ok(table) = r.open_table(Self::table()) {
-                let network: u64 = network.into();
-                let start = NetworkKey::<N>::create_low(network);
-                let end = NetworkKey::<N>::create_high(network);
-                Ok(Some(table.range(start..end)?.map(|r| r.unwrap().1)))
-            } else {
-                Ok(None)
-            }
+            let Some(table) = open_table_optional(r, Self::table())? else {
+                return Ok(None);
+            };
+            let network: u64 = network.into();
+            let start = NetworkKey::<N>::create_low(network);
+            let end = NetworkKey::<N>::create_high(network);
+            let rows: Vec<_> = table.range(start..end)?.collect::<Result<_, _>>()?;
+            Ok(Some(rows.into_iter().map(|(_, v)| v)))
         })
     }
 
@@ -443,6 +600,192 @@ where
     }
 }
 
+impl<'key, Value, Storage> Database<IdentityKey, Value> for KeyValueStore<'key, Storage>
+where
+    Storage: TrackMetadata + TableProvider<'key, IdentityKey, Value>,
+    for<'a> Value: redb::Value<SelfType<'a> = Value> + DeriveKey<IdentityKey> + 'static,
+    for<'a> Value: Borrow<<Value as redb::Value>::SelfType<'a>>,
+{
+    fn set_all(&self, values: &[Value], network: impl Into<u64>) -> Result<()> {
+        let network: u64 = network.into();
+        let op = |w: &WriteTransaction| -> Result<()> {
+            let mut table = w.open_table(Self::table())?;
+            let mut total = 0;
+            for value in values.iter() {
+                let key: IdentityKey = value.key(network);
+                if table.insert(key, value)?.is_none() {
+                    total += 1;
+                }
+            }
+            self.store.increment(w, network, total)?;
+            Ok(())
+        };
+        self.apply_write(op)?;
+        Ok(())
+    }
+
+    fn len(&self, network: impl Into<u64>) -> Result<usize> {
+        Ok(self
+            .load(network)?
+            .ok_or(eyre!("no items found, try generating some"))?
+            .fold(0, |acc, _| acc + 1))
+    }
+
+    fn get(&self, key: IdentityKey) -> Result<Option<Value>> {
+        let op = |r: &ReadTransaction| -> Result<Option<Value>> {
+            let Some(table) = open_table_optional(r, Self::table())? else {
+                return Ok(None);
+            };
+            Ok(table.get(key)?.map(|v| v.value()))
+        };
+        self.apply_read(op)
+    }
+
+    /// Load every identity under `network`, regardless of version. This
+    /// matches the existing `Database` trait semantics — strict-mode
+    /// filtered loads are exposed via `IdentityStore::load_for_version`.
+    fn load(
+        &'_ self,
+        network: impl Into<u64>,
+    ) -> Result<Option<impl Iterator<Item = AccessGuard<'_, Value>>>>
+    where
+        Value: redb::Value + 'static,
+    {
+        self.apply_read(|r| {
+            let Some(table) = open_table_optional(r, Self::table())? else {
+                return Ok(None);
+            };
+            let network: u64 = network.into();
+            let start = IdentityKey::low_all_versions(network);
+            let end = IdentityKey::high_all_versions(network);
+            let rows: Vec<_> = table.range(start..=end)?.collect::<Result<_, _>>()?;
+            Ok(Some(rows.into_iter().map(|(_, v)| v)))
+        })
+    }
+
+    fn clear_network(&self, network: impl Into<u64>) -> Result<()> {
+        let network: u64 = network.into();
+        self.apply_write(|w| {
+            let mut table = w.open_table(Self::table())?;
+            let mut total = 0;
+            table.retain(|k: IdentityKey, _| {
+                if k.network == network {
+                    total += 1;
+                    return false;
+                }
+                true
+            })?;
+            self.store.decrement(w, network, total)?;
+            Ok(())
+        })
+    }
+
+    fn modify(&self, key: IdentityKey, mut f: impl FnMut(&mut Value)) -> Result<()>
+    where
+        Value: Default,
+    {
+        self.apply_write(|w| {
+            let mut table = w.open_table(Self::table())?;
+            let mut item = table
+                .remove(key)?
+                .map(|v| v.value())
+                .unwrap_or(Default::default());
+            f(&mut item);
+            table.insert(key, item)?;
+            Ok(())
+        })
+    }
+}
+
+impl<'key, Value, Storage> RandomDatabase<IdentityKey, Value> for KeyValueStore<'key, Storage>
+where
+    Storage: TrackMetadata + TableProvider<'key, IdentityKey, Value>,
+    for<'a> Value: redb::Value<SelfType<'a> = Value> + DeriveKey<IdentityKey> + 'static,
+{
+    fn random(&self, network: impl Into<u64> + Copy, rng: &mut impl Rng) -> Result<Option<Value>> {
+        self.apply_read(|r| {
+            let table = r.open_table(Self::table())?;
+            let start = IdentityKey::low_all_versions(network.into());
+            let end = IdentityKey::high_all_versions(network.into());
+            Ok(table
+                .range(start..=end)?
+                .choose(rng)
+                .transpose()?
+                .map(|(_, v)| v.value()))
+        })
+    }
+
+    /// get random n
+    /// caps at the amount of items in the db. if `n` is greater than stored local items,
+    /// returned values will only be up to how many items exist in the db.
+    fn random_n_capped(
+        &self,
+        network: impl Into<u64> + Copy,
+        rng: &mut impl Rng,
+        n: usize,
+    ) -> Result<Vec<AccessGuard<'_, Value>>>
+    where
+        Value: std::hash::Hash + Eq + redb::Value,
+    {
+        if n == 0 {
+            return Ok(Vec::new());
+        }
+        let items =
+            Database::load(self, network)?.ok_or(eyre!("no items found, try generating some"))?;
+        Ok(items.choose_multiple(rng, n))
+    }
+
+    fn random_n(
+        &self,
+        network: impl Into<u64> + Copy,
+        rng: &mut impl Rng,
+        n: usize,
+    ) -> Result<Vec<AccessGuard<'_, Value>>>
+    where
+        Value: std::hash::Hash + Eq,
+    {
+        if n == 0 {
+            return Ok(Vec::new());
+        }
+        let len = Database::load(self, network)?
+            .ok_or(eyre!("no items found, try generating some"))?
+            .fold(0, |acc, _| acc + 1);
+        if len == 0 {
+            return Err(eyre!("no items found, try generating some"));
+        }
+        let mut items =
+            Database::load(self, network)?.ok_or(eyre!("no items found, try generating some"))?;
+        // choose_multiple will only fill up to the size of items.
+        // so we may need to load multiple times if we're trying to
+        // fill a buffer of size > items.
+        // items aren't loaded into memory until `value()` is called on `AccessGuard`.
+        let mut random = Vec::with_capacity(n);
+        let uninit = random.spare_capacity_mut();
+        let mut written = 0usize;
+        for chunk in uninit.chunks_mut(len) {
+            items
+                .choose_multiple(rng, chunk.len())
+                .into_iter()
+                .enumerate()
+                .for_each(|(idx, i)| {
+                    chunk[idx].write(i);
+                    written += 1;
+                });
+            items = Database::load(self, network)?
+                .ok_or(eyre!("no items found, try generating some"))?;
+        }
+        // Safety: every slot [0..n] has been initialised in the loop above.
+        // `choose_multiple(rng, chunk.len())` returns exactly `chunk.len()`
+        // items when the iterator has at least that many, which is guaranteed
+        // because `len` is the full store size and `chunk.len() <= len`.
+        debug_assert_eq!(written, n, "random_n: not all slots were initialised");
+        unsafe {
+            random.set_len(n);
+        }
+        Ok(random)
+    }
+}
+
 #[derive(Debug, Clone, Default, Readable, Writable)]
 pub struct Metadata {
     pub identities: u32,
@@ -528,5 +871,159 @@ impl<'a> From<&'a ReadTransaction> for MetadataStore<'a> {
             db: DatabaseOrTransaction::ReadTx(tx),
             store: MetadataStorage,
         }
+    }
+}
+
+#[cfg(test)]
+mod identity_key_tests {
+    use super::IdentityKey;
+    use redb::{Key, Value};
+    use std::cmp::Ordering;
+
+    fn k(network: u64, version_hash: u64, inbox: [u8; 32]) -> IdentityKey {
+        IdentityKey {
+            network,
+            version_hash,
+            inbox,
+        }
+    }
+
+    #[test]
+    fn roundtrips_through_redb_value() {
+        let original = k(42, 0xDEAD_BEEF, [7u8; 32]);
+        let bytes = IdentityKey::as_bytes(&original);
+        let decoded = IdentityKey::from_bytes(&bytes);
+        assert_eq!(decoded.network, 42);
+        assert_eq!(decoded.version_hash, 0xDEAD_BEEF);
+        assert_eq!(decoded.inbox, [7u8; 32]);
+    }
+
+    #[test]
+    fn compare_orders_by_network_then_version_then_inbox() {
+        let cases = [
+            (
+                k(1, 9, [0; 32]),
+                k(2, 0, [0; 32]),
+                Ordering::Less,
+                "lower network wins regardless of version",
+            ),
+            (
+                k(1, 9, [0; 32]),
+                k(1, 10, [0; 32]),
+                Ordering::Less,
+                "equal network falls through to version",
+            ),
+            (
+                k(1, 9, [0; 32]),
+                k(1, 9, [1; 32]),
+                Ordering::Less,
+                "equal network+version falls through to inbox",
+            ),
+            (
+                k(1, 9, [0; 32]),
+                k(1, 9, [0; 32]),
+                Ordering::Equal,
+                "exact match",
+            ),
+            (
+                k(255, 0, [0; 32]),
+                k(7, u64::MAX, [u8::MAX; 32]),
+                Ordering::Greater,
+                "network dominates regardless of version/inbox",
+            ),
+            (
+                // LE-lex discriminator: bytes of network 256 = [0,1,0,0,0,0,0,0],
+                // bytes of network 1 = [1,0,0,0,0,0,0,0]. LE-byte-lex says
+                // 256 < 1 (wrong). Numeric u64 compare says 256 > 1 (right).
+                k(256, 0, [0; 32]),
+                k(1, 0, [0; 32]),
+                Ordering::Greater,
+                "network compared numerically, not LE-byte-lex",
+            ),
+        ];
+        for (a, b, expected, msg) in cases {
+            let ab = IdentityKey::as_bytes(&a);
+            let bb = IdentityKey::as_bytes(&b);
+            assert_eq!(IdentityKey::compare(&ab, &bb), expected, "case: {msg}");
+        }
+    }
+
+    #[test]
+    fn fixed_width_is_48() {
+        // 8 (network) + 8 (version_hash) + 32 (inbox) = 48
+        assert_eq!(IdentityKey::fixed_width(), Some(48));
+    }
+}
+
+#[cfg(test)]
+mod identity_database_tests {
+    use super::*;
+    use crate::app::types::Identity;
+    use tempfile::tempdir;
+
+    fn open() -> (Arc<redb::Database>, tempfile::TempDir) {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("xdbg.redb");
+        let db = Arc::new(redb::Database::create(path).unwrap());
+        (db, dir)
+    }
+
+    fn ident(inbox: u8, version_hash: u64) -> Identity {
+        let mut id = Identity::dummy_for_test();
+        id.inbox_id = [inbox; 32];
+        id.version_hash = version_hash;
+        id
+    }
+
+    #[test]
+    fn set_then_load_returns_all_versions_for_network() {
+        let (db, _dir) = open();
+        let store: IdentityStore<'static> = db.into();
+
+        // Two identities in version A, one in version B, all on network=1
+        let a1 = ident(1, 100);
+        let a2 = ident(2, 100);
+        let b1 = ident(3, 200);
+        store.set_all(&[a1, a2, b1], 1u64).unwrap();
+
+        let loaded: Vec<_> = store.load(1u64).unwrap().unwrap().collect();
+        assert_eq!(loaded.len(), 3, "load(network) returns every version");
+    }
+
+    #[test]
+    fn set_then_load_isolates_by_network() {
+        let (db, _dir) = open();
+        let store: IdentityStore<'static> = db.into();
+
+        store.set(ident(1, 100), 1u64).unwrap();
+        store.set(ident(2, 100), 2u64).unwrap();
+
+        let net1: Vec<_> = store.load(1u64).unwrap().unwrap().collect();
+        let net2: Vec<_> = store.load(2u64).unwrap().unwrap().collect();
+        assert_eq!(net1.len(), 1);
+        assert_eq!(net2.len(), 1);
+    }
+
+    #[test]
+    fn load_for_version_filters_to_one_version() {
+        let (db, _dir) = open();
+        let store: IdentityStore<'static> = db.into();
+
+        store.set(ident(1, 100), 1u64).unwrap();
+        store.set(ident(2, 100), 1u64).unwrap();
+        store.set(ident(3, 200), 1u64).unwrap();
+
+        let v100: Vec<_> = store
+            .load_for_version(1u64, 100)
+            .unwrap()
+            .unwrap()
+            .collect();
+        let v200: Vec<_> = store
+            .load_for_version(1u64, 200)
+            .unwrap()
+            .unwrap()
+            .collect();
+        assert_eq!(v100.len(), 2);
+        assert_eq!(v200.len(), 1);
     }
 }

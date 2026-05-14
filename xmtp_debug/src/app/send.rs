@@ -42,9 +42,8 @@ impl Send {
             .members
             .choose(&mut rand::thread_rng())
             .ok_or(eyre!("Empty group, no members to send message!"))?;
-        let key = (u64::from(network), *member);
         let identity = identity_store
-            .get(key.into())?
+            .find_by_inbox(u64::from(network), *member)?
             .ok_or(eyre!("No Identity with inbox_id [{}]", hex::encode(member)))?;
 
         let client = crate::app::client_from_identity(&identity, network)?;

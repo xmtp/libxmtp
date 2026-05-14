@@ -54,6 +54,7 @@ impl HealthOp for AddMembersToNewGroup {
             .existing_clients
             .values()
             .map(|c| c.inbox_id().to_string())
+            .chain(ctx.other_identities.iter().map(hex::encode))
             .collect();
 
         let start = Instant::now();
@@ -207,6 +208,7 @@ inventory::submit! {
         op_name: "AddMembersToNewGroup",
         depends_on: &["CreateGroup"],
         make: || Box::new(AddMembersToNewGroup),
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }
 
@@ -215,5 +217,6 @@ inventory::submit! {
         op_name: "AddPrimaryToExistingGroups",
         depends_on: &["CreateIdentity"],
         make: || Box::new(AddPrimaryToExistingGroups),
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }

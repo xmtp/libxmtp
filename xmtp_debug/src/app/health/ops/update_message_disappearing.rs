@@ -122,6 +122,7 @@ inventory::submit! {
         op_name: "UpdateMessageDisappearing",
         depends_on: &["AddMembersToNewGroup", "AddPrimaryToExistingGroups"],
         make: || Box::new(UpdateMessageDisappearing),
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }
 
@@ -130,5 +131,6 @@ inventory::submit! {
         op_name: "RemoveMessageDisappearing",
         depends_on: &["UpdateMessageDisappearing"],
         make: || Box::new(RemoveMessageDisappearing),
+        requires: crate::app::health::conditions::Conditions::ALWAYS,
     }
 }
