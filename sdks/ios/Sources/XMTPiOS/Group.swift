@@ -238,6 +238,20 @@ public struct Group: Identifiable, Equatable, Hashable {
 		try await ffiGroup.updateAppData(appData: appData)
 	}
 
+	/// Migrate this group's metadata from the legacy GroupContextExtensions
+	/// shape onto OpenMLS `AppDataUpdate` proposals. After this returns
+	/// successfully, subsequent metadata writes (group name, description,
+	/// image URL, admin list, permissions) flow through the proposal-based
+	/// path instead of GCE commits.
+	///
+	/// Hard-fails with `ProposalsNotSupported` if any member's latest key
+	/// package doesn't advertise `ProposalType::AppDataUpdate`. The
+	/// migration is one-way — a migrated group cannot return to the
+	/// legacy path.
+	public func enableProposals() async throws {
+		try await ffiGroup.enableProposals()
+	}
+
 	public func updateAddMemberPermission(newPermissionOption: PermissionOption)
 		async throws
 	{
