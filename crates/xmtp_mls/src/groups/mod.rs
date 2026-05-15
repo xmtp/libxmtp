@@ -642,6 +642,14 @@ where
             GroupError::ProposalsNotSupported(format!("parsing min_version '{min_version}': {e}"))
         })?;
         let force = options.force;
+
+        log_event!(
+            Event::EnableProposalsStart,
+            self.context.installation_id(),
+            group_id = self.group_id,
+            min_version = min_version.as_str(),
+            force
+        );
         let (already_migrated, needs_min_version_bump) = self
             .load_mls_group_with_lock_async(async |mls_group| {
                 if !force && !self.all_members_support_proposals(&mls_group).await? {
@@ -675,6 +683,13 @@ where
             .await?;
 
         if already_migrated {
+            log_event!(
+                Event::EnableProposalsCompleted,
+                self.context.installation_id(),
+                group_id = self.group_id,
+                already_migrated = true,
+                min_version = min_version.as_str()
+            );
             return Ok(());
         }
 
@@ -771,6 +786,13 @@ where
             ));
         }
 
+        log_event!(
+            Event::EnableProposalsCompleted,
+            self.context.installation_id(),
+            group_id = self.group_id,
+            already_migrated = false,
+            min_version = min_version.as_str()
+        );
         Ok(())
     }
 

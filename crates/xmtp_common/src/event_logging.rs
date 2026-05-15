@@ -165,4 +165,15 @@ pub enum Event {
     /// Cannot send sync archive. No server_url present.
     #[context(pin)]
     DeviceSyncNoServerUrl,
+
+    // ===================== AppData Migration =====================
+    /// `enable_proposals` started — pre-flight passed, about to publish
+    /// the legacy-GMM bump (step A) and/or bootstrap commit (step B).
+    #[context(group_id, min_version, force, icon = "🌱")]
+    EnableProposalsStart,
+    /// `enable_proposals` completed. `already_migrated = true` means
+    /// the call was a no-op fast-path; `false` means a bootstrap
+    /// commit was actually published.
+    #[context(group_id, already_migrated, min_version, icon = "🌳")]
+    EnableProposalsCompleted,
 }
