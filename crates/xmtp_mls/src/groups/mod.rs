@@ -568,6 +568,53 @@ where
         &self,
         options: EnableProposalsOptions,
     ) -> Result<(), GroupError> {
+        // Race-loss recovery: a concurrent migrator may win the
+        // race, advancing the group's epoch and causing our own
+        // intent's commit to fail when it tries to apply locally.
+        // The user-facing semantic of `enable_proposals` is "after
+        // this returns Ok, the group is migrated" — so if we error
+        // out but the group ended up migrated anyway, that's a
+        // benign race loss, not a failure.
+        //
+        // Implementation: delegate to an inner function and, on
+        // error, check `proposals_enabled` one final time. Only
+        // genuine failures (where the group is NOT migrated) are
+        // surfaced to the caller.
+        let result = self.enable_proposals_inner(options).await;
+        if let Err(ref err) = result {
+            let migrated_anyway = self
+                .load_mls_group_with_lock_async(async |mls_group| {
+                    Ok::<bool, GroupError>(self.proposals_enabled(&mls_group))
+                })
+                .await
+                .unwrap_or_else(|check_err| {
+                    tracing::warn!(
+                        inbox_id = self.context.inbox_id(),
+                        group_id = hex::encode(self.group_id.as_ref()),
+                        error = %check_err,
+                        "enable_proposals: recovery-path migration check failed; \
+                         falling back to surfacing original error"
+                    );
+                    false
+                });
+            if migrated_anyway {
+                tracing::info!(
+                    inbox_id = self.context.inbox_id(),
+                    group_id = hex::encode(self.group_id.as_ref()),
+                    error = %err,
+                    "enable_proposals: error surfaced but group is migrated — \
+                     treating as success (concurrent migrator won the race)"
+                );
+                return Ok(());
+            }
+        }
+        result
+    }
+
+    async fn enable_proposals_inner(
+        &self,
+        options: EnableProposalsOptions,
+    ) -> Result<(), GroupError> {
         // Two-step migration so old clients (any peer running a
         // libxmtp release predating this code's `pkg_version`) get a
         // pause hint they can read BEFORE the legacy
